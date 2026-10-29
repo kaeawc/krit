@@ -10,7 +10,7 @@ import (
 //
 // Line and Column are 1-based when known. The current oracle JSON does not
 // emit per-declaration source positions, so Line and Column are zero until
-// krit-types starts emitting them; File and Signature are always populated.
+// krit-fir starts emitting them; File and Signature are always populated.
 type DeclLocation struct {
 	FQN       string
 	Kind      string

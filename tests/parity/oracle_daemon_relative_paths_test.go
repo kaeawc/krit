@@ -26,10 +26,10 @@ type relativeOracleCase struct {
 	symlink bool
 }
 
-// relativeOracleCases are the oracle daemons a `krit .` scan can use, each
+// relativeOracleCases are the krit-fir oracle daemon a `krit .` scan uses,
 // reached directly and through a symlink. krit-fir answers for the whole
 // compilation, so it also reports files it was not asked about (walked from
-// the source root); krit-types answers only for the requested files.
+// the source root).
 func relativeOracleCases() []relativeOracleCase {
 	backends := []relativeOracleCase{
 		{name: "fir", backend: oracle.BackendFIR, jar: func(root string) string {
@@ -39,9 +39,6 @@ func relativeOracleCases() []relativeOracleCase {
 			}
 			return jar
 		}, requested: []string{relA}},
-		{name: "kaa", backend: oracle.BackendKAA, jar: func(root string) string {
-			return oracle.FindJar([]string{root})
-		}, requested: []string{relA, relB}},
 	}
 	var out []relativeOracleCase
 	for _, b := range backends {
@@ -60,7 +57,7 @@ func relativeOracleProject(t *testing.T, tc relativeOracleCase) string {
 	t.Helper()
 	jar := tc.jar(repoRoot(t))
 	if jar == "" {
-		t.Skip("oracle jar not found; run `./gradlew shadowJar` in tools/krit-fir or tools/krit-types")
+		t.Skip("oracle jar not found; run `make fir-jar`")
 	}
 	jar, err := filepath.Abs(jar)
 	if err != nil {

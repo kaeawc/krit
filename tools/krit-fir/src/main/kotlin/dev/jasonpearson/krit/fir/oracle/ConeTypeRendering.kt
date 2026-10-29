@@ -8,7 +8,7 @@ import org.jetbrains.kotlin.fir.types.renderReadable
 
 /**
  * Render a [ConeKotlinType] as an FQN-qualified type string, matching
- * the krit-types wire format (e.g. `kotlin.String`, `kotlin.Int?`,
+ * the oracle wire format (e.g. `kotlin.String`, `kotlin.Int?`,
  * `kotlin.collections.List<kotlin.String>`). Non-class-like types
  * (type parameters, intersection types, flexible types) fall back to
  * the readable rendering since they don't carry a stable FQN.

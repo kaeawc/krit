@@ -341,8 +341,7 @@ func (w *CacheWriter) buildEntryData(memo *oracleCacheHashMemo, job freshOracleE
 		}
 		entry.FileResult = job.fileResult
 		entry.PerFileDeps = job.perFileDeps
-		entry.Closure = CacheClosure{DepPaths: job.depPaths, PropagatingDepPaths: job.propagatingPaths, Fingerprint: fp}
-		entry.NameDigest = job.nameDigest
+		entry.Closure = CacheClosure{DepPaths: job.depPaths, Fingerprint: fp}
 	}
 
 	marshalStart := time.Now()

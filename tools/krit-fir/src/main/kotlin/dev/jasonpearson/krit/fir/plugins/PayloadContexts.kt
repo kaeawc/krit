@@ -9,9 +9,8 @@ import dev.jasonpearson.krit.api.ResourcesContext
 
 /**
  * Wire-format project facts handed to plugin rules via [`RuleContext`].
- * Mirrors the payload shape krit-types serializes in its `analyzeFile`
- * request so a rule jar that worked against the KAA backend ships
- * identical fact access on the FIR backend after rebuild.
+ * Matches the payload shape the Go side serializes in its `analyzeFile`
+ * request.
  *
  * Each payload class carries the flat, easy-to-parse wire shape
  * (`List<String>` plus a handful of scalars); the matching
@@ -27,7 +26,7 @@ data class GradleProfilePayload(
     val kotlinVersion: String?,
     val javaTargetVersion: String?,
     val agpVersion: String?,
-    // `group:name:version` triples, krit-types-compatible.
+    // `group:name:version` triples.
     val deps: List<String>,
 )
 

@@ -17,7 +17,7 @@ Invoke the `krit-tighten-rule` skill for the rule named in ARGUMENTS.
    - first-child bias
    - wrong parser shape
    - config / runtime drift
-3. **Narrow.** Replace the broken evidence with the narrowest available: flat AST → source-level type inference → library/profile facts → KAA. Do not broaden when a project-profile guard is the real missing condition (see `krit-project-analysis`).
+3. **Narrow.** Replace the broken evidence with the narrowest available: flat AST → source-level type inference → library/profile facts → krit-fir oracle (`NeedsOracle`). Do not broaden when a project-profile guard is the real missing condition (see `krit-project-analysis`).
 4. **Java parity.** If the rule supports Java, add the Java version of the same negative/positive case.
 5. **If a corpus surfaced the FP**, re-run `krit-dogfood` against that corpus and confirm the FP cluster dropped.
 6. **Validate.**

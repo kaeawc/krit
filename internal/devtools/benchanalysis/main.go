@@ -5,7 +5,7 @@
 // metadata to reproduce and verify the result. See docs/benchmarking.md.
 //
 //	go run ./internal/devtools/benchanalysis -corpus ~/src/AutoMobile \
-//	    -modes structural,fir-oracle,kaa-oracle -states cold,warm-disk -runs 5
+//	    -modes structural,fir-oracle -states cold,warm-disk -runs 5
 package main
 
 import (
@@ -42,7 +42,6 @@ type Mode struct {
 var modes = map[string]Mode{
 	"structural":   {Name: "structural", Args: []string{"--no-type-oracle", "--no-fir"}},
 	"fir-oracle":   {Name: "fir-oracle", Args: []string{"--oracle-backend=fir", "--no-fir"}, Backend: "fir"},
-	"kaa-oracle":   {Name: "kaa-oracle", Args: []string{"--oracle-backend=kaa", "--no-fir"}, Backend: "kaa"},
 	"fir-checkers": {Name: "fir-checkers", Args: []string{"--oracle-backend=fir", "--fir"}, Backend: "fir", FIR: true},
 }
 
@@ -150,7 +149,7 @@ func main() {
 	flag.StringVar(&o.corpus, "corpus", "", "local corpus checkout to analyze (required)")
 	flag.StringVar(&o.krit, "krit", "./krit", "krit binary to benchmark")
 	flag.StringVar(&o.out, "out", "bench-out", "directory for results.json, summary.md and the corpus copy")
-	flag.StringVar(&modeList, "modes", "structural,fir-oracle", "comma-separated: structural, fir-oracle, kaa-oracle, fir-checkers")
+	flag.StringVar(&modeList, "modes", "structural,fir-oracle", "comma-separated: structural, fir-oracle, fir-checkers")
 	flag.StringVar(&stateList, "states", "cold,warm-disk", "comma-separated: cold, warm-disk, warm-daemon, body-edit, abi-edit")
 	flag.IntVar(&o.runs, "runs", 5, "measured runs per mode and state")
 	flag.StringVar(&o.editFile, "edit-file", "", "corpus-relative .kt file mutated by body-edit and abi-edit")

@@ -37,7 +37,7 @@ func runKotlinPluginRulesAndMerge(ctx context.Context, args ProjectArgs, host Pr
 		daemon = host.OracleDaemon
 	}
 	if daemon == nil {
-		return fmt.Errorf("kotlin custom rules require the krit-types daemon; pass --daemon. Released krit binaries auto-download the matching krit-types.jar into ~/.krit/jars/ on first use; for dev builds run: cd tools/krit-types && ./gradlew shadowJar (or set KRIT_TYPES_JAR to an existing jar)")
+		return fmt.Errorf("kotlin custom rules require the krit-fir daemon; pass --daemon. Released krit binaries auto-download the matching krit-fir.jar into ~/.krit/jars/ on first use; for dev builds run: make fir-jar (or set KRIT_FIR_JAR to an existing jar)")
 	}
 
 	list, err := daemon.ListPlugins(args.CustomRuleJars)
@@ -135,8 +135,8 @@ func anyRuleNeedsCapability(loaded []oracle.PluginRuleDescriptor, selected []str
 }
 
 // buildGradlePayload projects a librarymodel.ProjectProfile into the
-// narrow wire schema the krit-types daemon expects on the analyzeFile
-// request. SDK ints use 0 as the "absent" sentinel (the krit-types
+// narrow wire schema the krit-fir daemon expects on the analyzeFile
+// request. SDK ints use 0 as the "absent" sentinel (the krit-fir
 // parser converts to null), and deps are flat "group:name:version"
 // strings — see PluginGradleProfile in internal/oracle/daemon.go.
 func buildGradlePayload(profile *librarymodel.ProjectProfile) *oracle.PluginGradleProfile {
@@ -184,7 +184,7 @@ func uniqueStrings(in []string) []string {
 
 // buildManifestPayload parses the first AndroidManifest.xml the
 // AndroidProject detector found and projects it into the narrow wire
-// schema the krit-types daemon expects. Returns nil when no manifest
+// schema the krit-fir daemon expects. Returns nil when no manifest
 // path is known or the file cannot be parsed — the daemon then leaves
 // `RuleContext.manifest` null for the rule.
 func buildManifestPayload(project *android.Project) *oracle.PluginManifestProfile {

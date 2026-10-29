@@ -52,7 +52,7 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Baseline file for suppressing known issues. */
     abstract val baseline: RegularFileProperty
 
-    /** Kotlin custom-rule jars to load through krit-types. Populated by `kritCustomRules` deps. */
+    /** Kotlin custom-rule jars to load through krit-fir. Populated by `kritCustomRules` deps. */
     abstract val customRuleJars: ConfigurableFileCollection
 
     /** Run this project's model export before this project's kritCheck. */

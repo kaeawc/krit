@@ -11,9 +11,8 @@ class SdkCompatibilityTest {
     @Test
     fun blankSdkVersionEmitsManifestAttributeWarn() {
         // A jar shipped without `Krit-SDK-Version` predates the
-        // compat-gate work. WARN keeps load behavior compatible with
-        // krit-types so the same JAR doesn't get flagged differently
-        // across backends.
+        // compat-gate work. WARN keeps such jars loadable rather than
+        // rejecting them outright.
         val d = SdkCompatibility.check(jar = "/p/rules.jar", ruleSdkVersion = "")
         assertNotNull(d)
         assertEquals(PluginLoadDiagnostic.Level.WARN, d.level)
@@ -46,7 +45,7 @@ class SdkCompatibilityTest {
     fun zeroXMinorMismatchIsBreaking() {
         // Under semver, 0.x is "anything goes". The compat gate
         // mirrors that by treating 0.x minor differences as breaking
-        // ERROR rather than a soft WARN. Matches krit-types verbatim.
+        // ERROR rather than a soft WARN.
         val d = SdkCompatibility.check(
             jar = "/p/rules.jar",
             ruleSdkVersion = "0.3.0",
@@ -94,7 +93,7 @@ class SdkCompatibilityTest {
     fun semverWithPreReleaseAndBuildIsAccepted() {
         // Pre-release and build metadata are stripped before
         // comparison so an RC build of the rule API is treated as
-        // its base version. Mirrors krit-types' parser regex.
+        // its base version.
         assertEquals(Semver(1, 2, 3), Semver.parse("1.2.3-rc1"))
         assertEquals(Semver(1, 2, 3), Semver.parse("1.2.3+build.7"))
         assertEquals(null, Semver.parse("not.a.version"))

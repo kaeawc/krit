@@ -7,7 +7,7 @@ import java.io.File
 
 /**
  * `MessageCollector` that filters K2 warnings down to the same factory
- * subset krit-types retains and routes them through an [OracleCollector]
+ * subset Go-side rules consume and routes them through an [OracleCollector]
  * as [DiagnosticPayload]s.
  *
  * K2 doesn't expose factory names through the `MessageCollector`
@@ -99,15 +99,14 @@ internal class OracleDiagnosticMessageCollector(
         // through the CLI MessageCollector — see the message templates in
         // `org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrorsDefaultMessages`.
         // `USELESS_ELVIS_LEFT_IS_NULL` / `USELESS_ELVIS_RIGHT_IS_NULL` are
-        // separate factories that krit-types intentionally does NOT retain;
+        // separate factories that are intentionally NOT retained;
         // matching only the "always returns the left operand" template
-        // keeps parity with the krit-types projection.
+        // keeps them out of the projection.
         // USELESS_IS_CHECK is deliberately NOT matched: K2 renders it and
         // IMPOSSIBLE_IS_CHECK with the byte-identical template "Check for
         // instance is always ''{0}''.", so the MessageCollector surface cannot
         // tell them apart. Retaining it here would silently emit USELESS_IS_CHECK
-        // for IMPOSSIBLE_IS_CHECK cases, disagreeing with the krit-types
-        // (Analysis-API, real-factory-name) backend. No rule projects it.
+        // for IMPOSSIBLE_IS_CHECK cases. No rule projects it.
         private val factoryPrefixes: List<Pair<String, String>> = listOf(
             "Elvis operator (?:) always returns" to "USELESS_ELVIS",
             "This cast can never succeed" to "CAST_NEVER_SUCCEEDS",

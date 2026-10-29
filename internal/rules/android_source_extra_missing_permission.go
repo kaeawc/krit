@@ -188,7 +188,7 @@ func (r *MissingPermissionRule) NodeTypes() []string { return []string{"call_exp
 
 // Confidence reports a tier-2 (medium) base confidence. The rule requires a
 // structural or resolved Android API anchor and a same-permission guard proof,
-// but can still run with source-level type evidence when KAA call targets are
+// but can still run with source-level type evidence when oracle call targets are
 // unavailable.
 func (r *MissingPermissionRule) Confidence() float64 { return api.ConfidenceMedium }
 

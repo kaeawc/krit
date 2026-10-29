@@ -246,7 +246,7 @@ type AnalyzeProjectArgs struct {
 	EnableRules  string `json:"enable_rules,omitempty"`
 	DisableRules string `json:"disable_rules,omitempty"`
 	// CustomRuleJars are Kotlin custom-rule plugin jars loaded by the
-	// resident krit-types daemon.
+	// resident krit-fir daemon.
 	CustomRuleJars []string `json:"custom_rule_jars,omitempty"`
 	// InputTypesPath mirrors --input-types: an absolute path to a
 	// prebuilt oracle JSON dump. When non-empty, the daemon bypasses
@@ -339,15 +339,10 @@ type AnalyzeProjectArgs struct {
 	// existing {findings,stats[,dispatch_profile]} shape so common
 	// scans stay byte-identical.
 	IncludeColumns bool `json:"include_columns,omitempty"`
-	// OracleBackend mirrors --oracle-backend: empty or "kaa" picks
-	// the krit-types JVM jar for the type oracle; "fir" picks
-	// krit-fir.jar instead. The daemon was historically pinned to
-	// krit-types via oracle.FindJar, and CLI invocations with
-	// --oracle-backend set bypassed daemon delegation entirely to
-	// avoid silently ignoring the user's choice. Forwarding the
-	// value lifts that bypass; an unrecognized value triggers a
-	// typed error response so silent-fallthrough cannot drop the
-	// caller's selection.
+	// OracleBackend mirrors --oracle-backend. Only "fir" (or empty)
+	// is accepted; any other value, including the removed "kaa",
+	// triggers a typed error response so a stale selection is
+	// reported rather than silently ignored.
 	OracleBackend string `json:"oracle_backend,omitempty"`
 	// Fir mirrors --fir (after --no-fir): run the FIR checker pass and
 	// apply its authoritative verdict, like an in-process scan does.
@@ -355,7 +350,7 @@ type AnalyzeProjectArgs struct {
 	// NoFir explicitly opts a daemon scan out of the default FIR pass.
 	NoFir bool `json:"no_fir,omitempty"`
 	// NoTypeOracle mirrors --no-type-oracle: the request runs without any
-	// JVM type oracle (no krit-types or krit-fir oracle daemon is started or
+	// JVM type oracle (no krit-fir oracle daemon is started or
 	// consulted) even though the resident daemon may hold one warm for other
 	// requests. Findings caches are keyed apart from oracle-backed runs.
 	NoTypeOracle  bool   `json:"no_type_oracle,omitempty"`
@@ -531,7 +526,7 @@ type MetaResult struct {
 // ListRulesArgs mirrors the --list-rules flag knobs. CustomRuleJars is
 // intentionally omitted: the daemon-compatibility gate already keeps
 // callers with --custom-rule-jars on the in-process path because plugin
-// rule discovery requires the krit-types JVM.
+// rule discovery requires the krit-fir JVM.
 type ListRulesArgs struct {
 	// Verbose mirrors -v: include fix levels, precision, maturity,
 	// description.
@@ -576,7 +571,7 @@ type OracleFilterFingerprintArgs struct {
 }
 
 // DumpTypesArgs drives the dump-types verb (CLI's --output-types). The
-// daemon locates krit-types.jar, invokes the JVM (honouring
+// daemon locates krit-fir.jar, invokes the JVM (honouring
 // NoCacheOracle to bypass the incremental cache), and writes the
 // resulting oracle JSON dump to OutputPath. No rules are loaded or
 // fired. Paths is the explicit scan target; empty falls back to the

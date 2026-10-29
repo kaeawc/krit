@@ -347,10 +347,10 @@ type daemonState struct {
 	analysisCacheByKey map[string]*analysisCacheEntry
 
 	// oracleDaemonMu guards lazy construction + recovery of the
-	// resident krit-types JVM subprocess. Lifecycle: ensureOracleDaemon
+	// resident krit-fir JVM subprocess. Lifecycle: ensureOracleDaemon
 	// constructs once per scan-path set; pingOracleDaemon checks
 	// liveness and Close+Rebuilds on a failed ping. Stays nil when
-	// the krit-types JAR cannot be located — the caller treats nil
+	// the krit-fir JAR cannot be located — the caller treats nil
 	// as "oracle disabled" and the verb proceeds without type
 	// resolution. See issue #125 PR breakdown.
 	oracleDaemonMu      sync.Mutex
@@ -670,12 +670,12 @@ func oracleJarForBackend(scanPaths []string, _ oracle.Backend) string {
 // ProjectArgs.OracleEnabled when the daemon is non-nil, so type-aware
 // rules in the daemon get oracle precision without paying JVM startup
 // on every call.
-func (s *daemonState) ensureOracleDaemon(scanPaths []string, backend oracle.Backend, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
+func (s *daemonState) ensureOracleDaemon(scanPaths []string, kotlin ...gradlemodel.KotlinSettings) (*oracle.Daemon, error) {
 	var ctx oracleDaemonContext
 	if len(kotlin) > 0 {
 		ctx.Kotlin = kotlin[0]
 	}
-	return s.ensureOracleDaemonFor(scanPaths, backend, ctx)
+	return s.ensureOracleDaemonFor(scanPaths, oracle.BackendFIR, ctx)
 }
 
 // oracleDaemonContext is the compile context a request's oracle runs under,
@@ -737,7 +737,7 @@ func (s *daemonState) ensureOracleDaemonFor(scanPaths []string, backend oracle.B
 		return nil, fmt.Errorf("start oracle daemon: %w", err)
 	}
 	s.oracleDaemonByKey[key] = &oracleDaemonEntry{daemon: d, jarPath: jarPath, jarIdentity: oracle.JarIdentity(jarPath), sourceDirs: sourceDirs, roots: roots, classpath: classpath, classpathFP: classpathFP, kotlin: kt, backend: served}
-	// A resident krit-types JVM costs 1-2 GB. A daemon for the same jar and scan
+	// A resident krit-fir JVM costs 1-2 GB. A daemon for the same jar and scan
 	// roots under another context (Kotlin settings, classpath, source roots) can no
 	// longer be reached once the project's context changed, so retire it instead of
 	// keeping one JVM per identity ever seen.

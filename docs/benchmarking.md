@@ -6,10 +6,10 @@ that the run did what was asked before it counts the timing.
 
 ```bash
 go build -o krit ./cmd/krit/
-make fir-jar types-jar            # only for the oracle and FIR modes
+make fir-jar                      # only for the oracle and FIR modes
 go run ./internal/devtools/benchanalysis \
     -corpus ~/src/AutoMobile \
-    -modes structural,fir-oracle,kaa-oracle,fir-checkers \
+    -modes structural,fir-oracle,fir-checkers \
     -states cold,warm-disk,warm-daemon,body-edit,abi-edit \
     -edit-file path/inside/corpus/Some.kt \
     -runs 7 -out bench-out
@@ -24,12 +24,10 @@ It writes `bench-out/results.json` (metadata and every run, raw) and
 |---|---|---|
 | `structural` | `--no-type-oracle --no-fir` | no `oracleBackend` entry in the perf report |
 | `fir-oracle` | `--oracle-backend=fir --no-fir` | `oracleBackend.backend == "fir"` |
-| `kaa-oracle` | `--oracle-backend=kaa --no-fir` | `oracleBackend.backend == "kaa"` |
 | `fir-checkers` | `--oracle-backend=fir --fir` | as `fir-oracle`, plus `firCheckOutcome.status == "ok"` |
 
 `oracleBackend` (under `typeOracle`, and under `typeOracle/jvmAnalyze` for an
-in-process run) records the backend that actually served the oracle, after any
-fallback. The in-process entry also records the jar; the entry written for a
+in-process run) records the backend that actually served the oracle. The in-process entry also records the jar; the entry written for a
 resident daemon has `source=resident-daemon` and no jar, and is written only
 after the daemon's analysis succeeded and its facts loaded. `firCheckOutcome` (under
 `firCheck`) records the FIR checker pass's file and rule counts and status.
@@ -52,8 +50,7 @@ runs and clean baselines never get the exception. So a missing jar still fails
 the fill run that should have filled the caches, and the state is skipped.
 
 Compare modes only where the workload is the same. `structural` doesn't run a
-JVM at all. `fir-oracle` and `kaa-oracle` produce the same facts with
-different engines, so they compare directly. `fir-checkers` adds the rule
+JVM at all. `fir-checkers` adds the rule
 checkers: on a cold run they share the oracle's compilation (the
 `firCheckRider` entry reads `shared`), and otherwise they add a second
 compile.
@@ -210,7 +207,7 @@ and never count toward timings.
   average, the corpus's build files, and the harness options.
 
 CPU and RSS cover the krit process and the children it waited for. Long-lived
-daemons (krit serve, the krit-fir and krit-types oracle JVMs, the checker
+daemons (krit serve, the krit-fir oracle JVM, the checker
 daemon) are not children, so they are reported in separate columns: before and
 after each run the harness reads `/proc/<pid>/stat` (utime+stime) and
 `/proc/<pid>/status` (VmHWM, VmRSS) for every PID in the helper registry and
@@ -235,7 +232,3 @@ recorded with each run before comparing results across machines.
 - [2026-10-27, AutoMobile, noisy shared container](benchmarks/2026-10-27-automobile-noisy.md):
   all four modes and five states, raw `results.json`, and provisional budgets
   derived from medians. Re-derive the budgets on a quiet machine.
-
-The older scripts are still available: `scripts/benchmark-oracle.sh` (one cold
-KAA run with the JVM-internal breakdown) and `scripts/bench-oracle-backend.sh`
-(KAA versus FIR wall time).

@@ -24,7 +24,7 @@ import (
 // recomputes everything would pass vacuously.
 //
 // This file holds the project, the mutation table and the comparison helpers
-// shared by the structural (no oracle), krit-fir and krit-types (KAA) runners.
+// shared by the structural (no oracle) and krit-fir runners.
 
 // wcEffect says how the mutation is expected to move the result, so a
 // mutation that silently stopped mattering (and would pass any comparison)
@@ -506,7 +506,7 @@ func wcSnapshotsDiffer(a, b wcSnapshot) bool {
 // wcKnownStale lists the rows whose result is known to be wrong because of a
 // stale-cache bug in the product (not in this test). Keys are
 // "<backend>/<path>/<spelling>/<mutation>" with <backend> one of structural,
-// fir or kaa, <path> cli, daemon, one-shot, and <spelling> abs or rel. A listed
+// or fir, <path> cli, daemon, one-shot, and <spelling> abs or rel. A listed
 // row is skipped, with the report logged, whatever goes wrong in it (a warm
 // result that differs from a clean scan, or a cache-served control that
 // differs from its seed run); once the bug is fixed the row passes and fails

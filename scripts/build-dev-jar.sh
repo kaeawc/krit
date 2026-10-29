@@ -3,8 +3,8 @@ set -euo pipefail
 
 tool="${1:-}"
 case "$tool" in
-  krit-fir|krit-types) ;;
-  *) echo "usage: scripts/build-dev-jar.sh krit-fir|krit-types" >&2; exit 2 ;;
+  krit-fir) ;;
+  *) echo "usage: scripts/build-dev-jar.sh krit-fir" >&2; exit 2 ;;
 esac
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"

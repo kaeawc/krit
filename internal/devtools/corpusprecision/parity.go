@@ -17,7 +17,7 @@ import (
 // parityMapping maps Krit rules to retained Kotlin compiler diagnostic factories.
 // A factory belongs here only once both JVM backends retain it
 // (tools/krit-fir/.../OracleDiagnosticMessageCollector.kt and
-// tools/krit-types/.../Main.kt) and it maps one-to-one onto the rule.
+// tools/krit-fir/.../Main.kt) and it maps one-to-one onto the rule.
 // UnnecessaryNotNullCheck is deliberately absent: it projects only the
 // null-comparison direction of SENSELESS_COMPARISON, so an unfiltered mapping
 // would count every always-true/false condition as a compiler-only miss.

@@ -94,7 +94,7 @@ type Server struct {
 
 	// OracleRefresh, when set, is invoked on a separate longer-debounced
 	// timer after each didChange. Implementations send a per-file re-analyze
-	// request to the krit-types daemon and apply the result to the FQN
+	// request to the krit-fir daemon and apply the result to the FQN
 	// reverse index. Must be set before Run() — there is no synchronization
 	// against concurrent reassignment.
 	OracleRefresh func(uri string, content []byte)

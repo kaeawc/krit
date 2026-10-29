@@ -53,7 +53,7 @@ rendered text is the template the krit-fir collector matches by prefix.
 
 | Factory | Rule | Notes |
 |---|---|---|
-| `DEPRECATION` | `Deprecation` | Projected. Covers type references, typealiases, properties, inherited overrides, and Java `@Deprecated` members, and matches overloads exactly. The source path is name-based and misses most of these. On a probe with one deprecation of each kind, recall went from 3/7 (krit-fir) and 2/7 (krit-types) to 7/7 on both. |
+| `DEPRECATION` | `Deprecation` | Projected. Covers type references, typealiases, properties, inherited overrides, and Java `@Deprecated` members, and matches overloads exactly. The source path is name-based and misses most of these. On a probe with one deprecation of each kind, recall went from 3/7 to 7/7. |
 
 Known gap, shared by every projection rule: projection adds compiler-confirmed
 findings, but when the compiler reports nothing, the rule's source heuristic
@@ -95,7 +95,7 @@ by construction.
 | `PLATFORM_CLASS_MAPPED_TO_KOTLIN` | `This class is not recommended for use in Kotlin.` | Low (style). |
 
 `USELESS_ELVIS_RIGHT_IS_NULL` and `USELESS_IS_CHECK` are deliberately not retained.
-The krit-types backend doesn't project the first, and the second renders a
+`USELESS_IS_CHECK` renders a
 template identical to `IMPOSSIBLE_IS_CHECK`, so a prefix match cannot tell them
 apart.
 
@@ -103,11 +103,10 @@ apart.
 
 1. Probe the factory with the embedded compiler (see above) and confirm it is a
    warning under the oracle's default checker set.
-2. Retain it on **both** backends: add the rendered message to
+2. Retain it: add the rendered message to
    `OracleDiagnosticMessageCollector` in krit-fir, which matches by prefix or by
    an anchored pattern when the template starts with a variable such as a symbol
-   name, and add the factory name to `retainedDiagnosticFactories` in krit-types.
-   Keep `DiagnosticFactoriesTest` in step.
+   name.
 3. Check that the template cannot collide with another factory's rendering (the
    `USELESS_IS_CHECK`/`IMPOSSIBLE_IS_CHECK` trap), and add a krit-fir test that
    the neighboring factory is not claimed.
@@ -115,16 +114,11 @@ apart.
    exactly one dispatched node. When the rule dispatches on several node types
    that can cover the same span, add an `Accept` check that anchors on the
    token the compiler reports.
-5. Bump `oracle.CacheVersion`. The backends now emit different facts for the
+5. Bump `oracle.CacheVersion`. The oracle now emits different facts for the
    same source.
-6. Add a cross-backend test in `tests/parity` asserting that both backends
-   report the diagnostic, and add the rule to the compiler-parity map when the
+6. Add a test in `tests/parity` asserting that the oracle reports the
+   diagnostic, and add the rule to the compiler-parity map when the
    mapping is one-to-one.
-
-krit-types collects diagnostics for every analyzed file. It used to skip files
-that contained no null-safety or control-flow tokens, but no token predicts a
-deprecation, so that pre-gate was removed together with the `DEPRECATION`
-projection.
 
 ### Not projectable
 

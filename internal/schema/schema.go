@@ -192,7 +192,7 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 	}).WithDescription("FIR verdict settings.").AdditionalPropertiesFalse()
 
 	props["oracle"] = jsonschema.Object(map[string]*jsonschema.Schema{
-		"backend":               jsonschema.String("Type oracle backend: fir (krit-fir, the default) or kaa (krit-types)."),
+		"backend":               jsonschema.String("Type oracle backend. Only fir (krit-fir) is supported; kaa was removed."),
 		"classpath":             jsonschema.Array(jsonschema.String("Path of a compile classpath jar."), "Jars added to the classpath the JVM-backed type oracle and FIR checks compile against."),
 		"compilerPlugins":       jsonschema.Array(jsonschema.String("Absolute path of a Kotlin compiler plugin jar."), "Kotlin compiler plugin jars (kotlinx.serialization, Compose, ...) krit-fir loads in addition to the Gradle model's."),
 		"compilerPluginOptions": jsonschema.Array(jsonschema.String("A plugin option, plugin:<id>:<key>=<value>."), "Options of the configured compiler plugins."),

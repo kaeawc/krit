@@ -53,32 +53,3 @@ func TestOracleVersionHashChangesWithProjectLocalJar(t *testing.T) {
 		t.Fatal("project-local jar content change kept the same version hash")
 	}
 }
-
-func TestOracleStoreKeyPartitionsBackends(t *testing.T) {
-	t.Setenv("KRIT_FIR_JAR", "")
-	t.Setenv("KRIT_TYPES_JAR", "")
-	t.Setenv("HOME", t.TempDir())
-	project := t.TempDir()
-	for _, backend := range []Backend{BackendFIR, BackendKAA} {
-		path := filepath.Join(project, ".krit", backend.JarName())
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("same jar bytes"), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scanPaths := []string{project}
-	fir := oracleVersionHash(BackendFIR, scanPaths)
-	kaa := oracleVersionHash(BackendKAA, scanPaths)
-	if fir == kaa {
-		t.Fatal("FIR and KAA share an oracle store namespace")
-	}
-	kaaPath := filepath.Join(project, ".krit", BackendKAA.JarName())
-	if err := os.WriteFile(kaaPath, []byte("different KAA bytes"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if got := oracleVersionHash(BackendFIR, scanPaths); got != fir {
-		t.Fatal("changing the unused KAA jar invalidated the FIR namespace")
-	}
-}

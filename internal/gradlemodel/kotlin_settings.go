@@ -184,8 +184,8 @@ const (
 // Gradle model. It lists flags that change language semantics, type
 // resolution or diagnostics the frontend produces; codegen, output, plugin and
 // path flags are never applied. The JVM helpers keep an identical copy
-// (KotlinCompilerSettings.kt in krit-fir and krit-types) as defense in depth;
-// a Go test keeps the three lists equal.
+// (KotlinCompilerSettings.kt in krit-fir) as defense in depth; a Go test
+// keeps the lists equal.
 var kotlinFlagAllowlist = map[string]kotlinFlagKind{
 	"-Xannotation-default-target":                    flagValued,
 	"-Xannotation-target-all":                        flagBoolean,

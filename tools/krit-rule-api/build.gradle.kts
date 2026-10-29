@@ -21,7 +21,7 @@ val kotlinVersion = "2.4.20"
 
 dependencies {
     // PSI types are surfaced on the rule API but provided at runtime
-    // by the krit-types daemon — keep them off the published rule jar.
+    // by the krit-fir daemon — keep them off the published rule jar.
     compileOnly("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
 }
 

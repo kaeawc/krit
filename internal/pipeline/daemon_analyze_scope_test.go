@@ -30,11 +30,11 @@ func (s *stubDaemon) AnalyzeFilesWithCallFilter([]string, *oracle.CallTargetFilt
 // keeps the partial path.
 func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	scanPaths := []string{root}
 	typesPath := oracle.CachePath(scanPaths)
 	if err := os.MkdirAll(filepath.Dir(typesPath), 0o755); err != nil {
@@ -45,7 +45,7 @@ func TestDaemonAnalyzeGatesThePartialPathOnTheRunsScope(t *testing.T) {
 	}
 	run := func(kt gradlemodel.KotlinSettings) IndexInput {
 		return IndexInput{
-			OracleBackend:    oracle.BackendKAA,
+			OracleBackend:    oracle.BackendFIR,
 			OracleKotlin:     kt,
 			StaleOraclePaths: []string{filepath.Join(root, "A.kt")},
 		}

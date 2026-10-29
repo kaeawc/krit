@@ -12,7 +12,7 @@ import (
 
 // UselessElvisOnNonNullRule detects `expr ?: fallback` where `expr` is
 // already non-null. Resolves the left operand via ctx.Resolver, which under
-// the KAA oracle recovers platform types and substituted generics (e.g.
+// the type oracle recovers platform types and substituted generics (e.g.
 // getOrDefault) that source-only inference cannot.
 type UselessElvisOnNonNullRule struct {
 	FlatDispatchBase
@@ -106,22 +106,6 @@ func uselessElvisResolvedOperandType(file *scanner.File, resolver typeinfer.Type
 		}
 		return resolved, true
 	}
-}
-
-// ExpressionPositions enumerates left operands the rule wants resolved by
-// the KAA pre-pass under --depth=thorough. Selector mirrors check's gates
-// so the batched resolveExpressionTypes RPC stays tight.
-func (r *UselessElvisOnNonNullRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkNodes(0, "elvis_expression", func(idx uint32) {
-		if _, operand, ok := uselessElvisOperand(file, idx); ok {
-			out = append(out, operand)
-		}
-	})
-	return out
 }
 
 // uselessElvisLeftOperand returns the elvis's left child with only a

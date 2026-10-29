@@ -21,7 +21,8 @@ const cacheKeyHashLen = 12
 
 // jarCachePath returns a cache path keyed by the JAR's content hash, with the
 // given suffix appended.  The file lives under $TMPDIR/krit-cache/ (or
-// ~/.krit/cache/ if HOME is set) and is named krit-types-<hash><suffix>.
+// ~/.krit/cache/ if HOME is set) and is named krit-types-<hash><suffix>; the
+// prefix predates krit-fir and is kept so existing caches stay valid.
 func jarCachePath(jarPath, suffix string) (string, error) {
 	full, err := hashutil.HashFile(jarPath)
 	if err != nil {
@@ -59,12 +60,6 @@ func cacheDirWritable(dir string) bool {
 // JAR's content hash.
 func cdsArchivePath(jarPath string) (string, error) {
 	return jarCachePath(jarPath, ".jsa")
-}
-
-// cracCheckpointPath returns the directory for a CRaC checkpoint keyed by the
-// JAR's content hash.  Only meaningful on CRaC-enabled JDKs (Azul Zulu, Liberica NIK).
-func cracCheckpointPath(jarPath string) (string, error) {
-	return jarCachePath(jarPath, ".crac")
 }
 
 // aotConfigPath returns the path for a Project Leyden AOT configuration file
@@ -295,8 +290,8 @@ func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose boo
 
 // jvmCacheSuffixes lists every per-jar artifact purgeJVMCachesForJar
 // removes. Keep in sync with the suffix arguments passed to jarCachePath
-// elsewhere in this file (cdsArchivePath, cracCheckpointPath,
-// aotConfigPath, aotCachePath).
+// elsewhere in this file (cdsArchivePath, aotConfigPath, aotCachePath).
+// ".crac" is no longer written; it stays so old checkpoints are cleaned up.
 var jvmCacheSuffixes = []string{".jsa", ".crac", ".aotconf", ".aot", ".aot.meta.json", ".aot.skip"}
 
 // purgeJVMCachesForJar deletes the AppCDS/CRaC/Leyden cache files keyed by
@@ -327,7 +322,7 @@ func removeJVMCachesForPath(p string, verbose bool) {
 
 // openDaemonLogFile opens (or creates) the daemon log file and wires it to cmd.Stderr.
 func openDaemonLogFile(cmd *exec.Cmd, verbose bool) *os.File {
-	logFile, logPath, err := fsutil.CreateUserKritFile("krit-types-daemon.log")
+	logFile, logPath, err := fsutil.CreateUserKritFile("krit-oracle-daemon.log")
 	if err != nil {
 		cmd.Stderr = os.Stderr
 		return nil

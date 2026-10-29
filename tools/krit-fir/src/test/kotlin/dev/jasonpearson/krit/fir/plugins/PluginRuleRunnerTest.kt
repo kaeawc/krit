@@ -19,8 +19,7 @@ import kotlin.test.assertTrue
  * End-to-end coverage for the analyzeFile RPC: a real plugin JAR is
  * compiled at test time, loaded into [PluginRuleRegistry], and
  * executed against a synthetic Kotlin source. We verify the wire
- * shape that ships back through [PluginResponse.buildAnalyzeFile]
- * mirrors krit-types' `buildAnalyzeFileResponse`.
+ * shape that ships back through [PluginResponse.buildAnalyzeFile].
  */
 class PluginRuleRunnerTest {
 
@@ -64,7 +63,6 @@ class PluginRuleRunnerTest {
     fun ruleThrowsBubblesAsErrorEntryNotCrash() {
         // Per-rule exception handling must isolate failures so one
         // broken rule doesn't kill the entire analyzeFile request.
-        // Mirrors krit-types' behavior.
         val jar = buildThrowingRuleJar("BrokenRule")
         PluginRuleRegistry.load(listOf(jar.absolutePath))
 
@@ -143,7 +141,7 @@ class PluginRuleRunnerTest {
     }
 
     @Test
-    fun analyzeFileResponseShapeMatchesKritTypes() {
+    fun analyzeFileResponseShape() {
         val findings = listOf(
             PluginRuleRunner.PluginFinding(
                 file = "/tmp/F.kt",
@@ -166,7 +164,7 @@ class PluginRuleRunnerTest {
         assertTrue(""""column":5""" in response, response)
         assertTrue(""""confidence":0.9""" in response, response)
         assertTrue("fix" !in response, response)
-        // No errors → no errors field. Matches krit-types' omit-when-empty rule.
+        // No errors → no errors field (omit-when-empty).
         assertTrue(""""errors":""" !in response, response)
     }
 

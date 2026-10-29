@@ -128,11 +128,8 @@ func TestCheckRiderStaysQuietWhenNotShared(t *testing.T) {
 	}
 }
 
-func TestCheckRiderOnlyRidesKritFir(t *testing.T) {
-	prepared := 0
-	rider := &CheckRider{Prepare: func() ([]byte, func([]byte)) { prepared++; return []byte(`{}`), func([]byte) {} }}
+func TestCheckRiderSkipsWithoutARequest(t *testing.T) {
 	for _, opts := range []InvocationOptions{
-		{Backend: BackendKAA, CheckRider: rider},
 		{Backend: BackendFIR},
 		{Backend: BackendFIR, CheckRider: riderFor(nil, func([]byte) {})},
 	} {
@@ -140,9 +137,6 @@ func TestCheckRiderOnlyRidesKritFir(t *testing.T) {
 		if run != nil || args != nil || err != nil {
 			t.Fatalf("startCheckRider(%+v) = %v, %v, %v", opts, run, args, err)
 		}
-	}
-	if prepared != 0 {
-		t.Fatal("prepared a rider for krit-types")
 	}
 }
 

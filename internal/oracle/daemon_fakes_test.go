@@ -55,7 +55,6 @@ func NewFakeDaemon(t *testing.T) *FakeDaemonProcess {
 	f.Responses["analyze"] = `{"version": 1, "kotlinVersion": "2.1.0", "files": {}, "dependencies": {}}`
 	f.Responses["rebuild"] = `{}`
 	f.Responses["shutdown"] = `{}`
-	f.Responses["checkpoint"] = `{"ok": true}`
 
 	// Accept connections in the background
 	go f.acceptLoop(t)

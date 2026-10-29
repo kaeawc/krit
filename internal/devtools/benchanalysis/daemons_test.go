@@ -128,7 +128,7 @@ func TestSamplerDeltaKeyedOnStartTime(t *testing.T) {
 func TestDaemonKindClassifiesByJarArgument(t *testing.T) {
 	cases := map[string]string{
 		"java\x00-jar\x00/j/krit-fir.jar\x00--daemon\x00":     "krit-fir",
-		"java\x00-jar\x00/j/krit-types.jar\x00":               "krit-types",
+		"java\x00-jar\x00/j/krit-types.jar\x00":               "jvm-helper",
 		"java\x00-jar\x00/j/other.jar\x00--note=krit-fir\x00": "jvm-helper",
 		"/bin/krit\x00serve\x00--root\x00/w/krit-fir\x00":     "krit-serve",
 		"/bin/sh\x00-c\x00echo krit-fir\x00":                  "other",

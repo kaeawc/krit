@@ -44,7 +44,7 @@ Use branch prefix `work/` for agent-created branches.
 - `internal/scanner/` - tree-sitter parsing, flat AST helpers, suppression, cross-file indexes, bloom-filter caches.
 - `internal/pipeline/`, `internal/deadcode/`, `internal/module/` - project analysis orchestration, dead-code passes, Gradle module graph.
 - `internal/android/`, `internal/tsxml/` - Android manifests, resources, icons, Gradle/XML analysis.
-- `internal/typeinfer/`, `internal/oracle/` - source-level inference and Kotlin Analysis API daemon.
+- `internal/typeinfer/`, `internal/oracle/` - source-level inference and krit-fir (K2 FIR) type-oracle daemon.
 - `internal/lsp/`, `internal/mcp/`, `internal/output/`, `internal/fixer/` - protocol servers, formatters, fix engine.
 - `internal/config/`, `internal/cache/`, `internal/schema/`, `internal/perf/` - config, incremental cache, schema generation, timing.
 - `tests/fixtures/` - positive, negative, and fixable rule fixtures.

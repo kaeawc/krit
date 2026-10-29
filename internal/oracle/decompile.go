@@ -14,42 +14,12 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
-// Decompiler turns a {jar, fqn} pair into Kotlin-shaped source text. The
-// production implementation will RPC into krit-types and use the Kotlin
-// Analysis API's KotlinDecompiledLightClassSupport. Until that lands the
-// LSP path uses a signature-stub renderer driven entirely from data the
-// oracle already collects in Data.Dependencies — enough for editors
-// to render a recognisable virtual document.
+// Decompiler turns a {jar, fqn} pair into Kotlin-shaped source text. The LSP
+// uses a signature-stub renderer driven entirely from data the oracle already
+// collects in Data.Dependencies — enough for editors to render a
+// recognisable virtual document.
 type Decompiler interface {
 	Decompile(jarPath, fqn string) (string, error)
-}
-
-type DaemonDecompiler struct {
-	Daemon *Daemon
-}
-
-func (d DaemonDecompiler) Decompile(jarPath, fqn string) (string, error) {
-	if d.Daemon == nil {
-		return "", fmt.Errorf("decompile: daemon unavailable")
-	}
-	return d.Daemon.DecompileJar(jarPath, fqn)
-}
-
-type FallbackDecompiler struct {
-	Primary  Decompiler
-	Fallback Decompiler
-}
-
-func (d FallbackDecompiler) Decompile(jarPath, fqn string) (string, error) {
-	if d.Primary != nil {
-		if src, err := d.Primary.Decompile(jarPath, fqn); err == nil && src != "" {
-			return src, nil
-		}
-	}
-	if d.Fallback == nil {
-		return "", fmt.Errorf("decompile: no fallback decompiler")
-	}
-	return d.Fallback.Decompile(jarPath, fqn)
 }
 
 // DecompileCache wraps a Decompiler with a content-addressed disk cache.
@@ -176,9 +146,7 @@ func writeDecompiledSourceAtomic(path string, data []byte) error {
 // SignatureStubDecompiler renders Kotlin-shaped source from the oracle's
 // own Dependencies map. It is deliberately schematic: it shows the kind,
 // modifiers, supertypes, and members so a navigation result is recognisable
-// in an editor, but it does not reconstruct method bodies. When the real
-// KAA-backed decompiler is wired through krit-types this implementation
-// remains useful as a fallback for entries the daemon can't resolve.
+// in an editor, but it does not reconstruct method bodies.
 type SignatureStubDecompiler struct {
 	// Lookup returns the Class for an FQN, or nil if unknown.
 	Lookup func(fqn string) *Class

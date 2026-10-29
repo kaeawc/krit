@@ -213,8 +213,8 @@ func TestAnalyzeWithDepsMapsDataAndCacheDepsToCallerSpelling(t *testing.T) {
 	absA, absB := filepath.Join(dir, relA), filepath.Join(dir, relB)
 	d := pipeDaemon(t, func(req daemonRequest) string {
 		return fmt.Sprintf(`{"id":%d,"result":{"version":1,"files":{%q:{"package":"p"},%q:{"package":"p"}},"dependencies":{}},`+
-			`"cacheDeps":{"version":1,"files":{%q:{"depPaths":[%q],"propagatingDepPaths":[%q],"perFileDeps":{}}},"crashed":{%q:"boom"}}}`,
-			req.ID, absA, absB, absB, absA, absA, absB)
+			`"cacheDeps":{"version":1,"files":{%q:{"depPaths":[%q],"perFileDeps":{}}},"crashed":{%q:"boom"}}}`,
+			req.ID, absA, absB, absB, absA, absB)
 	})
 	d.sourceDirs = []string{root}
 	data, deps, err := d.AnalyzeWithDeps([]string{relA})
@@ -228,8 +228,8 @@ func TestAnalyzeWithDepsMapsDataAndCacheDepsToCallerSpelling(t *testing.T) {
 	if entry == nil || len(deps.Files) != 1 {
 		t.Fatalf("CacheDeps.Files keys = %v, want %q", mapKeys(deps.Files), relB)
 	}
-	if !reflect.DeepEqual(entry.DepPaths, []string{relA}) || !reflect.DeepEqual(entry.PropagatingDepPaths, []string{relA}) {
-		t.Errorf("edges = %v / %v, want [%q]", entry.DepPaths, entry.PropagatingDepPaths, relA)
+	if !reflect.DeepEqual(entry.DepPaths, []string{relA}) {
+		t.Errorf("edges = %v, want [%q]", entry.DepPaths, relA)
 	}
 	if _, ok := deps.Crashed[relB]; !ok || len(deps.Crashed) != 1 {
 		t.Errorf("Crashed = %v, want key %q", deps.Crashed, relB)
@@ -315,30 +315,5 @@ func TestAnalyzeWithDepsSendsAbsoluteFilesAndKeepsCallerSpelling(t *testing.T) {
 	}
 	if _, ok := deps.Crashed[rel]; !ok || len(deps.Crashed) != 1 {
 		t.Errorf("crashed = %v, want key %q", deps.Crashed, rel)
-	}
-}
-
-func TestResolveExpressionTypesSendsAbsoluteFilesAndKeepsCallerSpelling(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	rel := filepath.Join("src", "A.kt")
-	abs := filepath.Join(dir, rel)
-	var sent map[string]interface{}
-	d := pipeDaemon(t, func(req daemonRequest) string {
-		sent, _ = req.Params["expressionPositions"].(map[string]interface{})
-		types, _ := json.Marshal(map[string]map[string]resolvedExpressionFact{
-			abs: {"1:2": {Name: "String", FQN: "kotlin.String"}},
-		})
-		return fmt.Sprintf(`{"id":%d,"result":{"types":%s}}`, req.ID, types)
-	})
-	out, err := d.ResolveExpressionTypes(map[string][]ExpressionPosition{rel: {{Line: 1, Col: 2}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := sent[abs]; !ok || len(sent) != 1 {
-		t.Errorf("request positions keyed %v, want %q", sent, abs)
-	}
-	if got := out[rel][ExpressionPosition{Line: 1, Col: 2}]; got == nil || got.FQN != "kotlin.String" {
-		t.Errorf("result for %q = %v; all: %v", rel, got, out)
 	}
 }

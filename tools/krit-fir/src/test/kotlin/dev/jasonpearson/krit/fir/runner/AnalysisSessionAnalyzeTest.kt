@@ -77,7 +77,7 @@ class AnalysisSessionAnalyzeTest {
         ).analyze(emptyList())
 
         val byFqn = result.dependencies.mapValues { it.value }
-        // Every class kind maps to the wire string krit-types uses.
+        // Every class kind maps to its oracle wire string.
         assertEquals("class", byFqn["com.acme.mixed.Tree"]?.kind)
         assertEquals("interface", byFqn["com.acme.mixed.Shape"]?.kind)
         assertEquals("object", byFqn["com.acme.mixed.Singleton"]?.kind)
@@ -89,8 +89,7 @@ class AnalysisSessionAnalyzeTest {
         assertTrue(byFqn["com.acme.mixed.Base"]?.isAbstract == true, "Base.isAbstract")
         assertTrue(byFqn["com.acme.mixed.Extensible"]?.isOpen == true, "Extensible.isOpen")
         // Non-data, final classes carry NO modifier flags so the wire
-        // payload stays minimal — krit-types' `appendClass` follows the
-        // same omit-when-false rule.
+        // payload stays minimal (omit-when-false).
         val leaf = byFqn["com.acme.mixed.Leaf"]
         assertNotNull(leaf)
         assertEquals(false, leaf.isSealed)

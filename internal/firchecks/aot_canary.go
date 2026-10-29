@@ -34,7 +34,7 @@ import (
 // expression). A daemon that fails either part, or does not answer, is closed
 // and replaced by one launched without AOT before it serves any request.
 //
-// The krit-types oracle daemon's equivalent is checkAOTHealthLocked in
+// The krit-fir oracle daemon's equivalent is checkAOTHealthLocked in
 // internal/oracle.
 
 // aotCanaryRule is the checker the canary exercises; it must match

@@ -53,7 +53,6 @@ benchmarks/
 
 # Krit cache (generated during analysis)
 .krit-cache
-.krit-types
 .krit/
 # Keep the checked-in CI oracle fingerprint baseline.
 !/.krit/

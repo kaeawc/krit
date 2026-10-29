@@ -10,7 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// The --daemon path starts the krit-types daemon with the effective oracle
+// The --daemon path starts the krit-fir daemon with the effective oracle
 // classpath, as the one-shot path does (#852).
 func TestRunDaemonOracleStartsDaemonWithClasspath(t *testing.T) {
 	var got []string

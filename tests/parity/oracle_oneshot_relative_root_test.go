@@ -11,10 +11,10 @@ import (
 )
 
 // A relative `krit .` oracle run through the one-shot JVM (no daemon) must
-// analyze the same files as the absolute-root run: krit-types matches --files
-// by exact equality with absolute paths, so an unabsolutized miss list made
-// it analyze 0 files and cache them as jar-skipped markers that then poisoned
-// absolute-root runs too. The sharded variant splits the misses across two
+// analyze the same files as the absolute-root run: the helper matches --files
+// by exact equality with absolute paths, so an unabsolutized miss list would
+// make it analyze 0 files and cache them as jar-skipped markers that then
+// poison absolute-root runs too. The sharded variant splits the misses across two
 // JVMs, each of which is sent and re-spelled separately.
 func TestOracleOneShotRelativeRootMatchesAbsoluteRoot(t *testing.T) {
 	for _, shards := range []int{1, 2} {
@@ -96,16 +96,16 @@ func TestOracleOneShotRelativeRootNarrowedFilter(t *testing.T) {
 
 func oneShotRelativeSetup(t *testing.T, shards int) (string, oracle.InvocationOptions) {
 	t.Helper()
-	var kaa relativeOracleCase
+	var fir relativeOracleCase
 	for _, tc := range relativeOracleCases() {
-		if tc.name == "kaa" {
-			kaa = tc
+		if tc.name == "fir" {
+			fir = tc
 		}
 	}
-	jar := relativeOracleProject(t, kaa)
+	jar := relativeOracleProject(t, fir)
 	t.Setenv("KRIT_DAEMON_CACHE", "off")
 	t.Setenv("KRIT_TYPES_SHARDS", strconv.Itoa(shards))
-	return jar, oracle.InvocationOptions{Backend: kaa.backend}
+	return jar, oracle.InvocationOptions{Backend: fir.backend}
 }
 
 func runOneShotCached(t *testing.T, jar string, sourceDirs []string, filterList string, opts oracle.InvocationOptions) *oracle.Data {

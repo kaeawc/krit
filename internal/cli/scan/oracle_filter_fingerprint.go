@@ -30,7 +30,7 @@ type oracleFingerprintReport struct {
 
 // runOracleFilterFingerprint computes the oracle filter input-set
 // fingerprint for the given corpus and prints it as JSON. Returns a
-// process exit code. The computation does NOT invoke krit-types — it
+// process exit code. The computation does NOT invoke krit-fir — it
 // runs only the byte-substring pre-filter, so CI can diff fingerprints
 // without a JVM on the runner.
 func RunOracleFilterFingerprint(paths []string, files []string, activeRules []*api.Rule, allRules bool) int {

@@ -1,5 +1,5 @@
-// Package jvmaot contains the shared Project Leyden AOT cache machinery used
-// by krit-types and krit-fir JVMs.
+// Package jvmaot contains the Project Leyden AOT cache machinery used by the
+// krit-fir JVM.
 package jvmaot
 
 import (
@@ -102,6 +102,8 @@ func PathsWithToken(token, jarPath, workload string) (configPath, cachePath, ski
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", "", "", err
 	}
+	// The "krit-types-" prefix predates krit-fir; it is kept so existing AOT
+	// caches stay valid instead of being orphaned and rebuilt.
 	base := "krit-types-" + token[:cacheKeyHashLen]
 	if workload != "" {
 		base += "-" + workload

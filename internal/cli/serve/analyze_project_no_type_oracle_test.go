@@ -15,13 +15,13 @@ import (
 // resident oracle daemon, while a plain request on the same daemon still does.
 func TestBuildProjectInput_NoTypeOracleSkipsOracleDaemon(t *testing.T) {
 	tmp := t.TempDir()
-	seedJar(t, tmp, ".krit/krit-types.jar")
+	seedJar(t, tmp, ".krit/krit-fir.jar")
 	state := newDaemonState(tmp)
 	t.Cleanup(state.closeOracleDaemons)
 	starter := &fakeOracleDaemonStarter{}
 	state.oracleDaemonStarter = starter
 
-	off, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true}, oracle.BackendKAA)
+	off, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true}, oracle.BackendFIR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestBuildProjectInput_NoTypeOracleSkipsOracleDaemon(t *testing.T) {
 	}
 
 	// --input-types must not re-enable the oracle either, as in-process.
-	off, err = state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true, InputTypesPath: "/x/types.json"}, oracle.BackendKAA)
+	off, err = state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true, NoTypeOracle: true, InputTypesPath: "/x/types.json"}, oracle.BackendFIR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestBuildProjectInput_NoTypeOracleSkipsOracleDaemon(t *testing.T) {
 		t.Fatal("NoTypeOracle with --input-types must keep the oracle disabled")
 	}
 
-	on, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true}, oracle.BackendKAA)
+	on, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{NoFir: true}, oracle.BackendFIR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +93,8 @@ func TestAnalyzeProject_NoTypeOracleDoesNotShareWarmBundle(t *testing.T) {
 func TestAnalyzeProject_NoTypeOracleSkipsOracleHealthCheck(t *testing.T) {
 	socket, state := startServerForTest(t)
 	writeKotlinFile(t, state.root, "A.kt", "package demo\n\nclass A\n")
-	seedJar(t, state.root, ".krit/krit-types.jar")
-	jar := filepath.Join(state.root, ".krit", "krit-types.jar")
+	seedJar(t, state.root, ".krit/krit-fir.jar")
+	jar := filepath.Join(state.root, ".krit", "krit-fir.jar")
 	starter := &fakeOracleDaemonStarter{}
 	state.oracleDaemonMu.Lock()
 	state.oracleDaemonStarter = starter
@@ -119,7 +119,7 @@ func TestAnalyzeProject_NoTypeOracleSkipsOracleHealthCheck(t *testing.T) {
 // oracle too, so it neither starts one nor compares against oracle facts.
 func TestRunStrictVerify_NoTypeOracleBaselineSkipsOracle(t *testing.T) {
 	root := t.TempDir()
-	seedJar(t, root, ".krit/krit-types.jar")
+	seedJar(t, root, ".krit/krit-fir.jar")
 	writeKotlinFile(t, root, "X.kt", "package demo\n\nclass X\n")
 	state := newDaemonState(root)
 	t.Cleanup(state.closeOracleDaemons)
@@ -136,12 +136,12 @@ func TestRunStrictVerify_NoTypeOracleBaselineSkipsOracle(t *testing.T) {
 	}
 }
 
-// Custom Kotlin rule jars run in the krit-types JVM: a --no-type-oracle
-// request that carries them keeps a krit-types handle for the plugin RPCs,
-// but the type oracle itself stays off, matching an in-process scan.
+// Custom Kotlin rule jars run in the oracle (krit-fir) JVM: a --no-type-oracle
+// request that carries them keeps a daemon handle for the plugin RPCs, but
+// the type oracle itself stays off, matching an in-process scan.
 func TestBuildProjectInput_NoTypeOracleKeepsDaemonForCustomRuleJars(t *testing.T) {
 	tmp := t.TempDir()
-	seedJar(t, tmp, ".krit/krit-types.jar")
+	seedJar(t, tmp, ".krit/krit-fir.jar")
 	state := newDaemonState(tmp)
 	t.Cleanup(state.closeOracleDaemons)
 	starter := &fakeOracleDaemonStarter{}
@@ -156,12 +156,12 @@ func TestBuildProjectInput_NoTypeOracleKeepsDaemonForCustomRuleJars(t *testing.T
 		t.Fatal(err)
 	}
 	if in.Host.OracleDaemon == nil {
-		t.Fatal("custom rule jars need a krit-types daemon handle even with --no-type-oracle")
+		t.Fatal("custom rule jars need an oracle daemon handle even with --no-type-oracle")
 	}
 	if in.Args.OracleEnabled {
 		t.Fatal("the type oracle must stay disabled")
 	}
-	if len(starter.backends) != 1 || starter.backends[0] != oracle.BackendKAA {
-		t.Fatalf("started backends %v, want [%s]", starter.backends, oracle.BackendKAA)
+	if len(starter.backends) != 1 || starter.backends[0] != oracle.BackendFIR {
+		t.Fatalf("started backends %v, want [%s]", starter.backends, oracle.BackendFIR)
 	}
 }

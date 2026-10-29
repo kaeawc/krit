@@ -275,22 +275,6 @@ func castNullableToNonNullableSourceIsNullable(ctx *api.Context, source uint32) 
 	return nullable != nil && *nullable
 }
 
-// ExpressionPositions selects cast LHS positions for oracle pre-resolution.
-func (r *CastNullableToNonNullableTypeRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkNodes(0, "as_expression", func(idx uint32) {
-		cast, ok := unsafeCastExpressionPartsFlat(file, idx)
-		if !ok || cast.safe || cast.source == 0 {
-			return
-		}
-		out = append(out, cast.source)
-	})
-	return out
-}
-
 // ---------------------------------------------------------------------------
 // CastToNullableTypeRule detects `as Type?`.
 // ---------------------------------------------------------------------------

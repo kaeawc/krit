@@ -75,7 +75,7 @@ type FilterSummary struct {
 //     findings.
 //  3. Files that no rule marks are dropped from the returned Paths.
 //
-// The returned Paths are absolute (via filepath.Abs) so that krit-types
+// The returned Paths are absolute (via filepath.Abs) so that krit-fir
 // can match them against its own source tree regardless of how the
 // caller passed them in.
 func CollectOracleFiles(rules []FilterRule, files []*scanner.File) FilterSummary {
@@ -181,7 +181,7 @@ func StableFingerprint(paths []string, root string) string {
 }
 
 // WriteFilterListFile writes the filter's matched paths to a temp file
-// that krit-types can read via its --files flag. Returns the written path
+// that krit-fir can read via its --files flag. Returns the written path
 // or an error. Callers should clean up the file after the oracle run.
 // When AllFiles is true or the Paths list is nil, returns an empty
 // string and no error — the caller is expected to skip the --files flag

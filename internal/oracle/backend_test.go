@@ -1,17 +1,16 @@
 package oracle
 
 import (
+	"strings"
 	"testing"
 )
 
-// TestDefaultBackendIsFIR locks the default oracle backend to FIR.
-// The flip away from KAA was gated on the parity + FIR-fact-contract
-// CI checks; this guards against an accidental revert to KAA, which
-// would silently change which JVM daemon every project spawns.
+// TestDefaultBackendIsFIR locks the default oracle backend to FIR, the
+// only type-oracle backend.
 func TestDefaultBackendIsFIR(t *testing.T) {
 	t.Parallel()
 	if DefaultBackend != BackendFIR {
-		t.Errorf("DefaultBackend = %q, want %q (FIR is the default; KAA stays a selectable fallback)", DefaultBackend, BackendFIR)
+		t.Errorf("DefaultBackend = %q, want %q", DefaultBackend, BackendFIR)
 	}
 }
 
@@ -24,18 +23,12 @@ func TestParseBackend(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "empty resolves to default backend", input: "", want: DefaultBackend},
-		{name: "canonical kaa", input: "kaa", want: BackendKAA},
 		{name: "canonical fir", input: "fir", want: BackendFIR},
-		{name: "case-insensitive KAA", input: "KAA", want: BackendKAA},
 		{name: "case-insensitive Fir", input: "Fir", want: BackendFIR},
 		{name: "trims whitespace", input: "  fir\t", want: BackendFIR},
-		{name: "alias krit-types", input: "krit-types", want: BackendKAA},
 		{name: "alias krit-fir", input: "krit-fir", want: BackendFIR},
-		{name: "alias types", input: "types", want: BackendKAA},
 		{name: "alias k2", input: "k2", want: BackendFIR},
 		{name: "unknown rejected", input: "foo", wantErr: true},
-		// Aliases mustn't bleed across backends — the test above
-		// fails closed if someone accidentally maps "k2" to KAA.
 		{name: "no silent fallback for typo", input: "fir2", wantErr: true},
 	}
 	for _, tc := range cases {
@@ -58,17 +51,32 @@ func TestParseBackend(t *testing.T) {
 	}
 }
 
+// TestParseBackendRejectsRemovedKAASpellings guards that the removed
+// krit-types (KAA) backend spellings fail loudly instead of silently
+// selecting krit-fir.
+func TestParseBackendRejectsRemovedKAASpellings(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{"kaa", "KAA", "krit-types", "types", " Krit-Types "} {
+		got, err := ParseBackend(input)
+		if err == nil {
+			t.Errorf("ParseBackend(%q) = %q, want error", input, got)
+			continue
+		}
+		if !strings.Contains(err.Error(), "removed") {
+			t.Errorf("ParseBackend(%q) error = %q, want it to mention the removal", input, err)
+		}
+	}
+}
+
 func TestBackendString(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		in   Backend
 		want string
 	}{
-		{in: BackendKAA, want: "kaa"},
 		{in: BackendFIR, want: "fir"},
 		// Empty backend renders as the default so verbose log lines
 		// don't print a blank value when callers forget to set one.
-		// Tracks DefaultBackend symbolically so it survives flips.
 		{in: "", want: string(DefaultBackend)},
 	}
 	for _, tc := range cases {
@@ -80,16 +88,10 @@ func TestBackendString(t *testing.T) {
 
 func TestBackendJarName(t *testing.T) {
 	t.Parallel()
-	if got, want := BackendKAA.JarName(), "krit-types.jar"; got != want {
-		t.Errorf("BackendKAA.JarName() = %q, want %q", got, want)
-	}
 	if got, want := BackendFIR.JarName(), "krit-fir.jar"; got != want {
 		t.Errorf("BackendFIR.JarName() = %q, want %q", got, want)
 	}
-	// Unknown backend falls back to the KAA jar — surfacing it as an
-	// error in JarName would force every call site to handle the
-	// failure mode, but the canonical surface is ParseBackend.
-	if got := Backend("garbage").JarName(); got != "krit-types.jar" {
-		t.Errorf("unknown backend jar name should fall back to krit-types.jar, got %q", got)
+	if got, want := Backend("").JarName(), "krit-fir.jar"; got != want {
+		t.Errorf("empty backend JarName() = %q, want %q", got, want)
 	}
 }

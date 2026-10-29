@@ -63,7 +63,7 @@ class PluginRuleRegistryTest {
     @Test
     fun ruleDeclaringNeedsFirLoadsSuccessfullyOnFirBackend() {
         // The whole point of the krit-fir backend: NEEDS_FIR is
-        // SUPPORTED here. krit-types would refuse the same jar.
+        // SUPPORTED here.
         val jar = buildSampleJar(
             "FirRule",
             needs = listOf(Capability.NEEDS_FIR.name),

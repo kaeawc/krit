@@ -77,10 +77,10 @@ func sharedCheckVerified(data []byte) bool {
 
 // startCheckRider writes the rider's request for the oracle process and
 // returns the krit-fir arguments that point at it. Nil when opts carries no
-// rider or the backend is not krit-fir.
+// rider.
 func startCheckRider(opts InvocationOptions) (*checkRiderRun, []string, error) {
 	rider := opts.CheckRider
-	if rider == nil || rider.Prepare == nil || opts.Backend != BackendFIR {
+	if rider == nil || rider.Prepare == nil {
 		return nil, nil, nil
 	}
 	body, deliver := rider.Prepare()

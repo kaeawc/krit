@@ -19,8 +19,8 @@ import (
 //  2. The `CLASSPATH` env var, split on the platform path separator
 //
 // Empty result is fine: the daemon falls back to source-tree
-// dependency discovery — same shape the KAA backend uses today, so
-// projects without an explicit classpath still analyze.
+// dependency discovery, so projects without an explicit classpath
+// still analyze.
 //
 // Path validity is not checked here. The Kotlin side opens what we
 // hand it; missing entries surface as resolution errors inside the

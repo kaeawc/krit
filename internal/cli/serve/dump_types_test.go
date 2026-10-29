@@ -11,7 +11,7 @@ import (
 )
 
 // TestDumpTypesVerb_NoJarReturnsExitCode2 pins the no-os.Exit contract
-// for the dump-types daemon verb: when no krit-types.jar can be located
+// for the dump-types daemon verb: when no krit-fir.jar can be located
 // (which is the case under t.TempDir() roots), the verb must surface
 // exit code 2 with an explanatory stderr line — not crash the daemon
 // process. Mirrors TestListRulesVerb_BadMaturityReturnsExitCode2's
@@ -34,10 +34,10 @@ func TestDumpTypesVerb_NoJarReturnsExitCode2(t *testing.T) {
 		t.Fatalf("call: %v", err)
 	}
 	if got.ExitCode != 2 {
-		t.Fatalf("expected exit 2 for missing krit-types.jar, got %d (stderr=%q)",
+		t.Fatalf("expected exit 2 for missing krit-fir.jar, got %d (stderr=%q)",
 			got.ExitCode, string(got.Stderr))
 	}
-	if !strings.Contains(string(got.Stderr), "krit-types.jar not found") {
+	if !strings.Contains(string(got.Stderr), "krit-fir.jar not found") {
 		t.Errorf("expected jar-not-found stderr; got %q", string(got.Stderr))
 	}
 }
@@ -78,14 +78,14 @@ func TestDumpTypesVerb_PathsDefaultToRoot(t *testing.T) {
 	}, &got); err != nil {
 		t.Fatalf("call: %v", err)
 	}
-	// Without krit-types.jar the call still fails with exit 2; the
+	// Without krit-fir.jar the call still fails with exit 2; the
 	// assertion is that the daemon reached the jar-lookup phase at
 	// all (i.e. didn't reject the empty Paths up front).
 	if got.ExitCode != 2 {
 		t.Fatalf("expected exit 2 for missing jar against root, got %d (stderr=%q)",
 			got.ExitCode, string(got.Stderr))
 	}
-	if !strings.Contains(string(got.Stderr), "krit-types.jar not found") {
+	if !strings.Contains(string(got.Stderr), "krit-fir.jar not found") {
 		t.Errorf("expected jar-not-found stderr against root; got %q", string(got.Stderr))
 	}
 }
@@ -96,7 +96,7 @@ func TestDumpTypesVerb_PathsDefaultToRoot(t *testing.T) {
 // produce the same stderr banner and exit code so users see no
 // behavioural drift when a daemon happens to be reachable.
 //
-// The test runs in a bare TempDir where no krit-types.jar can be
+// The test runs in a bare TempDir where no krit-fir.jar can be
 // located — the dump fails identically on both paths with exit 2 plus
 // the documented "jar not found" line. This is the only equivalence
 // check we can run without a JVM in the test environment; the JVM

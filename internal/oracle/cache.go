@@ -1,6 +1,6 @@
 package oracle
 
-// On-disk incremental cache for the krit-types oracle.
+// On-disk incremental cache for the krit-fir oracle.
 //
 // Each source .kt file's analysis result is stored as a content-addressable
 // JSON entry keyed by the content hash of its bytes. The primary disk backend
@@ -118,6 +118,10 @@ func recordOracleDir(cacheDir string) {
 // oracle fact hash.
 const CacheVersion = 15
 
+// legacyDeclLedgerFile is the declared-name ledger the removed krit-types
+// backend kept at the cache root. Listed so cache resets still remove it.
+const legacyDeclLedgerFile = "decl-ledger.json"
+
 // ApproximationFIRWholeCompilation marks entries written by krit-fir, whose
 // every run returns facts for the whole compilation.
 const ApproximationFIRWholeCompilation = "fir-whole-compilation"
@@ -155,31 +159,22 @@ type CacheEntry struct {
 	// is unchanged: a dependency outside the classified files changed, a
 	// file was deleted, or a library moved.
 	CompilationFingerprint string `json:"compilation_fingerprint,omitempty"`
-	// NameDigest is the digest of the declarations in other files that this
-	// file mentioned and could see when its facts were computed (see
-	// declLedger.digest). Empty means there were none. A hit whose digest
-	// against the current ledger differs is re-analyzed: a declaration it
-	// can see was added, removed, or re-signed, which its dependency closure
-	// cannot notice. Set on krit-types entries only.
-	NameDigest string `json:"name_digest,omitempty"`
 	// Crashed marks this entry as a poison marker: the file with this
-	// exact content deterministically crashes krit-types during analysis.
+	// exact content deterministically crashes krit-fir during analysis.
 	// FileResult and PerFileDeps are nil for crash entries; they contribute
 	// nothing to the assembled oracle. ClassifyFiles still returns them as
 	// hits so the caller skips JVM launch. Invalidated automatically on a
 	// content-hash change (content edit) or a CacheVersion bump (Kotlin or
-	// krit-types upgrade).
+	// krit-fir upgrade).
 	Crashed    bool   `json:"crashed,omitempty"`
 	CrashError string `json:"crash_error,omitempty"`
 }
 
 // CacheClosure records this file's transitive source-file dependencies and the
-// fingerprint computed over their content at write time. PropagatingDepPaths
-// retains the direct edges through which a dependent's closure may continue.
+// fingerprint computed over their content at write time.
 type CacheClosure struct {
-	DepPaths            []string `json:"dep_paths"`
-	PropagatingDepPaths []string `json:"propagating_dep_paths,omitempty"`
-	Fingerprint         string   `json:"fingerprint"`
+	DepPaths    []string `json:"dep_paths"`
+	Fingerprint string   `json:"fingerprint"`
 }
 
 // CacheDir returns the cache root for a repo. The directory is created if
@@ -202,9 +197,9 @@ func CacheDir(repoDir string) (string, error) {
 		// Settings-scoped entry directories are versioned with the root: a jar
 		// or schema change removes them, and `krit cache clear` removes the root.
 		ExtraDirs: []string{legacyScopesDir},
-		// The declared-name ledger describes the sources the entries were
-		// analyzed against; it goes with them.
-		ExtraFiles: []string{declLedgerFile},
+		// The declared-name ledger of the removed krit-types backend goes with
+		// the entries it described.
+		ExtraFiles: []string{legacyDeclLedgerFile},
 		Tokens:     tokens,
 	}
 	if _, err := vd.Open(); err != nil {
@@ -477,7 +472,7 @@ func writeEntryData(cacheDir string, entry *CacheEntry, data []byte) error {
 // The returned `hits` slice has one entry per hit with `FilePath` already
 // set to the canonical path (synthesized if the stored entry was written
 // for a content-identical but differently-named file). The `misses` slice
-// contains the subset of `paths` that need to be sent to krit-types.
+// contains the subset of `paths` that need to be sent to krit-fir.
 func ClassifyFiles(cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
 	return ClassifyFilesScoped(cacheDir, paths, "")
 }
@@ -579,7 +574,7 @@ func ClassifyFilesScopedV3(cacheDir string, paths []string, callFilterFingerprin
 }
 
 // AssembleOracle builds an Data from a set of cache hits plus any
-// freshly-analyzed files from a krit-types run. Dependencies are unioned
+// freshly-analyzed files from a krit-fir run. Dependencies are unioned
 // across all sources, with cache hits losing to fresh data on conflict
 // (fresh wins so a re-analysis with new classpath is reflected).
 // Crashed (poison) entries contribute nothing — they're in `hits` only so
@@ -660,7 +655,7 @@ func mergeData(parts ...*Data) *Data {
 }
 
 // CacheDepsFile is the schema of the --cache-deps-out JSON emitted by
-// krit-types. Keys in Files are source file paths. Crashed maps a file
+// krit-fir. Keys in Files are source file paths. Crashed maps a file
 // path to the short error string for files whose analyzeKtFile outer
 // catch fired — those get poison-marker entries instead of regular ones.
 type CacheDepsFile struct {
@@ -672,19 +667,6 @@ type CacheDepsFile struct {
 	// analysis. The caller sets it for whole-compilation backends; it is
 	// never read from the backend's JSON.
 	CompilationFingerprint string `json:"-"`
-	// NameDigests maps an analyzed path to the NameDigest its new entry
-	// records. The caller fills it from the declared-name ledger before the
-	// entries are written; it is never read from the backend's JSON.
-	NameDigests map[string]string `json:"-"`
-}
-
-// nameDigest returns the NameDigest to stamp on path's entry, or "" when f is
-// nil or has none.
-func (f *CacheDepsFile) nameDigest(path string) string {
-	if f == nil {
-		return ""
-	}
-	return f.NameDigests[path]
 }
 
 // approximation returns f's approximation, or "" when f is nil.
@@ -706,9 +688,8 @@ func (f *CacheDepsFile) compilationFingerprint() string {
 
 // CacheDepsEntry is one file's dep-closure fragment.
 type CacheDepsEntry struct {
-	DepPaths            []string          `json:"depPaths"`
-	PropagatingDepPaths []string          `json:"propagatingDepPaths,omitempty"`
-	PerFileDeps         map[string]*Class `json:"perFileDeps"`
+	DepPaths    []string          `json:"depPaths"`
+	PerFileDeps map[string]*Class `json:"perFileDeps"`
 }
 
 // transitiveDepPaths returns owner's closure: every direct dependency, plus
@@ -848,16 +829,14 @@ type freshEntrySize struct {
 }
 
 type freshOracleEntryJob struct {
-	path             string
-	fileResult       *File
-	depPaths         []string
-	propagatingPaths []string
-	perFileDeps      map[string]*Class
-	approximation    string
-	compilation      string
-	nameDigest       string
-	crashed          bool
-	crashError       string
+	path          string
+	fileResult    *File
+	depPaths      []string
+	perFileDeps   map[string]*Class
+	approximation string
+	compilation   string
+	crashed       bool
+	crashError    string
 }
 
 type oracleCacheHashMemo struct {
@@ -959,7 +938,6 @@ func freshOracleEntryJobs(fresh *Data, deps *CacheDepsFile) []freshOracleEntryJo
 			perFileDeps:   perFileDeps,
 			approximation: approx,
 			compilation:   deps.compilationFingerprint(),
-			nameDigest:    deps.nameDigest(path),
 		})
 	}
 	if deps != nil {
@@ -1077,7 +1055,7 @@ func (s *freshEntryWriteStats) emit(t perf.Tracker, storeBacked bool) {
 	}
 }
 
-// LoadCacheDeps reads the --cache-deps-out JSON produced by krit-types.
+// LoadCacheDeps reads the --cache-deps-out JSON produced by krit-fir.
 func LoadCacheDeps(path string) (*CacheDepsFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1090,7 +1068,7 @@ func LoadCacheDeps(path string) (*CacheDepsFile, error) {
 	return &cdf, nil
 }
 
-// WriteFreshEntries writes cache entries for the files that krit-types
+// WriteFreshEntries writes cache entries for the files that krit-fir
 // just analyzed. For each fresh FileResult, it looks up the corresponding
 // dep fragment in the CacheDepsFile, computes the closure fingerprint
 // from the current disk state of the dep paths, and writes an atomic
@@ -1185,7 +1163,6 @@ func WriteFreshEntriesWithTrackerScopedV2(
 			},
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
-			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 		}
@@ -1552,7 +1529,6 @@ func WriteFreshEntriesToStoreWithTrackerScopedV2(
 			PerFileDeps:                   perFileDeps,
 			Approximation:                 approx,
 			CompilationFingerprint:        deps.compilationFingerprint(),
-			NameDigest:                    deps.nameDigest(path),
 			CallFilterFingerprint:         callFilterFingerprint,
 			DeclarationProfileFingerprint: declarationProfileFingerprint,
 			Closure: CacheClosure{

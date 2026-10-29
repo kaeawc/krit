@@ -10748,7 +10748,7 @@
       "additionalProperties": false,
       "properties": {
         "backend": {
-          "description": "Type oracle backend: fir (krit-fir, the default) or kaa (krit-types).",
+          "description": "Type oracle backend. Only fir (krit-fir) is supported; kaa was removed.",
           "type": "string"
         },
         "classpath": {

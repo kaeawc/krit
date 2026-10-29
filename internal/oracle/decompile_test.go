@@ -161,20 +161,3 @@ func TestWriteDecompiledSourceAtomicOverwritesExistingFile(t *testing.T) {
 		t.Errorf("overwrite content = %q, want %q", string(data), "fresh\n")
 	}
 }
-
-func TestFallbackDecompilerFallsBackOnPrimaryError(t *testing.T) {
-	primary := &countingDecompiler{err: os.ErrNotExist}
-	fallback := &countingDecompiler{out: "fallback"}
-	d := FallbackDecompiler{Primary: primary, Fallback: fallback}
-
-	got, err := d.Decompile("/x.jar", "p.Q")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "fallback" {
-		t.Fatalf("got %q", got)
-	}
-	if atomic.LoadInt32(&primary.calls) != 1 || atomic.LoadInt32(&fallback.calls) != 1 {
-		t.Fatalf("unexpected calls: primary=%d fallback=%d", primary.calls, fallback.calls)
-	}
-}

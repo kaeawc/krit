@@ -444,7 +444,7 @@ object KritRunner {
             if (classpath.isNotEmpty()) {
                 // Krit's Go side reads CLASSPATH via splitEnvClasspath in
                 // internal/cli/scan/oracle_classpath.go and threads it into
-                // the FIR/KAA oracle. Setting it here is what makes
+                // the krit-fir oracle. Setting it here is what makes
                 // type-aware rules in the IDE behave the same as
                 // krit-gradle-plugin runs.
                 builder.environment()["CLASSPATH"] = KritClasspathResolver.toClasspathString(classpath)

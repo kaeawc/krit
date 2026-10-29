@@ -177,12 +177,11 @@ func TestSourceSetMayHaveChanged_CwdRelativeManifestKeys(t *testing.T) {
 	}
 }
 
-// isolateFromHelperJars keeps a daemon test off any krit-types or krit-fir jar
+// isolateFromHelperJars keeps a daemon test off any krit-fir jar
 // installed on the machine: with one present the daemon would connect to (or
 // start) a real oracle JVM instead of running the structural pipeline alone.
 func isolateFromHelperJars(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("KRIT_TYPES_JAR", "")
 	t.Setenv("KRIT_FIR_JAR", "")
 }

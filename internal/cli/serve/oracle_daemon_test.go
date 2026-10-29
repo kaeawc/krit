@@ -14,24 +14,24 @@ import (
 
 func TestEnsureOracleDaemonRestartsAfterJarReplacement(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	state := newDaemonState(root)
 	t.Cleanup(state.closeOracleDaemons)
 	first := &oracle.Daemon{}
 	second := &oracle.Daemon{}
 	fake := &fakeOracleDaemonStarter{returns: []*oracle.Daemon{first, second}}
 	state.oracleDaemonStarter = fake
-	if got, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA); err != nil || got != first {
+	if got, err := state.ensureOracleDaemon([]string{root}); err != nil || got != first {
 		t.Fatalf("first daemon = %p, err %v", got, err)
 	}
 	if err := os.WriteFile(jar, []byte("replacement"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA); err != nil || got != second {
+	if got, err := state.ensureOracleDaemon([]string{root}); err != nil || got != second {
 		t.Fatalf("replacement daemon = %p, err %v", got, err)
 	}
 	if got := fake.calls.Load(); got != 2 {
@@ -39,17 +39,17 @@ func TestEnsureOracleDaemonRestartsAfterJarReplacement(t *testing.T) {
 	}
 }
 
-// The resident krit-types daemon is keyed on the Kotlin compiler settings it
+// The resident krit-fir daemon is keyed on the Kotlin compiler settings it
 // was launched with: the same settings reuse it, changed settings get another,
 // and the daemon for the superseded settings is retired rather than kept
-// resident (a krit-types JVM costs 1-2 GB).
+// resident (an oracle JVM costs 1-2 GB).
 func TestEnsureOracleDaemonIsKeyedOnKotlinSettingsAndEvictsSuperseded(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	state := newDaemonState(root)
 	t.Cleanup(state.closeOracleDaemons)
 	plain, v20, v22 := &oracle.Daemon{}, &oracle.Daemon{}, &oracle.Daemon{}
@@ -58,7 +58,7 @@ func TestEnsureOracleDaemonIsKeyedOnKotlinSettingsAndEvictsSuperseded(t *testing
 	older := gradlemodel.KotlinSettings{LanguageVersion: "2.0", APIVersion: "2.0"}
 	newer := gradlemodel.KotlinSettings{LanguageVersion: "2.2", APIVersion: "2.2"}
 	get := func(kt ...gradlemodel.KotlinSettings) *oracle.Daemon {
-		d, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA, kt...)
+		d, err := state.ensureOracleDaemon([]string{root}, kt...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,20 +110,20 @@ func (f *fakeOracleDaemonStarter) Start(jarPath string, sourceDirs, classpath []
 }
 
 // TestEnsureOracleDaemon_GracefulDisableWhenJarMissing exercises the
-// "no krit-types.jar in the search path" code path. Callers must
+// "no krit-fir.jar in the search path" code path. Callers must
 // receive (nil, nil) so the daemon can proceed without oracle support.
 func TestEnsureOracleDaemon_GracefulDisableWhenJarMissing(t *testing.T) {
 	state := newDaemonState(t.TempDir())
 	t.Cleanup(state.closeOracleDaemons)
 
 	// FindJar walks the executable dir, project dir, and CWD looking
-	// for krit-types.jar. A pristine TempDir has none of those, so the
+	// for krit-fir.jar. A pristine TempDir has none of those, so the
 	// search returns "" and ensureOracleDaemon must NOT call the
 	// starter — verify by counting starter invocations.
 	fake := &fakeOracleDaemonStarter{}
 	state.oracleDaemonStarter = fake
 
-	d, err := state.ensureOracleDaemon([]string{state.root}, oracle.BackendKAA)
+	d, err := state.ensureOracleDaemon([]string{state.root})
 	if err != nil {
 		t.Fatalf("ensureOracleDaemon: %v", err)
 	}
@@ -268,7 +268,7 @@ func (r *recordingStarter) Start(_ string, sourceDirs, classpath []string, _ boo
 
 // The resident krit-fir oracle compiles with the classpath and source roots the
 // request's FIR checker uses (#810), is keyed on them, and retires the daemon
-// for a superseded context. krit-types keeps its walked roots and no classpath.
+// for a superseded context.
 func TestEnsureOracleDaemonForCompilesInTheCheckersContext(t *testing.T) {
 	root := t.TempDir()
 	jar := filepath.Join(root, "krit-fir.jar")
@@ -312,34 +312,34 @@ func TestEnsureOracleDaemonForCompilesInTheCheckersContext(t *testing.T) {
 	}
 }
 
-// krit-types starts and is keyed with the request's classpath too (#852): a
+// The oracle daemon starts and is keyed with the request's classpath (#852): a
 // daemon started without one must not serve a request that has one, and the
 // ping-restart keeps the classpath.
-func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
+func TestEnsureOracleDaemonForUsesAndKeysOnClasspath(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	state := newDaemonState(root)
 	t.Cleanup(state.closeOracleDaemons)
 	rec := &recordingStarter{}
 	state.oracleDaemonStarter = rec
 
-	none, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, oracleDaemonContext{})
+	none, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, oracleDaemonContext{})
 	if err != nil || none == nil {
 		t.Fatalf("daemon=%v err=%v", none, err)
 	}
 	ctx := oracleDaemonContext{Classpath: []string{"/m/a.jar"}}
-	withCP, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	withCP, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx)
 	if err != nil || withCP == none || len(rec.classpaths) != 2 {
 		t.Fatalf("a request with a classpath reused the daemon started without one (starts %d)", len(rec.classpaths))
 	}
 	if got := rec.classpaths[1]; !slices.Equal(got, ctx.Classpath) {
-		t.Fatalf("KAA daemon classpath = %v, want %v", got, ctx.Classpath)
+		t.Fatalf("daemon classpath = %v, want %v", got, ctx.Classpath)
 	}
-	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx); d != withCP || len(rec.classpaths) != 2 {
+	if d, _ := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx); d != withCP || len(rec.classpaths) != 2 {
 		t.Fatal("the same classpath must reuse the resident daemon")
 	}
 	// A dead daemon is restarted with the classpath it was started with.
@@ -349,7 +349,7 @@ func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
 		jarPath:     jar,
 		jarIdentity: oracle.JarIdentity(jar),
 		classpath:   ctx.Classpath,
-		backend:     oracle.BackendKAA,
+		backend:     oracle.BackendFIR,
 	}
 	state.pingOracleDaemon()
 	if got := rec.classpaths[len(rec.classpaths)-1]; !slices.Equal(got, ctx.Classpath) {
@@ -359,11 +359,11 @@ func TestEnsureOracleDaemonForKAAUsesAndKeysOnClasspath(t *testing.T) {
 
 func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testing.T) {
 	root := t.TempDir()
-	jar := filepath.Join(root, "krit-types.jar")
+	jar := filepath.Join(root, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("A"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	classes := filepath.Join(root, "lib", "build", "classes")
 	class := filepath.Join(classes, "com", "example", "Lib.class")
 	if err := os.MkdirAll(filepath.Dir(class), 0o755); err != nil {
@@ -386,7 +386,7 @@ func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testin
 	state.oracleDaemonStarter = rec
 	ctx := oracleDaemonContext{Classpath: []string{classes}}
 
-	first, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	first, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx)
 	if err != nil || first == nil {
 		t.Fatalf("daemon=%v err=%v", first, err)
 	}
@@ -401,7 +401,7 @@ func TestEnsureOracleDaemonForRestartsWhenClassDirectoryChangesInPlace(t *testin
 	if after := dirInfo(); after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		t.Fatalf("test setup: class directory stat changed (%v -> %v)", before.ModTime(), after.ModTime())
 	}
-	rebuilt, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendKAA, ctx)
+	rebuilt, err := state.ensureOracleDaemonFor([]string{root}, oracle.BackendFIR, ctx)
 	if err != nil || rebuilt == first || len(rec.classpaths) != 2 {
 		t.Fatalf("a recompiled class directory reused the stale daemon (starts %d)", len(rec.classpaths))
 	}

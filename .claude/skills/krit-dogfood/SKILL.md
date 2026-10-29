@@ -12,7 +12,7 @@ Use this when validating Krit against a real codebase, not just fixtures. Cross-
 Useful targets, in rough order of cost/coverage trade-off:
 
 - **playground** (`playground/` in this repo) — fastest, regression-locked via `make regression`. Use first for any pipeline/rule change.
-- **kotlin-corpus** — broader Kotlin coverage, used by `scripts/benchmark-oracle.sh` and `test(serve): report per-phase timings in kotlin-corpus benches`.
+- **kotlin-corpus** — broader Kotlin coverage, used by `test(serve): report per-phase timings in kotlin-corpus benches`.
 - **large Android app** (metro or similar) — real Android/Gradle/Compose surface, real catalog, real DI.
 - **user-supplied path** — when investigating a reported FP on the reporter's codebase.
 
@@ -68,7 +68,7 @@ After landing fixes, re-run the dogfood scan against the same target revision an
 
 - the FP cluster on that rule dropped to the expected count
 - no other rule regressed (compare finding counts per rule before/after)
-- per-phase timings did not regress meaningfully (use `krit-kaa-benchmarking` for the rigorous version)
+- per-phase timings did not regress meaningfully (use the harness in `docs/benchmarking.md` for the rigorous version)
 
 ## Reporting
 

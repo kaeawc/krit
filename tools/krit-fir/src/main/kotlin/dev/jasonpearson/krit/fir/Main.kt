@@ -81,8 +81,8 @@ fun main(args: Array<String>) {
     //            [--files LIST_FILE] [--classpath JAR[:JAR...]]
     //            [--cache-deps-out FILE]
     //            [--check-request JSON_FILE --check-out FILE]
-    // Mirrors krit-types' one-shot surface so `oracle.InvokeWithFiles`
-    // can drive either backend with the same arg vector. The check flags
+    // This is the one-shot arg vector `oracle.InvokeWithFiles` builds on
+    // the Go side. The check flags
     // run a `check` request on the same compilation (#739).
     val sources = extractCliSources(args)
     val output = extractCliValue(args, "--output", "-o")
@@ -192,7 +192,7 @@ internal fun runOneShot(
         emptyList()
     } else {
         // `--files` is a newline-delimited list of absolute paths to
-        // restrict analysis to. Same shape krit-types accepts.
+        // restrict analysis to.
         java.io.File(filesListPath).readLines().map { it.trim() }.filter { it.isNotEmpty() }
     }
     // A check request rides on the oracle's compilation when both compile the
@@ -524,7 +524,7 @@ data class CheckRequest(
     // resolved for it, for the files with a known level; exposed to checkers
     // via FirRule.minSdkFor / FirRule.targetSdkFor.
     val sdkLevels: Map<String, SdkLevels> = emptyMap(),
-    // Plugin-rule jar paths, matching krit-types' `"jars"` array in
+    // Plugin-rule jar paths, from the `"jars"` array in
     // `listPlugins` / `analyzeFile` requests.
     val pluginJars: List<String> = emptyList(),
     // analyzeFile (plugin-rule execution) payload.

@@ -210,7 +210,7 @@ func (d *Daemon) sendOnceWithin(method string, params map[string]interface{}, ti
 }
 
 // sendResult is the legacy wrapper that projects a daemon response to just
-// its Result field. Used by Analyze, AnalyzeAll, Rebuild, Ping, Checkpoint —
+// its Result field. Used by Analyze, AnalyzeAll, Rebuild, Ping —
 // methods that don't consume the Errors / CacheDeps sibling fields.
 func (d *Daemon) sendResult(method string, params map[string]interface{}) (*json.RawMessage, error) {
 	resp, err := d.send(method, params)

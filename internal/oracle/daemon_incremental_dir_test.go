@@ -7,20 +7,17 @@ import (
 )
 
 // #957: the oracle-only analyzeAll names krit-fir's bundle directory as an
-// absolute path, and only to a daemon launched as krit-fir.
-func TestAnalyzeAllWithCallFilterInNamesTheDirToKritFirOnly(t *testing.T) {
+// absolute path, and omits it when the request has none.
+func TestAnalyzeAllWithCallFilterInNamesTheDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	for _, tc := range []struct {
-		name    string
-		backend Backend
-		in      string
-		want    any
+		name string
+		in   string
+		want any
 	}{
-		{"fir", BackendFIR, filepath.Join(".krit", "fir-incremental"), filepath.Join(dir, ".krit", "fir-incremental")},
-		{"fir without a dir", BackendFIR, "", nil},
-		{"kaa", BackendKAA, ".krit/fir-incremental", nil},
-		{"unknown backend", "", ".krit/fir-incremental", nil},
+		{"relative dir", filepath.Join(".krit", "fir-incremental"), filepath.Join(dir, ".krit", "fir-incremental")},
+		{"no dir", "", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got any
@@ -31,7 +28,6 @@ func TestAnalyzeAllWithCallFilterInNamesTheDirToKritFirOnly(t *testing.T) {
 				got = req.Params["incrementalDir"]
 				return fmt.Sprintf(`{"id":%d,"result":{"version":1,"files":{}}}`, req.ID)
 			})
-			d.backend = tc.backend
 			if _, err := d.AnalyzeAllWithCallFilterIn(nil, tc.in); err != nil {
 				t.Fatal(err)
 			}

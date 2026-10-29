@@ -137,7 +137,7 @@ func TestRunStrictVerify_DetectsAddedRow(t *testing.T) {
 // runStrictVerify must surface oracle.ParseBackend's error rather
 // than silently substituting the default, otherwise a typo'd
 // AnalyzeProjectArgs.OracleBackend slips through as "matched
-// KAA on both sides" and masks any FIR-only daemon bug.
+// the default on both sides" and masks any daemon bug.
 func TestRunStrictVerify_RejectsBogusBackend(t *testing.T) {
 	root := t.TempDir()
 	writeKotlinFile(t, root, "X.kt", "package demo\n\nclass X\n")
@@ -159,55 +159,12 @@ func TestRunStrictVerify_RejectsBogusBackend(t *testing.T) {
 	}
 }
 
-// TestRunStrictVerify_KAABaselineSharesOracleDaemon pins the
-// apples-to-apples contract for KAA: the baseline must reuse the
-// daemon's resident oracle handle (same JVM, same session) so a
+// TestRunStrictVerify_FIRBaselineSharesOracleDaemon pins the
+// apples-to-apples contract: the baseline must reuse the daemon's
+// resident krit-fir oracle handle (same JVM, same session) so a
 // no-source-change comparison only exercises non-oracle resident
-// state. Two ensureOracleDaemon calls with the same backend return
-// the cached entry, so we can assert pointer equality after a
-// strict-verify run.
-//
-// Drives the helper directly: a fake starter records pointer
-// identities, and we cross-check that the slot used by the daemon
-// call is the same one runStrictVerify wires into ProjectHostState.
-func TestRunStrictVerify_KAABaselineSharesOracleDaemon(t *testing.T) {
-	root := t.TempDir()
-	seedJar(t, root, ".krit/krit-types.jar")
-	writeKotlinFile(t, root, "X.kt", "package demo\n\nclass X\n")
-
-	state := newDaemonState(root)
-	state.strictVerify = true
-	resident := &oracle.Daemon{}
-	state.oracleDaemonStarter = &fakeOracleDaemonStarter{returns: []*oracle.Daemon{resident}}
-
-	// First call seeds the cache as the daemon analyze path would.
-	if _, err := state.ensureOracleDaemon([]string{root}, oracle.BackendKAA); err != nil {
-		t.Fatalf("ensure KAA: %v", err)
-	}
-
-	// The strict-verify baseline must reuse the same slot. We can't
-	// easily peek at ProjectHostState the helper builds, but the
-	// public observable is: a second ensureOracleDaemon call from
-	// runStrictVerify must return resident without incrementing the
-	// starter call count.
-	prevCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
-	daemonCols := scanner.FindingColumns{}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	// Use OracleBackend="" which parses to DefaultBackend (KAA).
-	_, _ = state.runStrictVerify(ctx, daemon.AnalyzeProjectArgs{NoFir: true}, &daemonCols)
-	newCalls := state.oracleDaemonStarter.(*fakeOracleDaemonStarter).calls.Load()
-	if newCalls != prevCalls {
-		t.Errorf("baseline spawned a fresh starter call (%d → %d); expected to reuse the daemon's resident KAA slot", prevCalls, newCalls)
-	}
-}
-
-// TestRunStrictVerify_FIRBaselineSharesOracleDaemon mirrors the KAA
-// case for BackendFIR — the post-#586 daemon spawns krit-fir under
-// the same ensureOracleDaemon contract. Without this guard a
-// strict-verify run with --oracle-backend=fir would silently spawn
-// a second JVM for the baseline, defeating the apples-to-apples
-// intent.
+// state. Without this guard a strict-verify run would silently spawn
+// a second JVM for the baseline.
 func TestRunStrictVerify_FIRBaselineSharesOracleDaemon(t *testing.T) {
 	root := t.TempDir()
 	seedJar(t, root, ".krit/krit-fir.jar")
@@ -218,7 +175,7 @@ func TestRunStrictVerify_FIRBaselineSharesOracleDaemon(t *testing.T) {
 	resident := &oracle.Daemon{}
 	state.oracleDaemonStarter = &fakeOracleDaemonStarter{returns: []*oracle.Daemon{resident}}
 
-	if _, err := state.ensureOracleDaemon([]string{root}, oracle.BackendFIR); err != nil {
+	if _, err := state.ensureOracleDaemon([]string{root}); err != nil {
 		t.Fatalf("ensure FIR: %v", err)
 	}
 

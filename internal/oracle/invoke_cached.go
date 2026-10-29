@@ -4,10 +4,10 @@ package oracle
 //
 // InvokeCached wraps Invoke with an on-disk incremental cache keyed by
 // (content hash, closure fingerprint). On a cold run it delegates to a
-// full krit-types launch and writes per-file cache entries from the
+// full krit-fir launch and writes per-file cache entries from the
 // accompanying --cache-deps-out JSON. On a warm run it partitions source
 // files into hits (served from cache, no JVM) and misses (re-analyzed via
-// krit-types with --files LISTFILE), then assembles a merged Data
+// krit-fir with --files LISTFILE), then assembles a merged Data
 // and writes it to outputPath so existing downstream consumers
 // (oracle.Load, -output-types) keep working unchanged.
 //
@@ -55,10 +55,10 @@ func readFilterListFile(path string) (map[string]bool, error) {
 }
 
 // defaultExcludeGlobs mirrors the DEFAULT_EXCLUDE_GLOBS constant on the
-// krit-types Kotlin side. Files whose absolute path contains any of these
+// krit-fir Kotlin side. Files whose absolute path contains any of these
 // substrings are skipped by the JVM-side analyze loop; we apply the same
 // filter Go-side before classify so excluded files don't leak into the
-// miss list. If this drifts from the Kotlin default, krit-types wins
+// miss list. If this drifts from the Kotlin default, krit-fir wins
 // (the jar's filter is authoritative); Go just avoids extra work.
 var defaultExcludeSubstrings = []string{
 	"/testData/",
@@ -67,7 +67,7 @@ var defaultExcludeSubstrings = []string{
 
 // excludedByDefault returns true if path matches any default exclude
 // pattern. Uses substring matching rather than glob matching to avoid a
-// dependency; the krit-types default patterns (**/testData/** and
+// dependency; the krit-fir default patterns (**/testData/** and
 // **/test-resources/**) are semantically equivalent to "path contains
 // /testData/ or /test-resources/ as a directory segment".
 func excludedByDefault(path string) bool {
@@ -81,23 +81,20 @@ func excludedByDefault(path string) bool {
 
 // CollectKtFiles walks the given source directories and returns
 // absolute paths of all .kt files, matching what the JVM-side
-// enumeration sees (DefaultPrunedDir + gitignore + krit-types
+// enumeration sees (DefaultPrunedDir + gitignore + krit-fir
 // default exclude patterns, plus testData/test-resources).
 func CollectKtFiles(sourceDirs []string) ([]string, error) {
-	kt, _, err := collectSourceFiles(sourceDirs)
-	return kt, err
+	return collectKotlinSourceFiles(sourceDirs)
 }
 
-// collectSourceFiles is CollectKtFiles that also returns the Java sources
-// under the same roots, filtered the same way. The declared-name ledger needs
-// them: a Java type can collide with a name a Kotlin file uses.
-func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
+func collectKotlinSourceFiles(sourceDirs []string) ([]string, error) {
+	var out []string
 	seen := map[string]bool{}
 	ignoreMatchers := make(map[string]*fileignore.Matcher)
 	for _, root := range sourceDirs {
 		rootInfo, statErr := os.Stat(root)
 		if statErr != nil {
-			return nil, nil, statErr
+			return nil, statErr
 		}
 		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
 		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
@@ -114,14 +111,13 @@ func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
 				}
 				return nil
 			}
-			// Match krit-types JVM side: KtFile includes both .kt and
+			// Match the krit-fir JVM side: KtFile includes both .kt and
 			// .kts (Kotlin script — used by build-logic gradle files).
 			// Limiting Go-side collection to .kt only would cause the
 			// cache path to silently drop .kts files that the plain
 			// Invoke path would have analyzed.
 			name := info.Name()
-			isJava := strings.HasSuffix(name, ".java")
-			if !isJava && !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
+			if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
 				return nil
 			}
 			if matcher.Ignored(p, false) {
@@ -134,23 +130,19 @@ func collectSourceFiles(sourceDirs []string) (out, java []string, err error) {
 				return nil
 			}
 			seen[p] = true
-			if isJava {
-				java = append(java, p)
-			} else {
-				out = append(out, p)
-			}
+			out = append(out, p)
 			return nil
 		})
 		if walkErr != nil {
-			return nil, nil, walkErr
+			return nil, walkErr
 		}
 	}
-	return out, java, nil
+	return out, nil
 }
 
 // InvokeCached is the cache-aware variant of Invoke. It walks sourceDirs,
 // classifies .kt files into hits and misses via the on-disk cache, runs
-// krit-types only on misses (with --files + --cache-deps-out), writes new
+// krit-fir only on misses (with --files + --cache-deps-out), writes new
 // cache entries, and assembles the final oracle JSON at outputPath.
 //
 // filterListPath (optional, "" = no filter) is a path to a newline-separated
@@ -248,19 +240,18 @@ func writeFreshCacheEntries(
 
 // minUnexplainedForMismatch is how many requested files the JVM must leave
 // entirely unanswered, with no expected reason, before that is treated as a
-// request mismatch rather than as skipped sources. One is enough: krit-types
+// request mismatch rather than as skipped sources. One is enough: krit-fir
 // answers for every in-root file at or under the size limit, even an empty
 // one, a package-only file, a script or an expect declaration, so an
 // unanswered one is never a normal skip and a marker for it would hide the
 // file from later runs.
 const minUnexplainedForMismatch = 1
 
-// maxJVMSourceBytes is the largest source file the Analysis API builds a
-// KtFile for. It is IntelliJ's idea.max.intellisense.filesize default
-// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes); a larger
-// file is dropped from the source module and never answered. This is the
-// krit-types (KAA) limit; krit-fir answers oversized files, so the guard that
-// uses it is simply inactive there.
+// maxJVMSourceBytes is IntelliJ's idea.max.intellisense.filesize default
+// (FileUtilRt.getUserFileSizeLimit: 2500 KB, so 2,560,000 bytes). An
+// unanswered file above it is treated as an expected skip rather than a
+// request mismatch; krit-fir answers oversized files, so in practice the
+// guard only explains files a stale or custom jar dropped.
 const maxJVMSourceBytes = 2560000
 
 // pathUnderRoot reports whether the clean absolute path abs is root or lies
@@ -512,15 +503,12 @@ func InvokeCachedWithOptions(
 		addOracleInstant(tracker, "cacheBypass", nil, map[string]string{"reason": "cacheDirInit"})
 		return InvokeWithFilesWithOptions(jarPath, sourceDirs, outputPath, filterListPath, verbose, opts)
 	}
-	// The declared-name ledger describes source, not facts, so it lives at the
-	// cache root and is shared by every classpath and settings scope below it.
-	ledgerPath := filepath.Join(cacheDir, declLedgerFile)
 	cacheDir = legacyEntryDirForRun(s, cacheDir, opts)
 
-	var ktFiles, javaFiles []string
+	var ktFiles []string
 	if err := trackOracle(tracker, "collectKtFiles", func() error {
 		var err error
-		ktFiles, javaFiles, err = collectSourceFiles(sourceDirs)
+		ktFiles, err = collectKotlinSourceFiles(sourceDirs)
 		return err
 	}); err != nil || len(ktFiles) == 0 {
 		if verbose {
@@ -539,11 +527,6 @@ func InvokeCachedWithOptions(
 
 	compilation := wholeCompilationFingerprint(opts, sourceDirs, jarPath, tracker)
 
-	// Refresh the declared-name ledger from every collected source before the
-	// oracle filter list narrows the files: a file the filter drops can still
-	// declare a name a cached caller uses.
-	ledger := refreshDeclLedger(opts, ledgerPath, sourceDirs, ktFiles, javaFiles, tracker)
-
 	if filterListPath != "" {
 		ktFiles = applyOracleFilter(ktFiles, filterListPath, tracker, verbose)
 	}
@@ -556,8 +539,6 @@ func InvokeCachedWithOptions(
 	if len(forcedInScan) > 0 {
 		misses = append(misses, forcedInScan...)
 	}
-	hits, misses = demoteStaleNameDeps(opts, ledger, hits, misses, tracker, verbose)
-	ledger.save()
 	misses = requestCompilationRefresh(opts, hits, misses, compilation, tracker, verbose)
 	classifyElapsed := time.Since(startClassify)
 	perf.AddEntryDetails(tracker, "cacheClassify", classifyElapsed, map[string]int64{
@@ -624,8 +605,6 @@ func InvokeCachedWithOptions(
 	}
 
 	stampCacheDeps(depsFile, opts, compilation)
-	ledger.stampNameDigests(freshData, depsFile)
-	ledger.save()
 	if depsFile == nil {
 		if verbose {
 			reporter().Verbosef("verbose: no cache deps returned; cache not updated\n")
@@ -721,7 +700,7 @@ func oneShotSpelling(sourceDirs, requested []string) PathSpelling {
 }
 
 // missListLines returns the --files entries for misses: absolute, and with
-// forward slashes, which is how krit-types' virtual file system spells paths
+// forward slashes, which is how krit-fir's virtual file system spells paths
 // on every platform (Main.kt compares entries by exact equality).
 func missListLines(misses []string) []string {
 	abs := AbsolutePaths(misses)
@@ -735,8 +714,8 @@ func missListLines(misses []string) []string {
 // prepareMissTemps creates three tempfiles for the miss-run round trip:
 //
 //	missListPath — newline-separated absolute paths for --files
-//	missFreshPath — krit-types --output target (we'll read back)
-//	missDepsPath  — krit-types --cache-deps-out target (we'll read back)
+//	missFreshPath — krit-fir --output target (we'll read back)
+//	missDepsPath  — krit-fir --cache-deps-out target (we'll read back)
 //
 // The caller is responsible for removing all three.
 func prepareMissTemps(misses []string) (string, string, string, error) {
@@ -744,7 +723,7 @@ func prepareMissTemps(misses []string) (string, string, string, error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("tempfile (miss list): %w", err)
 	}
-	// krit-types matches --files entries by exact equality with the absolute
+	// krit-fir matches --files entries by exact equality with the absolute
 	// virtual file path, so a relative scan root must be absolutized here.
 	for _, p := range missListLines(misses) {
 		fmt.Fprintln(f, p)
@@ -853,7 +832,7 @@ func runKritTypesCached(
 		args = append(args, "--timings-out", timingsPath)
 	}
 	if verbose {
-		// Whatever jar the caller passed in — krit-types or krit-fir.
+		// Whatever jar the caller passed in — krit-fir.
 		reporter().Verbosef("verbose: Running oracle JVM (cached) jar=%s: %s %s\n", filepath.Base(jarPath), javaPath, strings.Join(args, " "))
 	}
 
@@ -1165,7 +1144,7 @@ func runKritTypesCachedShardedWithRunner(
 
 	for i, result := range results {
 		if result.Err != nil {
-			return nil, nil, fmt.Errorf("krit-types shard %d failed: %w", i, result.Err)
+			return nil, nil, fmt.Errorf("krit-fir shard %d failed: %w", i, result.Err)
 		}
 	}
 
@@ -1206,7 +1185,7 @@ func runKritTypesCachedShardedWithRunner(
 var missAnalyzer = runMissAnalysis
 
 // runMissAnalysis runs the miss-list analysis. The default cold-miss path is
-// one-shot krit-types with in-JVM file parallelism; explicit daemon settings
+// one-shot krit-fir with in-JVM file parallelism; explicit daemon settings
 // can still route misses through persistent daemon workers. Returns
 // (freshData, depsFile, usedDaemon, err).
 //
@@ -1258,7 +1237,7 @@ func runMissAnalysis(
 	shards := configuredKritTypesShards(len(misses))
 	if shards > 1 {
 		if verbose {
-			reporter().Verbosef("verbose: sharding miss analysis across %d krit-types JVM workers (%d files)\n", shards, len(misses))
+			reporter().Verbosef("verbose: sharding miss analysis across %d krit-fir JVM workers (%d files)\n", shards, len(misses))
 		}
 		// KRIT_TYPES_SHARDS is an explicit one-shot JVM experiment: bypass
 		// the daemon so the miss list is actually processed by multiple
@@ -1387,7 +1366,7 @@ func runMissAnalysis(
 func oneShotMissAnalysisReason(poolSize, misses int, opts InvocationOptions) (bool, string) {
 	// The generic oracle daemon registry does not key JVM target. An
 	// explicit FIR target uses the one-shot runner and its scoped cache.
-	if opts.Backend == BackendFIR && opts.JvmTarget != "" {
+	if opts.JvmTarget != "" {
 		return true, "FIR JVM target requires target-scoped compilation"
 	}
 	return shouldUseOneShotMissAnalysis(poolSize, misses)
@@ -1427,7 +1406,7 @@ func reconnectMismatchedDaemon(d *Daemon, jarPath string, sourceDirs, classpath 
 	return replacement, nil
 }
 
-// readOracleJSON parses a krit-types output file into Data. Shares
+// readOracleJSON parses a krit-fir output file into Data. Shares
 // format with oracle.Load but returns the raw struct rather than a fully
 // indexed Oracle — the caller (InvokeCached) wants to merge with cache
 // hits before indexing.

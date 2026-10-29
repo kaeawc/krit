@@ -99,31 +99,6 @@ func sortedCopy(in []string) []string {
 	return out
 }
 
-// TestExpandStaleOraclePaths_OneHopRespectsTaggedClosure: A depends on B, and
-// only B's explicitly typed body uses C, so A's tagged closure excludes C.
-// Changing C makes B stale but must not drag A in through B.
-func TestExpandStaleOraclePaths_OneHopRespectsTaggedClosure(t *testing.T) {
-	dir := t.TempDir()
-	cacheDir, err := CacheDir(dir)
-	if err != nil {
-		t.Fatalf("CacheDir: %v", err)
-	}
-	c := writeTempFile(t, dir, "C.kt", "package demo\nfun c() = 1\n")
-	b := writeTempFile(t, dir, "B.kt", "package demo\nfun b(): Int { return c() }\n")
-	a := writeTempFile(t, dir, "A.kt", "package demo\nfun a() = b()\n")
-	if _, err := WriteFreshEntries(cacheDir,
-		&Data{Version: 1, Files: map[string]*File{a: {}, b: {}, c: {}}},
-		taggedDeps(map[string][]string{a: {b}, b: {c}, c: nil}, map[string][]string{a: {b}}),
-	); err != nil {
-		t.Fatalf("WriteFreshEntries: %v", err)
-	}
-
-	got := ExpandStaleOraclePaths(nil, cacheDir, []string{a, b, c}, []string{c})
-	if want := []string{b, c}; !reflect.DeepEqual(sortedCopy(got), want) {
-		t.Fatalf("C changed: got %v, want %v (A's closure does not contain C)", got, want)
-	}
-}
-
 // The freshness gate's expansion must read exactly the entries the oracle
 // invocation writes. With Kotlin settings those live in the settings-scoped
 // legacy directory; reading the unscoped one finds nothing, seeds every file as
@@ -162,11 +137,11 @@ func TestExpandStaleOraclePaths_ReadsTheSettingsScopedLegacyDir(t *testing.T) {
 // (jar, classpath, JVM target, settings).
 func TestExpandStaleOraclePaths_ReadsTheRunsStoreScope(t *testing.T) {
 	dir := t.TempDir()
-	jar := filepath.Join(dir, "krit-types.jar")
+	jar := filepath.Join(dir, "krit-fir.jar")
 	if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KRIT_TYPES_JAR", jar)
+	t.Setenv("KRIT_FIR_JAR", jar)
 	cacheDir, err := CacheDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -178,13 +153,13 @@ func TestExpandStaleOraclePaths_ReadsTheRunsStoreScope(t *testing.T) {
 	a := writeTempFile(t, dir, "A.kt", "package demo\nfun a() = 1\n")
 	b := writeTempFile(t, dir, "B.kt", "package demo\nfun b() = a()\n")
 	c := writeTempFile(t, dir, "C.kt", "package demo\nfun c() = 3\n")
-	release := BindStoreScope(s, NewStoreScopeWithSettings(BackendKAA, jar, classpath, "", kt))
+	release := BindStoreScope(s, NewStoreScopeWithSettings(BackendFIR, jar, classpath, "", kt))
 	for path, deps := range map[string][]string{a: nil, b: {a}, c: nil} {
 		hash, _ := ContentHash(path)
 		fp, _ := closureFingerprint(deps, nil)
 		if err := WriteEntryToStore(s, &CacheEntry{
 			ContentHash: hash, FilePath: path, FileResult: &File{},
-			Closure: CacheClosure{DepPaths: deps, Fingerprint: fp}, Approximation: ApproximationKAATaggedReferences,
+			Closure: CacheClosure{DepPaths: deps, Fingerprint: fp}, Approximation: ApproximationFIRWholeCompilation,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -215,14 +190,17 @@ func TestInvokeCachedUsesTheSettingsScopedLegacyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	kt := gradlemodel.KotlinSettings{LanguageVersion: "2.1", APIVersion: "2.1"}
+	opts := InvocationOptions{Backend: BackendFIR, Kotlin: kt}
+	// Stamped with the compilation the run will compute, so a hit needs no
+	// whole-compilation refresh.
+	compilation := wholeCompilationFingerprint(opts, []string{srcDir}, "", opts.tracker())
 	if _, err := WriteFreshEntries(prepareLegacyEntryDir(cacheDir, kt, nil),
 		&Data{Version: 1, Files: map[string]*File{a: {}}},
-		&CacheDepsFile{Version: 1, Approximation: ApproximationKAATaggedReferences, Files: map[string]*CacheDepsEntry{a: {DepPaths: nil}}},
+		&CacheDepsFile{Version: 1, Approximation: ApproximationFIRWholeCompilation, CompilationFingerprint: compilation, Files: map[string]*CacheDepsEntry{a: {DepPaths: nil}}},
 	); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(repo, "types.json")
-	opts := InvocationOptions{Backend: BackendKAA, Kotlin: kt}
 	if _, err := InvokeCachedWithOptions("", []string{srcDir}, repo, out, "", false, nil, opts); err != nil {
 		t.Fatalf("a run whose entries are all in the scoped dir must be served from cache: %v", err)
 	}
@@ -230,7 +208,7 @@ func TestInvokeCachedUsesTheSettingsScopedLegacyDir(t *testing.T) {
 		t.Fatalf("no output assembled from the scoped entries: %v", err)
 	}
 	// Without settings the same repo has no entries in the base dir: it must try the JVM.
-	if _, err := InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, "other.json"), "", false, nil, InvocationOptions{Backend: BackendKAA}); err == nil {
+	if _, err := InvokeCachedWithOptions("", []string{srcDir}, repo, filepath.Join(repo, "other.json"), "", false, nil, InvocationOptions{Backend: BackendFIR}); err == nil {
 		t.Fatal("settings-free run found the settings-scoped entries")
 	}
 }

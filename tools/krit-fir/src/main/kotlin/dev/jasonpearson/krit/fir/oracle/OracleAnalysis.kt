@@ -21,10 +21,9 @@ data class AnalyzeRequest(
 )
 
 /**
- * Per-file payload returned for an analyze request. Mirrors
- * `FileResult` in `tools/krit-types/src/main/kotlin/dev/jasonpearson/krit/types/Main.kt`
- * — same field names, same semantics, so the Go-side oracle client
- * parses either backend's response with one struct. All fields default
+ * Per-file payload returned for an analyze request. Field names match
+ * the struct the Go-side oracle client (internal/oracle) decodes.
+ * All fields default
  * to empty so partially-populated payloads still serialize as
  * well-formed JSON.
  */
@@ -42,8 +41,7 @@ data class FilePayload(
 )
 
 /**
- * Class / interface / object declaration. Mirrors krit-types'
- * `ClassResult`. Optional fields (`members`, `annotations`,
+ * Class / interface / object declaration. Optional fields (`members`, `annotations`,
  * `typeParameters`, `jarPath`) default empty so partially-populated
  * payloads stay well-formed on the wire.
  */
@@ -84,7 +82,7 @@ data class ParamPayload(
 
 /**
  * Expression-level type information. Keyed by source-position string
- * in the `expressions` map. Mirrors krit-types' `ExpressionResult`.
+ * in the `expressions` map.
  */
 data class ExpressionPayload(
     val type: String,
@@ -98,13 +96,12 @@ data class ExpressionPayload(
 )
 
 /**
- * Compiler diagnostic surfaced through the analyze envelope. Mirrors
- * krit-types' `DiagnosticResult` — same field names so the Go-side
- * client parses either backend's response with one struct.
+ * Compiler diagnostic surfaced through the analyze envelope. Field
+ * names match the struct the Go-side oracle client decodes.
  *
  * `startByte` / `endByte` are 0-based UTF-8 byte offsets and are
  * emitted only when they describe a real range (`endByte > startByte`);
- * matches the omit-when-empty rule the krit-types serializer uses.
+ * omitted otherwise to keep the wire payload minimal.
  */
 data class DiagnosticPayload(
     val factoryName: String,

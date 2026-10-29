@@ -68,6 +68,6 @@ guidance.
   manifest, resource, Gradle, resolver, or oracle data and run after the needed
   indexes are available.
 - **JVM-backed rules** — use source inference first where possible and can opt
-  into Kotlin Analysis API/FIR helper facts when source analysis is not enough.
+  into FIR helper facts when source analysis is not enough.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.

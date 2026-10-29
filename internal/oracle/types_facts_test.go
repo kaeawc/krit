@@ -64,8 +64,8 @@ func TestTypesJSONSatisfiesBuildAndBackend(t *testing.T) {
 	if TypesJSONSatisfies(path, true, scope, "different-build") {
 		t.Fatal("different build reused types.json")
 	}
-	if TypesJSONSatisfies(path, true, storeScopeForToken(BackendKAA, "jar-x"), rec.BuildToken) {
-		t.Fatal("different backend reused types.json")
+	if TypesJSONSatisfies(path, true, storeScopeForToken(BackendFIR, "jar-y"), rec.BuildToken) {
+		t.Fatal("different jar reused types.json")
 	}
 }
 

@@ -100,5 +100,5 @@ func kritJVM(pid int) bool {
 		return false
 	}
 	cmd := string(output)
-	return strings.Contains(cmd, "krit-fir.jar") || strings.Contains(cmd, "krit-types.jar")
+	return strings.Contains(cmd, "krit-fir.jar")
 }

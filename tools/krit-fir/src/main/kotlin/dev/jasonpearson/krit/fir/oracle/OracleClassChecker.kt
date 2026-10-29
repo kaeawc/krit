@@ -170,8 +170,8 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
             annotations = annotationFqns(session),
         )
         is FirConstructor -> MemberPayload(
-            // `<init>` matches krit-types' canonical constructor name
-            // and is also the JVM-level signature, so Go-side consumers
+            // `<init>` is the canonical constructor name and also the
+            // JVM-level signature, so Go-side consumers
             // can pivot on the literal string.
             name = "<init>",
             kind = "constructor",
@@ -220,8 +220,8 @@ internal object OracleClassChecker : FirClassChecker(MppCheckerKind.Common) {
 
     /**
      * Maps Kotlin's visibility values to the lowercased strings the
-     * krit-types JSON shape uses. Unknown / module-local visibilities
-     * fall back to `"public"` to match krit-types' default rendering.
+     * oracle JSON shape uses. Unknown / module-local visibilities
+     * fall back to `"public"`.
      */
     private fun Visibility.toWireString(): String = when (this) {
         Visibilities.Public -> "public"

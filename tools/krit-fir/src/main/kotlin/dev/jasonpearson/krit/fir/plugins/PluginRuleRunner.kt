@@ -10,13 +10,13 @@ import dev.jasonpearson.krit.api.RuleContext
 /**
  * Driver for the `analyzeFile` RPC. Wires loaded plugin rules
  * ([PluginRuleRegistry]) through the [RuleContext] / [Finding]
- * surface that lives in `krit-rule-api`, then produces a wire-shape
- * response matching krit-types' `buildAnalyzeFileResponse`.
+ * surface that lives in `krit-rule-api`, then produces the wire-shape
+ * response the Go-side plugin client decodes.
  *
  * A FIR-backed [Resolver] is supplied to rules that declared
  * [Capability.NEEDS_RESOLVER]; rules that didn't opt in see
- * `RuleContext.resolver` as null even when a resolver is available,
- * matching krit-types' opt-in semantics.
+ * `RuleContext.resolver` as null even when a resolver is available
+ * (opt-in semantics).
  *
  * The project-scope payload contexts (`gradle`, `manifest`,
  * `resources`, `moduleIndex`, `crossFile`) still ride as null —
@@ -81,8 +81,7 @@ internal object PluginRuleRunner {
 
     /**
      * Wire representation of a finding emitted by a plugin rule.
-     * Shape matches krit-types' `PluginFinding` so the Go-side client
-     * unmarshals either backend's response with one struct.
+     * Shape matches the struct the Go-side client unmarshals.
      */
     data class PluginFinding(
         val file: String,

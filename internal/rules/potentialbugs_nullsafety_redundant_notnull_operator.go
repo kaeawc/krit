@@ -138,40 +138,6 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 	}
 }
 
-// ExpressionPositions enumerates `postfix_expression` nodes whose text
-// ends with `!!` and whose operand is a bare identifier. Those are the
-// positions the rule's check method passes to ResolveByNameFlat — and
-// therefore the only positions where a resolved oracle expression fact
-// would change the verdict.
-//
-// Used by the targeted-resolution pre-pass under --depth=thorough:
-// the dispatcher batches the union of these positions across active
-// rules, sends one resolveExpressionTypes RPC, and populates the
-// oracle's expressions map before dispatch begins. Lambda-param `!!`
-// is the pattern that lights up here: source inference can't type the
-// param, KAA can.
-//
-// Mirrors the lexical gates inside check (postfix + `!!` + simple
-// identifier) so the resolution set is tight; over-approximating
-// would still be correct but waste KAA work.
-func (r *UnnecessaryNotNullOperatorRule) ExpressionPositions(file *scanner.File) []uint32 {
-	if file == nil {
-		return nil
-	}
-	var out []uint32
-	file.FlatWalkNodes(0, "postfix_expression", func(idx uint32) {
-		if !flatPostfixHasNotNullAssertion(file, idx) {
-			return
-		}
-		receiver := strings.TrimSpace(strings.TrimSuffix(file.FlatNodeText(idx), "!!"))
-		if strings.Contains(receiver, ".") {
-			return
-		}
-		out = append(out, idx)
-	})
-	return out
-}
-
 func flatPostfixHasNotNullAssertion(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 || file.FlatType(idx) != "postfix_expression" {
 		return false

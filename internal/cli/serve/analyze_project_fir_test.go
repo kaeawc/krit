@@ -110,7 +110,7 @@ func TestBuildProjectInput_InstallsAndRunsFirStartPassOnlyForFir(t *testing.T) {
 	cfg := config.NewConfig()
 	state.cachedConfig = cfg
 
-	off, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{Paths: []string{root}, NoCache: true}, oracle.BackendKAA)
+	off, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{Paths: []string{root}, NoCache: true}, oracle.BackendFIR)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestBuildProjectInput_InstallsAndRunsFirStartPassOnlyForFir(t *testing.T) {
 		t.Fatal("no --fir: the daemon must not install a FIR findings pass")
 	}
 
-	on, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{Paths: []string{root}, NoCache: true, Fir: true}, oracle.BackendKAA)
+	on, err := state.buildProjectInput(daemon.AnalyzeProjectArgs{Paths: []string{root}, NoCache: true, Fir: true}, oracle.BackendFIR)
 	if err != nil {
 		t.Fatal(err)
 	}

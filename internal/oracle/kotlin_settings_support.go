@@ -4,29 +4,21 @@ import (
 	"archive/zip"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
-// kotlinSettingsClasses are the entries that only a krit-types / krit-fir jar
-// built with Kotlin compiler settings support contains. A jar without them
-// (an older KRIT_TYPES_JAR / KRIT_FIR_JAR override, or a stale cached jar)
-// rejects `--kotlin-arg` as an unknown argument and would fail to start, which
-// disables the oracle entirely; krit instead leaves the flags off and says so.
-var kotlinSettingsClasses = map[string]bool{
-	"dev/jasonpearson/krit/types/KotlinCompilerSettings.class":      true,
-	"dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.class": true,
-}
+// kotlinSettingsClass is the entry only a krit-fir jar built with Kotlin
+// compiler settings support contains. A jar without it (an older KRIT_FIR_JAR
+// override, or a stale cached jar) rejects `--kotlin-arg` as an unknown
+// argument and would fail to start, which disables the oracle entirely; krit
+// instead leaves the flags off and says so.
+const kotlinSettingsClass = "dev/jasonpearson/krit/fir/runner/KotlinCompilerSettings.class"
 
 // compilerPluginsClass is the entry only a krit-fir jar that understands
-// `--compiler-plugin` contains. krit-types does not load compiler plugins.
+// `--compiler-plugin` contains.
 const compilerPluginsClass = "dev/jasonpearson/krit/fir/runner/CompilerPlugins.class"
-
-// firJarPrefix marks a krit-fir jar, so a krit-fir jar that predates plugin
-// support can be told from a krit-types jar (which never supports it).
-const firJarPrefix = "dev/jasonpearson/krit/fir/"
 
 type jarSupportKey struct {
 	path  string
@@ -38,7 +30,6 @@ type jarSupportKey struct {
 type jarSupport struct {
 	kotlinSettings  bool
 	compilerPlugins bool
-	fir             bool
 }
 
 var (
@@ -51,7 +42,7 @@ var (
 // inspected (missing, not a zip) is assumed to understand all of them: the
 // launch then fails for its own reason rather than being silently downgraded.
 func inspectJar(jarPath string) jarSupport {
-	all := jarSupport{kotlinSettings: true, compilerPlugins: true, fir: true}
+	all := jarSupport{kotlinSettings: true, compilerPlugins: true}
 	info, err := os.Stat(jarPath)
 	if err != nil {
 		return all
@@ -66,9 +57,8 @@ func inspectJar(jarPath string) jarSupport {
 	if zr, err := zip.OpenReader(jarPath); err == nil {
 		support = jarSupport{}
 		for _, f := range zr.File {
-			support.kotlinSettings = support.kotlinSettings || kotlinSettingsClasses[f.Name]
+			support.kotlinSettings = support.kotlinSettings || f.Name == kotlinSettingsClass
 			support.compilerPlugins = support.compilerPlugins || f.Name == compilerPluginsClass
-			support.fir = support.fir || strings.HasPrefix(f.Name, firJarPrefix)
 		}
 		_ = zr.Close()
 	}
@@ -88,13 +78,12 @@ func JarSupportsCompilerPlugins(jarPath string) bool { return inspectJar(jarPath
 
 // KotlinLaunchArgs returns the `--kotlin-arg` flag pairs that launch jarPath
 // under kt, followed by kt's compiler plugins as `--compiler-plugin` /
-// `--compiler-plugin-option` pairs for a krit-fir jar; nil when kt is empty.
+// `--compiler-plugin-option` pairs; nil when kt is empty.
 // For a jar that predates the Kotlin settings flags it returns nil and warns
 // once on stderr: the oracle then runs under the embedded compiler's defaults
 // for that jar, which the warning states, rather than the launch failing on an
-// unknown argument. A krit-fir jar that predates plugin support gets the
-// settings without the plugins, with a warning; krit-types never loads
-// compiler plugins, so it gets the settings alone.
+// unknown argument. A jar that predates plugin support gets the settings
+// without the plugins, with a warning.
 func KotlinLaunchArgs(jarPath string, kt gradlemodel.KotlinSettings) []string {
 	args := kt.CompilerArgs()
 	if len(args) == 0 && kt.Plugins.IsZero() {
@@ -111,7 +100,7 @@ func KotlinLaunchArgs(jarPath string, kt gradlemodel.KotlinSettings) []string {
 	for _, arg := range args {
 		out = append(out, "--kotlin-arg", arg)
 	}
-	if kt.Plugins.IsZero() || !support.fir {
+	if kt.Plugins.IsZero() {
 		return out
 	}
 	if !support.compilerPlugins {

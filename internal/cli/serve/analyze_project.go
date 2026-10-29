@@ -67,12 +67,10 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		return nil, fmt.Errorf("%s (daemon=%s client=%s)", daemon.ErrBinaryHashMismatchPrefix, daemonHash, args.ClientBinaryHash)
 	}
 
-	// Validate the requested oracle backend up front so the
-	// daemon-resident OracleDaemon spawn picks the right jar.
-	// ensureOracleDaemon routes BackendKAA to krit-types and
-	// BackendFIR to krit-fir; unrecognised spellings surface as a
-	// typed ErrUnsupportedOracleBackendPrefix so the CLI falls back
-	// to in-process via runDaemonAnalyze.
+	// Validate the requested oracle backend up front. Unrecognised or
+	// removed spellings (such as "kaa") surface as a typed
+	// ErrUnsupportedOracleBackendPrefix so the CLI falls back to
+	// in-process via runDaemonAnalyze, which reports the error.
 	backend, err := oracle.ParseBackend(args.OracleBackend)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", daemon.ErrUnsupportedOracleBackendPrefix, err)
@@ -456,9 +454,8 @@ func (w *analyzeRespWriter) Write(p []byte) (int, error) {
 // buildProjectInput translates wire args into a pipeline.ProjectInput
 // against daemon-resident state. The function is the single seam
 // where CLI-flag-style knobs (rule lists, format) are wired into the
-// pipeline's typed value inputs. backend selects which JVM jar the
-// resident OracleDaemon spawns (krit-types vs krit-fir); the value
-// is parsed/validated upstream in handleAnalyzeProject.
+// pipeline's typed value inputs. backend is parsed/validated upstream
+// in handleAnalyzeProject.
 func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend oracle.Backend) (pipeline.ProjectInput, error) {
 	cfg, err := s.ensureConfig()
 	if err != nil {

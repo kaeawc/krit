@@ -22,7 +22,7 @@ import (
 // MetaResult.Stdout / Stderr / ExitCode. Plugin rules are not loaded
 // here — the CLI's daemon-compatibility gate already keeps callers
 // with --custom-rule-jars on the in-process path because plugin
-// discovery requires the krit-types JVM the daemon doesn't manage on
+// discovery requires the krit-fir JVM the daemon doesn't manage on
 // behalf of meta queries.
 func handleListRules(_ context.Context, _ *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.ListRulesArgs
@@ -103,7 +103,7 @@ func (s *daemonState) configForValidation(explicitPath string) (*config.Config, 
 // oracle-filter-fingerprint verb. Walks the requested scan paths for
 // Kotlin sources, builds the active rule set the same way the CLI
 // does (default + AllRules), and emits the JSON fingerprint report
-// the CI drift gate consumes. Does NOT invoke the krit-types JVM —
+// the CI drift gate consumes. Does NOT invoke the krit-fir JVM —
 // this is the byte-substring pre-filter only.
 func handleOracleFilterFingerprint(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.OracleFilterFingerprintArgs
@@ -157,7 +157,7 @@ func handleOracleFilterFingerprint(_ context.Context, state *daemonState, raw js
 }
 
 // handleDumpTypes implements the dump-types verb. Mirrors the CLI's
-// --output-types in-process flow: locates krit-types.jar against the
+// --output-types in-process flow: locates krit-fir.jar against the
 // requested scan paths, finds Kotlin source dirs, and writes the
 // oracle JSON dump to args.OutputPath. No rules are loaded or fired —
 // this is a standalone JVM dump, identical in shape to what

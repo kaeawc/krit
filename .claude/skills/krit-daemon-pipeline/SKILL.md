@@ -5,7 +5,7 @@ description: Use when working on Krit's daemon mode, analysis pipeline, cross-fi
 
 # Krit Daemon and Pipeline
 
-Use this when changing how the analyzer runs end-to-end — daemon residency, cache wiring, bundle reuse, delta planning, or phase timings. Cross-link with `krit-kaa-benchmarking` when the change touches the oracle's daemon lifecycle.
+Use this when changing how the analyzer runs end-to-end — daemon residency, cache wiring, bundle reuse, delta planning, or phase timings. When the change touches the oracle's daemon lifecycle, benchmark it with the harness in `docs/benchmarking.md`.
 
 ## Mental Model
 
@@ -14,7 +14,7 @@ Each scan flows through phases the dispatcher schedules after the required index
 - `CodeIndex` — source symbol/reference index
 - `TypeResolver` — source-level type resolution
 - `AnalysisCache` — per-file analysis output (write-back, lookup-side)
-- Oracle (KAA) lifecycle — resident JVM, oracle call filter classification cache
+- Oracle (krit-fir) lifecycle — resident JVM, oracle call filter classification cache
 - Findings-bundle cache — full-hit short-circuit when a bundle has not changed
 
 The `ConservativeDeltaPlanner` decides which files genuinely need rework after an edit. "Body-only" edits (structural fingerprint unchanged) take the delta path: the edited file is re-dispatched and its findings are merged into the prior bundle. Replaying the whole prior bundle is unsafe because the edited file's own findings can change (#823).
@@ -44,7 +44,7 @@ jq '.perfRuleStats' /tmp/krit.json
 Useful fields:
 
 - total duration vs per-phase duration (parse, dispatch, cross-file, android, gradle, aggregate, output)
-- KAA-related: type-oracle phase, JVM analyze phase, KAA files analyzed
+- oracle-related: type-oracle phase, JVM analyze phase, oracle files analyzed
 - daemon-only: ResolverHit, OracleFilterHit, bundle hit/miss components
 
 When a bundle misses, `diag(pipeline) report bundle miss components` (#144) emits the reason. Read that before guessing.

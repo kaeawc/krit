@@ -8,6 +8,59 @@ import (
 	"testing"
 )
 
+func TestScanAnalyzeProjectResponseClearsVerboseOutput(t *testing.T) {
+	got := AnalyzeProjectResult{VerboseOutput: "verbose: previous request\n"}
+	handled, err := ScanAnalyzeProjectResponse([]byte(`{"ok":true,"data":{"findings":[],"stats":{}}}`), &got)
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if got.VerboseOutput != "" {
+		t.Fatalf("stale verbose output: %q", got.VerboseOutput)
+	}
+}
+
+func TestScanAnalyzeProjectResponseVerboseOutputFastPath(t *testing.T) {
+	for _, fields := range []string{
+		"",
+		`,"dispatch_profile":{"workers":2}`,
+		`,"columns":{"files":[],"n":0}`,
+		`,"dispatch_profile":{"workers":2},"columns":{"files":[],"n":0}`,
+	} {
+		for _, output := range []string{"", "verbose: phase \"parse\"\nwarning: path \\source } ] café\n"} {
+			encoded, err := json.Marshal(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := []byte(`{"ok":true,"data":{"findings":[],"stats":{}` + fields + `,"verbose_output":` + string(encoded) + `}}` + "\n")
+			var envelope Response
+			if err := json.Unmarshal(line, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			var want, got AnalyzeProjectResult
+			if err := json.Unmarshal(envelope.Data, &want); err != nil {
+				t.Fatal(err)
+			}
+			handled, err := ScanAnalyzeProjectResponse(line, &got)
+			if err != nil || !handled {
+				t.Fatalf("handled=%v err=%v line=%s", handled, err, line)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("fast result = %+v, want %+v", got, want)
+			}
+		}
+	}
+}
+
+func TestScanAnalyzeProjectResponseMalformedVerboseOutputFallsBack(t *testing.T) {
+	for _, value := range []string{``, `null`, `42`, `{}`, `"unterminated`, `"bad\q"`} {
+		line := []byte(`{"ok":true,"data":{"findings":[],"stats":{},"verbose_output":` + value + `}}`)
+		var got AnalyzeProjectResult
+		if handled, err := ScanAnalyzeProjectResponse(line, &got); handled || err != nil {
+			t.Fatalf("malformed verbose value %s: handled=%v err=%v", value, handled, err)
+		}
+	}
+}
+
 // TestScanAnalyzeProjectResponse_MatchesJSONUnmarshal pins the
 // byte-identical contract: for every realistic response envelope, the
 // scanner must populate Findings/Stats with the same bytes/values

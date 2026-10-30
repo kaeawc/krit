@@ -77,6 +77,7 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 	// going through it ensures the wire output matches the
 	// non-strict-verify streaming path byte-for-byte.
 	var findingsBuf bytes.Buffer
+	resetVerboseOutput(r.in.Host.Reporter)
 	res, err := pipeline.RunProjectStreaming(ctx, r.in, &findingsBuf)
 	if err != nil {
 		return daemon.WriteErrorResponseLine(w, "strict-verify daemon format: "+err.Error())
@@ -143,6 +144,9 @@ func (r *strictVerifyAnalyzeResponse) WriteRawResponse(ctx context.Context, w io
 		return err
 	}
 	if _, err := w.Write(statsBytes); err != nil {
+		return err
+	}
+	if err := writeVerboseOutput(w, r.in.Host.Reporter); err != nil {
 		return err
 	}
 	_, err = w.Write(envelopeTail)

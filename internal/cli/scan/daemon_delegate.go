@@ -104,7 +104,11 @@ func resolveDepthForDelegation(f *scanFlags, fs *flag.FlagSet, args []string) {
 // served the scan, so a harness can tell delegation from an in-process run.
 const DaemonServedPerfMarker = "perf: served by krit daemon"
 
-func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string) (bool, int) {
+type daemonProjectClient interface {
+	AnalyzeProject(daemon.AnalyzeProjectArgs) (daemon.AnalyzeProjectResult, error)
+}
+
+func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) (bool, int) {
 	start := time.Now()
 	res, err := client.AnalyzeProject(buildDaemonAnalyzeArgs(f, paths))
 	if err != nil {
@@ -128,6 +132,9 @@ func runDaemonAnalyze(client *daemonclient.Client, f *scanFlags, paths []string)
 
 	if !*f.Quiet {
 		fmt.Fprintln(os.Stderr, "info: using daemon")
+	}
+	if *f.Verbose {
+		fmt.Fprint(os.Stderr, res.VerboseOutput)
 	}
 	if *f.Perf {
 		// Positive proof of delegation for benchmarks, which run with -q.
@@ -733,6 +740,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		Paths:                     paths,
 		Cwd:                       callerCwd(),
 		Format:                    wireFormat,
+		Verbose:                   *f.Verbose,
 		BaselinePath:              baselinePath,
 		DiffRef:                   *f.Diff,
 		MinConfidence:             *f.MinConfidence,

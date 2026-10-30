@@ -28,6 +28,54 @@ and AI agents share the warm state.
 
 See `--no-daemon` to force the cold path explicitly.
 
+The ready line's `module Kotlin files` count covers `.kt` files in the
+discovered Gradle modules' conventional `src/<source-set>/kotlin` and
+`src/<source-set>/java` roots. It is not a repository-wide inventory: Java
+files, custom source layouts, and files outside those roots are not counted.
+Consequently, `0 module Kotlin files` does not mean an empty repository. The
+scan response reports the files actually scanned separately.
+
+### Helper JVM lifetime and shutdown
+
+The Go project daemon (`krit serve`) and the JVM helpers are separate
+processes. Even a one-shot CLI invocation can leave persistent krit-fir
+helpers running: the FIR checker and cached oracle compilation can reuse or
+start TCP helpers, then release their connections without shutting down the
+JVMs. Later invocations reuse their warm compiler state. Not every scan starts
+a helper; cache hits and one-shot compilation paths can avoid one.
+
+Persistent TCP helpers exit after **30 minutes waiting for a client**. A new
+connection that sends no request has the same timeout. After its first
+request, an established connection has no read-idle timeout, so a long-lived
+client can keep a helper alive. The Go daemon's `--idle-timeout` is a separate
+timer; it does not configure these JVM timeouts.
+
+- `--no-daemon` bypasses the Go project daemon for this invocation. It neither
+  stops an existing daemon nor disables persistent FIR/oracle helpers.
+- `--no-fir-daemon` makes the FIR **checker** use a one-shot JVM. It does not
+  disable the type oracle's helper or stop helpers already running.
+- To avoid persistent helper startup for an in-process scan, combine
+  `--no-daemon --no-fir-daemon --no-type-oracle` (without custom rule jars).
+  This loses JVM-backed oracle facts while retaining the one-shot FIR checker.
+- `KRIT_EPHEMERAL_DAEMONS=1` scopes **newly started** TCP helpers to their
+  launching process: they poll parent liveness every two seconds and use a
+  two-minute client-wait timeout. It does not retroactively change a reused
+  persistent helper.
+
+`krit daemon stop --repo .` stops the Go project daemon. On graceful shutdown
+it closes its oracle handles: owned JVMs shut down, while reused/shared JVMs
+only lose that connection. This is not a stop-all command for independently
+persistent helpers. There is no dedicated CLI command to stop all FIR/oracle
+JVMs.
+
+To stop a remaining helper immediately, inspect its PID record in
+`~/.krit/cache/daemons/` (or `KRIT_DAEMON_REGISTRY_DIR` when set). Oracle records
+use `*.pid`; FIR checker records use `*.krit-fir.pid`. Verify the live process
+with `ps -p PID -o pid=,args=` and confirm that its jar and source arguments
+belong to the intended project before sending `kill -TERM PID`. Do not signal
+a PID solely because a record exists: it can be stale or reused. Otherwise,
+release clients and let the helper's idle timeout stop it.
+
 ## Filesystem watching
 
 When the daemon is running, it watches the project tree for edits and
@@ -112,8 +160,9 @@ krit serve --idle-timeout 10m      # default 30m, 0 disables
 ```
 
 Daemon auto-shuts down after this much time without a request. The next call
-spins it back up with `krit --daemon`. Useful on laptops to avoid keeping a
-warm JVM-attached process alive overnight.
+spins it back up with `krit --daemon`. Useful on laptops to avoid keeping the
+Go project daemon alive overnight; shared JVM helpers have their own lifetime
+(see above).
 
 ## Limit the work per scan
 
@@ -181,8 +230,10 @@ back to a full compile. See
 
 ### `--no-fir-daemon`
 
-Forces one-shot mode for the FIR checker — no persistent daemon. Useful for
-hermetic CI runners that won't tolerate stray processes.
+Forces one-shot mode for the FIR checker — no persistent checker daemon.
+The type oracle can still use its own persistent helper, and already-running
+helpers are not stopped. See [Helper JVM lifetime and shutdown](#helper-jvm-lifetime-and-shutdown)
+for combinations suitable for hermetic CI runners.
 
 ## On-disk caches
 

@@ -33,6 +33,7 @@ type Prefetch struct {
 	files       map[string]bool
 	configs     string
 	compilation string
+	sourceStats map[string]sourceStat
 	resp        *CheckResponse
 }
 
@@ -111,9 +112,11 @@ func (p *Prefetch) prepare() ([]byte, func([]byte)) {
 	}
 	// Taken before the compile, so an edit made while the oracle runs
 	// leaves the response unused.
+	sourceStats := captureSourceStats(checkCompilationSources(c.SourceDirs, plan.requested))
 	compilation := checkCompilation(c.SourceDirs, plan.requested, c.Classpath, c.JarPath)
 	p.mu.Lock()
 	p.plan, p.files, p.configs, p.compilation, p.resp = plan, files, configsKey(plan.configs), compilation, nil
+	p.sourceStats = sourceStats
 	p.mu.Unlock()
 	return request, func(data []byte) {
 		resp, err := decodeCheckResponse(data, prefetchRequestID, spelling)
@@ -138,6 +141,7 @@ func (p *Prefetch) response(jarPath string, target CompileTarget, files, sourceD
 	}
 	p.mu.Lock()
 	resp, plan, planned, configs, compilation := p.resp, p.plan, p.files, p.configs, p.compilation
+	sourceStats := p.sourceStats
 	p.mu.Unlock()
 	c := p.checker
 	if resp == nil || jarPath != c.JarPath || !sameCompileTarget(target, c.CompileTarget()) ||
@@ -153,7 +157,7 @@ func (p *Prefetch) response(jarPath string, target CompileTarget, files, sourceD
 	if !sameFacts(facts.forFiles(files), plan.facts.forFiles(files), files) {
 		return nil, false
 	}
-	if checkCompilation(sourceDirs, files, classpath, jarPath) != compilation {
+	if checkCompilation(sourceDirs, files, classpath, jarPath) != compilation || !sourceStatsUnchanged(sourceStats) {
 		return nil, false
 	}
 	return resp, true

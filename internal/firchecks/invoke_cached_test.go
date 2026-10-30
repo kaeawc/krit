@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	_ "github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -223,5 +224,81 @@ func TestCheckCacheFingerprint_DependencyEditInvalidatesDependent(t *testing.T) 
 	after := CheckCacheFingerprint([]string{src}, []string{dependent}, nil, "", []string{"R"}, nil, FileFacts{})
 	if hits, misses := ClassifyFilesForFingerprint(cacheDir, []string{dependent}, after); len(hits) != 0 || len(misses) != 1 {
 		t.Fatalf("dependency edit must invalidate the dependent's entry; hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestInvokeCached_UnchangedSourceWritesCache(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "Unchanged.kt")
+	if err := os.WriteFile(file, []byte("fun original() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ string, _, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
+		return &CheckResponse{Rules: []string{"MagicNumber"}}, nil
+	}
+	files := []string{file}
+	if _, err := invokeCachedWith(run, "", files, nil, nil, nil, nil, FileFacts{}, root, false, false); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := CheckCacheFingerprint(nil, files, nil, "", nil, nil, FileFacts{})
+	cacheDir, err := CacheDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits, misses := ClassifyFilesForFingerprint(cacheDir, files, fingerprint); len(hits) != 1 || len(misses) != 0 {
+		t.Fatalf("unchanged source verdict not cached: hits=%d misses=%d", len(hits), len(misses))
+	}
+}
+
+func TestInvokeCached_RestoredSourceDoesNotWriteCache(t *testing.T) {
+	for _, changedName := range []string{"Requested.kt", "Dependency.kt"} {
+		t.Run(changedName, func(t *testing.T) {
+			root := t.TempDir()
+			requested := filepath.Join(root, "Requested.kt")
+			changed := filepath.Join(root, changedName)
+			original := []byte("fun original() {}\n")
+			for _, path := range []string{requested, changed} {
+				if err := os.WriteFile(path, original, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			info, err := os.Stat(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files, dirs := []string{requested}, []string{root}
+			before := CheckCacheFingerprint(dirs, files, nil, "", nil, nil, FileFacts{})
+			run := func(_ string, _, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
+				if err := os.WriteFile(changed, []byte("fun modified() {}\n"), 0o644); err != nil {
+					return nil, err
+				}
+				if err := os.WriteFile(changed, original, 0o644); err != nil {
+					return nil, err
+				}
+				modified := info.ModTime().Add(time.Second)
+				if err := os.Chtimes(changed, modified, modified); err != nil {
+					return nil, err
+				}
+				return &CheckResponse{Rules: []string{"MagicNumber"}}, nil
+			}
+			result, err := invokeCachedWith(run, "", files, dirs, nil, nil, nil, FileFacts{}, root, false, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(result.Rules, []string{"MagicNumber"}) {
+				t.Fatalf("fresh response not returned: rules = %v", result.Rules)
+			}
+			after := CheckCacheFingerprint(dirs, files, nil, "", nil, nil, FileFacts{})
+			if after != before {
+				t.Fatal("restored source changed the content fingerprint")
+			}
+			cacheDir, err := CacheDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if hits, misses := ClassifyFilesForFingerprint(cacheDir, files, after); len(hits) != 0 || len(misses) != 1 {
+				t.Fatalf("restored source verdict cached: hits=%d misses=%d", len(hits), len(misses))
+			}
+		})
 	}
 }

@@ -176,6 +176,7 @@ func invokeCachedWith(
 		return runUncached(run, jarPath, files, sourceDirs, classpath, rules, ruleConfigs, facts, useDaemon, verbose, target...)
 	}
 
+	sourceStats := captureSourceStats(checkCompilationSources(sourceDirs, files))
 	cacheFingerprint := CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...)
 	hits, misses := ClassifyFilesForFingerprint(cacheDir, files, cacheFingerprint)
 	if verbose {
@@ -195,7 +196,10 @@ func invokeCachedWith(
 	}
 
 	// Write new cache entries.
-	written := WriteFreshEntriesForFingerprint(cacheDir, misses, resp, cacheFingerprint)
+	written := 0
+	if CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
+		written = WriteFreshEntriesForFingerprint(cacheDir, misses, resp, cacheFingerprint)
+	}
 	if verbose && written > 0 {
 		reporter().Verbosef("verbose: fir cache: wrote %d new entries\n", written)
 	}
@@ -204,6 +208,36 @@ func invokeCachedWith(
 	result := assembleFromCache(hits)
 	result.addResponse(resp)
 	return result, nil
+}
+
+type sourceStat struct {
+	size      int64
+	mtimeNano int64
+}
+
+func captureSourceStats(files []string) map[string]sourceStat {
+	stats := make(map[string]sourceStat, len(files))
+	for _, path := range files {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil
+		}
+		stats[path] = sourceStat{size: info.Size(), mtimeNano: info.ModTime().UnixNano()}
+	}
+	return stats
+}
+
+func sourceStatsUnchanged(stats map[string]sourceStat) bool {
+	if stats == nil {
+		return false
+	}
+	for path, before := range stats {
+		info, err := os.Stat(path)
+		if err != nil || info.Size() != before.size || info.ModTime().UnixNano() != before.mtimeNano {
+			return false
+		}
+	}
+	return true
 }
 
 func runUncached(

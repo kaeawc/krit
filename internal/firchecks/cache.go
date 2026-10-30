@@ -2,14 +2,16 @@ package firchecks
 
 // cache.go — on-disk content-hash cache of FIR finding results.
 //
-// Each entry is keyed by the source file's path and content hash and stored at:
-//   {repo}/.krit/fir-cache/entries/{key[:2]}/{key[2:]}.json
+// Each entry is keyed by the source file's path, content hash, and closure
+// fingerprint and stored at:
+//   {repo}/.krit/fir-cache/entries/{pathKey[:2]}/{pathKey[2:]}/{key}.json
 // The path is part of the key: a verdict depends on where the file sits in
 // the compilation, and two files with identical content (common for small
 // files) must not share or overwrite one entry.
 //
 // Entries record the finding list plus a closure fingerprint so
-// dep-closure edits invalidate downstream entries. Poison markers for
+// dep-closure edits invalidate downstream entries without overwriting prior
+// compilation verdicts. Poison markers for
 // checker-crash files are supported via Crashed/CrashError. This is
 // directly parallel to internal/oracle/cache.go.
 
@@ -20,7 +22,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -35,7 +39,9 @@ import (
 // 7: the fingerprint covers each file's resolved minSdk / targetSdk
 // (FileFacts.SDKLevels), which checkers can now read. Entries written before
 // that never saw a build.gradle / AndroidManifest.xml edit, so drop them.
-const FirCacheVersion = 7
+// 8: storage keys include the closure fingerprint to retain prior verdicts.
+// 9: entries are grouped by path to bound fingerprint history on write.
+const FirCacheVersion = 9
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {
@@ -68,9 +74,10 @@ type FirCacheEntry struct {
 
 // Hot-path counters.
 var (
-	firCacheHits   atomic.Int64
-	firCacheMisses atomic.Int64
-	firCacheWrites atomic.Int64
+	firCacheHits    atomic.Int64
+	firCacheMisses  atomic.Int64
+	firCacheWrites  atomic.Int64
+	firCacheWriteMu sync.Mutex
 )
 
 // FirCacheStats holds snapshot counters.
@@ -110,6 +117,17 @@ func IncrementalDir(repoDir string) string {
 
 func init() {
 	cacheutil.Register(incrementalBundleCache{})
+	cacheutil.Register(findingCache{})
+}
+
+type findingCache struct{}
+
+func (findingCache) Name() string { return "fir-cache" }
+func (findingCache) Clear(ctx cacheutil.ClearContext) error {
+	if ctx.RepoDir == "" {
+		return nil
+	}
+	return os.RemoveAll(filepath.Join(ctx.RepoDir, ".krit", "fir-cache"))
 }
 
 // incrementalBundleCache lets --clear-cache remove the persisted incremental
@@ -126,15 +144,16 @@ func (incrementalBundleCache) Clear(ctx cacheutil.ClearContext) error {
 }
 
 // entryPath returns the sharded JSON path for a file's entry.
-func entryPath(cacheDir, filePath, contentHash string) string {
-	key := hashutil.HashHex([]byte(filePath + "\x00" + contentHash))
-	return filepath.Join(cacheDir, "entries", key[:2], key[2:]+".json")
+func entryPath(cacheDir, filePath, contentHash, fingerprint string) string {
+	pathKey := hashutil.HashHex([]byte(filePath))
+	key := hashutil.HashHex([]byte(filePath + "\x00" + contentHash + "\x00" + fingerprint))
+	return filepath.Join(cacheDir, "entries", pathKey[:2], pathKey[2:], key+".json")
 }
 
 // LoadCacheEntry reads the cache entry for filePath at the given content
-// hash. Returns (nil, nil) on miss.
-func LoadCacheEntry(cacheDir, filePath, hash string) (*FirCacheEntry, error) {
-	path := entryPath(cacheDir, filePath, hash)
+// hash and closure fingerprint. Returns (nil, nil) on miss.
+func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntry, error) {
+	path := entryPath(cacheDir, filePath, hash, fingerprint)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -146,7 +165,7 @@ func LoadCacheEntry(cacheDir, filePath, hash string) (*FirCacheEntry, error) {
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, fmt.Errorf("unmarshal fir cache entry: %w", err)
 	}
-	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath {
+	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath || entry.ClosureFingerprint != fingerprint {
 		os.Remove(path)
 		return nil, nil
 	}
@@ -155,7 +174,10 @@ func LoadCacheEntry(cacheDir, filePath, hash string) (*FirCacheEntry, error) {
 
 // WriteCacheEntry writes a cache entry to disk.
 func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
-	path := entryPath(cacheDir, entry.FilePath, entry.ContentHash)
+	firCacheWriteMu.Lock()
+	defer firCacheWriteMu.Unlock()
+
+	path := entryPath(cacheDir, entry.FilePath, entry.ContentHash, entry.ClosureFingerprint)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir fir cache: %w", err)
 	}
@@ -167,7 +189,70 @@ func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
 		return fmt.Errorf("write fir cache entry: %w", err)
 	}
 	firCacheWrites.Add(1)
+	return pruneCacheEntries(cacheDir, entry.FilePath)
+}
+
+const retainedFingerprintsPerPath = 3
+
+func pruneCacheEntries(cacheDir, filePath string) error {
+	type retainedEntry struct {
+		path        string
+		fingerprint string
+		modified    time.Time
+	}
+	var entries []retainedEntry
+	err := filepath.WalkDir(filepath.Dir(entryPath(cacheDir, filePath, "", "")), func(path string, item os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if item.IsDir() || filepath.Ext(path) != ".json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		entry, valid := decodeCacheEntry(data)
+		if !valid || entry.FilePath != filePath {
+			// Malformed or unrelated entries are not candidates for pruning.
+			return nil
+		}
+		info, err := item.Info()
+		if err != nil {
+			return err
+		}
+		entries = append(entries, retainedEntry{path, entry.ClosureFingerprint, info.ModTime()})
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	sort.Slice(entries, func(first, second int) bool {
+		if entries[first].modified.Equal(entries[second].modified) {
+			return entries[first].path < entries[second].path
+		}
+		return entries[first].modified.After(entries[second].modified)
+	})
+	retained := make(map[string]bool)
+	for _, entry := range entries {
+		if !retained[entry.fingerprint] && len(retained) < retainedFingerprintsPerPath {
+			retained[entry.fingerprint] = true
+		}
+		if !retained[entry.fingerprint] {
+			if err := os.Remove(entry.path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+func decodeCacheEntry(data []byte) (FirCacheEntry, bool) {
+	var entry FirCacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return FirCacheEntry{}, false
+	}
+	return entry, true
 }
 
 // ContentHash returns the hex content hash for the file at path.
@@ -222,8 +307,8 @@ func classifyFilesQuiet(cacheDir string, files []string, fingerprint string) (hi
 			misses = append(misses, p)
 			continue
 		}
-		entry, err := LoadCacheEntry(cacheDir, p, hash)
-		if err != nil || entry == nil || entry.ClosureFingerprint != fingerprint {
+		entry, err := LoadCacheEntry(cacheDir, p, hash, fingerprint)
+		if err != nil || entry == nil {
 			misses = append(misses, p)
 			continue
 		}

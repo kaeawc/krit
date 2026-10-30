@@ -161,6 +161,10 @@ func CheckCacheFingerprint(sourceDirs, files, classpath []string, jarPath string
 // checkCompilation fingerprints the compilation a check of files runs:
 // every `.kt` under sourceDirs plus the requested files, by path and content.
 func checkCompilation(sourceDirs, files, classpath []string, jarPath string) string {
+	return oracle.CompilationFingerprint(checkCompilationSources(sourceDirs, files), classpath, jarPath)
+}
+
+func checkCompilationSources(sourceDirs, files []string) []string {
 	sources := oracle.CompilationSources(sourceDirs)
 	seen := make(map[string]bool, len(sources)+len(files))
 	for _, p := range sources {
@@ -172,5 +176,5 @@ func checkCompilation(sourceDirs, files, classpath []string, jarPath string) str
 			sources = append(sources, p)
 		}
 	}
-	return oracle.CompilationFingerprint(sources, classpath, jarPath)
+	return sources
 }

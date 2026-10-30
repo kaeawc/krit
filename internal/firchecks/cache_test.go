@@ -32,7 +32,7 @@ func TestCacheRoundtrip_EmptyFindings(t *testing.T) {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
 
-	loaded, err := LoadCacheEntry(cacheDir, "/src/Foo.kt", "abc123")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Foo.kt", "abc123", "")
 	if err != nil {
 		t.Fatalf("LoadCacheEntry failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestCacheRoundtrip_WithFindings(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "/src/Bar.kt", "hash999")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Bar.kt", "hash999", "")
 	if err != nil {
 		t.Fatalf("LoadCacheEntry failed: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestLoadCacheEntry_MissOnMissing(t *testing.T) {
 	tmp := t.TempDir()
 	cacheDir, _ := CacheDir(tmp)
 
-	entry, err := LoadCacheEntry(cacheDir, "/src/Missing.kt", "nonexistent")
+	entry, err := LoadCacheEntry(cacheDir, "/src/Missing.kt", "nonexistent", "")
 	if err != nil {
 		t.Fatalf("expected nil error on miss, got %v", err)
 	}
@@ -96,7 +96,7 @@ func TestLoadCacheEntry_VersionMismatchReturnsMiss(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatalf("WriteCacheEntry failed: %v", err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "/src/Stale.kt", "stale123")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Stale.kt", "stale123", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestCachePoisonEntry(t *testing.T) {
 	if err := WriteCacheEntry(cacheDir, entry); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := LoadCacheEntry(cacheDir, "/src/Bad.kt", "crash1")
+	loaded, err := LoadCacheEntry(cacheDir, "/src/Bad.kt", "crash1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

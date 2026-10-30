@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -168,6 +169,56 @@ func TestPrefetchIsNotReusedForAnotherCompile(t *testing.T) {
 			p.check(t, files, rules)
 			if *calls != 1 {
 				t.Fatalf("own checks = %d, want 1", *calls)
+			}
+		})
+	}
+}
+
+func TestPrefetch_RestoredSourceDoesNotReuseResponse(t *testing.T) {
+	for _, changedName := range []string{"A.kt", "B.kt"} {
+		t.Run(changedName, func(t *testing.T) {
+			project := newPrefetchProject(t)
+			project.opts.KotlinPaths = []string{project.a}
+			project.checker.NoCache = false
+			project.checker.RepoDir = filepath.Dir(project.jar)
+			changed := filepath.Join(project.src, changedName)
+			original, err := os.ReadFile(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prefetch := NewPrefetch(project.opts)
+			project.checker.Prefetch = prefetch
+			rider := prefetch.Rider(project.jar, project.checker.SourceDirs, project.checker.Classpath, CompileTarget{})
+			_, deliver := rider.Prepare()
+			before := checkCompilation(project.checker.SourceDirs, project.opts.KotlinPaths, project.checker.Classpath, project.jar)
+			if err := os.WriteFile(changed, []byte("fun modified() {}\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			response := project.response(verdictRule)
+			if err := os.WriteFile(changed, original, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			modified := info.ModTime().Add(time.Second)
+			if err := os.Chtimes(changed, modified, modified); err != nil {
+				t.Fatal(err)
+			}
+			deliver(response)
+			if after := checkCompilation(project.checker.SourceDirs, project.opts.KotlinPaths, project.checker.Classpath, project.jar); after != before {
+				t.Fatal("restored source changed the content fingerprint")
+			}
+			calls := stubMisses(t, true)
+			for range 2 {
+				result := project.check(t, project.opts.KotlinPaths, []string{verdictRule})
+				if len(result.Findings) != 0 || len(result.ErrorFiles) != 0 {
+					t.Fatalf("stale prefetched verdict returned or cached: %+v", result)
+				}
+			}
+			if *calls != 1 {
+				t.Fatalf("own checks = %d, want 1 with the fresh response cached", *calls)
 			}
 		})
 	}

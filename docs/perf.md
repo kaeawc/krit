@@ -249,7 +249,7 @@ near-zero on a warm run.
 | `--no-cross-file-cache` | Cross-file index cache |
 | `--no-cache-oracle` | Incremental oracle cache (forces full JVM run) |
 | `--no-matrix-cache` | Experiment-matrix baseline cache |
-| `--clear-cache` | Delete all caches and exit |
+| `--clear-cache` | Delete all caches (including `.krit/fir-cache` and `.krit/fir-incremental`) and exit |
 | `--clear-matrix-cache` | Delete the experiment-matrix baseline cache and exit |
 | `--cache-dir PATH` | Override incremental cache directory |
 | `--store-dir PATH` | Use the unified store-backed cache |

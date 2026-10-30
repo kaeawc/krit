@@ -79,8 +79,8 @@ func TestClearCacheRemovesThePersistedIncrementalBundles(t *testing.T) {
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("fir-incremental survived --clear-cache: %v", err)
 	}
-	if _, err := os.Stat(sibling); err != nil {
-		t.Fatalf("clearing the bundles must leave other caches alone: %v", err)
+	if _, err := os.Stat(sibling); !os.IsNotExist(err) {
+		t.Fatalf("fir-cache survived --clear-cache: %v", err)
 	}
 	if err := cacheutil.ClearAll(cacheutil.ClearContext{}); err != nil {
 		t.Fatalf("no repo is a no-op: %v", err)

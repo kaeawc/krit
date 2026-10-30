@@ -207,7 +207,10 @@ enables it. `krit --daemon --fir` forwards the setting, and
 does: every Kotlin file under the JVM source roots (`src/<set>/kotlin` and
 `java`, with non-JVM Kotlin Multiplatform sets such as `jsMain` and `iosMain`
 left out), the scanned files, and `oracle.classpath` plus the `CLASSPATH`
-environment variable, on top of the bundled Kotlin stdlib. Only `.kt` files are
+environment variable, on top of the bundled Kotlin stdlib. With a Gradle model,
+dependency-project source roots are also added as compilation context, not as
+additional checked files; see [Kotlin compiler settings: known limits](kotlin-compiler-settings.md#known-limits)
+for source-set selection and fallback behavior. Only `.kt` files are
 checked: Kotlin scripts (`build.gradle.kts`, `settings.gradle.kts`, ...) and
 scanned files from a non-JVM source set are never sent to the checkers, and
 `-v` counts them as excluded.

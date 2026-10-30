@@ -60,10 +60,12 @@ it silently:
   entry (`source=embedded-default|gradle-model`, `applied`, `identity`,
   `notes`, `notApplied`).
 
-### Whole-repo compilations and module compilations
+### Scan-context compilations and module compilations
 
-The oracle and the FIR checker pass compile the whole repository as one
-compilation today, so only one set of settings can apply. Krit applies language
+The oracle and the FIR checker pass compile the selected scan roots and their
+dependency context as one compilation, not necessarily the whole repository.
+Compiler settings are still merged across the full model, so only one set of
+settings can apply. Krit applies language
 version, API version and progressive mode **only when every source set agrees**.
 Where source sets disagree (or one has no settings), that field keeps the
 embedded default and a note names the disagreeing source sets. Semantic flags
@@ -75,7 +77,7 @@ only suppress experimental-API diagnostics; the intersection can falsely
 report "This API is experimental" for code whose source set already enables
 the required marker. The union avoids those false errors, but can hide a real
 missing opt-in in another source set. A note reports differing opt-ins and
-this trade-off; the whole-repo compilation cannot validate each source set's
+this trade-off; the shared compilation cannot validate each source set's
 opt-in requirements independently.
 
 For per-module `analyzeModules` requests, `ModuleSpecsFromModel` builds one
@@ -109,7 +111,7 @@ and `-P` stay protected. Per source set Krit takes the compile task's
   `metricsDestination` options (Krit must not write build reports);
 * applies no option without a plugin jar.
 
-The whole-repo compilation loads the **union** of every source set's plugins: a
+The scan-context compilation loads the **union** of every modeled source set's plugins: a
 plugin only acts on declarations that use it, so loading it for the whole
 repository lets the source sets that need it compile cleanly without changing
 the others. One plugin artifact is never loaded in two versions (the first is
@@ -235,9 +237,25 @@ including its entries' CRCs, and every option.
 
 ## Known limits
 
-* On the `--fir` preflight path Krit does not (and did not before) read the
-  model's source roots or JVM target; only the classpath and, now, the Kotlin
-  settings come from the model there.
+The default scan, including `--fir` preflight, reads the model's source roots
+and JVM target. Compilation context includes scanned source sets, their own
+main and testFixtures sources when scanning test, androidTest, or testFixtures
+sets, and transitively referenced project dependencies' main sources (including
+generated roots). Test, androidTest, and testFixtures scans also include
+dependencies' testFixtures roots: exported project paths do not distinguish
+`testFixtures(project(...))` from ordinary project dependencies. Dependency
+sources outside the scan paths are compilation context, not additional checked
+files.
+Unscanned test and androidTest source sets and unrelated model projects are
+not added as context. Source sets explicitly covered by the scan paths remain
+included; scanning main, test and androidTest together can still produce
+cross-source-set redeclarations until the default scan uses isolated
+compilations. Missing projects or roots cannot be supplied from `projectDeps`
+alone; their source sets must be present in the exported model.
+Source-root matching resolves symlinks on both sides, falling back to absolute
+paths when resolution fails. If no source set matches any scan path, Krit falls
+back to all model source roots and reports that fallback with `--verbose`.
+
 * The legacy per-file entries are not keyed by classpath or JVM target (tracked
   in issue #827); only the store scope is.
 * The language server's workspace index uses the resident `krit-fir` oracle
@@ -245,6 +263,7 @@ including its entries' CRCs, and every option.
   the settings; a scan does.
 * Per-source-set `languageSettings` declared only on a Kotlin Multiplatform
   source set (not on the compilation's `compilerOptions`) are not read.
-* The oracle still compiles the repository as one unit; per-module requests
-  are available through `ModuleSpecsFromModel` (no production caller yet) but the default scan does not
-  use them yet.
+* The oracle still compiles the selected roots and dependency context as one
+  unit; scoped scans do not compile unrelated model projects unless no source
+  set matches. Per-module requests are available through `ModuleSpecsFromModel`,
+  but the default scan does not use them yet.

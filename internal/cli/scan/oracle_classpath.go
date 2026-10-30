@@ -115,7 +115,7 @@ func effectiveOracleClasspath(modelEntries []string, cfg *config.Config) []strin
 
 // loadGradleCompileContext supplies optional source roots and JVM target.
 // The classpath loader reports malformed model warnings separately.
-func loadGradleCompileContext(paths []string, explicit string, disabled bool) (dirs, generated []string, target string) {
+func loadGradleCompileContext(paths []string, explicit string, disabled bool, verboseOut ...io.Writer) (dirs, generated []string, target string) {
 	if disabled && explicit == "" {
 		return nil, nil, ""
 	}
@@ -123,10 +123,11 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
+	modelPaths := paths
 	if explicit != "" {
-		paths = []string{explicit}
+		modelPaths = []string{explicit}
 	}
-	for _, path := range paths {
+	for _, path := range modelPaths {
 		modelDir := explicit
 		if modelDir == "" {
 			modelDir = gradlemodel.Discover(path)
@@ -139,7 +140,11 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool) (d
 		if err != nil {
 			continue
 		}
-		dirs = append(dirs, model.SourceDirs()...)
+		roots, fallback := model.CompileSourceContext(paths)
+		if fallback && len(verboseOut) > 0 && verboseOut[0] != nil {
+			fmt.Fprintf(verboseOut[0], "gradle model: no source sets match scan paths; using all model source roots (%s)\n", modelDir)
+		}
+		dirs = append(dirs, roots...)
 		for _, project := range model.Projects {
 			for _, set := range project.SourceSets {
 				generated = append(generated, set.GeneratedSourceDirs...)

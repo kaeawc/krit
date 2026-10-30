@@ -89,8 +89,9 @@ the declaration keyword.
   intermediate set that uses declarations from a platform-level set, such
   as another intermediate set holding `actual`s, doesn't resolve those
   declarations.
-- **All modules share one compilation.** Every Gradle module's kept
-  directories are compiled together, as before.
+- **Selected roots share one compilation.** Scoped scans compile matching
+  source sets and their dependency context together, not every Gradle module.
+  If no source set matches the scan paths, all model roots are used as a fallback.
 - **FIR checker rules (`--fir`) use the same source roots.** They compile
   the kept JVM directories and the classpath like the oracle, and scanned
   files from dropped non-JVM source sets are not checked (Go's findings

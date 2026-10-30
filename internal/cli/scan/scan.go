@@ -246,33 +246,9 @@ func Run() int {
 	if tryDaemonClearMatrixCache(f, repoDir) {
 		return 0
 	}
-	if shouldPreflightFIR(f) {
-		paths := flag.Args()
-		if len(paths) == 0 {
-			paths = []string{"."}
-		}
-		model, err := PreflightFIR(ctx, paths, loadScanConfig(f), *f.GradleModel, *f.NoGradleModel, os.Stderr)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 2
-		}
-		f.modelClasspath = model
-		f.firPreflightPassed = true
-	} else if !*f.Init && !*f.Version && *f.Completions == "" {
-		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 2
-		}
-		f.modelClasspath = model
-		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel)
-	}
-	if !*f.Init && !*f.Version && *f.Completions == "" {
-		// Loaded for both branches above: the --fir preflight branch does not
-		// read the compile context (source roots, JVM target) from the model,
-		// but the language level and opt-ins must reach the compiler either way.
-		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
-		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
+	if err := loadScanGradleContext(ctx, f); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
 	}
 	if handled, code := tryDaemonDelegate(f, flag.Args(), repoDir); handled {
 		return code
@@ -292,6 +268,37 @@ func Run() int {
 
 	exitCode, _ := r.run(ctx)
 	return exitCode
+}
+
+func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
+	if shouldPreflightFIR(f) {
+		paths := flag.Args()
+		if len(paths) == 0 {
+			paths = []string{"."}
+		}
+		model, err := PreflightFIR(ctx, paths, loadScanConfig(f), *f.GradleModel, *f.NoGradleModel, os.Stderr)
+		if err != nil {
+			return err
+		}
+		f.modelClasspath = model
+		f.firPreflightPassed = true
+	} else if !*f.Init && !*f.Version && *f.Completions == "" {
+		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+		if err != nil {
+			return err
+		}
+		f.modelClasspath = model
+	}
+	if !*f.Init && !*f.Version && *f.Completions == "" {
+		var verboseOut io.Writer
+		if *f.Verbose {
+			verboseOut = os.Stderr
+		}
+		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel, verboseOut)
+		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
+		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
+	}
+	return nil
 }
 
 func shouldPreflightFIR(f *scanFlags) bool {

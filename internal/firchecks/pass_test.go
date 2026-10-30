@@ -100,6 +100,26 @@ func TestStartPassCheckerErrorKeepsGoAndReportsVerbose(t *testing.T) {
 	}
 }
 
+func TestStartPassVerboseSummaryOmitsGlobalCacheCounts(t *testing.T) {
+	ClassifyFiles(t.TempDir(), []string{"missing-from-other-request.kt"})
+	var output bytes.Buffer
+	_, err := StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: NewFakeFirChecker(), ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"}, Verbose: true, VerboseOut: &output,
+	}).Finish(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "verbose: FIR checker in ") {
+		t.Fatalf("missing FIR summary: %s", &output)
+	}
+	for _, counter := range []string{"cache hits=", "misses="} {
+		if strings.Contains(output.String(), counter) {
+			t.Fatalf("global cache counters leaked into pass summary: %s", &output)
+		}
+	}
+}
+
 func TestStartPassCancelReleasesCheckerGoroutine(t *testing.T) {
 	before := runtime.NumGoroutine()
 	entered, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{})

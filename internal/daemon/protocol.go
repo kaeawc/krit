@@ -218,7 +218,8 @@ type AnalyzeProjectArgs struct {
 	// daemon's own working directory.
 	Cwd string `json:"cwd,omitempty"`
 	// Format is the output format. Empty defaults to "json".
-	Format string `json:"format,omitempty"`
+	Format  string `json:"format,omitempty"`
+	Verbose bool   `json:"verbose,omitempty"`
 	// BaselinePath, when non-empty, points at a baseline file used
 	// to suppress known findings.
 	BaselinePath string `json:"baseline,omitempty"`
@@ -377,8 +378,9 @@ type AnalyzeProjectArgs struct {
 // `json.Unmarshal(res.Findings, &theirSchema)` with no shape change
 // from `krit -f json`.
 type AnalyzeProjectResult struct {
-	Findings json.RawMessage     `json:"findings"`
-	Stats    AnalyzeProjectStats `json:"stats"`
+	Findings      json.RawMessage     `json:"findings"`
+	Stats         AnalyzeProjectStats `json:"stats"`
+	VerboseOutput string              `json:"verbose_output,omitempty"`
 	// DispatchProfile is populated only when AnalyzeProjectArgs
 	// .ProfileDispatch is true. Empty otherwise so the response
 	// envelope keeps the {findings,stats} shape the fast-scan

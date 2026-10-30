@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -343,6 +344,9 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			return err
 		}
 	}
+	if err := writeVerboseOutput(w, r.in.Host.Reporter); err != nil {
+		return err
+	}
 	_, err = w.Write(envelopeTail)
 	return err
 }
@@ -601,6 +605,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			RequireFinalFindings: args.IncludeColumns,
 		},
 		Host: pipeline.ProjectHostState{
+			Reporter:            newVerboseReporter(args.Verbose),
 			ParseCache:          parseCache,
 			ResidentFiles:       s.workspace,
 			Tracker:             perfTracker,
@@ -665,7 +670,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// No oracle run in this request, so there is no compile to share.
 		in.Host.FIRCheckBroker.Done("type oracle disabled for this request")
 	}
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker)
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter)
 	return in, nil
 }
 
@@ -683,10 +688,13 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // firStartFindingsPass returns the pipeline hook that starts the --fir pass
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
-// Verbose output stays off: the daemon's stderr is not the caller's.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker, reporter *diag.Reporter) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
+	}
+	var verboseOut io.Writer
+	if reporter != nil {
+		verboseOut = reporter.Verbose
 	}
 	return func(ctx context.Context, parsed pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 		checker := scan.NewFIRChecker(paths, cfg, !args.NoFirDaemon, false)
@@ -697,6 +705,8 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		checker.Kotlin = args.OracleKotlin
 		opts := firchecks.PassOptions{
 			Enabled:             true,
+			Verbose:             args.Verbose,
+			VerboseOut:          verboseOut,
 			Checker:             checker,
 			ActiveRules:         parsed.ActiveRules,
 			Config:              cfg,

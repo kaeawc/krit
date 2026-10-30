@@ -248,8 +248,7 @@ func run(args []string) int {
 	} else if *noWatcherFlag {
 		watcherLine = ", watcher=off"
 	}
-	fmt.Printf("krit daemon: ready (%d files, %d modules, warm in %.1fs%s)\n",
-		state.fileCount(), state.moduleCount(), state.warmDuration.Seconds(), watcherLine)
+	fmt.Println(state.readyLine(watcherLine))
 	srv.Wait()
 	return 0
 }
@@ -1061,6 +1060,11 @@ func (s *daemonState) fileCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.files
+}
+
+func (s *daemonState) readyLine(watcherLine string) string {
+	return fmt.Sprintf("krit daemon: ready (%d module Kotlin files, %d modules, warm in %.1fs%s)",
+		s.fileCount(), s.moduleCount(), s.warmDuration.Seconds(), watcherLine)
 }
 
 func countModuleFiles(graph *module.Graph) int {

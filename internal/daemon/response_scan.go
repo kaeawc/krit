@@ -95,7 +95,11 @@ func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (
 	// stats when no profile was emitted). Populated only when the
 	// CLI passed --rule-audit / --baseline-audit / --delta —
 	// otherwise this branch is a no-op and the tail stays `}}`.
-	columnsStart, columnsEnd, tailStart, ok := scanOptionalColumns(line, profileTail)
+	columnsStart, columnsEnd, columnsTail, ok := scanOptionalColumns(line, profileTail)
+	if !ok {
+		return false, nil
+	}
+	verboseOutput, tailStart, ok := scanOptionalVerboseOutput(line, columnsTail)
 	if !ok {
 		return false, nil
 	}
@@ -103,6 +107,7 @@ func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (
 		return false, nil
 	}
 	out.Findings = append(out.Findings[:0], line[findingsStart:findingsEnd]...)
+	out.VerboseOutput = verboseOutput
 	if err := json.Unmarshal(line[statsStart:statsEnd], &out.Stats); err != nil {
 		return false, fmt.Errorf("scan response stats: %w", err)
 	}
@@ -120,6 +125,26 @@ func scanOKEnvelope(line []byte, findingsStart int, out *AnalyzeProjectResult) (
 		out.Columns = nil
 	}
 	return true, nil
+}
+
+func scanOptionalVerboseOutput(line []byte, prevEnd int) (string, int, bool) {
+	const verboseKey = `,"verbose_output":`
+	if !hasPrefixAt(line, prevEnd, verboseKey) {
+		return "", prevEnd, true
+	}
+	start := prevEnd + len(verboseKey)
+	if start >= len(line) || line[start] != '"' {
+		return "", 0, false
+	}
+	end, err := jsonValueEnd(line, start)
+	if err != nil {
+		return "", 0, false
+	}
+	var output string
+	if err := json.Unmarshal(line[start:end], &output); err != nil {
+		return "", 0, false
+	}
+	return output, end, true
 }
 
 // scanOptionalDispatchProfile walks the optional dispatch_profile

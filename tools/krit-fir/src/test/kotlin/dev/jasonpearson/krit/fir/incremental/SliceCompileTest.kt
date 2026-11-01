@@ -87,11 +87,12 @@ class SliceCompileTest {
         session.dispose()
     }
 
-    @Test fun aModuleWithACompilerErrorGetsNoSnapshotAndTheSameVerdict() {
+    @Test fun aModuleWithTooManyFilesWithErrorsGetsNoSnapshotAndTheSameVerdict() {
         baseline()
         write("Broken.kt", "package p\n\nfun broken() { missingFunction() }\n")
         val plain = full(plainSession(src))
         val session = recording()
+        session.plannerLimits = PlannerLimits(staleFraction = 0.0, staleMinFiles = 1)
         val on = full(session)
         assertTrue(plain.errorFiles.isNotEmpty())
         assertEquals(plain.errorFiles, on.errorFiles)
@@ -100,6 +101,105 @@ class SliceCompileTest {
         assertEquals("COMPILE_ERRORS: compile errors in 1 file", session.sliceFallbackDescription())
         assertEquals(1, session.incrementalState.generation, "the recording is still committed")
         assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty(), "no directory is left behind")
+    }
+
+    // #971: a few files with errors no longer cost the module its snapshot.
+    @Test fun aModuleWithAFewFilesWithErrorsGetsASnapshotOfTheOthersAndTheSameVerdict() {
+        baseline()
+        write("Broken.kt", "package p\n\nclass Holder { fun n(): Int = 1 }\nfun broken() { missingFunction() }\n")
+        write("Uses.kt", "package q\n\nimport p.Holder\n\nfun h(x: Holder) = x.n()\n")
+        val plain = full(plainSession(src))
+        val session = recording()
+        val on = full(session)
+        assertEquals(setOf(path("Broken.kt")), plain.errorFiles.keys.map { canon(it) }.toSet())
+        assertEquals(plain.errorFiles, on.errorFiles)
+        assertEquals(plain.findings.sortedBy { it.path + it.line }, on.findings.sortedBy { it.path + it.line })
+        assertEquals(plain.succeeded, on.succeeded)
+        assertEquals(plain.firstCompilerError, on.firstCompilerError)
+        val snapshot = assertNotNull(session.incrementalState.snapshot, session.sliceFallbackDescription())
+        assertEquals(null, session.sliceFallback())
+        val classes = filesUnder(snapshot.dir)
+        assertTrue(classes.any { it.endsWith("UsesKt.class") }, classes.toString())
+        assertFalse(classes.any { it.endsWith("Holder.class") || it.endsWith("BrokenKt.class") }, "the file with an error has no binary: $classes")
+        assertEquals(setOf(path("Broken.kt")), session.incrementalState.binaryStale(), "every slice compiles it from source")
+
+        // A slice resolves the left-out file's class from its source, and reports its error again.
+        write("Uses.kt", "package q\n\nimport p.Holder\n\nfun h(x: Holder) = x.n() + 1\n")
+        val edited = slice(session, "Uses.kt")
+        val reference = full(plainSession(src))
+        assertEquals(reference.verdictOf(path("Uses.kt")), edited.verdictOf(path("Uses.kt")))
+        assertEquals(reference.errorFiles.keys.map { canon(it) }.toSet(), edited.errorFiles.keys.map { canon(it) }.toSet())
+
+        // Fixed in a slice, it is clean, and still has no binary until the next snapshot.
+        write("Broken.kt", "package p\n\nclass Holder { fun n(): Int = 1 }\nfun broken() {}\n")
+        val fixed = slice(session, "Broken.kt")
+        assertTrue(fixed.errorFiles.isEmpty(), fixed.errorFiles.toString())
+        assertEquals(setOf(path("Broken.kt")), session.incrementalState.binaryStale())
+        session.dispose()
+    }
+
+    private val leftOutCases = mapOf(
+        "inner" to ("fun helper(): Int = 1" to "class Outer { inner class In(val x: Int = helper()) : Runnable { override fun run() {} }; fun make() = In() }"),
+        "subclass" to ("open class Base { open fun f(): Int = 1 }" to "class Kid : Base() { override fun f(): Int = 2 }"),
+        "inline" to ("inline fun twice(block: () -> Int): Int = block() + block()" to "fun k() = twice { 1 }"),
+        "const" to ("const val LIMIT = 3" to "fun k() = LIMIT"),
+        "sealed" to ("sealed interface Shape\nclass Circle : Shape" to "class Square : Shape\nfun a(s: Shape) = when (s) { is Circle -> 1; is Square -> 2 }"),
+        "call" to ("fun helper(): Int = 1" to "fun k() = helper()"),
+        "interface" to ("interface Api { fun x(): Int }" to "class Impl : Api { override fun x() = 1 }"),
+        "dataclass" to ("data class D(val a: Int)" to "fun k(d: D) = d.copy(a = 2).component1()"),
+        "objectRef" to ("object Obj { val v = 1 }" to "fun k() = Obj.v"),
+        "property" to ("val top: Int get() = 1" to "fun k() = top"),
+        "enum" to ("enum class E { A, B }" to "fun k(e: E) = when (e) { E.A -> 1; E.B -> 2 }"),
+        "ext" to ("fun Int.ext(): Int = this" to "fun k() = 1.ext()"),
+        "delegation" to ("interface Api { fun x(): Int; fun y(): Int = 2 }\nfun impl(): Api = object : Api { override fun x() = 1 }" to "class D(a: Api = impl()) : Api by a"),
+        "suspend" to ("suspend fun load(): Int = 1" to "suspend fun k(): Int = load() + 1"),
+        "value" to ("@JvmInline value class Id(val v: Int)" to "fun k(id: Id = Id(1)): Id = id"),
+        "enumArgs" to ("fun seed(): Int = 1" to "enum class E(val n: Int) { A(seed()), B(2) }"),
+        "lambda" to ("fun interface Cb { fun on(x: Int) }\nfun reg(cb: Cb) {}" to "fun k() { reg { println(it) }; val f: (Int) -> Int = { it + 1 } }"),
+        "annotation" to ("const val NAME = \"n\"\nannotation class Tag(val v: String)" to "@Tag(NAME) class T"),
+        "reified" to ("inline fun <reified T> kind(): String = T::class.java.name" to "fun k() = kind<String>()"),
+        "lazy" to ("fun compute(): Int = 1" to "class L { val v by lazy { compute() }; init { compute() } }"),
+        "anonymousField" to ("fun helper(): Int = 1" to "class Host { private val holder = object { val v = 1 }; fun read() = holder.v + helper() }"),
+        "objectArg" to ("fun interface Cb { fun on(x: Int) }\nfun reg(cb: Cb): Int = 1" to "class Screen { private val listener = reg(object : Cb { override fun on(x: Int) { reg(this) } }) }"),
+        "localClass" to ("fun helper(): Int = 1" to "fun k(): Any { class Local { val x = helper() }; return object { val y = Local() } }"),
+        "dataSealed" to ("sealed class Res(val code: Int)" to "data class Ok(val v: Int) : Res(200)"),
+        "companion" to ("class C { companion object { fun make() = C() } }" to "fun k() = C.make()"),
+    )
+
+    // Code in a clean file that reaches into a left-out file: the backend runs on body-stripped IR, so each still
+    // gets a snapshot, and a slice of the clean file gives the full check's verdict.
+    @Test fun cleanCodeThatReachesIntoALeftOutFileStillGetsASnapshot() {
+        for ((name, pair) in leftOutCases) {
+            val dir = tmp.resolve("case-$name").toFile()
+            dir.writeSource("Broken.kt", "package p\n\n${pair.first}\nfun broken() { missing() }\n")
+            dir.writeSource("Clean.kt", "package p\n\n${pair.second}\n")
+            val refs = kotlinFilesIn(dir).map { FileRef(it) }
+            val session = recordingSession(dir, tmp.resolve("snaps-$name").toFile())
+            try {
+                session.check(1, refs, rules)
+                assertNotNull(session.incrementalState.snapshot, "$name: ${session.sliceFallbackDescription()}")
+                val clean = canon(File(dir, "Clean.kt").path)
+                val outcome = session.sliceCheck(2, listOf(FileRef(clean)), rules)
+                val sliced = (outcome as? SliceOutcome.Checked)?.result ?: fail("$name fell back: $outcome")
+                val reference = plainSession(dir).check(3, refs, rules)
+                assertEquals(reference.verdictOf(clean), sliced.verdictOf(clean), name)
+                assertTrue(sliced.errorFiles.keys.none { canon(it) == clean }, "$name: ${sliced.errorFiles}")
+            } finally {
+                session.dispose()
+            }
+        }
+    }
+
+    @Test fun aCompileWithAnErrorInEveryFileGetsNoSnapshot() {
+        write("A.kt", "package p\n\nfun a() { missingA() }\n")
+        write("B.kt", "package p\n\nfun b() { missingB() }\n")
+        val session = recording()
+        session.plannerLimits = PlannerLimits(staleFraction = 0.0, staleMinFiles = 2)
+        val on = full(session)
+        assertEquals(2, on.errorFiles.size)
+        assertNull(session.incrementalState.snapshot)
+        assertEquals("COMPILE_ERRORS: compile errors in 2 files", session.sliceFallbackDescription())
+        session.dispose()
     }
 
     @Test fun aSnapshotThatCannotBeCreatedChangesNothingButTheSnapshot() {

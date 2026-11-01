@@ -62,10 +62,22 @@ class FirIncrementalSplitDifferentialTest {
         const val TAG = "incremental-differential"
         private val DATA = File("compiler-tests/src/test/data")
         private val HEADER_MARKERS = Regex("<![A-Za-z_][A-Za-z0-9_, ]*!>")
+        private const val LEFT_OUT_NAME = "ZzLeftOut.kt"
+        private const val LEFT_OUT_TEXT = "package krit.leftout\n\nclass LeftOut { fun n(): Int = 1 }\nfun leftOut() { missingOnPurpose() }\n"
     }
 
     @Test
-    fun onlyTieredRulesDifferBetweenFullAndSliceCompile() {
+    fun onlyTieredRulesDifferBetweenFullAndSliceCompile() = differential(leftOut = false)
+
+    /**
+     * The same differential with one more file in every module, [LEFT_OUT_NAME], which has a compiler error (#971):
+     * the snapshot then leaves that file out and is built from body-stripped IR. Every rule must still give each
+     * piece the full check's verdict, and every module whose only error is that file must get a snapshot.
+     */
+    @Test
+    fun aSnapshotThatLeavesAFileWithAnErrorOutGivesTheSameVerdicts() = differential(leftOut = true)
+
+    private fun differential(leftOut: Boolean) {
         assertTrue(DATA.isDirectory, "run from tools/krit-fir; missing ${DATA.absolutePath}")
         val sample = System.getProperty("krit.fir.differential.sample")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val only = System.getProperty("krit.fir.differential.only")?.takeIf { it.isNotBlank() }
@@ -82,13 +94,13 @@ class FirIncrementalSplitDifferentialTest {
                 .filterIndexed { i, _ -> i % sample == 0 }
                 .toList()
             val result = Result()
-            for (case in cases) compareCase(case, psi, cp, work, result)
+            for (case in cases) compareCase(case, psi, cp, work, result, leftOut)
 
             // Two-file scenarios: the declaration in B, the use in A.
             val scenarioFailures = ArrayList<String>()
             val scenarios = crossFileScenarios.filter { only == null || it.name.contains(only) || it.rule.contains(only) }
             for (s in scenarios) {
-                val diffs = diffModule(s.files, cp, File(work, "scenario"), s.config, result, withholdExternalFacts = s.withholdExternalFacts)
+                val diffs = diffModule(s.files.withLeftOut(leftOut), cp, File(work, "scenario"), s.config, result, withholdExternalFacts = s.withholdExternalFacts)
                 val byRule = TreeMap<String, MutableList<String>>()
                 for (d in diffs) for ((rule, what) in d.byRule) byRule.getOrPut(rule) { ArrayList() }.add("${d.file}: $what")
                 println("## scenario '${s.name}': ${if (byRule.isEmpty()) "same" else "differs in " + byRule.keys}")
@@ -185,7 +197,9 @@ class FirIncrementalSplitDifferentialTest {
         return KotlinCoreEnvironment.createForProduction(disposable, cfg, EnvironmentConfigFiles.JVM_CONFIG_FILES)
     }
 
-    private fun compareCase(case: File, psi: KtPsiFactory, cp: List<String>, work: File, r: Result) {
+    private fun Map<String, String>.withLeftOut(leftOut: Boolean) = if (leftOut) this + (LEFT_OUT_NAME to LEFT_OUT_TEXT) else this
+
+    private fun compareCase(case: File, psi: KtPsiFactory, cp: List<String>, work: File, r: Result, leftOut: Boolean) {
         val text = case.readText().replace(HEADER_MARKERS, "").replace("<!>", "")
         val kt = psi.createFile(case.name, text)
         val decls = kt.declarations
@@ -209,7 +223,7 @@ class FirIncrementalSplitDifferentialTest {
             pieces["P${i}_${(d.name ?: "anon").take(30)}.kt"] = header + body + "\n"
         }
         val tag = case.relativeTo(File(DATA, "diagnostic")).path
-        val diffs = diffModule(pieces, cp, File(work, "case"), emptyMap(), r, tagPrefix = tag)
+        val diffs = diffModule(pieces.withLeftOut(leftOut), cp, File(work, "case"), emptyMap(), r, tagPrefix = tag)
         for (d in diffs) {
             for ((rule, what) in d.byRule) r.diffByRule.getOrPut(rule) { ArrayList() }.add("${d.file} $what")
             if (d.errorDiff != null) r.errorDiffs += d.errorDiff
@@ -256,8 +270,10 @@ class FirIncrementalSplitDifferentialTest {
             }
             if (session.incrementalState.snapshot == null) {
                 // Compile errors (or expect/actual) have no snapshot to compare against; a clean module must have one.
-                if (ref.errorFiles.isEmpty() && session.incrementalState.fallbackReason() != SliceFallback.EXPECT_ACTUAL) {
-                    r.coldDiffs += "${sources.keys.first()}: a clean module got no snapshot (${session.incrementalState.fallbackReason()})"
+                // A module whose only error is the left-out file is clean for this purpose: it must get a snapshot.
+                val errors = ref.errorFiles.keys.filterNot { File(it).name == LEFT_OUT_NAME }
+                if (errors.isEmpty() && session.incrementalState.fallbackReason() != SliceFallback.EXPECT_ACTUAL) {
+                    r.coldDiffs += "${tagPrefix.ifEmpty { sources.keys.first() }}: a clean module got no snapshot (${session.incrementalState.fallbackReason()})"
                 }
                 return emptyList()
             }

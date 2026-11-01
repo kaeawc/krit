@@ -167,7 +167,14 @@ class CompilerPluginsTest {
 
     @Test fun thePlannerSaysWhyAModuleWithCompileErrorsHasNoSnapshot() {
         val dir = sourceDir("Model.kt" to SERIALIZABLE, "Use.kt" to USES_SERIALIZER)
+        // Without the plugin Use.kt has an error: a snapshot leaves it out and the module stays incremental (#971).
+        val few = session(dir, planning = true)
+        assertEquals("cold", few.checkAll(dir).plan?.reason)
+        assertEquals("incremental", few.checkAll(dir).plan?.path)
+
+        // Past the bound of files a snapshot leaves out, there is none, and the planner says why.
         val s = session(dir, planning = true)
+        s.plannerLimits = s.plannerLimits.copy(staleFraction = 0.0, staleMinFiles = 1)
         assertEquals("cold", s.checkAll(dir).plan?.reason)
         val warm = assertNotNull(s.checkAll(dir).plan)
         assertEquals("full", warm.path)

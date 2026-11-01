@@ -124,14 +124,14 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
             return found
         }
         // An argument that holds a local class keeps it, through [aroundClasses]; the others become `throw null`.
-        fun stripArguments(call: IrMemberAccessExpression<*>, aroundClasses: ((IrElement) -> Unit)?) {
+        fun stripArguments(call: IrMemberAccessExpression<*>, aroundClasses: ((IrExpression) -> IrExpression)?) {
             // The dispatch receiver of an inner class's call stays: it is the outer instance, not user code.
             for (i in call.arguments.indices) {
                 val parameter = call.symbol.owner.let { (it as? IrFunction)?.parameters?.getOrNull(i) }
                 if (parameter?.kind == IrParameterKind.DispatchReceiver) continue
                 val argument = call.arguments[i] ?: continue
-                if (aroundClasses != null && declaresLocalClass(argument)) aroundClasses(argument)
-                else call.arguments[i] = throwNull(argument.startOffset, argument.endOffset)
+                call.arguments[i] = if (aroundClasses != null && declaresLocalClass(argument)) aroundClasses(argument)
+                else throwNull(argument.startOffset, argument.endOffset)
             }
         }
         lateinit var stripClass: (IrClass) -> Unit
@@ -139,7 +139,7 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
         // call is replaced by `throw null`, after the arguments that hold a local class, which stay.
         fun stripAroundLocalClasses(element: IrElement) {
             if (element is IrClass) { stripClass(element); return }
-            element.transformChildrenVoid(object : IrElementTransformerVoid() {
+            val transformer = object : IrElementTransformerVoid() {
                 override fun visitClass(declaration: IrClass): IrStatement { stripClass(declaration); return declaration }
                 // An object expression is the object's class and the call of its constructor, which lowerings expect.
                 override fun visitBlock(expression: IrBlock): IrExpression {
@@ -147,7 +147,7 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
                     for (statement in expression.statements) {
                         when (statement) {
                             is IrClass -> stripClass(statement)
-                            is IrMemberAccessExpression<*> -> stripArguments(statement, ::stripAroundLocalClasses)
+                            is IrMemberAccessExpression<*> -> stripArguments(statement) { it.transform(this, null) as IrExpression }
                         }
                     }
                     return expression
@@ -157,15 +157,16 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
                     val end = expression.endOffset
                     // A constructor's delegating call stays (lowerings rewrite it); its arguments are stripped.
                     if (expression is IrDelegatingConstructorCall || expression is IrEnumConstructorCall) {
-                        stripArguments(expression, ::stripAroundLocalClasses)
+                        stripArguments(expression) { it.transform(this, null) as IrExpression }
                         return expression
                     }
                     if (!declaresLocalClass(expression)) return throwNull(start, end)
-                    val kept = expression.arguments.filterNotNull().filter(::declaresLocalClass)
-                    for (argument in kept) argument.transformChildrenVoid(this)
+                    val kept = expression.arguments.filterNotNull().filter(::declaresLocalClass).map { it.transform(this, null) as IrExpression }
                     return IrBlockImpl(start, end, builtIns.nothingType, null, kept + throwNull(start, end))
                 }
-            })
+            }
+            // The element itself goes through the transformer too when it can (an object expression), else its children.
+            if (element is IrExpression) element.transform(transformer, null) else element.transformChildrenVoid(transformer)
         }
         fun strip(declaration: IrDeclaration) {
             when (declaration) {

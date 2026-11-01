@@ -160,6 +160,7 @@ class SliceCompileTest {
         "reified" to ("inline fun <reified T> kind(): String = T::class.java.name" to "fun k() = kind<String>()"),
         "lazy" to ("fun compute(): Int = 1" to "class L { val v by lazy { compute() }; init { compute() } }"),
         "anonymousField" to ("fun helper(): Int = 1" to "class Host { private val holder = object { val v = 1 }; fun read() = holder.v + helper() }"),
+        "objectArg" to ("fun interface Cb { fun on(x: Int) }\nfun reg(cb: Cb): Int = 1" to "class Screen { private val listener = reg(object : Cb { override fun on(x: Int) { reg(this) } }) }"),
         "localClass" to ("fun helper(): Int = 1" to "fun k(): Any { class Local { val x = helper() }; return object { val y = Local() } }"),
         "dataSealed" to ("sealed class Res(val code: Int)" to "data class Ok(val v: Int) : Res(200)"),
         "companion" to ("class C { companion object { fun make() = C() } }" to "fun k() = C.make()"),

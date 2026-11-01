@@ -32,7 +32,15 @@ import org.jetbrains.kotlin.diagnostics.impl.DiagnosticsCollectorImpl
 import org.jetbrains.kotlin.fir.pipeline.AllModulesFrontendOutput
 import org.jetbrains.kotlin.cli.pipeline.jvm.JvmFir2IrPipelineArtifact
 import org.jetbrains.kotlin.ir.declarations.IrAnonymousInitializer
+import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
+import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
+import org.jetbrains.kotlin.ir.visitors.IrVisitorVoid
+import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
+import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
 import org.jetbrains.kotlin.ir.declarations.IrConstructor
 import org.jetbrains.kotlin.ir.declarations.IrParameterKind
 import org.jetbrains.kotlin.ir.declarations.IrDeclaration
@@ -40,8 +48,11 @@ import org.jetbrains.kotlin.ir.declarations.IrEnumEntry
 import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrProperty
+import org.jetbrains.kotlin.ir.expressions.IrBlock
 import org.jetbrains.kotlin.ir.expressions.IrBlockBody
+import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
 import org.jetbrains.kotlin.ir.expressions.IrDelegatingConstructorCall
+import org.jetbrains.kotlin.ir.expressions.IrEnumConstructorCall
 import org.jetbrains.kotlin.ir.expressions.IrInstanceInitializerCall
 import org.jetbrains.kotlin.ir.expressions.IrMemberAccessExpression
 import org.jetbrains.kotlin.ir.expressions.impl.IrConstImpl
@@ -92,7 +103,9 @@ private class FrontendDonePhase(
  * with `throw null` (or nothing) when [enabled] says so, which is when files were left out of the backend (#971): code that calls into a
  * left-out file (its top-level functions, its inline functions) cannot be generated without that file. A slice reads
  * the snapshot through the frontend only, which never looks at bytecode bodies: the Kotlin metadata, the signatures
- * and the constants (const initializers stay) are what it reads, and those come out of the backend unchanged.
+ * and the constants (const initializers stay) are what it reads, and those come out of the backend unchanged. A
+ * local class or anonymous object stays where it is declared, since its name can be part of a signature (an anonymous
+ * object's type) and is given while its body is lowered: around it every call is stripped, and its members too.
  */
 private class StripBodiesPhase(private val enabled: () -> Boolean) :
     PipelinePhase<JvmFir2IrPipelineArtifact, JvmFir2IrPipelineArtifact>(name = "KritStripBodies") {
@@ -102,13 +115,57 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
         val factory = builtIns.irFactory
         fun throwNull(start: Int, end: Int) =
             IrThrowImpl(start, end, builtIns.nothingType, IrConstImpl.constNull(start, end, builtIns.nothingNType))
-        fun stripArguments(call: IrMemberAccessExpression<*>) {
+        fun declaresLocalClass(element: IrElement): Boolean {
+            var found = false
+            element.acceptChildrenVoid(object : IrVisitorVoid() {
+                override fun visitElement(element: IrElement) { if (!found) element.acceptChildrenVoid(this) }
+                override fun visitClass(declaration: IrClass) { found = true }
+            })
+            return found
+        }
+        // An argument that holds a local class keeps it, through [aroundClasses]; the others become `throw null`.
+        fun stripArguments(call: IrMemberAccessExpression<*>, aroundClasses: ((IrElement) -> Unit)?) {
             // The dispatch receiver of an inner class's call stays: it is the outer instance, not user code.
             for (i in call.arguments.indices) {
                 val parameter = call.symbol.owner.let { (it as? IrFunction)?.parameters?.getOrNull(i) }
                 if (parameter?.kind == IrParameterKind.DispatchReceiver) continue
-                call.arguments[i]?.let { call.arguments[i] = throwNull(it.startOffset, it.endOffset) }
+                val argument = call.arguments[i] ?: continue
+                if (aroundClasses != null && declaresLocalClass(argument)) aroundClasses(argument)
+                else call.arguments[i] = throwNull(argument.startOffset, argument.endOffset)
             }
+        }
+        lateinit var stripClass: (IrClass) -> Unit
+        // Strips the code around the local classes of [element]: each class is stripped like any class, and every
+        // call is replaced by `throw null`, after the arguments that hold a local class, which stay.
+        fun stripAroundLocalClasses(element: IrElement) {
+            if (element is IrClass) { stripClass(element); return }
+            element.transformChildrenVoid(object : IrElementTransformerVoid() {
+                override fun visitClass(declaration: IrClass): IrStatement { stripClass(declaration); return declaration }
+                // An object expression is the object's class and the call of its constructor, which lowerings expect.
+                override fun visitBlock(expression: IrBlock): IrExpression {
+                    if (expression.origin != IrStatementOrigin.OBJECT_LITERAL) return super.visitBlock(expression)
+                    for (statement in expression.statements) {
+                        when (statement) {
+                            is IrClass -> stripClass(statement)
+                            is IrMemberAccessExpression<*> -> stripArguments(statement, ::stripAroundLocalClasses)
+                        }
+                    }
+                    return expression
+                }
+                override fun visitMemberAccess(expression: IrMemberAccessExpression<*>): IrExpression {
+                    val start = expression.startOffset
+                    val end = expression.endOffset
+                    // A constructor's delegating call stays (lowerings rewrite it); its arguments are stripped.
+                    if (expression is IrDelegatingConstructorCall || expression is IrEnumConstructorCall) {
+                        stripArguments(expression, ::stripAroundLocalClasses)
+                        return expression
+                    }
+                    if (!declaresLocalClass(expression)) return throwNull(start, end)
+                    val kept = expression.arguments.filterNotNull().filter(::declaresLocalClass)
+                    for (argument in kept) argument.transformChildrenVoid(this)
+                    return IrBlockImpl(start, end, builtIns.nothingType, null, kept + throwNull(start, end))
+                }
+            })
         }
         fun strip(declaration: IrDeclaration) {
             when (declaration) {
@@ -117,25 +174,32 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
                     declaration.getter?.let(::strip); declaration.setter?.let(::strip); declaration.backingField?.let(::strip)
                 }
                 is IrField -> if (declaration.correspondingPropertySymbol?.owner?.isConst != true) {
-                    declaration.initializer = null
+                    val initializer = declaration.initializer
+                    if (initializer != null && declaresLocalClass(initializer)) stripAroundLocalClasses(initializer)
+                    else declaration.initializer = null
                 }
                 is IrEnumEntry -> {
                     // The entry's constructor call stays (the enum lowering needs it); its arguments go.
-                    (declaration.initializerExpression?.expression as? IrMemberAccessExpression<*>)?.let(::stripArguments)
+                    declaration.initializerExpression?.let { init ->
+                        if (declaresLocalClass(init)) stripAroundLocalClasses(init)
+                        else (init.expression as? IrMemberAccessExpression<*>)?.let { stripArguments(it, null) }
+                    }
                     declaration.correspondingClass?.let(::strip)
                 }
-                is IrAnonymousInitializer -> declaration.body = factory.createBlockBody(declaration.startOffset, declaration.endOffset)
+                is IrAnonymousInitializer -> if (declaresLocalClass(declaration.body)) stripAroundLocalClasses(declaration.body) else declaration.body = factory.createBlockBody(declaration.startOffset, declaration.endOffset)
                 is IrFunction -> {
                     for (parameter in declaration.parameters) parameter.defaultValue?.let { default ->
+                        if (declaresLocalClass(default)) { stripAroundLocalClasses(default); return@let }
                         parameter.defaultValue = factory.createExpressionBody(default.startOffset, default.endOffset, throwNull(default.startOffset, default.endOffset))
                     }
                     val body = declaration.body ?: return
+                    if (declaresLocalClass(body)) { stripAroundLocalClasses(body); return }
                     // A constructor keeps its delegating call (lowerings such as the inner-class one rewrite it),
                     // with its arguments stripped, and the instance initializer call; nothing else.
                     val kept = if (declaration is IrConstructor) (body as? IrBlockBody)?.statements.orEmpty().filter {
                         it is IrDelegatingConstructorCall || it is IrInstanceInitializerCall
                     } else emptyList()
-                    for (call in kept) if (call is IrDelegatingConstructorCall) stripArguments(call)
+                    for (call in kept) if (call is IrDelegatingConstructorCall) stripArguments(call, null)
                     declaration.body = factory.createBlockBody(body.startOffset, body.endOffset).apply {
                         statements += kept.ifEmpty { listOf(throwNull(body.startOffset, body.endOffset)) }
                     }
@@ -143,6 +207,7 @@ private class StripBodiesPhase(private val enabled: () -> Boolean) :
                 else -> {}
             }
         }
+        stripClass = { strip(it) }
         for (file in input.result.irModuleFragment.files) file.declarations.toList().forEach(::strip)
         return input
     }

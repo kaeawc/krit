@@ -507,6 +507,16 @@ class AnalysisSession(
         return if (incrementalState.compileKey != compileKey()) SliceFallback.STATE_CHANGED else null
     }
 
+    /**
+     * The most files with a compiler error a snapshot leaves out (#971). Every slice compiles them from source, so
+     * past the planner's stale bound a slice would cost what the full check costs: the module then gets no snapshot.
+     */
+    internal fun maxLeftOut(moduleFiles: Int): Int {
+        val limits = plannerLimits
+        val withinFraction = (moduleFiles * limits.staleFraction / (1 + limits.staleFraction)).toInt()
+        return maxOf(limits.staleMinFiles - 1, withinFraction)
+    }
+
     /** [sliceFallback] for telemetry: its name, plus what the state knows about it (`COMPILE_ERRORS: compile errors in 6 files`). */
     internal fun sliceFallbackDescription(): String? {
         val fallback = sliceFallback() ?: return null
@@ -769,7 +779,7 @@ class AnalysisSession(
                 args.destination = snapshot.dir.path
                 args.reportOutputFiles = true
                 args.moduleName = SNAPSHOT_MODULE_NAME
-                return SnapshotBuild(snapshot, recorded.lookups)
+                return SnapshotBuild(snapshot, recorded.lookups, maxLeftOut(sources.size))
             } catch (e: Throwable) {
                 if (!isIsolatable(e)) throw e
                 snapshotFailed(e)
@@ -812,8 +822,9 @@ class AnalysisSession(
                         fullCommits++
                         committed = true
                         val snapshot = build?.takeIf { it.built }?.snapshot
-                        // A compile with errors never reaches the backend: say so, with how many files, so the
-                        // planner's fallback is visible as more than "no snapshot" (a missing compiler plugin, say).
+                        // A compile with errors the backend cannot leave out never reaches it: say so, with how many
+                        // files, so the planner's fallback is visible as more than "no snapshot" (a missing compiler
+                        // plugin, say).
                         val erroneous = build != null && !build.built && !build.frontendClean && build.failure == null
                         if (erroneous) {
                             val files = collector.errorFiles.size
@@ -821,7 +832,7 @@ class AnalysisSession(
                                 else "a compiler error not tied to a file"
                             incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, detail)
                         } else {
-                            incrementalState.attachSnapshot(snapshot, noSnapshotReason)
+                            incrementalState.attachSnapshot(snapshot, noSnapshotReason, withoutBinary = build?.leftOut.orEmpty())
                         }
                         if (snapshot != null) pendingSnapshot = null
                     }

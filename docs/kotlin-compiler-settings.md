@@ -92,9 +92,8 @@ requesting module's settings.)
 Compiler plugins (kotlinx.serialization, Compose, Parcelize, all-open, no-arg,
 Metro, ...) generate declarations the frontend resolves against, such as
 `Foo.serializer()`. Without them a module that uses one compiles with errors:
-the files that use generated API land in `errorFiles`, and a module with
-compiler errors gets no binary snapshot, so incremental FIR checking
-(on by default) never engages on it.
+the files that use generated API land in `errorFiles`, and every incremental
+FIR check (on by default) has to compile those files again from source.
 
 `krit-fir` therefore loads the project's plugins next to its own. They are a
 krit-owned field (`KotlinSettings.Plugins`), never compiler arguments: `-Xplugin`
@@ -143,10 +142,15 @@ kotlinx.serialization embeddable plugin loads into it. A plugin whose
 frontend references relocated IntelliJ classes would not, and is reported by
 the probe.
 
-When a module still compiles with errors (no plugin information, or a plugin
-that could not be loaded), the incremental planner says why it fell back: the
+A module that still compiles with errors (no plugin information, or a plugin
+that could not be loaded) keeps incremental checking as long as the errors are
+in a few files: the binary snapshot is built from the other files, and the
+files with errors have no binary, so every incremental check compiles them from
+source. "A few" is the planner's stale bound: fewer than 16 files, or at most
+5% of the module. Past it, or with a compiler error not tied to a file, the
+module gets no snapshot and the planner says why it fell back: the
 `firCheckBroker` perf entry reads `full (slice_unavailable: COMPILE_ERRORS:
-compile errors in 6 files)` instead of `full (slice_unavailable)`.
+compile errors in 60 files)` instead of `full (slice_unavailable)`.
 
 ## The allowlist
 

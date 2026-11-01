@@ -465,16 +465,24 @@ internal open class IncrementalState {
     /**
      * Takes the binary snapshot of the compile just committed, built from exactly the sources that compile read.
      * The state owns it from here and deletes it when the state is committed to again or reset. A null [snapshot]
-     * records why there is none: [reason] is what a planner reports.
+     * records why there is none: [reason] is what a planner reports. [withoutBinary] are the compile's files the
+     * snapshot has no class files for (they had a compiler error, #971): they start out [binaryStale] and stay so
+     * until the next snapshot, since no slice can give them a binary.
      */
     @Synchronized
-    open fun attachSnapshot(snapshot: Snapshot?, reason: SliceFallback = SliceFallback.NO_SNAPSHOT, detail: String? = null) {
+    open fun attachSnapshot(
+        snapshot: Snapshot?, reason: SliceFallback = SliceFallback.NO_SNAPSHOT, detail: String? = null,
+        withoutBinary: Collection<String> = emptyList(),
+    ) {
         releaseSnapshot()
         noSnapshotReason = reason
         noSnapshotDetail = detail
         if (snapshot == null) return
         snapshotOrNull = snapshot
-        for ((file, surface) in surfaces) snapshotSurfaceHashes[file] = hashOf(surface)
+        val missing = withoutBinary.mapTo(HashSet()) { canonicalPath(it) }
+        for ((file, surface) in surfaces) {
+            if (file in missing) binaryStaleFiles += file else snapshotSurfaceHashes[file] = hashOf(surface)
+        }
     }
 
     /** The module's binary snapshot, or null when there is none ([fallbackReason] says why). */

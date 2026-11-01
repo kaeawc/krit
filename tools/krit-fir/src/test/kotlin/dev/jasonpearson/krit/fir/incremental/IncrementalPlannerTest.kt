@@ -437,10 +437,11 @@ class IncrementalPlannerTest {
 
     // ---- fallbacks ---------------------------------------------------------------------------------------------------
 
-    @Test fun aModuleWithACompilerErrorHasNoSnapshotSoEveryRequestIsAFullCheck() {
+    @Test fun aModuleWithTooManyFilesWithErrorsHasNoSnapshotSoEveryRequestIsAFullCheck() {
         probeModule()
         write("Broken.kt", "package p\n\nfun broken() { missing() }\n")
         val session = planned()
+        session.plannerLimits = session.plannerLimits.copy(staleFraction = 0.0, staleMinFiles = 1)
         session.checkAll()
         val result = session.checkAll()
         with(session.plan) { assertEquals(PlanPath.FULL, path); assertEquals(FullReason.SLICE_UNAVAILABLE, reason); assertEquals("COMPILE_ERRORS: compile errors in 1 file", detail) }
@@ -453,6 +454,76 @@ class IncrementalPlannerTest {
         assertNotNull(session.incrementalState.snapshot)
         session.checkAll()
         assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+    }
+
+    // #971: files with errors are compiled in every slice; the rest of the module stays incremental.
+    @Test fun aModuleWithAFewFilesWithErrorsStaysIncremental() {
+        probeModule()
+        write("Broken.kt", "package p\n\nfun broken() { missing(); base() }\n")
+        val session = planned()
+        assertSameAsFull(session.checkAll(), fullCheck())
+        assertNotNull(session.incrementalState.snapshot)
+
+        write("Use.kt", "package p\n\nfun u() { protocolProbe(); base(); base() }\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+
+        // A surface edit the broken file depends on reaches it: it is in every slice anyway.
+        write("Api.kt", "package p\n\nfun protocolProbe() {}\nfun base(): String = \"\"\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+
+        write("Broken.kt", "package p\n\nfun broken() { base() }\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+
+        // A new error elsewhere is served by a slice too.
+        write("Other.kt", "package p\n\nfun o() { protocolProbe(); gone() }\n")
+        val broken = session.checkAll()
+        assertSameAsFull(broken, fullCheck())
+        assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+        assertTrue(broken.errorFiles.keys.any { canon(it) == path("Other.kt") })
+    }
+
+    // A clean file that subclasses, inlines from or switches over declarations of a file with an error: the
+    // snapshot is built (or, if the backend cannot, the module falls back) and every answer is the full check's.
+    @Test fun cleanFilesThatLeanOnAFileWithAnErrorGetTheFullChecksVerdicts() {
+        write("Api.kt", "package p\n\nfun protocolProbe() {}\n")
+        write("Broken.kt", """
+            package p
+
+            open class Base { open fun f(): Int = 1 }
+            sealed interface Shape
+            class Circle : Shape
+            inline fun twice(block: () -> Int): Int = block() + block()
+            const val LIMIT = 3
+            fun broken() { missing() }
+        """.trimIndent() + "\n")
+        write("Kids.kt", "package p\n\nclass Kid : Base() { override fun f(): Int = twice { LIMIT } }\nclass Square : Shape\n")
+        write("Use.kt", "package p\n\nfun area(s: Shape): Int = when (s) { is Circle -> 1; is Square -> 2 }\nfun u() { protocolProbe(); Kid().f() }\n")
+        val session = planned()
+        assertSameAsFull(session.checkAll(), fullCheck())
+
+        write("Use.kt", "package p\n\nfun area(s: Shape): Int = when (s) { is Circle -> 1; is Square -> 3 }\nfun u() { protocolProbe(); Kid().f() }\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
+        if (session.incrementalState.snapshot != null) assertEquals(PlanPath.INCREMENTAL, session.plan.path)
+
+        // A new sealed inheritor in the broken file makes the `when` non-exhaustive.
+        write("Broken.kt", """
+            package p
+
+            open class Base { open fun f(): Int = 1 }
+            sealed interface Shape
+            class Circle : Shape
+            class Triangle : Shape
+            inline fun twice(block: () -> Int): Int = block() + block()
+            const val LIMIT = 3
+            fun broken() { missing() }
+        """.trimIndent() + "\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
+
+        write("Kids.kt", "package p\n\nclass Kid : Base() { override fun f(): String = \"\" }\nclass Square : Shape\n")
+        assertSameAsFull(session.checkAll(), fullCheck())
     }
 
     @Test fun aChangedClasspathIsAFallback() {

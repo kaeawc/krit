@@ -16,22 +16,6 @@ func flatIsKDoc(file *scanner.File, idx uint32) bool {
 	return strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), "/**")
 }
 
-func flatKdocText(file *scanner.File, idx uint32) string {
-	text := file.FlatNodeText(idx)
-	text = strings.TrimPrefix(strings.TrimSpace(text), "/**")
-	text = strings.TrimSuffix(text, "*/")
-	var lines []string
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		trimmed = strings.TrimPrefix(trimmed, "*")
-		trimmed = strings.TrimSpace(trimmed)
-		if trimmed != "" {
-			lines = append(lines, trimmed)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 // kdocRemovalRange returns the byte range that deletes a KDoc. When the comment owns its lines the
 // range covers the whole lines, so the declaration keeps its indent; otherwise only the comment goes.
 func kdocRemovalRange(file *scanner.File, kdoc uint32) (int, int) {

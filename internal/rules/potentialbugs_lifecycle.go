@@ -8,7 +8,6 @@ import (
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -306,39 +305,6 @@ func sameFileDeclarationNamed(file *scanner.File, name string) bool {
 				found = true
 			}
 		}
-	})
-	return found
-}
-
-func functionThrowsNoSuchElementExceptionFlat(ctx *api.Context, body uint32) bool {
-	if ctx.File == nil || body == 0 {
-		return false
-	}
-	file := ctx.File
-	found := false
-	file.FlatWalkNodes(body, "jump_expression", func(jmp uint32) {
-		if found {
-			return
-		}
-		first := file.FlatFirstChild(jmp)
-		if first == 0 || !file.FlatNodeTextEquals(first, "throw") {
-			return
-		}
-		file.FlatWalkNodes(jmp, "call_expression", func(call uint32) {
-			if found || flatCallExpressionName(file, call) != "NoSuchElementException" {
-				return
-			}
-			if ctx.Resolver != nil {
-				if target, ok := semantics.ResolveCallTarget(ctx, call); ok && target.Resolved {
-					found = strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "kotlin.NoSuchElementException.") ||
-						strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "java.util.NoSuchElementException.")
-					return
-				}
-			}
-			if !sameFileDeclarationNamed(file, "NoSuchElementException") {
-				found = true
-			}
-		})
 	})
 	return found
 }

@@ -5,19 +5,12 @@ package rules
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
-
-// parseInt parses an integer string, returning 0 on error.
-func parseInt(s string) int {
-	v, _ := strconv.Atoi(s)
-	return v
-}
 
 // ---------------------------------------------------------------------------
 // helper: quick AndroidRule constructor

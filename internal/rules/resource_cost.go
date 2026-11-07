@@ -10,26 +10,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-var lazyListCallNames = map[string]bool{
-	"items":          true,
-	"itemsIndexed":   true,
-	"item":           true,
-	"forEach":        true,
-	"forEachIndexed": true,
-}
-
-func resourceCostInsideLazyListLambda(file *scanner.File, idx uint32) bool {
-	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
-		if file.FlatType(cur) == "call_expression" {
-			callName := flatCallNameAny(file, cur)
-			if lazyListCallNames[callName] {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // resourceCostLoopCallNames is the set of lambda-receiving calls whose body
 // runs once per element. The singular LazyListScope.item { } is deliberately
 // excluded: it renders exactly once, so building a painter inside it is not a

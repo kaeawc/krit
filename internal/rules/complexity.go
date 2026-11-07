@@ -58,68 +58,6 @@ func collectComplexityMetricsFlat(root uint32, file *scanner.File) complexityMet
 	}
 }
 
-func isElseIfChainNodeFlat(file *scanner.File, idx uint32) bool {
-	if file.FlatType(idx) != "if_expression" {
-		return false
-	}
-	target := idx
-	p, ok := file.FlatParent(idx)
-	if ok && file.FlatType(p) == "control_structure_body" {
-		target = p
-		p, ok = file.FlatParent(p)
-	}
-	if !ok || file.FlatType(p) != "if_expression" {
-		return false
-	}
-	// Walk parent's children: find the `else` keyword, then check whether
-	// `target` is a later sibling. Sibling order is robust against
-	// comments, error nodes, or other extras between `else` and the inner
-	// `if` — byte offsets are not.
-	sawElse := false
-	t := file.FlatTree
-	for c := t.FirstChildren[p]; c != 0; c = t.NextSibs[c] {
-		if !sawElse {
-			if file.FlatType(c) == "else" {
-				sawElse = true
-			}
-			continue
-		}
-		if c == target {
-			return true
-		}
-	}
-	return false
-}
-
-func isNestingType(nodeType string) bool {
-	switch nodeType {
-	case "if_expression", "for_statement", "while_statement", "do_while_statement", "when_expression", "try_expression":
-		return true
-	default:
-		return false
-	}
-}
-
-// countSignificantLines returns the number of lines in the inclusive row range [startRow, endRow] that hold
-// code. Blank lines and comment-only lines are excluded; a line with code and a comment counts. Non-blank
-// lines inside a triple-quoted string count, as detekt counts them.
-func countSignificantLines(file *scanner.File, startRow, endRow int) int {
-	if startRow < 0 {
-		startRow = 0
-	}
-	if endRow >= len(file.Lines) {
-		endRow = len(file.Lines) - 1
-	}
-	count := 0
-	state := lineScanState{}
-	for i := startRow; i <= endRow; i++ {
-		if strings.TrimSpace(stripCommentsKeepStrings(file.Lines[i], &state)) != "" {
-			count++
-		}
-	}
-	return count
-}
-
 // lineScanState tracks lexical state across lines for countSignificantLines.
 type lineScanState struct {
 	inBlockComment bool
@@ -308,8 +246,4 @@ func maskByte(mask []byte, i int) {
 	if mask != nil {
 		mask[i] = ' '
 	}
-}
-
-func flatEndRow(file *scanner.File, idx uint32) int {
-	return file.FlatRow(idx) + strings.Count(file.FlatNodeText(idx), "\n")
 }

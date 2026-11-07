@@ -879,12 +879,6 @@ func testingQualityAllowedTestReturnType(retType string) bool {
 	return false
 }
 
-// testingQualityCallIsWithin reports whether the nearest enclosing call of n lies inside root.
-func testingQualityCallIsWithin(file *scanner.File, n, root uint32) bool {
-	outer, ok := flatEnclosingAncestor(file, n, "call_expression")
-	return ok && file.FlatStartByte(outer) >= file.FlatStartByte(root)
-}
-
 // testingQualityBodyPlantsFailure reports a `throw`, `error(...)` or `fail(...)` anywhere in the body, such as in
 // a stub observer or a lazily evaluated lambda. The test passes only when that code is never reached.
 func testingQualityBodyPlantsFailure(file *scanner.File, body uint32) bool {

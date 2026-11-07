@@ -124,18 +124,6 @@ type ResourceAsColorRule struct {
 // Classified per roadmap/17.
 func (r *ResourceAsColorRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ioCallNames is the set of known IO/network type and method names whose
-// presence in a @MainThread function indicates a likely thread violation.
-var ioCallNames = map[string]bool{
-	"HttpURLConnection": true, "OkHttpClient": true,
-	"FileInputStream": true, "FileOutputStream": true,
-	"BufferedReader": true, "BufferedWriter": true,
-	"URLConnection": true, "HttpClient": true,
-	"Retrofit": true, "FileReader": true, "FileWriter": true,
-	"RandomAccessFile": true, "openConnection": true,
-	"Socket": true, "ServerSocket": true, "DatagramSocket": true,
-}
-
 type SupportAnnotationUsageRule struct {
 	FlatDispatchBase
 	AndroidRule

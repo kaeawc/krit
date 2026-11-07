@@ -137,13 +137,6 @@ func braceWrapCommentsBefore(file *scanner.File, control uint32, limit int) map[
 	return out
 }
 
-func braceRedundantMessage(kind string, singleLine bool) string {
-	if singleLine {
-		return "Single-line " + kind + " should not use braces."
-	}
-	return "Multi-line " + kind + " should not use braces."
-}
-
 // isFirstNonWSOnLine distinguishes statement-position control flow from
 // inline RHS forms where wrapping with our derived indent would misalign.
 func isFirstNonWSOnLine(content []byte, byteOffset int) bool {

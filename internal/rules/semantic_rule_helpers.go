@@ -268,12 +268,6 @@ func whileConditionHasCallName(file *scanner.File, stmt uint32, names ...string)
 	return false
 }
 
-// hasUnsuppressedCall reports a call to callName under root that no enclosing declaration or statement
-// silences with @SuppressLint or @Suppress naming lintID.
-func hasUnsuppressedCall(file *scanner.File, root uint32, callName, lintID string) bool {
-	return firstUnsuppressedCall(file, root, callName, lintID) != 0
-}
-
 // firstUnsuppressedCall returns the first call named callName under root that lintID does not suppress, or 0.
 func firstUnsuppressedCall(file *scanner.File, root uint32, callName, lintID string) uint32 {
 	found := uint32(0)

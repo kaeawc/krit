@@ -595,22 +595,6 @@ func formatWithUnderscores(digits string) string {
 	return string(result)
 }
 
-func maxConsecutiveDigits(text string) int {
-	maxRun := 0
-	current := 0
-	for _, c := range text {
-		if c >= '0' && c <= '9' {
-			current++
-			if current > maxRun {
-				maxRun = current
-			}
-			continue
-		}
-		current = 0
-	}
-	return maxRun
-}
-
 func stripNumericLiteralUnderscores(text string) string {
 	if !strings.Contains(text, "_") {
 		return text

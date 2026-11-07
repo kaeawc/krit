@@ -142,15 +142,6 @@ type CognitiveComplexMethodRule struct {
 	AllowedComplexity int
 }
 
-var cognitiveTypes = map[string]bool{
-	"if_expression":      true,
-	"for_statement":      true,
-	"while_statement":    true,
-	"do_while_statement": true,
-	"when_expression":    true,
-	"catch_block":        true,
-}
-
 // Confidence reports a tier-2 (medium) base confidence. This rule
 // uses a threshold-based metric (line count, nesting depth, branch
 // count, parameter count, etc.) against a configurable limit. The
@@ -167,32 +158,6 @@ type ComplexConditionRule struct {
 	AllowedConditions int
 }
 
-func countLogicalOperatorsOutsideBodiesFlat(file *scanner.File, root uint32) int {
-	count := 0
-	var walk func(uint32, bool)
-	walk = func(idx uint32, inBody bool) {
-		if idx != root {
-			switch file.FlatType(idx) {
-			case "function_declaration", "lambda_literal", "anonymous_function":
-				return
-			}
-		}
-		switch file.FlatType(idx) {
-		case "control_structure_body", "statements":
-			inBody = true
-		case "conjunction_expression", "disjunction_expression":
-			if !inBody {
-				count++
-			}
-		}
-		for i := 0; i < file.FlatChildCount(idx); i++ {
-			walk(file.FlatChild(idx, i), inBody)
-		}
-	}
-	walk(root, false)
-	return count
-}
-
 // Confidence reports a tier-2 (medium) base confidence. This rule
 // uses a threshold-based metric (line count, nesting depth, branch
 // count, parameter count, etc.) against a configurable limit. The
@@ -201,37 +166,6 @@ func countLogicalOperatorsOutsideBodiesFlat(file *scanner.File, root uint32) int
 // conservative in some contexts and lax in others. Classified per
 // roadmap/17.
 func (r *ComplexConditionRule) Confidence() float64 { return api.ConfidenceMedium }
-
-func isPureDisjunctionOrConjunctionFlat(file *scanner.File, root uint32) bool {
-	hasConj := false
-	hasDisj := false
-	var walk func(uint32, bool)
-	walk = func(idx uint32, inBody bool) {
-		if idx != root {
-			switch file.FlatType(idx) {
-			case "function_declaration", "lambda_literal", "anonymous_function":
-				return
-			}
-		}
-		switch file.FlatType(idx) {
-		case "control_structure_body", "statements":
-			inBody = true
-		case "conjunction_expression":
-			if !inBody {
-				hasConj = true
-			}
-		case "disjunction_expression":
-			if !inBody {
-				hasDisj = true
-			}
-		}
-		for i := 0; i < file.FlatChildCount(idx); i++ {
-			walk(file.FlatChild(idx, i), inBody)
-		}
-	}
-	walk(root, false)
-	return !hasConj || !hasDisj
-}
 
 // lambdaCalleeNameForNestingFlat returns the simple name of the call
 // that "owns" the given lambda_literal node — i.e. for a trailing

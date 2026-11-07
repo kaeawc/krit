@@ -29,13 +29,6 @@ type functionDeclSummaryFlat struct {
 	params           []parameterSummaryFlat
 }
 
-type classDeclSummaryFlat struct {
-	name             string
-	hasData          bool
-	hasParcelizeLike bool
-	classParams      []parameterSummaryFlat
-}
-
 func getFunctionDeclSummaryFlat(file *scanner.File, idx uint32) functionDeclSummaryFlat {
 	if file == nil || idx == 0 {
 		return functionDeclSummaryFlat{}
@@ -62,39 +55,6 @@ func getFunctionDeclSummaryFlat(file *scanner.File, idx uint32) functionDeclSumm
 			case "function_value_parameters":
 				s.paramsNode = child
 				s.params = collectParameterSummariesFlat(file, child, "parameter")
-			}
-		}
-		return s
-	})
-}
-
-func getClassDeclSummaryFlat(file *scanner.File, idx uint32) classDeclSummaryFlat {
-	if file == nil || idx == 0 {
-		return classDeclSummaryFlat{}
-	}
-	return filefacts.NodeFact(fileFactsCache(), file, idx, slotClassDecl, func() classDeclSummaryFlat {
-		var s classDeclSummaryFlat
-		s.name = extractIdentifierFlat(file, idx)
-		s.hasData = file.FlatHasModifier(idx, "data")
-		s.hasParcelizeLike = flatHasAnnotationNamed(file, idx, "Parcelize") ||
-			flatHasAnnotationNamed(file, idx, "Serializable") ||
-			flatHasAnnotationNamed(file, idx, "Entity") ||
-			flatHasAnnotationNamed(file, idx, "DatabaseView")
-		for i := 0; i < file.FlatChildCount(idx); i++ {
-			child := file.FlatChild(idx, i)
-			switch file.FlatType(child) {
-			case "class_parameter":
-				text := strings.TrimSpace(file.FlatNodeText(child))
-				isProp := strings.HasPrefix(text, "val ") || strings.HasPrefix(text, "var ") ||
-					strings.Contains(text, " val ") || strings.Contains(text, " var ")
-				s.classParams = append(s.classParams, parameterSummaryFlat{
-					idx:        child,
-					name:       extractIdentifierFlat(file, child),
-					hasDefault: paramHasDefaultFlat(file, child),
-					isProperty: isProp,
-				})
-			case "primary_constructor":
-				s.classParams = append(s.classParams, collectParameterSummariesFlat(file, child, "class_parameter")...)
 			}
 		}
 		return s

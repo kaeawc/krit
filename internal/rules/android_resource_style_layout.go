@@ -239,14 +239,6 @@ func (r *NestedWeightsResourceRule) check(ctx *api.Context) {
 	}
 }
 
-func isLinearLayout(viewType string) bool {
-	switch frameworkViewName(viewType) {
-	case "LinearLayout", "AppCompatLinearLayout", "LinearLayoutCompat":
-		return true
-	}
-	return false
-}
-
 // ---------------------------------------------------------------------------
 // ObsoleteLayoutParamsResource
 // ---------------------------------------------------------------------------

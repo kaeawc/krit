@@ -27,16 +27,6 @@ func (GradleBase) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepGradle
 }
 
-// findGradleLine returns the 1-based line number of the first match of re in content, or 0.
-// Still used for patterns that must remain regex (AGP version extraction).
-func findGradleLine(content string, re *regexp.Regexp) int {
-	loc := re.FindStringIndex(content)
-	if loc == nil {
-		return 0
-	}
-	return strings.Count(content[:loc[0]], "\n") + 1
-}
-
 // findGradleLineStr returns the 1-based line number of the first
 // non-comment line where substr appears as code (i.e. outside string
 // literals and trailing `//` line comments), or 0 if absent. Whole-line

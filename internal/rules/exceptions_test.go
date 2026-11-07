@@ -4,22 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
-
-func experimentSnapshot() []string     { return experiment.Current().Names() }
-func experimentRestore(names []string) { experiment.SetCurrent(names) }
-func enableExperiment(name string) {
-	cur := experiment.Current().Names()
-	for _, n := range cur {
-		if n == name {
-			return
-		}
-	}
-	experiment.SetCurrent(append(cur, name))
-}
 
 // --- ExceptionRaisedInUnexpectedLocation ---
 

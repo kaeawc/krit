@@ -276,16 +276,6 @@ func hasFixedDpBox(idx *android.ResourceIndex, v *android.View) bool {
 	return isFixed(v.LayoutWidth) && isFixed(v.LayoutHeight)
 }
 
-// dimenOriginSuffix produces a short " (foo is N in path)"-style suffix
-// pointing at the resolved dimension declaration. Empty when the source
-// location is unknown.
-func dimenOriginSuffix(loc android.StringLocation, resolved string) string {
-	if loc.FilePath == "" {
-		return fmt.Sprintf(" (%s)", resolved)
-	}
-	return fmt.Sprintf(" (`%s` in `%s`)", resolved, loc.FilePath)
-}
-
 // ---------------------------------------------------------------------------
 // SmallSpResource
 // ---------------------------------------------------------------------------
@@ -369,15 +359,6 @@ func isInOrMmValue(val string) (string, bool) {
 
 func inOrMmMessage(unit string) string {
 	return fmt.Sprintf("Avoid using \"`%s`\" as units (it does not work accurately on all devices); use \"`dp`\" instead", unit)
-}
-
-func isNumeric(s string) bool {
-	for _, c := range s {
-		if (c < '0' || c > '9') && c != '.' && c != '-' {
-			return false
-		}
-	}
-	return true
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance

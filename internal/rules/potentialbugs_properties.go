@@ -426,20 +426,6 @@ func localDeclaredNames(file *scanner.File, idx uint32) map[string]bool {
 	return names
 }
 
-// startsAfterLineBreak reports whether only blanks separate the node from a preceding line break.
-func startsAfterLineBreak(file *scanner.File, n uint32) bool {
-	for i := int(file.FlatStartByte(n)) - 1; i >= 0; i-- {
-		switch file.Content[i] {
-		case ' ', '\t', '\r':
-		case '\n':
-			return true
-		default:
-			return false
-		}
-	}
-	return false
-}
-
 // localPostfixTarget returns the name of the local variable that `name++` or `name--` changes.
 func localPostfixTarget(file *scanner.File, ret, postfix uint32) (string, bool) {
 	target := file.FlatFirstChild(postfix)

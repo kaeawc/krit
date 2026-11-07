@@ -13,7 +13,6 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/experiment"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
@@ -243,22 +242,6 @@ func (r *UselessLeafResourceRule) check(ctx *api.Context) {
 				"This `"+v.Type+"` view is unnecessary (no children, no `background`, no `id`, no `style`)"))
 		})
 	}
-}
-
-// referencedLayoutNames collects layout names pulled in by <include layout=...>
-// or android:layout on a ViewStub anywhere in the index.
-func referencedLayoutNames(idx *android.ResourceIndex) map[string]bool {
-	names := map[string]bool{}
-	for _, layout := range idx.AllLayouts() {
-		walkViews(layout.RootView, func(v *android.View) {
-			for _, attr := range []string{"layout", "android:layout"} {
-				if ref := v.Attributes[attr]; strings.HasPrefix(ref, "@layout/") {
-					names[strings.TrimPrefix(ref, "@layout/")] = true
-				}
-			}
-		})
-	}
-	return names
 }
 
 // ---------------------------------------------------------------------------
@@ -842,14 +825,6 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
-
-// layoutRootFinding anchors a whole-layout finding on the root element.
-func layoutRootFinding(layout *android.Layout, rule BaseRule, msg string) scanner.Finding {
-	if layout.RootView != nil && layout.RootView.Line > 0 {
-		return baseFindingAt(layout.FilePath, layout.RootView.Line, layout.RootView.Col, rule, msg)
-	}
-	return baseFinding(layout.FilePath, 1, rule, msg)
-}
 
 // ---------------------------------------------------------------------------
 // GridLayoutResource

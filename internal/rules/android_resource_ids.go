@@ -538,50 +538,6 @@ type UnknownIDResourceRule struct {
 // roadmap/17.
 func (r *UnknownIDResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// unknownIDReference returns the bare id name for a pure `@id/name` reference
-// and reports whether value is such a reference. The id-creating form
-// `@+id/name` and framework references `@android:id/name` return false: the
-// former defines the id, the latter is always platform-provided.
-func unknownIDReference(value string) (name string, ok bool) {
-	v := strings.TrimSpace(value)
-	const prefix = "@id/"
-	if !strings.HasPrefix(v, prefix) {
-		return "", false
-	}
-	name = v[len(prefix):]
-	if name == "" {
-		return "", false
-	}
-	return name, true
-}
-
-// collectDeclaredIDs gathers every declared id name in the project: the rule
-// index's aggregated IDs, every `<item type="id">` value, and every `@+id/`
-// declaration appearing in any attribute of any layout view.
-func collectDeclaredIDs(idx *android.ResourceIndex) map[string]bool {
-	declared := make(map[string]bool, len(idx.IDs))
-	for id := range idx.IDs {
-		declared[id] = true
-	}
-	for _, item := range idx.AliasItems {
-		if item.Type == "id" && item.Name != "" {
-			declared[item.Name] = true
-		}
-	}
-	for _, layout := range idx.AllLayouts() {
-		walkViews(layout.RootView, func(v *android.View) {
-			for _, val := range v.Attributes {
-				if name := strings.TrimSpace(val); strings.HasPrefix(name, "@+id/") {
-					if bare := name[len("@+id/"):]; bare != "" {
-						declared[bare] = true
-					}
-				}
-			}
-		})
-	}
-	return declared
-}
-
 // lintDefinedIDs gathers the ids Lint's WrongIdDetector treats as defined: android:id values in
 // any layout and `<item type="id">` entries. An `@+id/` in a reference attribute does not define an id.
 func lintDefinedIDs(idx *android.ResourceIndex) map[string]bool {

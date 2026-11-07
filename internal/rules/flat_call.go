@@ -403,31 +403,6 @@ func ancestorCallNameMatches(file *scanner.File, idx uint32, name string) bool {
 	return false
 }
 
-// callSubtreeHasNamedArgument returns true when any call_expression in
-// the subtree rooted at `root` (including root itself) has a named
-// value_argument with the given name. Used to check whether a nested
-// call in a trailing lambda supplies an argument that the outer call
-// appears to be missing.
-func callSubtreeHasNamedArgument(file *scanner.File, root uint32, name string) bool {
-	if file == nil || root == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
-		if found {
-			return
-		}
-		_, args := flatCallExpressionParts(file, call)
-		if args == 0 {
-			return
-		}
-		if flatNamedValueArgument(file, args, name) != 0 {
-			found = true
-		}
-	})
-	return found
-}
-
 // classHasCallOn returns true when some call_expression inside the
 // class at classIdx has a receiver identifier equal to receiverName
 // and a callee name in the given set. Used by rules that want to

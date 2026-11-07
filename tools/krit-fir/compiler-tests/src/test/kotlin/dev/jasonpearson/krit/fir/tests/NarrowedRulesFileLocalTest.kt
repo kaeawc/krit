@@ -218,10 +218,10 @@ class NarrowedRulesFileLocalTest {
     @Test fun shortAlarm() {
         val rule = "ShortAlarm"
         val header = "package p\nimport android.app.AlarmManager\nimport android.app.PendingIntent\n"
-        val direct = "fun f(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 0L, 5000L, pi) }\n"
+        val direct = "fun f(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 6000L, 5000L, pi) }\n"
         assertEquals(listOf("All.kt" to 5), findings(rule, one("$header\n$direct")))
         val wrapper = "object Sched { fun setRepeating(t: Int, at: Long, every: Long, pi: PendingIntent) { println(t) } }\n"
-        val use = "fun g(pi: PendingIntent) { Sched.setRepeating(0, 0L, 5000L, pi) }\n"
+        val use = "fun g(pi: PendingIntent) { Sched.setRepeating(0, 6000L, 5000L, pi) }\n"
         assertEquals(emptyList(), findings(rule, one("$header\n$wrapper$use")))
         assertEquals(
             listOf("A.kt" to 5),
@@ -235,7 +235,7 @@ class NarrowedRulesFileLocalTest {
             emptyList(),
             findings(
                 rule,
-                mapOf("B.kt" to poller, "A.kt" to "package p\nfun p(x: Poller, r: Runnable) { x.setRepeating(\"n\", 0L, 5000L, r) }\n"),
+                mapOf("B.kt" to poller, "A.kt" to "package p\nfun p(x: Poller, r: Runnable) { x.setRepeating(\"n\", 6000L, 5000L, r) }\n"),
             ),
         )
         // A const interval is a value a class file keeps, evaluated; the same const in the file under check is too.
@@ -243,7 +243,7 @@ class NarrowedRulesFileLocalTest {
             listOf("All.kt" to 6),
             findings(
                 rule,
-                one("$header\nconst val EVERY = 5 * 1000L\nfun h(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 0L, EVERY, pi) }\n"),
+                one("$header\nconst val EVERY = 5 * 1000L\nfun h(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 6000L, EVERY, pi) }\n"),
             ),
         )
         // A const interval is a value a class file keeps, evaluated.
@@ -253,7 +253,7 @@ class NarrowedRulesFileLocalTest {
                 rule,
                 mapOf(
                     "B.kt" to "package p\nconst val EVERY = 5 * 1000L\n",
-                    "A.kt" to "$header\nfun h(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 0L, EVERY, pi) }\n",
+                    "A.kt" to "$header\nfun h(am: AlarmManager, pi: PendingIntent) { am.setRepeating(0, 6000L, EVERY, pi) }\n",
                 ),
             ),
         )

@@ -1,18 +1,13 @@
 package style
 
-fun example(x: Any) {
-    if (x is String) {
-        val s = x as String
-        println(s)
-    }
-}
+fun example(x: Any) = if (x is String) x else null
 
-// when-expression with redundant cast
-fun processWhen(x: Any) {
-    when (x) {
-        is String -> {
-            val s = x as String
-            println(s)
-        }
+fun negated(x: Any) = if (x !is String) null else x
+
+fun withBlocks(x: Any): Any? {
+    return if (x is Int) {
+        x
+    } else {
+        null
     }
 }

@@ -4,5 +4,5 @@ import java.text.NumberFormat
 import java.util.Locale
 
 class HardcodedNumberFormat {
-    val formatter: NumberFormat = NumberFormat.getInstance()
+    fun cacheKey(value: Double): String = "price-" + NumberFormat.getInstance().format(value)
 }

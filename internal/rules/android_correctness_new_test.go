@@ -18,79 +18,6 @@ import (
 )
 
 // =====================================================================
-// UnusedResourcesRule tests
-// =====================================================================
-
-func TestUnusedResources_FlagsTempPattern(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-fun example() {
-    val s = getString(R.string.temp_debug_label)
-}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for temp_ resource pattern")
-	}
-	if !strings.Contains(findings[0].Message, "temp_debug_label") {
-		t.Errorf("unexpected message: %s", findings[0].Message)
-	}
-}
-
-func TestUnusedResources_FlagsTestPattern(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-fun example() {
-    val d = getDrawable(R.drawable.test_placeholder)
-}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for test_ resource pattern")
-	}
-}
-
-func TestUnusedResources_FlagsUnusedPattern(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-fun example() {
-    setContentView(R.layout.unused_activity)
-}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for unused_ resource pattern")
-	}
-}
-
-func TestUnusedResources_FlagsOldPattern(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-fun example() {
-    val c = getColor(R.color.old_primary)
-}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for old_ resource pattern")
-	}
-}
-
-func TestUnusedResources_IgnoresNormalResources(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-fun example() {
-    val s = getString(R.string.app_name)
-    val d = getDrawable(R.drawable.ic_launcher)
-}`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings for normal resources, got %d", len(findings))
-	}
-}
-
-func TestUnusedResources_IgnoresComments(t *testing.T) {
-	findings := runRuleByName(t, "UnusedResources", `
-package test
-// val s = getString(R.string.temp_debug)
-fun example() {}`)
-	if len(findings) != 0 {
-		t.Errorf("expected no findings for commented-out code, got %d", len(findings))
-	}
-}
-
-// =====================================================================
 // RegisteredRule tests
 // =====================================================================
 
@@ -253,10 +180,17 @@ func TestLocalSuppress_FlagsUnknownIssueID(t *testing.T) {
 package test
 @SuppressLint("NonExistentLintCheck")
 fun example() {}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for unknown lint issue ID")
+	if len(findings) != 0 {
+		t.Fatalf("an unknown id far from every known id may be a third-party check, got %d findings", len(findings))
 	}
-	if !strings.Contains(findings[0].Message, "NonExistentLintCheck") {
+	findings = runRuleByName(t, "LocalSuppress", `
+package test
+@SuppressLint("LongLogTags")
+fun example() {}`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for a near-miss lint issue ID")
+	}
+	if !strings.Contains(findings[0].Message, "LongLogTags") || !strings.Contains(findings[0].Message, "LongLogTag'") {
 		t.Errorf("unexpected message: %s", findings[0].Message)
 	}
 }
@@ -288,56 +222,6 @@ package test
 fun example() {}`)
 	if len(findings) != 0 {
 		t.Errorf("expected no finding for @Suppress (not @SuppressLint), got %d", len(findings))
-	}
-}
-
-// =====================================================================
-// SupportAnnotationUsageRule tests
-// =====================================================================
-
-func TestSupportAnnotationUsage_FlagsIOInMainThread(t *testing.T) {
-	findings := runRuleByName(t, "SupportAnnotationUsage", `
-package test
-class MyClass {
-    @MainThread
-    fun loadData() {
-        val conn = HttpURLConnection()
-        val reader = BufferedReader(input)
-    }
-}`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for IO in @MainThread function")
-	}
-	if !strings.Contains(findings[0].Message, "HttpURLConnection") {
-		t.Errorf("unexpected message: %s", findings[0].Message)
-	}
-}
-
-func TestSupportAnnotationUsage_IgnoresNoIO(t *testing.T) {
-	findings := runRuleByName(t, "SupportAnnotationUsage", `
-package test
-class MyClass {
-    @MainThread
-    fun updateUI() {
-        textView.setText("hello")
-        progressBar.setVisibility(View.VISIBLE)
-    }
-}`)
-	if len(findings) != 0 {
-		t.Errorf("expected no finding for UI-only @MainThread function, got %d", len(findings))
-	}
-}
-
-func TestSupportAnnotationUsage_IgnoresNoAnnotation(t *testing.T) {
-	findings := runRuleByName(t, "SupportAnnotationUsage", `
-package test
-class MyClass {
-    fun loadData() {
-        val conn = HttpURLConnection()
-    }
-}`)
-	if len(findings) != 0 {
-		t.Errorf("expected no finding for function without @MainThread, got %d", len(findings))
 	}
 }
 
@@ -762,31 +646,7 @@ func TestCheckIconColors_NilIndex(t *testing.T) {
 // IconLauncherShapeRule tests
 // =====================================================================
 
-func TestCheckIconLauncherShape_FlagsTransparentCorners(t *testing.T) {
-	root := t.TempDir()
-	resDir := filepath.Join(root, "res")
-	dirPath := filepath.Join(resDir, "drawable-hdpi")
-	os.MkdirAll(dirPath, 0o755)
-
-	testWriteTransparentCornersPNG(t, filepath.Join(dirPath, "ic_launcher.png"), 72)
-
-	idx, err := android.ScanIconDirs(resDir)
-	if err != nil {
-		t.Fatalf("ScanIconDirs: %v", err)
-	}
-
-	c := scanner.NewFindingCollector(0)
-	rules.CheckIconLauncherShape(idx, c)
-	findings := c.Columns().Findings()
-	if len(findings) == 0 {
-		t.Fatal("expected finding for launcher icon with transparent corners")
-	}
-	if !strings.Contains(findings[0].Message, "transparent corners") {
-		t.Errorf("unexpected message: %s", findings[0].Message)
-	}
-}
-
-func TestCheckIconLauncherShape_AcceptsFilledLauncherIcon(t *testing.T) {
+func TestCheckIconLauncherShape_FlagsFilledSquare(t *testing.T) {
 	root := t.TempDir()
 	resDir := filepath.Join(root, "res")
 	dirPath := filepath.Join(resDir, "drawable-hdpi")
@@ -803,8 +663,32 @@ func TestCheckIconLauncherShape_AcceptsFilledLauncherIcon(t *testing.T) {
 	c := scanner.NewFindingCollector(0)
 	rules.CheckIconLauncherShape(idx, c)
 	findings := c.Columns().Findings()
+	if len(findings) == 0 {
+		t.Fatal("expected finding for launcher icon that fills its square")
+	}
+	if !strings.Contains(findings[0].Message, "should not fill every pixel of their square region") {
+		t.Errorf("unexpected message: %s", findings[0].Message)
+	}
+}
+
+func TestCheckIconLauncherShape_AcceptsTransparentCorners(t *testing.T) {
+	root := t.TempDir()
+	resDir := filepath.Join(root, "res")
+	dirPath := filepath.Join(resDir, "drawable-hdpi")
+	os.MkdirAll(dirPath, 0o755)
+
+	testWriteTransparentCornersPNG(t, filepath.Join(dirPath, "ic_launcher.png"), 72)
+
+	idx, err := android.ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatalf("ScanIconDirs: %v", err)
+	}
+
+	c := scanner.NewFindingCollector(0)
+	rules.CheckIconLauncherShape(idx, c)
+	findings := c.Columns().Findings()
 	if len(findings) != 0 {
-		t.Errorf("expected no findings for filled launcher icon, got %d", len(findings))
+		t.Errorf("expected no findings for launcher icon with a silhouette, got %d", len(findings))
 	}
 }
 
@@ -851,8 +735,8 @@ func TestRunIcons_IncludesNewChecks(t *testing.T) {
 	os.MkdirAll(dirPath, 0o755)
 	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_action_test.png"), 24, 24, color.RGBA{R: 255, G: 0, B: 0, A: 255})
 
-	// Create a launcher icon with transparent corners (should trigger IconLauncherShape)
-	testWriteTransparentCornersPNG(t, filepath.Join(dirPath, "ic_launcher.png"), 48)
+	// Create a launcher icon that fills its square (should trigger IconLauncherShape)
+	testWriteColoredPNG(t, filepath.Join(dirPath, "ic_launcher.png"), 48, 48, color.RGBA{R: 100, G: 150, B: 200, A: 255})
 
 	idx, err := android.ScanIconDirs(resDir)
 	if err != nil {

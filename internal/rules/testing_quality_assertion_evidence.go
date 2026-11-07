@@ -88,6 +88,10 @@ func testingQualityIsSnapshotVerificationCall(file *scanner.File, name string) b
 	if file == nil {
 		return false
 	}
+	// Roborazzi capture and compare helpers fail the test on a pixel diff when verifying.
+	if strings.HasSuffix(name, "RoboImage") {
+		return true
+	}
 	switch name {
 	case "gif", "snapshot":
 		return sourceImportsOrMentions(file, "SnapshotTestRule")
@@ -103,17 +107,13 @@ func testingQualityIsUIVisibilityAssertionCall(file *scanner.File, name string) 
 		return false
 	}
 	switch name {
-	case "isTextDisplayed", "waitUntilViewIsDisplayed", "waitUntilViewIsNotDisplayed",
-		"isNotDisplayed", "waitUntilAtLeastOneExists", "waitUntilExactlyOneExists", "waitUntilDoesNotExist":
+	case "isNotDisplayed", "waitUntilAtLeastOneExists", "waitUntilExactlyOneExists", "waitUntilDoesNotExist":
 	default:
 		if !strings.HasPrefix(name, "is") || !strings.HasSuffix(name, "Displayed") {
 			return false
 		}
 	}
-	if testingQualityFileHasComposeUITestEvidence(file) || testingQualityFileHasEspressoEvidence(file) {
-		return true
-	}
-	return strings.Contains(string(file.Content), "uitesting")
+	return testingQualityFileHasComposeUITestEvidence(file) || testingQualityFileHasEspressoEvidence(file)
 }
 
 func testingQualityFileHasComposeUITestEvidence(file *scanner.File) bool {
@@ -130,15 +130,12 @@ func testingQualityIsShouldStyleInfixAssertion(name string) bool {
 
 func testingQualityIsEspressoAssertionCall(file *scanner.File, idx uint32, name string) bool {
 	switch name {
-	case "matches", "waitForElementDisplayed", "isDisplayed":
+	case "matches", "isDisplayed":
 	default:
 		return false
 	}
 	if !testingQualityFileHasEspressoEvidence(file) {
 		return false
-	}
-	if name == "waitForElementDisplayed" {
-		return true
 	}
 	text := file.FlatNodeText(idx)
 	return strings.Contains(text, "onView") ||
@@ -276,6 +273,10 @@ func testingQualityTextDocumentsNoException(name string) bool {
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
 	name = strings.Join(strings.Fields(name), " ")
+	squashed := strings.ReplaceAll(name, " ", "")
+	if strings.Contains(squashed, "smoke") {
+		return true
+	}
 	for _, marker := range []string{
 		"no crash",
 		"not crash",
@@ -296,7 +297,8 @@ func testingQualityTextDocumentsNoException(name string) bool {
 		"handles any",
 		"works for any",
 	} {
-		if strings.Contains(name, marker) {
+		// camelCase names (`doesNotThrow`) have no spaces once lower-cased.
+		if strings.Contains(name, marker) || strings.Contains(squashed, strings.ReplaceAll(marker, " ", "")) {
 			return true
 		}
 	}

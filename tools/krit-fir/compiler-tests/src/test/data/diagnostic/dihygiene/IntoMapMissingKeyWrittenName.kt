@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 32
+// go-lines: none
 // Go's name tests read the annotation name as written, so an import alias
 // counts by its own name: an alias written @...Key is a map key, and one
 // written @Provides... or @Binds... is a binding annotation. FIR applies the

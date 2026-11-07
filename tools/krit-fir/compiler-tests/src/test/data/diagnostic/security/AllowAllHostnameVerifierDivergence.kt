@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 26, 32, 41, 52, 62, 70
+// go-lines: 18, 26, 32, 41, 52, 60
 // Go findings FIR drops: each function below is not HostnameVerifier.verify,
 // or does not always return true, so the message is false of the code. Go
 // takes any function named verify with two parameters whose nearest enclosing
@@ -50,16 +50,6 @@ class CompanionHelper : HostnameVerifier {
 
     companion object {
         fun verify(hostname: String, session: SSLSession): Boolean = true
-    }
-}
-
-// Go reports the anonymous object's verify for the same reason; the object
-// is not a verifier.
-class AnonymousHelper : HostnameVerifier {
-    override fun verify(hostname: String, session: SSLSession): Boolean = hostname == session.peerHost
-
-    val probe = object {
-        fun verify(first: String, second: String): Boolean = true
     }
 }
 

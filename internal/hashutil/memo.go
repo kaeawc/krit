@@ -187,7 +187,7 @@ func (m *Memo) HashContent(path string, content []byte) string {
 	modNano := info.ModTime().UnixNano()
 
 	// Stat-first lookup: a hit returns the prior hex without ever
-	// re-hashing the content. On a 13k-file kotlin corpus that turns
+	// re-hashing the content. On a large repo that turns
 	// resolverFingerprint's per-file SHA-256 into a per-file stat
 	// (10x cheaper). Mismatch granularity is bounded by mtime — fsnotify
 	// edits flip mtime, so a stale entry can only survive content-only
@@ -255,3 +255,12 @@ func Default() *Memo { return defaultMemo }
 // each scan invocation so memoized hashes do not bleed into a subsequent
 // run where files may have changed.
 func ResetDefault() { defaultMemo.Clear() }
+
+// rawOf decodes a 64-character hex digest; a malformed one yields the zero digest.
+func rawOf(hx string) [32]byte {
+	var raw [32]byte
+	if b, err := hex.DecodeString(hx); err == nil {
+		copy(raw[:], b)
+	}
+	return raw
+}

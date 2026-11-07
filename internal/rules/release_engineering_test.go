@@ -1848,6 +1848,42 @@ import androidx.test.espresso.IdlingResource
 class AppIdlingResource`,
 			},
 			{
+				name: "dash-test module",
+				path: "/repo/libraries/network-test/src/main/kotlin/com/example/NetworkFakes.kt",
+				code: `package com.example
+
+import org.junit.rules.TestRule
+
+class NetworkFakes`,
+			},
+			{
+				name: "dash-testing module",
+				path: "/repo/libraries/storage-testing/src/main/kotlin/com/example/StorageFakes.kt",
+				code: `package com.example
+
+import org.mockito.Mockito
+
+class StorageFakes`,
+			},
+			{
+				name: "test-fixtures module",
+				path: "/repo/libraries/test-fixtures/src/main/kotlin/com/example/Fixtures.kt",
+				code: `package com.example
+
+import com.google.common.truth.Truth
+
+class Fixtures`,
+			},
+			{
+				name: "espresso idling import in production",
+				path: "/repo/libraries/network/src/main/kotlin/com/example/Idler.kt",
+				code: `package com.example
+
+import androidx.test.espresso.idling.CountingIdlingResource
+
+class Idler`,
+			},
+			{
 				name: "testing support module",
 				path: "/repo/libraries/testing/support/src/main/kotlin/com/example/TestSupport.kt",
 				code: `package com.example
@@ -2023,4 +2059,216 @@ func TestHardcodedLogTag(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+func TestPrintStackTraceInProduction_NegativeStreamSinkAndTooling(t *testing.T) {
+	const code = `
+package test
+import timber.log.Timber
+import java.io.PrintWriter
+class Reporter {
+    fun dump(e: Exception, out: PrintWriter) {
+        e.printStackTrace(out)
+    }
+}
+class FileTree : Timber.Tree() {
+    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+        t?.printStackTrace()
+    }
+}
+`
+	if findings := runRuleByName(t, "PrintStackTraceInProduction", code); len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+	const tooling = `
+package test
+import timber.log.Timber
+fun main() {
+    try { run() } catch (e: Exception) { e.printStackTrace() }
+}
+`
+	if findings := runRuleByNameOnPath(t, "PrintStackTraceInProduction", "repo/scripts/Tool.kt", tooling); len(findings) != 0 {
+		t.Fatalf("expected no findings for scripts, got %d", len(findings))
+	}
+	if findings := runRuleByNameOnPath(t, "PrintStackTraceInProduction", "repo/app/Tool.kt", tooling); len(findings) != 1 {
+		t.Fatalf("expected 1 finding for production code, got %d", len(findings))
+	}
+}
+
+func TestPrintlnInProduction_NegativeToolingAndLogSink(t *testing.T) {
+	const code = `
+package test
+class ConsoleTree : Timber.Tree() {
+    override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+        println(message)
+    }
+}
+`
+	if findings := runRuleByName(t, "PrintlnInProduction", code); len(findings) != 0 {
+		t.Fatalf("expected no findings in log sink, got %d", len(findings))
+	}
+	const tool = `
+package test
+fun report(name: String) {
+    println(name)
+}
+`
+	for _, path := range []string{"repo/tooling/Report.kt", "repo/bazel/Report.kt", "repo/scripts/Report.kt", "repo/libs/test-support/Report.kt", "repo/libs/test-utils/Report.kt"} {
+		if findings := runRuleByNameOnPath(t, "PrintlnInProduction", path, tool); len(findings) != 0 {
+			t.Fatalf("expected no findings for %s, got %d", path, len(findings))
+		}
+	}
+	if findings := runRuleByNameOnPath(t, "PrintlnInProduction", "repo/app/Report.kt", tool); len(findings) != 1 {
+		t.Fatalf("expected 1 finding in production code, got %d", len(findings))
+	}
+}
+
+func TestVisibleForTestingCallerInNonTest_SkipsExemptCallersAndAmbiguousOverloads(t *testing.T) {
+	hooks := `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun reset(flag: Boolean) = Unit
+
+    fun reset(value: Int) = Unit
+}
+`
+	t.Run("overload with the same arity is ambiguous and skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": hooks,
+			"app/src/main/java/com/example/Production.kt": `package com.example
+
+fun production() {
+    TestHooks.reset(1)
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("callers inside annotated declarations and Fake classes are skipped", func(t *testing.T) {
+		findings := runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt": `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun resetForTests() = Unit
+}
+`,
+			"app/src/main/java/com/example/Helpers.kt": `package com.example
+
+@VisibleForTesting
+fun annotatedHelper() {
+    TestHooks.resetForTests()
+}
+
+class FakeSession {
+    fun clear() {
+        TestHooks.resetForTests()
+    }
+}
+`,
+		})
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+}
+
+func TestVisibleForTestingCallerInNonTest_ResolvesOverloadByParameterTypes(t *testing.T) {
+	hooks := `package com.example
+
+object TestHooks {
+    @VisibleForTesting
+    fun reset(flag: Boolean) = Unit
+
+    fun reset(value: Int) = Unit
+}
+`
+	run := func(call string) int {
+		return len(runVisibleForTestingCallerRule(t, map[string]string{
+			"app/src/main/java/com/example/TestHooks.kt":  hooks,
+			"app/src/main/java/com/example/Production.kt": "package com.example\n\nfun production() {\n    " + call + "\n}\n",
+		}))
+	}
+	// The argument type selects the unannotated overload, so the call is clean.
+	if got := run("TestHooks.reset(1)"); got != 0 {
+		t.Fatalf("Int argument binds to the plain overload: expected 0 findings, got %d", got)
+	}
+	// The argument type selects the annotated overload, even though a same-arity overload exists.
+	if got := run("TestHooks.reset(true)"); got != 1 {
+		t.Fatalf("Boolean argument binds to the annotated overload: expected 1 finding, got %d", got)
+	}
+	// An argument of unknown type could bind to either overload and stays silent.
+	if got := run("TestHooks.reset(computeValue())"); got != 0 {
+		t.Fatalf("unknown argument type is ambiguous: expected 0 findings, got %d", got)
+	}
+}
+
+func TestHardcodedLocalhostUrl_HonorsSuppress(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedLocalhostUrl", `
+package test
+
+class Client {
+    @Suppress("HardcodedLocalhostUrl")
+    companion object {
+        const val LOCAL = "http://localhost:8080/"
+    }
+
+    fun connect() = open(@Suppress("HardcodedLocalhostUrl") "http://10.0.2.2:8080/")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected suppressed findings, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "HardcodedLocalhostUrl", `
+package test
+
+class Client {
+    companion object {
+        const val LOCAL = "http://localhost:8080/"
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding without @Suppress, got %d", len(findings))
+	}
+}
+
+func TestPrintCalls_SkippedInLoggerClassStdoutHelperAndTestSupport(t *testing.T) {
+	code := `
+package test
+import timber.log.Timber
+class FileLogger {
+    fun log(t: Throwable) {
+        t.printStackTrace()
+        println("x")
+    }
+}
+/** Debug helper that writes to stdout. */
+fun debugDump(s: String) {
+    println(s)
+}
+`
+	for _, rule := range []string{"PrintlnInProduction", "PrintStackTraceInProduction"} {
+		if got := runRuleByName(t, rule, code); len(got) != 0 {
+			t.Errorf("%s: expected no findings, got %d", rule, len(got))
+		}
+	}
+	support := runRuleByNameOnPath(t, "PrintlnInProduction", "mod/test-fixtures/src/main/kotlin/Helper.kt", `
+package test
+fun helper() { println("x") }
+`)
+	if len(support) != 0 {
+		t.Errorf("expected no findings in a test-fixtures module, got %d", len(support))
+	}
+	plain := runRuleByName(t, "PrintlnInProduction", `
+package test
+fun helper() { println("x") }
+`)
+	if len(plain) != 1 {
+		t.Errorf("expected plain println to stay flagged, got %d", len(plain))
+	}
 }

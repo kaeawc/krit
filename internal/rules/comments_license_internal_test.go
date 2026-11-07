@@ -107,3 +107,59 @@ fun foo() {}
 		t.Fatalf("expected literal template in replacement, got %q", fix.Replacement)
 	}
 }
+
+// A comment after the package line is not a file header, so the missing-header fix must insert at the top
+// instead of replacing that comment.
+func TestAbsentOrWrongFileLicense_CommentAfterPackageIsNotAHeader(t *testing.T) {
+	for _, code := range []string{
+		"package test\n\n/** Doc of X. */\nclass X\n",
+		"package test\nimport a.B\n\n// region helpers\nclass X\n",
+	} {
+		r := &AbsentOrWrongFileLicenseRule{
+			BaseRule:        BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning"},
+			LicenseTemplate: "Copyright",
+		}
+		findings := runLicenseRule(t, r, parseLicenseFixture(t, code))
+		if len(findings) != 1 || findings[0].Fix == nil {
+			t.Fatalf("expected 1 finding with a fix for %q, got %+v", code, findings)
+		}
+		if fix := findings[0].Fix; fix.StartByte != 0 || fix.EndByte != 0 {
+			t.Fatalf("fix must insert at byte 0 for %q, got [%d,%d)", code, fix.StartByte, fix.EndByte)
+		}
+	}
+}
+
+func TestAbsentOrWrongFileLicense_DocCommentAfterPackageIsNotAHeader(t *testing.T) {
+	file := parseLicenseFixture(t, `package test
+
+/** Documents Foo. */
+class Foo
+`)
+	r := &AbsentOrWrongFileLicenseRule{
+		BaseRule:        BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning"},
+		LicenseTemplate: "Copyright 2026 Acme",
+	}
+	findings := runLicenseRule(t, r, file)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one fixable finding, got %+v", findings)
+	}
+	if fix := findings[0].Fix; fix.StartByte != 0 || fix.EndByte != 0 {
+		t.Fatalf("fix must insert a header, not replace the KDoc: %+v", fix)
+	}
+}
+
+func TestAbsentOrWrongFileLicense_InsertsAfterBOMWithFileLineEnding(t *testing.T) {
+	file := parseLicenseFixture(t, "\ufeffpackage test\r\n\r\nfun foo() {}\r\n")
+	r := &AbsentOrWrongFileLicenseRule{
+		BaseRule:        BaseRule{RuleName: "AbsentOrWrongFileLicense", RuleSetName: "comments", Sev: "warning"},
+		LicenseTemplate: "Copyright 2026 Acme",
+	}
+	findings := runLicenseRule(t, r, file)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one fixable finding, got %+v", findings)
+	}
+	fix := findings[0].Fix
+	if fix.StartByte != 3 || fix.Replacement != "/* Copyright 2026 Acme */\r\n" {
+		t.Fatalf("unexpected fix %+v", fix)
+	}
+}

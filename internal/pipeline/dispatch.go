@@ -202,6 +202,7 @@ func (d DispatchPhase) Run(ctx context.Context, in IndexResult) (DispatchResult,
 	dispatcher := rules.NewDispatcher(in.ActiveRules, in.Resolver)
 	dispatcher.SetLibraryFacts(in.LibraryFacts)
 	dispatcher.SetJavaSemanticFacts(in.JavaSemanticFacts)
+	dispatcher.SetRuleTiming(!in.SkipRuleTiming)
 
 	if in.Reporter.VerboseEnabled() {
 		dispatcher.ReportMissingCapabilities(dispatchOracleAvailable(in), in.Reporter.Verbosef)

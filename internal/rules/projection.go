@@ -6,6 +6,7 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // DiagnosticProjection describes how to turn a Kotlin compiler diagnostic
@@ -46,6 +47,10 @@ func projectDiagnostic(ctx *api.Context, spec DiagnosticProjection) bool {
 		if spec.Accept != nil && !spec.Accept(ctx, d) {
 			continue
 		}
+		// The compiler's verdict holds only within one module; compilerAnalyzedFile keeps the heuristic silent too.
+		if resolver.SmartCastCrossesModules(ctx.File.Path, d) {
+			continue
+		}
 		line, col := d.Line, d.Col
 		if line <= 0 || col <= 0 {
 			line = ctx.File.FlatRow(ctx.Idx) + 1
@@ -64,6 +69,38 @@ func projectDiagnostic(ctx *api.Context, spec DiagnosticProjection) bool {
 		return true
 	}
 	return false
+}
+
+// compilerAnalyzedFile reports whether the oracle compiled ctx.File. For rules that mirror a compiler
+// diagnostic, no diagnostic then means the code is fine, so the name-based heuristic must not run.
+func compilerAnalyzedFile(ctx *api.Context) bool {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil {
+		return false
+	}
+	resolver, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok || resolver.Oracle() == nil {
+		return false
+	}
+	facts, ok := resolver.Oracle().(interface{ HasFileFacts(string) bool })
+	return ok && facts.HasFileFacts(ctx.File.Path)
+}
+
+// oracleNullability reports the nullability the compiler recorded for the expression. known is false when the
+// compiler has no fact for it. A platform type and a stable smart cast count as non-null, so a rule built on it
+// reports only a NULLABLE operand as detekt does.
+func oracleNullability(ctx *api.Context, idx uint32) (known, nullable bool) {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil || idx == 0 {
+		return false, false
+	}
+	resolver, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok || resolver.Oracle() == nil {
+		return false, false
+	}
+	typ := resolver.OracleExpressionFlat(ctx.File, idx)
+	if typ == nil || !typ.Resolved || typ.Kind == typeinfer.TypeUnknown {
+		return false, false
+	}
+	return true, typ.IsNullable()
 }
 
 func diagnosticProjectionMatchesFactory(factoryNames []string, factoryName string) bool {

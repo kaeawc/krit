@@ -32,7 +32,7 @@ func registerPrivacyPermissionsRules() {
 				if privacyHasPrecedingConsentUpdateCallFlat(file, fn, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"MobileAds.initialize(...) runs in Application.onCreate before any consentInformation.requestConsentInfoUpdate(...) call. Request consent info before initializing AdMob.")
 			},
 		})
@@ -121,7 +121,7 @@ func registerPrivacyPermissionsRules() {
 				if privacyOwnerHasBackgroundLocationRationaleFlat(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"ACCESS_BACKGROUND_LOCATION requested without shouldShowRequestPermissionRationale. Show a rationale dialog before requesting background location access.")
 			},
 		})
@@ -145,7 +145,7 @@ func registerPrivacyPermissionsRules() {
 					if privacyNodeContainsFlagSecureReferenceFlat(file, idx) {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Sensitive screen \""+name+"\" does not set FLAG_SECURE. Add window.setFlags(FLAG_SECURE, FLAG_SECURE) to prevent screenshots and screen recording.")
 					return
 				}
@@ -162,7 +162,7 @@ func registerPrivacyPermissionsRules() {
 					if privacyNodeContainsFlagSecureReferenceFlat(file, idx) || privacyNodeContainsScreenshotBlockerReferenceFlat(file, idx) {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Sensitive composable \""+name+"\" does not block screenshots. Apply FLAG_SECURE or a ScreenshotBlocker modifier.")
 				}
 			},
@@ -185,7 +185,7 @@ func registerPrivacyPermissionsRules() {
 				if !privacyClipboardCallHasSensitiveSourceFlat(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Clipboard write from a variable that looks like a password or credential. Avoid copying sensitive data to the clipboard.")
 			},
 		})

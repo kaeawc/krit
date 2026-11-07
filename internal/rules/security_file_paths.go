@@ -226,15 +226,27 @@ func zipSlipFunctionMentionsZipAPI(file *scanner.File, fn uint32) bool {
 }
 
 func zipSlipFunctionHasGuard(file *scanner.File, fn uint32) bool {
-	text := file.FlatNodeText(fn)
-	if strings.Contains(text, "canonicalPath.startsWith(") {
+	return pathContainmentGuardText(file.FlatNodeText(fn))
+}
+
+// pathContainmentGuardText reports a canonical or normalized path containment
+// check (`canonicalPath.startsWith(...)`, `normalize().startsWith(...)`), or a
+// rejection of `..` in the entry name.
+func pathContainmentGuardText(text string) bool {
+	compact := strings.Join(strings.Fields(text), "")
+	if strings.Contains(compact, `.contains("..")`) || strings.Contains(compact, `.contains(".."`) {
 		return true
 	}
-	if strings.Contains(text, ".normalize()") && strings.Contains(text, ".startsWith(") {
-		return true
+	if !strings.Contains(compact, ".startsWith(") {
+		return false
 	}
-	if strings.Contains(text, ".toRealPath(") && strings.Contains(text, ".startsWith(") {
-		return true
+	for _, marker := range []string{
+		"canonicalPath", "getCanonicalPath()", "canonicalFile", "getCanonicalFile()",
+		".normalize()", ".toRealPath(", "relativeTo(",
+	} {
+		if strings.Contains(compact, marker) {
+			return true
+		}
 	}
 	return false
 }
@@ -281,8 +293,5 @@ func hasCanonicalPathContainmentGuardFlat(file *scanner.File, fn uint32, parentE
 	if file == nil || parentExpr == "" {
 		return false
 	}
-	fnText := file.FlatNodeText(fn)
-	return strings.Contains(fnText, ".canonicalPath.startsWith(") &&
-		strings.Contains(fnText, parentExpr+".canonicalPath") &&
-		strings.Contains(fnText, "File.separator")
+	return pathContainmentGuardText(file.FlatNodeText(fn))
 }

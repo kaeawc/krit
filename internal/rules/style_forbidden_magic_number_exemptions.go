@@ -464,3 +464,77 @@ func (r *MagicNumberRule) isPartOfInfixRange(file *scanner.File, idx uint32) boo
 	}
 	return false
 }
+
+// magicNumberNearestProperty returns the closest property_declaration around idx, or 0.
+func magicNumberNearestProperty(file *scanner.File, idx uint32) uint32 {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "property_declaration" {
+			return p
+		}
+	}
+	return 0
+}
+
+// magicNumberInConstProperty reports whether the closest enclosing property is a const val.
+func magicNumberInConstProperty(file *scanner.File, idx uint32) bool {
+	prop := magicNumberNearestProperty(file, idx)
+	return prop != 0 && file.FlatHasModifier(prop, "const")
+}
+
+// inCompanionProperty reports whether the closest enclosing property is not local and
+// the closest enclosing object is a companion object.
+func (r *MagicNumberRule) inCompanionProperty(file *scanner.File, idx uint32) bool {
+	prop := magicNumberNearestProperty(file, idx)
+	if prop == 0 || r.isLocalProperty(file, idx) {
+		return false
+	}
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "companion_object":
+			return true
+		case "object_declaration", "object_literal":
+			return false
+		}
+	}
+	return false
+}
+
+// magicNumberIsSoleReturn reports whether the literal is returned by the only statement of its block.
+func magicNumberIsSoleReturn(file *scanner.File, idx uint32) bool {
+	jump, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(jump) != "jump_expression" || !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(jump)), "return") {
+		return false
+	}
+	container, ok := file.FlatParent(jump)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(container) {
+	case "statements":
+		count := 0
+		for child := file.FlatFirstChild(container); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && !strings.HasSuffix(file.FlatType(child), "comment") {
+				count++
+			}
+		}
+		return count == 1
+	case "if_expression", "when_entry", "for_statement", "while_statement", "do_while_statement", "control_structure_body":
+		// detekt sees the branch body as a wrapper that holds only the return.
+		return true
+	}
+	return false
+}
+
+// magicNumberIsParameterDefault reports whether the literal is the whole default value of a function
+// or constructor parameter.
+func magicNumberIsParameterDefault(file *scanner.File, idx uint32) bool {
+	p, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(p) {
+	case "function_value_parameters", "class_parameter":
+		return true
+	}
+	return false
+}

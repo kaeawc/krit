@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -21,7 +23,6 @@ func registerAndroidCorrectnessRules() {
 	registerAndroidCorrectnessWrongThread()
 	registerAndroidCorrectnessSQLiteString()
 	registerAndroidCorrectnessRegistered()
-	registerAndroidCorrectnessNestedScrolling()
 	registerAndroidCorrectnessScrollViewCount()
 	registerAndroidCorrectnessSimpleDateFormat()
 	registerAndroidCorrectnessSetTextI18n()
@@ -35,6 +36,7 @@ func registerAndroidCorrectnessDefaultLocale() {
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes:  []string{"call_expression", "method_invocation"},
 		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Needs:      api.NeedsTypeInfo,
 		Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -42,58 +44,99 @@ func registerAndroidCorrectnessDefaultLocale() {
 				checkDefaultLocaleJava(ctx, idx)
 				return
 			}
-			name := flatCallExpressionName(file, idx)
-			switch name {
-			case "lowercase", "uppercase":
-				// Kotlin's modern lowercase()/uppercase() overloads are
-				// locale-invariant when called without a Locale. The
-				// deprecated toLowerCase()/toUpperCase() forms are the
-				// default-locale APIs this Android lint check targets.
-				_, args := flatCallExpressionParts(file, idx)
-				if args == 0 {
-					return
-				}
+			switch flatCallExpressionName(file, idx) {
 			case "toLowerCase", "toUpperCase":
-				// Only flag the zero-argument form that uses the default locale.
-				_, args := flatCallExpressionParts(file, idx)
-				if args == 0 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+				// Only the zero-argument String form uses the default locale; Char.toLowerCase() does not.
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if args != 0 && file.FlatNamedChildCount(args) > 0 {
 					return
 				}
-				// Has value_arguments; skip only when the argument is a
-				// structural Locale reference, not a text lookalike.
-				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-					if file.FlatType(arg) != "value_argument" {
-						continue
-					}
-					if kotlinExprIsLocaleReference(file, flatValueArgumentExpression(file, arg)) {
-						return
-					}
+				if navExpr != 0 && defaultLocaleReceiverIsChar(ctx, navExpr) {
+					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, defaultLocaleCaseMessage(flatCallExpressionName(file, idx)))
 			case "format":
 				// String.format(pattern, ...) without an explicit Locale first arg.
 				navExpr, args := flatCallExpressionParts(file, idx)
 				if navExpr == 0 || args == 0 {
 					return
 				}
-				// Require receiver to be "String".
-				recv := file.FlatFirstChild(navExpr)
-				if recv == 0 || file.FlatNodeText(recv) != "String" {
+				if recv := file.FlatNodeText(file.FlatFirstChild(navExpr)); recv != "String" && recv != "java.lang.String" {
 					return
 				}
-				// If first arg is a Locale navigation expression, skip.
-				firstArg := flatPositionalValueArgument(file, args, 0)
-				if firstArg == 0 {
-					return
+				// Only the first positional argument, or one labeled `locale`, can be the Locale; a Locale
+				// later in the list is a format argument.
+				first := true
+				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+					if file.FlatType(arg) != "value_argument" {
+						continue
+					}
+					label := flatValueArgumentLabel(file, arg)
+					positionalFirst := first && label == ""
+					first = false
+					if label != "locale" && !positionalFirst {
+						continue
+					}
+					expr := flatValueArgumentExpression(file, arg)
+					if label == "locale" || kotlinExprIsLocaleReference(file, expr) ||
+						strings.TrimSpace(file.FlatNodeText(arg)) == "null" || defaultLocaleArgIsLocale(ctx, expr) {
+						return
+					}
 				}
-				if kotlinExprIsLocaleReference(file, flatValueArgumentExpression(file, firstArg)) {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use String.format(Locale, ...) instead.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, defaultLocaleFormatMessage)
 			}
 		},
 	})
+}
+
+const (
+	defaultLocaleFormatMessage = "Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
+)
+
+// defaultLocaleCaseMessage names the case-conversion method the way Lint does.
+func defaultLocaleCaseMessage(method string) string {
+	return "Implicitly using the default locale is a common source of bugs: Use `" + method + "(Locale)` instead. " +
+		"For strings meant to be internal use `Locale.ROOT`, otherwise `Locale.getDefault()`."
+}
+
+// javaCallNameNode returns the identifier node naming a Java method invocation.
+func javaCallNameNode(file *scanner.File, call uint32) uint32 {
+	var last uint32
+	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "argument_list" {
+			break
+		}
+		if file.FlatType(child) == "identifier" {
+			last = child
+		}
+	}
+	return last
+}
+
+// defaultLocaleArgIsLocale reports an argument the resolver types as a Locale.
+func defaultLocaleArgIsLocale(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	if expr == 0 || ctx.Resolver == nil {
+		return false
+	}
+	typ := ctx.Resolver.ResolveFlatNode(expr, file)
+	if (typ == nil || typ.Kind == typeinfer.TypeUnknown) && file.FlatType(expr) == "simple_identifier" {
+		typ = ctx.Resolver.ResolveByNameFlat(file.FlatNodeText(expr), expr, file)
+	}
+	return typ != nil && (typ.Name == "Locale" || typ.FQN == "java.util.Locale" || typ.Name == "ULocale")
+}
+
+// defaultLocaleReceiverIsChar reports whether the receiver of a navigation call is known to be a Char.
+func defaultLocaleReceiverIsChar(ctx *api.Context, navExpr uint32) bool {
+	if ctx.Resolver == nil || ctx.File.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	recv := ctx.File.FlatNamedChild(navExpr, 0)
+	typ := ctx.Resolver.ResolveFlatNode(recv, ctx.File)
+	if (typ == nil || typ.Kind == typeinfer.TypeUnknown) && ctx.File.FlatType(recv) == "simple_identifier" {
+		typ = ctx.Resolver.ResolveByNameFlat(ctx.File.FlatNodeText(recv), recv, ctx.File)
+	}
+	return typ != nil && (typ.Name == "Char" || typ.FQN == "kotlin.Char" || typ.Name == "Character")
 }
 
 func registerAndroidCorrectnessCommitPrefEdits() {
@@ -120,12 +163,20 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 			if ancestorFinalizesEditor(file, idx) {
 				return
 			}
+			// The KTX `edit { ... }` overload applies the changes itself.
+			if call := flatCallTrailingLambda(file, idx); call != 0 {
+				return
+			}
+			if editorChainEscapes(file, idx) {
+				return
+			}
 			fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 			if !ok {
 				return
 			}
 			if editorVar := initializerAssignedName(file, idx); editorVar != "" &&
-				functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) {
+				(functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) ||
+					variableEscapes(file, fn, editorVar)) {
 				return
 			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
@@ -136,7 +187,7 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 			if !commitPrefEditsOracleConfirmed(oracleLookup, file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+			ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "`SharedPreferences.edit()` without a corresponding `commit()` or `apply()` call")
 		},
 	})
 }
@@ -181,12 +232,16 @@ func registerAndroidCorrectnessCommitTransaction() {
 			if ancestorCallNameIn(file, idx, commitTransactionNames) {
 				return
 			}
+			if editorChainEscapes(file, idx) {
+				return
+			}
 			fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "function_body")
 			if !ok {
 				return
 			}
 			if txVar := initializerAssignedName(file, idx); txVar != "" &&
-				functionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames, nil) {
+				(functionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames, nil) ||
+					variableEscapes(file, fn, txVar)) {
 				return
 			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
@@ -197,7 +252,7 @@ func registerAndroidCorrectnessCommitTransaction() {
 			if !commitTransactionOracleConfirmed(oracleLookup, file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+			ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "This transaction should be completed with a `commit()` call")
 		},
 	})
 }
@@ -231,7 +286,14 @@ func registerAndroidCorrectnessAssert() {
 			if flatCallExpressionName(file, idx) != "assert" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "assert is not reliable on Android. Use a proper assertion library or throw explicitly.")
+			// `kotlin.assert(...)` is the stdlib call; any other receiver is a different method.
+			if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 && strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(navExpr, 0))) != "kotlin" {
+				return
+			}
+			if navExpr, _ := flatCallExpressionParts(file, idx); navExpr == 0 && fileDeclaresFunctionNamed(file, "assert") {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "assert is not reliable on Android. Use a proper assertion library or throw explicitly.")
 		},
 	})
 }
@@ -247,9 +309,6 @@ func registerAndroidCorrectnessCheckResult() {
 		NeedsLibraryFacts: true,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if strings.HasSuffix(file.Path, ".gradle.kts") {
-				return
-			}
 			if file.FlatType(idx) == "method_invocation" {
 				checkResultJava(ctx, idx)
 				return
@@ -266,6 +325,10 @@ func registerAndroidCorrectnessCheckResult() {
 			if name == "format" && !isReceiverNamed(file, idx, "String") {
 				return
 			}
+			// The KTX `edit { ... }` overload applies the changes itself and returns Unit.
+			if name == "edit" && flatCallTrailingLambda(file, idx) != 0 {
+				return
+			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
 			if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
@@ -274,8 +337,7 @@ func registerAndroidCorrectnessCheckResult() {
 			if !checkResultOracleConfirmed(oracleLookup, file, idx, name) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1,
-				"The result of this call is not used. Check if the return value should be consumed.")
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "The result of `"+name+"` is not used")
 		},
 	})
 }
@@ -357,45 +419,28 @@ func registerAndroidCorrectnessShiftFlags() {
 			if !strings.Contains(upper, "FLAG") {
 				return
 			}
-			// Walk to the initializer expression — must be an integer literal
-			// with no shl operator or << in the subtree.
+			// Only a bare single-bit literal (2, 4, 8, 0x10, ...) is better written as a shift. Zero, one,
+			// masks and combinations such as FLAG_ALL = 7 or `A or B` are normal flag definitions.
 			var initExpr uint32
 			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-				t := file.FlatType(child)
-				if t == "integer_literal" || t == "long_literal" || t == "hex_literal" {
-					initExpr = child
-					break
-				}
-				// Skip past "=" sign to find the rhs
-				if t == "=" {
-					next := file.FlatNextSib(child)
-					if next != 0 {
-						initExpr = next
-					}
+				if file.FlatType(child) == "=" {
+					initExpr = file.FlatNextSib(child)
 					break
 				}
 			}
 			if initExpr == 0 {
 				return
 			}
-			// Check the initializer subtree for shl or << operators.
-			hasShl := false
-			file.FlatWalkAllNodes(initExpr, func(n uint32) {
-				if hasShl {
-					return
-				}
-				t := file.FlatType(n)
-				if t == "multiplicative_operator" || t == "infixFunctionCall" || t == "infix_expression" || t == "simple_identifier" {
-					text := file.FlatNodeText(n)
-					if text == "shl" || strings.Contains(text, "<<") {
-						hasShl = true
-					}
-				}
-			})
-			if hasShl {
+			switch file.FlatType(initExpr) {
+			case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+			default:
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Consider using shift operators (1 shl N) for flag constants for clarity.")
+			value, ok := parseKotlinIntegerLiteral(file.FlatNodeText(initExpr))
+			if !ok || value < 2 || value&(value-1) != 0 {
+				return
+			}
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Consider using shift operators (1 shl N) for flag constants for clarity.")
 		},
 	})
 }
@@ -420,20 +465,47 @@ func registerAndroidCorrectnessUniqueConstants() {
 				return
 			}
 			seen := make(map[string]bool)
+			consts := wrongConstantFileConstants(file)
+			// check reports the first constant whose value repeats an earlier one.
+			check := func(expr uint32) bool {
+				key, display := annotationConstantKey(file, expr)
+				if value, ok := wrongConstantEvalIntExpr(file, expr, consts); ok {
+					text := strings.TrimSpace(file.FlatNodeText(expr))
+					key, display = "v:"+strconv.FormatInt(value, 10), text
+					if text != strconv.FormatInt(value, 10) {
+						display = text + " (" + strconv.FormatInt(value, 10) + ")"
+					}
+				}
+				if key == "" {
+					return false
+				}
+				if seen[key] {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Duplicate constant value "+display+" in annotation definition.")
+					return true
+				}
+				seen[key] = true
+				return false
+			}
 			for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 				if file.FlatType(arg) != "value_argument" {
 					continue
 				}
 				expr := flatValueArgumentExpression(file, arg)
-				key, display := annotationConstantKey(file, expr)
-				if key == "" {
+				if expr == 0 {
 					continue
 				}
-				if seen[key] {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Duplicate constant value "+display+" in annotation definition.")
+				// `value = [A, B]` and `[A, B]` list their constants in an array literal.
+				if file.FlatType(expr) == "collection_literal" || file.FlatType(expr) == "array_literal" {
+					for elem := file.FlatFirstChild(expr); elem != 0; elem = file.FlatNextSib(elem) {
+						if file.FlatIsNamed(elem) && check(elem) {
+							return
+						}
+					}
+					continue
+				}
+				if check(expr) {
 					return
 				}
-				seen[key] = true
 			}
 		},
 	})
@@ -441,63 +513,173 @@ func registerAndroidCorrectnessUniqueConstants() {
 
 func registerAndroidCorrectnessWrongThread() {
 	r := &WrongThreadRule{AndroidRule: alcRule("WrongThread", "Wrong thread", ALSError, 6)}
-	// UI method names forbidden in @WorkerThread contexts.
-	wrongThreadUIMethods := map[string]bool{
-		"setText": true, "setImageResource": true, "setVisibility": true,
-		"addView": true, "removeView": true, "invalidate": true,
-	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Needs: api.NeedsTypeInfo, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			// Check if the function has a @WorkerThread annotation. The
-			// modifiers live either as a direct `modifiers` child of the
-			// function_declaration or — in some tree-sitter grammar
-			// versions — as the immediately preceding sibling node.
-			if !hasAnnotationNamed(file, idx, "WorkerThread") {
+			caller := threadContextOfFunction(file, idx)
+			if caller == threadNone {
 				return
 			}
-			// Walk all call_expression nodes in the function body.
+			annotated := sameFileThreadAnnotatedFunctions(file)
 			file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
-				name := flatCallExpressionName(file, callIdx)
-				if !wrongThreadUIMethods[name] {
+				if wrongThreadCallIsDispatched(file, callIdx, idx) {
 					return
 				}
-				// Skip if inside a runOnUiThread or post call.
-				for p, ok := file.FlatParent(callIdx); ok; p, ok = file.FlatParent(p) {
-					if p == idx {
-						break
-					}
-					if file.FlatType(p) == "call_expression" {
-						pName := flatCallExpressionName(file, p)
-						if pName == "runOnUiThread" || pName == "post" {
-							return
-						}
-					}
+				name := flatCallExpressionName(file, callIdx)
+				// A bare call resolves against the same file; a qualified call is only trusted for view methods.
+				bare := flatReceiverNameFromCall(file, callIdx) == "" && !callHasNavigationReceiver(file, callIdx)
+				callee := annotated[name]
+				switch {
+				case caller == threadWorker && bare && callee == threadMain:
+					ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
+						"Method "+name+" must be called from the main thread, currently inferred thread is worker (@WorkerThread).")
+				case caller == threadMain && bare && callee == threadWorker:
+					ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
+						"Method "+name+" must be called from a worker thread, currently inferred thread is main (@MainThread or @UiThread).")
+				case caller == threadWorker && wrongThreadUIMethods[name] && !bare && wrongThreadReceiverMayBeView(ctx, callIdx, name):
+					ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1, "UI operation in @WorkerThread context. Use runOnUiThread or Handler.post().")
 				}
-				ctx.EmitAt(file.FlatRow(callIdx)+1, 1, "UI operation in @WorkerThread context. Use runOnUiThread or Handler.post().")
 			})
 		},
 	})
 }
 
+type threadContext int
+
+const (
+	threadNone threadContext = iota
+	threadMain
+	threadWorker
+)
+
+// wrongThreadUIMethods are View methods that must run on the main thread.
+var wrongThreadUIMethods = map[string]bool{
+	"setText": true, "setImageResource": true, "setVisibility": true,
+	"addView": true, "removeView": true, "invalidate": true,
+}
+
+// threadContextOfFunction maps @MainThread/@UiThread to main and @WorkerThread to worker.
+func threadContextOfFunction(file *scanner.File, fn uint32) threadContext {
+	switch {
+	case hasAnnotationNamed(file, fn, "WorkerThread"):
+		return threadWorker
+	case hasAnnotationNamed(file, fn, "MainThread"), hasAnnotationNamed(file, fn, "UiThread"):
+		return threadMain
+	}
+	return threadNone
+}
+
+// sameFileThreadAnnotatedFunctions maps function names declared in this file to their thread annotation.
+// A name declared with conflicting annotations is dropped because overloads cannot be told apart.
+func sameFileThreadAnnotatedFunctions(file *scanner.File) map[string]threadContext {
+	out := map[string]threadContext{}
+	conflicts := map[string]bool{}
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		name := extractIdentifierFlat(file, fn)
+		if name == "" {
+			return
+		}
+		ctxt := threadContextOfFunction(file, fn)
+		if prev, seen := out[name]; seen && prev != ctxt {
+			conflicts[name] = true
+		}
+		out[name] = ctxt
+	})
+	for name := range conflicts {
+		delete(out, name)
+	}
+	return out
+}
+
+// wrongThreadCallIsDispatched reports whether the call sits inside a lambda handed to the main thread.
+func wrongThreadCallIsDispatched(file *scanner.File, call, fn uint32) bool {
+	for p, ok := file.FlatParent(call); ok && p != fn; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) != "call_expression" {
+			continue
+		}
+		switch flatCallExpressionName(file, p) {
+		case "runOnUiThread", "post", "postDelayed", "postOnAnimation":
+			return true
+		}
+		if strings.Contains(file.FlatNodeText(p), "Dispatchers.Main") && flatCallTrailingLambda(file, p) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func callHasNavigationReceiver(file *scanner.File, call uint32) bool {
+	navExpr, _ := flatCallExpressionParts(file, call)
+	return navExpr != 0
+}
+
+// wrongThreadReceiverMayBeView accepts a call whose receiver resolves to an android.view or android.widget
+// type. An unresolved receiver is accepted for the distinctly view-like methods, but not for `invalidate`,
+// which caches and similar classes also declare.
+func wrongThreadReceiverMayBeView(ctx *api.Context, call uint32, method string) bool {
+	if target, ok := semantics.ResolveCallTarget(ctx, call); ok && target.Receiver.Valid() {
+		if typ, ok := semantics.ExpressionType(ctx, target.Receiver.Node); ok && typ.Type != nil && typ.Type.Kind != typeinfer.TypeUnknown {
+			return strings.HasPrefix(typ.Type.FQN, "android.view.") || strings.HasPrefix(typ.Type.FQN, "android.widget.") ||
+				typeinfer.IsKnownSubtype(typ.Type.FQN, "android.view.View")
+		}
+	}
+	return method != "invalidate"
+}
+
+// sqliteStringTypeRe is SQLiteDetector's `.*\bSTRING\b.*`: a case-sensitive whole word.
+var sqliteStringTypeRe = regexp.MustCompile(`\bSTRING\b`)
+
+const sqliteStringMessage = "Using column type STRING; did you mean to use TEXT? (STRING is a numeric type and its value can be adjusted; for example, strings that look like integers can drop leading zeroes. See issue explanation for details.)"
+
+// sqliteSQLText resolves the SQL text of an execSQL argument the way Lint's constant evaluation does for
+// this check: a literal, a literal followed by concatenated parts, or a same-file property initialized with one.
+func sqliteSQLText(file *scanner.File, expr uint32, depth int) (string, bool) {
+	if expr == 0 || depth > 3 {
+		return "", false
+	}
+	switch file.FlatType(expr) {
+	case "string_literal":
+		if flatContainsStringInterpolation(file, expr) {
+			return "", false
+		}
+		return stringLiteralContent(file, expr), true
+	case "additive_expression":
+		return sqliteSQLText(file, file.FlatFirstChild(expr), depth+1)
+	case "simple_identifier":
+		name := file.FlatNodeText(expr)
+		var text string
+		found := false
+		file.FlatWalkNodes(0, "property_declaration", func(decl uint32) {
+			if found || composePropertyNameFlat(file, decl) != name {
+				return
+			}
+			text, found = sqliteSQLText(file, propertyInitializerExpression(file, decl), depth+1)
+		})
+		return text, found
+	}
+	return "", false
+}
+
 func registerAndroidCorrectnessSQLiteString() {
-	r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT in SQLite", ALSWarning, 5)}
+	r := &SQLiteStringRule{AndroidRule: alcRule("SQLiteString", "Using STRING instead of TEXT", ALSWarning, 5)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"string_literal", "line_string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if file.FlatType(idx) != "string_literal" {
+			if flatCallExpressionName(file, idx) != "execSQL" {
 				return
 			}
-			if flatContainsStringInterpolation(file, idx) {
+			arg := flatPositionalValueArgument(file, flatCallKeyArguments(file, idx), 0)
+			expr := flatValueArgumentExpression(file, arg)
+			text, ok := sqliteSQLText(file, expr, 0)
+			if !ok || !strings.HasPrefix(text, "CREATE TABLE") && !strings.HasPrefix(text, "ALTER TABLE") {
 				return
 			}
-			upper := strings.ToUpper(stringLiteralContent(file, idx))
-			if strings.Contains(upper, "CREATE TABLE") && strings.Contains(upper, " STRING") {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SQLite does not support STRING type. Use TEXT instead.")
+			if sqliteStringTypeRe.MatchString(text) {
+				ctx.EmitAt(file.FlatRow(expr)+1, file.FlatCol(expr)+1, sqliteStringMessage)
 			}
 		},
 	})
@@ -510,6 +692,10 @@ func registerAndroidCorrectnessRegistered() {
 		NodeTypes: []string{"class_declaration"}, Needs: api.NeedsResolver, TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true}, Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			// Test-only components are registered by test manifests.
+			if scanner.IsTestFile(file.Path) {
+				return
+			}
 			componentType, confidence := androidComponentType(file, idx, ctx.Resolver)
 			if componentType == "" {
 				return
@@ -524,32 +710,6 @@ func registerAndroidCorrectnessRegistered() {
 				Message:    formatRegisteredMsg(className, componentType),
 				Confidence: confidence,
 			})
-		},
-	})
-}
-
-func registerAndroidCorrectnessNestedScrolling() {
-	r := &NestedScrollingRule{AndroidRule: alcRule("NestedScrolling", "Nested scrolling widgets", ALSWarning, 7)}
-	nestedScrollNames := map[string]bool{
-		"ScrollView": true, "LazyColumn": true, "LazyRow": true,
-		"HorizontalPager": true, "VerticalPager": true,
-	}
-	api.Register(&api.Rule{
-		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			name := flatCallNameAny(file, idx)
-			if !nestedScrollNames[name] {
-				return
-			}
-			// Check for an ancestor call_expression that is also a scroll container.
-			for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-				if file.FlatType(p) == "call_expression" && nestedScrollNames[flatCallNameAny(file, p)] {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Nested scrolling detected ("+name+" inside another scroll container). This can cause performance issues.")
-					return
-				}
-			}
 		},
 	})
 }
@@ -617,13 +777,13 @@ func registerAndroidCorrectnessSimpleDateFormat() {
 				checkSimpleDateFormatJava(ctx, idx)
 				return
 			}
-			if flatCallExpressionName(file, idx) != "SimpleDateFormat" {
+			if flatCallExpressionName(file, idx) != "SimpleDateFormat" || !simpleDateFormatIsJavaText(file, idx) {
 				return
 			}
 			// Require at least two args (pattern + Locale). Single-arg form uses default locale.
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 				return
 			}
 			count := 0
@@ -633,10 +793,22 @@ func registerAndroidCorrectnessSimpleDateFormat() {
 				}
 			}
 			if count < 2 {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 			}
 		},
 	})
+}
+
+// simpleDateFormatIsJavaText rejects a qualified call outside java.text and a bare call whose
+// SimpleDateFormat is imported from another package.
+func simpleDateFormatIsJavaText(file *scanner.File, call uint32) bool {
+	if navExpr, _ := flatCallExpressionParts(file, call); navExpr != 0 {
+		return strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(navExpr)), "java.text.")
+	}
+	if imp, ok := fileFactsCache().Imports(file).Aliases["SimpleDateFormat"]; ok {
+		return imp == "java.text.SimpleDateFormat"
+	}
+	return true
 }
 
 func registerAndroidCorrectnessSetTextI18n() {
@@ -675,7 +847,7 @@ func registerAndroidCorrectnessSetTextI18n() {
 			if !setTextI18nReceiverIsTextView(ctx, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Do not pass hardcoded text to setText. Use resource strings with placeholders.")
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Do not pass hardcoded text to setText. Use resource strings with placeholders.")
 		},
 	})
 }
@@ -822,12 +994,10 @@ func registerAndroidCorrectnessWrongCall() {
 			if recv != 0 && file.FlatNodeText(recv) == "super" {
 				return
 			}
-			// Skip if this is inside an override function declaration.
-			if _, inOverride := flatEnclosingAncestor(file, idx, "function_declaration"); inOverride {
-				fn, _ := flatEnclosingAncestor(file, idx, "function_declaration")
-				if file.FlatHasModifier(fn, "override") {
-					return
-				}
+			// A same-named override may legitimately forward to another receiver.
+			if fn, inFn := flatEnclosingAncestor(file, idx, "function_declaration"); inFn &&
+				file.FlatHasModifier(fn, "override") && extractIdentifierFlat(file, fn) == name {
+				return
 			}
 			// Receiver-type proof: require positive evidence the call is
 			// a View method. Either the receiver resolves to a View
@@ -848,7 +1018,7 @@ func registerAndroidCorrectnessWrongCall() {
 						if !androidTypeIsViewSubtype(ctx.Resolver, typ) {
 							return
 						}
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
 						return
 					}
 				}
@@ -857,7 +1027,7 @@ func registerAndroidCorrectnessWrongCall() {
 			if !androidEnclosingClassExtendsView(file, idx, ctx.Resolver) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
 		},
 	})
 }
@@ -868,15 +1038,19 @@ func checkDefaultLocaleJava(ctx *api.Context, idx uint32) {
 	args := wrongViewCastCallArgumentExpressions(file, idx)
 	switch name {
 	case "toLowerCase", "toUpperCase":
+		// String.toLowerCase(Locale) is the only overload with an argument; Character.toLowerCase(c) is not locale-based.
 		if len(args) == 0 {
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
-			return
-		}
-		if !javaExprMentionsLocale(file, args[0]) {
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead.")
+			at := javaCallNameNode(file, idx)
+			if at == 0 {
+				at = idx
+			}
+			ctx.EmitAt(file.FlatRow(at)+1, file.FlatCol(at)+1, defaultLocaleCaseMessage(name))
 		}
 	case "format":
 		receiver := wrongViewCastCallReceiverName(file, idx)
+		if receiver != "String" && receiver != "java.lang.String" {
+			receiver = javaMethodReceiverText(file, idx)
+		}
 		if receiver != "String" && receiver != "java.lang.String" {
 			return
 		}
@@ -886,7 +1060,7 @@ func checkDefaultLocaleJava(ctx *api.Context, idx uint32) {
 		if javaExprMentionsLocale(file, args[0]) {
 			return
 		}
-		ctx.EmitAt(file.FlatRow(idx)+1, 1, "Implicitly using the default locale. Use String.format(Locale, ...) instead.")
+		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, defaultLocaleFormatMessage)
 	}
 }
 
@@ -901,7 +1075,7 @@ func checkSimpleDateFormatJava(ctx *api.Context, idx uint32) {
 	}
 	args := javaArgumentExpressions(file, idx)
 	if len(args) < 2 {
-		ctx.EmitAt(file.FlatRow(idx)+1, 1, "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs.")
+		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 	}
 }
 
@@ -988,7 +1162,7 @@ func checkCommitPrefEditsJava(ctx *api.Context, idx uint32) {
 		javaFunctionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames) {
 		return
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, 1, "SharedPreferences.edit() without commit() or apply().")
+	ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "`SharedPreferences.edit()` without a corresponding `commit()` or `apply()` call")
 }
 
 func checkCommitTransactionJava(ctx *api.Context, idx uint32) {
@@ -1015,14 +1189,14 @@ func checkCommitTransactionJava(ctx *api.Context, idx uint32) {
 	if !ok {
 		return
 	}
-	if txVar := javaLocalInitializerAssignedName(file, idx); txVar != "" &&
-		javaFunctionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames) {
+	if txVar := javaLocalInitializerAssignedName(file, idx); txVar != "" {
+		if javaFunctionHasReceiverCallAfter(file, fn, idx, txVar, commitTransactionNames) || javaVariableEscapes(file, fn, txVar) {
+			return
+		}
+	} else if javaChainEscapes(file, idx) {
 		return
 	}
-	if javaEnclosingFunctionHasCallNamed(file, fn, idx, commitTransactionNames) {
-		return
-	}
-	ctx.EmitAt(file.FlatRow(idx)+1, 1, "FragmentTransaction without commit(). Call commit() or commitAllowingStateLoss().")
+	ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "This transaction should be completed with a `commit()` call")
 }
 
 func checkResultJava(ctx *api.Context, idx uint32) {
@@ -1043,8 +1217,7 @@ func checkResultJava(ctx *api.Context, idx uint32) {
 			return
 		}
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, 1,
-		"The result of this call is not used. Check if the return value should be consumed.")
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "The result of `"+name+"` is not used")
 }
 
 func checkResultJavaSemanticConfirmed(ctx *api.Context, idx uint32, name string) (bool, bool) {
@@ -1206,18 +1379,59 @@ func javaFunctionHasReceiverCallAfter(file *scanner.File, fn, target uint32, rec
 	return found
 }
 
-func javaEnclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names map[string]bool) bool {
-	if file == nil || fn == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(fn, "method_invocation", func(call uint32) {
-		if found || call == except {
+// javaVariableEscapes reports whether a local variable is returned, passed as an argument or stored,
+// in which case another scope may complete it.
+func javaVariableEscapes(file *scanner.File, fn uint32, name string) bool {
+	escapes := false
+	file.FlatWalkNodes(fn, "identifier", func(id uint32) {
+		if escapes || !file.FlatNodeTextEquals(id, name) {
 			return
 		}
-		if names[javaMethodInvocationName(file, call)] {
-			found = true
+		parent, ok := file.FlatParent(id)
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "return_statement", "argument_list":
+			escapes = true
+		case "variable_declarator", "assignment_expression":
+			escapes = file.FlatFirstChild(parent) != id
 		}
 	})
-	return found
+	return escapes
+}
+
+// javaChainEscapes reports whether the receiver chain starting at a call is returned, passed on or stored.
+func javaChainEscapes(file *scanner.File, idx uint32) bool {
+	top := idx
+	for {
+		parent, ok := file.FlatParent(top)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(parent) {
+		case "method_invocation":
+			if file.FlatFirstChild(parent) != top && !javaIsChainReceiver(file, parent, top) {
+				return true // an argument of another call
+			}
+			top = parent
+		case "return_statement", "argument_list", "assignment_expression", "variable_declarator", "field_declaration":
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+// javaIsChainReceiver reports whether child is the receiver (object) part of a method invocation.
+func javaIsChainReceiver(file *scanner.File, call, child uint32) bool {
+	for c := file.FlatFirstChild(call); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "argument_list" {
+			return false
+		}
+		if c == child {
+			return true
+		}
+	}
+	return false
 }

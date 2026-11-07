@@ -17,7 +17,8 @@ func registerAndroidSecurityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(),
-			Sev: api.Severity(r.Sev), NodeTypes: []string{"call_expression"},
+			Sev: api.Severity(r.Sev), NodeTypes: []string{"call_expression", "method_invocation"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}
@@ -42,11 +43,11 @@ func registerAndroidSecurityRules() {
 	{
 		r := &GetInstanceRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "GetInstance", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "GetInstance", Brief: "Cipher.getInstance with insecure algorithm",
+			IssueID:  "GetInstance", Brief: "Cipher.getInstance with ECB",
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9,
 			Origin: "AOSP Android Lint",
 		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &WeakMessageDigestRule{AndroidRule: AndroidRule{
@@ -235,11 +236,25 @@ func registerAndroidSecurityRules() {
 	{
 		r := &EasterEggRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "EasterEgg", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "EasterEgg", Brief: "Code contains easter egg references",
+			IssueID:  "EasterEgg", Brief: "Code contains easter egg",
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs:      api.NeedsParsedFiles,
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), Implementation: r, Check: r.check,
+		})
+	}
+	{
+		r := &HiddenFeatureCommentRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "HiddenFeatureComment", RuleSetName: androidRuleSet, Sev: "warning"},
+			Brief:    "Comment mentions a hidden feature or hides code",
+			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 6,
+			Origin: "Krit",
+		}}
+		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &WebViewAllowContentAccessRule{AndroidRule: AndroidRule{
@@ -326,40 +341,6 @@ func registerAndroidSecurityRules() {
 		})
 	}
 	{
-		r := &ExportedContentProviderRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ExportedContentProvider", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "ExportedContentProvider", Brief: "Exported content provider does not require permission",
-			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
-			Origin: "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
-	}
-	{
-		r := &ExportedReceiverRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ExportedReceiver", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "ExportedReceiver", Brief: "Exported receiver does not require permission",
-			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
-			Origin: "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
-	}
-	{
-		r := &GrantAllUrisRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "GrantAllUris", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "GrantAllUris", Brief: "Overly broad URI permissions",
-			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
-			Origin: "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes:  []string{"call_expression", "method_invocation"},
-			Needs:      api.NeedsTypeInfo | api.NeedsOracleSupertypes,
-			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-			Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
-		})
-	}
-	{
 		r := &UnprotectedDynamicReceiverRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "UnprotectedDynamicReceiver", RuleSetName: "security", Sev: "info"},
 			IssueID:  "UnprotectedDynamicReceiver", Brief: "Dynamic receiver registered without broadcast permission",
@@ -382,7 +363,7 @@ func registerAndroidSecurityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes:  []string{"class_declaration"},
+			NodeTypes:  []string{"class_declaration", "object_literal", "object_creation_expression", "call_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
@@ -491,15 +472,30 @@ func registerAndroidSecurityRules() {
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "AOSP Android Lint",
 		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"property_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"property_declaration"}, Needs: api.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &ByteOrderMarkRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ByteOrderMark", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule: BaseRule{RuleName: "ByteOrderMark", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:  "ByteOrderMark", Brief: "Byte order mark (BOM) found in file",
-			Category: ALCI18N, ALSeverity: ALSWarning, Priority: 8,
+			Category: ALCI18N, ALSeverity: ALSError, Priority: 8,
 			Origin: "AOSP Android Lint",
 		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
+	}
+	{
+		r := &ClickableViewAccessibilitySourceRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "ClickableViewAccessibility", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "ClickableViewAccessibility", Brief: "Accessibility in Custom Views",
+			Category: ALCAccessibility, ALSeverity: ALSWarning, Priority: 6,
+			Origin: "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"function_declaration", "method_declaration", "call_expression", "method_invocation"},
+			Needs:     api.NeedsTypeInfo,
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
 	}
 }

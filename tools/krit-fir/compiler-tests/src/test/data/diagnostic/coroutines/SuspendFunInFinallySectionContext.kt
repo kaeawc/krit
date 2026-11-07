@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 29x2, 30, 32x2, 33, 36x2, 37, 51x2, 52, 67x2, 68, 70x2, 71, 73x2, 74, 87x2, 91x2, 101, 111, 126, 134, 141, 155x2, 156, 158x2, 159
+// go-lines: 37, 68, 71, 74, 91, 101, 111, 126, 134, 141, 155, 156
 // The coroutine context a builder is given decides whether its block runs
 // after cancellation. CoroutineContext.plus is right-biased: an element on the
 // right replaces the one on the left with the same key, so in

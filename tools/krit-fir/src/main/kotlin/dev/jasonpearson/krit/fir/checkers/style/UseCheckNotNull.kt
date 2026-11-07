@@ -58,7 +58,7 @@ internal object UseCheckNotNull : FirFunctionCallChecker(MppCheckerKind.Common),
         override val functionCallCheckers = setOf(UseCheckNotNull)
     }
 
-    private const val MESSAGE = "Use 'checkNotNull(x)' instead of 'check(x != null)'."
+    private const val MESSAGE = "Use checkNotNull() instead of check() for checking not-null."
 
     private val kotlinCheck = CallableId(FqName("kotlin"), Name.identifier("check"))
 

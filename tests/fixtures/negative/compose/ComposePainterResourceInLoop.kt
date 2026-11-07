@@ -9,7 +9,7 @@ import androidx.compose.ui.res.painterResource
 
 @Composable
 fun ComposePainterResourceInLoopNegative(items: List<String>) {
-    val marker = painterResource(R.drawable.marker)
+    val marker = painterResource(iconFor(item))
 
     LazyColumn {
         items(items) { item ->
@@ -37,6 +37,19 @@ fun ComposePainterResourceInSingularItemNegative() {
             Image(
                 painter = painterResource(R.drawable.header),
                 contentDescription = null,
+            )
+        }
+    }
+}
+
+// A resource id that depends on the item cannot be hoisted.
+@Composable
+fun ComposePainterResourceInvariantInLoopNegative(items: List<String>) {
+    LazyColumn {
+        items(items) { item ->
+            Image(
+                painter = painterResource(iconFor(item)),
+                contentDescription = item,
             )
         }
     }

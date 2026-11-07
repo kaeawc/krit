@@ -1196,3 +1196,209 @@ func loadSample(t *testing.T) *Oracle {
 	}
 	return o
 }
+
+// TestLookupExpressionFlat_ReceiverDoesNotTakeCallFact pins the position-collision fix: the receiver `x`
+// and the call `x.orEmpty()` start at the same line:col, so a receiver without its own fact must not
+// read the call's (non-null) type.
+func TestLookupExpressionFlat_ReceiverDoesNotTakeCallFact(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "A.kt")
+	if err := os.WriteFile(path, []byte("fun f(x: String?) { val y = x.orEmpty() }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseKotlinFileCached(context.Background(), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var call, receiver uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "call_expression":
+			if file.FlatNodeText(idx) == "x.orEmpty()" {
+				call = idx
+			}
+		case "simple_identifier":
+			if file.FlatNodeText(idx) == "x" && file.FlatRow(idx) == 0 && file.FlatStartByte(idx) > 20 {
+				receiver = idx
+			}
+		}
+	})
+	if call == 0 || receiver == 0 {
+		t.Fatalf("missing nodes: call=%d receiver=%d", call, receiver)
+	}
+	o, err := LoadFromData(&Data{
+		Version:       1,
+		KotlinVersion: "2.1.0",
+		Files: map[string]*File{
+			path: {
+				Expressions: map[string]*ExpressionType{
+					fmt.Sprintf("%d:%d", file.FlatRow(call)+1, file.FlatCol(call)+1): {
+						Type:      "kotlin.String",
+						StartByte: int(file.FlatStartByte(call)),
+						EndByte:   int(file.FlatEndByte(call)),
+					},
+				},
+			},
+		},
+		Dependencies: map[string]*Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt := o.LookupExpressionFlat(file, receiver); rt != nil {
+		t.Fatalf("receiver must not take the call's fact, got %#v", rt)
+	}
+	if rt := o.LookupExpressionFlat(file, call); rt == nil || rt.FQN != "kotlin.String" {
+		t.Fatalf("call keeps its own fact, got %#v", rt)
+	}
+}
+
+// TestLookupExpressionFlat_CallArgumentFactDoesNotSpeakForReceiverCall pins that a node without its own
+// fact does not take the type of a call argument inside it.
+func TestLookupExpressionFlat_CallArgumentFactDoesNotSpeakForReceiverCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "A.kt")
+	if err := os.WriteFile(path, []byte("fun f(p: P) { val y = p.getString(KEY, \"\").orEmpty() }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseKotlinFileCached(context.Background(), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receiver, arg uint32
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		switch file.FlatType(idx) {
+		case "call_expression":
+			if file.FlatNodeText(idx) == "p.getString(KEY, \"\")" {
+				receiver = idx
+			}
+		case "simple_identifier":
+			if file.FlatNodeText(idx) == "KEY" {
+				arg = idx
+			}
+		}
+	})
+	if receiver == 0 || arg == 0 {
+		t.Fatalf("missing nodes: receiver=%d arg=%d", receiver, arg)
+	}
+	o, err := LoadFromData(&Data{
+		Version:       1,
+		KotlinVersion: "2.1.0",
+		Files: map[string]*File{
+			path: {
+				Expressions: map[string]*ExpressionType{
+					fmt.Sprintf("%d:%d", file.FlatRow(arg)+1, file.FlatCol(arg)+1): {
+						Type:      "kotlin.String",
+						StartByte: int(file.FlatStartByte(arg)),
+						EndByte:   int(file.FlatEndByte(arg)),
+					},
+				},
+			},
+		},
+		Dependencies: map[string]*Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt := o.LookupExpressionFlat(file, receiver); rt != nil {
+		t.Fatalf("an argument's fact must not stand for the call, got %#v", rt)
+	}
+}
+
+func TestLoadFromDataSimpleNameCollisionIsDeterministic(t *testing.T) {
+	deps := map[string]*Class{}
+	for _, pkg := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		deps["pkg."+pkg+".Shape"] = &Class{FQN: "pkg." + pkg + ".Shape", Kind: "class"}
+	}
+	var first string
+	for i := 0; i < 40; i++ {
+		o, err := LoadFromData(&Data{Version: 1, Dependencies: deps})
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := o.LookupClass("Shape")
+		if info == nil {
+			t.Fatal("Shape not indexed")
+		}
+		if i == 0 {
+			first = info.FQN
+		} else if info.FQN != first {
+			t.Fatalf("load %d resolved Shape to %s, load 0 to %s", i, info.FQN, first)
+		}
+	}
+}
+
+func TestLoadFromDataSourceSimpleNameCollisionIsDeterministic(t *testing.T) {
+	// Loading frees the declarations it indexed, so each load gets its own files.
+	var first string
+	for i := 0; i < 40; i++ {
+		files := map[string]*File{}
+		for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+			files["/src/"+name+".kt"] = &File{Declarations: []*Class{{FQN: "pkg." + name + ".Shape", Kind: "class"}}}
+		}
+		o, err := LoadFromData(&Data{Version: 1, Files: files})
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := o.LookupClass("Shape")
+		if info == nil {
+			t.Fatal("Shape not indexed")
+		}
+		if i == 0 {
+			first = info.FQN
+		} else if info.FQN != first {
+			t.Fatalf("load %d resolved Shape to %s, load 0 to %s", i, info.FQN, first)
+		}
+	}
+}
+
+func TestParseExpressionKey(t *testing.T) {
+	cases := []struct {
+		in          string
+		want        uint64
+		sharedStart bool
+		ok          bool
+	}{
+		{"3:7", packLineCol(3, 7), false, true},
+		{"3:7@120", packLineCol(3, 7), true, true},
+		{"3:7@", 0, false, false},
+		{"3:7@x", 0, false, false},
+		{"3", 0, false, false},
+	}
+	for _, tc := range cases {
+		got, shared, ok := parseExpressionKey(tc.in)
+		if ok != tc.ok || (ok && (got != tc.want || shared != tc.sharedStart)) {
+			t.Errorf("parseExpressionKey(%q) = %d, %v, %v; want %d, %v, %v", tc.in, got, shared, ok, tc.want, tc.sharedStart, tc.ok)
+		}
+	}
+}
+
+func genericSealedOracle(t *testing.T) *Oracle {
+	t.Helper()
+	o, err := LoadFromData(&Data{
+		Version: 1, KotlinVersion: "2.1.0",
+		Dependencies: map[string]*Class{
+			"demo.Outcome":         {FQN: "demo.Outcome", Kind: "interface", IsSealed: true, Supertypes: []string{"Any"}},
+			"demo.Outcome.Loaded":  {FQN: "demo.Outcome.Loaded", Kind: "class", IsData: true, Supertypes: []string{"Outcome<T>"}},
+			"demo.Outcome.Loading": {FQN: "demo.Outcome.Loading", Kind: "object", Supertypes: []string{"Outcome<Nothing>"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func TestSealedVariants_GenericSupertypeArgumentsShareOneKey(t *testing.T) {
+	o := genericSealedOracle(t)
+	for _, name := range []string{"Outcome", "Outcome<T>", "Outcome<Nothing>"} {
+		if v := o.LookupSealedVariants(name); len(v) != 2 {
+			t.Fatalf("variants of %q = %v, want Loaded and Loading", name, v)
+		}
+	}
+}
+
+func TestCompositeSealedVariants_QueryWithTypeArguments(t *testing.T) {
+	c := NewCompositeResolver(genericSealedOracle(t), typeinfer.NewResolver())
+	if v := c.SealedVariants("Outcome<T>"); len(v) != 2 {
+		t.Fatalf("variants = %v, want Loaded and Loading", v)
+	}
+}

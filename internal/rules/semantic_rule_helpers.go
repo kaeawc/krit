@@ -268,6 +268,61 @@ func whileConditionHasCallName(file *scanner.File, stmt uint32, names ...string)
 	return false
 }
 
+// firstUnsuppressedCall returns the first call named callName under root that lintID does not suppress, or 0.
+func firstUnsuppressedCall(file *scanner.File, root uint32, callName, lintID string) uint32 {
+	found := uint32(0)
+	visit := func(call uint32) {
+		if found == 0 && !callSuppressedByLintID(file, call, lintID) {
+			found = call
+		}
+	}
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if flatCallNameAny(file, call) == callName {
+			visit(call)
+		}
+	})
+	file.FlatWalkNodes(root, "method_invocation", func(call uint32) {
+		if databaseCallName(file, call) == callName {
+			visit(call)
+		}
+	})
+	return found
+}
+
+// calleeIdentifierNode returns the identifier naming the called function of a call, or the call itself.
+func calleeIdentifierNode(file *scanner.File, call uint32) uint32 {
+	if at := calleeNameAnchor(file, call); at != call {
+		return at
+	}
+	last := uint32(0)
+	for c := file.FlatFirstChild(call); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier", "identifier":
+			last = c
+		case "call_suffix", "argument_list", "value_arguments":
+			return anchorOr(last, call)
+		}
+	}
+	return anchorOr(last, call)
+}
+
+// callSuppressedByLintID reports an ancestor of idx whose modifiers carry @SuppressLint or @Suppress naming lintID.
+func callSuppressedByLintID(file *scanner.File, idx uint32, lintID string) bool {
+	for cur, ok := idx, true; ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) == "annotated_expression" && annotationTextSuppresses(file.FlatNodeText(cur), lintID) {
+			return true
+		}
+		if mods, found := file.FlatFindChild(cur, "modifiers"); found && annotationTextSuppresses(file.FlatNodeText(mods), lintID) {
+			return true
+		}
+	}
+	return false
+}
+
+func annotationTextSuppresses(text, lintID string) bool {
+	return (strings.Contains(text, "SuppressLint") || strings.Contains(text, "Suppress")) && strings.Contains(text, `"`+lintID+`"`)
+}
+
 func subtreeHasCallName(file *scanner.File, root uint32, names ...string) bool {
 	if file == nil || root == 0 || len(names) == 0 {
 		return false

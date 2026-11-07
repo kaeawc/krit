@@ -3,6 +3,7 @@ package android
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,7 +69,52 @@ var (
 	depStringNotationRe = regexp.MustCompile(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+):([^"']+)["']\s*\)`)
 	// implementation("group:name") — no version (managed via BOM or catalog)
 	depNoVersionRe = regexp.MustCompile(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+)["']\s*\)`)
+	// implementation 'group:name:version' — Groovy call without parentheses, one per statement.
+	depGroovyStringRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+):([^"'\s]+)["']`)
+	// implementation 'group:name' — Groovy call without a version.
+	depGroovyNoVersionRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+)["']`)
+	// implementation group: 'g', name: 'n', version: 'v'
+	depGroovyMapRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]*\(?[ \t]*group\s*[:=]\s*["']([^"']+)["']\s*,\s*name\s*[:=]\s*["']([^"']+)["'](?:\s*,\s*version\s*[:=]\s*["']([^"']*)["'])?`)
 )
+
+// stripGradleComments blanks `//` and `/* */` comments, keeping string contents and line breaks,
+// so commented-out dependencies are not parsed as declarations.
+func stripGradleComments(content string) string {
+	out := []byte(content)
+	var quote byte
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		if quote != 0 {
+			switch c {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+			continue
+		}
+		switch {
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '/' && i+1 < len(out) && out[i+1] == '/':
+			for ; i < len(out) && out[i] != '\n'; i++ {
+				out[i] = ' '
+			}
+		case c == '/' && i+1 < len(out) && out[i+1] == '*':
+			out[i], out[i+1] = ' ', ' '
+			for i += 2; i < len(out); i++ {
+				end := content[i] == '/' && content[i-1] == '*'
+				if out[i] != '\n' {
+					out[i] = ' '
+				}
+				if end {
+					break
+				}
+			}
+		}
+	}
+	return string(out)
+}
 
 // Build features.
 var (
@@ -82,7 +128,7 @@ var (
 // Lint‐specific patterns.
 var (
 	mavenLocalRe = regexp.MustCompile(`(?m)^\s*mavenLocal\s*\(\s*\)`)
-	agpVersionRe = regexp.MustCompile(`id\s*\(\s*["']com\.android\.[a-z]+["']\s*\)\s*version\s*["']([^"']+)["']`)
+	agpVersionRe = regexp.MustCompile(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["']([^"']+)["']`)
 )
 
 // Android plugin prefixes that mark a project as Android.
@@ -106,8 +152,6 @@ var deprecatedDeps = map[string]string{
 	"com.squareup.retrofit2:adapter-rxjava":                "com.squareup.retrofit2:adapter-rxjava3",
 	"io.reactivex:rxjava":                                  "io.reactivex.rxjava3:rxjava",
 	"io.reactivex.rxjava2:rxjava":                          "io.reactivex.rxjava3:rxjava",
-	"com.google.dagger:dagger":                             "com.google.dagger:hilt-android (consider migrating)",
-	"junit:junit":                                          "org.junit.jupiter:junit-jupiter (JUnit 5)",
 }
 
 // ParseBuildGradle reads and parses a Gradle build file at the given path.
@@ -197,42 +241,50 @@ func isAndroidProject(plugins []string) bool {
 
 // parseExternalDeps extracts Maven-coordinate dependencies from the content.
 func parseExternalDeps(content string) []Dependency {
+	content = stripGradleComments(content)
 	var deps []Dependency
 	seen := make(map[string]bool)
+	add := func(config, group, name, version string) {
+		// `1.0@aar` and `1.0:classes` carry an artifact type or classifier after the version.
+		if i := strings.IndexAny(version, "@:"); i >= 0 {
+			version = version[:i]
+		}
+		// `uri("https://host:8080/repo")` has the same shape as a coordinate.
+		if strings.ContainsAny(group, "/\\") || strings.HasPrefix(name, "//") {
+			return
+		}
+		key := config + "|" + group + ":" + name + ":" + version
+		if seen[key] {
+			return
+		}
+		// A coordinate captured with a version supersedes the same one captured without it.
+		if version == "" && seen[config+"|"+group+":"+name+":*"] {
+			return
+		}
+		seen[key] = true
+		if version != "" {
+			seen[config+"|"+group+":"+name+":*"] = true
+		}
+		deps = append(deps, Dependency{Configuration: config, Group: group, Name: name, Version: version})
+	}
 
 	// With version.
 	for _, m := range depStringNotationRe.FindAllStringSubmatch(content, -1) {
-		key := m[1] + "|" + m[2] + ":" + m[3] + ":" + m[4]
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		deps = append(deps, Dependency{
-			Configuration: m[1],
-			Group:         m[2],
-			Name:          m[3],
-			Version:       m[4],
-		})
+		add(m[1], m[2], m[3], m[4])
 	}
-
+	for _, m := range depGroovyStringRe.FindAllStringSubmatch(content, -1) {
+		add(m[1], m[2], m[3], m[4])
+	}
+	for _, m := range depGroovyMapRe.FindAllStringSubmatch(content, -1) {
+		add(m[1], m[2], m[3], m[4])
+	}
 	// Without version (BOM/catalog managed).
 	for _, m := range depNoVersionRe.FindAllStringSubmatch(content, -1) {
-		key := m[1] + "|" + m[2] + ":" + m[3]
-		if seen[key] {
-			continue
-		}
-		// Skip if this was already captured with a version.
-		if seen[m[1]+"|"+m[2]+":"+m[3]+":"] {
-			continue
-		}
-		seen[key] = true
-		deps = append(deps, Dependency{
-			Configuration: m[1],
-			Group:         m[2],
-			Name:          m[3],
-		})
+		add(m[1], m[2], m[3], "")
 	}
-
+	for _, m := range depGroovyNoVersionRe.FindAllStringSubmatch(content, -1) {
+		add(m[1], m[2], m[3], "")
+	}
 	return deps
 }
 
@@ -304,34 +356,84 @@ func lintMavenLocal(content string) []GradleLint {
 // Known AGP version -> minimum Gradle version compatibility table.
 // Source: https://developer.android.com/build/releases/gradle-plugin
 var agpGradleCompat = map[string]string{
-	"8.7": "8.9",
-	"8.6": "8.7",
-	"8.5": "8.7",
-	"8.4": "8.6",
-	"8.3": "8.4",
-	"8.2": "8.2",
-	"8.1": "8.0",
-	"8.0": "8.0",
-	"7.4": "7.5",
-	"7.3": "7.4",
-	"7.2": "7.3.3",
-	"7.1": "7.2",
-	"7.0": "7.0",
+	"8.13": "8.13",
+	"8.12": "8.13",
+	"8.11": "8.13",
+	"8.10": "8.11.1",
+	"8.9":  "8.11.1",
+	"8.8":  "8.10.2",
+	"8.7":  "8.9",
+	"8.6":  "8.7",
+	"8.5":  "8.7",
+	"8.4":  "8.6",
+	"8.3":  "8.4",
+	"8.2":  "8.2",
+	"8.1":  "8.0",
+	"8.0":  "8.0",
+	"7.4":  "7.5",
+	"7.3":  "7.4",
+	"7.2":  "7.3.3",
+	"7.1":  "7.2",
+	"7.0":  "7.0",
+	"4.2":  "6.7.1",
+	"4.1":  "6.5",
+	"4.0":  "6.1.1",
+	"3.6":  "5.6.4",
+	"3.5":  "5.4.1",
 }
 
-// gradleWrapperVersionRe extracts the Gradle version from a distributionUrl in
-// gradle-wrapper.properties style, but we look for gradle version comments or
-// the wrapper properties if embedded. For now we detect from the build file itself
-// if there is a wrapper task or comment.
+// gradleVersionCommentRe finds a "Gradle X.Y" mention in the build script, used when no wrapper is found.
 var gradleVersionCommentRe = regexp.MustCompile(`Gradle\s+(\d+\.\d+)`)
+
+var (
+	gradleWrapperDistributionRe = regexp.MustCompile(`gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)\.zip`)
+	// classpath("com.android.tools.build:gradle:8.1.0") or classpath 'com.android.tools.build:gradle:8.1.0'
+	agpClasspathRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+\.\d+(?:\.\d+)?)`)
+)
+
+// GradleWrapperVersion returns the Gradle version pinned by the nearest gradle/wrapper/gradle-wrapper.properties
+// above buildFile, or "" when there is none.
+func GradleWrapperVersion(buildFile string) string {
+	dir := filepath.Dir(buildFile)
+	for i := 0; i < 8; i++ {
+		data, err := os.ReadFile(filepath.Join(dir, "gradle", "wrapper", "gradle-wrapper.properties"))
+		if err == nil {
+			if m := gradleWrapperDistributionRe.FindSubmatch(data); m != nil {
+				return string(m[1])
+			}
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+// LintGradleCompatibilityForWrapper checks the AGP version declared in content against gradleVersion
+// (typically from GradleWrapperVersion). An empty gradleVersion falls back to a "Gradle X.Y" mention in content.
+func LintGradleCompatibilityForWrapper(content, gradleVersion string) []GradleLint {
+	return lintGradleCompatibilityWith(content, gradleVersion)
+}
 
 // lintGradleCompatibility checks AGP version vs Gradle version when both are detectable.
 func lintGradleCompatibility(content string) []GradleLint {
-	agpMatch := agpVersionRe.FindStringSubmatch(content)
-	if agpMatch == nil {
+	return lintGradleCompatibilityWith(content, "")
+}
+
+func lintGradleCompatibilityWith(rawContent, gradleVersion string) []GradleLint {
+	content := stripGradleComments(rawContent)
+	agpFull := ""
+	if m := agpVersionRe.FindStringSubmatch(content); m != nil {
+		agpFull = m[1]
+	} else if m := agpClasspathRe.FindStringSubmatch(content); m != nil {
+		agpFull = m[1]
+	}
+	if agpFull == "" {
 		return nil
 	}
-	agpFull := agpMatch[1]
 	// Extract major.minor from AGP version.
 	agpMajorMinor := majorMinor(agpFull)
 	if agpMajorMinor == "" {
@@ -343,19 +445,24 @@ func lintGradleCompatibility(content string) []GradleLint {
 		return nil
 	}
 
-	// Try to detect Gradle version from a comment or embedded reference.
-	gradleMatch := gradleVersionCommentRe.FindStringSubmatch(content)
-	if gradleMatch == nil {
-		return nil
+	if gradleVersion == "" {
+		// The version is usually written in a comment, so search the unstripped text.
+		gradleMatch := gradleVersionCommentRe.FindStringSubmatch(rawContent)
+		if gradleMatch == nil {
+			return nil
+		}
+		gradleVersion = gradleMatch[1]
 	}
-	gradleVersion := gradleMatch[1]
 
 	if versionLessThan(gradleVersion, requiredGradle) {
-		line := findLineNumber(content, gradleVersionCommentRe)
+		re := agpVersionRe
+		if !re.MatchString(content) {
+			re = agpClasspathRe
+		}
 		return []GradleLint{{
 			Rule:    "GradleCompatibility",
 			Message: fmt.Sprintf("AGP %s requires Gradle >= %s but found %s", agpFull, requiredGradle, gradleVersion),
-			Line:    line,
+			Line:    findLineNumber(content, re),
 		}}
 	}
 

@@ -40,7 +40,7 @@ class DoubleMutabilityForCollectionCrossFileTest {
                 fun <K, V> cache(): LinkedHashMap<K, V> = LinkedHashMap()
 
                 class Holder {
-                    var sameFile: LinkedHashMap<String, Int> = cache()
+                    private var sameFile: LinkedHashMap<String, Int> = cache()
                 }
             """,
         )
@@ -61,7 +61,7 @@ class DoubleMutabilityForCollectionCrossFileTest {
                 fun <T> fresh(): HashSet<T> = HashSet()
 
                 class Holder {
-                    var set: HashSet<String> = fresh()
+                    private var set: HashSet<String> = fresh()
                 }
             """,
         )
@@ -82,7 +82,7 @@ class DoubleMutabilityForCollectionCrossFileTest {
                 package r
 
                 class Holder {
-                    var list: MutableList = MutableList()
+                    private var list: MutableList = MutableList()
                 }
             """,
         )

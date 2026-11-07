@@ -496,6 +496,40 @@ func EnclosingCaughtExceptionHandlers(ctx *api.Context, call uint32) []Exception
 	return out
 }
 
+// TryCaughtExceptionHandlers returns the catch clauses of every try whose body contains call, innermost first.
+// Unlike EnclosingCaughtExceptionHandlers it ignores calls made inside a catch or finally block.
+func TryCaughtExceptionHandlers(ctx *api.Context, call uint32) []ExceptionHandler {
+	if ctx.File == nil || call == 0 {
+		return nil
+	}
+	file := ctx.File
+	var out []ExceptionHandler
+	prev := call
+	for {
+		cur, ok := file.FlatParent(prev)
+		if !ok {
+			return out
+		}
+		switch file.FlatType(cur) {
+		case "try_expression", "try_statement", "try_with_resources_statement":
+			switch file.FlatType(prev) {
+			case "catch_block", "catch_clause", "finally_block", "finally_clause":
+			default:
+				for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
+					switch file.FlatType(child) {
+					case "catch_block", "catch_clause":
+						name, typ := catchParameter(file, child)
+						out = append(out, ExceptionHandler{Node: child, ParamName: name, TypeName: typ})
+					}
+				}
+			}
+		case "function_declaration", "class_declaration", "object_declaration":
+			return out
+		}
+		prev = cur
+	}
+}
+
 func oracleCallTarget(ctx *api.Context, idx uint32) string {
 	return OracleCallTarget(ctx, idx)
 }

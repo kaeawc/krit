@@ -293,21 +293,6 @@
       "firAddedFindings": []
     },
     {
-      "rule": "GrantAllUris",
-      "confirmed": 0,
-      "goDropped": 0,
-      "firAdded": 0,
-      "filesGated": 367,
-      "ruleErrors": 0,
-      "jsonConfirmed": 0,
-      "jsonGoDropped": 0,
-      "jsonFirAdded": 0,
-      "discrepancy": false,
-      "verdictPending": 0,
-      "goDroppedFindings": [],
-      "firAddedFindings": []
-    },
-    {
       "rule": "HandlerLeak",
       "confirmed": 0,
       "goDropped": 0,
@@ -1308,7 +1293,7 @@
       "firAddedFindings": []
     },
     {
-      "rule": "TrulyRandom",
+      "rule": "HardcodedRandomSeed",
       "confirmed": 0,
       "goDropped": 0,
       "firAdded": 0,

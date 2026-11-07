@@ -23,7 +23,7 @@ func TestAndroidDependencyMetadata(t *testing.T) {
 	check("MissingQuantityResource", rules.AndroidDepValuesPlurals)
 	check("StringFormatInvalidResource", rules.AndroidDepValuesStrings)
 	check("InconsistentArraysResource", rules.AndroidDepValuesArrays)
-	check("ExtraTextResource", rules.AndroidDepValuesExtraText)
+	check("ExtraTextResource", rules.AndroidDepLayout)
 	check("PxUsageResource", rules.AndroidDepValuesDimensions|rules.AndroidDepLayout)
 	check("AaptCrash", rules.AndroidDepValues)
 	check("ReferenceType", rules.AndroidDepValues)

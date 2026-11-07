@@ -34,5 +34,14 @@ func (r *GodClassOrModuleRule) Meta() api.RuleDescriptor {
 		RuleSet:       "architecture",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonThresholdTuning,
+		Options: []api.ConfigOption{
+			api.IntOption(api.IntOptionSpec[GodClassOrModuleRule]{
+				Name:        "allowedDistinctPackages",
+				Aliases:     []string{"threshold"},
+				Default:     12,
+				Description: "Maximum distinct imported packages a file may have before it is reported.",
+				Apply:       func(r *GodClassOrModuleRule, v int) { r.AllowedDistinctPackages = v },
+			}),
+		},
 	}
 }

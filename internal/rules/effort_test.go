@@ -45,12 +45,20 @@ func TestEffortDerivation(t *testing.T) {
 			want: api.EffortRefactor,
 		},
 		{
-			name: "manifest rule derives refactor",
+			name: "manifest rule derives local",
 			rule: &api.Rule{
 				ID: "X", Category: "c", Description: "d", Sev: api.SeverityWarning,
 				Needs: api.NeedsManifest, Check: func(*api.Context) {},
 			},
-			want: api.EffortRefactor,
+			want: api.EffortLocal,
+		},
+		{
+			name: "single-attribute resource rule is trivial",
+			rule: &api.Rule{
+				ID: "SpUsageResource", Category: "c", Description: "d", Sev: api.SeverityWarning,
+				Needs: api.NeedsResources, Check: func(*api.Context) {},
+			},
+			want: api.EffortTrivial,
 		},
 		{
 			name: "policy precision derives architectural",
@@ -124,5 +132,18 @@ func TestMetaForRule_EffortExplicit(t *testing.T) {
 	}
 	if desc.Effort != api.EffortArchitectural {
 		t.Fatalf("effort = %v, want EffortArchitectural", desc.Effort)
+	}
+}
+
+// TestEffortOverridesNameRegisteredRules guards against stale or misspelled keys.
+func TestEffortOverridesNameRegisteredRules(t *testing.T) {
+	known := map[string]bool{}
+	for _, r := range api.Registry {
+		known[r.ID] = true
+	}
+	for id := range effortOverrides {
+		if !known[id] {
+			t.Errorf("effortOverrides names unknown rule %q", id)
+		}
 	}
 }

@@ -1,10 +1,11 @@
 package rules
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/module"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -18,6 +19,8 @@ import (
 type StateFlowMutableLeakRule struct {
 	FlatDispatchBase
 	BaseRule
+	// TestSupportClassNames are class-name substrings that mark a class as test support, besides the Fake and Test prefixes.
+	TestSupportClassNames []string
 }
 
 func (r *StateFlowMutableLeakRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -27,6 +30,72 @@ func stateFlowMutableLeakHasKotlinxEvidence(file *scanner.File, propText string)
 	return strings.Contains(propText, "kotlinx.coroutines.flow.MutableStateFlow") ||
 		strings.Contains(content, "import kotlinx.coroutines.flow.MutableStateFlow") ||
 		strings.Contains(content, "import kotlinx.coroutines.flow.*")
+}
+
+// stateFlowMutableLeakIsTestSupport reports properties in fakes, test helpers or @VisibleForTesting code, which tests drive on purpose.
+func stateFlowMutableLeakIsTestSupport(file *scanner.File, idx uint32, extraNames []string) bool {
+	if androidHasAnnotationFlat(file, idx, "VisibleForTesting") {
+		return true
+	}
+	if inInterface(file, idx) && stateFlowMutableLeakKDocSaysMutable(file, idx) {
+		return true
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration":
+			name := extractIdentifierFlat(file, cur)
+			if strings.HasPrefix(name, "Fake") || strings.HasPrefix(name, "Test") || containsAnyNonEmpty(name, extraNames) ||
+				androidHasAnnotationFlat(file, cur, "VisibleForTesting") {
+				return true
+			}
+			// A Mutable* type, or an interface documented as mutable, declares the mutable flow on purpose.
+			if strings.HasPrefix(name, "Mutable") || (abstractRuleIsInterface(file, cur) && stateFlowMutableLeakKDocSaysMutable(file, cur)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// stateFlowMutableLeakInHiddenContainer reports a member of a private, protected or internal class or object,
+// whose effective visibility is not public.
+func stateFlowMutableLeakInHiddenContainer(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration":
+			if file.FlatHasModifier(cur, "private") || file.FlatHasModifier(cur, "protected") || file.FlatHasModifier(cur, "internal") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// inInterface reports a declaration whose nearest enclosing type is an interface.
+func inInterface(file *scanner.File, idx uint32) bool {
+	cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration")
+	return ok && file.FlatType(cls) == "class_declaration" && abstractRuleIsInterface(file, cls)
+}
+
+// stateFlowMutableLeakKDocSaysMutable reports a preceding KDoc that calls the declaration mutable.
+func stateFlowMutableLeakKDocSaysMutable(file *scanner.File, idx uint32) bool {
+	doc, ok := flatPrecedingKDoc(file, idx)
+	return ok && strings.Contains(strings.ToLower(file.FlatNodeText(doc)), "mutable")
+}
+
+// stateFlowMutableLeakTypeIsMutable reports whether the property's declared or inferred type is MutableStateFlow itself.
+func stateFlowMutableLeakTypeIsMutable(file *scanner.File, idx uint32, propText string) bool {
+	if declared := extractPropertyTypeFlat(file, idx); declared != "" {
+		// A function type only holds a MutableStateFlow inside its lambda.
+		return !strings.Contains(declared, "->") && strings.Contains(declared, "MutableStateFlow")
+	}
+	eq := strings.Index(propText, "=")
+	if eq < 0 {
+		return false
+	}
+	init := strings.TrimSpace(propText[eq+1:])
+	init = strings.TrimPrefix(init, "kotlinx.coroutines.flow.")
+	return strings.HasPrefix(init, "MutableStateFlow(") || strings.HasPrefix(init, "MutableStateFlow<")
 }
 
 // SharedFlowWithoutReplayRule detects MutableSharedFlow() with no buffer config.
@@ -146,18 +215,16 @@ func fileDeclaresFunctionNamed(file *scanner.File, name string) bool {
 	if file == nil || name == "" {
 		return false
 	}
-	found := false
-	file.FlatWalkAllNodes(0, func(idx uint32) {
-		if found {
-			return
-		}
-		if file.FlatType(idx) != "function_declaration" {
-			return
-		}
-		if extractIdentifierFlat(file, idx) == name {
-			found = true
-		}
+	names := filefacts.FileFact(fileFactsCache(), file, slotFunctionNames, func() map[string]struct{} {
+		out := map[string]struct{}{}
+		file.FlatWalkAllNodes(0, func(idx uint32) {
+			if file.FlatType(idx) == "function_declaration" {
+				out[extractIdentifierFlat(file, idx)] = struct{}{}
+			}
+		})
+		return out
 	})
+	_, found := names[name]
 	return found
 }
 
@@ -298,7 +365,7 @@ func (r *MainDispatcherInLibraryCodeRule) check(ctx *api.Context) {
 		if !isAndroidLibraryModule(mod) {
 			continue
 		}
-		if hasCoroutinesAndroidDep(mod) {
+		if hasCoroutinesAndroidDep(mod, pmi.Graph) {
 			continue
 		}
 		files := pmi.ModuleFiles[modPath]
@@ -333,36 +400,50 @@ func (r *MainDispatcherInLibraryCodeRule) ModuleAwareNeeds() ModuleAwareNeeds {
 	}
 }
 
+// isAndroidLibraryModule reports a module applying the Android library plugin, by id, plugin alias or
+// convention plugin name (`com.android.library`, `libs.plugins.android.library`).
 func isAndroidLibraryModule(mod *module.Module) bool {
-	buildFile := filepath.Join(mod.Dir, "build.gradle.kts")
-	cfg, err := android.ParseBuildGradle(buildFile)
-	if err != nil {
-		buildFile = filepath.Join(mod.Dir, "build.gradle")
-		cfg, err = android.ParseBuildGradle(buildFile)
+	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+		data, err := os.ReadFile(filepath.Join(mod.Dir, name))
 		if err != nil {
-			return false
+			continue
 		}
-	}
-	for _, plugin := range cfg.Plugins {
-		if plugin == "com.android.library" {
-			return true
-		}
+		text := strings.ToLower(string(data))
+		text = strings.NewReplacer("-", "", ".", "", "_", "").Replace(text)
+		return strings.Contains(text, "androidlibrary")
 	}
 	return false
 }
 
-func hasCoroutinesAndroidDep(mod *module.Module) bool {
-	buildFile := filepath.Join(mod.Dir, "build.gradle.kts")
-	cfg, err := android.ParseBuildGradle(buildFile)
-	if err != nil {
-		buildFile = filepath.Join(mod.Dir, "build.gradle")
-		cfg, err = android.ParseBuildGradle(buildFile)
-		if err != nil {
-			return false
-		}
+// hasCoroutinesAndroidDep reports a module that depends on kotlinx-coroutines-android, directly or through
+// the modules it depends on. The coordinate may be a string or a version-catalog accessor such as
+// `libs.kotlinx.coroutines.android`, so the build file text is compared with separators removed.
+func hasCoroutinesAndroidDep(mod *module.Module, graph *module.Graph) bool {
+	return moduleReachesCoroutinesAndroid(mod, graph, map[string]bool{})
+}
+
+func moduleReachesCoroutinesAndroid(mod *module.Module, graph *module.Graph, visited map[string]bool) bool {
+	if mod == nil || visited[mod.Path] {
+		return false
 	}
-	for _, dep := range cfg.Dependencies {
-		if dep.Name == "kotlinx-coroutines-android" {
+	visited[mod.Path] = true
+	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+		data, err := os.ReadFile(filepath.Join(mod.Dir, name))
+		if err != nil {
+			continue
+		}
+		text := strings.ToLower(string(data))
+		text = strings.NewReplacer("-", "", ".", "", "_", "").Replace(text)
+		if strings.Contains(text, "coroutinesandroid") {
+			return true
+		}
+		break
+	}
+	if graph == nil {
+		return false
+	}
+	for _, dep := range mod.Dependencies {
+		if moduleReachesCoroutinesAndroid(graph.Modules[dep.ModulePath], graph, visited) {
 			return true
 		}
 	}

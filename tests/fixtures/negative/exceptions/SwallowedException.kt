@@ -107,28 +107,6 @@ class Processor {
         }
     }
 
-    // A fallback assignment that ignores the exception is recovery, not a
-    // swallow.
-    var cached: String? = "x"
-
-    fun fallbackAssignment() {
-        try {
-            doWork()
-        } catch (e: Exception) {
-            cached = null
-        }
-    }
-
-    // An early return as a fallback value is recovery.
-    fun earlyReturnRecovery(): Boolean {
-        try {
-            doWork()
-        } catch (e: java.io.IOException) {
-            return false
-        }
-        return true
-    }
-
     private fun convertThrowableToString(t: Throwable): String = t.toString()
 
     private fun stateError(c: Throwable?): String = ""

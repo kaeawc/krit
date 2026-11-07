@@ -246,6 +246,10 @@ func smartCastFindReassignment(file *scanner.File, body uint32, varName string) 
 		if lhs != varName {
 			return
 		}
+		// Assigning a value that cannot be null keeps the variable smart-cast to its non-null type.
+		if smartCastAssignedValueIsNonNull(file, n) {
+			return
+		}
 		first = file.FlatStartByte(n)
 	})
 	return first
@@ -318,4 +322,49 @@ func (r *SmartCastInvalidatedRule) check(ctx *api.Context) {
 	}
 	ctx.EmitAt(row, col,
 		fmt.Sprintf("Smart cast on '%s' is invalidated: '%s' was reassigned earlier in this block; use a local copy or '?.' access.", varName, varName))
+}
+
+// smartCastAssignedValueIsNonNull reports a plain `x = <value>` whose value is a literal, a string template,
+// a constructor-style call, a `!!` result, or an elvis expression, none of which can be null.
+func smartCastAssignedValueIsNonNull(file *scanner.File, assign uint32) bool {
+	sawEquals := false
+	var rhs uint32
+	for c := file.FlatFirstChild(assign); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "=" {
+			sawEquals = true
+			continue
+		}
+		if sawEquals && file.FlatIsNamed(c) {
+			rhs = c
+		}
+	}
+	if rhs == 0 {
+		return false
+	}
+	switch file.FlatType(rhs) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal", "integer_literal", "real_literal",
+		"boolean_literal", "character_literal", "long_literal", "hex_literal":
+		return true
+	case "elvis_expression":
+		// `a ?: b` is null only when b can be null; a jump or a literal on the right never is.
+		var last uint32
+		for c := file.FlatFirstChild(rhs); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				last = c
+			}
+		}
+		if last == 0 {
+			return false
+		}
+		if file.FlatType(last) == "jump_expression" {
+			return true
+		}
+		return file.FlatType(last) != "null" && !file.FlatNodeTextEquals(last, "null")
+	case "postfix_expression":
+		return strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(rhs)), "!!")
+	case "call_expression":
+		name := flatCallExpressionName(file, rhs)
+		return name != "" && name[0] >= 'A' && name[0] <= 'Z'
+	}
+	return false
 }

@@ -49,15 +49,6 @@ func (r *DefaultLocaleRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *NestedScrollingRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "NestedScrolling",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
 func (r *RegisteredRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "Registered",

@@ -11,58 +11,10 @@ func registerAndroidManifestFeaturesRules() {
 		r := &RtlEnabledManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "RtlEnabledManifest", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "RtlEnabled",
-			Brief:      "Missing supportsRtl=true on <application>",
+			Brief:      "Unset supportsRtl although resources use RTL attributes, or supportsRtl=true while targeting below API 17",
 			Category:   ALCUsability,
 			ALSeverity: ALSWarning,
 			Priority:   3,
-			Origin:     "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
-		})
-	}
-	{
-		r := &RtlCompatManifestRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "RtlCompatManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:    "RtlCompat",
-			Brief:      "Missing supportsRtl with targetSdkVersion >= 17",
-			Category:   ALCI18N,
-			ALSeverity: ALSWarning,
-			Priority:   3,
-			Origin:     "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
-		})
-	}
-	{
-		r := &AppIndexingErrorManifestRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "AppIndexingErrorManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:    "AppIndexingError",
-			Brief:      "VIEW intent filter missing http/https data scheme",
-			Category:   ALCUsability,
-			ALSeverity: ALSWarning,
-			Priority:   5,
-			Origin:     "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{
-			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
-		})
-	}
-	{
-		r := &AppIndexingWarningManifestRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "AppIndexingWarningManifest", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:    "AppIndexingWarning",
-			Brief:      "Browsable intent filter missing VIEW action",
-			Category:   ALCUsability,
-			ALSeverity: ALSWarning,
-			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
@@ -75,7 +27,7 @@ func registerAndroidManifestFeaturesRules() {
 		r := &GoogleAppIndexingDeepLinkErrorManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "GoogleAppIndexingDeepLinkErrorManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "GoogleAppIndexingDeepLinkError",
-			Brief:      "Deep link data element with scheme but no host",
+			Brief:      "Web deep link intent filter missing action, categories, host or valid path",
 			Category:   ALCUsability,
 			ALSeverity: ALSError,
 			Priority:   5,
@@ -83,7 +35,8 @@ func registerAndroidManifestFeaturesRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Aliases: []string{"AppIndexingErrorManifest", "AppIndexingError"},
+			Needs:   api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -99,7 +52,8 @@ func registerAndroidManifestFeaturesRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Aliases: []string{"AppIndexingWarningManifest", "AppIndexingWarning"},
+			Needs:   api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -123,7 +77,7 @@ func registerAndroidManifestFeaturesRules() {
 		r := &MissingLeanbackSupportManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MissingLeanbackSupportManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "MissingLeanbackSupport",
-			Brief:      "Leanback feature without touchscreen opt-out",
+			Brief:      "Missing Leanback Support",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   6,
@@ -139,7 +93,7 @@ func registerAndroidManifestFeaturesRules() {
 		r := &PermissionImpliesUnsupportedHardwareManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "PermissionImpliesUnsupportedHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "PermissionImpliesUnsupportedHardware",
-			Brief:      "Permission implies hardware feature not declared optional",
+			Brief:      "Permission Implies Unsupported Hardware",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSWarning,
 			Priority:   5,
@@ -153,11 +107,11 @@ func registerAndroidManifestFeaturesRules() {
 	}
 	{
 		r := &UnsupportedChromeOsHardwareManifestRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "UnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "UnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "UnsupportedChromeOsHardware",
 			Brief:      "Hardware feature unsupported on Chrome OS not marked optional",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSWarning,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -203,7 +157,7 @@ func registerAndroidManifestFeaturesRules() {
 		r := &MissingRegisteredManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MissingRegisteredManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "MissingRegistered",
-			Brief:      "Missing registered class",
+			Brief:      "Component name in the manifest is empty or malformed",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   8,

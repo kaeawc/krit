@@ -734,9 +734,9 @@ func privacyNodeContainsScreenshotBlockerReferenceFlat(file *scanner.File, idx u
 }
 
 func privacySensitiveIdentifierName(name string) bool {
-	name = strings.ToLower(strings.Trim(name, "`"))
-	for _, part := range []string{"password", "passwd", "pwd", "pin", "secret", "credential"} {
-		if strings.Contains(name, part) {
+	tokens := privacyIdentifierTokenSet(name)
+	for _, part := range []string{"password", "passwd", "pwd", "pin", "secret", "credential", "passcode"} {
+		if tokens[part] {
 			return true
 		}
 	}

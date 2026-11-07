@@ -1,30 +1,12 @@
 package rules_test
 
 import (
-	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/experiment"
-	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
-
-func experimentSnapshot() []string     { return experiment.Current().Names() }
-func experimentRestore(names []string) { experiment.SetCurrent(names) }
-func enableExperiment(name string) {
-	cur := experiment.Current().Names()
-	for _, n := range cur {
-		if n == name {
-			return
-		}
-	}
-	experiment.SetCurrent(append(cur, name))
-}
 
 // --- ExceptionRaisedInUnexpectedLocation ---
 
@@ -96,11 +78,11 @@ fun equals(other: Any?): Boolean {
 func TestExc_ExceptionRaisedInUnexpectedLocation_JavaFixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
-	t.Run("positive", func(t *testing.T) {
+	t.Run("positive fixture is skipped", func(t *testing.T) {
 		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "ExceptionRaisedInUnexpectedLocation.java"))
 		findings := runRuleByNameOnFile(t, "ExceptionRaisedInUnexpectedLocation", file)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java finding, got %d", len(findings))
 		}
 	})
 
@@ -115,41 +97,6 @@ func TestExc_ExceptionRaisedInUnexpectedLocation_JavaFixtures(t *testing.T) {
 
 // --- InstanceOfCheckForException ---
 
-func TestExc_InstanceOfCheckForException_Positive(t *testing.T) {
-	// Narrowing the caught variable itself (`e is IOException`) is legitimate
-	// and must NOT fire. A type-check on some *other*, non-caught value inside
-	// the catch is the "instanceof instead of polymorphism" smell that should.
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test(failure: Throwable) {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        if (failure is IOException) {
-            println("io")
-        }
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for is-check on a non-caught value inside catch")
-	}
-}
-
-func TestExc_InstanceOfCheckForException_Negative(t *testing.T) {
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: IOException) {
-        log(e)
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings, got %d", len(findings))
-	}
-}
-
 // --- InstanceOfCheckForException: when-dispatch FP-reduction (regression) ---
 //
 // Regression for isInsideWhenDispatchOnCatchVarFlat: the helper used to
@@ -157,173 +104,6 @@ fun test() {
 // when_subject / parenthesized_expression / value_arguments but whose text
 // did not equal the caught variable. That early return could miss a later
 // sibling that actually carries the caught-variable subject.
-
-func TestExc_InstanceOfCheckForException_SkipsWhenDispatchOnCaughtVar(t *testing.T) {
-	prev := experimentSnapshot()
-	defer experimentRestore(prev)
-	enableExperiment("instance-of-check-skip-when-dispatch")
-
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        when (e) {
-            is IOException -> println("io")
-            is RuntimeException -> println("rt")
-            else -> throw e
-        }
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings (when-dispatch on caught var should be skipped), got %d", len(findings))
-	}
-}
-
-func TestExc_InstanceOfCheckForException_FiresWhenDispatchOnOtherVar(t *testing.T) {
-	prev := experimentSnapshot()
-	defer experimentRestore(prev)
-	enableExperiment("instance-of-check-skip-when-dispatch")
-
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test(other: Any) {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        when (other) {
-            is IOException -> println("io")
-        }
-        if (e is IOException) println("io2")
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding: when-dispatch is on `other`, not the caught var, so the is-check on `e` must still fire")
-	}
-}
-
-func TestExc_InstanceOfCheckForException_SubjectlessWhenOnCaughtVarNotFlagged(t *testing.T) {
-	// A subjectless `when { e is X -> ... }` whose condition tests the *caught*
-	// variable is still narrowing the already-caught exception — legitimate,
-	// so it must NOT fire.
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        when {
-            e is IOException -> println("io")
-        }
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for is-check narrowing the caught var, got %d", len(findings))
-	}
-}
-
-func TestExc_InstanceOfCheckForException_SubjectlessWhenOnOtherVarFlagged(t *testing.T) {
-	// A subjectless `when { other is X -> ... }` testing a non-caught value is
-	// the type-check smell and must fire.
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test(other: Any) {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        when {
-            other is IOException -> println("io")
-        }
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding: subjectless when tests a non-caught value")
-	}
-}
-
-func TestExc_InstanceOfCheckForException_NegativeNonExceptionTypeWithExceptionPrefix(t *testing.T) {
-	// `is ExceptionHandler` (a non-exception type that happens to start with
-	// "Exception") must not trigger the rule. Regression for the missing
-	// trailing word boundary in isExceptionRe.
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: Throwable) {
-        if (e is ExceptionHandler) {
-            handle(e)
-        }
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for is-check on non-exception type, got %d: %+v", len(findings), findings)
-	}
-}
-
-func TestExc_InstanceOfCheckForException_NegativeIdentifierContainingException(t *testing.T) {
-	// `is Foo` where Foo is unrelated must not match — regression guard.
-	findings := runRuleByName(t, "InstanceOfCheckForException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: Throwable) {
-        if (e is ExceptionalCircumstance) {
-            handle(e)
-        }
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for ExceptionalCircumstance, got %d", len(findings))
-	}
-}
-
-func TestExc_InstanceOfCheckForException_Java(t *testing.T) {
-	// instanceof on the caught variable narrows the already-caught exception
-	// and must NOT fire; an instanceof on some other value still should.
-	findings := runRuleByNameOnJava(t, "InstanceOfCheckForException", `
-package test;
-class Example {
-  void run(Throwable failure) {
-    try {
-      work();
-    } catch (Exception e) {
-      if (failure instanceof java.io.IOException) {
-        work();
-      }
-    }
-  }
-  void work() {}
-}
-`)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java instanceof finding on a non-caught value, got %d", len(findings))
-	}
-}
-
-func TestExc_InstanceOfCheckForException_JavaCaughtVarNotFlagged(t *testing.T) {
-	findings := runRuleByNameOnJava(t, "InstanceOfCheckForException", `
-package test;
-class Example {
-  void run() throws java.io.IOException {
-    try {
-      work();
-    } catch (java.io.IOException e) {
-      if (e instanceof java.net.SocketException) {
-        return;
-      }
-      throw e;
-    }
-  }
-  void work() throws java.io.IOException {}
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for instanceof narrowing the caught var, got %d", len(findings))
-	}
-}
 
 // --- NotImplementedDeclaration ---
 
@@ -428,7 +208,7 @@ fun test() {
 	}
 }
 
-func TestExc_RethrowCaughtException_Java(t *testing.T) {
+func TestExc_RethrowCaughtException_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "RethrowCaughtException", `
 package test;
 class Example {
@@ -442,8 +222,8 @@ class Example {
   void work() throws Exception {}
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java rethrow finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -486,56 +266,14 @@ fun test() {
 	}
 }
 
-func TestExc_RethrowCaughtException_JavaLaterCatchSuppresses(t *testing.T) {
-	findings := runRuleByNameOnJava(t, "RethrowCaughtException", `
-package test;
-class Example {
-  void run() throws Exception {
-    try {
-      work();
-    } catch (java.io.IOException e) {
-      throw e;
-    } catch (Exception e) {
-      log(e);
-    }
-    try {
-      work();
-    } catch (java.io.IOException | java.sql.SQLException e) {
-      throw e;
-    } catch (Exception e) {
-      log(e);
-    } finally {
-      done();
-    }
-    try {
-      work();
-    } catch (java.io.IOException e) {
-      log(e);
-    } catch (Exception e) {
-      throw e;
-    }
-  }
-  void work() throws Exception {}
-  void log(Exception e) {}
-  void done() {}
-}
-`)
-	if len(findings) != 1 {
-		t.Fatalf("expected only the last-catch rethrow to be flagged, got %d", len(findings))
-	}
-	if findings[0].Line != 25 {
-		t.Fatalf("expected finding on line 25, got %d", findings[0].Line)
-	}
-}
-
 func TestExc_RethrowCaughtException_JavaFixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
-	t.Run("positive", func(t *testing.T) {
+	t.Run("positive fixture is skipped", func(t *testing.T) {
 		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "RethrowCaughtException.java"))
 		findings := runRuleByNameOnFile(t, "RethrowCaughtException", file)
-		if len(findings) != 2 {
-			t.Fatalf("expected 2 Java findings, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java findings, got %d", len(findings))
 		}
 	})
 
@@ -635,7 +373,7 @@ fun example(): Int {
 	}
 }
 
-func TestExc_ReturnFromFinally_Java(t *testing.T) {
+func TestExc_ReturnFromFinally_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "ReturnFromFinally", `
 package test;
 class Example {
@@ -648,620 +386,12 @@ class Example {
   }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java return-from-finally finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
 // --- SwallowedException ---
-
-func TestExc_SwallowedException_Positive(t *testing.T) {
-	findings := runRuleByName(t, "SwallowedException", `
-fun test() {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        println("failed")
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for swallowed exception")
-	}
-}
-
-func TestExc_SwallowedException_Negative(t *testing.T) {
-	findings := runRuleByName(t, "SwallowedException", `
-import com.example.logging.AppLog
-
-fun test() {
-    try {
-        doWork()
-    } catch (e: Exception) {
-        AppLog.e("tag", "failed", e)
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings, got %d", len(findings))
-	}
-}
-
-func TestExc_SwallowedException_UppercaseCallResultMustBeConsumed(t *testing.T) {
-	t.Run("discarded wrapper result is swallowed", func(t *testing.T) {
-		findings := runRuleByName(t, "SwallowedException", `
-fun test() {
-    try { work() } catch (e: Exception) {
-        Analytics(e)
-    }
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected a bare uppercase call receiving the exception to be flagged")
-		}
-	})
-
-	for name, code := range map[string]string{
-		"thrown wrapper":             `fun test() { try { work() } catch (e: Exception) { throw Wrapper(e) } }`,
-		"assigned and used wrapper":  `fun test() { try { work() } catch (e: Exception) { val x = Wrapper(e); log(x) } }`,
-		"wrapper passed as argument": `fun test() { try { work() } catch (e: Exception) { log(Wrapper(e)) } }`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			if findings := runRuleByName(t, "SwallowedException", code); len(findings) != 0 {
-				t.Fatalf("consumed wrapper result should count as handling, got %v", findings)
-			}
-		})
-	}
-}
-
-func TestExc_SwallowedException_LoggingCountsAsHandlingConfig(t *testing.T) {
-	rule := buildRuleIndex()["SwallowedException"]
-	impl, ok := rule.Implementation.(*rules.SwallowedExceptionRule)
-	if !ok {
-		t.Fatalf("expected *rules.SwallowedExceptionRule, got %T", rule.Implementation)
-	}
-	original := impl.LoggingCountsAsHandling
-	defer func() { impl.LoggingCountsAsHandling = original }()
-
-	impl.LoggingCountsAsHandling = false
-	findings := runRuleByName(t, "SwallowedException", `
-package test
-
-object AppLog {
-    fun e(tag: String, message: String, throwable: Throwable) = Unit
-}
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        AppLog.e("tag", "failed", e)
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected logged exception to count as swallowed when loggingCountsAsHandling=false")
-	}
-}
-
-func TestExc_SwallowedException_GenericCompactLogReceiver(t *testing.T) {
-	findings := runRuleByName(t, "SwallowedException", `
-package test
-
-object AppLog {
-    fun e(tag: String, message: String, throwable: Throwable) = Unit
-}
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        AppLog.e("tag", "failed", e)
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected generic *Log.e call with throwable to count as handling, got %d", len(findings))
-	}
-}
-
-func TestExc_SwallowedException_NegativeCallbackHandler(t *testing.T) {
-	findings := runRuleByName(t, "SwallowedException", `
-import java.io.IOException
-
-class FaultHidingSink(
-    private val onException: (IOException) -> Unit,
-) {
-    fun flush() {
-        try {
-            delegateFlush()
-        } catch (e: IOException) {
-            onException(e)
-        }
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected callback handler to count as handling, got %d", len(findings))
-	}
-}
-
-func TestExc_SwallowedException_PositiveUnknownCallbackName(t *testing.T) {
-	findings := runRuleByName(t, "SwallowedException", `
-import java.io.IOException
-
-class FaultHidingSink(
-    private val ignored: (IOException) -> Unit,
-) {
-    fun flush() {
-        try {
-            delegateFlush()
-        } catch (e: IOException) {
-            ignored(e)
-        }
-    }
-}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected unknown callback name to remain suspicious")
-	}
-}
-
-func TestExc_SwallowedException_ASTPositiveCases(t *testing.T) {
-	cases := map[string]string{
-		// NB: a truly empty catch is intentionally NOT here — EmptyCatchBlock
-		// (ConfidenceVeryHigh) owns that case, and SwallowedException defers to
-		// it to avoid double-reporting. See ASTNegativeCases/empty_catch_*.
-		"comment only": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        // ignored: e throw log handle
-    }
-}
-`,
-		"message only throw": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        throw IllegalStateException(e.message)
-    }
-}
-`,
-		"message alias throw": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        val msg = e.message
-        throw IllegalStateException(
-            msg
-        )
-    }
-}
-`,
-		"unresolved same name api": `
-class WarningSink {
-    fun warn(value: Any?) {}
-}
-fun test(sink: WarningSink) {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        sink.warn(e)
-    }
-}
-`,
-		"local handler lookalike": `
-object EventSink {
-    fun record(tag: String, message: String, error: Throwable) {}
-}
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        EventSink.record("tag", "failed", e)
-    }
-}
-`,
-		"nested lambda ignored": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        run {
-            logger.warn("failed", e)
-        }
-    }
-}
-`,
-		"string literals ignored": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        println("e throw log handle")
-    }
-}
-`,
-	}
-	for name, code := range cases {
-		t.Run(name, func(t *testing.T) {
-			findings := runRuleByName(t, "SwallowedException", code)
-			if len(findings) == 0 {
-				t.Fatal("expected finding")
-			}
-		})
-	}
-}
-
-func TestExc_SwallowedException_ASTNegativeCases(t *testing.T) {
-	cases := map[string]string{
-		// A truly empty catch is owned by EmptyCatchBlock; SwallowedException
-		// must defer to avoid double-reporting.
-		"empty catch deferred to EmptyCatchBlock": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-    }
-}
-`,
-		// A fallback assignment that does not touch the exception is recovery,
-		// not a swallow.
-		"fallback assignment recovery": `
-fun test() {
-    var handled = false
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        handled = true
-    }
-}
-`,
-		// An early return as a fallback value is recovery.
-		"early return recovery": `
-fun test(): Boolean {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        return false
-    }
-    return true
-}
-`,
-		"direct rethrow": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        throw e
-    }
-}
-`,
-		"catch parameter suppression": `
-fun test() {
-    try {
-        work()
-    } catch (@Suppress("SwallowedException") e: java.io.IOException) {
-        println(e.message)
-    }
-}
-`,
-		"cause forwarding": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        throw IllegalStateException("failed", e)
-    }
-}
-`,
-		"named cause forwarding": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        throw IllegalStateException(
-            message = "failed",
-            cause = e
-        )
-    }
-}
-`,
-		"alias forwarding throw": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        val cause = e
-        throw cause
-    }
-}
-`,
-		"alias constructor forwarding": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        val cause = e
-        throw IllegalStateException(
-            "failed",
-            cause
-        )
-    }
-}
-`,
-		"recognized logger": `
-import com.example.logging.AppLog
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        AppLog.e("tag", "failed", e)
-        recover()
-    }
-}
-`,
-		"java util logger parameter": `
-import java.util.logging.Logger
-import java.util.logging.Level
-
-fun test(logger: Logger) {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        logger.log(Level.WARNING, "failed", e)
-    }
-}
-`,
-		"message in logger": `
-fun test(logger: Any) {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        logger.warn(e.message)
-    }
-}
-`,
-		"unqualified debug logging": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        debug("failed $e")
-    }
-}
-`,
-		"unqualified logError message": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        logError("failed ${e.message}")
-    }
-}
-`,
-		"println script logging": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        println("failed ${e.message}")
-    }
-}
-`,
-		"ZLog exception": `
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        ZLog.error(e)
-    }
-}
-`,
-		"telemetry wrapper exception": `
-fun test(telemetry: Telemetry) {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        telemetry.logThrowable(Telemetry.Throwable(e))
-    }
-}
-
-class Telemetry {
-    fun logThrowable(value: Throwable) {}
-    class Throwable(cause: kotlin.Throwable)
-}
-`,
-		"returned domain failure": `
-sealed class ChangeNumberResult {
-    data class SvrWrongPin(val cause: Throwable): ChangeNumberResult()
-}
-fun test(): ChangeNumberResult {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        return ChangeNumberResult.SvrWrongPin(e)
-    }
-    return ChangeNumberResult.SvrWrongPin(RuntimeException())
-}
-`,
-		"callback load failure": `
-interface Callback {
-    fun onLoadFailed(error: Throwable)
-}
-fun test(callback: Callback) {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        callback.onLoadFailed(e)
-    }
-}
-`,
-		"app logger with tag helper": `
-import com.example.logging.AppLog
-
-/**
- * Import header regression: tree-sitter may include this comment in the
- * previous import_header node.
- */
-
-object Migration {
-    private val TAG = Log.tag(Migration::class.java)
-    fun migrate() {
-        try {
-            work()
-        } catch (t: Throwable) {
-            AppLog.e(TAG, "Failed to perform migration!", t)
-        }
-    }
-}
-`,
-	}
-	for name, code := range cases {
-		t.Run(name, func(t *testing.T) {
-			findings := runRuleByNameWithResolver(t, "SwallowedException", code)
-			if len(findings) != 0 {
-				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
-			}
-		})
-	}
-}
-
-func TestExc_SwallowedException_ResolvedLoggerCall(t *testing.T) {
-	code := `
-import java.util.logging.Logger
-import java.util.logging.Level
-
-class Test(private val logger: Logger) {
-    fun test() {
-        try {
-            work()
-        } catch (e: java.io.IOException) {
-            logger.log(Level.WARNING, "failed", e)
-        }
-    }
-}
-`
-	file := parseInline(t, code)
-	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
-	fake := oracle.NewFakeOracle()
-	fake.CallTargets[file.Path] = map[string]string{}
-	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(file.FlatNodeText(idx), "logger.log") {
-			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
-			fake.CallTargets[file.Path][key] = "java.util.logging.Logger.log"
-		}
-	})
-	composite := oracle.NewCompositeResolver(fake, resolver)
-	for _, r := range api.Registry {
-		if r.ID != "SwallowedException" {
-			continue
-		}
-		cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
-		findings := cols.Findings()
-		if len(findings) != 0 {
-			t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
-		}
-		return
-	}
-	t.Fatal("SwallowedException rule not found")
-}
-
-func TestExc_SwallowedException_ASTNegativeCasesWithoutResolver(t *testing.T) {
-	cases := map[string]string{
-		"qualified android log": `
-import android.util.Log
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        AppLog.e("tag", "failed", e)
-    }
-}
-`,
-		"qualified timber log": `
-import timber.log.Timber
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        Timber.e(e)
-    }
-}
-`,
-		"aliased timber log": `
-import timber.log.Timber as Logcat
-
-fun test() {
-    try {
-        work()
-    } catch (exception: java.io.IOException) {
-        Logcat.e(exception)
-    }
-}
-`,
-		"member timber log import": `
-import timber.log.Timber.e
-
-fun test() {
-    try {
-        work()
-    } catch (exception: java.io.IOException) {
-        e(exception)
-    }
-}
-`,
-		"ui handling": `
-import android.widget.Toast
-
-fun test() {
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        Toast.makeText(context, e.message, Toast.LENGTH_SHORT).show()
-    }
-}
-`,
-		"assignment handling": `
-class Holder {
-    var lastError: Throwable? = null
-    fun test() {
-        try {
-            work()
-        } catch (e: java.io.IOException) {
-            lastError = e
-        }
-    }
-}
-`,
-		"same owner local handler": `
-fun test() {
-    fun handleError(t: Throwable) {}
-    try {
-        work()
-    } catch (e: java.io.IOException) {
-        handleError(e)
-    }
-}
-`,
-	}
-	for name, code := range cases {
-		t.Run(name, func(t *testing.T) {
-			findings := runRuleByName(t, "SwallowedException", code)
-			if len(findings) != 0 {
-				t.Fatalf("expected no findings, got %d: %#v", len(findings), findings)
-			}
-		})
-	}
-}
 
 // --- ThrowingExceptionFromFinally ---
 
@@ -1295,7 +425,7 @@ fun test() {
 	}
 }
 
-func TestExc_ThrowingExceptionFromFinally_Java(t *testing.T) {
+func TestExc_ThrowingExceptionFromFinally_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "ThrowingExceptionFromFinally", `
 package test;
 class Example {
@@ -1309,8 +439,8 @@ class Example {
   void work() {}
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java throw-from-finally finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -1355,6 +485,27 @@ fun test() {
 	}
 }
 
+func TestExc_ThrowingNewInstanceOfSameException_NegativeCaughtVariableNotPassed(t *testing.T) {
+	findings := runRuleByName(t, "ThrowingNewInstanceOfSameException", `
+fun test() {
+    try {
+        doWork()
+    } catch (e: IOException) {
+        log(e)
+        throw IOException()
+    }
+    try {
+        doWork()
+    } catch (_: IOException) {
+        throw IOException("replaced")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when the caught variable is not wrapped, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestExc_ThrowingNewInstanceOfSameException_Negative(t *testing.T) {
 	findings := runRuleByName(t, "ThrowingNewInstanceOfSameException", `
 fun test() {
@@ -1370,7 +521,7 @@ fun test() {
 	}
 }
 
-func TestExc_ThrowingNewInstanceOfSameException_Java(t *testing.T) {
+func TestExc_ThrowingNewInstanceOfSameException_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "ThrowingNewInstanceOfSameException", `
 package test;
 import java.io.IOException;
@@ -1379,14 +530,14 @@ class Example {
     try {
       work();
     } catch (IOException e) {
-      throw new IOException();
+      throw new IOException(e);
     }
   }
   void work() throws IOException {}
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java same-exception finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -1424,6 +575,26 @@ class Example {
 	}
 }
 
+func TestExc_ThrowingNewInstanceOfSameException_NegativeRethrowWithContext(t *testing.T) {
+	findings := runRuleByName(t, "ThrowingNewInstanceOfSameException", `
+fun test(path: String) {
+    try {
+        doWork()
+    } catch (e: IOException) {
+        throw IOException("failed to read $path", e)
+    }
+    try {
+        doWork()
+    } catch (e: IOException) {
+        throw IOException("failed to read $path")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for rethrow with a new message, got %d", len(findings))
+	}
+}
+
 // --- ThrowingExceptionInMain ---
 
 func TestExc_ThrowingExceptionInMain_Positive(t *testing.T) {
@@ -1451,11 +622,11 @@ fun main(args: Array<String>) {
 func TestExc_ThrowingExceptionInMain_JavaFixtures(t *testing.T) {
 	root := fixtureRoot(t)
 
-	t.Run("positive", func(t *testing.T) {
+	t.Run("positive fixture is skipped", func(t *testing.T) {
 		file := parseJavaFixture(t, filepath.Join(root, "positive", "exceptions", "ThrowingExceptionInMain.java"))
 		findings := runRuleByNameOnFile(t, "ThrowingExceptionInMain", file)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 Java finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 Java finding, got %d", len(findings))
 		}
 	})
 
@@ -1552,5 +723,104 @@ object MyUtils {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestExc_ExceptionRaisedInUnexpectedLocation_PositiveToStringWithOtherWork(t *testing.T) {
+	findings := runRuleByName(t, "ExceptionRaisedInUnexpectedLocation", `
+class Row(val id: Int) {
+    override fun toString(): String {
+        check(id > 0)
+        if (id > 100) throw IllegalStateException("too big")
+        return "Row"
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestNotImplementedDeclaration_ThrowOfNotImplementedError(t *testing.T) {
+	src := `package test
+fun a() { throw NotImplementedError() }
+fun b() { throw NotImplementedError("later") }
+fun c() { throw kotlin.NotImplementedError() }
+fun d() { throw IllegalStateException("x") }
+fun e() {
+    throw
+        NotImplementedError()
+}
+`
+	if got := runRuleByName(t, "NotImplementedDeclaration", src); len(got) != 4 {
+		t.Fatalf("expected 4 findings (a, b, c, e), got %d: %v", len(got), got)
+	}
+}
+
+func TestReturnFromFinally_IgnoresReturnsOfNestedScopes(t *testing.T) {
+	clean := map[string]string{
+		"local function":  "fun f() { try { g() } finally { fun inner(): Int { return 1 }; inner() } }\nfun g() {}",
+		"labeled lambda":  "fun f() { try { g() } finally { listOf(1).forEach { if (it > 0) return@forEach } } }\nfun g() {}",
+		"object member":   "fun f() { try { g() } finally { object { fun x(): Int { return 1 } } } }\nfun g() {}",
+		"thrown in local": "fun f() { try { g() } finally { fun inner() { throw IllegalStateException(\"x\") } } }\nfun g() {}",
+	}
+	for name, src := range clean {
+		for _, rule := range []string{"ReturnFromFinally", "ThrowingExceptionFromFinally"} {
+			if got := runRuleByName(t, rule, src); len(got) != 0 {
+				t.Errorf("%s/%s: want no findings, got %d", name, rule, len(got))
+			}
+		}
+	}
+	if got := runRuleByName(t, "ReturnFromFinally", "fun f(): Int { try { g() } finally { run { return 1 } } }\nfun g() {}"); len(got) != 1 {
+		t.Errorf("a non-local return from an inline lambda must still be reported, got %d", len(got))
+	}
+}
+
+func TestThrowingExceptionInMain_OnlyProgramEntryPoints(t *testing.T) {
+	clean := map[string]string{
+		"member named main":   "class K { fun main() { throw IllegalStateException(\"x\") } }",
+		"extra parameters":    "fun main(a: Int, b: Int) { throw IllegalStateException(\"x\") }",
+		"nonstatic java main": "",
+	}
+	for name, src := range clean {
+		if got := runRuleByName(t, "ThrowingExceptionInMain", src); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
+	}
+	flagged := map[string]string{
+		"top level": "fun main() { throw IllegalStateException(\"x\") }",
+		"args":      "fun main(args: Array<String>) { throw IllegalStateException(\"x\") }",
+		"jvmstatic": "object O { @JvmStatic fun main(args: Array<String>) { throw IllegalStateException(\"x\") } }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByName(t, "ThrowingExceptionInMain", src); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	javaMain := "class A { public static void main(String[] args) { throw new IllegalStateException(\"x\"); } }"
+	if got := runRuleByNameOnJava(t, "ThrowingExceptionInMain", javaMain); len(got) != 0 {
+		t.Errorf("static java main: detekt does not analyze Java, want no findings, got %d", len(got))
+	}
+	javaInstance := "class A { void main() { throw new IllegalStateException(\"x\"); } }"
+	if got := runRuleByNameOnJava(t, "ThrowingExceptionInMain", javaInstance); len(got) != 0 {
+		t.Errorf("instance java main: want no findings, got %d", len(got))
+	}
+}
+
+func TestCatchRethrowFix_SingleLineCatchStartsNewLine(t *testing.T) {
+	findings := runRuleByName(t, "SwallowedException", `
+package test
+
+fun f() {
+    try {
+        work()
+    } catch (e: Exception) { println("x") }
+}
+`)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one finding with a fix, got %+v", findings)
+	}
+	if got := findings[0].Fix.Replacement; got != "\n    "+"    throw e\n    }" {
+		t.Errorf("replacement = %q", got)
 	}
 }

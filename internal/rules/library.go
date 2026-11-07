@@ -85,31 +85,90 @@ func hasColonTypeFlat(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-// hasAnnotationFlat checks whether a node has a specific annotation by name.
-// It checks both child modifiers and preceding sibling annotations.
+// hasAnnotationFlat checks whether a node has a specific annotation by exact simple name.
+// It checks both child modifiers and the run of annotation siblings directly before the node.
+// `@Test` does not match `@TestOnly`, and a use-site target (`@field:Inject`) or qualifier
+// (`@javax.inject.Inject`) does not change the name.
 func hasAnnotationFlat(file *scanner.File, idx uint32, annotationName string) bool {
-	target := "@" + annotationName
-	// Check child modifiers
 	for i := 0; i < file.FlatChildCount(idx); i++ {
 		child := file.FlatChild(idx, i)
-		if file.FlatType(child) == "modifiers" {
-			modText := file.FlatNodeText(child)
-			if strings.Contains(modText, target) {
-				return true
-			}
+		if file.FlatType(child) == "modifiers" && annotationTextListHasName(file.FlatNodeText(child), annotationName) {
+			return true
 		}
 	}
-	// Check preceding sibling annotations
 	for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
 		prevType := file.FlatType(prev)
-		if prevType == "modifiers" || prevType == "annotation" {
-			text := file.FlatNodeText(prev)
-			if strings.Contains(text, target) {
-				return true
-			}
+		if prevType != "modifiers" && prevType != "annotation" {
+			break
+		}
+		if annotationTextListHasName(file.FlatNodeText(prev), annotationName) {
+			return true
 		}
 	}
 	return false
+}
+
+// annotationTextListHasName reports whether text, the source of a modifier list or a single annotation,
+// contains an annotation whose simple name is name.
+func annotationTextListHasName(text, name string) bool {
+	for i := 0; i < len(text); i++ {
+		if text[i] != '@' {
+			continue
+		}
+		rest := text[i+1:]
+		// Skip arguments so an annotation mentioned inside another annotation's argument list is ignored.
+		end := 0
+		for end < len(rest) && (isIdentByte(rest[end]) || rest[end] == '.' || rest[end] == ':') {
+			end++
+		}
+		ref := rest[:end]
+		if colon := strings.LastIndex(ref, ":"); colon >= 0 {
+			ref = ref[colon+1:]
+		}
+		if strings.Contains(name, ".") {
+			// A dotted name such as `DependencyGraph.Factory` matches itself or a package-qualified form.
+			if ref == name || strings.HasSuffix(ref, "."+name) {
+				return true
+			}
+		} else if dot := strings.LastIndex(ref, "."); dot >= 0 {
+			ref = ref[dot+1:]
+		}
+		if ref == name {
+			return true
+		}
+		i += end
+		if end < len(rest) && rest[end] == '(' {
+			i += 1 + annotationArgumentsLength(rest[end+1:])
+		}
+	}
+	return false
+}
+
+// annotationArgumentsLength returns the byte length of an annotation argument list body, up to its closing paren.
+func annotationArgumentsLength(rest string) int {
+	depth := 1
+	inString := false
+	for i := 0; i < len(rest); i++ {
+		switch c := rest[i]; {
+		case inString:
+			switch c {
+			case '\\':
+				i++
+			case '"':
+				inString = false
+			}
+		case c == '"':
+			inString = true
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(rest)
 }
 
 func extractIdentifierFlat(file *scanner.File, idx uint32) string {

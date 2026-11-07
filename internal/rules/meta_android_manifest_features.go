@@ -4,22 +4,6 @@ package rules
 
 import api "github.com/kaeawc/krit/internal/rules/api"
 
-func (r *AppIndexingErrorManifestRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "AppIndexingErrorManifest",
-		RuleSet:       "android-lint",
-		DefaultActive: true,
-	}
-}
-
-func (r *AppIndexingWarningManifestRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "AppIndexingWarningManifest",
-		RuleSet:       "android-lint",
-		DefaultActive: true,
-	}
-}
-
 func (r *DeviceAdminManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "DeviceAdminManifest",
@@ -82,14 +66,6 @@ func (r *MissingRegisteredManifestRule) Meta() api.RuleDescriptor {
 func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "PermissionImpliesUnsupportedHardwareManifest",
-		RuleSet:       "android-lint",
-		DefaultActive: true,
-	}
-}
-
-func (r *RtlCompatManifestRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "RtlCompatManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
 	}

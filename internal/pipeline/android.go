@@ -8,13 +8,21 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/manifest"
+	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -412,6 +420,27 @@ func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcon
 	t.iconRulesDur += time.Since(start)
 }
 
+// manifestSourceFacts lazily derives source-backed facts shared by every manifest in a run.
+type manifestSourceFacts struct {
+	needed                bool
+	once                  sync.Once
+	preferenceActivitySet map[string]bool
+}
+
+func (f *manifestSourceFacts) preferenceActivities(files []*scanner.File) map[string]bool {
+	f.once.Do(func() { f.preferenceActivitySet = rules.ComputeActivityPreferenceFacts(files) })
+	return f.preferenceActivitySet
+}
+
+func anyRuleNamed(active []*api.Rule, id string) bool {
+	for _, r := range active {
+		if r != nil && r.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // manifestCacheStats counts cache outcomes during the manifest loop.
 type manifestCacheStats struct {
 	hits   int
@@ -451,11 +480,24 @@ func (AndroidPhase) manifestBundleFingerprint(paths []string) string {
 // cache outcome counts.
 func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.FindingCollector) (parseDur, ruleDur time.Duration, stats manifestCacheStats) {
 	cacheable := in.CacheDir != "" && in.CacheWriter != nil && in.RuleHash != ""
+	preferenceFacts := &manifestSourceFacts{needed: anyRuleNamed(in.ActiveRules, "ExportedPreferenceActivityManifest") && len(in.Project.ManifestPaths) > 0}
 	var bundleFP string
 	var bundleKey string
 	var bundleCollector *scanner.FindingCollector
+	resDirFPs := newResDirFingerprints(in.CacheDir, len(in.Project.ResDirs))
 	if cacheable {
 		bundleFP = p.manifestBundleFingerprint(in.Project.ManifestPaths)
+		for _, path := range in.Project.ManifestPaths {
+			bundleFP += "\x00" + in.manifestModuleFP(path, &resDirFPs)
+		}
+		if preferenceFacts.needed {
+			// Source-derived facts feed the manifest findings, so the source set must key the cache.
+			if sourceFP, _, ok := in.warmResourceSourceBundleFingerprint(); ok {
+				bundleFP += "\x00" + sourceFP
+			} else {
+				cacheable = false
+			}
+		}
 		bundleKey = in.manifestBundleKey(bundleFP)
 		if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, bundleKey); ok {
 			collector.AppendColumns(&cached)
@@ -473,7 +515,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 			if err != nil {
 				stats.skips++
 			} else {
-				key := in.manifestKey(contentHash, bundleFP)
+				key := in.manifestKey(in.manifestInputFP(path, contentHash, &resDirFPs), bundleFP)
 				if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, key); ok {
 					collector.AppendColumns(&cached)
 					bundleCollector.AppendColumns(&cached)
@@ -481,7 +523,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 					continue
 				}
 				stats.misses++
-				cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path)
+				cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, preferenceFacts)
 				parseDur += pdur
 				ruleDur += rdur
 				collector.AppendColumns(&cols)
@@ -494,7 +536,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 				continue
 			}
 		}
-		cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path)
+		cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, preferenceFacts)
 		parseDur += pdur
 		ruleDur += rdur
 		collector.AppendColumns(&cols)
@@ -511,7 +553,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 
 // runManifestOne does the parse + rule dispatch for a single manifest path.
 // Returns the empty FindingColumns when parsing fails.
-func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
+func (AndroidPhase) runManifestOne(in AndroidInput, path string, facts *manifestSourceFacts) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
 	parseStart := time.Now()
 	parsed, err := android.ParseManifest(path)
 	parseDur := time.Since(parseStart)
@@ -519,6 +561,9 @@ func (AndroidPhase) runManifestOne(in AndroidInput, path string) (scanner.Findin
 		return scanner.FindingColumns{}, true, parseDur, 0
 	}
 	manifest := ConvertManifestForRules(android.ConvertManifest(parsed, path))
+	if facts != nil && facts.needed {
+		manifest.ActivityExtendsPreferenceActivity = facts.preferenceActivities(in.SourceFiles)
+	}
 	if in.Dispatcher == nil {
 		return scanner.FindingColumns{}, true, parseDur, 0
 	}
@@ -575,33 +620,10 @@ func (p AndroidPhase) runResourceSourceRules(in AndroidInput, resourceSourceInde
 	memo := hashutil.Default()
 	shortHashEntries := make([]resourceSourceEntry, 0, len(in.SourceFiles))
 	fullHashes := make(map[string]string, len(in.SourceFiles))
-	for _, file := range in.SourceFiles {
-		// Pre-filter: resource-source rules check Kotlin / Java code
-		// for `R.string.X`, `R.layout.X`, etc. references. A file that
-		// doesn't contain the byte pair `R.` anywhere CAN'T have an
-		// Android-R reference — skip the per-rule AST walk entirely.
-		// On the kotlin-corpus warm baseline this skips ~85 % of the
-		// 87 k Kotlin files (the compiler core never references R.*),
-		// dropping resourceSourceRuleChecks from ~735 ms to ~50 ms.
-		//
-		// False-positive risk: files that mention "R." in comments or
-		// unrelated identifiers (e.g. "PARSER.something") still run
-		// through — the rule layer remains the authoritative gate.
-		// False-negative risk: vanishingly small — Kotlin/Java don't
-		// permit `R.*`-style wildcard imports, so resource references
-		// always surface as the literal byte pair `R.` in source.
-		if !mayReferenceAndroidResources(file) {
-			continue
-		}
-		if cacheable && runCachedResourceSourceRule(in, file, mergedSourceIdx, mergedFP, memo, collector, bundleCollector, &shortHashEntries, fullHashes, &stats) {
-			continue
-		}
-		cols := in.Dispatcher.RunResourceSource(file, mergedSourceIdx)
-		collector.AppendColumns(&cols)
-		if bundleCollector != nil {
-			bundleCollector.AppendColumns(&cols)
-		}
-	}
+	// Files are checked in parallel; results are applied in file order so the cache and the
+	// collected findings match a serial run.
+	results := runResourceSourceFiles(in, mergedSourceIdx, mergedFP, memo, cacheable)
+	shortHashEntries = applyResourceSourceResults(in, results, cacheable, collector, bundleCollector, shortHashEntries, fullHashes, &stats)
 	if cacheable {
 		saveResourceSourceBundles(in, mergedFP, bundleCollector, shortHashEntries, fullHashes)
 	}
@@ -637,37 +659,104 @@ func mayReferenceAndroidResources(file *scanner.File) bool {
 	if file == nil || len(file.Content) == 0 {
 		return false
 	}
-	return bytes.Contains(file.Content, []byte("R."))
+	return bytes.Contains(file.Content, []byte("R.")) || rules.MayDeclareCustomView(file.Content)
 }
 
-func runCachedResourceSourceRule(in AndroidInput, file *scanner.File, mergedSourceIdx *android.ResourceIndex, mergedFP string, memo *hashutil.Memo, collector, bundleCollector *scanner.FindingCollector, shortHashEntries *[]resourceSourceEntry, fullHashes map[string]string, stats *resourceSourceCacheStats) bool {
-	var provider func() ([]byte, error)
-	if len(file.Content) > 0 {
-		content := file.Content
-		provider = func() ([]byte, error) { return content, nil }
+// applyResourceSourceResults merges per-file results into the collectors and the cache, in file
+// order, and returns the extended short-hash entry list.
+func applyResourceSourceResults(in AndroidInput, results []resourceSourceFileResult, cacheable bool, collector, bundleCollector *scanner.FindingCollector, shortHashEntries []resourceSourceEntry, fullHashes map[string]string, stats *resourceSourceCacheStats) []resourceSourceEntry {
+	for _, r := range results {
+		if !r.considered {
+			continue
+		}
+		if r.hashed {
+			if len(r.srcHash) >= 16 {
+				shortHashEntries = append(shortHashEntries, resourceSourceEntry{path: r.path, hash: r.srcHash[:16]})
+			}
+			fullHashes[r.path] = r.srcHash
+			if r.cached {
+				stats.hits++
+			} else {
+				stats.misses++
+			}
+		} else if cacheable {
+			stats.skips++
+		}
+		collector.AppendColumns(&r.cols)
+		if bundleCollector != nil {
+			bundleCollector.AppendColumns(&r.cols)
+		}
+		if r.hashed && !r.cached {
+			in.CacheWriter.Save(in.CacheDir, r.key, r.cols)
+		}
 	}
-	srcHash, err := memo.HashFile(file.Path, provider)
-	if err != nil {
-		stats.skips++
-		return false
+	return shortHashEntries
+}
+
+// resourceSourceFileResult is one source file's resource-source rule outcome.
+type resourceSourceFileResult struct {
+	path       string
+	considered bool // the file may reference Android resources
+	hashed     bool // the content hash and cache key are valid
+	cached     bool // cols came from the cache
+	srcHash    string
+	key        string
+	cols       scanner.FindingColumns
+}
+
+// runResourceSourceFiles runs the resource-source rules over every candidate source file on a
+// bounded worker pool and returns one result per input file, in input order. It touches no shared
+// output: callers apply the results serially.
+func runResourceSourceFiles(in AndroidInput, mergedSourceIdx *android.ResourceIndex, mergedFP string, memo *hashutil.Memo, cacheable bool) []resourceSourceFileResult {
+	results := make([]resourceSourceFileResult, len(in.SourceFiles))
+	workers := min(runtime.GOMAXPROCS(0), len(in.SourceFiles))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range max(workers, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				results[i] = runResourceSourceFile(in, in.SourceFiles[i], mergedSourceIdx, mergedFP, memo, cacheable)
+			}
+		}()
 	}
-	if len(srcHash) >= 16 {
-		*shortHashEntries = append(*shortHashEntries, resourceSourceEntry{path: file.Path, hash: srcHash[:16]})
+	for i := range in.SourceFiles {
+		next <- i
 	}
-	fullHashes[file.Path] = srcHash
-	key := in.resourceSourceKey(file.Path, srcHash, mergedFP)
-	if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, key); ok {
-		collector.AppendColumns(&cached)
-		bundleCollector.AppendColumns(&cached)
-		stats.hits++
-		return true
+	close(next)
+	wg.Wait()
+	return results
+}
+
+func runResourceSourceFile(in AndroidInput, file *scanner.File, mergedSourceIdx *android.ResourceIndex, mergedFP string, memo *hashutil.Memo, cacheable bool) resourceSourceFileResult {
+	// Pre-filter: resource-source rules check Kotlin / Java code for `R.string.X`, `R.layout.X`, etc.
+	// references. A file without the byte pair `R.` cannot have an Android-R reference, so the
+	// per-rule AST walk is skipped. A file that only mentions "R." in a comment still runs; the rule
+	// layer stays the authoritative gate.
+	if !mayReferenceAndroidResources(file) {
+		return resourceSourceFileResult{}
 	}
-	stats.misses++
-	cols := in.Dispatcher.RunResourceSource(file, mergedSourceIdx)
-	collector.AppendColumns(&cols)
-	bundleCollector.AppendColumns(&cols)
-	in.CacheWriter.Save(in.CacheDir, key, cols)
-	return true
+	res := resourceSourceFileResult{path: file.Path, considered: true}
+	if cacheable {
+		var provider func() ([]byte, error)
+		if len(file.Content) > 0 {
+			content := file.Content
+			provider = func() ([]byte, error) { return content, nil }
+		}
+		if srcHash, err := memo.HashFile(file.Path, provider); err == nil {
+			res.hashed = true
+			res.srcHash = srcHash
+			res.key = in.resourceSourceKey(file.Path, srcHash, mergedFP)
+			if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, res.key); ok {
+				res.cached = true
+				res.cols = cached
+				return res
+			}
+		}
+	}
+	res.cols = in.Dispatcher.RunResourceSource(file, mergedSourceIdx)
+	return res
 }
 
 func tryResourceSourceBundleDelta(in AndroidInput, mergedSourceIdx *android.ResourceIndex, mergedFP string, collector *scanner.FindingCollector) (bool, resourceSourceCacheStats) {
@@ -841,7 +930,7 @@ func combineCacheability(current, next bool) bool {
 
 func (AndroidPhase) gradleBundleFingerprint(paths []string) (string, bool) {
 	h := hashutil.Hasher().New()
-	if !writePathHashes(h, "gradle", paths) {
+	if !writePathHashes(h, "gradle", paths) || !writeGradlePropertiesHashes(h, paths) {
 		return "", false
 	}
 	return hex.EncodeToString(h.Sum(nil)), true
@@ -878,7 +967,7 @@ func (p AndroidPhase) runGradlePhase(in AndroidInput, collector *scanner.Finding
 		if in.GradleFindingsCache != nil {
 			contentHash, herr := memo.HashFile(path, nil)
 			if herr == nil {
-				key := path + "\x00" + contentHash + "\x00" + in.RuleHash
+				key := path + "\x00" + contentHash + "\x00" + in.RuleHash + "\x00" + gradlePropertiesKey(path)
 				var rpdur, rdur time.Duration
 				cols, resultCacheable := in.GradleFindingsCache(key, func() (scanner.FindingColumns, bool) {
 					c, ok, rp, rd := p.runGradleOne(in, path)
@@ -971,7 +1060,7 @@ func installAndroidSuppression(file *scanner.File) {
 	if file == nil || file.Suppression != nil {
 		return
 	}
-	file.Suppression = scanner.BuildSuppressionFilter(file, nil, rules.GetAllRuleExcludes(), "").WithRuleAliases(rules.AllSuppressionAliases())
+	file.Suppression = scanner.BuildSuppressionFilter(file, nil, rules.GetAllRuleExcludes(), "").WithRuleAliases(rules.AllSuppressionAliases()).WithExcludedRules(rules.ScriptPolicyExcludes(file))
 	file.SuppressionIdx = file.Suppression.Annotations()
 }
 
@@ -980,7 +1069,11 @@ func filterAndroidSuppressedFindings(file *scanner.File, cols scanner.FindingCol
 		return cols
 	}
 	return cols.FilterRows(func(row int) bool {
-		return !file.Suppression.IsSuppressed(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row))
+		// A rule can report on a sibling file such as gradle.properties; the script's suppressions do not apply there.
+		if cols.FileAt(row) != file.Path {
+			return true
+		}
+		return !file.Suppression.IsSuppressedAtColumn(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row), cols.ColumnAt(row))
 	})
 }
 
@@ -1239,6 +1332,342 @@ func saveAndroidProjectBundle(in AndroidInput, key string, cols scanner.FindingC
 	}
 }
 
+// withRtlMains hands the dispatcher the resolver for the main projects whose manifest and SDK levels decide
+// the RTL rules, and folds what it read into the cache key so findings are recomputed when it changes.
+func (in AndroidInput) withRtlMains() AndroidInput {
+	gated := false
+	for _, id := range rules.RtlGatedRuleIDs() {
+		gated = gated || anyRuleNamed(in.ActiveRules, id)
+	}
+	if !gated || in.Project == nil {
+		return in
+	}
+	resolve, fingerprint := projectRtlMains(in.Project.ManifestPaths, in.Project.GradlePaths)
+	in.Dispatcher.SetRtlMainsResolver(resolve)
+	if in.RuleHash != "" {
+		in.RuleHash += "|rtl=" + fingerprint
+	}
+	return in
+}
+
+// moduleDirOfManifest returns the Gradle module directory holding a manifest
+// under src/<sourceSet>/.
+func moduleDirOfManifest(path string) string {
+	dir := filepath.Dir(path)
+	if i := strings.LastIndex(dir, string(filepath.Separator)+"src"+string(filepath.Separator)); i >= 0 {
+		return dir[:i]
+	}
+	if filepath.Base(dir) == "src" {
+		return filepath.Dir(dir)
+	}
+	return dir
+}
+
+// findGradleRoot walks up from dir to the directory holding settings.gradle(.kts).
+func findGradleRoot(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		for _, name := range []string{"settings.gradle.kts", "settings.gradle"} {
+			if _, err := os.Stat(filepath.Join(d, name)); err == nil {
+				return d
+			}
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// moduleGraphFromBuildScripts treats each directory with a build script under
+// root as a module whose Gradle path mirrors its relative directory.
+func moduleGraphFromBuildScripts(root string, gradlePaths []string) *module.Graph {
+	graph := module.NewModuleGraph(root)
+	for _, path := range gradlePaths {
+		dir := filepath.Dir(path)
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			continue
+		}
+		modPath := ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":")
+		graph.Modules[modPath] = &module.Module{Path: modPath, Dir: dir}
+	}
+	return graph
+}
+
+// rtlApp is an app (a module whose main manifest has an <application>) Lint would run the RTL checks from.
+type rtlApp struct {
+	moduleDir string
+	main      api.RtlMainProject
+}
+
+// isMainSourceSetManifest reports whether a manifest is the module's main one rather than a debug, test or flavor copy.
+func isMainSourceSetManifest(path string) bool {
+	sep := string(filepath.Separator)
+	dir := filepath.Dir(path)
+	i := strings.LastIndex(dir, sep+"src"+sep)
+	if i < 0 {
+		return true
+	}
+	return dir[i+len(sep+"src"+sep):] == "main"
+}
+
+// rtlApps reads the app manifests: those of main source sets that declare an <application>.
+func rtlApps(manifestPaths []string) []rtlApp {
+	var apps []rtlApp
+	for _, path := range manifestPaths {
+		if !isMainSourceSetManifest(path) {
+			continue
+		}
+		parsed, err := android.ParseManifest(path)
+		if err != nil {
+			continue
+		}
+		m := android.ConvertManifest(parsed, path)
+		if !m.HasApplication && m.AppLine == 0 {
+			continue
+		}
+		levels := android.ResolveSDKLevels(path)
+		apps = append(apps, rtlApp{
+			moduleDir: moduleDirOfManifest(path),
+			main: api.RtlMainProject{
+				HasApplication: true,
+				RtlOff:         m.SupportsRtl != nil && !*m.SupportsRtl,
+				MinSdk:         levels.MinSdk,
+				TargetSdk:      levels.TargetSdk,
+			},
+		})
+	}
+	return apps
+}
+
+// moduleDirOfFile returns the Gradle module directory holding a resource or manifest file.
+func moduleDirOfFile(path string) string {
+	sep := string(filepath.Separator)
+	dir := filepath.Dir(path)
+	if i := strings.LastIndex(dir, sep+"src"+sep); i >= 0 {
+		return dir[:i]
+	}
+	if filepath.Base(dir) == "src" {
+		return filepath.Dir(dir)
+	}
+	if filepath.Base(filepath.Dir(dir)) == "res" {
+		return filepath.Dir(filepath.Dir(filepath.Dir(dir)))
+	}
+	return dir
+}
+
+// rtlDependencyConfig reports whether a dependency configuration puts a module into an app's merged resources.
+func rtlDependencyConfig(config string) bool {
+	lower := strings.ToLower(config)
+	for _, skip := range []string{"test", "kapt", "ksp", "annotationprocessor", "lintchecks"} {
+		if strings.Contains(lower, skip) {
+			return false
+		}
+	}
+	return true
+}
+
+// projectRtlMains answers, per resource or manifest file, which app main projects decide the RTL rules for the
+// file's module, the way Lint judges a library's findings by the apps that include it: the module itself when it
+// has an <application>, and every app that depends on it transitively. The bool is false when the project cannot
+// say (no app manifest was scanned). Without a Gradle graph a module's own app counts, and a module that is not
+// an app is judged by every app in the scan. The fingerprint changes with everything the answers depend on.
+func projectRtlMains(manifestPaths, gradlePaths []string) (func(string) ([]api.RtlMainProject, bool), string) {
+	apps := rtlApps(manifestPaths)
+	if len(apps) == 0 {
+		return func(string) ([]api.RtlMainProject, bool) { return nil, false }, "none"
+	}
+	all := make([]api.RtlMainProject, 0, len(apps))
+	byDir := map[string]api.RtlMainProject{}
+	for _, app := range apps {
+		all = append(all, app.main)
+		byDir[app.moduleDir] = app.main
+	}
+	lines := make([]string, 0, len(apps))
+	for _, app := range apps {
+		lines = append(lines, fmt.Sprintf("%s|%v", app.moduleDir, app.main))
+	}
+	fallbackMains := func(path string) []api.RtlMainProject {
+		if own, ok := byDir[moduleDirOfFile(path)]; ok {
+			return []api.RtlMainProject{own}
+		}
+		return all
+	}
+	fallback := func(path string) ([]api.RtlMainProject, bool) { return fallbackMains(path), true }
+
+	root := findGradleRoot(moduleDirOfManifest(manifestPaths[0]))
+	if root == "" {
+		return fallback, finishRtlFingerprint(lines)
+	}
+	graph := rtlModuleGraph(root, gradlePaths)
+	if len(graph.Modules) == 0 {
+		return fallback, finishRtlFingerprint(lines)
+	}
+	_ = module.ParseAllDependencies(graph)
+
+	mains := rtlMainsByModule(graph, apps)
+	names := make([]string, 0, len(graph.Modules))
+	for name := range graph.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		levels := android.ResolveSDKLevels(filepath.Join(graph.Modules[name].Dir, "x"))
+		lines = append(lines, fmt.Sprintf("%s|%v|%v", name, mains[name], levels))
+	}
+	resolve := func(path string) ([]api.RtlMainProject, bool) {
+		mod := graph.FileToModule(path)
+		if mod == "" {
+			return fallbackMains(path), true
+		}
+		return mains[mod], true
+	}
+	return resolve, finishRtlFingerprint(lines)
+}
+
+// rtlModuleGraph discovers the Gradle modules under root, adding modules found
+// only in the scanned build scripts.
+func rtlModuleGraph(root string, gradlePaths []string) *module.Graph {
+	graph, err := module.DiscoverModules(context.Background(), root)
+	if err != nil || graph == nil {
+		graph = module.NewModuleGraph(root)
+	}
+	// Settings that include modules through a plugin list few or none, so add
+	// the modules found from the scanned build scripts.
+	for path, m := range moduleGraphFromBuildScripts(root, gradlePaths).Modules {
+		if _, ok := graph.Modules[path]; !ok {
+			graph.Modules[path] = m
+		}
+	}
+	return graph
+}
+
+// rtlMainsByModule lists, per module, the apps that include it, the module's own app first.
+func rtlMainsByModule(graph *module.Graph, apps []rtlApp) map[string][]api.RtlMainProject {
+	mains := map[string][]api.RtlMainProject{}
+	for _, app := range apps {
+		appModule := graph.FileToModule(app.moduleDir + string(filepath.Separator) + "x")
+		if appModule == "" {
+			continue
+		}
+		seen := map[string]bool{appModule: true}
+		queue := []string{appModule}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			mains[cur] = append(mains[cur], app.main)
+			for _, dep := range graph.Modules[cur].Dependencies {
+				if _, ok := graph.Modules[dep.ModulePath]; ok && !seen[dep.ModulePath] && rtlDependencyConfig(dep.Configuration) {
+					seen[dep.ModulePath] = true
+					queue = append(queue, dep.ModulePath)
+				}
+			}
+		}
+	}
+	return mains
+}
+
+func finishRtlFingerprint(lines []string) string {
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
+// describedViewRuleID is the layout rule that skips views whose description source code sets.
+const describedViewRuleID = "ClickableViewAccessibilityResource"
+
+// withDescribedViewNames scans the project's source files for views that get a content description at
+// runtime, hands the names to the dispatcher, and folds them into the cache key so findings are
+// recomputed when the set changes.
+func (in AndroidInput) withDescribedViewNames() AndroidInput {
+	if in.Dispatcher == nil || !anyRuleNamed(in.ActiveRules, describedViewRuleID) {
+		return in
+	}
+	var sources [][]byte
+	if len(in.SourceFiles) > 0 {
+		for _, f := range in.SourceFiles {
+			sources = append(sources, f.Content)
+		}
+	} else {
+		for _, path := range in.SourcePaths {
+			if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".java") {
+				continue
+			}
+			if data, err := os.ReadFile(path); err == nil {
+				sources = append(sources, data)
+			}
+		}
+	}
+	names := rules.ComputeDescribedViewNames(sources)
+	in.Dispatcher.SetDescribedViewNames(names)
+	if in.RuleHash != "" {
+		sorted := make([]string, 0, len(names))
+		for name := range names {
+			sorted = append(sorted, name)
+		}
+		sort.Strings(sorted)
+		sum := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+		in.RuleHash += "|described=" + hex.EncodeToString(sum[:8])
+	}
+	return in
+}
+
+// unusedResourceRuleIDs are the rules that need to know which resources source code refers to.
+var unusedResourceRuleIDs = []string{"UnusedResources", "UnusedIds"}
+
+// withResourceCodeRefs scans the project's source files for R.type.name references and view binding
+// classes, hands them to the dispatcher, and folds them into the cache key so findings are recomputed
+// when the set changes.
+func (in AndroidInput) withResourceCodeRefs() AndroidInput {
+	if in.Dispatcher == nil {
+		return in
+	}
+	wanted := false
+	for _, id := range unusedResourceRuleIDs {
+		wanted = wanted || anyRuleNamed(in.ActiveRules, id)
+	}
+	if !wanted {
+		return in
+	}
+	var sources [][]byte
+	if len(in.SourceFiles) > 0 {
+		for _, f := range in.SourceFiles {
+			sources = append(sources, f.Content)
+		}
+	} else {
+		for _, path := range in.SourcePaths {
+			if !strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".java") {
+				continue
+			}
+			if data, err := os.ReadFile(path); err == nil {
+				sources = append(sources, data)
+			}
+		}
+	}
+	refs := rules.ComputeResourceCodeRefs(sources)
+	if in.Project != nil {
+		refs.ResRoots = append([]string(nil), in.Project.ResDirs...)
+	}
+	in.Dispatcher.SetResourceCodeRefs(refs)
+	if in.RuleHash != "" {
+		var keys []string
+		for key := range refs.Refs {
+			keys = append(keys, key)
+		}
+		for key := range refs.Bindings {
+			keys = append(keys, "binding:"+key)
+		}
+		sort.Strings(keys)
+		sum := sha256.Sum256([]byte(strings.Join(keys, "\n")))
+		in.RuleHash += "|resrefs=" + hex.EncodeToString(sum[:8])
+		// Each module's result depends on every other module's resources, manifests and build scripts.
+		if in.Project != nil {
+			in.RuleHash += "|resproject=" + mergedResourceIndexFingerprint(in.Project.ResDirs)[:16] +
+				"|resfiles=" + fileContentsFingerprint(append(append([]string(nil), in.Project.ManifestPaths...), in.Project.GradlePaths...))
+		}
+	}
+	return in
+}
+
 // Run implements Phase.
 func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -1252,6 +1681,11 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	if !needs.any() {
 		return AndroidResult{}, nil
 	}
+
+	in = in.withSDKLevels()
+	in = in.withRtlMains()
+	in = in.withDescribedViewNames()
+	in = in.withResourceCodeRefs()
 
 	collector := scanner.NewFindingCollector(len(in.Project.ManifestPaths)*4 + len(in.Project.ResDirs)*8 + len(in.Project.GradlePaths)*4)
 	projectPanicCount := projectRulePanicCount(in.Dispatcher)
@@ -1465,6 +1899,9 @@ func androidValuesScanKinds(deps rules.AndroidDataDependency) android.ValuesScan
 	if deps&rules.AndroidDepValuesAliasItems != 0 {
 		kinds |= android.ValuesScanAliasItems
 	}
+	if deps&rules.AndroidDepValuesTypography != 0 {
+		kinds |= android.ValuesScanTypography
+	}
 	return kinds
 }
 
@@ -1478,12 +1915,25 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 		TargetSDK:       m.TargetSDK,
 		UsesPermissions: append([]string(nil), m.UsesPermissions...),
 		Permissions:     append([]string(nil), m.Permissions...),
+
+		UsesPermissionMaxSdk: m.UsesPermissionMaxSdk,
+		UsesPermissionLines:  m.UsesPermissionLines,
+		ToolsIgnoreByLine:    m.ToolsIgnoreByLine,
+		RootLine:             m.RootLine,
+		PermissionLines:      m.PermissionLines,
+	}
+	rm.Root = convertManifestNode(m.Root)
+	for _, e := range m.UsesPermissionEntries {
+		rm.UsesPermissionEntries = append(rm.UsesPermissionEntries, rules.ManifestUsesPermission{
+			Name: e.Name, MaxSdk: e.MaxSdk, HasMaxSdk: e.HasMaxSdk, Line: e.Line,
+		})
 	}
 	for _, f := range m.UsesFeatures {
 		rm.UsesFeatures = append(rm.UsesFeatures, rules.ManifestUsesFeature{
-			Name:     f.Name,
-			Required: f.Required,
-			Line:     f.Line,
+			Name:        f.Name,
+			Required:    f.Required,
+			Line:        f.Line,
+			GlEsVersion: f.GlEsVersion,
 		})
 	}
 
@@ -1505,16 +1955,19 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 	if m.HasApplication {
 		app := &rules.ManifestApplication{
 			Line:                  m.AppLine,
+			ToolsNode:             m.AppToolsNode,
 			AllowBackup:           m.AllowBackup,
 			Debuggable:            m.Debuggable,
 			LocaleConfig:          m.LocaleConfig,
 			SupportsRtl:           m.SupportsRtl,
 			ExtractNativeLibs:     m.ExtractNativeLibs,
 			Icon:                  m.Icon,
+			HasBanner:             m.HasBanner,
 			UsesCleartextTraffic:  m.UsesCleartextTraffic,
 			FullBackupContent:     m.FullBackupContent,
 			DataExtractionRules:   m.DataExtractionRules,
 			NetworkSecurityConfig: m.NetworkSecurityConfig,
+			LauncherAliasTargets:  m.LauncherAliasTargets,
 		}
 		for _, activity := range m.Activities {
 			app.Activities = append(app.Activities, rules.ManifestComponent{
@@ -1528,6 +1981,12 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 				IntentFilterActions:     activity.IntentFilterActions,
 				IntentFilterCategories:  activity.IntentFilterCategories,
 				IntentFilterDataSchemes: activity.IntentFilterDataSchemes,
+				IntentFilterDataHosts:   activity.IntentFilterDataHosts,
+				ExportedRaw:             activity.ExportedRaw,
+				HasBanner:               activity.HasBanner,
+				HasNavGraph:             activity.HasNavGraph,
+				FirstFilterAction:       activity.FirstFilterAction,
+				FirstFilterCategory:     activity.FirstFilterCategory,
 			})
 		}
 		for _, service := range m.Services {
@@ -1542,6 +2001,11 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 				IntentFilterActions:     service.IntentFilterActions,
 				IntentFilterCategories:  service.IntentFilterCategories,
 				IntentFilterDataSchemes: service.IntentFilterDataSchemes,
+				IntentFilterDataHosts:   service.IntentFilterDataHosts,
+				ExportedRaw:             service.ExportedRaw,
+				HasNavGraph:             service.HasNavGraph,
+				FirstFilterAction:       service.FirstFilterAction,
+				FirstFilterCategory:     service.FirstFilterCategory,
 			})
 		}
 		for _, receiver := range m.Receivers {
@@ -1564,6 +2028,11 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 				IntentFilterActions:     receiver.IntentFilterActions,
 				IntentFilterCategories:  receiver.IntentFilterCategories,
 				IntentFilterDataSchemes: receiver.IntentFilterDataSchemes,
+				IntentFilterDataHosts:   receiver.IntentFilterDataHosts,
+				ExportedRaw:             receiver.ExportedRaw,
+				HasNavGraph:             receiver.HasNavGraph,
+				FirstFilterAction:       receiver.FirstFilterAction,
+				FirstFilterCategory:     receiver.FirstFilterCategory,
 				MetaDataEntries:         metaEntries,
 			})
 		}
@@ -1581,4 +2050,38 @@ func ConvertManifestForRules(m *android.ConvertedManifest) *rules.Manifest {
 	}
 
 	return rm
+}
+
+// convertManifestNode copies the parsed element tree into the rule-facing manifest model.
+func convertManifestNode(n *android.XMLNode) *manifest.Node {
+	if n == nil {
+		return nil
+	}
+	out := &manifest.Node{Tag: n.Tag, Line: n.Line, Col: n.Col}
+	for _, a := range n.Attrs {
+		attr := manifest.Attr{Name: a.Name, Value: a.Value, Line: a.Line, Col: a.Col}
+		// The value starts after the opening quote, which sits before the value and the closing quote.
+		attr.ValueCol = a.Col + int(a.EndByte-a.StartByte) - len(a.Value) - 1
+		out.Attrs = append(out.Attrs, attr)
+	}
+	for _, c := range n.Children {
+		out.Children = append(out.Children, convertManifestNode(c))
+	}
+	return out
+}
+
+// fileContentsFingerprint hashes the paths and contents of the given files.
+func fileContentsFingerprint(paths []string) string {
+	sorted := append([]string(nil), paths...)
+	sort.Strings(sorted)
+	h := sha256.New()
+	for _, path := range sorted {
+		h.Write([]byte(path))
+		h.Write([]byte{0})
+		if data, err := os.ReadFile(path); err == nil {
+			h.Write(data)
+		}
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }

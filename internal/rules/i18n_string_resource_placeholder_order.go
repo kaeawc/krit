@@ -161,6 +161,11 @@ func analyzeFormatPlaceholders(s string) formatPlaceholderInfo {
 		if j >= len(s) || !validConversions[s[j]] {
 			continue
 		}
+		// %n is a line separator and consumes no argument.
+		if s[j] == 'n' {
+			i = j
+			continue
+		}
 		info.total++
 		if positional {
 			info.hasPositional = true

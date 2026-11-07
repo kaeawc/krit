@@ -73,7 +73,7 @@ type WorkspaceState struct {
 	// (Kotlin / Java edits, Gradle / version-catalog edits — anything
 	// that could shift a file's stat tuple). Daemon callers compare
 	// the bundle-stats-clean memo against this version to decide
-	// whether they can skip the 18k-file `os.Stat` sweep at the top
+	// whether they can skip the per-file `os.Stat` sweep at the top
 	// of preparseBundleFingerprint.
 	sourceMTimeVersion atomic.Uint64
 
@@ -931,10 +931,10 @@ func (w *WorkspaceState) InvalidateLibraryFacts() {
 }
 
 // GradleFindings memoizes per-file gradle rule findings across
-// analyzes, keyed by (content hash + rule hash). On a 200-gradle-file
-// monorepo (kotlin) the per-file Read+Parse+Dispatch cost is ~7 ms
-// each, ~1.4 s total per warm analyze — even though gradle files
-// rarely change. Memoizing the findings drops this to ~0 ms on warm
+// analyzes, keyed by (content hash + rule hash). On a monorepo with many gradle files
+// the per-file Read+Parse+Dispatch cost is several ms
+// each, adding up per warm analyze — even though gradle files
+// rarely change. Memoizing the findings drops this to near zero on warm
 // reruns.
 //
 // The watcher's InvalidateLibraryFacts hook (fired on build.gradle /

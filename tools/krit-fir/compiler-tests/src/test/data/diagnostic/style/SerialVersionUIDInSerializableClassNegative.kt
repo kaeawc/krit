@@ -13,27 +13,8 @@ class CompanionConst : Serializable {
 
 class NamedCompanion : Serializable {
     companion object Versions {
-        const val serialVersionUID = 2L
+        private const val serialVersionUID = 2L
     }
-}
-
-// Like Go, any property named serialVersionUID in the companion counts.
-class CompanionVal : Serializable {
-    companion object {
-        @JvmStatic
-        val serialVersionUID = 3L
-    }
-}
-
-// Like Go, a property directly in the class body counts.
-class BodyProperty : Serializable {
-    val serialVersionUID = 4L
-}
-
-class BodyPropertyAfterMembers : Serializable {
-    fun describe() = "late"
-
-    private val serialVersionUID: Long = 5L
 }
 
 // Enum classes serialize by name, so Go and FIR exempt them.

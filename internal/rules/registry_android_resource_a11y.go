@@ -155,7 +155,7 @@ func registerAndroidResourceA11yRules() {
 		r := &LayoutEditTextMissingImportanceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "LayoutEditTextMissingImportance", RuleSetName: androidRuleSet, Sev: "info"},
 			IssueID:    "AutofillImportance",
-			Brief:      "EditText missing importantForAutofill",
+			Brief:      "EditText with an inputType or hint missing importantForAutofill (controls autofill participation)",
 			Category:   ALCAccessibility,
 			ALSeverity: ALSInformational,
 			Priority:   4,

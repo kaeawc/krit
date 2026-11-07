@@ -30,9 +30,9 @@ import org.jetbrains.kotlin.toKtLightSourceElement
  *
  * Like the Go rule, the call must have an explicit receiver (a bare
  * `onDraw(canvas)` is not reported), a `super` receiver is allowed, and a
- * call anywhere inside an `override` function (the nearest enclosing named
- * function, looking through lambdas, anonymous functions, and local classes)
- * is not reported. The finding sits on the first line of the call expression
+ * call anywhere inside an `override` of the same name (the nearest enclosing
+ * named function, looking through lambdas, anonymous functions, and local
+ * classes) is not reported. The finding sits on the first line of the call expression
  * (the receiver's first line), with Go's message.
  *
  * The View proof comes from the resolved callee: it must be a member function
@@ -97,7 +97,8 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         val owner = callee.getContainingClassSymbol() ?: return
         if (!isView(owner)) return
         val enclosing = context.containingDeclarations.filterIsInstance<FirNamedFunctionSymbol>().lastOrNull()
-        if (enclosing != null && enclosing.isOverride) return
+        // A same-named override may forward to another receiver.
+        if (enclosing != null && enclosing.isOverride && enclosing.name == callee.name) return
         val source = expression.source ?: return
         report(
             qualifiedCall(source)?.let { sourceOf(it, source) } ?: source,

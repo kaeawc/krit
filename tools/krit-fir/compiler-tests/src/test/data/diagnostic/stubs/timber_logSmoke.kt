@@ -8,7 +8,7 @@ class CrashReportingTree : Timber.Tree() {
     override fun isLoggable(tag: String?, priority: Int): Boolean = priority >= Log.WARN
 
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
-        <!PrintlnInProduction!>println<!>("$priority $tag $message $t")
+        println("$priority $tag $message $t")
     }
 }
 

@@ -313,6 +313,8 @@ type AnalyzeProjectArgs struct {
 	// value participates in baseline ID generation when
 	// CreateBaseline is set.
 	BasePath string `json:"base_path,omitempty"`
+	// AbsolutePaths mirrors --absolute-paths: report finding paths as absolute.
+	AbsolutePaths bool `json:"absolute_paths,omitempty"`
 	// CreateBaseline, when true, signals the daemon to compute
 	// baseline IDs from the final findings and return them via
 	// AnalyzeProjectStats.BaselineIDs. The CLI writes the XML

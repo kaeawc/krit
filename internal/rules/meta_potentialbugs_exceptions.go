@@ -27,12 +27,13 @@ func (r *TooGenericExceptionCaughtRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[TooGenericExceptionCaughtRule]{
 				Name:        "allowedExceptionNameRegex",
-				Default:     "",
+				Default:     "_|(ignore|expected).*",
 				Description: "Regex for exception variable names to allow.",
 				Apply:       func(r *TooGenericExceptionCaughtRule, v *regexp.Regexp) { r.AllowedExceptionNameRegex = v },
 			}),
 			api.StringListOption(api.StringListOptionSpec[TooGenericExceptionCaughtRule]{
 				Name:        "exceptionNames",
+				Default:     []string{"ArrayIndexOutOfBoundsException", "Error", "Exception", "IllegalMonitorStateException", "IndexOutOfBoundsException", "NullPointerException", "RuntimeException", "Throwable"},
 				Description: "Generic exception types to flag.",
 				Apply:       func(r *TooGenericExceptionCaughtRule, v []string) { r.ExceptionNames = v },
 			}),
@@ -48,6 +49,7 @@ func (r *TooGenericExceptionThrownRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[TooGenericExceptionThrownRule]{
 				Name:        "exceptionNames",
+				Default:     []string{"Error", "Exception", "RuntimeException", "Throwable"},
 				Description: "Generic exception types to flag.",
 				Apply:       func(r *TooGenericExceptionThrownRule, v []string) { r.ExceptionNames = v },
 			}),

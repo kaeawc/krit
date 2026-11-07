@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -10,47 +11,88 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// CheckIconDensities reports icons that exist in some densities but not others.
+// CheckIconDensities mirrors Lint: for each density folder, the drawables that other density folders of the
+// same resource type provide but this one lacks.
 func CheckIconDensities(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
 		return
 	}
-	byName := idx.IconsByName()
+	type folderKey struct{ kind, folder string }
+	type folderInfo struct {
+		path  string
+		names map[string]bool
+	}
+	folders := make(map[folderKey]*folderInfo)
+	for _, ic := range idx.Icons {
+		if !isKnownBucketDensity(ic.Density) {
+			continue
+		}
+		folder := filepath.Base(filepath.Dir(ic.Path))
+		kind, _, _ := strings.Cut(folder, "-")
+		key := folderKey{kind, folder}
+		if folders[key] == nil {
+			folders[key] = &folderInfo{path: filepath.Dir(ic.Path), names: map[string]bool{}}
+		}
+		// A nine-patch x.9.png stands for x.png.
+		fileName := strings.Replace(filepath.Base(ic.Path), ".9.png", ".png", 1)
+		folders[key].names[fileName] = true
+	}
 	var findings []scanner.Finding
-
-	for name, icons := range byName {
-		if len(icons) < 2 {
-			continue // need at least 2 densities to compare
-		}
-		present := make(map[string]bool)
-		var samplePath string
-		for _, ic := range icons {
-			present[ic.Density] = true
-			if samplePath == "" {
-				samplePath = ic.Path
+	for key, info := range folders {
+		union := make(map[string][]string) // file name -> folders that have it
+		peers := 0
+		for other, otherInfo := range folders {
+			if other == key || other.kind != key.kind {
+				continue
+			}
+			peers++
+			for name := range otherInfo.names {
+				union[name] = append(union[name], other.folder)
 			}
 		}
-		// Check which standard densities are missing
+		if peers == 0 {
+			continue
+		}
 		var missing []string
-		for _, d := range android.KnownDensities {
-			if !present[d.Name] {
-				missing = append(missing, d.Name)
+		for name := range union {
+			if !info.names[name] {
+				missing = append(missing, name)
 			}
 		}
-		if len(missing) > 0 && len(missing) < len(android.KnownDensities) {
-			findings = append(findings, scanner.Finding{
-				File:     samplePath,
-				Line:     1,
-				Col:      1,
-				RuleSet:  androidRuleSet,
-				Rule:     "IconDensities",
-				Severity: "warning",
-				Message:  fmt.Sprintf("Icon '%s' is missing density variants: %s", name, strings.Join(missing, ", ")),
-			})
+		if len(missing) == 0 {
+			continue
+		}
+		sort.Strings(missing)
+		list := strings.Join(missing, ", ")
+		if len(missing) > 5 {
+			list = strings.Join(missing[:5], ", ") + fmt.Sprintf("... (%d more)", len(missing)-5)
+		} else if len(missing) == 1 {
+			where := union[missing[0]]
+			sort.Strings(where)
+			list += " (found in " + strings.Join(where, ", ") + ")"
+		}
+		findings = append(findings, scanner.Finding{
+			File:     info.path,
+			Line:     1,
+			Col:      1,
+			RuleSet:  androidRuleSet,
+			Rule:     "IconDensities",
+			Severity: "warning",
+			Message:  fmt.Sprintf("Missing the following drawables in `%s`: %s", key.folder, list),
+		})
+	}
+	sort.Slice(findings, func(i, j int) bool { return findings[i].File < findings[j].File })
+	c.AppendAll(findings)
+}
+
+// isKnownBucketDensity reports whether name is one of the standard density buckets.
+func isKnownBucketDensity(name string) bool {
+	for _, d := range android.KnownDensities {
+		if d.Name == name {
+			return true
 		}
 	}
-	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	c.AppendAll(findings)
+	return false
 }
 
 // CheckIconDipSize reports icons whose dimensions don't match expected DPI ratios.
@@ -73,24 +115,49 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 			continue
 		}
 
-		// Compute expected base dp size from the first icon
-		ref := withDims[0]
-		refMul := android.DensityMultiplier(ref.Density)
-		if refMul == 0 {
-			continue
+		// Use as reference the variant most others agree with (lowest density on ties), so one
+		// wrong variant is reported instead of every correct one measured against it.
+		sort.Slice(withDims, func(i, j int) bool {
+			mi, mj := android.DensityMultiplier(withDims[i].Density), android.DensityMultiplier(withDims[j].Density)
+			if mi != mj {
+				return mi < mj
+			}
+			return withDims[i].Path < withDims[j].Path
+		})
+		consistent := func(ref, ic *android.IconFile) bool {
+			refMul, mul := android.DensityMultiplier(ref.Density), android.DensityMultiplier(ic.Density)
+			if refMul == 0 || mul == 0 {
+				return true
+			}
+			expectedW := float64(ref.Width) / refMul * mul
+			expectedH := float64(ref.Height) / refMul * mul
+			// Allow 1px tolerance
+			return math.Abs(float64(ic.Width)-expectedW) <= 1 && math.Abs(float64(ic.Height)-expectedH) <= 1
 		}
-		baseDp := float64(ref.Width) / refMul
-
-		for _, ic := range withDims[1:] {
-			mul := android.DensityMultiplier(ic.Density)
-			if mul == 0 {
+		var ref *android.IconFile
+		best := -1
+		for _, cand := range withDims {
+			if android.DensityMultiplier(cand.Density) == 0 {
 				continue
 			}
-			expectedW := baseDp * mul
-			expectedH := (float64(ref.Height) / refMul) * mul
-
-			// Allow 1px tolerance
-			if math.Abs(float64(ic.Width)-expectedW) > 1 || math.Abs(float64(ic.Height)-expectedH) > 1 {
+			agree := 0
+			for _, ic := range withDims {
+				if consistent(cand, ic) {
+					agree++
+				}
+			}
+			if agree > best {
+				ref, best = cand, agree
+			}
+		}
+		if ref == nil {
+			continue
+		}
+		for _, ic := range withDims {
+			if ic == ref {
+				continue
+			}
+			if !consistent(ref, ic) {
 				findings = append(findings, scanner.Finding{
 					File:     ic.Path,
 					Line:     1,
@@ -98,8 +165,7 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 					RuleSet:  androidRuleSet,
 					Rule:     "IconDipSize",
 					Severity: "warning",
-					Message: fmt.Sprintf("Icon '%s' in %s is %dx%d but expected ~%.0fx%.0f based on %s variant",
-						name, ic.Density, ic.Width, ic.Height, expectedW, expectedH, ref.Density),
+					Message:  iconDipSizeMessage(name, withDims),
 				})
 			}
 		}
@@ -108,36 +174,83 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 	c.AppendAll(findings)
 }
 
-// CheckIconMissingDensityFolder reports when standard density folders are missing entirely.
-// It requires that at least one drawable-* or mipmap-* folder exists.
+// iconDipSizeMessage lists every density variant of an icon with its dp and pixel size, as Lint does.
+func iconDipSizeMessage(name string, variants []*android.IconFile) string {
+	sorted := append([]*android.IconFile(nil), variants...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
+	parts := make([]string, 0, len(sorted))
+	for _, ic := range sorted {
+		mul := android.DensityMultiplier(ic.Density)
+		if mul == 0 {
+			mul = 1
+		}
+		parts = append(parts, fmt.Sprintf("%s/%s: %dx%d dp (%dx%d px)",
+			filepath.Base(filepath.Dir(ic.Path)), filepath.Base(ic.Path),
+			int(math.Round(float64(ic.Width)/mul)), int(math.Round(float64(ic.Height)/mul)), ic.Width, ic.Height))
+	}
+	file := name
+	if len(sorted) > 0 {
+		file = filepath.Base(sorted[0].Path)
+	}
+	return fmt.Sprintf("The image `%s` varies significantly in its density-independent (dip) size across the various density versions: %s",
+		file, strings.Join(parts, ", "))
+}
+
+// requiredDensityFolders are the density folders Lint expects once a resource directory has any of them.
+var requiredDensityFolders = []string{"drawable-mdpi", "drawable-hdpi", "drawable-xhdpi", "drawable-xxhdpi"}
+
+// densityFolderNames are the folder names Lint treats as density buckets.
+var densityFolderNames = map[string]bool{
+	"drawable-nodpi": true, "drawable-xxxhdpi": true, "drawable-xxhdpi": true,
+	"drawable-xhdpi": true, "drawable-hdpi": true, "drawable-mdpi": true,
+}
+
+// CheckIconMissingDensityFolder reports, per res directory, the required density folders that are missing
+// when at least one of them exists, like Lint.
 func CheckIconMissingDensityFolder(idx *android.IconIndex, c *scanner.FindingCollector) {
-	if idx == nil || len(idx.Densities) == 0 {
+	if idx == nil {
 		return
 	}
-
-	// Required densities if any density folder exists
-	required := []string{"mdpi", "hdpi", "xhdpi", "xxhdpi"}
-
-	var samplePath string
-	for _, icons := range idx.Densities {
-		if len(icons) > 0 {
-			samplePath = icons[0].Path
-			break
+	byRes := make(map[string]map[string]bool)
+	for dir := range iconFolderFiles(idx) {
+		name := filepath.Base(dir)
+		if !densityFolderNames[name] {
+			continue
 		}
+		res := filepath.Dir(dir)
+		if byRes[res] == nil {
+			byRes[res] = make(map[string]bool)
+		}
+		byRes[res][name] = true
 	}
-
-	for _, d := range required {
-		if _, exists := idx.Densities[d]; !exists {
-			c.Append(scanner.Finding{
-				File:     samplePath,
-				Line:     1,
-				Col:      1,
-				RuleSet:  androidRuleSet,
-				Rule:     "IconMissingDensityFolder",
-				Severity: "warning",
-				Message:  fmt.Sprintf("Missing density folder for '%s'. Provide resources for all common densities.", d),
-			})
+	resDirs := make([]string, 0, len(byRes))
+	for res := range byRes {
+		resDirs = append(resDirs, res)
+	}
+	sort.Strings(resDirs)
+	for _, res := range resDirs {
+		var missing []string
+		hasRequired := false
+		for _, want := range requiredDensityFolders {
+			if byRes[res][want] {
+				hasRequired = true
+			} else {
+				missing = append(missing, want)
+			}
 		}
+		if len(missing) == 0 || !hasRequired {
+			continue
+		}
+		sort.Strings(missing)
+		c.Append(scanner.Finding{
+			File:     res,
+			Line:     1,
+			Col:      1,
+			RuleSet:  androidRuleSet,
+			Rule:     "IconMissingDensityFolder",
+			Severity: "warning",
+			Message:  fmt.Sprintf("Missing density variation folders in `%s`: %s", lintDisplayPath(res), strings.Join(missing, ", ")),
+		})
 	}
 }
 
@@ -151,14 +264,7 @@ func CheckIconExpectedSize(idx *android.IconIndex, c *scanner.FindingCollector) 
 		if ic.Width == 0 || ic.Height == 0 {
 			continue
 		}
-		isLauncher := false
-		for _, prefix := range launcherPrefixes {
-			if ic.Name == prefix || strings.HasPrefix(ic.Name, prefix+"_") {
-				isLauncher = true
-				break
-			}
-		}
-		if !isLauncher {
+		if !isLauncherIconName(ic.Name) {
 			continue
 		}
 
@@ -175,8 +281,8 @@ func CheckIconExpectedSize(idx *android.IconIndex, c *scanner.FindingCollector) 
 				RuleSet:  androidRuleSet,
 				Rule:     "IconExpectedSize",
 				Severity: "warning",
-				Message: fmt.Sprintf("Launcher icon '%s' in %s is %dx%d but expected %dx%d (48dp base)",
-					ic.Name, ic.Density, ic.Width, ic.Height, expected, expected),
+				Message: fmt.Sprintf("Incorrect icon size for `%s/%s`: expected %dx%d, but was %dx%d",
+					filepath.Base(filepath.Dir(ic.Path)), filepath.Base(ic.Path), expected, expected, ic.Width, ic.Height),
 				BinaryFix: &scanner.BinaryFix{
 					Type:        scanner.BinaryFixCreateFile,
 					SourcePath:  ic.Path,
@@ -189,90 +295,96 @@ func CheckIconExpectedSize(idx *android.IconIndex, c *scanner.FindingCollector) 
 	}
 }
 
-// CheckIconNoDpi reports icons that appear in both drawable-nodpi and a
-// density-specific folder. An icon in nodpi should not also exist in a
-// density-specific folder, as the density variant will shadow the nodpi one.
+// CheckIconNoDpi reports images that appear in both drawable-nodpi and a density folder. Lint lists them in
+// one finding located at the first density-specific copy.
 func CheckIconNoDpi(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
 		return
 	}
-	// Get nodpi icons
-	nodpiIcons := idx.Densities["nodpi"]
-	if len(nodpiIcons) == 0 {
+	nodpiNames := make(map[string]bool)
+	for _, ic := range idx.Densities["nodpi"] {
+		nodpiNames[filepath.Base(ic.Path)] = true
+	}
+	if len(nodpiNames) == 0 {
 		return
 	}
-	nodpiNames := make(map[string]*android.IconFile)
-	for _, ic := range nodpiIcons {
-		nodpiNames[ic.Name] = ic
-	}
-
-	// Check if any nodpi icon also exists in a density-specific folder
-	var findings []scanner.Finding
+	shadowed := make(map[string]bool)
+	var first string
 	for density, icons := range idx.Densities {
 		if density == "nodpi" {
 			continue
 		}
 		for _, ic := range icons {
-			if nodpiIC, ok := nodpiNames[ic.Name]; ok {
-				findings = append(findings, scanner.Finding{
-					File:     nodpiIC.Path,
-					Line:     1,
-					Col:      1,
-					RuleSet:  androidRuleSet,
-					Rule:     "IconNoDpi",
-					Severity: "warning",
-					Message: fmt.Sprintf("Icon '%s' exists in both drawable-nodpi and drawable-%s. "+
-						"The density-specific variant will shadow the nodpi version.",
-						ic.Name, density),
-				})
+			name := filepath.Base(ic.Path)
+			if !nodpiNames[name] {
+				continue
+			}
+			shadowed[name] = true
+			if first == "" || ic.Path < first {
+				first = ic.Path
 			}
 		}
 	}
-	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	c.AppendAll(findings)
+	if len(shadowed) == 0 {
+		return
+	}
+	names := make([]string, 0, len(shadowed))
+	for n := range shadowed {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	c.Append(scanner.Finding{
+		File:     first,
+		Line:     1,
+		Col:      1,
+		RuleSet:  androidRuleSet,
+		Rule:     "IconNoDpi",
+		Severity: "warning",
+		Message:  "The following images appear in both `-nodpi` and in a density folder: " + strings.Join(names, ", "),
+	})
 }
 
-// CheckIconDuplicatesConfig reports identical icons across different
-// configuration folders (e.g., drawable-en and drawable-fr). Icons with the
-// same hash in different config folders are wasteful duplicates.
+// CheckIconDuplicatesConfig reports a file name whose contents are identical in several configuration folders
+// (density folders included), located at the last such folder like Lint.
 func CheckIconDuplicatesConfig(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
 		return
 	}
-	byName := idx.ConfigIconsByName()
-	var findings []scanner.Finding
-
-	for name, icons := range byName {
-		if len(icons) < 2 {
-			continue
-		}
-		// Group by hash
-		hashMap := make(map[string][]string) // hash -> configs
-		pathMap := make(map[string]string)   // hash -> first path
-		for _, ic := range icons {
-			if ic.Hash == "" {
+	type fileHash struct{ name, hash string }
+	groups := make(map[fileHash][]*android.IconFile)
+	for _, list := range [][]*android.IconFile{idx.Icons, idx.ConfigIcons} {
+		for _, ic := range list {
+			if ic.Hash == "" || ic.Format == "xml" {
 				continue
 			}
-			hashMap[ic.Hash] = append(hashMap[ic.Hash], ic.Density)
-			if _, ok := pathMap[ic.Hash]; !ok {
-				pathMap[ic.Hash] = ic.Path
-			}
+			key := fileHash{filepath.Base(ic.Path), ic.Hash}
+			groups[key] = append(groups[key], ic)
 		}
-		for hash, configs := range hashMap {
-			if len(configs) > 1 {
-				sort.Strings(configs)
-				findings = append(findings, scanner.Finding{
-					File:     pathMap[hash],
-					Line:     1,
-					Col:      1,
-					RuleSet:  androidRuleSet,
-					Rule:     "IconDuplicatesConfig",
-					Severity: "warning",
-					Message: fmt.Sprintf("Icon '%s' is identical across configurations %s (duplicate resources)",
-						name, strings.Join(configs, ", ")),
-				})
-			}
+	}
+	var findings []scanner.Finding
+	for key, icons := range groups {
+		folderSet := make(map[string]*android.IconFile)
+		for _, ic := range icons {
+			folderSet[filepath.Base(filepath.Dir(ic.Path))] = ic
 		}
+		if len(folderSet) < 2 {
+			continue
+		}
+		folders := make([]string, 0, len(folderSet))
+		for folder := range folderSet {
+			folders = append(folders, folder)
+		}
+		sort.Strings(folders)
+		findings = append(findings, scanner.Finding{
+			File:     folderSet[folders[len(folders)-1]].Path,
+			Line:     1,
+			Col:      1,
+			RuleSet:  androidRuleSet,
+			Rule:     "IconDuplicatesConfig",
+			Severity: "warning",
+			Message: fmt.Sprintf("The `%s` icon has identical contents in the following configuration folders: %s",
+				key.name, strings.Join(folders, ", ")),
+		})
 	}
 	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
 	c.AppendAll(findings)

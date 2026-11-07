@@ -4,104 +4,139 @@ package rules
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ---------------------------------------------------------------------------
 // RtlHardcodedResource
 // ---------------------------------------------------------------------------
 
-// RtlHardcodedResourceRule detects layout_marginLeft/Right and paddingLeft/Right
-// instead of their Start/End equivalents, which breaks RTL support.
+// RtlHardcodedResourceRule mirrors Lint's RtlHardcoded: every Left/Right layout attribute (alignParent,
+// margin, padding, drawable, listPreferredItemPadding, toXOf, alignX) gets its own finding that suggests the
+// Start/End attribute, a Start/End twin already present is reported as redundant, and a symmetric
+// padding or margin pair with equal values is skipped. left/right gravity values are reported too.
+// Like Lint, an unset supportsRtl counts as RTL on: only an explicit supportsRtl="false" or a targetSdk below 17
+// turns the Start/End advice off. The "Consider adding" wording for a minSdk below 17 is kept even then.
+// A library module is judged by the apps that include it (see rtlResolveMains).
 type RtlHardcodedResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-var rtlReplacements = map[string]string{
-	"android:layout_marginLeft":  "android:layout_marginStart",
-	"android:layout_marginRight": "android:layout_marginEnd",
-	"android:paddingLeft":        "android:paddingStart",
-	"android:paddingRight":       "android:paddingEnd",
+// rtlAttributes is RtlDetector.ATTRIBUTES: the local names of the old (Left/Right) attributes.
+var rtlAttributes = map[string]bool{
+	"layout_alignParentLeft": true, "layout_alignParentRight": true,
+	"layout_marginLeft": true, "layout_marginRight": true,
+	"paddingLeft": true, "paddingRight": true,
+	"drawableLeft": true, "drawableRight": true,
+	"listPreferredItemPaddingLeft": true, "listPreferredItemPaddingRight": true,
+	"layout_toLeftOf": true, "layout_toRightOf": true,
+	"layout_alignLeft": true, "layout_alignRight": true,
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
-// attribute usage and bidi markers via attribute presence checks.
-// Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *RtlHardcodedResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *RtlHardcodedResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	// Iterate attributes in a stable order so a view with multiple
-	// hardcoded Left/Right attributes produces deterministic messages.
-	stableAttrs := []string{
-		"android:layout_marginLeft", "android:layout_marginRight",
-		"android:paddingLeft", "android:paddingRight",
+// rtlViewAttrsInOrder returns the android: attribute names of v in document order.
+func rtlViewAttrsInOrder(v *android.View) []string {
+	var names []string
+	for name := range v.Attributes {
+		if strings.HasPrefix(name, "android:") {
+			names = append(names, name)
+		}
 	}
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	sort.Slice(names, func(i, j int) bool {
+		li, ci := v.PosOf(names[i])
+		lj, cj := v.PosOf(names[j])
+		if li != lj {
+			return li < lj
+		}
+		if ci != cj {
+			return ci < cj
+		}
+		return names[i] < names[j]
+	})
+	return names
+}
+
+func (r *RtlHardcodedResourceRule) check(ctx *api.Context) {
+	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
+	modules := newRtlModuleCache(ctx, facts)
+	for _, layout := range ctx.ResourceIndex.AllLayouts() {
+		mains := rtlResolveMains(ctx, facts, layout.FilePath)
+		module := modules.forLayout(layout.FilePath)
+		target := rtlModuleTargetSdk(module)
+		walkViewsUnlessIgnored(layout.RootView, []string{"RtlHardcoded"}, func(v *android.View) {
 			if resourceToolsIgnoreMatches(v, "RtlHardcoded", r.RuleName) {
 				return
 			}
-			var replacements []struct{ old, new string }
-			for _, oldAttr := range stableAttrs {
-				if v.Attributes[oldAttr] != "" {
-					replacements = append(replacements, struct{ old, new string }{oldAttr, rtlReplacements[oldAttr]})
+			for _, full := range rtlViewAttrsInOrder(v) {
+				name := strings.TrimPrefix(full, "android:")
+				value := v.Attributes[full]
+				if name == "gravity" || name == "layout_gravity" {
+					hasLeft, hasRight := strings.Contains(value, "left"), strings.Contains(value, "right")
+					if !hasLeft && !hasRight {
+						continue
+					}
+					if _, ok := rtlApplies(rtlEnabled, mains, module); !ok {
+						continue
+					}
+					newWord, oldWord := "end", "right"
+					if hasLeft {
+						newWord, oldWord = "start", "left"
+					}
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, full, r.BaseRule,
+						fmt.Sprintf("Use \"`%s`\" instead of \"`%s`\" to ensure correct behavior in right-to-left locales", newWord, oldWord)))
+					continue
+				}
+				isPadding, isMargin := strings.HasPrefix(name, "padding"), strings.HasPrefix(name, "layout_margin")
+				if isPadding || isMargin {
+					if opposite, ok := v.Attributes["android:"+rtlOppositeDirection(name)]; ok && opposite == value {
+						continue
+					}
+				}
+				if !rtlAttributes[name] {
+					continue
+				}
+				newName := rtlConvertOldToNew(name)
+				if _, has := v.Attributes["android:"+newName]; has {
+					if _, ok := rtlApplies(rtlEnabled|rtlModuleModern, mains, module); ok {
+						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, full, r.BaseRule,
+							fmt.Sprintf("Redundant attribute `%s`; already defining `%s` with `targetSdkVersion` %d", name, newName, target)))
+					}
+					continue
+				}
+				// A module that still supports API below 17 needs both attributes, whatever the RTL setting.
+				if !module.modern {
+					if _, ok := rtlApplies(rtlMinBelow17, mains, module); ok {
+						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, full, r.BaseRule,
+							fmt.Sprintf("Consider adding `android:%s=\"%s\"` to better support right-to-left layouts", newName, value)))
+						continue
+					}
+				}
+				if _, ok := rtlApplies(rtlEnabled|rtlMinAtLeast17, mains, module); ok {
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, full, r.BaseRule,
+						fmt.Sprintf("Consider replacing `%s` with `android:%s=\"%s\"` to better support right-to-left layouts", full, newName, value)))
 				}
 			}
-			if len(replacements) == 0 {
-				return
-			}
-			// Combine all hardcoded RTL attribute replacements for this
-			// view into a single finding. Emitting one finding per
-			// attribute at the same (file, line) collided on the finding
-			// key downstream.
-			if len(replacements) == 1 {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Use `%s` instead of `%s` for RTL support in `%s`.",
-						replacements[0].new, replacements[0].old, v.Type)))
-				return
-			}
-			var parts []string
-			for _, rep := range replacements {
-				parts = append(parts, fmt.Sprintf("`%s` -> `%s`", rep.old, rep.new))
-			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-				fmt.Sprintf("Use Start/End instead of Left/Right in `%s` for RTL support: %s.",
-					v.Type, strings.Join(parts, ", "))))
 		})
 	}
 }
 
-func resourceToolsIgnoreMatches(v *android.View, issueIDs ...string) bool {
-	if v == nil {
-		return false
+// rtlModuleTargetSdk is the targetSdkVersion Lint prints in its redundant-attribute message.
+func rtlModuleTargetSdk(module rtlModule) int {
+	if module.target > 0 {
+		return module.target
 	}
-	raw := v.Attributes["tools:ignore"]
-	if raw == "" {
-		return false
+	if module.minSdk > 0 {
+		return module.minSdk
 	}
-	for _, token := range strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
-	}) {
-		token = strings.TrimSpace(token)
-		if token == "" {
-			continue
-		}
-		if token == "all" {
-			return true
-		}
-		for _, issueID := range issueIDs {
-			if token == issueID {
-				return true
-			}
-		}
-	}
-	return false
+	return 34
 }
 
 // ---------------------------------------------------------------------------
@@ -116,69 +151,74 @@ type RtlSymmetryResourceRule struct {
 	AndroidRule
 }
 
-var symmetryPairs = [][2]string{
-	{"android:paddingLeft", "android:paddingRight"},
-	{"android:layout_marginLeft", "android:layout_marginRight"},
-}
-
-// hasSingleEdgeConstraint returns true if the view is anchored to only one
-// horizontal edge via ConstraintLayout constraints (e.g. constrained to the
-// right edge with no matching left constraint). Such views have intentionally
-// asymmetric margins because they're floated to one side.
-func hasSingleEdgeConstraint(v *android.View) bool {
-	leftAnchors := []string{
-		"app:layout_constraintLeft_toLeftOf", "app:layout_constraintLeft_toRightOf",
-		"app:layout_constraintStart_toStartOf", "app:layout_constraintStart_toEndOf",
-	}
-	rightAnchors := []string{
-		"app:layout_constraintRight_toRightOf", "app:layout_constraintRight_toLeftOf",
-		"app:layout_constraintEnd_toEndOf", "app:layout_constraintEnd_toStartOf",
-	}
-	hasLeftAnchor := false
-	hasRightAnchor := false
-	for _, a := range leftAnchors {
-		if v.Attributes[a] != "" {
-			hasLeftAnchor = true
-			break
-		}
-	}
-	for _, a := range rightAnchors {
-		if v.Attributes[a] != "" {
-			hasRightAnchor = true
-			break
-		}
-	}
-	return (hasLeftAnchor && !hasRightAnchor) || (hasRightAnchor && !hasLeftAnchor)
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
 func (r *RtlSymmetryResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RtlSymmetryResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			// Skip views anchored to only one horizontal edge — asymmetry is intentional.
-			if hasSingleEdgeConstraint(v) {
+	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
+	modules := newRtlModuleCache(ctx, facts)
+	for _, layout := range ctx.ResourceIndex.AllLayouts() {
+		if _, ok := rtlApplies(rtlEnabled, rtlResolveMains(ctx, facts, layout.FilePath), modules.forLayout(layout.FilePath)); !ok {
+			continue
+		}
+		walkViewsUnlessIgnored(layout.RootView, []string{"RtlSymmetry"}, func(v *android.View) {
+			if resourceToolsIgnoreMatches(v, "RtlSymmetry", r.RuleName) {
 				return
 			}
-			for _, pair := range symmetryPairs {
-				hasLeft := v.Attributes[pair[0]] != ""
-				hasRight := v.Attributes[pair[1]] != ""
-				if hasLeft && !hasRight {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
-							v.Type, pair[0], pair[1])))
-				} else if hasRight && !hasLeft {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-						fmt.Sprintf("`%s` has `%s` but not `%s`. Add the missing attribute for symmetric spacing.",
-							v.Type, pair[1], pair[0])))
+			for _, attr := range rtlSymmetryPaddingAttrs {
+				if _, ok := v.Attributes["android:"+attr]; !ok {
+					continue
 				}
+				opposite := rtlOppositeDirection(attr)
+				if _, ok := v.Attributes["android:"+opposite]; ok {
+					continue
+				}
+				counterpart := rtlConvertNewToOld(opposite)
+				if strings.Contains(opposite, "Left") || strings.Contains(opposite, "Right") {
+					counterpart = rtlConvertOldToNew(opposite)
+				}
+				if _, ok := v.Attributes["android:"+counterpart]; ok {
+					continue
+				}
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:"+attr, r.BaseRule,
+					fmt.Sprintf("When you define `%s` you should probably also define `%s` for right-to-left symmetry", attr, opposite)))
 			}
 		})
 	}
+}
+
+// rtlSymmetryPaddingAttrs are the android: padding attributes RtlDetector checks for a missing opposite side.
+var rtlSymmetryPaddingAttrs = []string{"paddingLeft", "paddingStart", "paddingRight", "paddingEnd"}
+
+// rtlOppositeDirection is RtlDetector.convertToOppositeDirection.
+func rtlOppositeDirection(name string) string {
+	switch {
+	case strings.Contains(name, "Left"):
+		return strings.ReplaceAll(name, "Left", "Right")
+	case strings.Contains(name, "Right"):
+		return strings.ReplaceAll(name, "Right", "Left")
+	case strings.Contains(name, "Start"):
+		return strings.ReplaceAll(name, "Start", "End")
+	}
+	return strings.ReplaceAll(name, "End", "Start")
+}
+
+// rtlConvertOldToNew is RtlDetector.convertOldToNew.
+func rtlConvertOldToNew(name string) string {
+	if strings.Contains(name, "Left") {
+		return strings.ReplaceAll(name, "Left", "Start")
+	}
+	return strings.ReplaceAll(name, "Right", "End")
+}
+
+// rtlConvertNewToOld is RtlDetector.convertNewToOld.
+func rtlConvertNewToOld(name string) string {
+	if strings.Contains(name, "Start") {
+		return strings.ReplaceAll(name, "Start", "Left")
+	}
+	return strings.ReplaceAll(name, "End", "Right")
 }
 
 // ---------------------------------------------------------------------------
@@ -198,16 +238,21 @@ type RtlSuperscriptResourceRule struct {
 func (r *RtlSuperscriptResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *RtlSuperscriptResourceRule) check(ctx *api.Context) {
+	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
+	modules := newRtlModuleCache(ctx, facts)
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		if _, ok := rtlApplies(rtlEnabled, rtlResolveMains(ctx, facts, layout.FilePath), modules.forLayout(layout.FilePath)); !ok {
+			continue
+		}
+		walkViewsUnlessIgnored(layout.RootView, []string{"RtlSuperscript"}, func(v *android.View) {
 			textStyle := v.Attributes["android:textStyle"]
 			if textStyle == "" {
 				return
 			}
 			lower := strings.ToLower(textStyle)
 			if strings.Contains(lower, "superscript") || strings.Contains(lower, "subscript") {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:textStyle", r.BaseRule,
 					fmt.Sprintf("`%s` uses textStyle `%s` which may render incorrectly in RTL locales.", v.Type, textStyle)))
 			}
 		})
@@ -233,6 +278,28 @@ var verticalConstraintAttrs = []string{
 	"android:layout_centerVertical",
 }
 
+// startMarginDp returns the fixed dp start/left margin of a view, or 0 when absent or not in dp.
+func startMarginDp(v *android.View) float64 {
+	for _, attr := range []string{"android:layout_marginStart", "android:layout_marginLeft"} {
+		if val := strings.TrimSpace(v.Attributes[attr]); strings.HasSuffix(val, "dp") || strings.HasSuffix(val, "dip") {
+			return parseLayoutDp(val)
+		}
+	}
+	return 0
+}
+
+// marginClearsSibling reports whether the later view's start margin pushes it past the earlier one.
+func marginClearsSibling(earlier, later *android.View) bool {
+	margin := startMarginDp(later)
+	if margin <= 0 {
+		return false
+	}
+	if width := parseLayoutDp(earlier.Attributes["android:layout_width"]); width > 0 {
+		return margin >= width
+	}
+	return earlier.Attributes["android:layout_width"] == "wrap_content" && margin >= 48
+}
+
 func verticalConstraintKey(v *android.View) string {
 	for _, attr := range verticalConstraintAttrs {
 		if val := v.Attributes[attr]; val != "" {
@@ -249,8 +316,8 @@ func (r *RelativeOverlapResourceRule) Confidence() float64 { return api.Confiden
 
 func (r *RelativeOverlapResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"RelativeOverlap"}, func(v *android.View) {
 			if v.Type != "RelativeLayout" {
 				return
 			}
@@ -272,8 +339,9 @@ func (r *RelativeOverlapResourceRule) check(ctx *api.Context) {
 			// Check for pairs with same vertical constraint key (including both empty)
 			for i := 0; i < len(leftAligned); i++ {
 				for j := i + 1; j < len(leftAligned); j++ {
-					if leftAligned[i].vertKey == leftAligned[j].vertKey {
-						ctx.Emit(baseFinding(layout.FilePath, leftAligned[j].view.Line, r.BaseRule,
+					if leftAligned[i].vertKey == leftAligned[j].vertKey &&
+						!marginClearsSibling(leftAligned[i].view, leftAligned[j].view) {
+						ctx.Emit(baseFindingAt(layout.FilePath, leftAligned[j].view.Line, leftAligned[j].view.Col, r.BaseRule,
 							fmt.Sprintf("`%s` (line %d) and `%s` (line %d) in `RelativeLayout` both use left/start alignment "+
 								"without different vertical constraints and may overlap.",
 								leftAligned[i].view.Type, leftAligned[i].view.Line,
@@ -298,22 +366,6 @@ type NotSiblingResourceRule struct {
 	AndroidRule
 }
 
-var relativeConstraintAttrs = []string{
-	"android:layout_below",
-	"android:layout_above",
-	"android:layout_toLeftOf",
-	"android:layout_toRightOf",
-	"android:layout_toStartOf",
-	"android:layout_toEndOf",
-	"android:layout_alignBaseline",
-	"android:layout_alignLeft",
-	"android:layout_alignRight",
-	"android:layout_alignTop",
-	"android:layout_alignBottom",
-	"android:layout_alignStart",
-	"android:layout_alignEnd",
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.
@@ -321,54 +373,100 @@ func (r *NotSiblingResourceRule) Confidence() float64 { return api.ConfidenceMed
 
 func (r *NotSiblingResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	var findings []scanner.Finding
-	for _, layout := range idx.Layouts {
-		checkNotSibling(layout.RootView, layout.FilePath, r.BaseRule, &findings)
-	}
-	for _, f := range findings {
-		ctx.Emit(f)
+	defined := lintDefinedIDs(idx)
+	for _, layout := range idx.AllLayouts() {
+		inFile := layoutIDs(layout.RootView)
+		walkViewsUnlessIgnored(layout.RootView, []string{"NotSibling"}, func(v *android.View) {
+			parent := notSiblingParentName(v.Type)
+			if parent == "" {
+				return
+			}
+			siblings := map[string]bool{}
+			for _, child := range v.Children {
+				if child.ID != "" {
+					siblings[stripIDPrefix(child.ID)] = true
+				}
+				// The ids of an included layout are siblings too.
+				if child.Type == "include" {
+					if name, ok := strings.CutPrefix(child.Attributes["layout"], "@layout/"); ok {
+						for _, included := range idx.LayoutConfigs[name] {
+							walkViews(included.RootView, func(iv *android.View) {
+								if iv.ID != "" {
+									siblings[stripIDPrefix(iv.ID)] = true
+								}
+							})
+						}
+					}
+				}
+			}
+			for _, child := range v.Children {
+				if resourceToolsIgnoreMatches(child, "NotSibling") {
+					continue
+				}
+				r.checkChild(ctx, layout.FilePath, parent, child, siblings, inFile, defined)
+			}
+		})
 	}
 }
 
-func checkNotSibling(v *android.View, filePath string, base BaseRule, findings *[]scanner.Finding) {
-	if v == nil {
-		return
+// notSiblingParentName returns the tag name Lint prints for a parent whose children reference each other by id,
+// or "" for any other view.
+func notSiblingParentName(tag string) string {
+	switch tag {
+	case "androidx.constraintlayout.widget.ConstraintLayout", "android.support.constraint.ConstraintLayout":
+		return "ConstraintLayout"
+	case "android.support.percent.PercentRelativeLayout":
+		return "RelativeLayout"
 	}
-	if v.Type == "RelativeLayout" {
-		// Collect child IDs (strip @+id/ and @id/ prefixes)
-		siblingIDs := make(map[string]bool)
-		for _, child := range v.Children {
-			if child.ID != "" {
-				id := child.ID
-				id = strings.TrimPrefix(id, "@+id/")
-				id = strings.TrimPrefix(id, "@id/")
-				siblingIDs[id] = true
+	if frameworkViewName(tag) == "RelativeLayout" {
+		return "RelativeLayout"
+	}
+	return ""
+}
+
+func stripIDPrefix(id string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(id, "@+id/"), "@id/")
+}
+
+// checkChild judges every layout_* id reference of child (and, in a ConstraintLayout, its
+// constraint_referenced_ids) the way Lint's WrongIdDetector does.
+func (r *NotSiblingResourceRule) checkChild(ctx *api.Context, path, parent string, child *android.View, siblings, inFile, defined map[string]bool) {
+	own := stripIDPrefix(child.ID)
+	attrs := make([]string, 0, len(child.Attributes))
+	for attr := range child.Attributes {
+		attrs = append(attrs, attr)
+	}
+	sort.Strings(attrs)
+	for _, attr := range attrs {
+		ns, local, ok := strings.Cut(attr, ":")
+		if !ok || (ns != "android" && ns != "app") {
+			continue
+		}
+		value := strings.TrimSpace(child.Attributes[attr])
+		var refs []string
+		switch {
+		case strings.HasPrefix(local, "layout_") && (strings.HasPrefix(value, "@+id/") || strings.HasPrefix(value, "@id/")):
+			refs = []string{value}
+		case parent == "ConstraintLayout" && local == "constraint_referenced_ids":
+			for _, token := range strings.Split(value, ",") {
+				if token = strings.TrimSpace(token); token != "" {
+					refs = append(refs, token)
+				}
 			}
 		}
-		// Check constraint attrs on each child
-		for _, child := range v.Children {
-			for _, attr := range relativeConstraintAttrs {
-				ref := child.Attributes[attr]
-				if ref == "" {
-					continue
-				}
-				refID := ref
-				refID = strings.TrimPrefix(refID, "@+id/")
-				refID = strings.TrimPrefix(refID, "@id/")
-				if refID == "" {
-					continue
-				}
-				if !siblingIDs[refID] {
-					*findings = append(*findings, baseFinding(filePath, child.Line, base,
-						fmt.Sprintf("`%s=\"%s\"` references `%s` which is not a sibling in this RelativeLayout.",
-							attr, ref, refID)))
-				}
+		for _, ref := range refs {
+			name := stripIDPrefix(ref)
+			switch {
+			case siblings[name] && own != "" && name == own:
+				ctx.Emit(baseFindingAtAttr(path, child, attr, r.BaseRule,
+					fmt.Sprintf("Cannot be relative to self: id=%s, %s=%s", own, local, own)))
+			case !siblings[name] && (inFile[name] || defined[name] && !strings.HasPrefix(ref, "@+id/")):
+				// An id nothing defines is UnknownId. An `@+id/` reference to an id another layout defines is
+				// UnknownIdInLayout, so NotSibling only reports ids defined in this file or `@id/` references.
+				ctx.Emit(baseFindingAtAttr(path, child, attr, r.BaseRule,
+					fmt.Sprintf("`%s` is not a sibling in the same `%s`", ref, parent)))
 			}
 		}
-	}
-	// Recurse into children to find nested RelativeLayouts
-	for _, child := range v.Children {
-		checkNotSibling(child, filePath, base, findings)
 	}
 }
 

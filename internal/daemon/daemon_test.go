@@ -153,7 +153,7 @@ func waitClosed(s *Server) <-chan struct{} {
 // still blocked reading an idle connection must be released when the
 // server stops, or the daemon never exits and keeps its repo lock.
 func TestIdleTimeoutStopsWithAnOpenIdleConnection(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "d.sock")
+	socket := filepath.Join(shortTempDir(t), "d.sock")
 	srv := NewServer(socket)
 	srv.IdleTimeout = 100 * time.Millisecond
 	srv.Register("echo", func(_ context.Context, _ json.RawMessage) (any, error) {

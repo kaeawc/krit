@@ -34,7 +34,7 @@ import org.jetbrains.kotlin.util.getChildren
 // message; see check). FIR makes the same
 // pairwise comparison on the resolved, alias-expanded catch types: a duplicate
 // when both clauses catch the same type, unreachable when the later type is a
-// proper subtype. The message names each type as it is written, like Go. Go's
+// proper subtype. The message names each type by its simple name (the written name without its qualifier), like Go. Go's
 // name table misses qualified names, aliases and project exceptions, and it
 // reads a project class named like a well-known exception as that exception.
 // The golden data pins both directions.
@@ -44,7 +44,10 @@ internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(M
         override val tryExpressionCheckers = setOf(UnreachableCatchBlock)
     }
 
-    private class CatchEntry(val source: KtSourceElement, val type: ConeKotlinType, val name: String)
+    private class CatchEntry(val source: KtSourceElement, val type: ConeKotlinType, val name: String) {
+        // Messages name every type without its package or outer-class qualifier.
+        val simpleName: String get() = name.substringAfterLast('.')
+    }
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirTryExpression) {
@@ -61,9 +64,9 @@ internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(M
                 val parent = catches[i]
                 messages += when {
                     sameType(child.type, parent.type) ->
-                        "Duplicate catch block for '${child.name}'."
+                        "Duplicate catch block for '${child.simpleName}'."
                     child.type.isSubtypeOf(parent.type, context.session) ->
-                        "Catch block for '${child.name}' is unreachable because '${parent.name}' is caught above."
+                        "Catch block for '${child.simpleName}' is unreachable because '${parent.simpleName}' is caught above."
                     else -> continue
                 }
             }

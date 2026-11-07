@@ -17,7 +17,7 @@ func (r *ForbiddenAnnotationRule) Meta() api.RuleDescriptor {
 		RuleSet:       "style",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonOpinionated,
-		FixLevel:      "idiomatic",
+		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenAnnotationRule]{
 				Name:        "annotations",
@@ -34,12 +34,19 @@ func (r *ForbiddenCommentRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenComment",
 		RuleSet:       "style",
 		DefaultActive: true,
+		// Differs from detekt on purpose: a marker that appears only inside double quotes, and TODO
+		// followed by a tracker reference such as b/123, are not reported.
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[ForbiddenCommentRule]{
 				Name:        "allowedPatterns",
 				Default:     "",
 				Description: "Regex pattern for allowed comments.",
 				Apply:       func(r *ForbiddenCommentRule, v *regexp.Regexp) { r.AllowedPatterns = v },
+			}),
+			api.StringListOption(api.StringListOptionSpec[ForbiddenCommentRule]{
+				Name:        "values",
+				Description: "Deprecated detekt option: markers matched case-insensitively.",
+				Apply:       func(r *ForbiddenCommentRule, v []string) { r.Values = v },
 			}),
 			api.StringListOption(api.StringListOptionSpec[ForbiddenCommentRule]{
 				Name:        "comments",
@@ -113,7 +120,7 @@ func (r *ForbiddenSuppressRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenSuppressRule]{
 				Name:        "rules",
-				Description: "Specific suppressed rules to forbid (empty = all @Suppress).",
+				Description: "Rule names that must not be suppressed with @Suppress or @SuppressWarnings. Empty reports nothing, as in detekt.",
 				Apply:       func(r *ForbiddenSuppressRule, v []string) { r.Rules = v },
 			}),
 		},
@@ -125,8 +132,14 @@ func (r *ForbiddenVoidRule) Meta() api.RuleDescriptor {
 		ID:            "ForbiddenVoid",
 		RuleSet:       "style",
 		DefaultActive: true,
-		FixLevel:      "idiomatic",
+		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
+			api.BoolOption(api.BoolOptionSpec[ForbiddenVoidRule]{
+				Name:        "ignoreIdioms",
+				Default:     true,
+				Description: "Skip Void in the parameters of overriding functions and in type arguments of well-known Java interop generics. krit extension; detekt reports them, so detekt's defaults set this to false.",
+				Apply:       func(r *ForbiddenVoidRule, v bool) { r.IgnoreIdioms = v },
+			}),
 			api.BoolOption(api.BoolOptionSpec[ForbiddenVoidRule]{
 				Name:        "ignoreOverridden",
 				Default:     false,
@@ -168,6 +181,12 @@ func (r *MagicNumberRule) Meta() api.RuleDescriptor {
 				Name:        "customPreviewPrefixes",
 				Description: "Annotation prefixes to treat as preview scaffolding, e.g. Custom matches CustomPreview.",
 				Apply:       func(r *MagicNumberRule, v []string) { r.CustomPreviewPrefixes = v },
+			}),
+			api.BoolOption(api.BoolOptionSpec[MagicNumberRule]{
+				Name:        "ignoreIdioms",
+				Default:     true,
+				Description: "Exempt literals in common Android, Compose, networking and DSL idioms (hex colors, dp units, HTTP statuses, SDK levels, builders). krit extension; detekt reports them, so detekt's defaults set this to false.",
+				Apply:       func(r *MagicNumberRule, v bool) { r.IgnoreIdioms = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[MagicNumberRule]{
 				Name:        "ignoreAnnotation",

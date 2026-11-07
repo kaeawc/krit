@@ -43,6 +43,33 @@ Set `fir: 'false'` to run with `--no-fir`.
 | JSON       | Custom processing (default) | `--format json` |
 | Plain      | Human-readable logs         | `--format plain` |
 
+### Finding paths
+
+Every format reports each finding's file path the same way, whatever form the
+scan path took (`krit .`, `krit src`, `krit /abs/project`) and whether or not
+a daemon serves the scan:
+
+- A file under the base path is reported relative to it, with forward slashes.
+  The base path is `--base-path` when set, otherwise the first scan path (its
+  directory when it is a file).
+- A file outside the base path is reported absolute.
+- `--absolute-paths` reports every file as absolute instead.
+
+Baselines and `--fix` are unaffected: they match and edit files on disk.
+
+### JSON finding fields
+
+Each entry in `findings` has these fields:
+
+| Field | Meaning |
+|-------|---------|
+| `file`, `line`, `column` | 1-based position of the flagged node: the declaration name for function, class and property rules, the call or operator for expression rules, the attribute (or element start when the attribute is absent) for XML rules. |
+| `startByte`, `endByte` | Byte span in the file, starting at `line`/`column`. Present on every finding whose position maps into a readable file; `endByte` is always greater than `startByte`. Rules that know the flagged node report its full range (a cast, a call, a function declaration). For the others, Kotlin and Java findings end with the innermost syntax node that starts at the position (usually the identifier or keyword), and XML findings end with the attribute (`name="value"`) or the element name. Use `line` and `column` for navigation. |
+| `ruleSet`, `rule`, `severity`, `message` | Rule identity and report text. |
+| `fixable`, `fixLevel` | `fixable` is true when the finding carries an autofix; `fixLevel` (`cosmetic`, `idiomatic`, `semantic`) describes its safety and is omitted otherwise. |
+| `confidence` | Number in (0, 1], always written with a decimal point (`1.0`, `0.75`). Compiler-confirmed findings score higher than name-based heuristics. |
+| `effort` | `trivial` (one line or one attribute), `local` (one file), `refactor` (several files) or `architectural`. |
+
 ## Suggested fixes (CLI and IDE)
 
 Some rules emit ordered, user-selectable **suggested fixes** instead

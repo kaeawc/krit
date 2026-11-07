@@ -30,7 +30,7 @@ class Negatives {
         return rng.nextInt() + kotlin.random.Random.nextInt()
     }
 
-    // The seeded SecureRandom constructor belongs to the TrulyRandom rule.
+    // The seeded SecureRandom constructor belongs to the HardcodedRandomSeed rule.
     fun seededConstructor(): SecureRandom = SecureRandom(byteArrayOf(1))
 
     // A java.util.Random that is not a SecureRandom: the setSeed is not

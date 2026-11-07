@@ -103,8 +103,6 @@ var (
 		"MutableLiveData":   {},
 		"Observable":        {},
 		"Flowable":          {},
-		"Single":            {},
-		"Maybe":             {},
 		"Publisher":         {},
 		"Cursor":            {},
 	}
@@ -142,6 +140,19 @@ func roomReturnTypeAllowsUnboundedSelect(typeText string) bool {
 	t = strings.TrimSpace(t)
 	_, ok := roomReturnTypeStreaming[t]
 	return ok
+}
+
+var roomCollectionTypeWords = regexp.MustCompile(`\b(List|MutableList|ArrayList|Set|MutableSet|Collection|Iterable|Array|Map|MutableMap|ImmutableList|PersistentList)\b`)
+
+// roomReturnTypeLoadsCollection reports whether a @Query return type
+// materialises many rows at once: a collection, possibly inside a one-shot
+// wrapper such as Single or Deferred. Single-entity and scalar returns read
+// only the first row and streaming wrappers load lazily.
+func roomReturnTypeLoadsCollection(typeText string) bool {
+	if roomReturnTypeAllowsUnboundedSelect(typeText) {
+		return false
+	}
+	return roomCollectionTypeWords.MatchString(typeText)
 }
 
 // RoomQueryWithLikeMissingEscapeRule detects @Query SQL containing
@@ -246,6 +257,7 @@ func (r *RoomFlowQueryWithoutDistinctRule) check(ctx *api.Context) {
 		return
 	}
 	daoFlowMethods := map[string]bool{}
+	daoOtherMethods := map[string]bool{}
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil {
 			continue
@@ -254,21 +266,25 @@ func (r *RoomFlowQueryWithoutDistinctRule) check(ctx *api.Context) {
 			continue
 		}
 		file.FlatWalkNodes(0, "class_declaration", func(clsIdx uint32) {
-			if !hasAnnotationFlat(file, clsIdx, "Dao") {
+			if !hasExactAnnotationFlat(file, clsIdx, "Dao") {
 				return
 			}
 			file.FlatWalkNodes(clsIdx, "function_declaration", func(fnIdx uint32) {
-				if !hasAnnotationFlat(file, fnIdx, "Query") {
+				name := extractIdentifierFlat(file, fnIdx)
+				if name == "" {
 					return
 				}
-				if !roomFlowReturnTypeFlat(file, fnIdx) {
+				if !hasExactAnnotationFlat(file, fnIdx, "Query") || !roomFlowReturnTypeFlat(file, fnIdx) {
+					daoOtherMethods[name] = true
 					return
 				}
-				if name := extractIdentifierFlat(file, fnIdx); name != "" {
-					daoFlowMethods[name] = true
-				}
+				daoFlowMethods[name] = true
 			})
 		})
+	}
+	// A name shared with a non-Flow DAO method cannot be attributed by name alone.
+	for name := range daoOtherMethods {
+		delete(daoFlowMethods, name)
 	}
 	if len(daoFlowMethods) == 0 {
 		return
@@ -288,11 +304,22 @@ func (r *RoomFlowQueryWithoutDistinctRule) check(ctx *api.Context) {
 			}
 			outer := outermostChainCallExpression(file, callIdx)
 			chainText := file.FlatNodeText(outer)
-			if strings.Contains(chainText, "distinctUntilChanged") {
+			if strings.Contains(chainText, "distinctUntilChanged") || roomFlowChainIsOneShot(chainText) {
 				return
 			}
 			ctx.Emit(r.Finding(file, file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
 				fmt.Sprintf("Caller of Room DAO Flow function '%s' is missing .distinctUntilChanged(); Room re-emits on every write to the queried tables. Chain .distinctUntilChanged() to drop redundant updates.", name)))
 		})
 	}
+}
+
+// roomFlowChainIsOneShot reports whether the chain ends the Flow after a
+// single emission, where de-duplication has nothing to drop.
+func roomFlowChainIsOneShot(chainText string) bool {
+	for _, op := range []string{".first(", ".firstOrNull(", ".single(", ".singleOrNull(", ".take(1)", ".toList(", ".toSet(", ".last(", ".lastOrNull("} {
+		if strings.Contains(chainText, op) {
+			return true
+		}
+	}
+	return false
 }

@@ -11,9 +11,9 @@ import java.util.HashMap as JavaHashMap
 fun <T> buildAliased(): ML<T> = mutableListOf()
 
 class ImportAlias {
-    <!DoubleMutabilityForCollection!>var<!> importAliased: ML<String> = buildAliased()
+    <!DoubleMutabilityForCollection!>private<!> var importAliased: ML<String> = buildAliased()
 
-    <!DoubleMutabilityForCollection!>var<!> javaAliased: JavaHashMap<String, Int> = JavaHashMap()
+    <!DoubleMutabilityForCollection!>private<!> var javaAliased: JavaHashMap<String, Int> = JavaHashMap()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredAliased = JavaHashMap<String, Int>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredAliased = JavaHashMap<String, Int>()
 }

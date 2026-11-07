@@ -167,7 +167,7 @@ interface UserDao {
     @Query("SELECT * FROM users")
     fun all(): List<User>
 
-    fun helper(): Int = 0
+    fun helper(): Int
 }`)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for unannotated @Dao function")

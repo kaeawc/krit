@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 18, 23, 24, 32, 37, 38, 45, 46, 53, 54
+// go-lines: 15, 18, 23, 24, 32, 37, 38, 45, 46, 54
 // Positive: check methods whose whole body is a stdlib call that only runs an
 // empty lambda over the chain, or control flow with empty branches. Go reports
 // these expression bodies because its brace scan finds the empty block, and
@@ -50,7 +50,7 @@ class ControlFlowBody : X509TrustManager {
 // Overloads with other parameters count too (neither Go nor FIR inspects the
 // parameters); these bodies return a value nobody reads.
 class ListOverloads : X509TrustManager {
-    <!InsecureTrustManager!>fun<!> checkClientTrusted(chain: List<X509Certificate>) = chain.forEach {}
+    fun checkClientTrusted(chain: List<X509Certificate>) = chain.forEach {}
     <!InsecureTrustManager!>fun<!> checkServerTrusted(chain: List<X509Certificate>) = chain.onEach {}.map {}
     override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) = checkClientTrusted(chain.orEmpty().asList())
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {

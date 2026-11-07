@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -327,7 +328,7 @@ func (r *StructuredLogKeyMixedCaseRule) check(ctx *api.Context) {
 	if decision.minority == "" || convention != decision.minority {
 		return
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Structured log key "+key+" uses "+decision.minority+" in a file that mostly uses "+decision.majority+". Keep structured log keys consistent within a file.")
 }
 
@@ -387,11 +388,40 @@ func argIsLoggerStringConcat(file *scanner.File, arg uint32) bool {
 	if len(operands) < 2 {
 		return false
 	}
+	hasLiteral, hasDynamic := false, false
 	for _, op := range operands {
 		op = flatUnwrapParenExpr(file, op)
 		switch file.FlatType(op) {
 		case "string_literal", "line_string_literal", "multi_line_string_literal":
-			return true
+			hasLiteral = true
+		default:
+			hasDynamic = true
+		}
+	}
+	// Literal-only concatenation is folded at compile time.
+	return hasLiteral && hasDynamic
+}
+
+// loggerIsCompilerDiagnosticSink reports whether the receiver is a KSP/kapt/compiler diagnostic API, which takes no format args.
+func loggerIsCompilerDiagnosticSink(file *scanner.File, call uint32, receiver string) bool {
+	quoted := regexp.QuoteMeta(receiver)
+	content := string(file.Content)
+	if regexp.MustCompile(`\b` + quoted + `\s*:\s*(KSPLogger|Messager|MessageCollector)\b`).MatchString(content) {
+		return true
+	}
+	if regexp.MustCompile(`\b(?:val|var)\s+`+quoted+`\s*=\s*(?:env|environment|messager|processingEnv)\b`).MatchString(content) ||
+		regexp.MustCompile(`\b(?:val|var)\s+`+quoted+`\s*=\s*[\w.]*(?:Messager|messager)\b`).MatchString(content) {
+		return true
+	}
+	callText := file.FlatNodeText(call)
+	if strings.HasPrefix(callText, "env.logger") || strings.HasPrefix(callText, "environment.logger") ||
+		strings.HasPrefix(callText, "messager.") {
+		return true
+	}
+	if _, args := flatCallExpressionParts(file, call); args != 0 {
+		if second := flatPositionalValueArgument(file, args, 1); second != 0 {
+			lower := strings.ToLower(file.FlatNodeText(second))
+			return strings.Contains(lower, "symbol") || strings.Contains(lower, "node")
 		}
 	}
 	return false

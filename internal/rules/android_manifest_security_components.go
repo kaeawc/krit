@@ -2,10 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
-
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/kaeawc/krit/internal/experiment"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -29,12 +27,17 @@ func (r *ExportedWithoutPermissionRule) check(ctx *api.Context) {
 	}
 	// Skip test/benchmark/debug manifests — these legitimately export
 	// components for testing infrastructure and aren't shipped to production.
-	if isTestManifestPath(m.Path) {
+	if isTestManifestPath(m.Path) || isInstrumentationManifest(m) || isTestSupportModuleManifestPath(m.Path) {
 		return
 	}
 	skipSystemActions := experiment.Enabled("exported-without-permission-skip-system-actions")
 	components := allComponents(m.Application)
 	for _, c := range components {
+		// Services, receivers and providers are covered by the Lint-aligned ExportedService,
+		// ExportedReceiver and ExportedContentProvider rules.
+		if c.Tag != "activity" && c.Tag != "activity-alias" {
+			continue
+		}
 		if c.Exported == nil || !*c.Exported || c.Permission != "" {
 			continue
 		}
@@ -43,10 +46,25 @@ func (r *ExportedWithoutPermissionRule) check(ctx *api.Context) {
 		if hasIntentFilterCategory(c, "android.intent.category.LAUNCHER") {
 			continue
 		}
+		// An activity-alias with a LAUNCHER filter makes its target a launcher entry point.
+		if c.Tag == "activity" && isLauncherAliasTarget(m, c.Name) {
+			continue
+		}
+		// A filterless exported activity in a library or playground module is a test/demo entry
+		// point; only application modules ship it as a real external surface.
+		if c.Tag == "activity" && !c.HasIntentFilter && len(c.IntentFilterActions) == 0 &&
+			(isLibraryOrTestModuleManifest(m.Path) || isPlaygroundManifestPath(m.Path)) {
+			continue
+		}
 		// Skip components with BROWSABLE intent-filter — deep link entry points
 		// must be exported and cannot require custom permissions (the browser
 		// invoking them wouldn't hold the permission).
 		if hasIntentFilterCategory(c, "android.intent.category.BROWSABLE") {
+			continue
+		}
+		// An activity that answers share, view, settings or default-category intents is an entry point;
+		// a permission would break the callers that rely on it.
+		if (c.Tag == "activity" || c.Tag == "activity-alias") && activityIsExternalEntryPoint(c) {
 			continue
 		}
 		if skipSystemActions && componentHasPublicSystemAction(c) {
@@ -61,6 +79,58 @@ func (r *ExportedWithoutPermissionRule) check(ctx *api.Context) {
 				"Add android:permission to restrict access.",
 				c.Tag, c.Name)))
 	}
+}
+
+// activityEntryPointActions are intent actions whose activities must stay reachable from other apps and the system.
+var activityEntryPointActions = map[string]bool{
+	"android.intent.action.SEND":                     true,
+	"android.intent.action.SEND_MULTIPLE":            true,
+	"android.intent.action.VIEW":                     true,
+	"android.intent.action.MAIN":                     true,
+	"android.intent.action.NOTIFICATION_PREFERENCES": true,
+	"android.intent.action.APPLICATION_PREFERENCES":  true,
+}
+
+// activityIsExternalEntryPoint reports an activity with an entry-point action or a DEFAULT/BROWSABLE category.
+func activityIsExternalEntryPoint(c ManifestComponent) bool {
+	for _, a := range c.IntentFilterActions {
+		if activityEntryPointActions[a] {
+			return true
+		}
+	}
+	return hasIntentFilterCategory(c, "android.intent.category.DEFAULT") ||
+		hasIntentFilterCategory(c, "android.intent.category.BROWSABLE")
+}
+
+// isTestSupportModuleManifestPath reports a manifest inside a test-support module such as test-support.
+func isTestSupportModuleManifestPath(path string) bool {
+	segments := strings.Split(filepath.ToSlash(path), "/")
+	module := ""
+	for i := len(segments) - 1; i > 0; i-- {
+		if segments[i] == "src" {
+			module = strings.ToLower(segments[i-1])
+			break
+		}
+	}
+	switch module {
+	case "":
+		return false
+	case "test", "tests", "testing":
+		return true
+	}
+	return strings.HasPrefix(module, "test-") || strings.HasSuffix(module, "-test") ||
+		strings.HasSuffix(module, "-testing") || strings.HasSuffix(module, "-tests")
+}
+
+// isPlaygroundManifestPath reports whether the manifest sits under a playground or sample directory.
+func isPlaygroundManifestPath(path string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		switch strings.ToLower(segment) {
+		case "playground", "playgrounds", "sample", "samples":
+			return true
+		}
+	}
+	return false
 }
 
 // publicSystemActions lists intent-filter action names that identify a
@@ -97,6 +167,41 @@ var publicSystemActions = map[string]bool{
 	"com.google.firebase.MESSAGING_EVENT":                      true,
 }
 
+// isInstrumentationManifest reports whether the manifest declares <instrumentation>,
+// which marks a test-only APK manifest.
+func isInstrumentationManifest(m *Manifest) bool {
+	for _, e := range m.Elements {
+		if e.Tag == "instrumentation" {
+			return true
+		}
+	}
+	return false
+}
+
+// isLauncherAliasTarget reports whether an <activity-alias> with a LAUNCHER filter targets name.
+func isLauncherAliasTarget(m *Manifest, name string) bool {
+	if m.Application == nil {
+		return false
+	}
+	for _, target := range m.Application.LauncherAliasTargets {
+		if qualifyManifestClass(m.Package, target) == qualifyManifestClass(m.Package, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// qualifyManifestClass expands a manifest class name relative to the package.
+func qualifyManifestClass(pkg, name string) string {
+	switch {
+	case strings.HasPrefix(name, "."):
+		return pkg + name
+	case !strings.Contains(name, "."):
+		return pkg + "." + name
+	}
+	return name
+}
+
 func componentHasPublicSystemAction(c ManifestComponent) bool {
 	for _, a := range c.IntentFilterActions {
 		if publicSystemActions[a] {
@@ -129,55 +234,25 @@ type MissingExportedFlagRule struct {
 	AndroidRule
 }
 
-func (r *MissingExportedFlagRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	if m.Application == nil {
-		return
-	}
-	components := allComponents(m.Application)
-	for _, c := range components {
-		if c.HasIntentFilter && c.Exported == nil {
-			ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
-				fmt.Sprintf("%s `%s` has an intent-filter but does not set android:exported. "+
-					"Starting with Android 12 (API 31), android:exported must be explicitly set "+
-					"for components with intent-filters.",
-					cases.Title(language.Und).String(c.Tag), c.Name)))
-		}
-	}
-}
+func (r *MissingExportedFlagRule) check(ctx *api.Context) { checkExportedFlag(ctx, r.BaseRule) }
 
 // ---------------------------------------------------------------------------
 // Rule: ExportedServiceManifestRule
 // ---------------------------------------------------------------------------
 
-// ExportedServiceManifestRule checks for exported services without a permission.
-// Similar to ExportedWithoutPermission but specifically targets services.
+// ExportedServiceManifestRule mirrors Lint's ExportedService check; its logic lives in
+// android_manifest_lint_exports.go.
 type ExportedServiceManifestRule struct {
 	ManifestBase
 	AndroidRule
-}
-
-func (r *ExportedServiceManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	if m.Application == nil {
-		return
-	}
-	for _, svc := range m.Application.Services {
-		if svc.Exported != nil && *svc.Exported && svc.Permission == "" {
-			ctx.Emit(baseFinding(m.Path, svc.Line, r.BaseRule,
-				fmt.Sprintf("Exported service `%s` does not require a permission. "+
-					"Any app can bind to it. Add android:permission to restrict access.",
-					svc.Name)))
-		}
-	}
 }
 
 // ---------------------------------------------------------------------------
 // Rule: ExportedPreferenceActivityManifestRule
 // ---------------------------------------------------------------------------
 
-// ExportedPreferenceActivityManifestRule detects activities that likely extend
-// PreferenceActivity and are exported. Exported PreferenceActivity subclasses
+// ExportedPreferenceActivityManifestRule detects activities that extend
+// PreferenceActivity (by source superclass chain) and are exported. Exported PreferenceActivity subclasses
 // can be exploited to load arbitrary fragment classes.
 type ExportedPreferenceActivityManifestRule struct {
 	ManifestBase
@@ -190,23 +265,53 @@ func (r *ExportedPreferenceActivityManifestRule) check(ctx *api.Context) {
 		return
 	}
 	for _, act := range m.Application.Activities {
-		if !isLikelyPreferenceActivity(act.Name) {
+		if !activityExtendsPreferenceActivity(m, act.Name) {
 			continue
 		}
-		exported := (act.Exported != nil && *act.Exported) || act.HasIntentFilter
+		// An explicit android:exported wins; filters only export by default when it is unset.
+		exported := act.HasIntentFilter
+		if act.Exported != nil {
+			exported = *act.Exported
+		}
 		if exported {
-			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
-				fmt.Sprintf("Activity `%s` appears to extend PreferenceActivity and is exported. "+
-					"Exported PreferenceActivity subclasses are vulnerable to fragment injection attacks. "+
-					"Restrict access with android:permission or set android:exported=\"false\".",
-					act.Name)))
+			msg := fmt.Sprintf("`PreferenceActivity` subclass %s should not be exported", qualifyManifestClass(m.Package, act.Name))
+			if act.Exported == nil {
+				msg += " in the manifest"
+			}
+			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule, msg))
 		}
 	}
 }
 
+// activityExtendsPreferenceActivity uses the source superclass chain when the class is declared
+// in project sources, and falls back to the simple-name suffix for classes it cannot see.
+func activityExtendsPreferenceActivity(m *Manifest, name string) bool {
+	if extends, known := m.ActivityExtendsPreferenceActivity[manifestClassFQN(m.Package, name)]; known {
+		return extends
+	}
+	return isLikelyPreferenceActivity(name)
+}
+
+// manifestClassFQN expands a relative android:name against the manifest package.
+func manifestClassFQN(pkg, name string) string {
+	name = strings.ReplaceAll(name, "$", ".")
+	switch {
+	case strings.HasPrefix(name, "."):
+		return pkg + name
+	case !strings.Contains(name, ".") && pkg != "":
+		return pkg + "." + name
+	}
+	return name
+}
+
+// isLikelyPreferenceActivity matches class names whose simple name ends in
+// PreferenceActivity; used only when the class is not declared in project sources.
 func isLikelyPreferenceActivity(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.Contains(lower, "preferenceactivity") || strings.Contains(lower, "settingsactivity")
+	simple := name
+	if i := strings.LastIndexAny(simple, ".$"); i >= 0 {
+		simple = simple[i+1:]
+	}
+	return strings.HasSuffix(simple, "PreferenceActivity")
 }
 
 // ---------------------------------------------------------------------------
@@ -248,7 +353,9 @@ func (r *UnprotectedSMSBroadcastReceiverManifestRule) check(ctx *api.Context) {
 
 // UnsafeProtectedBroadcastReceiverManifestRule detects receivers listening for
 // protected broadcast actions (e.g., BOOT_COMPLETED) that are exported without
-// a permission. Protected broadcasts should still require a permission guard.
+// a permission. This is a Krit-specific check, not AOSP's source-based
+// UnsafeProtectedBroadcastReceiver. Only the system can send a protected
+// broadcast, so this is opt-in.
 type UnsafeProtectedBroadcastReceiverManifestRule struct {
 	ManifestBase
 	AndroidRule
@@ -368,49 +475,25 @@ type ProtectedPermissionsManifestRule struct {
 }
 
 // protectedPermissions lists permissions that are only available to system apps.
-var protectedPermissions = map[string]bool{
-	"android.permission.BRICK":                          true,
-	"android.permission.SET_TIME":                       true,
-	"android.permission.STATUS_BAR":                     true,
-	"android.permission.MASTER_CLEAR":                   true,
-	"android.permission.SET_ANIMATION_SCALE":            true,
-	"android.permission.INSTALL_PACKAGES":               true,
-	"android.permission.DELETE_PACKAGES":                true,
-	"android.permission.REBOOT":                         true,
-	"android.permission.DEVICE_POWER":                   true,
-	"android.permission.MOUNT_UNMOUNT_FILESYSTEMS":      true,
-	"android.permission.WRITE_SECURE_SETTINGS":          true,
-	"android.permission.READ_LOGS":                      true,
-	"android.permission.DUMP":                           true,
-	"android.permission.HARDWARE_TEST":                  true,
-	"android.permission.CHANGE_COMPONENT_ENABLED_STATE": true,
-	"android.permission.FORCE_STOP_PACKAGES":            true,
-	"android.permission.INTERNAL_SYSTEM_WINDOW":         true,
-	"android.permission.MANAGE_APP_TOKENS":              true,
-	"android.permission.INJECT_EVENTS":                  true,
-	"android.permission.SET_PREFERRED_APPLICATIONS":     true,
-	"android.permission.WRITE_GSERVICES":                true,
-	"android.permission.GLOBAL_SEARCH":                  true,
-	"android.permission.MANAGE_USB":                     true,
-	"android.permission.ACCESS_SURFACE_FLINGER":         true,
-	"android.permission.SHUTDOWN":                       true,
-	"android.permission.STOP_APP_SWITCHES":              true,
-	"android.permission.CONTROL_INCALL_EXPERIENCE":      true,
-}
-
 func (r *ProtectedPermissionsManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	for _, perm := range m.UsesPermissions {
-		if protectedPermissions[perm] {
-			short := perm
-			if idx := strings.LastIndex(perm, "."); idx >= 0 {
-				short = perm[idx+1:]
-			}
-			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-				fmt.Sprintf("Permission `%s` is only granted to system apps. "+
-					"Third-party apps cannot acquire this permission.",
-					short)))
+	minSdk := manifestEffectiveMinSdk(m)
+	for _, perm := range m.UsesPermissionEntries {
+		last, protected := lintSystemPermissions[perm.Name]
+		if !protected {
+			continue
 		}
+		if last != -1 {
+			// The permission was grantable up to API last: a maxSdkVersion at or below it is fine, and a
+			// project whose minSdk is already past it never saw the permission as grantable.
+			if perm.HasMaxSdk && perm.MaxSdk <= last {
+				continue
+			}
+			if minSdk >= last+1 {
+				continue
+			}
+		}
+		ctx.Emit(baseFinding(m.Path, perm.Line, r.BaseRule, "Permission is only granted to system apps"))
 	}
 }
 

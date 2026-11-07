@@ -622,7 +622,7 @@ func TestStartThresholdsReadsProfileValues(t *testing.T) {
 	m := newTestModel(t)
 	startTM(&m)
 
-	// balanced profile has LongMethod.allowedLines: 60.
+	// balanced profile has LongMethod.allowedLines: 59.
 	var longMethodVal int
 	for i, spec := range thresholdSpecs {
 		if spec.rule == "LongMethod" && spec.field == "allowedLines" {
@@ -630,8 +630,8 @@ func TestStartThresholdsReadsProfileValues(t *testing.T) {
 			break
 		}
 	}
-	if longMethodVal != 60 {
-		t.Errorf("LongMethod.allowedLines from balanced profile = %d, want 60", longMethodVal)
+	if longMethodVal != 59 {
+		t.Errorf("LongMethod.allowedLines from balanced profile = %d, want 59", longMethodVal)
 	}
 
 	// balanced profile has MaxLineLength.maxLineLength: 120.

@@ -104,7 +104,8 @@ func assertScan(t *testing.T, label string, res daemon.AnalyzeProjectResult, wan
 func TestAnalyzeProject_SameProjectFromTwoDirectories(t *testing.T) {
 	socket, root, proj, _ := callerCwdFixture(t)
 
-	fromRoot := []string{filepath.Join("proj", "src", "ProjA.kt"), filepath.Join("proj", "src", "ProjB.kt")}
+	// Reports name files relative to the scan root, so both spellings agree.
+	fromRoot := []string{filepath.Join("src", "ProjA.kt"), filepath.Join("src", "ProjB.kt")}
 	fromProj := []string{filepath.Join("src", "ProjA.kt"), filepath.Join("src", "ProjB.kt")}
 
 	t.Chdir(root)
@@ -141,11 +142,12 @@ func TestAnalyzeProject_ResolvesPathsAgainstCallerCwd(t *testing.T) {
 		filepath.Join("src", "Other.kt"))
 
 	assertScan(t, "krit ../proj (from other)", analyzeFrom(t, socket, other, filepath.Join("..", "proj")),
-		filepath.Join("..", "proj", "src", "ProjA.kt"), filepath.Join("..", "proj", "src", "ProjB.kt"))
+		filepath.Join("src", "ProjA.kt"), filepath.Join("src", "ProjB.kt"))
 
 	assertScan(t, "krit proj other (from root)", analyzeFrom(t, socket, root, "proj", "other"),
-		filepath.Join("other", "src", "Other.kt"),
-		filepath.Join("proj", "src", "ProjA.kt"), filepath.Join("proj", "src", "ProjB.kt"))
+		// Paths outside the first scan path stay absolute.
+		filepath.Join(root, "other", "src", "Other.kt"),
+		filepath.Join("src", "ProjA.kt"), filepath.Join("src", "ProjB.kt"))
 }
 
 // TestAnalyzeProject_CallerCwdChangeIsCold pins that resident state is
@@ -186,5 +188,5 @@ func TestAnalyzeProject_RejectsUnusableCallerCwd(t *testing.T) {
 	}
 	// The failed requests must not have moved the daemon.
 	assertScan(t, "krit proj (from root)", analyzeFrom(t, socket, root, "proj"),
-		filepath.Join("proj", "src", "ProjA.kt"), filepath.Join("proj", "src", "ProjB.kt"))
+		filepath.Join("src", "ProjA.kt"), filepath.Join("src", "ProjB.kt"))
 }

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 19
+// go-lines: 37, 49
 package test
 
 import java.lang.RuntimeException as Failure
@@ -23,18 +23,18 @@ fun makeThrowable(): Any {
 // IllegalStateException constructor or the helper call; the other value the
 // throw can evaluate to is a generic exception.
 fun secondBranch(strict: Boolean): Nothing =
-    <!TooGenericExceptionThrown!>throw<!> if (strict) IllegalStateException("strict") else Error("lenient")
+    throw if (strict) IllegalStateException("strict") else <!TooGenericExceptionThrown!>Error("lenient")<!>
 fun lookup(): Throwable? = null
-fun elvisAfterCall(): Nothing = <!TooGenericExceptionThrown!>throw<!> lookup() ?: RuntimeException("missing")
+fun elvisAfterCall(): Nothing = throw lookup() ?: <!TooGenericExceptionThrown!>RuntimeException("missing")<!>
 
 // Divergence (recall): Go matches the name as written, so it misses an import
 // alias and a type alias of RuntimeException.
-fun importAlias(): Nothing = <!TooGenericExceptionThrown!>throw<!> Failure("alias")
-fun typeAlias(): Nothing = <!TooGenericExceptionThrown!>throw<!> AppError("typealias")
+fun importAlias(): Nothing = throw <!TooGenericExceptionThrown!>Failure("alias")<!>
+fun typeAlias(): Nothing = throw <!TooGenericExceptionThrown!>AppError("typealias")<!>
 
 // Divergence (recall): the file declares a class named Exception (nested in
 // Holder), so Go skips every throw of `Exception`. This one is kotlin.Exception.
-fun notTheNestedClass(): Nothing = <!TooGenericExceptionThrown!>throw<!> Exception("kotlin.Exception")
+fun notTheNestedClass(): Nothing = throw <!TooGenericExceptionThrown!>Exception("kotlin.Exception")<!>
 
 // The nested class itself is not a generic exception (neither reports it).
 fun nestedClass(): Nothing = throw Holder.Exception("nested")
@@ -46,7 +46,7 @@ fun shadowedCatchParameter(errors: List<Throwable>) {
     try {
         errors.size
     } catch (e: IllegalStateException) {
-        errors.forEach { e -> <!TooGenericExceptionThrown!>throw<!> RuntimeException(e) }
+        errors.forEach { e -> throw <!TooGenericExceptionThrown!>RuntimeException(e)<!> }
     }
 }
 
@@ -56,6 +56,6 @@ fun wrapsInOneBranch(strict: Boolean) {
     try {
         strict.toString()
     } catch (e: IllegalStateException) {
-        <!TooGenericExceptionThrown!>throw<!> if (strict) RuntimeException(e) else Error("unrelated")
+        throw if (strict) RuntimeException(e) else <!TooGenericExceptionThrown!>Error("unrelated")<!>
     }
 }

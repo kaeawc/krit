@@ -7,7 +7,7 @@ import android.content.IntentFilter;
 
 class ReceiverSetup {
     void setup(Context context, BroadcastReceiver receiver) {
-        context.registerReceiver(receiver, new IntentFilter(Intent.ACTION_SCREEN_ON));
-        context.registerReceiver(receiver, new IntentFilter(Intent.ACTION_USER_PRESENT), 0);
+        context.registerReceiver(receiver, new IntentFilter("com.example.SYNC_DONE"));
+        context.registerReceiver(receiver, new IntentFilter("com.example.REFRESH"), 0);
     }
 }

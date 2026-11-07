@@ -1,9 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 13
-// Divergence (precision): java.lang.Math imported under the alias FloatMath.
-// Go matches the receiver's text and reports both calls, but each one calls
-// java.lang.Math, the replacement the message recommends, so FIR does not
-// report them.
+// go-lines: 10, 12
+// Neither side reports: java.lang.Math imported under the alias FloatMath calls
+// java.lang.Math, the replacement the message recommends. Go requires an import
+// of android.util.FloatMath (or a qualified receiver), so it skips the alias.
 package test
 
 import java.lang.Math as FloatMath

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 13, 17, 21, 26, 29, 32, 36, 40, 44, 49, 55, 59, 68
+// go-lines: 10, 13, 17, 22, 40, 44, 49, 55, 59, 68
 package test.showtoast
 
 import android.content.Context

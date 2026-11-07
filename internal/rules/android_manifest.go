@@ -19,12 +19,13 @@ import (
 // ---------------------------------------------------------------------------
 
 type (
-	Manifest            = manifest.Manifest
-	ManifestApplication = manifest.Application
-	ManifestUsesFeature = manifest.UsesFeature
-	ManifestMetaData    = manifest.MetaData
-	ManifestComponent   = manifest.Component
-	ManifestElement     = manifest.Element
+	Manifest               = manifest.Manifest
+	ManifestApplication    = manifest.Application
+	ManifestUsesFeature    = manifest.UsesFeature
+	ManifestMetaData       = manifest.MetaData
+	ManifestComponent      = manifest.Component
+	ManifestElement        = manifest.Element
+	ManifestUsesPermission = manifest.UsesPermissionEntry
 )
 
 // ManifestBase is an empty marker type embedded by manifest rule

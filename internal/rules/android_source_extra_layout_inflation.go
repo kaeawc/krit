@@ -40,11 +40,15 @@ func (r *LayoutInflationRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *LayoutInflationRule) check(ctx *api.Context) {
 	file := ctx.File
-	if flatCallExpressionName(file, ctx.Idx) != "inflate" {
+	if flatCallExpressionName(file, ctx.Idx) != "inflate" || scanner.IsTestFile(file.Path) {
+		return
+	}
+	if layoutInflationResultUnused(file, ctx.Idx) {
 		return
 	}
 	layoutName, ok := layoutInflationLayoutName(file, ctx.Idx)
-	if !ok || !layoutInflationSecondArgumentIsNull(file, ctx.Idx) {
+	nullArg := layoutInflationNullParentArgument(file, ctx.Idx)
+	if !ok || nullArg == 0 {
 		return
 	}
 	if layoutInflationHasIntentionalNullParentContext(file, ctx.Idx) {
@@ -54,8 +58,17 @@ func (r *LayoutInflationRule) check(ctx *api.Context) {
 		!layoutInflationCallerHasNonNullViewGroup(file, ctx.Idx) {
 		return
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
-		"Avoid passing null as the parent ViewGroup. Inflate with the parent to get correct LayoutParams."))
+	ctx.Emit(r.Finding(file, file.FlatRow(nullArg)+1, file.FlatCol(nullArg)+1,
+		"Avoid passing `null` as the view root (needed to resolve layout parameters on the inflated layout's root element)"))
+}
+
+// layoutInflationResultUnused reports an inflate() statement whose view is discarded, so missing LayoutParams cannot matter.
+func layoutInflationResultUnused(file *scanner.File, call uint32) bool {
+	stmts, ok := file.FlatParent(call)
+	if !ok || file.FlatType(stmts) != "statements" {
+		return false
+	}
+	return !flatIsLastNamedChildOf(file, call, stmts) || !flatIsExpressionBlock(file, stmts)
 }
 
 // layoutInflationCallerHasNonNullViewGroup reports whether the enclosing
@@ -130,10 +143,12 @@ func layoutInflationLayoutName(file *scanner.File, call uint32) (string, bool) {
 	return ids[2], true
 }
 
-func layoutInflationSecondArgumentIsNull(file *scanner.File, call uint32) bool {
+// layoutInflationNullParentArgument returns the `null` expression passed as the inflate() parent, or 0.
+// Lint reports at this argument.
+func layoutInflationNullParentArgument(file *scanner.File, call uint32) uint32 {
 	args := flatCallKeyArguments(file, call)
 	if args == 0 {
-		return false
+		return 0
 	}
 	arg := flatNamedValueArgument(file, args, "root")
 	if arg == 0 {
@@ -144,10 +159,16 @@ func layoutInflationSecondArgumentIsNull(file *scanner.File, call uint32) bool {
 	}
 	expr := flatValueArgumentExpression(file, arg)
 	if expr == 0 {
-		return strings.TrimSpace(file.FlatNodeText(arg)) == "null"
+		if arg != 0 && strings.TrimSpace(file.FlatNodeText(arg)) == "null" {
+			return arg
+		}
+		return 0
 	}
 	expr = flatUnwrapParenExpr(file, expr)
-	return expr != 0 && strings.TrimSpace(file.FlatNodeText(expr)) == "null"
+	if expr != 0 && strings.TrimSpace(file.FlatNodeText(expr)) == "null" {
+		return expr
+	}
+	return 0
 }
 
 func layoutInflationIdentifierChain(file *scanner.File, idx uint32) []string {

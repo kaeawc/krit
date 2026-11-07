@@ -15,6 +15,8 @@ package rules
 //   android_resource_values.go  — value/string rules
 
 import (
+	"strings"
+
 	"github.com/kaeawc/krit/internal/android"
 )
 
@@ -79,21 +81,47 @@ func walkViews(v *android.View, fn func(*android.View)) {
 	}
 }
 
-// walkViewsWithParent calls fn for every view in the tree with its parent.
-func walkViewsWithParent(v *android.View, parent *android.View, fn func(v, parent *android.View)) {
-	if v == nil {
-		return
-	}
-	fn(v, parent)
-	for _, child := range v.Children {
-		walkViewsWithParent(child, v, fn)
-	}
-}
-
 // truncate shortens a string for display in messages.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// walkViewsUnlessIgnored is walkViews but skips subtrees whose root has a
+// tools:ignore naming one of issueIDs, matching lint's ancestor-scoped ignores.
+func walkViewsUnlessIgnored(v *android.View, issueIDs []string, fn func(*android.View)) {
+	if v == nil || resourceToolsIgnoreMatches(v, issueIDs...) {
+		return
+	}
+	fn(v)
+	for _, child := range v.Children {
+		walkViewsUnlessIgnored(child, issueIDs, fn)
+	}
+}
+
+// walkViewsWithParentUnlessIgnored is walkViewsWithParent with the same ignore handling.
+func walkViewsWithParentUnlessIgnored(v *android.View, parent *android.View, issueIDs []string, fn func(v, parent *android.View)) {
+	if v == nil || resourceToolsIgnoreMatches(v, issueIDs...) {
+		return
+	}
+	fn(v, parent)
+	for _, child := range v.Children {
+		walkViewsWithParentUnlessIgnored(child, v, issueIDs, fn)
+	}
+}
+
+// frameworkViewName returns the simple name of a layout tag that is an Android framework or
+// AndroidX/Material view, or "" for app-defined views, so a custom com.app.ImageView is not mistaken for ImageView.
+func frameworkViewName(tag string) string {
+	if !strings.Contains(tag, ".") {
+		return tag
+	}
+	for _, prefix := range []string{"android.", "androidx.", "com.google.android."} {
+		if strings.HasPrefix(tag, prefix) {
+			return tag[strings.LastIndex(tag, ".")+1:]
+		}
+	}
+	return ""
 }

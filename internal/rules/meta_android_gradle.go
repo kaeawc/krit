@@ -53,18 +53,18 @@ func (r *GradleDeprecatedRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *GradleGetterRule) Meta() api.RuleDescriptor {
+func (r *GroovySetterInKotlinDslRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
-		ID:            "GradleGetter",
+		ID:            "GroovySetterInKotlinDsl",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
-func (r *GradleIdeErrorRule) Meta() api.RuleDescriptor {
+func (r *ApplyPluginInKotlinDslRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
-		ID:            "GradleIdeError",
+		ID:            "ApplyPluginInKotlinDsl",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
@@ -172,6 +172,15 @@ func (r *RemoteVersionRule) Meta() api.RuleDescriptor {
 func (r *StringIntegerRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "StringInteger",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
+func (r *GradleGetterRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GradleGetter",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,

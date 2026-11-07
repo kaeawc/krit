@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fixer"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -163,6 +165,11 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 
 		count++
 		t.Run("fixable/per-rule/"+name, func(t *testing.T) {
+			// ForbiddenSuppress forbids suppressing no rule until it is configured.
+			if name == "ForbiddenSuppress" {
+				rules.ApplyConfig(loadTempConfig(t, "style:\n  ForbiddenSuppress:\n    active: true\n    rules: [ForbiddenRule]\n"))
+				t.Cleanup(func() { rules.ApplyConfig(config.NewConfig()) })
+			}
 			file, err := parseFixableSourceFixture(sourcePath)
 			if err != nil {
 				t.Fatalf("failed to parse %s: %v", sourcePath, err)
@@ -180,6 +187,10 @@ func runPerRuleFixableFixtures(t *testing.T, dir string) (int, error) {
 				soloDispatcher = rules.NewDispatcher([]*api.Rule{rule}, resolver)
 			}
 			findingCols := soloDispatcher.Run(file)
+			if rule.Needs.Has(api.NeedsGradle) {
+				// Gradle rules run in the Android phase on a parsed build script, not in the Kotlin dispatch.
+				findingCols = runGradleFixtureSolo(t, soloDispatcher, sourcePath)
+			}
 			findings := findingCols.Findings()
 
 			var fixableFindings []scanner.Finding
@@ -255,6 +266,18 @@ func applyAndCompare(t *testing.T, sourcePath, baseName string, findings []scann
 		t.Errorf("fixed output for %s does not match expected.\n--- got ---\n%s\n--- expected ---\n%s",
 			name, truncate(got, 2000), truncate(expected, 2000))
 	}
+}
+
+// runGradleFixture parses the fixture as a Gradle build script and runs the Gradle rules of d on it.
+func runGradleFixtureSolo(t *testing.T, d *rules.Dispatcher, path string) scanner.FindingColumns {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	cfg, _ := android.ParseBuildGradleContent(string(data))
+	cols, _ := d.RunGradle(scanner.ParseGradleScript(context.Background(), path, data, cfg), cfg)
+	return cols
 }
 
 func isFixableSourceFixture(name string) bool {

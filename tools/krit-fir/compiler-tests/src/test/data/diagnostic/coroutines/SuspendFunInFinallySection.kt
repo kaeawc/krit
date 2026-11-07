@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 34, 42, 43, 45, 46, 47, 49, 50, 51, 61, 62, 64, 65, 74, 75, 76, 84, 93, 101, 103, 105
+// go-lines: 34, 42, 43, 45, 49, 50, 51, 61, 62, 64, 65, 74, 75, 76, 84, 101, 103, 105
 // Positives Go and FIR agree on: an unqualified call of a well-known suspend
 // function or coroutine builder inside a finally block, including inside
 // lambdas that run there (inline calls, suspend builders, an unqualified

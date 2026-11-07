@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 33, 38, 53, 54, 60, 63, 65, 73, 78, 84
+// go-lines: 25, 33, 38, 53, 54, 66, 74, 79, 85
 // Divergences (precision) where the tag Go measures is not the tag the call
 // passes. FIR reads the property the reference resolves to, takes a local
 // var's value from an assignment that runs before the call on every path, and
@@ -56,10 +56,11 @@ class Getter {
 }
 
 fun characters() {
-    // 20 characters of non-ASCII text: 40 UTF-8 bytes, which Go counts.
+    // 20 characters of non-ASCII text: 40 UTF-8 bytes, which Go does not count
+    // (both count UTF-16 code units).
     Log.d("ÄÖÜäöüÄÖÜäöüÄÖÜäöüÄÖ", "m")
-    // 23 characters at runtime; Go counts the 25-character escaped spelling,
-    // where each `\t` is two characters.
+    // 23 characters at runtime; Go reads the escape sequences too, so each `\t`
+    // is one character.
     Log.d("Tab\tSeparated\tTagNameXX", "m")
     // Both count this one: 25 characters at runtime.
     <!LongLogTag!>Log.d("TagWithEscapedTab\tTooLong", "m")<!>

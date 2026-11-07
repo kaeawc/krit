@@ -93,6 +93,10 @@ var functionalOps = map[string]bool{
 	"asSequence": true, "asFlow": true,
 }
 
+var ignoredReturnValueScopeFunctionCalls = map[string]bool{
+	"let": true, "run": true, "with": true, "apply": true, "also": true, "use": true,
+}
+
 var ignoredReturnValueInPlaceMutationCalls = map[string]bool{
 	"clear":   true,
 	"dispose": true,
@@ -521,6 +525,19 @@ func ignoredReturnValueCallIsValueAssignmentReceiver(file *scanner.File, idx uin
 		case "statements", "function_body", "source_file":
 			return false
 		}
+	}
+	return false
+}
+
+// ignoredReturnValueCallIsQualifier reports a call that is the receiver of a navigation or indexing expression.
+func ignoredReturnValueCallIsQualifier(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "navigation_expression", "indexing_expression":
+		return file.FlatNamedChild(parent, 0) == idx
 	}
 	return false
 }

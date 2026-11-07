@@ -77,4 +77,24 @@ class Processor {
 
 class LocalLog {
     fun warn(error: Throwable) {}
+
+    // detekt reports a catch that never reads the exception, even if it recovers.
+    var cached: String? = "x"
+
+    fun fallbackAssignment() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            cached = null
+        }
+    }
+
+    fun earlyReturnRecovery(): Boolean {
+        try {
+            doWork()
+        } catch (e: java.io.IOException) {
+            return false
+        }
+        return true
+    }
 }

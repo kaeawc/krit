@@ -1,9 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negatives: calls whose nearest enclosing named function is `main` (any
-// owner, receiver or signature, as Go matches by name), including calls inside
-// lambdas, anonymous functions and local-class initializers within main; exit
-// methods on other receivers; and mentions that are not calls.
+// Negatives: calls whose nearest enclosing named function is a main function
+// (public, not an override, taking no parameter, `Array<String>` or
+// `vararg String`, at the top level or as a @JvmStatic member of an object),
+// including calls inside lambdas, anonymous functions and local-class
+// initializers within main; exit methods on other receivers; and mentions that
+// are not calls.
 package test
 
 import kotlin.system.exitProcess
@@ -14,7 +16,6 @@ class Process {
 
 fun otherReceiver(process: Process) {
     process.exit(1)
-    Runtime.getRuntime().exit(1)
     val text = "exitProcess(1) and System.exit(1)"
     // exitProcess(1)
     println(text)
@@ -45,18 +46,13 @@ object App {
     }
 }
 
-class Launcher {
-    fun main(code: Int) {
-        java.lang.System.exit(code)
-    }
-
-    companion object {
-        suspend fun main() {
-            kotlin.system.exitProcess(0)
-        }
+object Launcher {
+    @JvmStatic
+    fun main(vararg args: String) {
+        java.lang.System.exit(args.size)
     }
 }
 
-fun String.main() {
-    exitProcess(length)
+suspend fun main(args: Array<String>) {
+    Runtime.getRuntime().exit(args.size)
 }

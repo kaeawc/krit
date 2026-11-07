@@ -3,7 +3,14 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import org.jetbrains.kotlin.KtFakeSourceElementKind
+import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
+import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
@@ -12,6 +19,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirPropertyChecker
 import org.jetbrains.kotlin.fir.declarations.FirProperty
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -26,6 +34,7 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.types.isSomeFunctionType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.fir.types.upperBoundIfFlexible
@@ -44,10 +53,10 @@ import org.jetbrains.kotlin.name.Name
  * Covered like Go: class, object, companion, interface, and top-level
  * properties, explicit or inferred MutableStateFlow types, delegated and
  * getter-backed properties, `private set` (the getter stays public), and
- * properties of non-public classes (Go checks only the property's own
- * modifiers). Skipped like Go: private/protected/internal and override
+ * properties of public classes. Skipped like Go: private/protected/internal and override
  * properties, primary-constructor `val` parameters, anything declared inside
- * a function, getter, or setter body, and test source files.
+ * a function, getter, or setter body, members of private, protected or internal
+ * classes (their effective visibility is not public), and test source files.
  *
  * Deliberate precision differences from Go's substring match on the property
  * text (see the golden data): a property whose declared type is read-only is
@@ -61,12 +70,20 @@ import org.jetbrains.kotlin.name.Name
  * classes are not exposed; and a MutableStateFlow type the source does not
  * spell out (an inferred call result, an import alias, a type alias, a subtype
  * whose name lacks the word) is reported.
+ *
+ * Also skipped, as in Go: properties of `Fake*`/`Test*`/`Mutable*` classes and
+ * of interfaces (or interface members) whose KDoc calls them mutable, classes whose
+ * name contains a configured `testSupportClassNames` entry, and `@VisibleForTesting` classes or properties, which
+ * tests drive on purpose, and function-typed properties, which hold a
+ * MutableStateFlow only inside their lambda.
  */
 internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "StateFlowMutableLeak"
     override val declarationCheckers = object : DeclarationCheckers() {
         override val propertyCheckers = setOf(StateFlowMutableLeak)
     }
+
+    private val visibleForTesting = setOf("VisibleForTesting")
 
     private val mutableStateFlow = ClassId(FqName("kotlinx.coroutines.flow"), Name.identifier("MutableStateFlow"))
 
@@ -84,11 +101,23 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
             visibility == Visibilities.Internal || visibility == Visibilities.PrivateToThis
         ) return
         if (!mentionsMutableStateFlow(declaration.returnTypeRef.coneType, context.session, depth = 0)) return
+        if (isTestSupport(declaration)) return
         // Go skips scanner.IsTestFile files; the check request carries that
         // classification (configured test paths included).
         if (isInTestFile()) return
 
-        report(source, "MutableStateFlow '${declaration.name.asString()}' is publicly exposed. Keep it private and expose as StateFlow<T>.")
+        report(source, "MutableStateFlow '${declaration.name.asString()}' is publicly exposed. ${remedy(declaration)}")
+    }
+
+    // Interface and abstract members cannot be private, so the flow stays in the implementation.
+    context(context: CheckerContext)
+    private fun remedy(declaration: FirProperty): String {
+        val owner = context.containingElements.filterIsInstance<FirRegularClass>().lastOrNull()
+        return if (owner?.classKind == ClassKind.INTERFACE || declaration.status.modality == Modality.ABSTRACT) {
+            "Declare it as StateFlow<T> and keep the MutableStateFlow in the implementing class."
+        } else {
+            "Keep it private and expose as StateFlow<T>."
+        }
     }
 
     // Top-level properties and members of named, non-local classes and objects.
@@ -99,7 +128,31 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
         context.containingDeclarations.all { symbol ->
             symbol == declaration.symbol ||
                 symbol is FirFileSymbol ||
-                (symbol is FirRegularClassSymbol && symbol.resolvedStatus.visibility != Visibilities.Local)
+                (symbol is FirRegularClassSymbol && symbol.resolvedStatus.visibility == Visibilities.Public)
+        }
+
+    // Fakes, test helpers and @VisibleForTesting code expose the flow so tests can drive it, as in Go.
+    context(context: CheckerContext)
+    private fun isTestSupport(declaration: FirProperty): Boolean {
+        if (declaration.hasAnnotationNamed(visibleForTesting)) return true
+        val owner = context.containingElements.filterIsInstance<FirRegularClass>().lastOrNull()
+        if (owner?.classKind == ClassKind.INTERFACE && declaration.source?.docSaysMutable() == true) return true
+        val extraNames = (config()["testSupportClassNames"] as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+        return context.containingElements.filterIsInstance<FirRegularClass>().any { enclosing ->
+            val name = enclosing.name.asString()
+            name.startsWith("Fake") || name.startsWith("Test") || extraNames.any { it.isNotEmpty() && it in name } ||
+                enclosing.hasAnnotationNamed(visibleForTesting) ||
+                // A Mutable* type, or an interface documented as mutable, declares the flow on purpose.
+                name.startsWith("Mutable") ||
+                // The enclosing class always sits in the same file as the property, so its KDoc is local.
+                (enclosing.classKind == ClassKind.INTERFACE && enclosing.source?.docSaysMutable() == true)
+        }
+    }
+
+    // True when a KDoc attached to the declaration calls it mutable.
+    private fun KtSourceElement.docSaysMutable(): Boolean =
+        lightChildren(this, lighterASTNode).any { child ->
+            child.tokenType == KDocTokens.KDOC && lightText(this, child).contains("mutable", ignoreCase = true)
         }
 
     // True when the type is MutableStateFlow or a subtype of it (a class or
@@ -116,11 +169,13 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
                 is ConeTypeParameterType -> bound.lookupTag.typeParameterSymbol.resolvedBounds.any {
                     mentionsMutableStateFlow(it.coneType, session, depth + 1)
                 }
-                is ConeClassLikeType -> isMutableStateFlowClass(bound, session) ||
-                    bound.typeArguments.any { argument ->
-                        val argumentType = argument.type ?: return@any false
-                        mentionsMutableStateFlow(argumentType, session, depth + 1)
-                    }
+                // A function type only holds a MutableStateFlow inside its lambda, as in Go.
+                is ConeClassLikeType -> !bound.isSomeFunctionType(session) &&
+                    (isMutableStateFlowClass(bound, session) ||
+                        bound.typeArguments.any { argument ->
+                            val argumentType = argument.type ?: return@any false
+                            mentionsMutableStateFlow(argumentType, session, depth + 1)
+                        })
                 else -> false
             }
         }

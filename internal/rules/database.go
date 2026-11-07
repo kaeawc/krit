@@ -43,11 +43,13 @@ type DaoWithoutAnnotationsRule struct {
 func (r *DaoWithoutAnnotationsRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func daoFunctionHasAllowedAnnotationFlat(file *scanner.File, idx uint32) bool {
-	return hasAnnotationFlat(file, idx, "Query") ||
-		hasAnnotationFlat(file, idx, "Insert") ||
-		hasAnnotationFlat(file, idx, "Update") ||
-		hasAnnotationFlat(file, idx, "Delete") ||
-		hasAnnotationFlat(file, idx, "Transaction")
+	return hasExactAnnotationFlat(file, idx, "Query") ||
+		hasExactAnnotationFlat(file, idx, "Insert") ||
+		hasExactAnnotationFlat(file, idx, "Update") ||
+		hasExactAnnotationFlat(file, idx, "Delete") ||
+		hasExactAnnotationFlat(file, idx, "Upsert") ||
+		hasExactAnnotationFlat(file, idx, "RawQuery") ||
+		hasExactAnnotationFlat(file, idx, "Transaction")
 }
 
 // ForeignKeyWithoutOnDeleteRule detects Room @ForeignKey(...) constructions
@@ -65,15 +67,21 @@ func foreignKeyHasOnDeleteArg(file *scanner.File, args uint32) bool {
 	if args == 0 {
 		return false
 	}
+	positional := 0
 	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 		if file.FlatType(arg) != "value_argument" {
 			continue
 		}
-		if flatValueArgumentLabel(file, arg) == "onDelete" {
+		label := flatValueArgumentLabel(file, arg)
+		if label == "onDelete" {
 			return true
 		}
+		if label == "" {
+			positional++
+		}
 	}
-	return false
+	// onDelete is the fourth constructor parameter (entity, parentColumns, childColumns, onDelete).
+	return positional >= 4
 }
 
 // JdbcResultSetLeakedFromFunctionRule detects functions whose declared return
@@ -90,6 +98,9 @@ type JdbcResultSetLeakedFromFunctionRule struct {
 func (r *JdbcResultSetLeakedFromFunctionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func functionReturnsResultSetFlat(file *scanner.File, idx uint32) bool {
+	if !sourceImportsOrMentions(file, "java.sql.") {
+		return false
+	}
 	typeText := strings.TrimSpace(directExplicitTypeTextFlat(file, idx))
 	if typeText == "" {
 		return false
@@ -202,7 +213,7 @@ func jdbcCloseReceiverPresent(text, stmtName string) bool {
 	if stmtName == "" {
 		return false
 	}
-	for _, suffix := range []string{".close(", ".use"} {
+	for _, suffix := range []string{".close(", "?.close(", "!!.close(", ".use", "?.use", "!!.use"} {
 		needle := stmtName + suffix
 		start := 0
 		for {
@@ -250,7 +261,29 @@ func hasModuleAnnotatedAncestorFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "class_declaration", "object_declaration":
-			if hasAnnotationFlat(file, cur, "Module") {
+			if hasExactAnnotationFlat(file, cur, "Module") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// roomBuilderStoredOnceFlat reports whether the databaseBuilder call at idx
+// builds a cached instance: it sits inside an elvis fallback, a synchronized
+// block, or an assignment to an existing variable, or in an app-start hook.
+func roomBuilderStoredOnceFlat(file *scanner.File, idx, fn uint32) bool {
+	switch extractIdentifierFlat(file, fn) {
+	case "onCreate", "attachBaseContext":
+		return true
+	}
+	for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "elvis_expression", "assignment":
+			return true
+		case "call_expression":
+			switch flatCallExpressionName(file, cur) {
+			case "synchronized", "withLock", "getOrPut", "lazy":
 				return true
 			}
 		}

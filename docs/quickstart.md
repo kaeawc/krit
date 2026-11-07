@@ -60,7 +60,7 @@ krit --baseline baseline.xml .
 fun calculateOffset() = 42
 ```
 
-Also supports `@Suppress("all")`, `@SuppressWarnings`, and `detekt:RuleName` prefixes.
+Also supports `@Suppress("all")`, `@SuppressWarnings`, Android `@SuppressLint("IssueId")`, `names = [...]` array arguments, and `detekt:RuleName` prefixes.
 
 ## Useful flags
 

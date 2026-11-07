@@ -85,7 +85,7 @@ func (r *MixedAssertionLibrariesRule) check(ctx *api.Context) {
 	if !imports.HasAnyPrefix("org.junit.Assert.") || !imports.HasAnyPrefix("com.google.common.truth.Truth.") {
 		return
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, 1,
+	ctx.Emit(r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
 		"Avoid mixing JUnit Assert and Truth imports in the same file; pick one assertion library."))
 }
 
@@ -140,6 +140,8 @@ func (r *RunTestWithThreadSleepRule) Confidence() float64 { return api.Confidenc
 type RunBlockingInTestRule struct {
 	FlatDispatchBase
 	BaseRule
+	// RealDispatcherMarkers are strings that mark a test class as deliberately running on real dispatchers.
+	RealDispatcherMarkers []string
 }
 
 func (r *RunBlockingInTestRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -317,16 +319,59 @@ func testingQualityTestAllowsNoCrash(file *scanner.File, idx uint32) bool {
 	name := strings.ToLower(strings.Trim(testingQualityFunctionName(file, idx), "`"))
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
+	// camelCase names (`doesNotCrash`) have no spaces once lower-cased.
+	squashed := strings.ReplaceAll(name, " ", "")
 	if strings.Contains(name, "no crash") ||
 		strings.Contains(name, "does not crash") ||
-		strings.Contains(name, "doesn't crash") {
+		strings.Contains(name, "doesn't crash") ||
+		strings.Contains(squashed, "smoke") ||
+		strings.Contains(squashed, "nocrash") ||
+		strings.Contains(squashed, "doesnotcrash") ||
+		strings.Contains(squashed, "doesnotthrow") {
 		return true
 	}
 	body, _ := file.FlatFindChild(idx, "function_body")
 	if body == 0 {
 		return false
 	}
-	return testingQualityBodyDocumentsSmokeTest(file, body)
+	return testingQualityBodyDocumentsSmokeTest(file, body) || testingQualityComposeSmokeWithComment(file, body)
+}
+
+// composeSmokeCommentWords mark a comment that explains why reaching the end of a Compose test is the check.
+var composeSmokeCommentWords = []string{
+	"without", "reaching here", "reach here", "completes", "completed", "crash", "throw", "exception",
+	"survive", "measure", "layout", "no error",
+}
+
+// testingQualityComposeSmokeWithComment reports a Compose UI test that sets content and then waits for idle,
+// with a comment saying that finishing without an exception is the expectation.
+func testingQualityComposeSmokeWithComment(file *scanner.File, body uint32) bool {
+	hasSetContent, hasIdle := false, false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		switch flatCallNameAny(file, call) {
+		case "setContent":
+			hasSetContent = true
+		case "waitForIdle":
+			hasIdle = true
+		}
+	})
+	if !hasSetContent || !hasIdle {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(body, func(n uint32) {
+		if found || !isFlatCommentNode(file, n) {
+			return
+		}
+		text := strings.ToLower(file.FlatNodeText(n))
+		for _, word := range composeSmokeCommentWords {
+			if strings.Contains(text, word) {
+				found = true
+				return
+			}
+		}
+	})
+	return found
 }
 
 func testingQualityBodyDocumentsSmokeTest(file *scanner.File, body uint32) bool {
@@ -360,6 +405,11 @@ func testingQualityTextDocumentsSmokeTest(text string) bool {
 		"should not throw",
 		"doesn't throw",
 		"does not throw",
+		"no exception",
+		"without throwing",
+		"without crashing",
+		"without crash",
+		"no crash",
 		"does not cause an exception",
 		"doesn't cause an exception",
 		"shouldn't fail",
@@ -433,6 +483,32 @@ func testingQualityReturnType(file *scanner.File, idx uint32) string {
 	return ""
 }
 
+// testingQualitySuperclasses returns the simple names of the superclasses a class constructs.
+// Interfaces have no constructor call and add no inheritance depth, so they are left out.
+func testingQualitySuperclasses(file *scanner.File, classDecl uint32) []string {
+	if file == nil || classDecl == 0 {
+		return nil
+	}
+	var names []string
+	for child := file.FlatFirstChild(classDecl); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		if _, ok := file.FlatFindChild(child, "constructor_invocation"); !ok {
+			continue
+		}
+		text := strings.TrimSpace(file.FlatNodeText(child))
+		if cut := strings.IndexAny(text, "(<"); cut > 0 {
+			text = text[:cut]
+		}
+		if dot := strings.LastIndexByte(text, '.'); dot >= 0 {
+			text = text[dot+1:]
+		}
+		names = append(names, strings.TrimSpace(text))
+	}
+	return names
+}
+
 func testingQualitySupertypes(file *scanner.File, classDecl uint32) []string {
 	if file == nil || classDecl == 0 {
 		return nil
@@ -470,7 +546,7 @@ func testingQualityCountInheritanceInFile(file *scanner.File, className string, 
 		if name != className {
 			return
 		}
-		supers := testingQualitySupertypes(file, n)
+		supers := testingQualitySuperclasses(file, n)
 		for _, s := range supers {
 			d := testingQualityCountInheritanceInFile(file, s, depth+1)
 			if d > depth {
@@ -480,4 +556,65 @@ func testingQualityCountInheritanceInFile(file *scanner.File, className string, 
 	})
 
 	return depth
+}
+
+// testingQualityBodyEndsWithCast reports a test whose last statement is a throwing check: a cast, `!!`, or a check/require call.
+func testingQualityBodyEndsWithCast(file *scanner.File, body uint32) bool {
+	last := uint32(0)
+	if statements, ok := file.FlatFindChild(body, "statements"); ok {
+		file.FlatForEachChild(statements, func(child uint32) {
+			if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
+				last = child
+			}
+		})
+	} else {
+		file.FlatForEachChild(body, func(child uint32) {
+			if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
+				last = child
+			}
+		})
+	}
+	return last != 0 && testingQualityIsThrowingCheck(file, last)
+}
+
+var testingQualityThrowingCheckCalls = map[string]bool{
+	"checkNotNull": true, "requireNotNull": true, "assertIs": true, "assertIsNot": true, "check": true, "require": true,
+}
+
+// testingQualityIsThrowingCheck reports a cast, `!!`, or a stdlib/kotlin.test check call that throws on failure.
+func testingQualityIsThrowingCheck(file *scanner.File, node uint32) bool {
+	switch file.FlatType(node) {
+	case "as_expression":
+		return true
+	case "postfix_expression":
+		return strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(node)), "!!")
+	case "call_expression":
+		return testingQualityThrowingCheckCalls[flatCallNameAny(file, node)]
+	case "property_declaration":
+		last := uint32(0)
+		file.FlatForEachChild(node, func(child uint32) {
+			if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
+				last = child
+			}
+		})
+		return last != 0 && last != node && file.FlatType(last) != "property_declaration" && testingQualityIsThrowingCheck(file, last)
+	}
+	return false
+}
+
+const testingQualityOperandMaxLen = 60
+
+// testingQualityShortOperand collapses an expression to one line and cuts it to a short length for messages.
+func testingQualityShortOperand(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) <= testingQualityOperandMaxLen {
+		return text
+	}
+	return string(runes[:testingQualityOperandMaxLen-3]) + "..."
+}
+
+// testingQualityFileUsesTruth reports a file that imports Google Truth.
+func testingQualityFileUsesTruth(file *scanner.File) bool {
+	return fileFactsCache().Imports(file).HasAnyPrefix("com.google.common.truth.")
 }

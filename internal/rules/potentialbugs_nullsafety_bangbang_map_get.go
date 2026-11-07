@@ -57,7 +57,7 @@ func (r *MapGetWithNotNullAssertionRule) check(ctx *api.Context) {
 		return
 	}
 
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+	f := r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1,
 		"Map access with not-null assertion operator (!!). Use getValue() or getOrDefault() instead.")
 	if !access.safeCall {
 		f.Fix = &scanner.Fix{

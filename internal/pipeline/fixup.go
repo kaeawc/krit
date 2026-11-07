@@ -116,23 +116,12 @@ func (FixupPhase) Run(ctx context.Context, in FixupInput) (FixupResult, error) {
 		modifiedFiles []string
 	)
 
-	// Track files whose fixes were applied so we can report ModifiedFiles.
-	// We snapshot the files that still carry a text fix post-filter before
-	// calling the fixer — the fixer strips nothing, so these are the files
-	// it will touch.
+	// ModifiedFiles lists the files the fixer actually rewrote; files whose fixes were all dropped are excluded.
 	if in.Apply {
-		touched := make(map[string]struct{})
-		columns.VisitRowsWithTextFixes(func(row int) {
-			touched[columns.FileAt(row)] = struct{}{}
-		})
-
-		applied, _, errs := fixer.ApplyAllFixesColumns(ctx, &columns, in.Suffix)
+		applied, modified, _, errs := fixer.ApplyAllFixesColumnsModified(ctx, &columns, in.Suffix)
 		textFixes = applied
 		fixErrs = append(fixErrs, errs...)
-
-		for file := range touched {
-			modifiedFiles = append(modifiedFiles, file)
-		}
+		modifiedFiles = modified
 	}
 
 	var binaryErrs []error

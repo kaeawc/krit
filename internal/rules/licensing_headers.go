@@ -12,6 +12,8 @@ import (
 
 var copyrightHeaderYearRe = regexp.MustCompile(`(?i)copyright(?:\s*\(c\)|\s*©)?[^0-9\n]*((?:19|20)\d{2})(?:\s*[-,]\s*((?:19|20)\d{2}))?`)
 
+var copyrightPresentRe = regexp.MustCompile(`(?i)^\s*[-\x{2013},]?\s*present\b`)
+
 // CopyrightYearOutdatedRule flags stale copyright years in the leading file header.
 // This iteration intentionally limits itself to header scanning and a fixed cutoff;
 // git-backed recency validation can layer on top later.
@@ -52,6 +54,10 @@ func (r *CopyrightYearOutdatedRule) check(ctx *api.Context) {
 
 		year := matchedCopyrightYear(line, match)
 		if year >= r.RecentYearCutoff {
+			return
+		}
+		// `2016-present` and `2016 - Present` already track the current year.
+		if copyrightPresentRe.MatchString(line[match[1]:]) {
 			return
 		}
 
@@ -166,8 +172,8 @@ func (r *SpdxIdentifierMismatchWithProjectRule) check(ctx *api.Context) {
 		if idx < 0 {
 			continue
 		}
-		id := strings.TrimSpace(line[idx+len(spdxIdentifierPrefix):])
-		if id == "" || id == r.ProjectLicense {
+		id := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(line[idx+len(spdxIdentifierPrefix):]), "*/"))
+		if id == "" || spdxExpressionMentions(id, r.ProjectLicense) {
 			return
 		}
 		ctx.Emit(r.Finding(
@@ -178,6 +184,19 @@ func (r *SpdxIdentifierMismatchWithProjectRule) check(ctx *api.Context) {
 		))
 		return
 	}
+}
+
+// spdxExpressionMentions reports whether the license expression names license
+// (case-insensitively, ignoring a trailing "+"), so "MIT OR Apache-2.0" matches
+// either project license.
+func spdxExpressionMentions(expr, license string) bool {
+	tokens, _ := splitSpdxExpression(expr)
+	for _, tok := range tokens {
+		if strings.EqualFold(tok, license) || strings.EqualFold(strings.TrimSuffix(tok, "+"), license) {
+			return true
+		}
+	}
+	return false
 }
 
 func leadingHeaderComment(lines []string) ([]string, int) {
@@ -426,6 +445,10 @@ func (r *SpdxIdentifierInvalidRule) invalidIdentifiers(expr string) []string {
 		id := strings.TrimSuffix(tok, "+")
 		if id == "" {
 			bad = append(bad, tok)
+			continue
+		}
+		// User-defined references are valid SPDX expressions.
+		if strings.HasPrefix(id, "LicenseRef-") || strings.HasPrefix(id, "DocumentRef-") {
 			continue
 		}
 		if embeddedSpdxIdentifiers[id] || embeddedSpdxIdentifiers[tok] || r.inAdditional(id) || r.inAdditional(tok) {

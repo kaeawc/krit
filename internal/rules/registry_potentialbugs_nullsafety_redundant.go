@@ -8,10 +8,10 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 
 	// --- from potentialbugs_nullsafety_redundant.go ---
 	{
-		r := &UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable."}}
+		r := &UnnecessaryNotNullCheckRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullCheck", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects unnecessary null checks on expressions that are already non-nullable, and requireNotNull/checkNotNull on non-null parameters."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"equality_expression", "call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsResolver | api.NeedsOracleDiagnostics,
 			Check: r.check,
 		})
@@ -20,7 +20,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessaryNotNullOperatorRule{BaseRule: BaseRule{RuleName: "UnnecessaryNotNullOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the !! operator applied to expressions that are already non-nullable."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
+			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic,
 			Needs:          api.NeedsResolver | api.NeedsOracleDiagnostics,
 			Implementation: r,
 			Check:          r.check,
@@ -30,7 +30,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects the ?. safe-call operator applied to expressions that are already non-nullable."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
+			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic,
 			Needs: api.NeedsResolver | api.NeedsOracleDiagnostics, Implementation: r,
 			Check: r.check,
 		})
@@ -39,7 +39,7 @@ func registerPotentialbugsNullsafetyRedundantRules() {
 		r := &NullCheckOnMutablePropertyRule{BaseRule: BaseRule{RuleName: "NullCheckOnMutableProperty", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects null checks on mutable var properties that may be changed by another thread between the check and use."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Needs: api.NeedsResolver, Implementation: r,
+			NodeTypes: []string{"if_expression"}, Implementation: r,
 			Check: r.check,
 		})
 	}

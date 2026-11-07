@@ -1,7 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 21, 24, 27, 31, 36, 37, 43, 44, 56, 66, 76
-// Deliberate precision differences from the Go rule, which reports any public
-// property whose source text contains "MutableStateFlow". None of these
+// go-lines: 23, 33, 39, 46, 58, 68
+// Deliberate precision differences from the Go rule, which reports a public
+// property whose declared type contains "MutableStateFlow" or, without a
+// declared type, whose initializer starts with it. None of these
 // properties exposes a MutableStateFlow type, so none is reported here.
 package test
 
@@ -14,7 +15,8 @@ interface Listener {
 }
 
 class ViewModel {
-    // Declared read-only: the initializer mentions MutableStateFlow, the type does not.
+    // Declared read-only: the initializer mentions MutableStateFlow, the type does not
+    // (Go skips this too).
     val readOnly: StateFlow<Int> = MutableStateFlow(0)
 
     // asStateFlow() returns the read-only view.

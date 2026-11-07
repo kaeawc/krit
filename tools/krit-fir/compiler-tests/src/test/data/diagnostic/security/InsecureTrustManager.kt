@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 15, 20, 24, 34, 48, 49, 55, 64, 65, 72, 78, 91, 101, 115, 123, 124
+// go-lines: 14, 15, 20, 24, 48, 49, 64, 65, 72, 78, 101, 123, 124
 // Positive: a trust manager's checkServerTrusted / checkClientTrusted whose
 // body does nothing. Each is reported once, on the function's first line (its
 // modifier list, else `fun`), the line the Go rule reports.
@@ -31,7 +31,7 @@ class CommentedOut : X509TrustManager {
 
 class Annotated : X509TrustManager {
     /** KDoc is not part of the Go node, so the annotation's line is reported. */
-    <!InsecureTrustManager!>@Throws(CertificateException::class)<!>
+    @Throws(CertificateException::class)
     override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {
     }
 
@@ -52,7 +52,7 @@ class Holder {
 }
 
 val topLevelManager = object : X509TrustManager {
-    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         chain?.forEach { it.checkValidity() }
     }
@@ -88,7 +88,7 @@ class Outer : X509TrustManager {
     override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
 
     companion object : X509TrustManager {
-        <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+        override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
         override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
             throw CertificateException("no servers")
         }
@@ -112,7 +112,7 @@ enum class Modes : X509TrustManager {
 
 class RunBody : X509TrustManager {
     // Go's brace scan finds the empty lambda; the body does nothing.
-    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) = run {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) = run {}
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         throw CertificateException("no servers")
     }

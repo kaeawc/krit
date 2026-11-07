@@ -40,18 +40,9 @@ func (r *EasterEggRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *ExportedContentProviderRule) Meta() api.RuleDescriptor {
+func (r *HiddenFeatureCommentRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
-		ID:            "ExportedContentProvider",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
-func (r *ExportedReceiverRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "ExportedReceiver",
+		ID:            "HiddenFeatureComment",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
@@ -79,15 +70,6 @@ func (r *FloatMathRule) Meta() api.RuleDescriptor {
 func (r *GetInstanceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "GetInstance",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
-func (r *GrantAllUrisRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "GrantAllUris",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
@@ -321,6 +303,14 @@ func (r *ImplicitPendingIntentRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "ImplicitPendingIntent",
 		RuleSet:       "security",
+		DefaultActive: true,
+	}
+}
+
+func (r *ClickableViewAccessibilitySourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ClickableViewAccessibility",
+		RuleSet:       "android-lint",
 		DefaultActive: true,
 	}
 }

@@ -21,26 +21,39 @@ func registerStyleExpressionsExtraRules() {
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
-				startLine := file.FlatRow(idx)
-				bodyText := stripKotlinComments(file.FlatNodeText(idx))
-				endLine := startLine + strings.Count(bodyText, "\n")
-				if startLine == endLine {
-					return // single-line lambda, ok
-				}
-				if strings.Contains(bodyText, "->") {
+				// detekt: a lambda is multiline with two statements or more, or one statement that spans lines.
+				stmts, _ := file.FlatFindChild(idx, "statements")
+				if stmts == 0 {
 					return
 				}
-				if strings.Contains(bodyText, " it.") || strings.Contains(bodyText, " it ") ||
-					strings.Contains(bodyText, "(it)") || strings.Contains(bodyText, "\tit.") ||
-					strings.Contains(bodyText, "\nit.") || strings.Contains(bodyText, "{it") {
-					ctx.EmitAt(startLine+1, 1,
-						"Multiline lambda should have an explicit parameter instead of 'it'.")
+				count, last := 0, uint32(0)
+				for c := file.FlatFirstChild(stmts); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatType(c) == ";" || isFlatCommentNode(file, c) {
+						continue
+					}
+					count++
+					last = c
 				}
+				if count == 0 || (count == 1 && !strings.Contains(file.FlatNodeText(last), "\n")) {
+					return
+				}
+				if params, ok := file.FlatFindChild(idx, "lambda_parameters"); ok && params != 0 {
+					if file.FlatNodeTextEquals(params, "it") {
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							"The parameter name in a multiline lambda should not be an explicit `it`. Consider giving your parameter a readable and descriptive name.")
+					}
+					return
+				}
+				if !lambdaUsesImplicitIt(file, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"The implicit `it` should not be used in a multiline lambda. Consider giving your parameter a readable and descriptive name.")
 			},
 		})
 	}
 	{
-		r := &MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects multiline raw strings that are missing trimIndent() or trimMargin() calls."}}
+		r := &MultilineRawStringIndentationRule{BaseRule: BaseRule{RuleName: "MultilineRawStringIndentation", RuleSetName: "style", Sev: "warning", Desc: "Detects trimmed multiline raw strings whose content or closing quotes are not indented one step from the line that opens the string."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"string_literal", "multi_line_string_literal"}, Confidence: r.Confidence(), Implementation: r,
@@ -99,7 +112,7 @@ func registerStyleExpressionsExtraRules() {
 		})
 	}
 	{
-		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects double negative lambda patterns like filterNot { !predicate } that should use filter."}}
+		r := &DoubleNegativeLambdaRule{BaseRule: BaseRule{RuleName: "DoubleNegativeLambda", RuleSetName: "style", Sev: "warning", Desc: "Detects negative functions such as none and takeUnless whose lambda also contains a negation."}, NegativeFunctions: []string{"takeUnless", "none", "filterNot"}, NegativeFunctionNameParts: []string{"not", "non"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
@@ -107,47 +120,63 @@ func registerStyleExpressionsExtraRules() {
 		})
 	}
 	{
-		r := &NullableBooleanCheckRule{BaseRule: BaseRule{RuleName: "NullableBooleanCheck", RuleSetName: "style", Sev: "warning", Desc: "Detects equality comparisons against Boolean literals like x == true on nullable Booleans."}}
+		r := &NullableBooleanCheckRule{BaseRule: BaseRule{RuleName: "NullableBooleanCheck", RuleSetName: "style", Sev: "warning", Desc: "Detects elvis checks like x ?: false on nullable Booleans that should use equality (x == true), per the Kotlin coding conventions."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"elvis_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
 					return
 				}
 				left := file.FlatChild(idx, 0)
-				op := file.FlatChild(idx, 1)
 				right := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-				if left == 0 || op == 0 || right == 0 {
+				if left == 0 || right == 0 || file.FlatType(right) != "boolean_literal" {
 					return
 				}
-				opText := file.FlatNodeText(op)
-				var boolLit, otherNode uint32
-				if file.FlatType(right) == "boolean_literal" {
-					boolLit = right
-					otherNode = left
-				} else if file.FlatType(left) == "boolean_literal" {
-					boolLit = left
-					otherNode = right
-				} else {
+				if !nullableBooleanOperand(ctx, left) {
 					return
 				}
-				boolVal := file.FlatNodeText(boolLit)
-				otherText := file.FlatNodeText(otherNode)
-				msg := fmt.Sprintf("Nullable boolean check '%s %s %s'. Consider using '%s ?: false' or safe call.",
-					otherText, opText, boolVal, otherText)
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-				if (opText == "==" && boolVal == "true") || (opText == "!=" && boolVal == "false") {
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: otherText + " ?: false",
+				// `x ?: false` is `x == true` and `x ?: true` is `x != false` for a Boolean? operand.
+				boolVal := file.FlatNodeText(right)
+				op, want := "==", "true"
+				if boolVal == "true" {
+					op, want = "!=", "false"
+				}
+				leftText := file.FlatNodeText(left)
+				if t := file.FlatType(left); t != "simple_identifier" && t != "navigation_expression" && t != "call_expression" && t != "parenthesized_expression" {
+					leftText = "(" + leftText + ")"
+				}
+				replacement := leftText + " " + op + " " + want
+				// Equality binds looser than elvis, so a surrounding operator needs parentheses to keep its operands.
+				if parent, ok := file.FlatParent(idx); ok {
+					switch file.FlatType(parent) {
+					case "parenthesized_expression", "if_expression", "while_statement", "do_while_statement", "value_argument",
+						"property_declaration", "assignment", "jump_expression", "statements", "conjunction_expression",
+						"disjunction_expression", "control_structure_body", "when_condition", "function_body":
+					default:
+						replacement = "(" + replacement + ")"
 					}
+				}
+				msg := fmt.Sprintf("Nullable boolean check '%s ?: %s'. Use '%s' instead.", file.FlatNodeText(left), boolVal, replacement)
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: replacement,
 				}
 				ctx.Emit(f)
 			},
+		})
+	}
+	{
+		r := &UntilInsteadOfRangeToRule{BaseRule: BaseRule{RuleName: "UntilInsteadOfRangeTo", RuleSetName: "style", Sev: "warning", Desc: "Detects a..b - 1 and a.rangeTo(b - 1), which can be written as a until b."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"range_expression", "call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
@@ -190,6 +219,16 @@ func registerStyleExpressionsExtraRules() {
 			NodeTypes: []string{"multi_variable_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Only real destructuring sites; error recovery can yield this node for parameter lists.
+				parent, ok := file.FlatParent(idx)
+				if !ok {
+					return
+				}
+				switch file.FlatType(parent) {
+				case "property_declaration", "for_statement", "lambda_parameters":
+				default:
+					return
+				}
 				count := 0
 				for i := 0; i < file.FlatChildCount(idx); i++ {
 					if file.FlatType(file.FlatChild(idx, i)) == "variable_declaration" {
@@ -197,8 +236,8 @@ func registerStyleExpressionsExtraRules() {
 					}
 				}
 				if count > r.MaxEntries {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Destructuring declaration has %d entries, max allowed is %d.", count, r.MaxEntries))
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("The destructuring declaration contains %d but only %d are allowed.", count, r.MaxEntries))
 				}
 			},
 		})

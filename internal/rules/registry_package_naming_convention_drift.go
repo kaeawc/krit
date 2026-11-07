@@ -28,7 +28,7 @@ func registerPackageNamingConventionDriftRules() {
 				if pkg == expectedPrefix || strings.HasPrefix(pkg, expectedPrefix+".") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Package declaration '%s' drifts from source path; expected prefix '%s'.", pkg, expectedPrefix))
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Package declaration '%s' drifts from source path; expected prefix '%s'.", pkg, expectedPrefix))
 			},
 		})
 	}

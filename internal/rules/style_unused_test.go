@@ -1398,6 +1398,47 @@ private operator fun Size.times(multiplier: Int): Size {
 	}
 }
 
+func TestUnusedPrivateFunction_NegativePrivateOperatorsAndInfixUsedBySyntax(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateFunction", `
+package test
+
+class Vec(val x: Int)
+
+private operator fun Vec.plus(o: Vec) = Vec(x + o.x)
+private operator fun Vec.minus(o: Vec) = Vec(x - o.x)
+private operator fun Vec.get(i: Int) = x + i
+private operator fun Vec.invoke() = x
+private operator fun Vec.compareTo(o: Vec) = x - o.x
+private operator fun Vec.contains(v: Int) = x == v
+private operator fun Vec.component1() = x
+private infix fun Vec.pairWith(o: Vec) = this
+
+fun use(a: Vec, b: Vec): Any {
+    val (first) = a
+    return listOf(a + b, a - b, a[1], a(), a < b, 3 in a, a pairWith b, first)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for operators used via syntax, got %v", findings)
+	}
+}
+
+func TestUnusedPrivateFunction_PositiveUnusedPrivatePlusAndInfix(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateFunction", `
+package test
+
+class Vec(val x: Int)
+
+private operator fun Vec.plus(o: Vec) = Vec(x)
+private infix fun Vec.pairWith(o: Vec) = this
+
+fun use(a: Vec): Any = a
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for unused operator and infix, got %d", len(findings))
+	}
+}
+
 // --- UnusedPrivateProperty ---
 
 func TestUnusedPrivateProperty_Positive(t *testing.T) {
@@ -1503,5 +1544,289 @@ class Foo {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUnusedVariable_PrimaryConstructorWithAnnotationClassMembersAreNotLocals(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+class TypographyView
+@JvmOverloads
+constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
+  ConstraintLayout(context, attrs, defStyleAttr) {
+
+  private val binding = ViewTypographyBinding.inflate(LayoutInflater.from(context), this)
+  val description = binding.description
+  val sample = binding.sample
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected class members to be ignored, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedVariable_LazyDelegateLocalUsedLaterIsNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "UnusedVariable", `
+package test
+
+fun render(items: List<String>): Int {
+  val total by lazy { items.size }
+  return total + 1
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected a used lazy local to be ignored, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedPrivateProperty_SupertypeAfterPrivateConstructorNotProperty(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateProperty", `
+package test
+class Widget
+private constructor(x: Int) : Base(x), Marker
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestUnusedPrivateProperty_ConstValStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateProperty", `
+package test
+private const val LIMIT = 3
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %v", findings)
+	}
+}
+
+func TestUnusedParameter_ReadInNestedScopesIsUsed(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+fun anonymousGetter(provider: () -> String): Source = object : Source {
+    override val text: String get() = provider()
+}
+fun lambdaRead(count: Int) {
+    run { println(count) }
+}
+fun namedArgument(fallbackString: String) = Card(fallbackText = fallbackString)
+fun localClassDefault(seed: Int): Any {
+    class Holder(val value: Int = seed)
+    return Holder()
+}
+fun laterDefault(base: Int, other: Int = base) = other
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestUnusedParameter_UnreadParameterInAnonymousObjectStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+fun build(unread: Int): Source = object : Source {
+    override val text: String get() = "fixed"
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %v", findings)
+	}
+}
+
+func TestUnusedParameter_HintsWhenLambdaParameterShadowsIt(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+
+fun <T> List<T>.replaceFirst(index: Int, lambda: (T) -> T): List<T> =
+    this.mapIndexed { index, item ->
+        if (index == 0) lambda(item) else item
+    }
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected the shadowed parameter to stay reported, got %v", findings)
+	}
+	if !strings.Contains(findings[0].Message, "Parameter 'index' is unused.") || !strings.Contains(findings[0].Message, "shadows it") {
+		t.Fatalf("expected a shadowing hint, got %q", findings[0].Message)
+	}
+}
+
+func TestUnusedParameter_NoHintWhenNothingShadows(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+
+fun f(index: Int, items: List<Int>): Int = items.sumOf { item -> item }
+`)
+	if len(findings) != 1 || strings.Contains(findings[0].Message, "shadows") {
+		t.Fatalf("expected a plain unused-parameter message, got %v", findings)
+	}
+}
+
+func TestUnusedImport_KDocReferencesCountAsUsage(t *testing.T) {
+	findings := runRuleByName(t, "UnusedImport", `
+package test
+
+import a.ByBracket
+import a.ByQualified
+import a.BySee
+import a.ByThrows
+import a.ByLink
+import a.Genuinely
+import a.InLineComment
+
+/**
+ * Uses [ByBracket], [label][ByQualified.member] and {@link ByLink}, which detekt does not read.
+ * @see BySee
+ * @throws ByThrows when bad
+ */
+fun f() {}
+
+// [InLineComment] is not KDoc
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 unused imports (ByLink, Genuinely, InLineComment), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedImport_UsesThatTheGrammarLosesAndDeclarationNames(t *testing.T) {
+	findings := runRuleByName(t, "UnusedImport", `
+package test
+
+import a.InTemplate
+import a.InCallableRefTypeArg
+import a.InDestructuredLambdaParam
+import a.DefaultValue
+import a.OnlyAFunctionName
+import a.InBodyKdoc
+
+class C(val x: Int = DefaultValue) {
+    val s = "$InTemplate"
+    val r = list.collect(::mutableSetOf, MutableSet<InCallableRefTypeArg>::add)
+    val f = list.filter { (k): InDestructuredLambdaParam -> k }
+    fun OnlyAFunctionName() {}
+    fun g() {
+        /** Mentions [InBodyKdoc] in a comment that documents nothing. */
+        val v = 1
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected OnlyAFunctionName and InBodyKdoc to be unused, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUnusedImport_FixDoesNotDeleteFollowingKDoc(t *testing.T) {
+	src := "package test\n\nimport a.Unused\n\n/** Docs for f. */\nfun f() {}\n"
+	findings := runRuleByName(t, "UnusedImport", src)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one fixable finding, got %v", findings)
+	}
+	fix := findings[0].Fix
+	got := src[:fix.StartByte] + fix.Replacement + src[fix.EndByte:]
+	want := "package test\n\n\n/** Docs for f. */\nfun f() {}\n"
+	if got != want {
+		t.Errorf("fix result mismatch:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestUnusedPrivateMember_SharesFunctionAndPropertyExemptions(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateMember", `
+package test
+
+class Holder {
+    @Preview private fun previewThing() {}
+    private operator fun invoke() {}
+    private operator fun plus(o: Holder): Holder = this
+    @Inject private lateinit var injected: String
+    private fun reallyUnused() {}
+
+    fun use(): Holder = this + this
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "reallyUnused") {
+		t.Fatalf("expected only reallyUnused to be reported, got %v", findings)
+	}
+}
+
+func TestUnusedParameter_StubBodiesAreSkippedConsistently(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+class A {
+    fun emptyBlock(a: Int) {
+    }
+    fun commentOnly(a: Int) {
+        // nothing yet
+    }
+    fun todo(a: Int): Int {
+        TODO()
+    }
+    fun realBody(a: Int): Int {
+        println()
+        return 1
+    }
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "'a'") {
+		t.Fatalf("expected only realBody to report, got %v", findings)
+	}
+}
+
+func TestUnusedParameter_SoftKeywordNamedFunctionParameterCalledAfterIf(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", `
+package test
+fun run(owned: Boolean, set: () -> Unit, get: () -> Int, unused: Int): Int {
+    if (owned) set()
+    if (owned) get()
+    return 1
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "'unused'") {
+		t.Fatalf("calls to set() and get() use the parameters; only 'unused' is unused, got %v", findings)
+	}
+}
+
+func TestUnusedPrivateProperty_InitializerWithSideEffectIsKept(t *testing.T) {
+	for _, rule := range []string{"UnusedPrivateProperty", "UnusedPrivateMember"} {
+		findings := runRuleByName(t, rule, `
+package test
+
+class Holder(private val source: Source, private val bus: Bus) {
+    private val subscription: Disposable = source.updates.subscribe()
+    private val job = scope.launch { bus.run() }
+    private val registration = bus.register(Listener())
+    private val startOfDay = clock.startOfDay()
+    private val plain = 42
+}
+`)
+		var names []string
+		for _, f := range findings {
+			names = append(names, f.Message)
+		}
+		if len(findings) != 2 {
+			t.Fatalf("%s: expected only startOfDay and plain to be reported, got %v", rule, names)
+		}
+	}
+}
+
+func TestUnusedPrivateProperty_ReportsUnusedConstructorParameters(t *testing.T) {
+	findings := runRuleByName(t, "UnusedPrivateProperty", `
+package test
+class A(
+    private val unusedProp: Int,
+    private val usedProp: Int,
+    plain: Int,
+    usedPlain: Int,
+    val publicProp: Int,
+) {
+    val q = usedPlain
+    fun f() = usedProp
+}
+`)
+	if len(findings) != 2 || findings[0].Line != 4 || findings[1].Line != 6 {
+		t.Fatalf("expected unusedProp and plain to be reported, got %v", findings)
+	}
+	want := "Private property `unusedProp` is unused."
+	if findings[0].Message != want {
+		t.Errorf("message = %q, want %q", findings[0].Message, want)
 	}
 }

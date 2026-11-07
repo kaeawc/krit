@@ -20,6 +20,7 @@ func registerPrecompileDuplicateDeclarationRules() {
 		Confidence:     r.Confidence(),
 		Level:          api.LevelFile,
 		KotlincAnalog:  "CONFLICTING_OVERLOADS",
+		Aliases:        []string{"REDECLARATION"},
 		Implementation: r,
 		Check:          r.check,
 		DefaultActive:  false,

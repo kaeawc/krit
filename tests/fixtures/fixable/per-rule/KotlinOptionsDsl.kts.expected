@@ -1,0 +1,14 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("17"))
+        allWarningsAsErrors.set(true)
+        freeCompilerArgs.addAll(listOf("-opt-in=kotlin.RequiresOptIn", "-Xsam-conversions=class"))
+        freeCompilerArgs.add("-Xexplicit-api=strict")
+    }
+}
+
+tasks.withType<KotlinCompile> {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("17"))
+}

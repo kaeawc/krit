@@ -47,4 +47,39 @@ class StateFlowMutableLeakTestFileTest {
     @Test fun everyListedFileIsSkipped() {
         assertEquals(emptyMap(), leaks(sources.keys))
     }
+
+    // `testSupportClassNames` marks classes whose name contains a configured entry as test support.
+    private fun driverLeaks(options: Map<String, Any?>?): Int {
+        val result = KritFirProbe.compile(
+            mapOf(
+                "Driver.kt" to """
+                    package driver
+
+                    import kotlinx.coroutines.flow.MutableStateFlow
+
+                    class WidgetDriver {
+                        val state = MutableStateFlow(0)
+                    }
+                """.trimIndent(),
+            ),
+            FirRuleCompileContext(
+                enabledRuleIds = setOf("StateFlowMutableLeak"),
+                ruleConfigs = options?.let { mapOf("StateFlowMutableLeak" to it) }.orEmpty(),
+            ),
+        )
+        assertTrue(result.clean, result.problems())
+        return result.diags.count { it.name == "StateFlowMutableLeak" }
+    }
+
+    @Test fun unconfiguredNameIsReported() {
+        assertEquals(1, driverLeaks(null))
+    }
+
+    @Test fun configuredClassNameIsSkipped() {
+        assertEquals(0, driverLeaks(mapOf("testSupportClassNames" to listOf("Driver"))))
+    }
+
+    @Test fun emptyConfiguredNameMatchesNothing() {
+        assertEquals(1, driverLeaks(mapOf("testSupportClassNames" to listOf(""))))
+    }
 }

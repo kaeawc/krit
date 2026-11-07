@@ -43,3 +43,11 @@ func (r *RtlSymmetryResourceRule) Meta() api.RuleDescriptor {
 		DefaultActive: true,
 	}
 }
+
+func (r *RtlCompatResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "RtlCompatResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}

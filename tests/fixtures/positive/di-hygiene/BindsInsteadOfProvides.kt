@@ -9,7 +9,7 @@ interface Foo
 class FooImpl : Foo
 
 @Module
-object FooModule {
+abstract class FooModule {
     @Provides
     fun provideFoo(impl: FooImpl): Foo = impl
 }

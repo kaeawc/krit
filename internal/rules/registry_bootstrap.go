@@ -41,6 +41,7 @@ func init() {
 	registerAndroidCorrectnessChecksRules()
 	registerAndroidGradleRules()
 	registerAndroidIconsRules()
+	registerAndroidLintPortRules()
 	registerAndroidManifestFeaturesRules()
 	registerAndroidManifestI18nRules()
 	registerAndroidManifestSecurityRules()
@@ -118,6 +119,7 @@ func init() {
 	registerStyleUnnecessaryRules()
 	registerStyleUnusedRules()
 	registerSupplyChainRules()
+	registerGradleKotlinRules()
 	registerTestingQualityRules()
 
 	applySecurityTaxonomy()

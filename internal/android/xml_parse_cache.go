@@ -129,7 +129,7 @@ func NewXMLParseCacheWithCap(repoDir string, capBytes int64) (*XMLParseCache, er
 		Root:       dir,
 		EntriesDir: xmlParseCacheEntries,
 		Tokens: []cacheutil.SchemaToken{
-			{Name: "version", Value: xmlParseCacheVersionStr},
+			{Name: "version", Value: cacheutil.BuildScopedVersion(xmlParseCacheVersionStr)},
 			{Name: "grammar-version", Value: grammar},
 			{Name: "hash", Value: hashutil.HasherName()},
 		},

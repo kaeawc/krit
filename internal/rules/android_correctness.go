@@ -5,19 +5,12 @@ package rules
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
-
-// parseInt parses an integer string, returning 0 on error.
-func parseInt(s string) int {
-	v, _ := strconv.Atoi(s)
-	return v
-}
 
 // ---------------------------------------------------------------------------
 // helper: quick AndroidRule constructor
@@ -474,20 +467,6 @@ func formatRegisteredMsg(className, componentType string) string {
 	return fmt.Sprintf("%s extends %s and should be registered in AndroidManifest.xml.", className, componentType)
 }
 
-// NestedScrollingRule detects nested scrolling views.
-type NestedScrollingRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *NestedScrollingRule) Confidence() float64 { return api.ConfidenceMedium }
-
 // ScrollViewCountRule detects ScrollView with multiple children.
 // Primarily XML (see ScrollViewCountResourceRule); the Kotlin source
 // heuristic flags `ScrollView(...).apply { addView; addView }` patterns.
@@ -543,10 +522,22 @@ func (r *StopShipRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StopShipRule) check(ctx *api.Context) {
 	file := ctx.File
+	var st lineScanState
 	for i, line := range file.Lines {
-		if strings.Contains(line, "STOPSHIP") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"STOPSHIP comment found. This must be resolved before shipping."))
+		// The scrubbed copy keeps strings but blanks comments, so the marker survives only outside comments.
+		scrubbed := stripCommentsKeepStrings(line, &st)
+		for from := 0; ; {
+			off := strings.Index(line[from:], "STOPSHIP")
+			if off < 0 {
+				break
+			}
+			col := from + off
+			from = col + len("STOPSHIP")
+			if strings.HasPrefix(scrubbed[col:], "STOPSHIP") {
+				continue
+			}
+			ctx.Emit(r.Finding(file, i+1, col+1, "STOPSHIP comment found. This must be resolved before shipping."))
+			break
 		}
 	}
 }

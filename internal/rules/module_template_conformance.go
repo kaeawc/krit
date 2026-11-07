@@ -112,18 +112,24 @@ var (
 	gradleApplyPluginRe = regexp.MustCompile(`apply\s+plugin:\s*["']([^"']+)["']`)
 )
 
+var gradleApplyPluginCallRe = regexp.MustCompile(`apply\s*\(\s*plugin\s*=\s*["']([^"']+)["']`)
+
 func appliedGradlePluginIDs(file string) map[string]bool {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return map[string]bool{}
 	}
 	plugins := make(map[string]bool)
-	content := string(data)
-	for _, match := range gradlePluginIDRe.FindAllStringSubmatch(content, -1) {
-		plugins[match[1]] = true
-	}
-	for _, match := range gradleApplyPluginRe.FindAllStringSubmatch(content, -1) {
-		plugins[match[1]] = true
+	// Commented-out declarations and `apply false` entries do not apply the plugin to this module.
+	for _, line := range strings.Split(gradleStripCommentsFull(string(data)), "\n") {
+		if strings.Contains(line, "apply false") {
+			continue
+		}
+		for _, re := range []*regexp.Regexp{gradlePluginIDRe, gradleApplyPluginRe, gradleApplyPluginCallRe} {
+			for _, match := range re.FindAllStringSubmatch(line, -1) {
+				plugins[match[1]] = true
+			}
+		}
 	}
 	return plugins
 }

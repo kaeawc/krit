@@ -43,6 +43,12 @@ func (r *DataClassContainsFunctionsRule) Meta() api.RuleDescriptor {
 				Description: "Prefixes for allowed conversion functions.",
 				Apply:       func(r *DataClassContainsFunctionsRule, v []string) { r.ConversionFunctionPrefix = v },
 			}),
+			api.BoolOption(api.BoolOptionSpec[DataClassContainsFunctionsRule]{
+				Name:        "allowOperators",
+				Default:     false,
+				Description: "Allow operator functions in data classes.",
+				Apply:       func(r *DataClassContainsFunctionsRule, v bool) { r.AllowOperators = v },
+			}),
 		},
 	}
 }
@@ -54,6 +60,14 @@ func (r *DataClassShouldBeImmutableRule) Meta() api.RuleDescriptor {
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
+		Options: []api.ConfigOption{
+			api.BoolOption(api.BoolOptionSpec[DataClassShouldBeImmutableRule]{
+				Name:        "reportMutableCollections",
+				Default:     true,
+				Description: "Also report a val whose type is a mutable collection. krit extension; detekt only reports var properties, so detekt's defaults set this to false.",
+				Apply:       func(r *DataClassShouldBeImmutableRule, v bool) { r.ReportMutableCollections = v },
+			}),
+		},
 	}
 }
 

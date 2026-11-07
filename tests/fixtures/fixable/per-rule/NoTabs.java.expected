@@ -1,7 +1,0 @@
-package style;
-
-class NoTabsFixture {
-    void example() {
-        int value = 1;
-    }
-}

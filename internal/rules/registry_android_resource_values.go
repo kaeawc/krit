@@ -41,11 +41,11 @@ func registerAndroidResourceValuesRules() {
 	}
 	{
 		r := &OnClickResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "OnClickResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "OnClickResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "OnClick",
 			Brief:      "android:onClick in layout XML is discouraged",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSWarning,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -59,10 +59,58 @@ func registerAndroidResourceValuesRules() {
 		r := &TextFieldsResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "TextFieldsResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "TextFields",
-			Brief:      "EditText missing inputType or hint",
+			Brief:      "Missing `inputType`",
 			Category:   ALCUsability,
 			ALSeverity: ALSWarning,
 			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &TextViewEditsResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "TextViewEditsResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "TextViewEdits",
+			Brief:      "TextView should probably be an EditText instead",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &InsecureBaseConfigurationResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InsecureBaseConfigurationResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "InsecureBaseConfiguration",
+			Brief:      "Insecure Base Configuration",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &WebViewLayoutResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "WebViewLayoutResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "WebViewLayout",
+			Brief:      "WebViews in wrap_content parents",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   7,
 			Origin:     "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
@@ -84,7 +132,8 @@ func registerAndroidResourceValuesRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
+			NeedsLibraryFacts: true,
+			Check:             r.check,
 		})
 	}
 	{
@@ -153,11 +202,11 @@ func registerAndroidResourceValuesRules() {
 	}
 	{
 		r := &ImpliedQuantityResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "ImpliedQuantityResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "ImpliedQuantityResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "ImpliedQuantity",
 			Brief:      "Plural 'one' without %d placeholder",
 			Category:   ALCMessages,
-			ALSeverity: ALSWarning,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -201,9 +250,9 @@ func registerAndroidResourceValuesRules() {
 	}
 	{
 		r := &StringFormatMatchesResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "StringFormatMatchesResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "StringFormatMatchesResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "StringFormatMatches",
-			Brief:      "String.format string doesn't match the XML format string",
+			Brief:      "`String.format` string doesn't match the XML format string",
 			Category:   ALCMessages,
 			ALSeverity: ALSError,
 			Priority:   9,
@@ -324,11 +373,11 @@ func registerAndroidResourceValuesRules() {
 	}
 	{
 		r := &LocaleFolderRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule:   BaseRule{RuleName: "LocaleFolder", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "LocaleFolder",
 			Brief:      "Wrong locale folder naming",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSWarning,
 			Priority:   6,
 			Origin:     "AOSP Android Lint",
 		}}

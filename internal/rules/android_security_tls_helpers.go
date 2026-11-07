@@ -46,33 +46,35 @@ func disableCertificatePinningEmptyBuilder(file *scanner.File, idx uint32) bool 
 		!sourceImportsOrMentions(file, "okhttp3.CertificatePinner.Builder") {
 		return false
 	}
-	chainText := disableCertificatePinningChainText(file, idx)
-	compact := strings.Join(strings.Fields(chainText), "")
-	if strings.Contains(compact, ".add(") {
+	// Only the build() receiver chain counts, so an enclosing
+	// OkHttpClient.Builder chain that merely holds an empty pinner is not read.
+	compact := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
+	if strings.Contains(compact, "add(") {
 		return false
 	}
-	return strings.Contains(compact, "CertificatePinner.Builder().build(") ||
-		strings.Contains(compact, "newCertificatePinner.Builder().build(") ||
+	return strings.HasPrefix(compact, "CertificatePinner.Builder().build(") ||
+		strings.HasPrefix(compact, "newCertificatePinner.Builder().build(") ||
+		strings.HasPrefix(compact, "okhttp3.CertificatePinner.Builder().build(") ||
+		strings.HasPrefix(compact, "newokhttp3.CertificatePinner.Builder().build(") ||
 		(sourceImportsOrMentions(file, "okhttp3.CertificatePinner.Builder") &&
-			(strings.Contains(compact, "Builder().build(") || strings.Contains(compact, "newBuilder().build(")))
+			(strings.HasPrefix(compact, "Builder().build(") || strings.HasPrefix(compact, "newBuilder().build(")))
 }
 
-func disableCertificatePinningChainText(file *scanner.File, idx uint32) string {
-	best := file.FlatNodeText(idx)
-	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
-		typ := file.FlatType(cur)
-		if typ == "function_declaration" || typ == "method_declaration" || typ == "class_declaration" || typ == "source_file" {
-			break
-		}
-		text := file.FlatNodeText(cur)
-		compact := strings.Join(strings.Fields(text), "")
-		if strings.Contains(compact, "CertificatePinner.Builder") ||
-			strings.Contains(compact, "Builder().") ||
-			strings.Contains(compact, "newBuilder().") {
-			best = text
-		}
+// okHTTPCallArgumentsText returns the text of the call's own arguments and
+// trailing lambda, without the receiver chain before it or the calls after it.
+func okHTTPCallArgumentsText(file *scanner.File, idx uint32) string {
+	var suffix uint32
+	var ok bool
+	switch file.FlatType(idx) {
+	case "call_expression":
+		suffix, ok = file.FlatFindChild(idx, "call_suffix")
+	case "method_invocation":
+		suffix, ok = file.FlatFindChild(idx, "argument_list")
 	}
-	return best
+	if !ok {
+		return file.FlatNodeText(idx)
+	}
+	return file.FlatNodeText(suffix)
 }
 
 func okHTTPDisableSslValidationAlwaysTrueVerifier(chainText string) bool {
@@ -91,7 +93,12 @@ func okHTTPDisableSslValidationUnsafeTrustManager(chainText string) bool {
 }
 
 func allowAllHostnameVerifierClass(file *scanner.File, idx uint32) bool {
-	if file == nil || idx == 0 || file.FlatType(idx) != "class_declaration" {
+	if file == nil || idx == 0 {
+		return false
+	}
+	switch file.FlatType(idx) {
+	case "class_declaration", "object_literal", "object_creation_expression":
+	default:
 		return false
 	}
 	if !sourceImportsOrMentions(file, "javax.net.ssl.HostnameVerifier") {
@@ -154,8 +161,30 @@ func allowAllHostnameVerifierVerifyMethod(file *scanner.File, owner uint32) uint
 }
 
 func allowAllHostnameVerifierMethodOwnedBy(file *scanner.File, method, owner uint32) bool {
-	actual, ok := flatEnclosingAncestor(file, method, "class_declaration")
+	actual, ok := flatEnclosingAncestor(file, method, "class_declaration", "object_literal", "object_creation_expression")
 	return ok && actual == owner
+}
+
+// allowAllHostnameVerifierSamLambda matches a Kotlin SAM-constructor call
+// `HostnameVerifier { _, _ -> true }` whose lambda body is the literal true.
+func allowAllHostnameVerifierSamLambda(file *scanner.File, call uint32) bool {
+	if flatCallExpressionName(file, call) != "HostnameVerifier" {
+		return false
+	}
+	if !sourceImportsOrMentions(file, "javax.net.ssl.HostnameVerifier") || allowAllHostnameVerifierHasLocalShadow(file, 0) {
+		return false
+	}
+	lambda := flatCallTrailingLambda(file, call)
+	if lambda == 0 {
+		return false
+	}
+	text := file.FlatNodeText(lambda)
+	text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(text), "{"), "}"))
+	arrow := strings.Index(text, "->")
+	if arrow < 0 {
+		return false
+	}
+	return strings.TrimSpace(stripLineAndBlockComments(text[arrow+2:])) == "true"
 }
 
 func allowAllHostnameVerifierMethodName(file *scanner.File, method uint32) string {
@@ -375,7 +404,8 @@ func insecureTrustManagerTextHasTypeToken(text, token string) bool {
 }
 
 func insecureTrustManagerTrivialChecks(file *scanner.File, owner uint32) []uint32 {
-	var findings []uint32
+	var server, client []uint32
+	serverValidates := false
 	check := func(method uint32) {
 		if !insecureTrustManagerMethodOwnedBy(file, method, owner) {
 			return
@@ -384,13 +414,23 @@ func insecureTrustManagerTrivialChecks(file *scanner.File, owner uint32) []uint3
 		if name != "checkServerTrusted" && name != "checkClientTrusted" {
 			return
 		}
-		if insecureTrustManagerMethodBodyTrivial(file.FlatNodeText(method), name) {
-			findings = append(findings, method)
+		trivial := insecureTrustManagerMethodBodyTrivial(file.FlatNodeText(method), name)
+		switch {
+		case name == "checkServerTrusted" && trivial:
+			server = append(server, method)
+		case name == "checkServerTrusted":
+			serverValidates = true
+		case trivial:
+			client = append(client, method)
 		}
 	}
 	file.FlatWalkNodes(owner, "function_declaration", check)
 	file.FlatWalkNodes(owner, "method_declaration", check)
-	return findings
+	// An empty checkClientTrusted is normal for a client that validates servers.
+	if serverValidates {
+		return server
+	}
+	return append(server, client...)
 }
 
 func insecureTrustManagerMethodOwnedBy(file *scanner.File, method, owner uint32) bool {

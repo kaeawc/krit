@@ -212,12 +212,9 @@ fun doWork() {
     println("working")
 }
 `)
-	// Functions with block body and no "=" have implicit Unit return, but they also
-	// have no expression to infer from — typically Unit functions are fine without annotation.
-	// However the rule flags any public function without explicit ": Type".
-	// This is the expected behavior for the strict library rule.
-	if len(findings) != 1 {
-		t.Errorf("expected 1 finding, got %d: %v", len(findings), findings)
+	// A block body without a declared type returns Unit, which explicit API mode and detekt accept.
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings, got %d: %v", len(findings), findings)
 	}
 }
 
@@ -228,5 +225,35 @@ fun findUser(): String? = null
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLibraryCodeMustSpecifyReturnType_MembersBlockBodiesAndOverrides(t *testing.T) {
+	findings := runRuleByName(t, "LibraryCodeMustSpecifyReturnType", `
+package test
+fun block() { println() }
+class Api {
+    fun expr() = 1
+    val prop = 2
+    fun block() { println() }
+    override fun toString() = ""
+    private fun hidden() = 1
+}
+internal class Hidden { fun member() = 1 }
+`)
+	if len(findings) != 2 {
+		t.Errorf("expected expr and prop only, got %v", findings)
+	}
+}
+
+func TestForbiddenPublicDataClass_NestedInHiddenClassIsNotPublic(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenPublicDataClass", `
+package test
+data class Pub(val x: Int)
+internal class Hidden { data class Nested(val x: Int) }
+class Outer { data class Inner(val x: Int) }
+`)
+	if len(findings) != 2 {
+		t.Errorf("expected Pub and Inner, got %v", findings)
 	}
 }

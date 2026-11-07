@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 28
+// go-lines: none
 // Divergence: Go reports the functions below because it looks for the text
 // `@IntoSet` and `@Provides` / `@Binds` anywhere in the modifier list.
 // - `@IntoSet` appears only inside a string argument, so the function is not

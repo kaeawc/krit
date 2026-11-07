@@ -6,5 +6,5 @@ import android.content.Intent
 import android.content.IntentFilter
 
 fun registerUnsafe(context: Context, receiver: BroadcastReceiver) {
-    context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+    context.registerReceiver(receiver, IntentFilter("com.example.SYNC_DONE"))
 }

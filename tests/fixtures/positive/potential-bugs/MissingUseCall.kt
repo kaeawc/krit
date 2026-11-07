@@ -6,6 +6,5 @@ class MissingUseCall {
     fun readFile() {
         val stream = FileInputStream("file.txt")
         stream.read()
-        stream.close()
     }
 }

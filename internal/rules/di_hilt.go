@@ -17,14 +17,14 @@ type HiltEntryPointOnNonInterfaceRule struct {
 // Classified per roadmap/17.
 func (r *HiltEntryPointOnNonInterfaceRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func hiltEntryPointDeclarationFlat(file *scanner.File, idx uint32) (kind, name string, line int, ok bool) {
+func hiltEntryPointDeclarationFlat(file *scanner.File, idx uint32) (kind, name string, at uint32, ok bool) {
 	if file == nil || !hasAnnotationFlat(file, idx, "EntryPoint") {
 		return "", "", 0, false
 	}
 
 	switch file.FlatType(idx) {
 	case "class_declaration", "object_declaration":
-		return hiltEntryPointDeclKindFlat(file, idx), extractIdentifierFlat(file, idx), file.FlatRow(idx) + 1, true
+		return hiltEntryPointDeclKindFlat(file, idx), extractIdentifierFlat(file, idx), declAnchor(file, idx), true
 	case "prefix_expression":
 		target := hiltEntryPointAnnotatedTargetFlat(file, idx)
 		if target == 0 {
@@ -32,7 +32,7 @@ func hiltEntryPointDeclarationFlat(file *scanner.File, idx uint32) (kind, name s
 		}
 		switch file.FlatType(target) {
 		case "class_declaration", "object_declaration":
-			return hiltEntryPointDeclKindFlat(file, target), extractIdentifierFlat(file, target), file.FlatRow(idx) + 1, true
+			return hiltEntryPointDeclKindFlat(file, target), extractIdentifierFlat(file, target), declAnchor(file, target), true
 		case "infix_expression":
 			return hiltEntryPointInfixDeclFlat(file, target)
 		}
@@ -52,7 +52,7 @@ func hiltEntryPointAnnotatedTargetFlat(file *scanner.File, idx uint32) uint32 {
 	return current
 }
 
-func hiltEntryPointInfixDeclFlat(file *scanner.File, idx uint32) (kind, name string, line int, ok bool) {
+func hiltEntryPointInfixDeclFlat(file *scanner.File, idx uint32) (kind, name string, at uint32, ok bool) {
 	if file == nil || file.FlatNamedChildCount(idx) < 2 {
 		return "", "", 0, false
 	}
@@ -63,7 +63,7 @@ func hiltEntryPointInfixDeclFlat(file *scanner.File, idx uint32) (kind, name str
 	}
 
 	name = file.FlatNodeText(file.FlatNamedChild(idx, 1))
-	return kind, name, file.FlatRow(idx) + 1, true
+	return kind, name, idx, true
 }
 
 func hiltEntryPointDeclKindFlat(file *scanner.File, idx uint32) string {
@@ -138,4 +138,28 @@ var hiltSingletonActivityScopedTypes = map[string]struct{}{
 	"View":                      {},
 	"ViewGroup":                 {},
 	"LifecycleOwner":            {},
+}
+
+// hiltModuleFunctions returns the functions declared directly in a module body and in its companion objects,
+// where Dagger looks for static @Provides methods.
+func hiltModuleFunctions(file *scanner.File, body uint32) []uint32 {
+	var fns []uint32
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "function_declaration":
+			fns = append(fns, child)
+		case "companion_object", "object_declaration":
+			if !file.FlatHasModifier(child, "companion") && file.FlatType(child) == "object_declaration" {
+				continue
+			}
+			if inner, ok := file.FlatFindChild(child, "class_body"); ok {
+				for fn := file.FlatFirstChild(inner); fn != 0; fn = file.FlatNextSib(fn) {
+					if file.FlatType(fn) == "function_declaration" {
+						fns = append(fns, fn)
+					}
+				}
+			}
+		}
+	}
+	return fns
 }

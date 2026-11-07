@@ -2,6 +2,10 @@ package rules
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/librarymodel"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -124,8 +128,8 @@ func composeChainedCallPrev(file *scanner.File, outer uint32) uint32 {
 
 // ComposeModifierFillAfterSizeRule flags chained Compose Modifier calls where
 // a `fillMaxWidth` / `fillMaxHeight` / `fillMaxSize` call immediately follows
-// `size(...)`. The fillMax call overrides the explicit size on one or both
-// axes, which is almost always an author mistake.
+// `size(...)`. size() already fixes the constraints, so the fillMax call has
+// no effect on those axes, which is almost always an author mistake.
 type ComposeModifierFillAfterSizeRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -158,8 +162,9 @@ type ComposeModifierBackgroundAfterClipRule struct {
 func (r *ComposeModifierBackgroundAfterClipRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ComposeModifierClickableBeforePaddingRule flags
-// `Modifier.clickable { }.padding(...)` — the click area excludes the padding
-// region, which is almost never what the author wants.
+// `Modifier.padding(...).clickable { }` — modifiers apply outside in, so the
+// padding sits outside the click area and ripple. Putting clickable first
+// makes the padded bounds tappable.
 type ComposeModifierClickableBeforePaddingRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -339,3 +344,98 @@ type ComposePreviewAnnotationMissingRule struct {
 // resolution, so any project symbol with a matching name or token can
 // produce a false match. Classified per roadmap/17.
 func (r *ComposePreviewAnnotationMissingRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// composeStrongSkippingEnabled reports whether Compose strong skipping is on by default.
+// It is the default from Kotlin 2.0.20, and an unknown Kotlin version is treated as new.
+// Nil facts mean no project context at all (single-file use), where the rules keep their syntactic behavior.
+func composeStrongSkippingEnabled(facts *librarymodel.Facts) bool {
+	if facts == nil {
+		return false
+	}
+	version := facts.Profile.Kotlin.EffectiveLanguageVersion()
+	if version == "" {
+		return true
+	}
+	parts := strings.Split(version, ".")
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return true
+	}
+	return major >= 2
+}
+
+// composeKnownStateHolderTypes are Compose state holders that have a rememberX factory.
+var composeKnownStateHolderTypes = map[string]struct{}{
+	"ScrollState":                    {},
+	"LazyListState":                  {},
+	"LazyGridState":                  {},
+	"LazyStaggeredGridState":         {},
+	"PagerState":                     {},
+	"TextFieldState":                 {},
+	"SheetState":                     {},
+	"BottomSheetState":               {},
+	"BottomSheetScaffoldState":       {},
+	"ModalBottomSheetState":          {},
+	"DrawerState":                    {},
+	"SnackbarHostState":              {},
+	"FocusRequester":                 {},
+	"TopAppBarState":                 {},
+	"DatePickerState":                {},
+	"TimePickerState":                {},
+	"SliderState":                    {},
+	"RangeSliderState":               {},
+	"PullToRefreshState":             {},
+	"SwipeToDismissBoxState":         {},
+	"MutableInteractionSource":       {},
+	"TransformableState":             {},
+	"CarouselState":                  {},
+	"TooltipState":                   {},
+	"ScaffoldState":                  {},
+	"CollapsingToolbarScaffoldState": {},
+}
+
+// composeIsStateHolderTypeFlat reports whether a constructor call names a state holder
+// with a rememberX factory: a known Compose type or one with a factory declared in this file.
+func composeIsStateHolderTypeFlat(file *scanner.File, name string) bool {
+	if _, ok := composeKnownStateHolderTypes[name]; ok {
+		return true
+	}
+	if name == "" || name[0] < 'A' || name[0] > 'Z' {
+		return false
+	}
+	return bytes.Contains(file.Content, []byte("fun remember"+name+"("))
+}
+
+// composeIsSkippableRestartableFlat reports whether a @Composable function is restartable
+// and skippable: it returns Unit, is not inline and is not @ReadOnlyComposable.
+func composeIsSkippableRestartableFlat(file *scanner.File, fn uint32) bool {
+	if flatHasAnnotationNamed(file, fn, "ReadOnlyComposable") {
+		return false
+	}
+	if mods, ok := file.FlatFindChild(fn, "modifiers"); ok {
+		for _, word := range strings.Fields(file.FlatNodeText(mods)) {
+			if word == "inline" {
+				return false
+			}
+		}
+	}
+	name := extractIdentifierFlat(file, fn)
+	if strings.HasPrefix(name, "remember") {
+		return false
+	}
+	sawColon := false
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case ":":
+			sawColon = true
+		case "function_body":
+			// An expression body without a declared type may return a value.
+			return sawColon || !flatFunctionHasExpressionBody(file, fn)
+		default:
+			if sawColon && file.FlatIsNamed(child) {
+				return strings.TrimSpace(file.FlatNodeText(child)) == "Unit"
+			}
+		}
+	}
+	return true
+}

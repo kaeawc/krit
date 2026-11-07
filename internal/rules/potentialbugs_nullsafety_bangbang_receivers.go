@@ -48,7 +48,7 @@ func isAndroidResourceReceiver(receiver string) bool {
 	return false
 }
 
-func isWireProtobufReceiver(receiver string) bool {
+func isWireProtobufReceiver(receiver string, file *scanner.File) bool {
 	wireDecoders := []string{
 		".ADAPTER.decode(", "cursor.requireBlob(", "requireBlob(", "requireNonNullBlob(",
 	}
@@ -56,6 +56,10 @@ func isWireProtobufReceiver(receiver string) bool {
 		if strings.Contains(receiver, d) {
 			return true
 		}
+	}
+	// The field names are generic (id, value, type, message), so they only count in files that use protos.
+	if !fileImportsProto(file) {
+		return false
 	}
 	wireProtoFields := []string{
 		".timestamp", ".serverTimestamp", ".sourceDevice", ".sourceServiceId",

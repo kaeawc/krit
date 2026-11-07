@@ -546,6 +546,9 @@ func TestParseValuesFile_StreamingParserPreservesResourceData(t *testing.T) {
 	if got := idx.Plurals["songs"]; got["one"] != "%d song" || got["other"] != "%d songs" {
 		t.Fatalf("unexpected plurals contents: %#v", got)
 	}
+	if loc := idx.PluralsLocation["songs"]; loc.FilePath == "" {
+		t.Fatalf("expected recorded plurals location, got %#v", loc)
+	}
 	style := idx.Styles["AppTheme"]
 	if style == nil {
 		t.Fatal("expected AppTheme style")
@@ -697,7 +700,7 @@ func TestParseValuesFile_TracksExtraTextLine(t *testing.T) {
 	}
 }
 
-func TestParseValuesFile_RejectsNonResourcesRoot(t *testing.T) {
+func TestScanValuesDir_SkipsNonResourcesRootAndKeepsOtherFiles(t *testing.T) {
 	tmp := t.TempDir()
 	valuesDir := filepath.Join(tmp, "values")
 	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
@@ -705,23 +708,17 @@ func TestParseValuesFile_RejectsNonResourcesRoot(t *testing.T) {
 	}
 
 	writeValuesFile(t, valuesDir, "bad.xml", `<not-resources><string name="bad">x</string></not-resources>`)
+	writeValuesFile(t, valuesDir, "good.xml", `<resources><string name="good">y</string></resources>`)
 
-	idx := &ResourceIndex{
-		Strings:      make(map[string]string),
-		Colors:       make(map[string]string),
-		Dimensions:   make(map[string]string),
-		Styles:       make(map[string]*Style),
-		StringArrays: make(map[string][]string),
-		Plurals:      make(map[string]map[string]string),
-		Integers:     make(map[string]string),
-		Booleans:     make(map[string]string),
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDir(valuesDir); err != nil {
+		t.Fatalf("an unparsable file must not fail the whole directory: %v", err)
 	}
-	_, err := idx.scanValuesDir(valuesDir)
-	if err == nil {
-		t.Fatal("expected error for non-resources root")
+	if idx.Strings["good"] != "y" {
+		t.Errorf("good.xml was dropped along with bad.xml: %v", idx.Strings)
 	}
-	if !strings.Contains(err.Error(), "root element is not <resources>") {
-		t.Fatalf("unexpected error: %v", err)
+	if _, ok := idx.Strings["bad"]; ok {
+		t.Errorf("bad.xml should be skipped")
 	}
 }
 
@@ -1111,5 +1108,240 @@ func TestParseDrawableSelectorBytes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestIsTranslationValuesPath(t *testing.T) {
+	cases := map[string]bool{
+		"res/values/strings.xml":            false,
+		"res/values-v21/strings.xml":        false,
+		"res/values-night/strings.xml":      false,
+		"res/values-sw600dp/strings.xml":    false,
+		"res/values-land/strings.xml":       false,
+		"res/values-tv/strings.xml":         false,
+		"res/values-fr/strings.xml":         true,
+		"res/values-zh-rTW/strings.xml":     true,
+		"res/values-b+sr+Latn/strings.xml":  true,
+		"res/values-fil/strings.xml":        true,
+		"res/layout/values-fr-not-dir.xml":  false,
+		"C:\\app\\res\\values-de\\s.xml":    true,
+		"C:\\app\\res\\values-night\\s.xml": false,
+	}
+	for path, want := range cases {
+		if got := IsTranslationValuesPath(path); got != want {
+			t.Errorf("IsTranslationValuesPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestStringSourcesTracksDefaultLocaleOnly(t *testing.T) {
+	tmp := t.TempDir()
+	for dir, body := range map[string]string{
+		"values":        `<resources><string name="link">https://example.com</string></resources>`,
+		"values-zh-rTW": `<resources><string name="link">https://example.com/tw</string><string name="only_tw">VIP</string></resources>`,
+		"values-v21":    `<resources><string name="api21">PDF</string></resources>`,
+	} {
+		d := filepath.Join(tmp, dir)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeValuesFile(t, d, "strings.xml", body)
+	}
+	idx, err := ScanResourceDir(tmp)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if src, ok := idx.StringSources["link"]; !ok || src.Value != "https://example.com" {
+		t.Errorf("link source = %+v, %v; want default value", src, ok)
+	}
+	if _, ok := idx.StringSources["only_tw"]; ok {
+		t.Errorf("translation-only string must not be a default source")
+	}
+	if _, ok := idx.StringSources["api21"]; !ok {
+		t.Errorf("API-qualified values dir is default locale")
+	}
+}
+
+func TestScanValuesDir_PluralsOnlyRecordsLineAndTranslatable(t *testing.T) {
+	valuesDir := filepath.Join(t.TempDir(), "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeValuesFile(t, valuesDir, "plurals.xml", `<resources>
+    <plurals name="songs">
+        <item quantity="one">%d song</item>
+    </plurals>
+    <plurals name="ids" translatable="false">
+        <item quantity="one">id</item>
+    </plurals>
+</resources>
+`)
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDirKinds(valuesDir, 1, ValuesScanPlurals); err != nil {
+		t.Fatalf("scanValuesDirKinds: %v", err)
+	}
+	if loc := idx.PluralsLocation["songs"]; loc.Line != 2 || loc.FilePath == "" {
+		t.Fatalf("expected songs at line 2, got %#v", loc)
+	}
+	if loc := idx.PluralsLocation["ids"]; loc.Line != 5 {
+		t.Fatalf("expected ids at line 5, got %#v", loc)
+	}
+	if idx.PluralsNonTranslate["songs"] || !idx.PluralsNonTranslate["ids"] {
+		t.Fatalf("unexpected non-translatable plurals: %#v", idx.PluralsNonTranslate)
+	}
+}
+
+func TestScanValuesDir_StringTextIncludesChildElements(t *testing.T) {
+	valuesDir := filepath.Join(t.TempDir(), "values-de")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeValuesFile(t, valuesDir, "strings.xml", `<resources>
+    <string name="greet">Hello <b>%1$s</b>, <xliff:g id="n" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%2$d</xliff:g></string>
+    <string name="url">https://example.com/de</string>
+    <string name="phrase">two words</string>
+</resources>
+`)
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDirKinds(valuesDir, 1, ValuesScanStrings); err != nil {
+		t.Fatalf("scanValuesDirKinds: %v", err)
+	}
+	if got := idx.Strings["greet"]; got != "Hello %1$s, %2$d" {
+		t.Fatalf("expected child text in the value, got %q", got)
+	}
+	if got := idx.TranslatedTokens["url"]; len(got) != 1 || got[0] != "https://example.com/de" {
+		t.Fatalf("expected translated URL token, got %#v", got)
+	}
+	if _, ok := idx.TranslatedTokens["phrase"]; ok {
+		t.Fatalf("multi-word translations must not be recorded as tokens")
+	}
+}
+
+func TestScanValuesDir_StringsWithMarkup(t *testing.T) {
+	valuesDir := filepath.Join(t.TempDir(), "values")
+	if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeValuesFile(t, valuesDir, "strings.xml", `<resources>
+    <string name="styled">Hello <b>bold</b></string>
+    <string name="placeholder">Hi <xliff:g id="n" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$s</xliff:g></string>
+    <string name="plain">Hello</string>
+</resources>
+`)
+	idx := newResourceIndex()
+	if _, err := idx.scanValuesDirKinds(valuesDir, 1, ValuesScanStrings); err != nil {
+		t.Fatalf("scanValuesDirKinds: %v", err)
+	}
+	if !idx.StringsWithMarkup["styled"] || idx.StringsWithMarkup["placeholder"] || idx.StringsWithMarkup["plain"] {
+		t.Fatalf("unexpected markup set: %#v", idx.StringsWithMarkup)
+	}
+}
+
+func TestReferencedViewClasses(t *testing.T) {
+	root := &View{Type: "LinearLayout", Children: []*View{
+		{Type: "com.example.ui.CustomView"},
+		{Type: "view", Attributes: map[string]string{"class": "com.example.Other$Inner"}},
+		{Type: "fragment", Attributes: map[string]string{"android:name": "com.example.Pane"}},
+		{Type: "TextView"},
+	}}
+	layout := &Layout{Name: "a", RootView: root}
+	idx := &ResourceIndex{Layouts: map[string]*Layout{"a": layout}, LayoutConfigs: map[string]map[string]*Layout{"a": {"land": layout}}}
+	got := idx.ReferencedViewClasses()
+	for _, want := range []string{"com.example.ui.CustomView", "com.example.Other.Inner", "com.example.Pane"} {
+		if !got[want] {
+			t.Errorf("missing %s in %v", want, got)
+		}
+	}
+	if got["TextView"] || got["LinearLayout"] {
+		t.Errorf("platform tags must not be listed: %v", got)
+	}
+	var nilIdx *ResourceIndex
+	if len(nilIdx.ReferencedViewClasses()) != 0 {
+		t.Error("nil index must yield an empty set")
+	}
+}
+
+func TestScanResourceDirKeepsDefaultStringWhenTranslationsExist(t *testing.T) {
+	resDir := t.TempDir()
+	write := func(rel, body string) {
+		path := filepath.Join(resDir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The directory names sort so that translations are scanned both before and after the default.
+	write("values-de/strings.xml", `<resources><string name="greet">Hallo %s</string></resources>`)
+	write("values/strings.xml", `<resources><string name="greet">Hello</string></resources>`)
+	write("values-fr/strings.xml", `<resources><string name="greet">Bonjour %s</string></resources>`)
+
+	idx, err := ScanResourceDir(resDir)
+	if err != nil {
+		t.Fatalf("ScanResourceDir: %v", err)
+	}
+	if got := idx.Strings["greet"]; got != "Hello" {
+		t.Errorf("Strings[greet] = %q, want the default-locale value", got)
+	}
+	if loc := idx.StringsLocation["greet"]; !strings.Contains(filepath.ToSlash(loc.FilePath), "values/strings.xml") {
+		t.Errorf("location = %s, want the default file", loc.FilePath)
+	}
+	if got := len(idx.StringTranslations["greet"]); got != 2 {
+		t.Errorf("StringTranslations[greet] has %d entries, want 2", got)
+	}
+}
+
+func TestScanResourceDir_SkipsMalformedLayoutAndKeepsOthers(t *testing.T) {
+	resDir := filepath.Join(t.TempDir(), "res")
+	layoutDir := filepath.Join(resDir, "layout")
+	if err := os.MkdirAll(layoutDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(layoutDir, "broken.xml"), `<LinearLayout><TextView`)
+	writeFile(t, filepath.Join(layoutDir, "fine.xml"), `<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"/>`)
+
+	idx, err := ScanResourceDir(resDir)
+	if err != nil {
+		t.Fatalf("ScanResourceDir: %v", err)
+	}
+	if idx.Layouts["fine"] == nil || idx.Layouts["broken"] != nil {
+		t.Errorf("expected only the well-formed layout to be indexed, got %v", idx.Layouts)
+	}
+}
+
+func TestParseLayoutBytesRecordsStrayText(t *testing.T) {
+	layout, err := parseLayoutBytes([]byte("<a>\n  hello &lt;b&gt; there <!-- c -->\n  <c/>\n  tail\n</a>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := layout.RootView.TextNodes
+	if len(texts) != 2 {
+		t.Fatalf("expected 2 text runs, got %+v", texts)
+	}
+	if texts[0].Text != "hello <b> there  \n  " && !strings.HasPrefix(texts[0].Text, "hello <b> there") {
+		t.Errorf("entities must be decoded, got %q", texts[0].Text)
+	}
+	if texts[0].Line != 2 || texts[0].Col != 3 || texts[1].Line != 4 {
+		t.Errorf("unexpected positions %+v", texts)
+	}
+}
+
+func TestPluralsDefinitionLineIsWhereTheTagOpens(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "values-ja", "strings.xml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := "<resources>\n    <plurals\n        name=\"spread\"\n    >\n        <item quantity=\"one\">x</item>\n    </plurals>\n</resources>\n"
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := ScanResourceDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.PluralDefinitions) != 1 || idx.PluralDefinitions[0].Line != 2 {
+		t.Fatalf("expected the plurals definition at line 2, got %+v", idx.PluralDefinitions)
 	}
 }

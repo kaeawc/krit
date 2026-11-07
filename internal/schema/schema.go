@@ -187,6 +187,15 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		),
 	}).WithDescription("Analysis depth settings.").AdditionalPropertiesFalse()
 
+	props["scripts"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"policy": jsonschema.StringEnum(
+			[]string{"auto", "all", "none"},
+			"Which rules run on Kotlin script (.kts) files: auto applies each rule's script scope (default), all runs every rule, none runs no source rule on scripts.",
+		),
+		"include": jsonschema.Array(jsonschema.String("Rule ID that runs on scripts."), "Rules that run on scripts whatever the policy says."),
+		"exclude": jsonschema.Array(jsonschema.String("Rule ID that never runs on scripts."), "Rules that never run on scripts. Wins over include."),
+	}).WithDescription("Kotlin script (.kts) analysis settings.").AdditionalPropertiesFalse()
+
 	props["fir"] = jsonschema.Object(map[string]*jsonschema.Schema{
 		"goAuthoritativeRules": jsonschema.Array(jsonschema.String("Rule ID whose Go findings remain authoritative after FIR checks."), "Rules for which FIR verdicts are ignored."),
 	}).WithDescription("FIR verdict settings.").AdditionalPropertiesFalse()
@@ -197,6 +206,12 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"compilerPlugins":       jsonschema.Array(jsonschema.String("Absolute path of a Kotlin compiler plugin jar."), "Kotlin compiler plugin jars (kotlinx.serialization, Compose, ...) krit-fir loads in addition to the Gradle model's."),
 		"compilerPluginOptions": jsonschema.Array(jsonschema.String("A plugin option, plugin:<id>:<key>=<value>."), "Options of the configured compiler plugins."),
 	}).WithDescription("JVM type oracle and FIR compilation settings.").AdditionalPropertiesFalse()
+
+	props["detekt"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"enabled":    jsonschema.Boolean("Set false to stop krit auto-discovering and importing a detekt config.").WithDefault(true),
+		"configFile": jsonschema.String("Path to a detekt.yml to import, relative to this file. Skips auto-discovery."),
+		"baseline":   jsonschema.String("Path to a detekt baseline.xml applied when --baseline is not given."),
+	}).WithDescription("Import of an existing detekt configuration. krit.yml values override detekt values.").AdditionalPropertiesFalse()
 
 	props["maxCost"] = jsonschema.StringEnum(
 		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
@@ -241,7 +256,9 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 	for _, setName := range sortedKeys(bySet) {
 		setMetas := bySet[setName]
 		ruleProps := map[string]*jsonschema.Schema{
-			"active": jsonschema.Boolean(fmt.Sprintf("Enable or disable the entire %s ruleset.", setName)).WithDefault(true),
+			"active":   jsonschema.Boolean(fmt.Sprintf("Enable or disable the entire %s ruleset.", setName)).WithDefault(true),
+			"excludes": jsonschema.Array(jsonschema.String(""), "Glob patterns for paths to exclude from every rule in the ruleset."),
+			"includes": jsonschema.Array(jsonschema.String(""), "Glob patterns every rule in the ruleset is limited to."),
 		}
 		for _, m := range setMetas {
 			ruleProps[m.Name] = ruleSchema(m)
@@ -261,8 +278,10 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 
 func ruleSchema(m RuleMeta) *jsonschema.Schema {
 	ruleProps := map[string]*jsonschema.Schema{
-		"active":   jsonschema.Boolean(fmt.Sprintf("Enable %s (default: %v).", m.Name, m.Active)).WithDefault(m.Active),
-		"excludes": jsonschema.Array(jsonschema.String(""), "Glob patterns for paths to exclude from this rule."),
+		"active":          jsonschema.Boolean(fmt.Sprintf("Enable %s (default: %v).", m.Name, m.Active)).WithDefault(m.Active),
+		"excludes":        jsonschema.Array(jsonschema.String(""), "Glob patterns for paths to exclude from this rule."),
+		"includes":        jsonschema.Array(jsonschema.String(""), "Glob patterns the rule is limited to; files matching none are skipped."),
+		"ignoreAnnotated": jsonschema.Array(jsonschema.String(""), "Annotation names; declarations carrying one are exempt from this rule."),
 	}
 
 	for _, opt := range m.Options {
@@ -330,8 +349,10 @@ func KnownRuleSets() map[string]bool {
 	sets := map[string]bool{
 		"analysis":                true,
 		"fir":                     true,
+		"scripts":                 true,
 		"oracle":                  true,
 		"config":                  true,
+		"detekt":                  true,
 		"module_template":         true,
 		"slos":                    true,
 		"testSourcePaths":         true,
@@ -364,8 +385,10 @@ func KnownOptionsByRule() map[string]map[string]OptionType {
 	result := map[string]map[string]OptionType{}
 	for _, r := range api.Registry {
 		keys := map[string]OptionType{
-			"active":   OptionTypeBool,
-			"excludes": OptionTypeStringSlice,
+			"active":          OptionTypeBool,
+			"excludes":        OptionTypeStringSlice,
+			"includes":        OptionTypeStringSlice,
+			"ignoreAnnotated": OptionTypeStringSlice,
 		}
 		if desc, ok := rules.MetaForRule(r); ok {
 			for _, opt := range desc.Options {

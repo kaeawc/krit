@@ -622,6 +622,7 @@ class AnalysisSession(
                                 ?: run { oracle.binarySupertypeMissed = true; null }
                         }
                     }
+                    oracle.binaryClassFile = { fqn -> incrementalState.fileDeclaring(fqn) }
                     val declared by lazy { oraclePayloads.declaredAnnotationIndex(compiled) }
                     oracle.binaryCalleeAnnotations = { signature -> declared[signature] }
                 }
@@ -1063,17 +1064,18 @@ class AnalysisSession(
     fun analyzeWithCheck(files: List<String>, checkRequest: CheckRequest): Pair<AnalyzeOutcome, BatchResult?> {
         lastOracleFromCache = false
         val walked = currentSourceFiles()
-        val oracleSources = compilationFiles(files, walked)
         val rules = checkRequest.rules.toSet()
         fun planFor(enabledRules: Set<String>) = CheckPlan(
             checkRequest.id, checkRequest.files, enabledRules, checkRequest.ruleConfigs,
             checkRequest.testFiles, checkRequest.scanPaths, checkRequest.sdkLevels, module = null, ownedSources = emptySet(),
         )
         val probe = planFor(rules)
-        val shared = probe.compiled.isNotEmpty() &&
-            sharesCompileContext(checkRequest) &&
-            canonicalSet(oracleSources) == canonicalSet(compilationFiles(probe.compiled.map { it.path }, walked))
+        val shared = probe.compiled.isNotEmpty() && sharesCompileContext(checkRequest)
         if (!shared) return analyzeFull(files) to null
+        // The oracle and the check can each name files the other does not (scanned files outside every
+        // source root, for example). One compile of the union answers both, so a few stray files do not
+        // cost a second full compile.
+        val oracleSources = compilationFiles(files + probe.compiled.map { it.path }, walked)
         if (!plannerEnabled) return sharedCompile(files, oracleSources, probe, record = false)
 
         configurePersistence(BundleStore.trustedRoot(checkRequest.incrementalDir))
@@ -1196,12 +1198,13 @@ class AnalysisSession(
     private fun canonicalSet(paths: List<String>): Set<String> = paths.mapTo(HashSet()) { canonicalOrSelf(File(it)) }
 
     private fun analyzeCompilation(
-        sources: List<String>, check: CheckPlan?, record: Boolean = false, onExit: (ExitCode) -> Unit = {},
+        sources: List<String>, check: CheckPlan?, record: Boolean = false, module: ModuleCompilation? = null,
+        onExit: (ExitCode) -> Unit = {},
     ): AnalyzeOutcome {
         val collector = OracleCollector().apply { recordDeclarations = plannerEnabled }
         val outDir = Files.createTempDirectory("krit-fir-oracle-out-").toFile()
         try {
-            val args = compilationArguments(sources, outDir)
+            val args = compilationArguments(sources, outDir, module)
             // Taken before the snapshot build retargets the output and module name.
             val pathByCanonical = args.freeArgs.associateBy { File(it).canonicalPath }
                 .mapValues { it.value }
@@ -1364,6 +1367,69 @@ class AnalysisSession(
     internal fun reclaimRetainedState(rebuilt: AnalysisSession) {
         retainedModuleRunner = rebuilt.retainedModuleRunner
         rebuilt.retainedModuleRunner = null
+    }
+
+    /**
+     * The oracle facts of one module compiled on its own: its dependencies are on [spec]'s classpath (built
+     * outputs), not other modules of this request, so modules can be analyzed in any order, in any process.
+     * Frontend only; nothing is written besides the temporary output directory.
+     */
+    fun analyzeModuleFacts(spec: ModuleSpec, check: ModuleCheckIndex? = null): Pair<AnalyzeOutcome, BatchResult?> {
+        val own = moduleSources(spec)
+        if (own.isEmpty()) {
+            return AnalyzeOutcome(AnalyzeResult.EMPTY, OracleResponse.CacheDepsView(emptyMap(), emptyMap(), emptyMap())) to null
+        }
+        // Dependencies without built output are compiled from source alongside the module, as context only.
+        val context = if (spec.contextSourceRoots.isEmpty()) emptyList() else
+            moduleSources(ModuleSpec(id = spec.id, sourceRoots = spec.contextSourceRoots)).filterNot { it in own.toSet() }
+        // The same compile the whole-repo oracle runs, over this module's sources and classpath.
+        val plugins = CompilerPlugins.of(spec.compilerPluginClasspath, spec.compilerPluginOptions)
+        val session = AnalysisSession(
+            spec.roots + spec.contextSourceRoots, spec.classpath, spec.jvmTarget, filterModuleArgs(spec.compilerArgs),
+            incrementalRecording = false, incrementalSnapshot = false, incrementalPlanning = false,
+            compilerPlugins = plugins,
+        )
+        // Friend paths are built jars here (not module ids): a test module sees its main module's internals.
+        val friendJars = spec.friends.filter { File(it).exists() }
+        if (friendJars.isNotEmpty()) session.argumentsHook = { it.friendPaths = friendJars.toTypedArray() }
+        try {
+            val sources = own + context
+            val narrowed = check?.let { moduleCheckRequest(it, own) }
+            val (outcome, checked) =
+                if (narrowed == null) session.analyzeFull(sources) to null else session.analyzeWithCheck(sources, narrowed)
+            if (context.isEmpty()) return outcome to checked
+            // Facts for context files belong to their own modules.
+            val ownSet = own.toSet()
+            return outcome.copy(result = outcome.result.copy(files = outcome.result.files.filterKeys { it in ownSet })) to checked
+        } finally {
+            session.dispose()
+        }
+    }
+
+    /**
+     * A check request prepared for many modules: the requested files indexed by canonical path once, so
+     * narrowing the request to a module costs a lookup per module source instead of a filesystem call
+     * per requested file.
+     */
+    class ModuleCheckIndex(val request: CheckRequest) {
+        internal val byCanonical: Map<String, FileRef> =
+            request.files.associateBy { canonicalOrSelf(File(it.path)) }
+    }
+
+    /** The index's request narrowed to the requested files that are among [sources], or null when none. */
+    private fun moduleCheckRequest(index: ModuleCheckIndex, sources: List<String>): CheckRequest? {
+        val request = index.request
+        val own = sources.mapNotNull { index.byCanonical[canonicalOrSelf(File(it))] }.distinctBy { it.path }
+        if (own.isEmpty()) return null
+        val ownPaths = own.mapTo(HashSet()) { it.path }
+        // The module's own compile context replaces the whole-repo one the request carried.
+        return request.copy(
+            files = own, sourceDirs = emptyList(), classpath = emptyList(), jvmTarget = "", kotlinArgs = emptyList(),
+            compilerPluginClasspath = emptyList(), compilerPluginOptions = emptyList(),
+            testFiles = ownPaths.filterTo(HashSet()) { it in request.testFiles },
+            scanPaths = ownPaths.mapNotNull { p -> request.scanPaths[p]?.let { p to it } }.toMap(),
+            sdkLevels = ownPaths.mapNotNull { p -> request.sdkLevels[p]?.let { p to it } }.toMap(),
+        )
     }
 
     fun analyzeModules(

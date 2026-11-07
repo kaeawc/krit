@@ -36,8 +36,11 @@ func (r *LocaleConfigMissingRule) check(ctx *api.Context) {
 		return
 	}
 
-	resourcePath := filepath.Join(filepath.Dir(m.Path), "res", "xml", resourceName+".xml")
-	if _, err := os.Stat(resourcePath); err == nil {
+	// AGP generates this resource when androidResources.generateLocaleConfig is on.
+	if strings.HasPrefix(resourceName, "_generated") {
+		return
+	}
+	if localeConfigResourceExists(filepath.Dir(m.Path), resourceName) {
 		return
 	}
 
@@ -45,6 +48,16 @@ func (r *LocaleConfigMissingRule) check(ctx *api.Context) {
 		fmt.Sprintf("<application> declares `android:localeConfig=\"%s\"` but `res/xml/%s.xml` is missing.",
 			m.Application.LocaleConfig, resourceName))
 	ctx.Emit(f)
+}
+
+// localeConfigResourceExists looks for res/xml/<name>.xml next to the manifest and in sibling source sets.
+func localeConfigResourceExists(manifestDir, name string) bool {
+	file := name + ".xml"
+	if _, err := os.Stat(filepath.Join(manifestDir, "res", "xml", file)); err == nil {
+		return true
+	}
+	siblings, _ := filepath.Glob(filepath.Join(filepath.Dir(manifestDir), "*", "res*", "xml", file))
+	return len(siblings) > 0
 }
 
 func localeConfigResourceName(ref string) (string, bool) {

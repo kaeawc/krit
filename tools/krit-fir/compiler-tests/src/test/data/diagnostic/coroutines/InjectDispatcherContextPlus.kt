@@ -37,7 +37,12 @@ class ImageCache(private val external: CoroutineScope) {
         withContext((handler + <!InjectDispatcher!>Dispatchers.Default<!>) + CoroutineName("load")) { "data" }
 
     fun launched() {
-        external.launch(handler + <!InjectDispatcher!>Dispatchers.Unconfined<!>) { }
+        external.launch(handler + <!InjectDispatcher!>Dispatchers.Default<!>) { }
+    }
+
+    // Unconfined is a deliberate choice, not a swappable default.
+    fun launchedUnconfined() {
+        external.launch(handler + Dispatchers.Unconfined) { }
     }
 
     // Main cannot be injected for tests.

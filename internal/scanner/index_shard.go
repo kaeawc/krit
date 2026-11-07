@@ -104,7 +104,8 @@ func (crossFileShardsRegistered) Stats() cacheutil.CacheStats {
 // bare-identifier initializer (`val f: T = x` was indexed as `x`).
 // v11: function, method, constructor and Java field signatures carry declared
 // parameter, return and field types.
-const crossFileShardVersion = 11
+// v12: local functions, classes, objects and properties are no longer indexed.
+const crossFileShardVersion = 12
 
 // Per-shard bloom sizing. Every shard's bloom uses these exact
 // (m, k) parameters so they can be unioned with BloomFilter.Merge,

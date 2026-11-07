@@ -4,15 +4,13 @@ import java.io.IOException
 
 class ErrorClassifier {
 
-    // Type-checking an exception value that is NOT a caught variable to
-    // branch on its concrete type is the "instanceof instead of
-    // polymorphism" smell this rule targets.
-    fun classify(failure: Throwable): String {
+    // Checking the type of the caught parameter in the catch body is what
+    // multiple catch blocks are for.
+    fun classify(): String {
         try {
             return "ok"
-        } catch (outer: Exception) {
-            // `failure` is a parameter, not the caught variable `outer`.
-            if (failure is IOException) {
+        } catch (e: Exception) {
+            if (e is IOException) {
                 return "io"
             }
             return "other"

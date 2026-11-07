@@ -1,7 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.descriptors.ClassKind
@@ -51,6 +53,14 @@ import org.jetbrains.kotlin.name.Name
  * `ListFragment`, `PreferenceFragment`, `PreferenceFragmentCompat`,
  * `BottomSheetDialogFragment`), all of which extend one of those roots.
  *
+ * A class with a constructor annotated `@Inject` or `@AssistedInject`
+ * (primary or secondary) is not reported: dependency injection builds it
+ * through a custom FragmentFactory, as in Go.
+ *
+ * Fragments in test source files are skipped, as in Go. Go also skips a
+ * Fragment built in the same file as `launchFragment(MyFragment(args))`;
+ * FIR does not look at call sites.
+ *
  * Deliberate differences from Go, each pinned in the golden data
  * (`FragmentConstructor*.kt`):
  * - Go matches the direct supertype's simple name, so it reports a class
@@ -89,6 +99,8 @@ internal object FragmentConstructor :
         ClassId(FqName("android.support.v4.app"), Name.identifier("Fragment")),
     )
 
+    private val injectAnnotationNames = setOf("Inject", "AssistedInject")
+
     private val jvmOverloadsClassId = ClassId(FqName("kotlin.jvm"), Name.identifier("JvmOverloads"))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -98,10 +110,14 @@ internal object FragmentConstructor :
         val source = declaration.source ?: return
         if (source.kind !is KtRealSourceElementKind) return
         if (!isFragment(declaration, context.session)) return
+        // Test fragments are built by the test, not re-instantiated by the framework, as in Go.
+        if (isInTestFile()) return
         @OptIn(DirectDeclarationsAccess::class)
         val constructors = declaration.declarations.filterIsInstance<FirConstructor>()
         if (constructors.isEmpty()) return
         if (constructors.any { isNoArg(it, context.session) }) return
+        // A DI-annotated constructor means a custom FragmentFactory builds the class.
+        if (constructors.any { isInjectAnnotated(it) }) return
         // Go reports the declaration's first line, where its modifier list
         // (annotations included) starts, else the `class` keyword.
         report(
@@ -124,6 +140,8 @@ internal object FragmentConstructor :
         if (params.any { it.defaultValue == null }) return false
         return ctor.isPrimary || ctor.hasAnnotation(jvmOverloadsClassId, session)
     }
+
+    private fun isInjectAnnotated(ctor: FirConstructor): Boolean = ctor.hasAnnotationNamed(injectAnnotationNames)
 
     // Supertypes are read from their own lookup tags, so no class id is
     // resolved from a symbol that may be local.

@@ -2,6 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -60,15 +62,23 @@ func registerTestingQualityAssertEqualsArgumentOrder() {
 				return
 			}
 			valueArgs := testingQualityValueArgumentsFlat(file, args)
-			if len(valueArgs) != 2 {
+			// The pair may follow a JUnit message or precede a kotlin.test message or a delta.
+			if len(valueArgs) < 2 || len(valueArgs) > 4 {
 				return
 			}
-			firstArg := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[0]))
-			secondArg := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[1]))
-			if firstArg != "actual" || secondArg != "expected" {
+			reversed := false
+			for i := 0; i+1 < len(valueArgs); i++ {
+				first := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[i]))
+				second := apiNodeNameFlat(file, flatValueArgumentExpression(file, valueArgs[i+1]))
+				if first == "actual" && second == "expected" {
+					reversed = true
+					break
+				}
+			}
+			if !reversed {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "`assertEquals` arguments appear reversed; use (expected, actual).")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "`assertEquals` arguments appear reversed; use (expected, actual).")
 		},
 	})
 }
@@ -101,10 +111,35 @@ func registerTestingQualityAssertTrueOnComparison() {
 				return
 			}
 			op := file.FlatChild(condition, 1)
-			if op == 0 || !file.FlatNodeTextEquals(op, "==") {
+			if op == 0 {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `assertEquals` instead of `assertTrue` for equality comparisons.")
+			isEquals := file.FlatNodeTextEquals(op, "==")
+			isNotEquals := file.FlatNodeTextEquals(op, "!=")
+			if !isEquals && !isNotEquals {
+				return
+			}
+			// A null operand has dedicated assertions with clearer failure messages.
+			for _, operand := range []uint32{file.FlatChild(condition, 0), file.FlatChild(condition, 2)} {
+				if operand != 0 && file.FlatType(operand) == "null" {
+					if isEquals {
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Use `assertNull` instead of `assertTrue` for null comparisons.")
+					} else {
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Use `assertNotNull` instead of `assertTrue` for null comparisons.")
+					}
+					return
+				}
+			}
+			if !isEquals {
+				return
+			}
+			// Comparing against a Boolean literal is a null-safe idiom, not value equality.
+			for _, operand := range []uint32{file.FlatChild(condition, 0), file.FlatChild(condition, 2)} {
+				if operand != 0 && file.FlatType(operand) == "boolean_literal" {
+					return
+				}
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Use `assertEquals` instead of `assertTrue` for equality comparisons.")
 		},
 	})
 }
@@ -130,37 +165,68 @@ func registerTestingQualityAssertNullableWithNotNullAssertion() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
+		// The compiler's unnecessary-assertion diagnostic shows the operand is already non-null.
+		Needs: api.NeedsResolver | api.NeedsOracleDiagnostics | api.NeedsOracleCallTargets,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !testingQualityRuleShouldRunInFile(file) {
 				return
 			}
 			name := flatCallExpressionName(file, idx)
-			if !testingQualityIsNullableAssertionCall(name) {
+			if !testingQualityIsNullableAssertionCall(ctx, idx, name) {
 				return
 			}
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
 				return
 			}
-			found := false
+			var bangs, postfixes []uint32
 			file.FlatWalkAllNodes(args, func(n uint32) {
-				if found {
-					return
-				}
 				if testingQualityInsideNestedExecutableArgument(file, n, args) {
 					return
 				}
 				if file.FlatType(n) == "postfix_expression" {
-					if postfixExpressionHasBangBang(file, n) {
-						found = true
+					// Without a Kotlin contract, `x!!` after an assertion on x is the required idiom.
+					if postfixExpressionHasBangBang(file, n) && !testingQualityOperandAssertedNonNull(file, idx, n) &&
+						testingQualityBangIsAssertionSubject(file, n, args) &&
+						testingQualityOperandDeclaredNullable(ctx, n) &&
+						!oracleHasDiagnosticAtNode(ctx, n, "UNNECESSARY_NOT_NULL_ASSERTION") {
+						bangs = append(bangs, bangBangNode(file, n))
+						postfixes = append(postfixes, n)
 					}
 				}
 			})
-			if !found {
+			if len(bangs) == 0 {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Avoid `!!` in assertions; use `assertNotNull` first.")
+			// `x!!.ts` inside an argument reads a member; it does not assert the value of x itself.
+			scope := "assertion arguments"
+			// List the bangs in source order, so chained ones (`a!!.b!!`) read innermost first.
+			order := make([]int, len(bangs))
+			for i := range order {
+				order[i] = i
+			}
+			sort.Slice(order, func(a, b int) bool { return file.FlatStartByte(bangs[order[a]]) < file.FlatStartByte(bangs[order[b]]) })
+			firstBang := bangs[order[0]]
+			truth := testingQualityFileUsesTruth(file)
+			var checks []string
+			for _, i := range order {
+				if !testingQualityBangIsMemberReceiver(file, postfixes[i]) {
+					scope = "assertions"
+				}
+				operand := testingQualityShortOperand(strings.ReplaceAll(file.FlatNodeText(flatFirstNamedChild(file, postfixes[i])), "!!", ""))
+				if truth {
+					checks = append(checks, "`assertThat("+operand+").isNotNull()`")
+				} else {
+					checks = append(checks, "`assertNotNull("+operand+")`")
+				}
+			}
+			joined := strings.Join(checks, " and ")
+			if truth {
+				ctx.EmitAtNode(firstBang, "Avoid `!!` in "+scope+"; use "+joined+" first, then use a local val or smart-cast.")
+				return
+			}
+			ctx.EmitAtNode(firstBang, "Avoid `!!` in "+scope+"; use "+joined+" first and smart-cast.")
 		},
 	})
 }
@@ -249,7 +315,7 @@ func registerTestingQualityMockWithoutVerify() {
 
 func registerTestingQualityRunTestWithDelay() {
 	r := &RunTestWithDelayRule{
-		BaseRule: BaseRule{RuleName: "RunTestWithDelay", RuleSetName: testingQualityRuleSet, Sev: "warning", Desc: "Detects delay() calls inside runTest blocks where advanceTimeBy should be used instead."},
+		BaseRule: BaseRule{RuleName: "RunTestWithDelay", RuleSetName: testingQualityRuleSet, Sev: "info", Desc: "Detects a lone delay() in a runTest body with no other coroutine work, where it only advances virtual time."},
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
@@ -272,13 +338,18 @@ func registerTestingQualityRunTestWithDelay() {
 					}
 				}
 			}
-			if !testingQualityInsideRunTest(file, idx) {
+			runTestLambda := testingQualityRunTestLambdaOfDelay(file, idx)
+			if runTestLambda == 0 {
+				return
+			}
+			// delay runs on virtual time here; it is a real way to let launched work run.
+			if testingQualityRunTestSchedulesOtherWork(file, runTestLambda) {
 				return
 			}
 			if testingQualityInsideMockKAnswerLambda(file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `advanceTimeBy` instead of `delay` inside `runTest`.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "`delay` in `runTest` only advances virtual time and the test body calls no other code; `advanceTimeBy` states the intent, or remove it.")
 		},
 	})
 }
@@ -304,10 +375,13 @@ func registerTestingQualityRunTestWithThreadSleep() {
 			if receiver == 0 || !file.FlatNodeTextEquals(receiver, "Thread") {
 				return
 			}
-			if !testingQualityInsideRunTest(file, idx) {
+			if !testingQualityInsideRunTest(file, idx) || !testingQualityDelayInRunTestBody(file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `advanceTimeBy` instead of `Thread.sleep` inside `runTest`.")
+			if testingQualitySleepInPollingLoop(file, idx) || testingQualityTestUsesRealConcurrency(file, idx) {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Use `advanceTimeBy` instead of `Thread.sleep` inside `runTest`.")
 		},
 	})
 }
@@ -337,7 +411,10 @@ func registerTestingQualityRunBlockingInTest() {
 			if testingQualityRunBlockingTestsDispatcherThreadIdentity(file, idx) {
 				return
 			}
-			if testingQualityRunBlockingInRxJavaBridgeTest(file, idx, fn) {
+			if testingQualityClassUsesRealDispatchers(file, fn, r.RealDispatcherMarkers) {
+				return
+			}
+			if testingQualityRunBlockingInRxJavaBridgeTest(file, idx, fn) || testingQualityRunBlockingWithRxTestScheduler(file, fn) {
 				return
 			}
 			if testingQualityRunBlockingResultIsAsserted(file, idx, fn) {
@@ -349,7 +426,22 @@ func registerTestingQualityRunBlockingInTest() {
 			if testingQualityRunBlockingHasIntentionalComment(file, idx, fn) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use `runTest` instead of `runBlocking` in test functions.")
+			// A test that steps its own scheduler only wraps a fake call in runBlocking; runTest would not replace it.
+			if !testingQualityInsideRunTest(file, idx) && testingQualityFileDrivesOwnScheduler(file) &&
+				!testingQualityFunctionIsSuspend(file, fn) && !testingQualityRunBlockingIsWholeTestBody(file, idx, fn) {
+				return
+			}
+			// A runBlocking inside a larger test that does not use kotlinx-coroutines-test has no
+			// drop-in runTest: switching means restructuring the whole test.
+			if !testingQualityInsideRunTest(file, idx) && !testingQualityFileIsCoroutineTest(file) &&
+				!testingQualityRunBlockingIsWholeTestBody(file, idx, fn) {
+				return
+			}
+			msg := "Use `runTest` instead of `runBlocking` in test functions."
+			if testingQualityInsideRunTest(file, idx) {
+				msg = "Remove the nested `runBlocking`; the test already runs its body in `runTest`."
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), msg)
 		},
 	})
 }
@@ -371,6 +463,9 @@ func registerTestingQualityTestDispatcherNotInjected() {
 			if testingQualityDispatcherReferenceAllowedInTest(file, idx, segments[1]) {
 				return
 			}
+			if !testingQualityDispatcherPassedToProductionCode(file, idx) {
+				return
+			}
 			fn, ok := flatEnclosingFunction(file, idx)
 			if !ok || !testingQualityIsTestFunction(file, fn) {
 				return
@@ -386,51 +481,70 @@ func registerTestingQualityTestWithoutAssertion() {
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			if testingQualityIsEditorTemplatePath(file.Path) {
-				return
-			}
-			if !testingQualityIsTestFunction(file, idx) {
-				return
-			}
-			if r.AllowNoAssertionTests {
-				return
-			}
-			if testingQualityTestExpectsException(file, idx) {
-				return
-			}
-			if testingQualityIsIgnoredTest(file, idx) {
-				return
-			}
-			if testingQualityTestAllowsNoCrash(file, idx) {
-				return
-			}
-			if testingQualityIsBenchmarkOrGoldenFile(file) {
-				return
-			}
-			if testingQualityTestNameDocumentsNoException(file, idx) {
-				return
-			}
-			body, _ := file.FlatFindChild(idx, "function_body")
-			if body == 0 {
-				return
-			}
-			if testingQualityTextHasVerifyCall(file.FlatNodeText(idx)) {
-				return
-			}
-			if testingQualityBodyHasAssertionOrVerificationWithPatterns(file, body, r.AssertionMethodPatterns) {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test function has no assertion; add a verification.")
-		},
+		// Cross-file so assertion helpers declared in other test-support files are visible.
+		Needs: api.NeedsCrossFile, Confidence: api.ConfidenceMedium, Implementation: r,
+		Check: r.check,
 	})
+}
+
+// testingQualityBodyIsOnlyTodoOrFail reports a block body whose single statement is a `TODO(...)` call or
+// `throw NotImplementedError(...)`. Comments are ignored. Any other statement, or a `fail(...)`/`TODO()` nested
+// in a branch or lambda, means the test has real content.
+func testingQualityBodyIsOnlyTodoOrFail(file *scanner.File, body uint32) bool {
+	var stmt uint32
+	count := 0
+	var collect func(parent uint32)
+	collect = func(parent uint32) {
+		for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				continue
+			}
+			switch file.FlatType(child) {
+			case "line_comment", "multiline_comment", "block_comment", "comment":
+				continue
+			case "statements":
+				collect(child)
+				continue
+			}
+			stmt = child
+			count++
+		}
+	}
+	collect(body)
+	if count != 1 {
+		return false
+	}
+	switch file.FlatType(stmt) {
+	case "call_expression":
+		return testingQualityIsPlainCall(file, stmt, "TODO")
+	case "jump_expression":
+		if !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(stmt)), "throw") {
+			return false
+		}
+		for child := file.FlatFirstChild(stmt); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "call_expression" {
+				return testingQualityIsPlainCall(file, child, "NotImplementedError")
+			}
+		}
+	}
+	return false
+}
+
+// testingQualityIsPlainCall reports `name(...)` with no receiver and no trailing lambda.
+func testingQualityIsPlainCall(file *scanner.File, call uint32, name string) bool {
+	if flatCallExpressionName(file, call) != name {
+		return false
+	}
+	first := file.FlatFirstChild(call)
+	if first == 0 || file.FlatType(first) != "simple_identifier" {
+		return false
+	}
+	return !flatSubtreeHasNodeType(file, call, "lambda_literal")
 }
 
 func registerTestingQualityTestWithOnlyTodo() {
 	r := &TestWithOnlyTodoRule{
-		BaseRule: BaseRule{RuleName: "TestWithOnlyTodo", RuleSetName: testingQualityRuleSet, Sev: "warning", Desc: "Detects @Test functions whose body is only a TODO() or fail() call without @Ignore."},
+		BaseRule: BaseRule{RuleName: "TestWithOnlyTodo", RuleSetName: testingQualityRuleSet, Sev: "warning", Desc: "Detects @Test functions whose body is only a TODO() call without @Ignore."},
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
@@ -440,28 +554,17 @@ func registerTestingQualityTestWithOnlyTodo() {
 			if !testingQualityIsTestFunction(file, idx) {
 				return
 			}
-			if flatHasAnnotationNamed(file, idx, "Ignore") || flatHasAnnotationNamed(file, idx, "Disabled") {
+			if testingQualityIsIgnoredTest(file, idx) {
 				return
 			}
 			body, _ := file.FlatFindChild(idx, "function_body")
 			if body == 0 {
 				return
 			}
-			stmtCount := 0
-			isTodoOrFail := false
-			file.FlatWalkAllNodes(body, func(n uint32) {
-				if file.FlatType(n) == "call_expression" {
-					name := flatCallNameAny(file, n)
-					if name == "TODO" || name == "fail" {
-						isTodoOrFail = true
-					}
-					stmtCount++
-				}
-			})
-			if !isTodoOrFail || stmtCount != 1 {
+			if !testingQualityBodyIsOnlyTodoOrFail(file, body) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test with only `TODO()`; annotate with `@Ignore` or implement it.")
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Test with only `TODO()`; annotate with `@Ignore` or implement it.")
 		},
 	})
 }
@@ -479,10 +582,10 @@ func registerTestingQualityTestFunctionReturnValue() {
 				return
 			}
 			retType := testingQualityReturnType(file, idx)
-			if retType == "" || retType == "Unit" {
+			if retType == "" || testingQualityAllowedTestReturnType(retType) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test functions should return `Unit`; JUnit ignores return values.")
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Test functions should return `Unit`; JUnit ignores return values.")
 		},
 	})
 }
@@ -499,6 +602,10 @@ func registerTestingQualityTestNameContainsUnderscore() {
 			if !testingQualityIsTestFunction(file, idx) {
 				return
 			}
+			// Instrumented tests run through dex, where backticked names with spaces are not allowed before API 30.
+			if testingQualityIsAndroidInstrumentedTestFile(file) {
+				return
+			}
 			name := testingQualityFunctionName(file, idx)
 			if name == "" || !strings.Contains(name, "_") {
 				return
@@ -506,7 +613,7 @@ func registerTestingQualityTestNameContainsUnderscore() {
 			if strings.HasPrefix(name, "`") {
 				return
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 				"Test name uses underscores; consider backtick-quoted names.")
 			if fix := testNameUnderscoreFix(file, idx, name); fix != nil {
 				f.Fix = fix
@@ -548,14 +655,25 @@ func registerTestingQualitySharedMutableStateInObject() {
 			if !testingQualityIsTestFile(file) {
 				return
 			}
+			if sharedMutableStateObjectIsTestSupport(file, idx) {
+				return
+			}
 			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 				if file.FlatType(child) == "class_body" {
 					for member := file.FlatFirstChild(child); member != 0; member = file.FlatNextSib(member) {
 						if file.FlatType(member) != "property_declaration" {
 							continue
 						}
+						if hasAnnotationFlat(file, member, "VisibleForTesting") {
+							continue
+						}
 						if propertyDeclarationIsVar(file, member) {
-							ctx.EmitAt(file.FlatRow(member)+1, file.FlatCol(member)+1, "Mutable state in companion/object is shared across tests.")
+							name := extractIdentifierFlat(file, member)
+							if mutableObjectVarResetByLifecycle(file, idx, member, name) ||
+								(file.FlatHasModifier(member, "private") && mutableObjectVarOnlyWrittenByTestHooks(file, idx, member, name)) {
+								continue
+							}
+							ctx.EmitAtNode(declAnchor(file, member), "Mutable state '"+name+"' in companion/object is shared across tests.")
 						}
 					}
 				}
@@ -580,7 +698,7 @@ func registerTestingQualityTestInheritanceDepth() {
 			if delegation == 0 {
 				return
 			}
-			supertypes := testingQualitySupertypes(file, idx)
+			supertypes := testingQualitySuperclasses(file, idx)
 			if len(supertypes) == 0 {
 				return
 			}
@@ -594,7 +712,7 @@ func registerTestingQualityTestInheritanceDepth() {
 			if depth < 2 {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Test class inheritance depth exceeds 2; flatten the hierarchy.")
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Test class inheritance depth exceeds 2; flatten the hierarchy.")
 		},
 	})
 }
@@ -629,7 +747,7 @@ func registerTestingQualitySpyOnDataClass() {
 			if file.FlatType(argExpr) != "call_expression" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Avoid spying on data classes; value-based equality breaks spy semantics.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Avoid spying on data classes; value-based equality breaks spy semantics.")
 		},
 	})
 }
@@ -669,9 +787,114 @@ func registerTestingQualityVerifyWithoutMock() {
 			mockVars := testingQualityCollectMockNames(file, fn, helperFuncs)
 			for _, recv := range receivers {
 				if !testingQualityVerifyReceiverKnownMock(mockVars, recv) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Calling `verify` on a non-mock object; ensure `%s` is a mock.", recv.display))
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx), fmt.Sprintf("Calling `verify` on a non-mock object; ensure `%s` is a mock.", recv.display))
 				}
 			}
 		},
 	})
+}
+
+// testingQualityOperandAssertedNonNull reports an earlier non-null assertion on the operand of the `!!` at bang,
+// in the same function: `assertThat(x).isNotNull()`, `assertNotNull(x)` or `requireNotNull(x)`.
+func testingQualityOperandAssertedNonNull(file *scanner.File, call, bang uint32) bool {
+	operand := flatFirstNamedChild(file, bang)
+	if operand == 0 {
+		return false
+	}
+	text := strings.Join(strings.Fields(file.FlatNodeText(operand)), "")
+	if text == "" {
+		return false
+	}
+	scopeStart := uint32(0)
+	if fn, ok := flatEnclosingFunction(file, call); ok {
+		scopeStart = file.FlatStartByte(fn)
+	}
+	callStart := file.FlatStartByte(call)
+	if scopeStart >= callStart || int(callStart) > len(file.Content) {
+		return false
+	}
+	before := strings.Join(strings.Fields(string(file.Content[scopeStart:callStart])), "")
+	quoted := regexp.QuoteMeta(text)
+	pattern := regexp.MustCompile(`assertThat\(` + quoted + `\)\.isNotNull\(\)|` +
+		`(?:assertNotNull|requireNotNull|checkNotNull)\((?:[^,()]*,)?` + quoted + `[,)]|` +
+		`assertThat\(` + quoted + `,notNullValue\(\)\)`)
+	return pattern.MatchString(before)
+}
+
+// testingQualityBodyHasExpectOrAwaitCall reports Turbine and navigator style checks (`expectNoEvents()`,
+// `awaitItem()`, `expectPop()`) that fail the test when the expectation is not met.
+func testingQualityBodyHasExpectOrAwaitCall(file *scanner.File, body uint32) bool {
+	found := false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		name := flatCallNameAny(file, call)
+		// A function declared in this file is a lookalike unless its body asserts (handled elsewhere).
+		if name == "expectError" || ignoredReturnValueFileDeclaresFunction(file, name) {
+			return
+		}
+		found = testingQualityTurbineAssertionCalls[name] ||
+			testingQualityHasLowerPrefixWord(name, "expect") ||
+			testingQualityHasLowerPrefixWord(name, "await")
+	})
+	return found
+}
+
+func testingQualityHasLowerPrefixWord(name, prefix string) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	rest := name[len(prefix):]
+	return rest == "" || (rest[0] >= 'A' && rest[0] <= 'Z')
+}
+
+// sharedMutableStateObjectIsTestSupport reports whether the object is a
+// fake, stub or other test-support helper whose mutable state is deliberate.
+// Companion objects are judged only by annotation, since the name of the
+// enclosing test class says nothing about them.
+func sharedMutableStateObjectIsTestSupport(file *scanner.File, idx uint32) bool {
+	if hasAnnotationFlat(file, idx, "VisibleForTesting") {
+		return true
+	}
+	if file.FlatType(idx) != "object_declaration" || file.FlatHasModifier(idx, "companion") {
+		return false
+	}
+	name := extractIdentifierFlat(file, idx)
+	for _, marker := range []string{"Fake", "Stub", "Dummy", "Fixture"} {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+	return strings.HasPrefix(name, "Test") || strings.HasSuffix(name, "Test")
+}
+
+// testingQualityAllowedTestReturnType reports return types a test runner accepts:
+// Unit, and kotlinx-coroutines-test's TestResult that multiplatform runTest tests return.
+func testingQualityAllowedTestReturnType(retType string) bool {
+	switch retType {
+	case "Unit", "kotlin.Unit", "TestResult", "kotlinx.coroutines.test.TestResult":
+		return true
+	}
+	return false
+}
+
+// testingQualityBodyPlantsFailure reports a `throw`, `error(...)` or `fail(...)` anywhere in the body, such as in
+// a stub observer or a lazily evaluated lambda. The test passes only when that code is never reached.
+func testingQualityBodyPlantsFailure(file *scanner.File, body uint32) bool {
+	found := false
+	file.FlatWalkAllNodes(body, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "jump_expression":
+			found = strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(n)), "throw")
+		case "call_expression":
+			if name := flatCallExpressionName(file, n); name == "error" || name == "fail" {
+				found = true
+			}
+		}
+	})
+	return found
 }

@@ -9,9 +9,8 @@ package dev.jasonpearson.krit.fir.incremental
  * to be tiered (or, for the withheld-facts scenario, the harness removes what keeps it equal). The others are safe controls: [rule] must give the same verdict, tiered or not. The rules that read other
  * files' bodies were narrowed to the file under check and to what class files keep (#873), so their scenarios are
  * controls; the depth chains below (A uses, B forwards, C holds the fact) are the research's probes, which needed
- * every file of the chain in source before the narrowing. SerialVersionUIDInSerializableClass is served from the
- * recorded class-name facts (#876): its control must not differ, and the scenario that withholds the facts must.
- * No built-in rule is tiered, so the withheld-facts scenario is the only [differs] one.
+ * every file of the chain in source before the narrowing. No built-in rule is tiered,
+ * so every scenario is a control.
  */
 internal class CrossFileScenario(
     val name: String,
@@ -27,14 +26,18 @@ private const val TOAST_HEADER = "package p\nimport android.widget.Toast\nimport
 private const val GET_SIGNATURES_USE =
     "package p\nimport android.content.pm.PackageManager\nfun f(pm: PackageManager) { pm.getPackageInfo(\"x\", %s) }\n"
 
-private val SERIAL_FILES = mapOf(
-    "Resource.kt" to "package model\nsealed class Resource : java.io.Serializable {\n    companion object { private const val serialVersionUID = 1L }\n    data class Error(val message: String) : Resource()\n}\n",
-    "Failures.kt" to "package app\nclass FatalFailure(msg: String) : kotlin.Error(msg)\nclass Plain(msg: String) : RuntimeException(msg)\n",
-)
-
 private fun signatureUse(flags: String) = GET_SIGNATURES_USE.format(flags)
 
 internal val crossFileScenarios = listOf(
+    CrossFileScenario(
+        "UpperLowerInvariantMisuse control: enum overriding toString() declared in B (only this file's override counts)",
+        "UpperLowerInvariantMisuse",
+        mapOf(
+            "B.kt" to "package p\nenum class Color { Red; override fun toString(): String = \"Red Color\" }\n",
+            "A.kt" to "package p\nfun Text(text: String?): String = text.orEmpty()\nfun f(c: Color): String = Text(c.toString().uppercase())\n",
+        ),
+        differs = false,
+    ),
     CrossFileScenario(
         "SecureRandom control: top-level Random-typed val holding a SecureRandom in B (not followed)", "SecureRandom",
         mapOf(
@@ -143,20 +146,6 @@ internal val crossFileScenarios = listOf(
             "A.kt" to "package p\nimport dagger.Binds\nimport dagger.Module\n@Module\nabstract class M {\n    @Binds\n    @Lvl\n    abstract fun f(@Lvl(level = 2) foo: Foo): Foo\n}\n",
         ),
         differs = false,
-    ),
-    // SerialVersionUIDInSerializableClass is not tiered: a slice gets the recorded class-name facts of the files it
-    // reads as binaries. Failures.kt reaches Serializable only through Resource.Error in the binary Resource.kt.
-    CrossFileScenario(
-        "SerialVersionUIDInSerializableClass control: Error reaches Serializable through Resource in B",
-        "SerialVersionUIDInSerializableClass",
-        SERIAL_FILES,
-        differs = false,
-    ),
-    // The same module with the external facts withheld must differ, so the control above cannot pass vacuously.
-    CrossFileScenario(
-        "SerialVersionUIDInSerializableClass: external class-name facts withheld", "SerialVersionUIDInSerializableClass",
-        SERIAL_FILES,
-        differs = true, withholdExternalFacts = true,
     ),
     // Regression for the Wakelock offset coincidence: B's top-level `lock` is declared at source offsets that fall
     // inside A's function, so a source-offset-only locality check took it for a local of that function.

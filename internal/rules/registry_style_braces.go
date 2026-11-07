@@ -19,7 +19,7 @@ func registerStyleBracesRules() {
 		r := &BracesOnWhenStatementsRule{BaseRule: BaseRule{RuleName: "BracesOnWhenStatements", RuleSetName: "style", Sev: "warning", Desc: "Detects when branches that are missing braces around their bodies."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"when_entry"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"when_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}

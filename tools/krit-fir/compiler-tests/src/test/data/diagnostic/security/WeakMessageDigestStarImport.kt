@@ -12,7 +12,7 @@ class Registry {
 }
 
 class Crypto {
-    fun hash() {
+    fun digest() {
         <!WeakMessageDigest!>MessageDigest.getInstance("MD5")<!>
         MessageDigest.getInstance("SHA-256")
     }

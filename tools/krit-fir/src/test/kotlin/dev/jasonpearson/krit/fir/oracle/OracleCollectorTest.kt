@@ -3,10 +3,55 @@ package dev.jasonpearson.krit.fir.oracle
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageLocation
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OracleCollectorTest {
+
+    @TempDir
+    lateinit var tmp: Path
+
+    @Test
+    fun smartCastDeclarationsAttachOnlyToTheVerdictsTheSmartCastDecides() {
+        val content = "val x = (a.p)?.q\nval y = c.d + e.f?.g\nval z = a.p == null\nval w = a.p ?: b\n"
+        val path = tmp.resolve("Use.kt").toFile().apply { writeText(content) }.absolutePath
+        fun at(text: String, from: Int = 0) = content.indexOf(text, from).also { check(it >= 0) { text } }
+        val c = OracleCollector()
+        fun smartCast(start: Int, file: String) = c.addSmartCastDeclarations(path, start, start + 3, setOf(file))
+        smartCast(at("a.p"), "/b/Model.kt")
+        smartCast(at("c.d"), "/b/Other.kt")
+        smartCast(at("a.p", at("val z")), "/b/Model.kt")
+        smartCast(at("a.p", at("val w")), "/c/Third.kt")
+        fun diagnostic(factory: String, start: Int, end: Int) =
+            c.addDiagnostic(path, DiagnosticPayload(factory, "WARNING", factory, 1), start, end)
+        diagnostic("UNNECESSARY_SAFE_CALL", at("?."), at("?.") + 2)
+        diagnostic("UNNECESSARY_SAFE_CALL", at("?.g"), at("?.g") + 2)
+        diagnostic("SENSELESS_COMPARISON", at("a.p == null"), at("a.p == null") + 11)
+        diagnostic("USELESS_ELVIS", at("?: b"), at("?: b") + 4)
+        diagnostic("UNREACHABLE_CODE", at("a.p"), at("a.p") + 3)
+        c.addDiagnostic(path, DiagnosticPayload("USELESS_ELVIS", "WARNING", "no location", 1))
+
+        val declarations = c.toResult().files.getValue(path).diagnostics.map { it.smartCastDeclarations }
+        assertEquals(
+            listOf(listOf("/b/Model.kt"), emptyList(), listOf("/b/Model.kt"), listOf("/c/Third.kt"), emptyList(), emptyList()),
+            declarations,
+        )
+    }
+
+    @Test
+    fun smartCastDeclarationsRoundTripOnTheWire() {
+        val result = AnalyzeResult(files = mapOf("/a/Use.kt" to FilePayload(diagnostics = listOf(
+            DiagnosticPayload("UNNECESSARY_SAFE_CALL", "WARNING", "m", 2, 3, smartCastDeclarations = listOf("/b/Model.kt")),
+            DiagnosticPayload("USELESS_ELVIS", "WARNING", "m", 4),
+        ))))
+        val json = OracleResponse.buildOneShot(result)
+        assertTrue(""""smartCastDecls":["/b/Model.kt"]""" in json, json)
+        assertEquals(1, Regex("smartCastDecls").findAll(json).count(), json)
+    }
 
     @Test
     fun emptyCollectorProducesEmptyResult() {
@@ -238,5 +283,33 @@ class OracleCollectorTest {
         c.addExpression("/src/A.kt", "4:9", call)
         c.addSmartCastExpression("/src/A.kt", "4:9", smartCast)
         assertEquals(call, c.toResult().files["/src/A.kt"]?.expressions?.get("4:9"))
+    }
+
+    @Test
+    fun smartCastReceiverOfACallKeepsItsRefinedTypeUnderItsRange() {
+        val call = ExpressionPayload(type = "kotlin.String", startByte = 10, endByte = 22, callTarget = "kotlin.Any.toString", callTargetResolved = true)
+        val declared = ExpressionPayload(type = "kotlin.Any", nullable = true, startByte = 10, endByte = 11)
+        val refined = ExpressionPayload(type = "kotlin.Any", nullable = false, startByte = 10, endByte = 11)
+        val c = OracleCollector()
+        c.addCallExpression("/src/A.kt", "2:5", call)
+        c.addCallExpression("/src/A.kt", "2:5", declared)
+        c.addSmartCastExpression("/src/A.kt", "2:5", refined)
+        val expressions = c.toResult().files["/src/A.kt"]?.expressions
+        assertEquals(mapOf("2:5" to call, "2:5@11" to refined), expressions)
+    }
+
+    @Test
+    fun callsSharingAStartKeepBothRanges() {
+        val outer = ExpressionPayload(type = "", startByte = 10, endByte = 40, callTarget = "p.outer", callTargetResolved = true)
+        val inner = ExpressionPayload(type = "", startByte = 10, endByte = 22, callTarget = "p.inner", callTargetResolved = true, callTargetSuspend = true)
+        val c = OracleCollector()
+        c.addCallExpression("/src/A.kt", "2:5", outer)
+        assertFalse(c.hasExpressionRange("/src/A.kt", "2:5", 10, 22))
+        c.addCallExpression("/src/A.kt", "2:5", inner)
+        // A revisit of the same call is not recorded twice.
+        c.addCallExpression("/src/A.kt", "2:5", inner.copy(callTarget = "p.revisit"))
+        assertTrue(c.hasExpressionRange("/src/A.kt", "2:5", 10, 22))
+        val expressions = c.toResult().files["/src/A.kt"]?.expressions
+        assertEquals(mapOf("2:5" to outer, "2:5@22" to inner), expressions)
     }
 }

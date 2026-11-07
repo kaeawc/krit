@@ -400,7 +400,7 @@ func missingPermissionAnnotationContainerHasRequiresPermission(file *scanner.Fil
 }
 
 func missingPermissionEnclosingCatchesSecurityException(ctx *api.Context, call uint32) bool {
-	for _, handler := range semantics.EnclosingCaughtExceptionHandlers(ctx, call) {
+	for _, handler := range semantics.TryCaughtExceptionHandlers(ctx, call) {
 		if handler.TypeName == "SecurityException" || handler.TypeName == "java.lang.SecurityException" {
 			return true
 		}

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -19,6 +20,74 @@ type ExpressionBodySyntaxRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection is pattern-based and the preferred form
 // is a style preference. Classified per roadmap/17.
 func (r *ExpressionBodySyntaxRule) Confidence() float64 { return api.ConfidenceMedium }
+
+const expressionBodySyntaxMessage = "Functions with exact one statement, the return statement, can be rewritten with ExpressionBodySyntax."
+
+// check reports a block-bodied function whose only statement is a return, as detekt does: at the return
+// expression, skipping a wrapped return value unless IncludeLineWrapping is set and a return nested in an elvis.
+func (r *ExpressionBodySyntaxRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if scanner.IsTestFile(file.Path) {
+		return
+	}
+	body, _ := file.FlatFindChild(idx, "function_body")
+	if body == 0 || file.FlatFirstChild(body) == 0 || file.FlatType(file.FlatFirstChild(body)) != "{" {
+		return
+	}
+	stmts, ok := file.FlatFindChild(body, "statements")
+	if !ok || stmts == 0 {
+		return
+	}
+	only := uint32(0)
+	for c := file.FlatFirstChild(stmts); c != 0; c = file.FlatNextSib(c) {
+		if isFlatCommentNode(file, c) || !file.FlatIsNamed(c) {
+			continue
+		}
+		if only != 0 {
+			return
+		}
+		only = c
+	}
+	if only == 0 || file.FlatType(only) != "jump_expression" || !bytes.HasPrefix(file.FlatNodeBytes(only), returnPrefix) {
+		return
+	}
+	if returnHasElvisReturn(file, only) {
+		return
+	}
+	value := uint32(0)
+	for c := file.FlatFirstChild(only); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) && !isFlatCommentNode(file, c) && file.FlatType(c) != "label" && file.FlatType(c) != "return" {
+			value = c
+		}
+	}
+	if value != 0 && !r.IncludeLineWrapping && strings.Contains(file.FlatNodeText(value), "\n") {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(only)+1, file.FlatCol(only)+1, expressionBodySyntaxMessage)
+	if value != 0 && !strings.HasPrefix(file.FlatNodeText(only), "return@") {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(body)),
+			EndByte:     int(file.FlatEndByte(body)),
+			Replacement: "= " + file.FlatNodeText(value),
+		}
+	}
+	ctx.Emit(f)
+}
+
+// returnHasElvisReturn reports a return nested inside ret that is the right side of an elvis.
+func returnHasElvisReturn(file *scanner.File, ret uint32) bool {
+	found := false
+	file.FlatWalkNodes(ret, "jump_expression", func(n uint32) {
+		if n == ret || found || !bytes.HasPrefix(file.FlatNodeBytes(n), returnPrefix) {
+			return
+		}
+		if p, ok := file.FlatParent(n); ok && file.FlatType(p) == "elvis_expression" {
+			found = true
+		}
+	})
+	return found
+}
 
 // ThrowsCountRule limits the number of throw statements in a function.
 type ThrowsCountRule struct {
@@ -88,13 +157,14 @@ type CollapsibleIfStatementsRule struct {
 // is a style preference. Classified per roadmap/17.
 func (r *CollapsibleIfStatementsRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// SafeCastRule detects `if (x is Type) { x as Type }` patterns that should use `x as? Type`.
-// This is distinct from UnsafeCast, which is reserved for casts that can never succeed.
-// SafeCast only fires when an is-check + cast pattern is detected (the cast is redundant
-// because the is-check already proves the type).
+// SafeCastRule reports `if (x is T) x else null` (and the negated form), which `x as? T` replaces, as detekt does.
+// With ReportRedundantCasts it also reports a cast repeated after an is-check, such as `if (x is Type) { x as Type }`.
+// That extension is distinct from UnsafeCast, which is reserved for casts that can never succeed.
 type SafeCastRule struct {
 	FlatDispatchBase
 	BaseRule
+	// ReportRedundantCasts enables the krit-only redundant cast check; detekt has no such check.
+	ReportRedundantCasts bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
@@ -105,6 +175,115 @@ type SafeCastRule struct {
 // confidence is appropriate for the redundant-cast half of that
 // pair.
 func (r *SafeCastRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// safeCastSubjectIsUnstable reports a subject declared in scope as a var, a delegated property, or a
+// property with a custom getter, none of which smart cast.
+func safeCastSubjectIsUnstable(file *scanner.File, from uint32, name string) bool {
+	unstable := func(prop uint32) bool {
+		for child := file.FlatFirstChild(prop); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "var" || file.FlatNodeTextEquals(child, "var") {
+				return true
+			}
+		}
+		if file.FlatHasChildOfType(prop, "property_delegate") {
+			return true
+		}
+		next, ok := file.FlatNextSibling(prop)
+		return ok && file.FlatType(next) == "getter"
+	}
+	for scope, ok := file.FlatParent(from); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "function_declaration", "class_body", "source_file":
+			result, found := false, false
+			file.FlatWalkNodes(scope, "property_declaration", func(prop uint32) {
+				if !found && extractIdentifierFlat(file, prop) == name {
+					// Skip properties of nested classes or functions that merely share the name.
+					if owner, ok := file.FlatParent(prop); ok && (file.FlatType(owner) == "statements" || file.FlatType(owner) == "class_body" || file.FlatType(owner) == "source_file") {
+						found, result = true, unstable(prop)
+					}
+				}
+			})
+			if found {
+				return result
+			}
+		}
+	}
+	// Parameters smart cast; a name declared nowhere in the file (an implicit receiver property such
+	// as a state holder's `value`) cannot be proven stable.
+	return !safeCastSubjectIsParameter(file, from, name)
+}
+
+// safeCastSubjectIsParameter reports whether name is a function, lambda, constructor or loop parameter in scope.
+func safeCastSubjectIsParameter(file *scanner.File, from uint32, name string) bool {
+	if name == "it" {
+		return true
+	}
+	for scope, ok := file.FlatParent(from); ok; scope, ok = file.FlatParent(scope) {
+		found := false
+		visit := func(decl uint32) {
+			if !found && extractIdentifierFlat(file, decl) == name {
+				found = true
+			}
+		}
+		switch file.FlatType(scope) {
+		case "function_declaration", "anonymous_function", "secondary_constructor":
+			file.FlatWalkNodes(scope, "function_value_parameters", func(params uint32) {
+				for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "parameter" {
+						visit(child)
+					}
+				}
+			})
+		case "lambda_literal":
+			if params, ok := file.FlatFindChild(scope, "lambda_parameters"); ok {
+				for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "variable_declaration" {
+						visit(child)
+					}
+				}
+			}
+		case "class_declaration":
+			file.FlatWalkNodes(scope, "class_parameter", func(param uint32) {
+				if !file.FlatHasModifier(param, "var") {
+					visit(param)
+				}
+			})
+		case "for_statement":
+			if decl, ok := file.FlatFindChild(scope, "variable_declaration"); ok {
+				visit(decl)
+			}
+		}
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// safeCastElseCastsToOtherType reports an else branch that casts the same subject to a different type.
+func safeCastElseCastsToOtherType(file *scanner.File, ifIdx uint32, subject, subjectType string) bool {
+	seenElse := false
+	found := false
+	for child := file.FlatFirstChild(ifIdx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "else" {
+			seenElse = true
+			continue
+		}
+		if !seenElse || file.FlatType(child) != "control_structure_body" {
+			continue
+		}
+		file.FlatWalkAllNodes(child, func(n uint32) {
+			if file.FlatType(n) != "as_expression" {
+				return
+			}
+			parts := strings.SplitN(file.FlatNodeText(n), " as ", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == subject && strings.TrimSpace(strings.TrimPrefix(parts[1], "?")) != subjectType {
+				found = true
+			}
+		})
+	}
+	return found
+}
 
 // frameworkAnnotationNames identifies annotations indicating external
 // initialization by a framework — these vars can't be analyzed for mutability.
@@ -284,26 +463,21 @@ func modifierIndex(mod string) int {
 func sortModifiers(mods []string) []string {
 	result := make([]string, len(mods))
 	copy(result, mods)
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			ii := modifierIndex(result[i])
-			jj := modifierIndex(result[j])
-			if ii < 0 {
-				ii = 9999
-			}
-			if jj < 0 {
-				jj = 9999
-			}
-			if jj < ii {
-				result[i], result[j] = result[j], result[i]
-			}
+	rank := func(m string) int {
+		if i := modifierIndex(m); i >= 0 {
+			return i
 		}
+		return len(modifierOrder)
 	}
+	sort.SliceStable(result, func(i, j int) bool { return rank(result[i]) < rank(result[j]) })
 	return result
 }
 
 // FunctionOnlyReturningConstantRule detects functions that only return a constant.
 type FunctionOnlyReturningConstantRule struct {
+	// IgnoreIdioms skips functions that take parameters, bind through dependency injection or are tests. krit
+	// extension; detekt reports them, so detekt's defaults set this to false.
+	IgnoreIdioms bool
 	FlatDispatchBase
 	BaseRule
 	ExcludedFunctions         []string
@@ -317,6 +491,10 @@ func (r *FunctionOnlyReturningConstantRule) Confidence() float64 { return api.Co
 
 func isConstant(s string) bool {
 	s = strings.TrimSpace(s)
+	if len(s) >= 6 && strings.HasPrefix(s, `"""`) && strings.HasSuffix(s, `"""`) && !strings.Contains(s, "$") &&
+		!strings.Contains(s[3:len(s)-3], `"""`) {
+		return true
+	}
 	if isStringOrCharLiteral(s) {
 		return true
 	}
@@ -344,6 +522,15 @@ func isStringOrCharLiteral(s string) bool {
 func isNumericLiteral(s string) bool {
 	if len(s) == 0 || s[0] < '0' || s[0] > '9' {
 		return false
+	}
+	if len(s) > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X' || s[1] == 'b' || s[1] == 'B') {
+		for i := 2; i < len(s); i++ {
+			c := s[i]
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') && c != '_' && c != 'L' && c != 'u' && c != 'U' {
+				return false
+			}
+		}
+		return true
 	}
 	if numericHasOperatorChar(s) {
 		return false
@@ -438,4 +625,65 @@ func isInsideLambdaUnderFlat(child, stopAt uint32, file *scanner.File) bool {
 		}
 	}
 	return false
+}
+
+// mayBeConstantIsRealPropertyDeclaration rejects property nodes that error recovery made out of a
+// constructor header, or out of a function-body local after the class ended early.
+func mayBeConstantIsRealPropertyDeclaration(file *scanner.File, prop uint32) bool {
+	if !file.FlatHasChildOfType(prop, "variable_declaration") || unusedVariablePropertyIsConstructorHeaderArtifact(file, prop) {
+		return false
+	}
+	parent, ok := file.FlatParent(prop)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "source_file":
+		for sib, ok := file.FlatPrevSibling(prop); ok; sib, ok = file.FlatPrevSibling(sib) {
+			switch file.FlatType(sib) {
+			case "ERROR", "call_expression", "infix_expression", "assignment", "navigation_expression":
+				return false
+			}
+		}
+	case "class_body":
+		return !flatSubtreeHasNodeType(file, parent, "ERROR")
+	}
+	return true
+}
+
+var mayBeConstantTypes = map[string]bool{
+	"Int": true, "Long": true, "Short": true, "Byte": true, "Char": true, "Boolean": true,
+	"Float": true, "Double": true, "String": true, "UInt": true, "ULong": true, "UShort": true, "UByte": true,
+}
+
+// mayBeConstantDeclarationAllowed rejects properties that cannot be const whatever their initializer is:
+// custom accessors (parsed as following siblings), delegates, expect/actual/external, and
+// declared types that are nullable or not a primitive or String.
+func mayBeConstantDeclarationAllowed(file *scanner.File, idx uint32) bool {
+	if next, ok := file.FlatNextSibling(idx); ok {
+		if t := file.FlatType(next); t == "getter" || t == "setter" {
+			return false
+		}
+	}
+	for _, m := range []string{"actual", "expect", "external", "lateinit"} {
+		if file.FlatHasModifier(idx, m) {
+			return false
+		}
+	}
+	if file.FlatHasChildOfType(idx, "property_delegate") || file.FlatHasChildOfType(idx, "getter") || file.FlatHasChildOfType(idx, "setter") {
+		return false
+	}
+	if decl, ok := file.FlatFindChild(idx, "variable_declaration"); ok && decl != 0 {
+		for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "nullable_type":
+				return false
+			case "user_type":
+				if !mayBeConstantTypes[strings.TrimSpace(file.FlatNodeText(c))] {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }

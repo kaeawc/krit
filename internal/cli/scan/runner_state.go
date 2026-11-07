@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,8 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	runGenerateSchemaFlag(*f.GenerateSchema)
 
 	cfg := loadScanConfig(f)
+	applyDetektBaseline(f, cfg)
+	reportDetektImport(*f.Verbose, cfg, os.Stderr)
 	scanner.InitTestPaths(cfg.TestSourcePaths(), cfg.TestSourcePathsOverride())
 	rules.ApplyConfig(cfg)
 
@@ -202,6 +205,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	// the memo lifetime is scoped to a single invocation and never
 	// returns stale hashes across runs with the same working directory.
 	hashutil.ResetDefault()
+	loadPersistedHashes(cacheFilePath)
 
 	cpuProfileFile, cpuErr := startCPUProfile(*f.CPUProfile, os.Stderr)
 	if cpuErr != nil {
@@ -256,7 +260,7 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	// threading the full arg list into LoadAndMerge keeps detection
 	// working when other arg shapes (multiple roots, file paths) are
 	// passed without --config.
-	cfg, cfgErr := config.LoadAndMergeDefaults(userCfgPath, flag.Args()...)
+	cfg, cfgErr := config.LoadAndMergeDefaultsWith(detektLoadOptions(f), userCfgPath, flag.Args()...)
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
 	}
@@ -264,6 +268,42 @@ func loadScanConfig(f *scanFlags) *config.Config {
 		cfg = config.NewConfig()
 	}
 	return cfg
+}
+
+// detektLoadOptions maps the --detekt-config / --no-detekt-config flags to
+// config load options.
+func detektLoadOptions(f *scanFlags) config.LoadOptions {
+	var opts config.LoadOptions
+	if f.DetektConfig != nil {
+		opts.DetektConfigFile = *f.DetektConfig
+	}
+	if f.NoDetektConfig != nil {
+		opts.NoDetekt = *f.NoDetektConfig
+	}
+	return opts
+}
+
+// applyDetektBaseline uses the detekt baseline found next to the imported
+// detekt config when the run names no baseline of its own.
+func applyDetektBaseline(f *scanFlags, cfg *config.Config) {
+	info := cfg.Detekt()
+	if info == nil || info.Baseline == "" || f.Baseline == nil || *f.Baseline != "" {
+		return
+	}
+	if *f.CreateBaseline != "" || *f.BaselineAudit || *f.Delta != "" {
+		return
+	}
+	*f.Baseline = info.Baseline
+}
+
+// reportDetektImport prints the detekt import summary under --verbose.
+func reportDetektImport(verbose bool, cfg *config.Config, w io.Writer) {
+	if !verbose {
+		return
+	}
+	for _, line := range cfg.Detekt().Summary() {
+		fmt.Fprintf(w, "verbose: detekt: %s\n", line)
+	}
 }
 
 // quietScanConfig loads the scan's config like loadScanConfig without
@@ -274,7 +314,7 @@ func quietScanConfig(f *scanFlags) *config.Config {
 	if userCfgPath == "" {
 		userCfgPath = detectConfigForScanArgs(flag.Args())
 	}
-	cfg, _ := config.LoadAndMergeDefaults(userCfgPath, flag.Args()...)
+	cfg, _ := config.LoadAndMergeDefaultsWith(detektLoadOptions(f), userCfgPath, flag.Args()...)
 	return cfg
 }
 
@@ -988,6 +1028,7 @@ func (r *runner) outputPhase() int {
 		Writer:           r.w,
 		Format:           r.effectiveFormat,
 		BasePath:         r.basePath,
+		AbsolutePaths:    *r.f.AbsolutePaths,
 		StartTime:        r.start,
 		Version:          Version,
 		ExperimentNames:  experiment.Current().Names(),

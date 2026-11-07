@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -361,7 +362,7 @@ func runOracleProcessMeasured(
 	tail := &stderrTail{}
 	var stderrWriter io.Writer = tail
 	if verbose {
-		stderrWriter = io.MultiWriter(tail, os.Stderr)
+		stderrWriter = io.MultiWriter(tail, &dropWroteLine{w: os.Stderr})
 	}
 
 	cmd := exec.CommandContext(ctx, binaryPath, args...)
@@ -459,4 +460,28 @@ func InvokeDaemonWithClasspath(scanPaths []string, classpath []string, verbose b
 	}
 
 	return StartDaemon(jarPath, sourceDirs, classpath, verbose, append([]DaemonOption{WithBackend(BackendFIR)}, opts...)...)
+}
+
+// dropWroteLine hides krit-fir's "Wrote <path>" line, which repeats the
+// "krit-fir wrote N bytes to <path>" verbose line and has no prefix.
+type dropWroteLine struct {
+	w   io.Writer
+	buf []byte
+}
+
+func (d *dropWroteLine) Write(p []byte) (int, error) {
+	d.buf = append(d.buf, p...)
+	for {
+		i := bytes.IndexByte(d.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := d.buf[:i+1]
+		if !bytes.HasPrefix(line, []byte("Wrote ")) {
+			if _, err := d.w.Write(line); err != nil {
+				return len(p), err
+			}
+		}
+		d.buf = d.buf[i+1:]
+	}
 }

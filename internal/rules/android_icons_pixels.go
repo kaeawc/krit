@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"image"
 	"os"
 	"path/filepath"
@@ -185,9 +184,7 @@ func CheckIconColorsWithFacts(idx *android.IconIndex, c *scanner.FindingCollecto
 							RuleSet:  androidRuleSet,
 							Rule:     "IconColors",
 							Severity: "warning",
-							Message: fmt.Sprintf("Action Bar icon '%s' should use a single gray color "+
-								"(#333333 for light themes with 60%%/30%% opacity for enabled/disabled, "+
-								"and #FFFFFF with opacity 80%%/30%% for dark themes).", ic.Name),
+							Message:  "Action Bar icons should use a single gray color (`#333333` for light themes (with 60%/30% opacity for enabled/disabled), and `#FFFFFF` with opacity 80%/30% for dark themes",
 						})
 						break checkPixels
 					}
@@ -203,7 +200,7 @@ func CheckIconColorsWithFacts(idx *android.IconIndex, c *scanner.FindingCollecto
 							RuleSet:  androidRuleSet,
 							Rule:     "IconColors",
 							Severity: "warning",
-							Message:  fmt.Sprintf("Notification icon '%s' should not use colors.", ic.Name),
+							Message:  "Notification icons must be entirely white",
 						})
 						break checkPixels
 					}
@@ -223,7 +220,7 @@ func CheckIconColorsWithFacts(idx *android.IconIndex, c *scanner.FindingCollecto
 					RuleSet:  androidRuleSet,
 					Rule:     "IconColors",
 					Severity: "warning",
-					Message:  fmt.Sprintf("Notification icon '%s' must be entirely white.", ic.Name),
+					Message:  "Notification icons must be entirely white",
 				})
 				break checkPixels
 			}
@@ -245,14 +242,7 @@ func CheckIconLauncherShape(idx *android.IconIndex, c *scanner.FindingCollector)
 		if ic.Format != "png" || ic.Width == 0 || ic.Height == 0 {
 			continue
 		}
-		isLauncher := false
-		for _, prefix := range launcherPrefixes {
-			if ic.Name == prefix || strings.HasPrefix(ic.Name, prefix+"_") {
-				isLauncher = true
-				break
-			}
-		}
-		if !isLauncher {
+		if !isLauncherIconName(ic.Name) {
 			continue
 		}
 
@@ -289,7 +279,8 @@ func CheckIconLauncherShape(idx *android.IconIndex, c *scanner.FindingCollector)
 			}
 		}
 
-		if transparentCorners >= 3 {
+		// Lint: launcher icons should not fill every pixel of their square region.
+		if transparentCorners == 0 {
 			findings = append(findings, scanner.Finding{
 				File:     ic.Path,
 				Line:     1,
@@ -297,9 +288,7 @@ func CheckIconLauncherShape(idx *android.IconIndex, c *scanner.FindingCollector)
 				RuleSet:  androidRuleSet,
 				Rule:     "IconLauncherShape",
 				Severity: "warning",
-				Message: fmt.Sprintf("Launcher icon '%s' in %s has transparent corners, indicating a non-adaptive icon. "+
-					"Consider using adaptive icon format (mipmap-anydpi-v26) for better display across devices.",
-					ic.Name, ic.Density),
+				Message:  "Launcher icons should not fill every pixel of their square region; see the design guide for details",
 			})
 		}
 	}

@@ -85,6 +85,8 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			Format:              r.effectiveFormat,
 			IncludeGenerated:    *r.f.IncludeGenerated,
 			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
+			GradleModelDir:      *r.f.GradleModel,
+			NoGradleModel:       *r.f.NoGradleModel,
 			EditorConfigEnabled: *r.f.EditorConfig,
 			Workers:             *r.f.Jobs,
 			StartTime:           r.start,

@@ -56,8 +56,12 @@ nav:
   - Install: install.md
   - Quickstart: quickstart.md
   - Configuration: configuration.md
+  - Migrating from detekt: detekt-migration.md
   - Kotlin compiler settings: kotlin-compiler-settings.md
+  - Module sharding: module-sharding.md
+  - Kotlin scripts: kotlin-scripts.md
   - Rules: rules.md
+  - Kotlin toolchain migration rules: kotlin-gradle-migration-rules.md
   - Suggested fixes: suggested-fixes.md
   - Rule Scope: rule-scope.md
   - External Rules: external-rules.md

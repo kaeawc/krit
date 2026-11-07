@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -146,7 +147,7 @@ func (r *SpanStartWithoutFinishRule) shouldFlag(file *scanner.File, idx uint32) 
 	if !spanStartInitializer(file, init) {
 		return "", false
 	}
-	if spanFinishedAfterDeclaration(file, owner, idx, name) {
+	if spanFinishedAfterDeclaration(file, owner, idx, name) || spanEscapesAfterDeclaration(file, owner, idx, name) {
 		return "", false
 	}
 	return name, true
@@ -169,7 +170,8 @@ func spanFinishedAfterDeclaration(file *scanner.File, owner, decl uint32, spanNa
 	declRow := file.FlatRow(decl)
 	found := false
 	file.FlatWalkNodes(owner, "call_expression", func(call uint32) {
-		if found || file.FlatRow(call) <= declRow || !callBelongsDirectlyToSpanOwner(file, call, owner) {
+		// A callback lambda may end the span; a nested function that is never called does not count.
+		if found || file.FlatRow(call) <= declRow || !callBelongsToSpanOwnerScope(file, call, owner) {
 			return
 		}
 		if spanLifecycleCall(file, call, spanName) {
@@ -179,17 +181,51 @@ func spanFinishedAfterDeclaration(file *scanner.File, owner, decl uint32, spanNa
 	return found
 }
 
-func callBelongsDirectlyToSpanOwner(file *scanner.File, call, owner uint32) bool {
+func callBelongsToSpanOwnerScope(file *scanner.File, call, owner uint32) bool {
 	for parent, ok := file.FlatParent(call); ok; parent, ok = file.FlatParent(parent) {
 		if parent == owner {
 			return true
 		}
-		switch file.FlatType(parent) {
-		case "function_declaration", "lambda_literal":
+		if file.FlatType(parent) == "function_declaration" {
 			return false
 		}
 	}
 	return false
+}
+
+// spanEscapesAfterDeclaration reports whether the span variable is used as a
+// plain value (returned, stored or passed on), which hands lifecycle
+// ownership to other code.
+func spanEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, spanName string) bool {
+	return localEscapesAfterDeclaration(file, owner, decl, spanName)
+}
+
+// localEscapesAfterDeclaration reports whether the local variable name is
+// referenced after decl other than as the receiver of a member access, i.e.
+// it is returned, stored, or passed to other code that may take ownership.
+func localEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name string) bool {
+	declEnd := file.FlatEndByte(decl)
+	escaped := false
+	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
+		if escaped || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name {
+			return
+		}
+		parent, ok := file.FlatParent(id)
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "navigation_expression":
+			if file.FlatFirstChild(parent) == id {
+				return
+			}
+		case "navigation_suffix", "value_argument_label", "directly_assignable_expression":
+			// A store into the variable does not hand it to other code.
+			return
+		}
+		escaped = true
+	})
+	return escaped
 }
 
 func spanLifecycleCall(file *scanner.File, call uint32, spanName string) bool {
@@ -225,6 +261,9 @@ func (r *SpanAttributeWithHighCardinalityRule) shouldFlag(file *scanner.File, id
 	}
 	method := flatCallExpressionName(file, idx)
 	if method != "setAttribute" && method != "setAttributes" {
+		return "", false
+	}
+	if !bytes.Contains(file.Content, []byte("opentelemetry")) && !bytes.Contains(file.Content, []byte("Span")) {
 		return "", false
 	}
 	_, args := flatCallExpressionParts(file, idx)

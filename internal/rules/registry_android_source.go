@@ -1,7 +1,9 @@
 package rules
 
 import (
+	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -47,6 +49,14 @@ func showToastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, idx uint
 // A project-local `Log` class with the same level-named methods
 // resolves to a different FQN and is filtered out. When the oracle is
 // available but cannot resolve the call, stay silent (do not treat as confirmed).
+// logTagLength counts the tag in UTF-16 code units, as Android does, reading escape sequences such as \u00e9 as one character.
+func logTagLength(tag string) int {
+	if unquoted, err := strconv.Unquote(`"` + tag + `"`); err == nil {
+		tag = unquoted
+	}
+	return len(utf16.Encode([]rune(tag)))
+}
+
 func logCallOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call uint32) bool {
 	if lookup == nil {
 		return true
@@ -77,6 +87,10 @@ func registerAndroidSourceRules() {
 					file.FlatHasModifier(idx, "sealed") {
 					return
 				}
+				// Test fragments are built by the test, not re-instantiated by the framework.
+				if scanner.IsTestFile(file.Path) || fragmentLaunchedFromInstance(file, extractIdentifierFlat(file, idx)) {
+					return
+				}
 				isFragment := false
 				for i := 0; i < file.FlatChildCount(idx); i++ {
 					child := file.FlatChild(idx, i)
@@ -101,8 +115,9 @@ func registerAndroidSourceRules() {
 					return
 				}
 				ctorState := fragmentConstructorStateFlat(file, idx)
-				if ctorState.hasParamCtor && !ctorState.hasNoArgCtor {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				// DI-annotated constructors are built by a custom FragmentFactory.
+				if ctorState.hasParamCtor && !ctorState.hasNoArgCtor && !ctorState.hasInjectCtor {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Fragment subclass must have a default (no-arg) constructor for framework re-instantiation.")
 				}
 			},
@@ -110,9 +125,9 @@ func registerAndroidSourceRules() {
 	}
 	{
 		r := &ServiceCastRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ServiceCast", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "ServiceCast", Brief: "Wrong system service cast",
-			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6,
+			BaseRule: BaseRule{RuleName: "ServiceCast", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:  "ServiceCast", Brief: "Wrong system service casts",
+			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6,
 			Origin: "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
@@ -168,8 +183,8 @@ func registerAndroidSourceRules() {
 				if !serviceCastOracleConfirmed(oracleLookup, file, call) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Service cast mismatch: "+svcConst+" should be cast to "+expectedType+", not "+castType+".")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Suspicious cast to `"+castType+"` for a `"+svcConst+"`: expected `"+expectedType+"`")
 			},
 		})
 	}
@@ -203,8 +218,8 @@ func registerAndroidSourceRules() {
 				if !showToastOracleConfirmed(oracleLookup, file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Toast.makeText() called without .show(). The toast will not be displayed.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+					"Toast created but not shown: did you forget to call `show()`?")
 			},
 		})
 	}
@@ -217,13 +232,19 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
+			NodeTypes:  []string{"call_expression", "method_invocation"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !getSignaturesCallUsesDeprecatedFlag(file, idx) {
+				if file.FlatType(idx) == "method_invocation" {
+					if !getSignaturesJavaCallUsesDeprecatedFlag(file, idx) {
+						return
+					}
+				} else if !getSignaturesCallUsesDeprecatedFlag(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"GET_SIGNATURES is deprecated and can be spoofed. Use GET_SIGNING_CERTIFICATES (API 28+) instead.")
 			},
 		})
@@ -265,6 +286,17 @@ func registerAndroidSourceRules() {
 					return
 				}
 				keyType := file.FlatNodeText(keyIdent)
+				// A SparseArray is not a Map, so a map that escapes as one cannot be replaced.
+				if hashMapEscapesAsMap(file, idx) {
+					return
+				}
+				// SparseArray lookups are O(log n), so lint skips maps sized for more than 100 entries.
+				if _, args := flatCallExpressionParts(file, idx); args != 0 && file.FlatNamedChildCount(args) == 1 {
+					capacity := strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(args, 0))), "_", "")
+					if n, err := strconv.Atoi(capacity); err == nil && n > 100 {
+						return
+					}
+				}
 				valProj := file.FlatNextSib(keyProj)
 				for valProj != 0 && file.FlatType(valProj) != "type_projection" {
 					valProj = file.FlatNextSib(valProj)
@@ -294,7 +326,7 @@ func registerAndroidSourceRules() {
 				default:
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")
 			},
 		})
@@ -332,9 +364,14 @@ func registerAndroidSourceRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			Needs:             api.NeedsTypeInfo | api.NeedsOracleCallTargets,
+			NeedsLibraryFacts: true,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Android 7.0 (API 24) removed the 23 character tag limit.
+				if projectMinSdk(ctx) >= 24 {
+					return
+				}
 				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
 					return
 				}
@@ -345,7 +382,7 @@ func registerAndroidSourceRules() {
 				if !ok {
 					return
 				}
-				if len(tag) <= 23 {
+				if logTagLength(tag) <= 23 {
 					return
 				}
 				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
@@ -356,16 +393,16 @@ func registerAndroidSourceRules() {
 				if !logCallOracleConfirmed(oracleLookup, file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Log tag \""+tag+"\" exceeds the 23 character limit.")
 			},
 		})
 	}
 	{
 		r := &LogTagMismatchRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "LogTagMismatch", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule: BaseRule{RuleName: "LogTagMismatch", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:  "LogTagMismatch", Brief: "Mismatched Log tag",
-			Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5,
+			Category: ALCCorrectness, ALSeverity: ALSError, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
@@ -425,7 +462,7 @@ func registerAndroidSourceRules() {
 				if !classUsesTagInLog {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 					"Log TAG value \""+tagValue+"\" doesn't match class name \""+className+"\".")
 			},
 		})

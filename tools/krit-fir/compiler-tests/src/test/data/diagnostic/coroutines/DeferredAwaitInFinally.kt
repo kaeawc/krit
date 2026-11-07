@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 32, 41, 50, 59x2, 68, 71, 73, 82, 91, 100, 109, 110, 119, 132, 133, 145, 159, 160, 161, 162, 163, 164, 178, 179, 180, 181, 182, 183x2
+// go-lines: 23, 32, 41, 51, 59x2, 68, 71, 73, 82, 91, 100, 109, 110, 119, 132, 133, 145, 159, 160, 161, 162, 163, 164, 178, 179, 180, 181, 182, 183x2
 // Positive: Deferred.await() inside a finally block, in every shape the Go
 // rule reports. Go agrees on every case in this file.
 package test

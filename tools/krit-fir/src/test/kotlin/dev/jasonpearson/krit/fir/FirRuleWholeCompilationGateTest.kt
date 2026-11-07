@@ -61,6 +61,10 @@ class FirRuleWholeCompilationGateTest {
     )
 
     private val allowedReads = listOf(
+        AllowedRead("SerialVersionUIDInSerializableClass", "property.source ?: source,", Why.LOCAL,
+            "a property of the companion object of the class under check, in the same file"),
+        AllowedRead("InsecureTrustManager", "val body = symbol.fir.body", Why.LOCAL,
+            "reads a sibling member of the class that declares the function under check, in the same file"),
         AllowedRead("Wakelock", "return assignment?.rValue ?: symbol.resolvedInitializer", Why.LOCAL,
             "valueAt is reached only for FirPropertySymbol.isLocal (the `symbol.isLocal` branch at its call site)"),
         AllowedRead("Wakelock", "val declared = property.source ?: return false", Why.LOCAL,
@@ -71,6 +75,8 @@ class FirRuleWholeCompilationGateTest {
             "declaredFromNewWakeLock returns early unless property.isLocal"),
         AllowedRead("BufferedReadWithoutBuffer", "val initializer = symbol.resolvedInitializer", Why.LOCAL,
             "sourceOfLocal returns early unless symbol.isLocal"),
+        AllowedRead("BufferedReadWithoutBuffer", "buffer = symbol.resolvedInitializer ?: return false", Why.LOCAL,
+            "the line above returns unless symbol.isLocal && symbol.isVal"),
         AllowedRead("BufferedReadWithoutBuffer", "val declaration = symbol.source?.let { Span(it.startOffset, it.endOffset) }", Why.LOCAL,
             "reaching() is called only from sourceOfLocal, with a local symbol"),
         AllowedRead("JdbcPreparedStatementNotClosed", "if (getter != null && getter.source?.kind is KtRealSourceElementKind) {", Why.LOCAL,
@@ -87,6 +93,10 @@ class FirRuleWholeCompilationGateTest {
             "evaluates the same annotation constructor default; kept in class files"),
         AllowedRead("UseEmptyCounterpart", "val imports = context.containingFileSymbol?.fir?.imports.orEmpty()", Why.LOCAL,
             "containingFileSymbol is the file under check"),
+        AllowedRead("PreferToOverPairSyntax", "val imports = context.containingFileSymbol?.fir?.imports.orEmpty()", Why.LOCAL,
+            "containingFileSymbol is the file under check"),
+        AllowedRead("ExplicitBackingFieldCandidate", "context.containingFileSymbol?.fir?.declarations.orEmpty().filterIsInstance<FirProperty>().map { it.symbol }", Why.LOCAL,
+            "containingFileSymbol is the file under check; a top-level backing property is file-private"),
         AllowedRead("PrngFromSystemTime", "val imports = context.containingFileSymbol?.fir?.imports ?: return false", Why.LOCAL,
             "containingFileSymbol is the file under check"),
         AllowedRead("SynchronizedOnBoxedPrimitive", "owner.fir.accept(object : FirVisitorVoid() {", Why.LOCAL,
@@ -95,15 +105,6 @@ class FirRuleWholeCompilationGateTest {
             "rootSymbol is the outermost non-class declaration enclosing the code under check (context.containingDeclarations)"),
         AllowedRead("ReassignedLocals", "root.fir.accept(object : FirVisitorVoid() {", Why.LOCAL,
             "root is the outermost non-class declaration enclosing the code under check (context.containingDeclarations); helper file, named by file name"),
-        // SerialVersionUIDInSerializableClass walks the files the compile holds as source and adds the recorded
-        // class-name facts of every other module file (FirRuleCompileContext.externalClassNameFacts), so a slice and a
-        // full compile build the same set. FirIncrementalSplitDifferentialTest and the planner tests pin that.
-        AllowedRead("SerialVersionUIDInSerializableClass", "val provider = session.firProvider", Why.RECORDED,
-            "the compile's own source files; the other module files arrive as externalClassNameFacts"),
-        AllowedRead("SerialVersionUIDInSerializableClass", "for (pkg in provider.symbolProvider.symbolNamesProvider.getPackageNames().orEmpty()) {", Why.RECORDED,
-            "enumerates the packages of the compile's own source files; the other files arrive as externalClassNameFacts"),
-        AllowedRead("SerialVersionUIDInSerializableClass", "for (file in provider.getFirFilesByPackage(FqName(pkg))) facts += classNameFacts(file)", Why.RECORDED,
-            "the compile's own source files; the other files arrive as externalClassNameFacts"),
         AllowedRead("WorldReadableFiles", "val scope = klass.fir.scopeProvider.getStaticScope(klass.fir, context.session, context.scopeSession)", Why.CONST,
             "reads the static scope (member signatures and supertypes) of an imported class, which class files keep; no body or initializer is read"),
         // Narrowed rules (#873): a rule reads another declaration only through SameFileReads, or at a spot proven below.

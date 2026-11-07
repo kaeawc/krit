@@ -1,9 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 26, 33, 42, 51
-// Fragment subclasses Go reports that do have a no-arg constructor: an
-// annotated, fully defaulted @JvmOverloads secondary constructor, and a
-// no-arg secondary constructor whose body holds a local function, a function
-// type or an anonymous function. None of them is reported here.
+// go-lines: 27, 34, 43, 52
+// Fragment subclasses that do have a no-arg constructor: an annotated, fully
+// defaulted @JvmOverloads secondary constructor, and a no-arg secondary
+// constructor whose body holds a local function, a function type or an
+// anonymous function. None of them is reported here. Go reads the @JvmOverloads
+// case correctly and still reports the three body shapes (go-lines).
 package test
 
 import androidx.fragment.app.Fragment

@@ -89,12 +89,6 @@ func TestDeadCodeCapabilityContracts(t *testing.T) {
 			forbidden:   api.NeedsCrossFile | api.NeedsParsedFiles | api.NeedsResolver | api.NeedsOracle,
 			description: "module index only",
 		},
-		{
-			id:          "UnsafeCallOnNullableType",
-			required:    0,
-			forbidden:   api.NeedsCrossFile | api.NeedsModuleIndex | api.NeedsParsedFiles | api.NeedsResolver | api.NeedsTypeInfo | api.NeedsOracle,
-			description: "local AST/import evidence only",
-		},
 	}
 
 	for _, tc := range cases {

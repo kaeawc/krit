@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestRtlHardcodedResource(t *testing.T) {
@@ -21,6 +22,21 @@ func TestRtlHardcodedResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("relative layout and drawable left right attributes trigger", func(t *testing.T) {
+		for _, attr := range []string{
+			"android:layout_alignParentLeft", "android:layout_toRightOf", "android:layout_alignLeft", "android:drawableLeft",
+		} {
+			idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+				Type:       "TextView",
+				Line:       5,
+				Attributes: map[string]string{attr: "true"},
+			})
+			if findings := runResourceRule(r, idx); len(findings) != 1 {
+				t.Fatalf("%s: expected 1 finding, got %d", attr, len(findings))
+			}
 		}
 	})
 
@@ -148,7 +164,7 @@ func TestRtlSymmetryResource(t *testing.T) {
 		}
 	})
 
-	t.Run("marginLeft without marginRight triggers", func(t *testing.T) {
+	t.Run("marginLeft without marginRight is clean, as in Lint", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "TextView",
 			Line: 5,
@@ -157,8 +173,8 @@ func TestRtlSymmetryResource(t *testing.T) {
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("margins are not checked, got %d findings", len(findings))
 		}
 	})
 
@@ -387,3 +403,125 @@ func TestRtlSuperscriptResource(t *testing.T) {
 // ---------------------------------------------------------------------------
 // AdapterViewChildrenResource
 // ---------------------------------------------------------------------------
+
+func TestRtlRulesIgnoreElementsWithLogicalAttributes(t *testing.T) {
+	hardcoded := findResourceRule(t, "RtlHardcodedResource")
+	symmetry := findResourceRule(t, "RtlSymmetryResource")
+
+	both := indexWithLayout("main", "res/layout/main.xml", &android.View{
+		Type: "TextView",
+		Line: 5,
+		Attributes: map[string]string{
+			"android:layout_marginLeft":  "8dp",
+			"android:layout_marginStart": "8dp",
+		},
+	})
+	if findings := runResourceRule(hardcoded, both); len(findings) != 1 || !strings.HasPrefix(findings[0].Message, "Redundant attribute `layout_marginLeft`; already defining `layout_marginStart`") {
+		t.Errorf("RtlHardcodedResource: marginLeft next to marginStart is redundant, got %v", findingMessages(findings))
+	}
+	if findings := runResourceRule(symmetry, both); len(findings) != 0 {
+		t.Errorf("RtlSymmetryResource: marginLeft with marginStart should be clean, got %d", len(findings))
+	}
+
+	ignored := indexWithLayout("main", "res/layout/main.xml", &android.View{
+		Type: "TextView",
+		Line: 5,
+		Attributes: map[string]string{
+			"android:paddingLeft": "8dp",
+			"tools:ignore":        "RtlSymmetry",
+		},
+	})
+	if findings := runResourceRule(symmetry, ignored); len(findings) != 0 {
+		t.Errorf("RtlSymmetryResource: tools:ignore=RtlSymmetry should suppress, got %d", len(findings))
+	}
+}
+
+func TestRtlSymmetryResourceFollowsLintPaddingPairs(t *testing.T) {
+	symmetry := findResourceRule(t, "RtlSymmetryResource")
+	run := func(attrs map[string]string) []scanner.Finding {
+		return runResourceRule(symmetry, indexWithLayout("main", "res/layout/main.xml",
+			&android.View{Type: "TextView", Line: 5, Attributes: attrs}))
+	}
+
+	if f := run(map[string]string{"android:paddingLeft": "8dp", "android:paddingEnd": "8dp"}); len(f) != 0 {
+		t.Errorf("paddingLeft with paddingEnd is symmetric, got %d", len(f))
+	}
+	if f := run(map[string]string{"android:paddingStart": "8dp", "android:paddingRight": "8dp"}); len(f) != 0 {
+		t.Errorf("paddingStart with paddingRight is symmetric, got %d", len(f))
+	}
+	f := run(map[string]string{"android:paddingStart": "8dp"})
+	if len(f) != 1 || f[0].Message != "When you define `paddingStart` you should probably also define `paddingEnd` for right-to-left symmetry" {
+		t.Errorf("lone paddingStart should report Lint's message, got %+v", f)
+	}
+	if f := run(map[string]string{"android:paddingLeft": "8dp", "tools:ignore": "RtlHardcoded"}); len(f) != 1 {
+		t.Errorf("tools:ignore=RtlHardcoded must not suppress RtlSymmetry, got %d", len(f))
+	}
+	if f := run(map[string]string{"android:paddingLeft": "8dp", "tools:ignore": "RtlSymmetry"}); len(f) != 0 {
+		t.Errorf("tools:ignore=RtlSymmetry should suppress, got %d", len(f))
+	}
+}
+
+func TestRtlHardcodedResourceReportsEveryElement(t *testing.T) {
+	hardcoded := findResourceRule(t, "RtlHardcodedResource")
+	child := func(line int) *android.View {
+		return &android.View{Type: "TextView", Line: line, Attributes: map[string]string{"android:paddingLeft": "4dp"}}
+	}
+	root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{"android:paddingRight": "4dp"},
+		Children: []*android.View{child(3), {Type: "FrameLayout", Line: 5, Attributes: map[string]string{}, Children: []*android.View{child(6)}}, child(8)}}
+	findings := runResourceRule(hardcoded, indexWithLayout("main", "res/layout/main.xml", root))
+	if len(findings) != 4 {
+		t.Fatalf("expected one finding per offending element (4), got %d", len(findings))
+	}
+}
+
+func TestRelativeOverlapResourceStartMarginClearsSibling(t *testing.T) {
+	r := findResourceRule(t, "RelativeOverlapResource")
+	run := func(firstWidth, laterMargin string) int {
+		later := map[string]string{"android:layout_alignParentLeft": "true"}
+		if laterMargin != "" {
+			later["android:layout_marginStart"] = laterMargin
+		}
+		root := &android.View{Type: "RelativeLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+			{Type: "ImageView", Line: 3, Attributes: map[string]string{"android:layout_alignParentLeft": "true", "android:layout_width": firstWidth}},
+			{Type: "TextView", Line: 7, Attributes: later},
+		}}
+		return len(runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root)))
+	}
+	if n := run("40dp", "40dp"); n != 0 {
+		t.Errorf("margin equal to fixed width should be clean, got %d", n)
+	}
+	if n := run("40dp", "16dp"); n != 1 {
+		t.Errorf("margin smaller than fixed width should report, got %d", n)
+	}
+	if n := run("wrap_content", "48dp"); n != 0 {
+		t.Errorf("48dp margin after wrap_content should be clean, got %d", n)
+	}
+	if n := run("wrap_content", "16dp"); n != 1 {
+		t.Errorf("small margin after wrap_content should report, got %d", n)
+	}
+	if n := run("40dp", ""); n != 1 {
+		t.Errorf("no margin should report, got %d", n)
+	}
+}
+
+func TestRtlHardcodedResourceFollowsLintMessagesAndSkips(t *testing.T) {
+	hardcoded := findResourceRule(t, "RtlHardcodedResource")
+	run := func(attrs map[string]string) []scanner.Finding {
+		return runResourceRule(hardcoded, indexWithLayout("main", "res/layout/main.xml",
+			&android.View{Type: "TextView", Line: 5, Attributes: attrs}))
+	}
+	if f := run(map[string]string{"android:paddingLeft": "8dp", "android:paddingRight": "8dp"}); len(f) != 0 {
+		t.Errorf("equal left and right padding is symmetric, got %v", findingMessages(f))
+	}
+	f := run(map[string]string{"android:paddingLeft": "8dp", "android:paddingRight": "4dp"})
+	if len(f) != 2 || f[0].Message != "Consider replacing `android:paddingLeft` with `android:paddingStart=\"8dp\"` to better support right-to-left layouts" {
+		t.Errorf("one finding per attribute with Lint's wording, got %v", findingMessages(f))
+	}
+	f = run(map[string]string{"android:layout_gravity": "left|center"})
+	if len(f) != 1 || f[0].Message != "Use \"`start`\" instead of \"`left`\" to ensure correct behavior in right-to-left locales" {
+		t.Errorf("gravity left should suggest start, got %v", findingMessages(f))
+	}
+	if f := run(map[string]string{"android:gravity": "center"}); len(f) != 0 {
+		t.Errorf("gravity without left or right is clean, got %v", findingMessages(f))
+	}
+}

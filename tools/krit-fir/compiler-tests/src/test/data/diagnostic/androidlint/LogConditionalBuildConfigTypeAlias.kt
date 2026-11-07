@@ -8,13 +8,13 @@ package test.logconditional.aliased
 
 import android.util.Log
 
-object AppBuildConfig {
+object GeneratedBuildConfig {
     val DEBUG: Boolean = true
 }
 
-typealias BuildConfig = AppBuildConfig
+typealias BuildConfig = GeneratedBuildConfig
 
-typealias Flags = AppBuildConfig
+typealias Flags = GeneratedBuildConfig
 
 fun typeAliasGuard() {
     if (BuildConfig.DEBUG) {

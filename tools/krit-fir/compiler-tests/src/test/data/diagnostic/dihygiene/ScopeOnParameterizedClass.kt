@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 28, 31, 34, 37, 40, 43, 46, 51, 56, 60, 63, 66, 70, 73, 76, 79, 83, 87, 91, 95, 101, 106, 111
+// go-lines: 18, 25, 28, 31, 34, 37, 40, 43, 46, 51, 56, 60, 63, 66, 70, 73, 76, 79, 83, 87, 91, 95, 101, 106, 111
 // Scoped generic classes, the shapes Go reports: the finding sits on the
 // declaration's first line (its modifier list), like Go.
 package test

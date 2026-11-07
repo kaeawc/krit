@@ -49,6 +49,30 @@ func testingQualityTypeArgument(file *scanner.File, idx uint32) string {
 	return result
 }
 
+// testingQualityFileDeclaresValueClass reports a `value class` (or @JvmInline class) with the simple name declared in the file.
+func testingQualityFileDeclaresValueClass(file *scanner.File, name string) bool {
+	if name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
+		if found || extractIdentifierFlat(file, decl) != name {
+			return
+		}
+		mods, ok := file.FlatFindChild(decl, "modifiers")
+		if !ok {
+			return
+		}
+		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+			switch strings.TrimSpace(file.FlatNodeText(child)) {
+			case "value", "@JvmInline", "@kotlin.jvm.JvmInline":
+				found = true
+			}
+		}
+	})
+	return found
+}
+
 func registerTestingQualityRelaxedMockUsedForValueClass() {
 	r := &RelaxedMockUsedForValueClassRule{
 		BaseRule: BaseRule{RuleName: "RelaxedMockUsedForValueClass", RuleSetName: testingQualityRuleSet, Sev: "info", Desc: "Detects relaxed mocks of primitive or value types where literal values should be used instead."},
@@ -69,10 +93,10 @@ func registerTestingQualityRelaxedMockUsedForValueClass() {
 			if typeArg == "" {
 				return
 			}
-			if !primitiveTypes[typeArg] {
+			if !primitiveTypes[strings.TrimSuffix(typeArg, "?")] && !testingQualityFileDeclaresValueClass(file, strings.TrimSuffix(typeArg, "?")) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Don't mock primitives/value types; use literal values.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Don't mock primitives/value types; use literal values.")
 		},
 	})
 }

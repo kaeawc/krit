@@ -1,33 +1,14 @@
 package rules
 
 import (
-	"bytes"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
-
-var lazyListCallNames = map[string]bool{
-	"items":          true,
-	"itemsIndexed":   true,
-	"item":           true,
-	"forEach":        true,
-	"forEachIndexed": true,
-}
-
-func resourceCostInsideLazyListLambda(file *scanner.File, idx uint32) bool {
-	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
-		if file.FlatType(cur) == "call_expression" {
-			callName := flatCallNameAny(file, cur)
-			if lazyListCallNames[callName] {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // resourceCostLoopCallNames is the set of lambda-receiving calls whose body
 // runs once per element. The singular LazyListScope.item { } is deliberately
@@ -57,6 +38,119 @@ func resourceCostInsideLoopLambda(file *scanner.File, idx uint32) bool {
 		}
 	}
 	return false
+}
+
+// resourceCostInlineLoopCallNames are inline iteration helpers; outside a lazy list they run a fixed, small number of times.
+var resourceCostInlineLoopCallNames = map[string]bool{"forEach": true, "forEachIndexed": true, "map": true, "mapIndexed": true, "repeat": true}
+
+// resourceCostDirectLoopKind returns the loop whose body directly holds idx: the name of the iteration call
+// whose lambda is the nearest enclosing lambda, or "for" for a for loop. It returns "" when a slot or other
+// lambda sits between idx and the loop.
+func resourceCostDirectLoopKind(file *scanner.File, idx uint32) string {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "for_statement":
+			return "for"
+		case "lambda_literal":
+			for name := range resourceCostLoopCallNames {
+				if composeLambdaBelongsToCallFlat(file, cur, name) {
+					return name
+				}
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+// resourceCostInsideLazyItemsLambda reports whether idx sits in an items/itemsIndexed/item lambda.
+func resourceCostInsideLazyItemsLambda(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) == "call_expression" {
+			switch flatCallNameAny(file, cur) {
+			case "items", "itemsIndexed", "item":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resourceCostGuardedInsideLoop reports a call under an if or when branch that sits inside the loop,
+// where it runs for some iterations only.
+func resourceCostGuardedInsideLoop(file *scanner.File, idx uint32) bool {
+	guarded := false
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "if_expression", "when_entry", "when_expression":
+			guarded = true
+		case "for_statement":
+			return guarded
+		case "call_expression":
+			if resourceCostLoopCallNames[flatCallNameAny(file, cur)] {
+				return guarded
+			}
+		}
+	}
+	return false
+}
+
+// resourceCostLoopBoundNames returns the names bound per iteration by the lambdas of calls named
+// callNames that enclose idx: explicit parameters (implicit `it` when none) plus locals declared
+// before idx in that lambda. With includeForLoops it adds `for` loop variables. The bool reports
+// whether any such lambda or loop encloses idx.
+func resourceCostLoopBoundNames(file *scanner.File, idx uint32, callNames map[string]bool, includeForLoops bool) (map[string]bool, bool) {
+	names := map[string]bool{}
+	enclosed := false
+	var calls []string
+	for name := range callNames {
+		calls = append(calls, name)
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "lambda_literal":
+			if !composeLambdaBelongsToCallFlat(file, cur, calls...) {
+				continue
+			}
+			enclosed = true
+			params := composeLambdaParameterNamesFlat(file, cur)
+			if len(params) == 0 {
+				names["it"] = true
+			}
+			for _, p := range params {
+				names[p] = true
+			}
+			file.FlatWalkNodes(cur, "property_declaration", func(prop uint32) {
+				if file.FlatStartByte(prop) < file.FlatStartByte(idx) {
+					if n := composePropertyNameFlat(file, prop); n != "" {
+						names[n] = true
+					}
+				}
+			})
+		case "for_statement":
+			if !includeForLoops {
+				continue
+			}
+			enclosed = true
+			if decl, ok := file.FlatFindChild(cur, "variable_declaration"); ok {
+				if ident, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
+					names[file.FlatNodeText(ident)] = true
+				}
+			}
+		}
+	}
+	return names, enclosed
+}
+
+// resourceCostSubtreeUsesName reports whether any identifier under root is in names.
+func resourceCostSubtreeUsesName(file *scanner.File, root uint32, names map[string]bool) bool {
+	found := false
+	file.FlatWalkNodes(root, "simple_identifier", func(ident uint32) {
+		if !found && names[file.FlatNodeText(ident)] {
+			found = true
+		}
+	})
+	return found
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +228,7 @@ func sourceImportsOrMentions(file *scanner.File, fqn string) bool {
 	// Fallback for non-import mentions (string literals, doc references,
 	// etc.). Cheap on byte slices; not worth a per-pair memo now that
 	// the import-set is shared.
-	return bytes.Contains(file.Content, []byte(fqn))
+	return fileFactsCache().Mentions(file, fqn)
 }
 
 func okHTTPClientConstructionLooksReal(file *scanner.File, idx uint32, name, nodeText string) bool {
@@ -417,4 +511,252 @@ type WorkManagerUniquePolicyKeepButReplaceIntendedRule struct {
 
 func (r *WorkManagerUniquePolicyKeepButReplaceIntendedRule) Confidence() float64 {
 	return api.ConfidenceMedium
+}
+
+// rememberInListCallNames are the lazy list builders whose content lambda runs once per item.
+var rememberInListCallNames = map[string]bool{"items": true, "itemsIndexed": true}
+
+// rememberInListBody returns the trailing lambda of a remember call, or 0.
+func rememberInListBody(file *scanner.File, call uint32) uint32 {
+	suffix, _ := file.FlatFindChild(call, "call_suffix")
+	if suffix == 0 {
+		return 0
+	}
+	if annotated, _ := file.FlatFindChild(suffix, "annotated_lambda"); annotated != 0 {
+		lambda, _ := file.FlatFindChild(annotated, "lambda_literal")
+		return lambda
+	}
+	lambda, _ := file.FlatFindChild(suffix, "lambda_literal")
+	return lambda
+}
+
+// okHTTPClientToolingPath reports tooling code, which runs once per process. Scripts are skipped by the
+// resource-cost script scope.
+func okHTTPClientToolingPath(path string) bool {
+	slash := "/" + strings.TrimPrefix(filepath.ToSlash(path), "/")
+	return strings.Contains(slash, "/tooling/") || strings.Contains(slash, "/scripts/")
+}
+
+// okHTTPClientFeedsOneShotInitializer reports whether the client is built inside a lazy block, or in a function
+// that the file only calls from val initializers or lazy blocks, so it runs once.
+func okHTTPClientFeedsOneShotInitializer(file *scanner.File, idx, fn uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok && cur != fn; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) == "call_expression" && flatCallNameAny(file, cur) == "lazy" {
+			return true
+		}
+	}
+	if file.FlatType(fn) != "function_declaration" {
+		return false
+	}
+	name := flatFunctionName(file, fn)
+	if name == "" {
+		return false
+	}
+	callSites, oneShot := 0, true
+	file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+		if !oneShot || flatCallNameAny(file, call) != name || flatNodeHasAncestor(file, call, fn) {
+			return
+		}
+		callSites++
+		if !callIsInOneShotInitializer(file, call) {
+			oneShot = false
+		}
+	})
+	return oneShot && callSites > 0
+}
+
+func callIsInOneShotInitializer(file *scanner.File, call uint32) bool {
+	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "while_statement", "for_statement", "do_while_statement":
+			return false
+		case "call_expression":
+			if flatCallNameAny(file, cur) == "lazy" {
+				return true
+			}
+		case "property_declaration":
+			// Local vals sit in function bodies that may run repeatedly.
+			parent, _ := file.FlatParent(cur)
+			if pt := file.FlatType(parent); !propertyDeclarationIsVar(file, cur) && (pt == "class_body" || pt == "source_file") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// okHTTPExecuteIsCancellableBridge reports execute() inside suspendCancellableCoroutine that cancels the call on coroutine cancellation.
+func okHTTPExecuteIsCancellableBridge(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) == "call_expression" && flatCallNameAny(file, cur) == "suspendCancellableCoroutine" {
+			text := file.FlatNodeText(cur)
+			return strings.Contains(text, "invokeOnCancellation") && strings.Contains(text, ".cancel()")
+		}
+	}
+	return false
+}
+
+// functionKdocRequiresIODispatcher reports a KDoc that tells callers to run the function on an IO dispatcher.
+func functionKdocRequiresIODispatcher(file *scanner.File, fn uint32) bool {
+	prev, ok := file.FlatPrevSibling(fn)
+	if !ok || file.FlatType(prev) != "multiline_comment" || !flatIsKDoc(file, prev) {
+		return false
+	}
+	text := strings.ToLower(file.FlatNodeText(prev))
+	return strings.Contains(text, "dispatchers.io") || strings.Contains(text, "io dispatcher") ||
+		strings.Contains(text, "background thread") || strings.Contains(text, "iodispatcher")
+}
+
+// cursorCallReceiverNode returns the receiver of a Kotlin call or Java method invocation, or 0 when it has none.
+func cursorCallReceiverNode(file *scanner.File, call uint32) uint32 {
+	if file.FlatType(call) != "method_invocation" {
+		return astReceiverNodeFromCall(file, call)
+	}
+	first := file.FlatFirstChild(call)
+	if next := file.FlatNextSib(first); first != 0 && next != 0 && file.FlatType(next) == "." {
+		return first
+	}
+	return 0
+}
+
+// cursorLoopLocalNames returns names declared inside a cursor loop: locals, lambda parameters and for variables.
+func cursorLoopLocalNames(file *scanner.File, body uint32) map[string]bool {
+	names := map[string]bool{}
+	file.FlatWalkNodes(body, "property_declaration", func(prop uint32) {
+		if n := composePropertyNameFlat(file, prop); n != "" {
+			names[n] = true
+		}
+	})
+	file.FlatWalkNodes(body, "for_statement", func(forStmt uint32) {
+		if decl, ok := file.FlatFindChild(forStmt, "variable_declaration"); ok {
+			if ident, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
+				names[file.FlatNodeText(ident)] = true
+			}
+		}
+	})
+	file.FlatWalkNodes(body, "lambda_literal", func(lambda uint32) {
+		params := composeLambdaParameterNamesFlat(file, lambda)
+		if len(params) == 0 {
+			names["it"] = true
+		}
+		for _, p := range params {
+			names[p] = true
+		}
+	})
+	return names
+}
+
+// cursorColumnArgIsLoopInvariant reports whether the column-name argument of a getColumnIndex call does not
+// depend on a value declared inside the loop, so the lookup can be hoisted.
+func cursorColumnArgIsLoopInvariant(file *scanner.File, call uint32, loopLocals map[string]bool) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		args, _ = file.FlatFindChild(call, "argument_list")
+	}
+	if args == 0 {
+		return true
+	}
+	return !resourceCostSubtreeUsesName(file, args, loopLocals)
+}
+
+// bufferedReadFillsLargeBuffer reports whether a FileInputStream.read call fills a buffer known to hold 8 KiB
+// or more, which already moves data in large chunks. Reads into buffers of unknown size are not exempt.
+func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
+	first := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), 0)
+	expr := flatValueArgumentExpression(file, first)
+	if expr == 0 {
+		return false
+	}
+	size, known := byteArraySizeLiteral(file, expr)
+	if !known && file.FlatType(expr) == "simple_identifier" {
+		name := file.FlatNodeText(expr)
+		if fn, ok := flatEnclosingCallable(file, call); ok {
+			file.FlatWalkNodes(fn, "property_declaration", func(prop uint32) {
+				if known || composePropertyNameFlat(file, prop) != name || declarationIsVarFlat(file, prop) {
+					return
+				}
+				if init := propertyInitializerExpression(file, prop); init != 0 {
+					size, known = byteArraySizeLiteral(file, init)
+				}
+			})
+		}
+	}
+	return known && size >= 8192
+}
+
+// byteArraySizeLiteral returns N for a `ByteArray(N)` expression with an integer literal size.
+func byteArraySizeLiteral(file *scanner.File, expr uint32) (int, bool) {
+	if file.FlatType(expr) != "call_expression" || flatCallExpressionName(file, expr) != "ByteArray" {
+		return 0, false
+	}
+	args := flatCallKeyArguments(file, expr)
+	arg := flatPositionalValueArgument(file, args, 0)
+	size := flatValueArgumentExpression(file, arg)
+	if size == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(size)), "_", ""))
+	return n, err == nil
+}
+
+const workManagerMinPeriodicMillis = 15 * 60 * 1000
+
+var workManagerUnitMillis = map[string]int64{
+	"NANOSECONDS": 0, "MICROSECONDS": 0, "MILLISECONDS": 1, "SECONDS": 1000,
+	"MINUTES": 60 * 1000, "HOURS": 60 * 60 * 1000, "DAYS": 24 * 60 * 60 * 1000,
+}
+
+var workManagerDurationFactories = map[string]int64{
+	"ofMillis": 1, "ofSeconds": 1000, "ofMinutes": 60 * 1000, "ofHours": 60 * 60 * 1000, "ofDays": 24 * 60 * 60 * 1000,
+}
+
+// workManagerIntervalMillis evaluates the repeat interval of a PeriodicWorkRequest call when it is a literal
+// amount with a TimeUnit, or a Duration.ofX(literal) argument.
+func workManagerIntervalMillis(file *scanner.File, args uint32) (int64, bool) {
+	first := flatPositionalValueArgument(file, args, 0)
+	expr := flatValueArgumentExpression(file, first)
+	if expr == 0 {
+		return 0, false
+	}
+	parse := func(node uint32) (int64, bool) {
+		text := strings.TrimRight(strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(node)), "_", ""), "lL")
+		n, err := strconv.ParseInt(text, 10, 64)
+		return n, err == nil
+	}
+	if file.FlatType(expr) == "call_expression" {
+		factor, ok := workManagerDurationFactories[flatCallExpressionName(file, expr)]
+		if !ok {
+			return 0, false
+		}
+		inner := flatPositionalValueArgument(file, flatCallKeyArguments(file, expr), 0)
+		amount, ok := parse(flatValueArgumentExpression(file, inner))
+		return amount * factor, ok
+	}
+	amount, ok := parse(expr)
+	if !ok {
+		return 0, false
+	}
+	unit := flatPositionalValueArgument(file, args, 1)
+	if unit == 0 {
+		unit = flatNamedValueArgument(file, args, "repeatIntervalTimeUnit")
+	}
+	for name, factor := range workManagerUnitMillis {
+		if callArgHasReference(file, unit, name) {
+			if factor == 0 {
+				return 0, true
+			}
+			return amount * factor, true
+		}
+	}
+	return 0, false
+}
+
+func workManagerIntervalLabel(millis int64) string {
+	switch {
+	case millis%(60*1000) == 0:
+		return strconv.FormatInt(millis/(60*1000), 10) + " minutes"
+	case millis%1000 == 0:
+		return strconv.FormatInt(millis/1000, 10) + " seconds"
+	}
+	return strconv.FormatInt(millis, 10) + " ms"
 }

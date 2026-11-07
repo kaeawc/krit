@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.containingMinSdk
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
@@ -55,7 +56,8 @@ import org.jetbrains.kotlin.text
 
 // Flags an android.util.Log level call (`v`, `d`, `i`, `w`, `e`, `wtf`) whose
 // tag is longer than 23 characters, the limit older Android releases enforce
-// in Log.isLoggable. Like the Go rule, the tag is known when the first
+// in Log.isLoggable, and skips a module whose minSdk is 24 or higher, where
+// the limit no longer applies. Like the Go rule, the tag is known when the first
 // argument (or the property of a safe call, `screen?.tag`) is:
 // - a string literal without interpolation, raw strings included; or
 // - a reference to a property (member, top-level, companion, object, or
@@ -100,9 +102,8 @@ import org.jetbrains.kotlin.text
 //   anywhere; Go always reads the initializer (LongLogTagDivergence,
 //   LongLogTagLocalVar). The
 //   limit is counted in characters of the runtime value (UTF-16, as Android
-//   counts it); Go counts UTF-8 bytes of the source spelling, so a short
-//   non-ASCII tag or a tag spelled with escape sequences can exceed 23 for
-//   Go only (LongLogTagDivergence).
+//   counts it); Go counts the same UTF-16 units of the literal after reading
+//   its escape sequences, so only a tag Go cannot unescape differs.
 internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "LongLogTag"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -110,6 +111,9 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     }
 
     private const val MAX_TAG_LENGTH = 23
+
+    // Android 7.0 removed the tag length limit.
+    private const val TAG_LIMIT_REMOVED_API = 24
 
     private val logClassId = ClassId(FqName("android.util"), Name.identifier("Log"))
     private val levelNames = setOf("v", "d", "i", "w", "e", "wtf").map(Name::identifier).toSet()
@@ -119,6 +123,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
         val callableId = callee.callableId
         if (callableId.classId != logClassId || callableId.callableName !in levelNames) return
+        if (containingMinSdk() >= TAG_LIMIT_REMOVED_API) return
         // Every level overload takes the tag first.
         val tagParameter = callee.valueParameterSymbols.firstOrNull() ?: return
         val argument = expression.resolvedArgumentMapping

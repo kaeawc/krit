@@ -10,5 +10,5 @@ interface UserDao {
     @Query("SELECT * FROM users")
     fun all(): List<User>
 
-    fun helper(): Int = 0
+    fun helper(): Int
 }

@@ -68,7 +68,7 @@ func (r *WrongViewCastRule) checkKotlin(ctx *api.Context) {
 		if castType == "" {
 			return
 		}
-		r.checkLookup(ctx, ctx.Idx, castType)
+		r.checkLookup(ctx, ctx.Idx, castType, true)
 	case "as_expression":
 		parts, ok := unsafeCastExpressionPartsFlat(file, ctx.Idx)
 		if !ok || parts.safe {
@@ -82,7 +82,7 @@ func (r *WrongViewCastRule) checkKotlin(ctx *api.Context) {
 		if castType == "" {
 			return
 		}
-		r.checkLookup(ctx, call, castType)
+		r.checkLookup(ctx, call, castType, false)
 	}
 }
 
@@ -94,7 +94,7 @@ func (r *WrongViewCastRule) checkJava(ctx *api.Context) {
 		if castType == "" || call == 0 {
 			return
 		}
-		r.checkLookup(ctx, call, castType)
+		r.checkLookup(ctx, call, castType, false)
 	case "local_variable_declaration":
 		castType := wrongViewCastJavaDeclarationType(file, ctx.Idx)
 		if castType == "" {
@@ -104,12 +104,14 @@ func (r *WrongViewCastRule) checkJava(ctx *api.Context) {
 			if wrongViewCastHasAncestorBefore(file, call, ctx.Idx, "cast_expression") {
 				return
 			}
-			r.checkLookup(ctx, call, castType)
+			r.checkLookup(ctx, call, castType, true)
 		})
 	}
 }
 
-func (r *WrongViewCastRule) checkLookup(ctx *api.Context, call uint32, castType string) {
+// checkLookup judges one findViewById call; implicit is true when the cast comes from a generic type argument
+// or the declared type rather than an explicit cast.
+func (r *WrongViewCastRule) checkLookup(ctx *api.Context, call uint32, castType string, implicit bool) {
 	file := ctx.File
 	callConfidence, ok := wrongViewCastAndroidLookupConfidence(ctx, call)
 	if !ok {
@@ -127,7 +129,7 @@ func (r *WrongViewCastRule) checkLookup(ctx *api.Context, call uint32, castType 
 			File:       file.Path,
 			Line:       file.FlatRow(call) + 1,
 			Col:        file.FlatCol(call) + 1,
-			Message:    "Suspicious cast: id '" + idName + "' is " + actualType + " in layout resources, but cast to " + castType + ".",
+			Message:    wrongViewCastMessage(implicit, castType, actualType),
 			Confidence: callConfidence,
 		})
 	}
@@ -366,7 +368,7 @@ func wrongViewCastResourceViewType(idx *android.ResourceIndex, idName string) (s
 	}
 	var actual string
 	var saw bool
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		walkViews(layout.RootView, func(v *android.View) {
 			if v == nil || wrongViewCastNormalizeID(v.ID) != idName {
 				return
@@ -428,4 +430,13 @@ func wrongViewCastSimpleType(typ string) string {
 		typ = typ[i+1:]
 	}
 	return strings.TrimSpace(typ)
+}
+
+// wrongViewCastMessage is ViewTypeDetector's wording.
+func wrongViewCastMessage(implicit bool, castType, layoutTag string) string {
+	kind := "cast"
+	if implicit {
+		kind = "implicit cast"
+	}
+	return "Unexpected " + kind + " to " + castType + ": layout tag was " + layoutTag
 }

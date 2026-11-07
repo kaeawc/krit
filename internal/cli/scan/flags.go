@@ -39,7 +39,10 @@ type scanFlags struct {
 	Strict                   *bool
 	Baseline                 *string
 	CreateBaseline           *string
+	DetektConfig             *string
+	NoDetektConfig           *bool
 	BasePath                 *string
+	AbsolutePaths            *bool
 	EditorConfig             *bool
 	Version                  *bool
 	NoCache                  *bool
@@ -133,7 +136,7 @@ type scanFlags struct {
 // pass a fresh FlagSet to introspect defaults without polluting global state.
 func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f := &scanFlags{}
-	f.Format = fs.String("f", "json", "Output format: json, plain, sarif, checkstyle (auto: plain in terminal, json when piped)")
+	f.Format = fs.String("f", "json", "Output format: json, plain, sarif, checkstyle (default json; plain when stdout is a terminal and no -o file is set)")
 	fs.StringVar(f.Format, "format", "json", "Alias for -f")
 	f.Report = fs.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	f.Perf = fs.Bool("perf", false, "Include performance timing in output")
@@ -157,8 +160,11 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Maturity = fs.String("maturity", "", "With --list-rules: filter to rules whose Maturity matches (stable, experimental, or deprecated)")
 	f.Strict = fs.Bool("strict", false, "Strict preset: exclude rules declared NoisinessNoisy. Combine with config strict: true.")
 	f.Baseline = fs.String("baseline", "", "Baseline file to suppress known issues (XML or JSON)")
+	f.DetektConfig = fs.String("detekt-config", "", "Import this detekt.yml under krit.yml (default: auto-discover config/detekt/detekt.yml, detekt.yml, .detekt.yml)")
+	f.NoDetektConfig = fs.Bool("no-detekt-config", false, "Do not import a detekt config, even when one is auto-discoverable")
 	f.CreateBaseline = fs.String("create-baseline", "", "Create a baseline file from current findings")
-	f.BasePath = fs.String("base-path", "", "Base path for relative file paths in baselines and reports (default: first scan path)")
+	f.AbsolutePaths = fs.Bool("absolute-paths", false, "Report finding file paths as absolute (default: relative to --base-path, using forward slashes)")
+	f.BasePath = fs.String("base-path", "", "Base path that reported file paths and baseline IDs are relative to (default: first scan path)")
 	f.EditorConfig = fs.Bool("enable-editorconfig", false, "Read .editorconfig for max_line_length, indent_size, etc.")
 	f.Version = fs.Bool("version", false, "Print version")
 	f.NoCache = fs.Bool("no-cache", false, "Disable the incremental analysis cache and the FIR check cache (neither is read or written)")

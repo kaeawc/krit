@@ -45,67 +45,6 @@ func flatReceiverCallExpression(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
-func flatApplyBodyReferencesThis(file *scanner.File, stmts uint32) bool {
-	if file == nil || stmts == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkAllNodes(stmts, func(candidate uint32) {
-		if found {
-			return
-		}
-		switch file.FlatType(candidate) {
-		case "this_expression":
-			found = true
-		case "call_expression":
-			callee := file.FlatChild(candidate, 0)
-			if file.FlatType(callee) != "simple_identifier" {
-				return
-			}
-			switch file.FlatNodeText(callee) {
-			case "println", "print", "require", "check", "error", "TODO",
-				"listOf", "mapOf", "setOf", "arrayOf",
-				"emptyList", "emptyMap", "emptySet",
-				"mutableListOf", "mutableMapOf", "mutableSetOf",
-				"buildList", "buildMap", "buildSet",
-				"lazy", "run", "with", "also", "let", "apply",
-				"repeat", "synchronized", "maxOf", "minOf",
-				"compareBy", "compareByDescending",
-				"sortedBy", "sortedByDescending",
-				"hashMapOf", "linkedMapOf", "hashSetOf", "linkedSetOf":
-				return
-			default:
-				found = true
-			}
-		case "simple_identifier":
-			parent, ok := file.FlatParent(candidate)
-			if !ok {
-				return
-			}
-			if file.FlatNodeTextEquals(candidate, "it") {
-				return
-			}
-			if file.FlatType(parent) == "navigation_expression" {
-				if file.FlatNamedChildCount(parent) > 0 && file.FlatNamedChild(parent, 0) == candidate {
-					found = true
-					return
-				}
-			}
-			if file.FlatType(parent) == "statements" {
-				found = true
-				return
-			}
-			if file.FlatType(parent) == "assignment" || file.FlatType(parent) == "directly_assignable_expression" {
-				if file.FlatChildCount(parent) > 0 && file.FlatChild(parent, 0) == candidate {
-					found = true
-					return
-				}
-			}
-		}
-	})
-	return found
-}
-
 func flatFilterPredicateText(file *scanner.File, filterCall uint32) string {
 	suffix, _ := file.FlatFindChild(filterCall, "call_suffix")
 	if suffix == 0 {
@@ -162,9 +101,8 @@ type RedundantHigherOrderMapUsageRule struct {
 	BaseRule
 }
 
-// UnnecessaryApplyRule detects `.apply {}` where the lambda body never
-// references the receiver (empty body, or body that only uses external
-// references without any implicit/explicit `this` access).
+// UnnecessaryApplyRule detects `receiver.apply { stmt }` whose single statement only
+// reaches the receiver (see style_unnecessary_apply.go).
 type UnnecessaryApplyRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -201,10 +139,12 @@ var filterTerminatorCalls = map[string]string{
 	"last": "last", "lastOrNull": "lastOrNull",
 	"single": "single", "singleOrNull": "singleOrNull",
 	"count": "count", "any": "any", "none": "none",
+	// detekt also reports these: no element satisfies the predicate exactly when none does, and so on.
+	"isEmpty": "none", "isNotEmpty": "any",
 }
 
-// UnnecessaryAnyRule detects unnecessary .any { true }, .any { it }, and
-// .none { true } calls that can be replaced with .isNotEmpty() or .isEmpty().
+// UnnecessaryAnyRule detects unnecessary .any { true } and .none { true } calls
+// that can be replaced with .any() or .none().
 // Also detects .filter { pred }.any() which should be .any { pred }.
 type UnnecessaryAnyRule struct {
 	FlatDispatchBase
@@ -258,4 +198,119 @@ var unnRevReverseFuncs = map[string]bool{
 var unnRevSortFuncs = map[string]bool{
 	"sorted": true, "sortedDescending": true,
 	"sortedBy": true, "sortedByDescending": true,
+}
+
+var knownListFactories = map[string]bool{
+	"listOf": true, "mutableListOf": true, "arrayListOf": true, "emptyList": true, "listOfNotNull": true,
+	"buildList": true, "List": true, "MutableList": true, "ArrayList": true,
+}
+
+var knownListOperations = map[string]bool{
+	"toList": true, "toMutableList": true, "filter": true, "filterNot": true, "filterNotNull": true,
+	"sorted": true, "sortedBy": true, "sortedDescending": true, "sortedWith": true, "reversed": true,
+	"take": true, "drop": true, "distinct": true, "flatMap": true, "map": true, "mapNotNull": true,
+}
+
+// mapReceiverIsKnownList reports whether the receiver is provably a List from its factory call or declared type.
+func mapReceiverIsKnownList(file *scanner.File, call, receiver uint32) bool {
+	switch file.FlatType(receiver) {
+	case "call_expression":
+		name := flatCallNameAny(file, receiver)
+		return knownListFactories[name] || knownListOperations[name]
+	case "simple_identifier":
+		name := file.FlatNodeText(receiver)
+		scope, ok := flatEnclosingCallable(file, call)
+		if !ok {
+			scope = 0
+		}
+		known := false
+		for _, nodeType := range []string{"property_declaration", "parameter"} {
+			file.FlatWalkNodes(scope, nodeType, func(decl uint32) {
+				if known || extractIdentifierFlat(file, decl) != name {
+					return
+				}
+				if nodeType == "parameter" {
+					if t, found := file.FlatFindChild(decl, "user_type"); found {
+						known = declaredTypeIsList(file.FlatNodeText(t))
+					}
+					return
+				}
+				if t, found := file.FlatFindChild(decl, "user_type"); found {
+					known = declaredTypeIsList(file.FlatNodeText(t))
+					return
+				}
+				for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "call_expression" {
+						known = knownListFactories[flatCallNameAny(file, child)] || knownListOperations[flatCallNameAny(file, child)]
+					}
+				}
+			})
+		}
+		return known
+	}
+	return false
+}
+
+func declaredTypeIsList(typeText string) bool {
+	return strings.HasPrefix(typeText, "List<") || strings.HasPrefix(typeText, "MutableList<") ||
+		strings.HasPrefix(typeText, "ArrayList<")
+}
+
+// applyEnclosingScopeDeclares reports whether name is a parameter or a local declared before the block in a scope that encloses it,
+// up to the enclosing function. Those win over members of the apply receiver.
+func applyEnclosingScopeDeclares(file *scanner.File, block uint32, name string) bool {
+	blockStart := file.FlatStartByte(block)
+	declares := func(node uint32) bool {
+		if id, ok := file.FlatFindChild(node, "simple_identifier"); ok {
+			return file.FlatNodeTextEquals(id, name)
+		}
+		return false
+	}
+	for scope, ok := file.FlatParent(block); ok; scope, ok = file.FlatParent(scope) {
+		for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "property_declaration":
+				if file.FlatStartByte(child) < blockStart {
+					if v, ok := file.FlatFindChild(child, "variable_declaration"); ok && declares(v) {
+						return true
+					}
+				}
+			case "function_value_parameters", "lambda_parameters":
+				for p := file.FlatFirstChild(child); p != 0; p = file.FlatNextSib(p) {
+					switch file.FlatType(p) {
+					case "parameter", "variable_declaration":
+						if declares(p) {
+							return true
+						}
+					}
+				}
+			case "variable_declaration":
+				// A for-loop variable.
+				if file.FlatType(scope) == "for_statement" && declares(child) {
+					return true
+				}
+			}
+		}
+		if t := file.FlatType(scope); t == "function_declaration" || t == "anonymous_function" {
+			return false
+		}
+	}
+	return false
+}
+
+// applyScopeDeclares reports whether name is declared as a parameter or local variable anywhere under scope.
+func applyScopeDeclares(file *scanner.File, scope uint32, name string) bool {
+	declared := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if declared {
+			return
+		}
+		switch file.FlatType(n) {
+		case "variable_declaration", "parameter", "class_parameter":
+			if id, ok := file.FlatFindChild(n, "simple_identifier"); ok && file.FlatNodeTextEquals(id, name) {
+				declared = true
+			}
+		}
+	})
+	return declared
 }

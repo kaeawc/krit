@@ -1,0 +1,8 @@
+plugins {
+    id("com.android.application") version "9.0.0"
+}
+
+android {
+    namespace = "com.example.app"
+    compileSdk = 36
+}

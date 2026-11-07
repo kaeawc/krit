@@ -26,8 +26,9 @@ type GradlePluginCompatibilityRule struct {
 func (r *GradlePluginCompatibilityRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradlePluginCompatibilityRule) check(ctx *api.Context) {
-	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	lints := android.LintBuildGradle(content, cfg, 0) // threshold 0 = skip MinSdkTooLow
+	path, content := ctx.GradlePath, ctx.GradleContent
+	// The wrapper pins the Gradle version actually used; fall back to a mention in the script.
+	lints := android.LintGradleCompatibilityForWrapper(content, android.GradleWrapperVersion(path))
 	for _, l := range lints {
 		if l.Rule == "GradleCompatibility" {
 			line := l.Line
@@ -59,10 +60,10 @@ func (r *RemoteVersionRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for _, dep := range cfg.Dependencies {
 		if dep.Version == "+" || dep.Version == "latest.release" || dep.Version == "latest.integration" {
-			coord := dep.Group + ":" + dep.Name + ":" + dep.Version
-			line := findGradleLineStr(content, coord)
+			// The Gradle config parser also extracts commented-out declarations; only a real line counts.
+			line := findGradleDependencyLine(content, dep.Group+":"+dep.Name+":"+dep.Version)
 			if line == 0 {
-				line = 1
+				continue
 			}
 			ctx.Emit(baseFinding(path, line, r.BaseRule,
 				fmt.Sprintf("Dependency %s:%s uses non-deterministic version `%s`. Pin to a specific version.",
@@ -91,15 +92,25 @@ func (r *DynamicVersionRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	depLines := gradleDependencyBlockLines(content)
 	emitted := make(map[string]bool)
+	// The GradleDynamicVersion registration follows Lint: any version containing "+" (including a bare "+").
+	lintStyle := r.RuleName == "GradleDynamicVersion"
+	isDynamic := func(v string) bool {
+		if lintStyle {
+			return strings.Contains(v, "+")
+		}
+		return isDynamicVersionString(v)
+	}
 	emit := func(line int, label, version string) {
 		key := fmt.Sprintf("%d|%s|%s", line, label, version)
 		if emitted[key] {
 			return
 		}
 		emitted[key] = true
-		ctx.Emit(baseFinding(path, line, r.BaseRule,
-			fmt.Sprintf("Dependency %s uses dynamic version `%s`. Pin to a specific version for reproducible builds.",
-				label, version)))
+		msg := fmt.Sprintf("Dependency %s uses dynamic version `%s`. Pin to a specific version for reproducible builds.", label, version)
+		if lintStyle {
+			msg = fmt.Sprintf("Avoid using + in version numbers; can lead to unpredictable and unrepeatable builds (%s:%s)", label, version)
+		}
+		ctx.Emit(baseFinding(path, line, r.BaseRule, msg))
 	}
 	findCoordLine := func(coord string) int {
 		for _, ref := range depLines {
@@ -107,10 +118,17 @@ func (r *DynamicVersionRule) check(ctx *api.Context) {
 				return ref.num
 			}
 		}
+		if parts := strings.Split(coord, ":"); len(parts) >= 2 {
+			for _, ref := range depLines {
+				if gradleLineDeclaresMapCoordinate(ref.text, parts[0], parts[1]) {
+					return ref.num
+				}
+			}
+		}
 		return 0
 	}
 	for _, dep := range cfg.Dependencies {
-		if !isDynamicVersionString(dep.Version) {
+		if !isDynamic(dep.Version) {
 			continue
 		}
 		// Skip per CLAUDE.md "Rule Implementation Guardrails" — be lexical-state
@@ -134,7 +152,7 @@ func (r *DynamicVersionRule) check(ctx *api.Context) {
 			continue
 		}
 		v := m[1]
-		if !isDynamicVersionString(v) {
+		if !isDynamic(v) {
 			continue
 		}
 		emit(ref.num, ktsNamedArgLabel(stripped), v)
@@ -203,7 +221,12 @@ func (r *DeprecatedDependencyRule) check(ctx *api.Context) {
 		if l.Rule == "DeprecatedDependency" {
 			line := l.Line
 			if line == 0 {
-				// Try to find the dependency in the content for a better line number
+				// The lint carries only the coordinate, so find the declaring line.
+				if coord, _, ok := strings.Cut(l.Message, " is deprecated"); ok {
+					line = findGradleLineStr(content, coord)
+				}
+			}
+			if line == 0 {
 				line = 1
 			}
 			ctx.Emit(baseFinding(path, line, r.BaseRule, l.Message))
@@ -299,7 +322,12 @@ type AndroidGradlePluginVersionRule struct {
 	AndroidRule
 }
 
-var agpVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.(\d+)\.(\d+)`)
+// agpClasspathVersionRe matches the classpath coordinate; agpPluginVersionRe matches a plugins-block
+// declaration such as id("com.android.application") version "4.2.0".
+var (
+	agpClasspathVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.(\d+)(?:\.(\d+))?`)
+	agpPluginVersionRe    = regexp.MustCompile(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["'](\d+)\.(\d+)(?:\.(\d+))?`)
+)
 
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
@@ -307,23 +335,31 @@ var agpVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.
 func (r *AndroidGradlePluginVersionRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *AndroidGradlePluginVersionRule) check(ctx *api.Context) {
-	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	matches := agpVersionRe.FindStringSubmatch(content)
-	if matches == nil {
-		return
+	path := ctx.GradlePath
+	for i, line := range strings.Split(ctx.GradleContent, "\n") {
+		if isGradleCommentLine(line) {
+			continue
+		}
+		code := stripGradleLineComment(line)
+		for _, re := range []*regexp.Regexp{agpClasspathVersionRe, agpPluginVersionRe} {
+			matches := re.FindStringSubmatch(code)
+			if matches == nil {
+				continue
+			}
+			major := 0
+			_, _ = fmt.Sscanf(matches[1], "%d", &major)
+			if major >= 7 {
+				continue
+			}
+			version := matches[1] + "." + matches[2]
+			if matches[3] != "" {
+				version += "." + matches[3]
+			}
+			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
+				fmt.Sprintf("Android Gradle Plugin version %s is too old. Upgrade to at least 7.0.0.", version)))
+			return
+		}
 	}
-	major := 0
-	_, _ = fmt.Sscanf(matches[1], "%d", &major)
-	if major >= 7 {
-		return
-	}
-	line := findGradleLine(content, agpVersionRe)
-	if line == 0 {
-		line = 1
-	}
-	version := matches[1] + "." + matches[2] + "." + matches[3]
-	ctx.Emit(baseFinding(path, line, r.BaseRule,
-		fmt.Sprintf("Android Gradle Plugin version %s is too old. Upgrade to at least 7.0.0.", version)))
 }
 
 // ---------------------------------------------------------------------------
@@ -463,14 +499,17 @@ func (r *NewerVersionAvailableRule) check(ctx *api.Context) {
 		if dep.Version == "" || dep.Version == "+" || strings.Contains(dep.Version, "+") {
 			continue
 		}
+		// Placeholders (`$version`) and symbolic versions (`latest.release`) have no number to compare.
+		if dep.Version[0] < '0' || dep.Version[0] > '9' {
+			continue
+		}
 		for _, rec := range recs {
 			if dep.Group == rec.Group && dep.Name == rec.Name {
 				major, minor, patch := parseVersion(dep.Version)
 				if versionLessThan(major, minor, patch, rec.MinMajor, rec.MinMinor, rec.MinPatch) {
-					coord := dep.Group + ":" + dep.Name + ":" + dep.Version
-					line := findGradleLineStr(content, coord)
+					line := findGradleDependencyLine(content, dep.Group+":"+dep.Name+":"+dep.Version)
 					if line == 0 {
-						line = 1
+						break
 					}
 					ctx.Emit(baseFinding(path, line, r.BaseRule,
 						fmt.Sprintf("A newer version of %s:%s is available. Update from %s to at least %s.",

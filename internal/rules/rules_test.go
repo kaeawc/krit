@@ -116,6 +116,12 @@ func TestPositiveFixtures(t *testing.T) {
 			t.Logf("SKIP: no rule registered for fixture %s", ruleName)
 			return nil
 		}
+		// With detekt's defaults these rules cannot report anything until configured: ForbiddenClassName
+		// forbids no name, ForbiddenSuppress forbids suppressing no rule, and a variable name cannot be
+		// shorter than the default minimum of 1.
+		if ruleName == "ForbiddenClassName" || ruleName == "ForbiddenSuppress" || ruleName == "VariableMinLength" {
+			return nil
+		}
 
 		// Skip project-scope rules that need more than one parsed file.
 		if rule.Needs.Has(api.NeedsParsedFiles) {

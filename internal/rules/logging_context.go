@@ -248,3 +248,24 @@ func firstUnpropagatedCoroutineBuilderAfterFlat(file *scanner.File, idx uint32) 
 	}
 	return 0, ""
 }
+
+// enclosingBuilderHasMDCContextFlat reports whether an outer coroutine builder
+// already installs MDCContext(); nested builders inherit that context element.
+func enclosingBuilderHasMDCContextFlat(file *scanner.File, idx uint32) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) != "call_expression" {
+			continue
+		}
+		name, args, lambda := coroutineBuilderPartsFlat(file, parent)
+		if lambda == 0 {
+			continue
+		}
+		switch name {
+		case "launch", "async", "withContext", "runBlocking", "produce", "supervisorScope", "coroutineScope":
+			if coroutineContextHasMDCFlat(file, args) {
+				return true
+			}
+		}
+	}
+	return false
+}

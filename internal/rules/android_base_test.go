@@ -268,6 +268,18 @@ class MyTest {
 
 // --- SdCardPathRule ---
 
+func TestSdCardPath_IgnoresPathsInsideProseAndUrls(t *testing.T) {
+	findings := runRuleByName(t, "SdCardPath", `
+package test
+val a = "see /sdcard/ in docs"
+val b = "https://example.com/data/data/export"
+val c = "file:///sdcard/Download"
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the file:// path to be reported, got %d", len(findings))
+	}
+}
+
 func TestSdCardPath_Positive(t *testing.T) {
 	findings := runRuleByName(t, "SdCardPath", `
 package test
@@ -337,6 +349,18 @@ fun doWork() {
 }`)
 	if len(findings) == 0 {
 		t.Error("expected Wakelock finding for acquire without release")
+	}
+}
+
+func TestWakelock_Negative_AcquireWithTimeout(t *testing.T) {
+	findings := runRuleByName(t, "Wakelock", `
+package test
+fun doWork() {
+    val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    wl.acquire(10_000L)
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for acquire(timeout), got %d", len(findings))
 	}
 }
 
@@ -496,7 +520,7 @@ class Browser {
 func TestPackagedPrivateKey_Positive(t *testing.T) {
 	findings := runRuleByName(t, "PackagedPrivateKey", `
 package test
-val key = "-----BEGIN RSA PRIVATE KEY-----\nMIIE..."
+val key = "-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKjMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvuNMoSfm76oqFvAp8Gy0iz5sxjZmSnXyCdPEovGhLa0VzMaQ8s"
 `)
 	if len(findings) == 0 {
 		t.Error("expected PackagedPrivateKey finding for embedded private key")
@@ -592,7 +616,7 @@ func TestPackagedPrivateKey_FlagsKeyInRawString(t *testing.T) {
 
 val key = """
     -----BEGIN RSA PRIVATE KEY-----
-    MIIEowIBAAKCAQEA...
+    MIIEowIBAAKCAQEAx3GJHxQ8xvVx9c2nGv5N0m0C5o8d4jQdYQd1XkOQ1j6y5Y9wq7r1l2B8Zk0o3pVbHhNn7sM
     -----END RSA PRIVATE KEY-----
 """.trimIndent()
 `)
@@ -630,27 +654,113 @@ fun MyScreen() {
 func TestViewHolder_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ViewHolder", `
 package test
-class MyAdapter : RecyclerView.Adapter<MyVH>() {
-    override fun onBindViewHolder(holder: MyVH, position: Int) {}
-    override fun getItemCount(): Int = 0
+class MyAdapter : BaseAdapter() {
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val v = LayoutInflater.from(parent.context).inflate(R.layout.row, parent, false)
+        return v
+    }
 }`)
-	if len(findings) == 0 {
-		t.Error("expected ViewHolder finding for Adapter without ViewHolder pattern")
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding for unconditional inflate in getView, got %d", len(findings))
 	}
 }
 
 func TestViewHolder_Negative(t *testing.T) {
+	cases := map[string]string{
+		"elvis_on_convert_view": `val v = convertView ?: LayoutInflater.from(parent.context).inflate(R.layout.row, parent, false)
+        return v`,
+		"if_null_check": `var v = convertView
+        if (v == null) {
+            v = LayoutInflater.from(parent.context).inflate(R.layout.row, parent, false)
+        }
+        return v!!`,
+		"no_inflate": `return convertView ?: parent`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "ViewHolder", "package test\nclass MyAdapter : BaseAdapter() {\n    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {\n        "+body+"\n    }\n}")
+			if len(findings) != 0 {
+				t.Errorf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestViewHolder_FollowsLintDetector(t *testing.T) {
+	// Verified against Lint 32.4.1: the early-return guard and a getView outside an adapter are both reported.
 	findings := runRuleByName(t, "ViewHolder", `
 package test
-class MyAdapter : RecyclerView.Adapter<MyAdapter.MyViewHolder>() {
-    class MyViewHolder(view: View) : RecyclerView.ViewHolder(view)
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MyViewHolder {
-        return MyViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.item, parent, false))
+class A : RecyclerView.Adapter<VH>() {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH = VH(inflater.inflate(R.layout.row, parent, false))
+}
+class Early : BaseAdapter() {
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        if (convertView != null) return convertView
+        return inflater.inflate(R.layout.row, parent, false)
     }
-    override fun onBindViewHolder(holder: MyViewHolder, position: Int) {}
-    override fun getItemCount(): Int = 0
+}
+class Helper {
+    fun getView(position: Int, convertView: View?, parent: ViewGroup): View = inflater.inflate(R.layout.row, parent, false)
+    fun getView(position: Int, parent: ViewGroup): View = inflater.inflate(R.layout.row, parent, false)
 }`)
+	if len(findings) != 2 {
+		t.Errorf("expected 2 findings, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestContentDescription_PositionalArgumentsAndLookalikes(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"positional description", "package test\nimport androidx.compose.material.Icon\nfun A() { Icon(Icons.Default.Add, \"Add\") }\n", 0},
+		{"positional null is explicit", "package test\nimport androidx.compose.material3.Icon\nfun A() { Icon(Icons.Default.Add, null) }\n", 0},
+		{"Image positional description", "package test\nimport androidx.compose.foundation.Image\nfun A() { Image(painter, \"desc\") }\n", 0},
+		{"Image missing description", "package test\nimport androidx.compose.foundation.Image\nfun A() { Image(modifier = m, painter = p) }\n", 1},
+		{"project Icon without Compose import", "package test\nfun A() { Icon(Icons.Default.Add) }\n", 0},
+		{"member call", "package test\nimport androidx.compose.foundation.Image\nfun A(o: Other) { o.Image(3) }\n", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(runRuleByName(t, "ContentDescription", tc.src)); got != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestHardcodedText_PreviewsAndNonTextLiterals(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"real text", "@Composable fun A() { Text(text = \"Real text\") }", 1},
+		{"preview function", "@Preview @Composable fun A() { Text(text = \"Sample\") }", 0},
+		{"custom preview annotation", "@PreviewLightDark @Composable fun A() { Text(text = \"Sample\") }", 0},
+		{"empty literal", "@Composable fun A() { Text(text = \"\") }", 0},
+		{"whitespace literal", "@Composable fun A() { Text(text = \" \") }", 0},
+		{"punctuation literal", "@Composable fun A() { Text(text = \" : \") }", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nimport androidx.compose.material.Text\nimport androidx.compose.runtime.Composable\n" + tc.body + "\n"
+			if got := len(runRuleByName(t, "HardcodedText", src)); got != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestPackagedPrivateKey_IgnoresHeaderWithoutBodyAndProse(t *testing.T) {
+	findings := runRuleByName(t, "PackagedPrivateKey", `
+package test
+val header = "-----BEGIN PRIVATE KEY-----"
+val footer = "-----END PRIVATE KEY-----"
+val doc = "regex for BEGIN PRIVATE KEY detection"
+`)
 	if len(findings) != 0 {
-		t.Errorf("expected no findings, got %d", len(findings))
+		t.Errorf("expected no findings for a PEM header without a body, got %d", len(findings))
 	}
 }

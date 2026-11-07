@@ -9,61 +9,6 @@ import (
 // ViewHolderRule tests
 // =====================================================================
 
-func TestViewHolder_FlagsAdapterWithoutViewHolder(t *testing.T) {
-	findings := runRuleByName(t, "ViewHolder", `
-package test
-
-class MyAdapter : RecyclerView.Adapter<MyItem>() {
-    override fun getItemCount(): Int = 0
-    override fun onBindViewHolder(holder: Any, position: Int) {}
-}
-`)
-	found := false
-	for _, f := range findings {
-		if f.Rule == "ViewHolder" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("ViewHolderRule should flag Adapter without ViewHolder pattern")
-	}
-}
-
-func TestViewHolder_IgnoresAdapterWithViewHolder(t *testing.T) {
-	findings := runRuleByName(t, "ViewHolder", `
-package test
-
-class MyAdapter : RecyclerView.Adapter<MyAdapter.MyViewHolder>() {
-    class MyViewHolder(view: View) : RecyclerView.ViewHolder(view)
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MyViewHolder {
-        return MyViewHolder(parent)
-    }
-    override fun getItemCount(): Int = 0
-    override fun onBindViewHolder(holder: MyViewHolder, position: Int) {}
-}
-`)
-	for _, f := range findings {
-		if f.Rule == "ViewHolder" {
-			t.Error("ViewHolderRule should not flag Adapter with ViewHolder")
-		}
-	}
-}
-
-func TestViewHolder_IgnoresNonAdapterClass(t *testing.T) {
-	findings := runRuleByName(t, "ViewHolder", `
-package test
-
-class MyService : Service() {
-    override fun onBind(intent: Intent): IBinder? = null
-}
-`)
-	for _, f := range findings {
-		if f.Rule == "ViewHolder" {
-			t.Error("ViewHolderRule should not flag non-Adapter classes")
-		}
-	}
-}
-
 // =====================================================================
 // ObsoleteLayoutParamsRule tests
 // =====================================================================
@@ -478,12 +423,12 @@ class Foo {
 }
 
 // =====================================================================
-// TrulyRandom tests
+// HardcodedRandomSeed tests
 // =====================================================================
 
-func TestTrulyRandom_Extra(t *testing.T) {
+func TestHardcodedRandomSeed_Extra(t *testing.T) {
 	t.Run("positive - seeded SecureRandom", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 import java.security.SecureRandom
@@ -497,7 +442,7 @@ fun init() {
 		}
 	})
 	t.Run("positive - fully qualified seeded SecureRandom", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 fun init() {
@@ -509,7 +454,7 @@ fun init() {
 		}
 	})
 	t.Run("negative - default constructor", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 import java.security.SecureRandom
@@ -523,7 +468,7 @@ fun init() {
 		}
 	})
 	t.Run("negative - local lookalike without import", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 class SecureRandom(seed: ByteArray)
@@ -537,7 +482,7 @@ fun init() {
 		}
 	})
 	t.Run("negative - SecureRandom mention in raw string", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 import java.security.SecureRandom
@@ -553,7 +498,7 @@ fun usage(): String {
 		}
 	})
 	t.Run("negative - SecureRandom in KDoc comment", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 
 import java.security.SecureRandom
@@ -570,7 +515,7 @@ fun init() {
 		}
 	})
 	t.Run("positive - Java new SecureRandom with seed", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+		findings := runRuleByNameOnJava(t, "HardcodedRandomSeed", `
 package test;
 import java.security.SecureRandom;
 class Example {
@@ -584,7 +529,7 @@ class Example {
 		}
 	})
 	t.Run("negative - Java new SecureRandom default", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+		findings := runRuleByNameOnJava(t, "HardcodedRandomSeed", `
 package test;
 import java.security.SecureRandom;
 class Example {
@@ -598,7 +543,7 @@ class Example {
 		}
 	})
 	t.Run("negative - Java local lookalike", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "TrulyRandom", `
+		findings := runRuleByNameOnJava(t, "HardcodedRandomSeed", `
 package test;
 class SecureRandom {
     SecureRandom(byte[] seed) {}
@@ -1292,6 +1237,8 @@ func TestGridLayout_Extra(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
 
+import android.widget.GridLayout
+
 fun build(ctx: Context) {
     val grid = GridLayout(ctx)
 }
@@ -1303,6 +1250,8 @@ fun build(ctx: Context) {
 	t.Run("negative - GridLayout with columnCount", func(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
+
+import android.widget.GridLayout
 
 fun build(ctx: Context) {
     val grid = GridLayout(ctx)
@@ -1366,33 +1315,6 @@ fun load() {
 }
 
 // =====================================================================
-// Proguard tests
-// =====================================================================
-
-func TestProguard_Extra(t *testing.T) {
-	t.Run("positive - obsolete proguard.cfg", func(t *testing.T) {
-		findings := runRuleByName(t, "Proguard", `
-package test
-
-val config = "proguard.cfg"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - proguard-rules.pro", func(t *testing.T) {
-		findings := runRuleByName(t, "Proguard", `
-package test
-
-val config = "proguard-rules.pro"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
 // ProguardSplit tests
 // =====================================================================
 
@@ -1418,91 +1340,6 @@ val rules = """
 -dontobfuscate
 -dontwarn
 """
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
-// NfcTechWhitespace tests
-// =====================================================================
-
-func TestNfcTechWhitespace_Extra(t *testing.T) {
-	t.Run("positive - whitespace in tech element", func(t *testing.T) {
-		findings := runRuleByName(t, "NfcTechWhitespace", `
-package test
-
-val tech = "<tech> android.nfc.tech.NfcA</tech>"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - no whitespace in tech element", func(t *testing.T) {
-		findings := runRuleByName(t, "NfcTechWhitespace", `
-package test
-
-val tech = "<tech>android.nfc.tech.NfcA</tech>"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
-// LibraryCustomView tests
-// =====================================================================
-
-func TestLibraryCustomView_Extra(t *testing.T) {
-	t.Run("positive - hardcoded namespace", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-
-val ns = "http://schemas.android.com/apk/res/com.mylib"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - res-auto namespace", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-
-val ns = "http://schemas.android.com/apk/res-auto"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
-// UnknownIdInLayout tests
-// =====================================================================
-
-func TestUnknownIdInLayout_Extra(t *testing.T) {
-	t.Run("positive - suspicious ID with underscore prefix", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-
-fun bind() {
-    val v = findViewById(R.id._hidden)
-}
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-	t.Run("negative - normal ID", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-
-fun bind() {
-    val v = findViewById(R.id.my_button)
-}
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))

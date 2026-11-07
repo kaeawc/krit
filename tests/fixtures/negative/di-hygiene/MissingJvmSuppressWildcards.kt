@@ -4,12 +4,21 @@ annotation class Provides
 
 interface Plugin
 
+class Registry
+
 class PluginsModule {
     @Provides
-    fun providePlugins(): Set<@JvmSuppressWildcards Plugin> = emptySet()
+    fun provideRegistry(plugins: Set<@JvmSuppressWildcards Plugin>): Registry = Registry()
 
     @Provides
-    fun providePluginMap(): Map<String, @JvmSuppressWildcards Plugin> = emptyMap()
+    fun provideMapRegistry(plugins: Map<String, @JvmSuppressWildcards Plugin>): Registry = Registry()
+
+    // Return types do not get wildcards, so they are not flagged.
+    @Provides
+    fun providePlugins(): Set<Plugin> = emptySet()
+
+    @Provides
+    fun providePluginMap(): Map<String, Plugin> = emptyMap()
 
     // Single-element bindings are fine.
     @Provides
@@ -17,8 +26,8 @@ class PluginsModule {
 
     // List<T> is not a Dagger multibinding; not flagged.
     @Provides
-    fun providePluginList(): List<Plugin> = emptyList()
+    fun provideListRegistry(plugins: List<Plugin>): Registry = Registry()
 
     // Not @Provides; not flagged.
-    fun helper(): Set<Plugin> = emptySet()
+    fun helper(plugins: Set<Plugin>): Registry = Registry()
 }

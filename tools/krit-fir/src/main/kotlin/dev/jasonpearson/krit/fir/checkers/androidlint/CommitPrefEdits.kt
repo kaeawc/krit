@@ -109,7 +109,7 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
         override val functionCallCheckers = setOf(CommitPrefEdits)
     }
 
-    private const val MESSAGE = "SharedPreferences.edit() without commit() or apply()."
+    private const val MESSAGE = "`SharedPreferences.edit()` without a corresponding `commit()` or `apply()` call"
 
     private val EDIT = Name.identifier("edit")
     private val FINALIZERS = setOf(Name.identifier("commit"), Name.identifier("apply"))

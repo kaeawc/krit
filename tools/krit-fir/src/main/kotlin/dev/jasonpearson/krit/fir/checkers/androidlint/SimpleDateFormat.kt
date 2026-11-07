@@ -60,7 +60,7 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
     }
 
     private const val MESSAGE =
-        "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+        "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
 
     private val simpleDateFormatClassIds = setOf(
         ClassId(FqName("java.text"), Name.identifier("SimpleDateFormat")),

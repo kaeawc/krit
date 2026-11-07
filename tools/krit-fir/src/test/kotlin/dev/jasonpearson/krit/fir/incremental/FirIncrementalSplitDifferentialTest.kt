@@ -45,10 +45,10 @@ import kotlin.test.assertTrue
  * safe controls (const values, literal-null initializers, annotation defaults) must not differ at all.
  *
  * With the full corpus (no sampling or filter) the run also fails when it is vacuous: too few rules produced
- * findings, or the known-differing scenario (the one that withholds the recorded class-name facts from the slice)
- * did not differ, which means the harness stopped loading the plugin or the snapshot. No built-in rule is tiered
+ * findings, or no slice compiled fewer files than its module,
+ * means the harness stopped loading the plugin or the snapshot. No built-in rule is tiered
  * any more (#873 narrowed the rules that read other files' bodies, #876 serves SerialVersionUIDInSerializableClass
- * from recorded facts), so every piece difference must be 0 except that scenario's.
+ * from recorded facts and, like detekt, reads only declared supertypes), so every piece difference must be 0.
  *
  * Runtime: a few minutes, so it is tagged [TAG] and runs in its own Gradle task (`incrementalDifferentialTest`),
  * not in `test`. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
@@ -134,14 +134,15 @@ class FirIncrementalSplitDifferentialTest {
                     "Only ${result.exercised.size} rules produced findings (expected at least $MIN_EXERCISED_RULES): " +
                         "the harness probably stopped loading the krit plugin.",
                 )
-                // No built-in rule is tiered, so no piece may differ, and the single-file split need not produce any
-                // difference at all. The harness stays non-vacuous through the withheld-facts scenario: it must
-                // differ on a slice (checked above), which it only does if the slice compile reads the snapshot.
-                // It is the only known-differing scenario; removing it leaves this guard failing.
+                // No built-in rule is tiered, so no piece may differ, and no rule is known to differ on a slice. The
+                // harness stays non-vacuous by observing the slice compile directly: for a module of several files
+                // it compiles only the requested one (sources of the others are hidden), so every cross-file
+                // reference in the verdicts above resolved through the snapshot. A known-differing scenario also
+                // satisfies the guard if one is added again.
                 assertTrue(
-                    scenarios.any { it.differs },
-                    "No cross-file scenario is known to differ between the full and the slice compile, so nothing " +
-                        "shows that the slice compile reads the snapshot. Keep the withheld-facts scenario.",
+                    scenarios.any { it.differs } || result.snapshotBackedSlices > 0,
+                    "No slice was compiled from fewer files than its module and no cross-file scenario differs, so " +
+                        "nothing shows that the slice compile reads the snapshot instead of the whole module's source.",
                 )
             }
             val untiered = result.diffByRule.filterKeys { it !in tiered }
@@ -174,6 +175,8 @@ class FirIncrementalSplitDifferentialTest {
         var compared = 0
         var pieces = 0
         var pieceDiffs = 0
+        /** Slices that compiled fewer files than their module has, so the rest came from the snapshot. */
+        var snapshotBackedSlices = 0
         val diffByRule = TreeMap<String, MutableList<String>>()
         val exercised = TreeMap<String, Int>()
         val errorDiffs = ArrayList<String>()
@@ -284,8 +287,10 @@ class FirIncrementalSplitDifferentialTest {
             for (p in files) {
                 r.pieces++
                 val outcome = session.sliceCheck(1, listOf(FileRef(p)), emptySet(), ruleConfigs)
-                val inc = (outcome as? SliceOutcome.Checked)?.result
+                val checked = outcome as? SliceOutcome.Checked
                     ?: error("slice of ${File(p).name} fell back: ${(outcome as SliceOutcome.Fallback).reason} ${outcome.cause}")
+                val inc = checked.result
+                if (checked.compiled.size < files.size) r.snapshotBackedSlices++
                 val expected = ref.verdictOf(p)
                 val actual = inc.verdictOf(p)
                 if (expected.key() == actual.key()) continue

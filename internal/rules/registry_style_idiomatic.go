@@ -30,8 +30,8 @@ func registerStyleIdiomaticRules() {
 						return
 					}
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Use 'checkNotNull(x)' instead of 'check(x != null)'.")
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
+					"Use checkNotNull() instead of check() for checking not-null.")
 				replacement := "checkNotNull(" + argText + ")"
 				if suffixText != "" {
 					replacement += " " + suffixText
@@ -64,8 +64,8 @@ func registerStyleIdiomaticRules() {
 						return
 					}
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Use 'requireNotNull(x)' instead of 'require(x != null)'.")
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
+					"Use requireNotNull() instead of require() for checking not-null.")
 				replacement := "requireNotNull(" + argText + ")"
 				if suffixText != "" {
 					replacement += " " + suffixText
@@ -81,26 +81,24 @@ func registerStyleIdiomaticRules() {
 		})
 	}
 	{
-		r := &UseCheckOrErrorRule{BaseRule: BaseRule{RuleName: "UseCheckOrError", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalStateException patterns that should use check()."}}
+		r := &UseCheckOrErrorRule{BaseRule: BaseRule{RuleName: "UseCheckOrError", RuleSetName: "style", Sev: "warning", Desc: "Detects if (cond) throw IllegalStateException patterns that should use check()."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Implementation: r,
+			NodeTypes: []string{"jump_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
+			Needs: api.NeedsResolver, Implementation: r,
 			Check: func(ctx *api.Context) {
-				file := ctx.File
-				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalStateException", "check", r.BaseRule)
+				flatThrowPattern(ctx, r.BaseRule, "IllegalStateException", "check", "Use check() or error() instead of throwing an IllegalStateException.", false)
 			},
 		})
 	}
 	{
-		r := &UseRequireRule{BaseRule: BaseRule{RuleName: "UseRequire", RuleSetName: "style", Sev: "warning", Desc: "Detects if (!cond) throw IllegalArgumentException patterns that should use require()."}}
+		r := &UseRequireRule{BaseRule: BaseRule{RuleName: "UseRequire", RuleSetName: "style", Sev: "warning", Desc: "Detects if (cond) throw IllegalArgumentException patterns that should use require()."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"if_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
-			Implementation: r,
+			NodeTypes: []string{"jump_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
+			Needs: api.NeedsResolver, Implementation: r,
 			Check: func(ctx *api.Context) {
-				file := ctx.File
-				flatThrowPattern(ctx, file.FlatType(ctx.Idx), file.FlatNodeText(ctx.Idx), "IllegalArgumentException", "require", r.BaseRule)
+				flatThrowPattern(ctx, r.BaseRule, "IllegalArgumentException", "require", "Use require() instead of throwing an IllegalArgumentException.", true)
 			},
 		})
 	}
@@ -147,8 +145,16 @@ func registerStyleIdiomaticRules() {
 					return
 				}
 				rightText := strings.TrimSpace(file.FlatNodeText(right))
+				// Array<T>?.orEmpty() returns Array<out T>, which an invariant Array<T> rejects, so emptyArray() is
+				// left alone. detekt reports it; krit does not (see the FIR twin).
 				if strings.HasPrefix(rightText, "emptyArray(") {
 					return
+				}
+				// orEmpty() only exists for a matching nullable receiver type; skip when the declared type clearly differs.
+				if file.FlatType(left) == "simple_identifier" {
+					if typeName, found := declaredTypeNameOfIdentifier(file, idx, leftText); found && !orEmptyReceiverMatches(typeName, rightText) {
+						return
+					}
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					fmt.Sprintf("Use '.orEmpty()' instead of '?: %s'.", rightText))
@@ -236,11 +242,20 @@ func registerStyleIdiomaticRules() {
 				lambdaText := file.FlatNodeText(lambda)
 				msg := fmt.Sprintf("Use '.%s {}' instead of '.%s {} %s null'.", replacement, funcName, opText)
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				// A safe-call receiver makes any/none yield a nullable Boolean, so the null case is kept explicit.
+				replaced := receiverText + "." + replacement + " " + lambdaText
+				if suffix := flatLastChildOfType(file, nav, "navigation_suffix"); strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(suffix)), "?.") {
+					if replacement == "any" {
+						replaced = receiverText + "?.any " + lambdaText + " == true"
+					} else {
+						replaced = receiverText + "?.none " + lambdaText + " ?: true"
+					}
+				}
 				f.Fix = &scanner.Fix{
 					ByteMode:    true,
 					StartByte:   int(file.FlatStartByte(idx)),
 					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: receiverText + "." + replacement + " " + lambdaText,
+					Replacement: replaced,
 				}
 				ctx.Emit(f)
 			},
@@ -280,16 +295,35 @@ func registerStyleIdiomaticRules() {
 						return
 					}
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
 					fmt.Sprintf("Use '%s()' instead of '%s()'.", replacement, calleeName))
+				// Only the callee name changes, so explicit type arguments survive.
 				f.Fix = &scanner.Fix{
 					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: replacement + "()",
+					StartByte:   int(file.FlatStartByte(callee)),
+					EndByte:     int(file.FlatEndByte(callee)),
+					Replacement: replacement,
 				}
 				ctx.Emit(f)
 			},
+		})
+	}
+	{
+		r := &PreferToOverPairSyntaxRule{BaseRule: BaseRule{RuleName: "PreferToOverPairSyntax", RuleSetName: "style", Sev: "warning", Desc: "Detects Pair(a, b) constructor calls that should use the a to b syntax."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium,
+			Needs: api.NeedsResolver, Implementation: r,
+			Check: func(ctx *api.Context) { checkPreferToOverPairSyntax(ctx, r) },
+		})
+	}
+	{
+		r := &ExplicitBackingFieldCandidateRule{BaseRule: BaseRule{RuleName: "ExplicitBackingFieldCandidate", RuleSetName: "style", Sev: "info", Desc: "Detects private mutable backing properties that only expose a read-only supertype and can use a Kotlin 2.4 explicit backing field."}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium,
+			NeedsLibraryFacts: true, Implementation: r,
+			Check: func(ctx *api.Context) { checkExplicitBackingFieldCandidate(ctx, r) },
 		})
 	}
 }

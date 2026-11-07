@@ -4,6 +4,8 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -143,12 +145,12 @@ func (r *PxUsageResourceRule) Confidence() float64 { return api.ConfidenceMedium
 
 func (r *PxUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"PxUsage"}, func(v *android.View) {
 			for _, attr := range pxDimensionAttrs {
 				val := v.Attributes[attr]
 				if isPxValue(val) && !pxValueExempt(val) {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
 						fmt.Sprintf("Avoid using `px` in `%s=\"%s\"`. Use `dp` or `sp` instead for density-independent sizing.",
 							attr, val)))
 				}
@@ -223,139 +225,109 @@ func (r *SpUsageResourceRule) Confidence() float64 { return api.ConfidenceMedium
 
 func (r *SpUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	const msg = "Should use \"`sp`\" instead of \"`dp`\" for text sizes"
+	for _, layout := range idx.AllLayouts() {
+		walkViewsWithParentUnlessIgnored(layout.RootView, nil, []string{"SpUsage"}, func(v, parent *android.View) {
 			val := v.Attributes["android:textSize"]
 			if val == "" {
 				return
 			}
-			if isDpValue(val) {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`android:textSize=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
-						val)))
+			// Not in Lint: a fixed dp width and height box (icon badge, emoji swatch, avatar) is sized in dp, so its text is too.
+			if hasFixedDpBox(idx, v) || (parent != nil && hasFixedDpBox(idx, parent)) {
 				return
 			}
-			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
-				origin := dimenOriginSuffix(loc, resolved)
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`android:textSize=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
-						val, origin)))
+			if isLintDpUnit(val) {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:textSize", r.BaseRule, msg))
+				return
+			}
+			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isLintDpUnit(resolved) && strings.HasPrefix(val, "@dimen/") {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:textSize", r.BaseRule,
+					fmt.Sprintf("%s (`%s` is defined as `%s` in `%s`", msg, val, resolved, lintFileNameWithParent(loc.FilePath))))
 			}
 		})
 	}
-	// Style items: <item name="android:textSize">14dp</item> or <item name="textSize">14dp</item>
+	// Style items: <item name="android:textSize">14dp</item> or <item name="textSize">14dp</item>.
+	// Lint does not resolve @dimen references in style items.
 	for _, style := range idx.Styles {
 		for itemName, val := range style.Items {
-			if !isTextSizeAttr(itemName) {
-				continue
-			}
-			if isDpValue(val) {
-				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
-					fmt.Sprintf("Style `%s` item `%s=\"%s\"` uses `dp`. Use `sp` instead so text respects the user's font size preference.",
-						style.Name, itemName, val)))
-				continue
-			}
-			if resolved, loc, ok := resolveDimenReference(idx, val); ok && isDpValue(resolved) {
-				origin := dimenOriginSuffix(loc, resolved)
-				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
-					fmt.Sprintf("Style `%s` item `%s=\"%s\"` resolves to a `dp` value%s. Use `sp` instead so text respects the user's font size preference.",
-						style.Name, itemName, val, origin)))
+			if isTextSizeAttr(itemName) && isLintDpUnit(val) {
+				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule, msg))
 			}
 		}
 	}
 }
 
-// dimenOriginSuffix produces a short " (foo is N in path)"-style suffix
-// pointing at the resolved dimension declaration. Empty when the source
-// location is unknown.
-func dimenOriginSuffix(loc android.StringLocation, resolved string) string {
-	if loc.FilePath == "" {
-		return fmt.Sprintf(" (%s)", resolved)
+var lintDpUnitRegexp = regexp.MustCompile(`^\d+(\.\d+)?di?p$`)
+
+// isLintDpUnit mirrors PxUsageDetector.isDpUnit: a non-negative number followed by dp or dip.
+func isLintDpUnit(val string) bool {
+	return lintDpUnitRegexp.MatchString(val)
+}
+
+// hasFixedDpBox reports whether both layout dimensions of v are dp values, literal or through @dimen.
+func hasFixedDpBox(idx *android.ResourceIndex, v *android.View) bool {
+	isFixed := func(val string) bool {
+		if isDpValue(val) {
+			return true
+		}
+		resolved, _, ok := resolveDimenReference(idx, val)
+		return ok && isDpValue(resolved)
 	}
-	return fmt.Sprintf(" (`%s` in `%s`)", resolved, loc.FilePath)
+	return isFixed(v.LayoutWidth) && isFixed(v.LayoutHeight)
 }
 
 // ---------------------------------------------------------------------------
 // SmallSpResource
 // ---------------------------------------------------------------------------
 
-// SmallSpResourceRule detects android:textSize values below 12sp, which may
-// be too small to read comfortably on most devices.
+// SmallSpResourceRule mirrors Lint's SmallSp check: a literal sp size below 11sp in a textSize or
+// layout_height attribute. Lint truncates the size to an integer, so 10.9sp is reported.
 type SmallSpResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-func parseSpValue(val string) (float64, bool) {
-	val = strings.TrimSpace(val)
-	if !strings.HasSuffix(val, "sp") {
-		return 0, false
-	}
-	numStr := val[:len(val)-2]
-	var num float64
-	_, err := fmt.Sscanf(numStr, "%f", &num)
-	if err != nil {
-		return 0, false
-	}
-	return num, true
-}
+var lintSpUnitRegexp = regexp.MustCompile(`^\d+(\.\d+)?sp$`)
 
-// Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
-// anti-patterns and attribute mismatches via structural checks on style
-// XML. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *SmallSpResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *SmallSpResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			textSize := v.Attributes["android:textSize"]
-			if textSize == "" {
-				return
-			}
-			if handleSpLiteral(ctx, r.BaseRule, layout.FilePath, v.Line, textSize, "", "android:textSize") {
-				return
-			}
-			if resolved, loc, ok := resolveDimenReference(idx, textSize); ok {
-				origin := dimenOriginSuffix(loc, resolved)
-				handleSpLiteral(ctx, r.BaseRule, layout.FilePath, v.Line, resolved, origin, "android:textSize=\""+textSize+"\"")
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"SmallSp"}, func(v *android.View) {
+			for _, attr := range []string{"android:textSize", "android:layout_height"} {
+				if val := v.Attributes[attr]; isSmallLintSp(val) {
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule, smallSpMessage(val)))
+				}
 			}
 		})
 	}
+	// Lint only matches style items whose name has no `android:` prefix, so `android:textSize` items are not reported.
 	for _, style := range idx.Styles {
 		for itemName, val := range style.Items {
-			if !isTextSizeAttr(itemName) && !isLayoutHeightAttr(itemName) {
-				continue
-			}
-			line := style.ItemLines[itemName]
-			label := fmt.Sprintf("style `%s` item `%s`", style.Name, itemName)
-			if handleSpLiteral(ctx, r.BaseRule, style.FilePath, line, val, "", label) {
-				continue
-			}
-			if resolved, loc, ok := resolveDimenReference(idx, val); ok {
-				origin := dimenOriginSuffix(loc, resolved)
-				handleSpLiteral(ctx, r.BaseRule, style.FilePath, line, resolved, origin,
-					fmt.Sprintf("%s=\"%s\"", label, val))
+			if (itemName == "textSize" || itemName == "layout_height") && isSmallLintSp(val) {
+				ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule, smallSpMessage(val)))
 			}
 		}
 	}
 }
 
-// handleSpLiteral parses val as an sp literal; when below 12sp, emits a
-// SmallSp finding. The returned bool means "val was a recognized sp value"
-// — callers use it to skip the @dimen fallback, since a literal sp value
-// has already been fully evaluated whether or not a finding was emitted.
-func handleSpLiteral(ctx *api.Context, rule BaseRule, path string, line int, val, origin, label string) (handled bool) {
-	sp, ok := parseSpValue(val)
-	if !ok {
+func smallSpMessage(val string) string {
+	return fmt.Sprintf("Avoid using sizes smaller than `11sp`: `%s`", val)
+}
+
+// isSmallLintSp reports whether val is an sp size whose integer part is between 1 and 10.
+func isSmallLintSp(val string) bool {
+	if !lintSpUnitRegexp.MatchString(val) {
 		return false
 	}
-	if sp < 12 {
-		ctx.Emit(baseFinding(path, line, rule,
-			fmt.Sprintf("Text size `%s`%s is too small (below 12sp) for `%s`. Consider using at least 12sp for readability.",
-				val, origin, label)))
+	whole := val[:len(val)-2]
+	if dot := strings.IndexByte(whole, '.'); dot >= 0 {
+		whole = whole[:dot]
 	}
-	return true
+	n, err := strconv.Atoi(whole)
+	return err == nil && n > 0 && n < 11
 }
 
 // ---------------------------------------------------------------------------
@@ -374,30 +346,19 @@ func (InOrMmUsageResourceRule) AndroidDependencies() AndroidDataDependency {
 	return AndroidDepLayout | AndroidDepValuesDimensions
 }
 
+// inOrMmValuePattern matches the whole value forms Lint's PxUsageDetector reports.
+var inOrMmValuePattern = regexp.MustCompile(`^\d+(\.\d+)?(mm|in)$`)
+
 func isInOrMmValue(val string) (string, bool) {
 	val = strings.TrimSpace(val)
-	if strings.HasSuffix(val, "mm") {
-		numStr := val[:len(val)-2]
-		if numStr != "" && isNumeric(numStr) {
-			return "mm", true
-		}
+	if !inOrMmValuePattern.MatchString(val) {
+		return "", false
 	}
-	if strings.HasSuffix(val, "in") {
-		numStr := val[:len(val)-2]
-		if numStr != "" && isNumeric(numStr) {
-			return "in", true
-		}
-	}
-	return "", false
+	return val[len(val)-2:], true
 }
 
-func isNumeric(s string) bool {
-	for _, c := range s {
-		if (c < '0' || c > '9') && c != '.' && c != '-' {
-			return false
-		}
-	}
-	return true
+func inOrMmMessage(unit string) string {
+	return fmt.Sprintf("Avoid using \"`%s`\" as units (it does not work accurately on all devices); use \"`dp`\" instead", unit)
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
@@ -407,21 +368,30 @@ func (r *InOrMmUsageResourceRule) Confidence() float64 { return api.ConfidenceMe
 
 func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			for _, attr := range pxDimensionAttrs {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"InOrMmUsage"}, func(v *android.View) {
+			attrs := make([]string, 0, len(v.Attributes))
+			for attr := range v.Attributes {
+				attrs = append(attrs, attr)
+			}
+			sort.Strings(attrs)
+			for _, attr := range attrs {
 				val := v.Attributes[attr]
 				unit, ok := isInOrMmValue(val)
 				if !ok || inOrMmValueExempt(val, unit) {
 					continue
 				}
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Avoid using `%s` units in `%s=\"%s\"`. Use `dp` or `sp` for density-independent sizing.",
-						unit, attr, val)))
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule, inOrMmMessage(unit)))
 			}
 		})
 	}
-	for name, val := range idx.Dimensions {
+	dimenNames := make([]string, 0, len(idx.Dimensions))
+	for name := range idx.Dimensions {
+		dimenNames = append(dimenNames, name)
+	}
+	sort.Strings(dimenNames)
+	for _, name := range dimenNames {
+		val := idx.Dimensions[name]
 		unit, ok := isInOrMmValue(val)
 		if !ok || inOrMmValueExempt(val, unit) {
 			continue
@@ -431,19 +401,21 @@ func (r *InOrMmUsageResourceRule) check(ctx *api.Context) {
 		if path == "" {
 			path = "res/values/dimens.xml"
 		}
-		ctx.Emit(baseFinding(path, loc.Line, r.BaseRule,
-			fmt.Sprintf("Dimension `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
-				name, unit, val)))
+		ctx.Emit(baseFinding(path, loc.Line, r.BaseRule, inOrMmMessage(unit)))
 	}
 	for _, style := range idx.Styles {
-		for itemName, val := range style.Items {
+		itemNames := make([]string, 0, len(style.Items))
+		for itemName := range style.Items {
+			itemNames = append(itemNames, itemName)
+		}
+		sort.Strings(itemNames)
+		for _, itemName := range itemNames {
+			val := style.Items[itemName]
 			unit, ok := isInOrMmValue(val)
 			if !ok || inOrMmValueExempt(val, unit) {
 				continue
 			}
-			ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule,
-				fmt.Sprintf("Style `%s` item `%s` uses `%s` value `%s`. Use `dp` or `sp` instead.",
-					style.Name, itemName, unit, val)))
+			ctx.Emit(baseFinding(style.FilePath, style.ItemLines[itemName], r.BaseRule, inOrMmMessage(unit)))
 		}
 	}
 }
@@ -468,6 +440,34 @@ var marginAttrs = []string{
 	"android:layout_marginHorizontal", "android:layout_marginVertical",
 }
 
+// negativeMarginMayClip reports whether a child's negative margin is likely to
+// be clipped; overlap-friendly parents and clipChildren=false parents are not.
+func negativeMarginMayClip(parent *android.View) bool {
+	if parent == nil || parent.Attributes["android:clipChildren"] == "false" {
+		return false
+	}
+	simple := parent.Type
+	if i := strings.LastIndex(simple, "."); i >= 0 {
+		simple = simple[i+1:]
+	}
+	switch simple {
+	case "ConstraintLayout", "FrameLayout", "RelativeLayout":
+		return false
+	}
+	return true
+}
+
+// smallTightening reports whether a margin of at most 4dp on a wrap_content child of a vertical LinearLayout.
+// Such margins tighten line spacing rather than overlap views.
+func smallTightening(v, parent *android.View, val string) bool {
+	if parent == nil || parent.Type != "LinearLayout" || parent.Attributes["android:orientation"] != "vertical" ||
+		v.LayoutHeight != "wrap_content" {
+		return false
+	}
+	val = strings.TrimSpace(val)
+	return isDpValue(val) && parseLayoutDp(strings.TrimPrefix(val, "-")) <= 4
+}
+
 func isNegativeMargin(val string) bool {
 	val = strings.TrimSpace(val)
 	return strings.HasPrefix(val, "-")
@@ -480,17 +480,24 @@ func (r *NegativeMarginResourceRule) Confidence() float64 { return api.Confidenc
 
 func (r *NegativeMarginResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsWithParentUnlessIgnored(layout.RootView, nil, []string{"NegativeMargin"}, func(v, parent *android.View) {
+			if !negativeMarginMayClip(parent) {
+				return
+			}
 			// Combine all negative-margin attributes on a single view
 			// into one finding to avoid duplicate (file,line,col,rule)
 			// keys downstream.
 			var offenders []string
+			firstAttr := ""
 			for _, attr := range marginAttrs {
 				val := v.Attributes[attr]
 				if isNegativeMargin(val) {
-					if r.negativeMarginAllowed(v.Type, attr, val) {
+					if r.negativeMarginAllowed(v.Type, attr, val) || smallTightening(v, parent, val) {
 						continue
+					}
+					if firstAttr == "" {
+						firstAttr = attr
 					}
 					offenders = append(offenders, fmt.Sprintf("`%s=\"%s\"`", attr, val))
 				}
@@ -499,12 +506,12 @@ func (r *NegativeMarginResourceRule) check(ctx *api.Context) {
 				return
 			}
 			if len(offenders) == 1 {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, firstAttr, r.BaseRule,
 					fmt.Sprintf("Negative margin %s in `%s`. Negative margins can cause overlapping or clipping.",
 						offenders[0], v.Type)))
 				return
 			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFindingAtAttr(layout.FilePath, v, firstAttr, r.BaseRule,
 				fmt.Sprintf("Negative margins in `%s`: %s. Negative margins can cause overlapping or clipping.",
 					v.Type, strings.Join(offenders, ", "))))
 		})

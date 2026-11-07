@@ -1,9 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 13, 17, 19, 24, 28, 30, 35, 37, 44, 46
-// Go reports every call in this file; FIR reports none. Go matches the call by
-// name and skips it only when an argument mentions the identifier `Locale`.
+// go-lines: none
 // None of these calls uses the default locale, so the message ("Implicitly
-// using the default locale") is not true of them.
+// using the default locale") is not true of them. FIR reports none. Go matches
+// the call by name and skips an explicit Locale (by name, resolved type, a
+// `locale` label, or null) and Char conversions, so it reports none either.
 package test
 
 import java.util.Locale
@@ -38,9 +38,8 @@ class CharacterStatics {
 }
 
 class NamedLocale {
-    // Go skips labeled arguments when it looks for the first positional
-    // argument, so it tests `value`, finds no `Locale`, and reports. The call
-    // resolves to the Locale overload with an explicit Locale.
+    // The call resolves to the Locale overload with an explicit Locale; Go skips
+    // an argument labeled `locale`.
     fun namedLocale(value: Int): String = String.format(locale = Locale.US, format = "%d", value)
 
     fun namedLocaleVariable(l: Locale, value: Int): String = String.format(locale = l, "%d", value)

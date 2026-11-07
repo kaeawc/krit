@@ -237,7 +237,7 @@ snapshot_gate:
     - krit snapshot gate origin/main HEAD --max-pct loc=5 --max-pct cyclomatic=10
 ```
 
-Two full captures per CI run is the slow part on large repos —
+Two full captures per CI run is the slow part on big repos —
 capture dominates over gate. A shared snapshot store (S3/GCS-backed
 `.krit/snapshots/` mirror) that lets runners download `origin/main`'s
 snapshot instead of recomputing it is a future direction; for now the

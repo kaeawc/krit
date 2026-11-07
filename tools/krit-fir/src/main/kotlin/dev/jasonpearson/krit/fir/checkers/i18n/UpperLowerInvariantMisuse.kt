@@ -5,7 +5,21 @@ import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.qualifiedCall
+import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.fir.declarations.FirClass
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
+import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
+import org.jetbrains.kotlin.fir.declarations.FirFile
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
+import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
+import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.resolve.toClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -15,7 +29,9 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
@@ -29,9 +45,15 @@ import org.jetbrains.kotlin.toKtLightSourceElement
 import org.jetbrains.kotlin.util.getChildren
 
 // Flags the Kotlin 1.5+ stdlib case conversions `uppercase()` / `lowercase()`
-// (kotlin.text, on String and Char) called without a Locale argument.
+// (kotlin.text, on String and Char) called without a Locale argument whose
+// locale-invariant result is shown as user-facing text. Elsewhere the
+// invariant conversion is the right one, so it is not reported.
 //
 // Mirrors the Go rule's evidence on top of FIR resolution:
+// - the call is an argument of a UI text call (`Text(..)`, `setText(..)`,
+//   `makeText(..)`, ...) or the right-hand side of an assignment to a UI text
+//   property (`.text = ..`, `.title = ..`), up to the nearest function or
+//   lambda; this gate is checked first, before the rest of the evidence;
 // - the call resolves to kotlin.text.uppercase / kotlin.text.lowercase with no
 //   arguments (the `(locale: Locale)` overloads are never flagged);
 // - `.gradle.kts` scripts are skipped;
@@ -42,6 +64,12 @@ import org.jetbrains.kotlin.util.getChildren
 //   `host`. A call on an implicit receiver gets the same exemption on the
 //   text that names that receiver (see implicitReceiverText); when no text
 //   names it, the call is not reported;
+// - a receiver that holds a fixed token is skipped: a string literal without
+//   templates, a `.name` read (a simple-name match, as in Go), and `toString()`
+//   on an enum that does not override it (Go also skips an overriding enum
+//   declared in the same file);
+// - a call anywhere inside the arguments of `valueOf`, `enumValueOf` or
+//   `valueOfOrNull` is skipped, up to the nearest function or lambda;
 // - the finding is reported on the line where the whole qualified call starts
 //   (the receiver's first line), as Go reports on its call_expression.
 //
@@ -74,6 +102,17 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     // receiver (`with` takes it as its first argument instead).
     private val receiverLambdaScopes = setOf("run", "apply")
     private val methodNames = setOf("uppercase", "lowercase")
+    private val valueOfNames = setOf("valueOf", "enumValueOf", "valueOfOrNull")
+
+    // Calls whose arguments, and properties whose assigned value, become text a user reads (as in Go).
+    private val uiSinkCalls = setOf(
+        "setText", "setTitle", "setSubtitle", "setHint", "setContentDescription", "setMessage",
+        "setLabel", "setError", "setSummary", "makeText", "Text", "BasicText", "AnnotatedString",
+    )
+    private val uiSinkProperties = setOf(
+        "text", "title", "subtitle", "hint", "contentDescription", "label", "error", "summary",
+        "message", "headline", "placeholder",
+    )
 
     // Go's containsASCIIInvariantIdentifier list, matched as substrings of
     // the receiver's source text.
@@ -102,6 +141,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
         if (context.containingFile?.name?.endsWith(".gradle.kts") == true) return
 
         val source = expression.source ?: return
+        if (!flowsToUiText(expression, source)) return
         val qualified = qualifiedCall(source)
         val receiverText = if (qualified != null) {
             val receiver = significantChildren(qualified, source.treeStructure).firstOrNull() ?: return
@@ -110,7 +150,91 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
             implicitReceiverText(expression) ?: return
         }
         if (asciiInvariantIdentifiers.any { receiverText.contains(it) }) return
+        if (qualified != null && isInvariantTokenReceiver(source, qualified, expression)) return
+        if (isValueOfArgument(expression)) return
         report(qualified?.let { sourceOf(it, source) } ?: source, message(name))
+    }
+
+    // Receivers that hold fixed ASCII tokens, as in Go: a string literal without
+    // templates, a `.name` read, and the toString() of an enum.
+    context(context: CheckerContext)
+    private fun isInvariantTokenReceiver(source: KtSourceElement, qualified: LighterASTNode, call: FirFunctionCall): Boolean {
+        val tree = source.treeStructure
+        val receiver = significantChildren(qualified, tree).firstOrNull() ?: return false
+        val text = tree.toString(receiver).toString()
+        return when (receiver.tokenType) {
+            KtNodeTypes.STRING_TEMPLATE -> '$' !in text
+            KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION -> {
+                val selector = significantChildren(receiver, tree).lastOrNull()
+                (selector?.tokenType == KtNodeTypes.REFERENCE_EXPRESSION && tree.toString(selector).toString() == "name") ||
+                    isEnumToString(call.explicitReceiver)
+            }
+            else -> isEnumToString(call.explicitReceiver)
+        }
+    }
+
+    // `toString()` on an enum that does not override it returns the entry name.
+    @OptIn(DirectDeclarationsAccess::class)
+    context(context: CheckerContext)
+    private fun isEnumToString(receiver: FirExpression?): Boolean {
+        var expression = receiver
+        while (true) {
+            expression = when (expression) {
+                is FirSmartCastExpression -> expression.originalExpression
+                is FirSafeCallExpression -> expression.selector as? FirExpression
+                is FirCheckedSafeCallSubject -> expression.originalReceiverRef.value
+                else -> break
+            }
+        }
+        val call = expression as? FirFunctionCall ?: return false
+        if (call.calleeReference.name.asString() != "toString" || call.argumentList.arguments.isNotEmpty()) return false
+        val owner = call.dispatchReceiver ?: call.explicitReceiver ?: return false
+        val enumClass = (owner.resolvedType.fullyExpandedType() as? ConeClassLikeType)
+            ?.lookupTag?.toClassSymbol(context.session)
+        if (enumClass?.classKind != ClassKind.ENUM_CLASS) return false
+        // Only an override declared in this file counts, as in Go. Another file's override is source in a full
+        // compile but a class file in a slice compile, so ignoring it keeps both compiles equal.
+        val symbol = call.calleeReference.toResolvedCallableSymbol() ?: return false
+        if (symbol.origin != FirDeclarationOrigin.Source) return true
+        val outermost = enumClass.classId.outermostClassId
+        val file = context.containingElements.firstNotNullOfOrNull { it as? FirFile } ?: return true
+        return file.declarations.none { it is FirRegularClass && it.symbol.classId == outermost }
+    }
+
+    // True when [call] sits in the arguments of a UI text call or the value of a UI text property assignment.
+    context(context: CheckerContext)
+    private fun flowsToUiText(call: FirFunctionCall, source: KtSourceElement): Boolean {
+        for (element in context.containingElements.asReversed()) {
+            when {
+                element === call -> continue
+                element is FirFunctionCall ->
+                    if (element.calleeReference.name.asString() in uiSinkCalls &&
+                        element.argumentList.arguments.any { it.source.contains(source) }
+                    ) return true
+                element is FirVariableAssignment ->
+                    if (((element.lValue as? FirPropertyAccessExpression)?.calleeReference?.name?.asString() in uiSinkProperties) &&
+                        element.rValue.source.contains(source)
+                    ) return true
+                element is FirFunction || element is FirClass -> return false
+            }
+        }
+        return false
+    }
+
+    private fun KtSourceElement?.contains(inner: KtSourceElement): Boolean =
+        this != null && startOffset <= inner.startOffset && inner.endOffset <= endOffset
+
+    // The case of a value passed to valueOf-style lookups matches a fixed constant name.
+    context(context: CheckerContext)
+    private fun isValueOfArgument(call: FirFunctionCall): Boolean {
+        for (element in context.containingElements.asReversed()) {
+            when {
+                element === call -> continue
+                element is FirFunctionCall && element.calleeReference.name.asString() in valueOfNames -> return true
+                element is FirFunction || element is FirClass -> return false
+            }
+        }
+        return false
     }
 
     // The text that names the implicit receiver of [call], for the
@@ -161,7 +285,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     }
 
     private fun message(name: String) =
-        "'$name()' called without explicit Locale. Pass 'Locale.ROOT' for case-insensitive comparison or use a display-locale variant for user-facing text."
+        "'$name()' is locale-invariant but its result is shown as user-facing text. Use a display-locale variant such as '$name(Locale.getDefault())'."
 
     // A source element for [node], a node in [anchor]'s tree, keeping the
     // anchor's offset shift between tree offsets and file offsets.

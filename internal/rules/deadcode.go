@@ -25,12 +25,10 @@ type DeadCodeRule struct {
 // CheckCrossFile / CheckParsedFiles method sets. See api.Rule.Needs
 // (NeedsCrossFile / NeedsParsedFiles) for the canonical form.
 
-// DeadCode is advertised as not-fixable because the symbol-deletion
-// span (line range, leading KDoc, surrounding blank lines) is
-// non-trivial to compute from the cross-file index alone and the
-// current Check() path never populates a Fix. Removing a dead symbol
-// remains a manual operation. Left in fixes.go history for when the
-// per-symbol deletion pipeline lands.
+// DeadCode is not fixable: the index can miss uses from other modules,
+// reflection and generated code, and the symbol-deletion span (leading KDoc,
+// surrounding blank lines) is not available from the index. Removing a dead
+// symbol stays a manual operation, so Check never populates a Fix.
 func (r *DeadCodeRule) IsFixable() bool { return false }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule
@@ -69,24 +67,18 @@ func (r *DeadCodeRule) check(ctx *api.Context) {
 				cases.Title(language.Und).String(sym.Visibility), kindLabel, sym.Name)
 		}
 
+		line, col := symbolAnchor(filesByPath[sym.File], sym)
 		f := scanner.Finding{
 			File:     sym.File,
-			Line:     sym.Line,
-			Col:      1,
+			Line:     line,
+			Col:      col,
 			RuleSet:  r.RuleSetName,
 			Rule:     r.RuleName,
 			Severity: r.Sev,
 			Message:  msg,
 		}
 
-		// Fix: delete the declaration
-		f.Fix = &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   sym.StartByte,
-			EndByte:     sym.EndByte,
-			Replacement: "",
-		}
-
+		// No fix: the symbol may be used by other modules, reflection or generated code the index cannot see.
 		ctx.Emit(f)
 	}
 }
@@ -165,6 +157,12 @@ func isConservativeJavaDeadCodeSymbol(sym scanner.Symbol) bool {
 func shouldSkipSymbolWithFile(sym scanner.Symbol, file *scanner.File) bool {
 	if shouldSkipSymbol(sym) {
 		return true
+	}
+	// Operator functions run through syntax (`a + b`, `for (x in y)`, `val (p) = q`), so no name reference exists.
+	if sym.Kind == "function" && sym.Language != scanner.LangJava && file != nil {
+		if node := deadCodeSymbolNode(sym, file); node != 0 && file.FlatHasModifier(node, "operator") {
+			return true
+		}
 	}
 	return deadCodeSymbolHasGeneratedDIUse(sym, file)
 }

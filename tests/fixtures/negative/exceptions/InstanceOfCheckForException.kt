@@ -17,76 +17,23 @@ class NetworkClient {
         }
     }
 
-    // Narrowing an ALREADY-CAUGHT exception (the catch parameter) with `is`
-    // to decide rethrow-vs-wrap is the idiomatic, legitimate use — not the
-    // "type-check instead of polymorphism" smell. Must NOT fire.
-    fun rethrowOrWrap() {
-        try {
-            loadFromNetwork()
-        } catch (e: IllegalStateException) {
-            if (e is java.io.UncheckedIOException) {
-                throw RuntimeException(e)
-            } else {
-                throw e
-            }
-        }
-    }
-
-    // `when (e) { is X -> ... }` dispatch on the caught variable is the
-    // idiomatic way to group related exception types. Must NOT fire.
-    fun whenDispatch(): String {
+    // Only the caught parameter itself is checked: other values, the cause,
+    // a safe cast and `when (e)` dispatch are not reported.
+    fun others(other: Throwable): String {
         return try {
             loadFromNetwork()
         } catch (e: Exception) {
-            when (e) {
-                is IOException -> "io"
-                is IllegalStateException -> "state"
-                else -> "other"
-            }
-        }
-    }
-
-    // Checking the unwrapped cause for a specific exception is a legitimate
-    // cause-chain branch and is not the catch-parameter narrowing smell.
-    fun causeUnwrap() {
-        try {
-            loadFromNetwork()
-        } catch (e: Exception) {
-            if (e.cause is IOException) {
-                println("network cause")
-            }
-        }
-    }
-
-    // A local unwrapped from the caught variable's cause (`val cause = e.cause`)
-    // is still narrowing of the caught exception chain. Must NOT fire.
-    fun causeLocalUnwrap() {
-        try {
-            loadFromNetwork()
-        } catch (e: RuntimeException) {
             val cause = e.cause
-            if (cause is InterruptedException) {
-                throw cause
+            if (other is IOException || cause is IOException || e.cause is IOException) return "io"
+            val safe = e as? IOException
+            when (e) {
+                is IllegalStateException -> "state"
+                else -> safe.toString()
             }
         }
     }
 
-    fun classify(): String {
-        try {
-            return loadFromNetwork()
-        } catch (e: Throwable) {
-            // Non-exception type whose name happens to start with "Exception"
-            // must NOT trigger InstanceOfCheckForException.
-            if (e is ExceptionHandler) {
-                return "handled"
-            }
-            return "other"
-        }
-    }
+    private fun loadFromNetwork(): String = "ok"
 
-    private fun loadFromNetwork(): String = "data"
-
-    private fun log(e: Exception) {
-        println(e.message)
-    }
+    private fun log(e: Exception) {}
 }

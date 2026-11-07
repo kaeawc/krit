@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -26,36 +27,37 @@ var viewTagReceiverTypes = []string{
 }
 
 var viewTagFrameworkHeavyTypes = []string{
-	"android.app.Activity",
-	"android.app.Fragment",
-	"android.content.Context",
 	"android.database.Cursor",
-	"android.graphics.Bitmap",
-	"android.graphics.drawable.Drawable",
-	"android.support.v4.app.Fragment",
-	"android.support.v7.widget.RecyclerView.Adapter",
 	"android.view.View",
-	"android.widget.Adapter",
-	"android.widget.ListAdapter",
-	"androidx.fragment.app.Fragment",
-	"androidx.recyclerview.widget.RecyclerView.Adapter",
+	"android.support.v7.widget.RecyclerView.ViewHolder",
+	"androidx.recyclerview.widget.RecyclerView.ViewHolder",
 }
 
-const viewTagLeakMessage = "View.setTag() with a framework object may cause memory leaks across configuration changes."
+const viewTagLeakMessage = "View.setTag(int, Object) with a view, view holder or cursor can leak the context before Android 4.0 (API 14)."
+
+// viewTagFixedInAPILevel is the first API level where setTag(int, Object) stopped using a static map.
+const viewTagFixedInAPILevel = 14
 
 func (r *ViewTagRule) check(ctx *api.Context) {
 	if ctx.File.FlatType(ctx.Idx) != "call_expression" {
 		return
 	}
 	target, ok := semantics.ResolveCallTarget(ctx, ctx.Idx)
-	if !ok || target.CalleeName != "setTag" || len(target.Arguments) != 1 {
+	// Only setTag(int, Object) stored values in a static map before Android 4.0.
+	if !ok || target.CalleeName != "setTag" || len(target.Arguments) != 2 {
+		return
+	}
+	if projectMinSdk(ctx) >= viewTagFixedInAPILevel {
+		return
+	}
+	if scanner.IsTestFile(ctx.File.Path) || viewTagInVerificationOrMock(ctx, target) {
 		return
 	}
 	confidence, ok := viewTagReceiverEvidence(ctx, target)
 	if !ok {
 		return
 	}
-	arg := target.Arguments[0]
+	arg := target.Arguments[1]
 	if !arg.Valid() || !viewTagArgumentIsFrameworkHeavy(ctx, arg.Node) {
 		return
 	}
@@ -95,28 +97,30 @@ func viewTagArgumentIsFrameworkHeavy(ctx *api.Context, expr uint32) bool {
 	if !ok {
 		return false
 	}
-	if viewTagTypeMatches(ctx, typ.Type, viewTagFrameworkHeavyTypes) {
-		return true
-	}
-	return viewTagTypeNameSuggestsHolder(typ.Type)
+	return viewTagTypeMatches(ctx, typ.Type, viewTagFrameworkHeavyTypes)
 }
 
-// viewTagTypeNameSuggestsHolder applies the AOSP ViewTagDetector heuristic:
-// a class whose simple name contains "Holder" or "Tag" is presumed to hold
-// view references (e.g. a ViewHolder pattern), making it a leak risk on
-// API < 14 where View.setTag() is backed by a static map.
-func viewTagTypeNameSuggestsHolder(typ *typeinfer.ResolvedType) bool {
-	if typ == nil || typ.Kind == typeinfer.TypeUnknown || typ.Kind == typeinfer.TypePrimitive {
+// viewTagInVerificationOrMock reports whether the setTag call only stubs or verifies a test double.
+func viewTagInVerificationOrMock(ctx *api.Context, target semantics.CallTarget) bool {
+	file := ctx.File
+	for current, ok := file.FlatParent(ctx.Idx); ok; current, ok = file.FlatParent(current) {
+		if file.FlatType(current) != "call_expression" {
+			continue
+		}
+		switch flatCallNameAny(file, current) {
+		case "verify", "coVerify", "verifySequence", "every", "coEvery", "whenever", "doReturn":
+			return true
+		}
+	}
+	if !target.Receiver.Valid() {
 		return false
 	}
-	name := typ.Name
-	if name == "" {
-		name = androidSimpleName(typ.FQN)
+	receiver := file.FlatNodeText(target.Receiver.Node)
+	if strings.HasPrefix(receiver, "verify(") || strings.Contains(strings.ToLower(receiver), "mock") {
+		return true
 	}
-	if name == "" {
-		return false
-	}
-	return strings.Contains(name, "Holder") || strings.Contains(name, "Tag")
+	declared := regexp.MustCompile(`\b(?:val|var)\s+` + regexp.QuoteMeta(receiver) + `\s*(?::[^=\n]*)?=\s*(?:mock|mockk|spy|spyk)\b`)
+	return declared.MatchString(string(file.Content))
 }
 
 func viewTagCallTargetIsViewSetTag(target string) bool {

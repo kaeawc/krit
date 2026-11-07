@@ -40,9 +40,12 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 	if projectDiagnostic(ctx, DiagnosticProjection{
 		RuleID:       "UnnecessaryNotNullOperator",
 		FactoryNames: []string{"UNNECESSARY_NOT_NULL_ASSERTION"},
+		Accept: func(ctx *api.Context, _ oracle.Diagnostic) bool {
+			return !receiverIsLambdaAssignedLocal(ctx.File, flatFirstNamedChild(ctx.File, ctx.Idx))
+		},
 		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
 			recv := strings.TrimSpace(strings.TrimSuffix(ctx.File.FlatNodeText(ctx.Idx), "!!"))
-			return fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable '%s'.", recv)
+			return provenNonNullMessage(ctx.File, ctx.Idx, "!!", recv, "not-null assertion")
 		},
 		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
 			end := int(ctx.File.FlatEndByte(ctx.Idx))
@@ -53,6 +56,10 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 		return
 	}
 
+	// The compiler analyzed this file and reported nothing, so the name-based guess would only add false positives.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
 	// An indexed operand `m[k]!!` is nullable for a Map receiver; the name-based
 	// resolution path below cannot disambiguate it from a non-null List/Array
 	// get, so skip it structurally to avoid a false positive.
@@ -118,8 +125,8 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 					return // Actually nullable — !! is needed
 				}
 				// Known non-null — flag it
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable '%s'.", name))
+				f := r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1,
+					provenNonNullMessage(file, idx, "!!", name, "not-null assertion"))
 				bangStart := int(file.FlatEndByte(idx)) - 2
 				f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
 				ctx.Emit(f)
@@ -127,7 +134,7 @@ func (r *UnnecessaryNotNullOperatorRule) check(ctx *api.Context) {
 			}
 		}
 		if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			f := r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1,
 				fmt.Sprintf("Unnecessary not-null assertion (!!) on non-nullable val '%s'.", name))
 			bangStart := int(file.FlatEndByte(idx)) - 2
 			f.Fix = &scanner.Fix{ByteMode: true, StartByte: bangStart, EndByte: int(file.FlatEndByte(idx)), Replacement: ""}
@@ -341,6 +348,24 @@ func buildNullSafetySummary(file *scanner.File) *nullSafetyFileSummary {
 		memberAccessInitializer:  make(map[string]bool),
 		uncertainCallInitializer: make(map[string]bool),
 	}
+	// A `var` constructor property is as unstable for smart casts as a body `var`.
+	file.FlatWalkNodes(0, "class_parameter", func(param uint32) {
+		isVar := false
+		name := ""
+		for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "binding_pattern_kind":
+				isVar = file.FlatNodeTextEquals(c, "var")
+			case "simple_identifier":
+				if name == "" {
+					name = file.FlatNodeString(c, nil)
+				}
+			}
+		}
+		if isVar && name != "" {
+			s.mutableVar[name] = true
+		}
+	})
 	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
 		name := propertyDeclarationName(file, prop)
 		if name == "" {
@@ -456,4 +481,50 @@ func initializerCanProduceNullFlat(file *scanner.File, init uint32) bool {
 		}
 	})
 	return found
+}
+
+// receiverIsLambdaAssignedLocal reports whether recv is a bare identifier that a lambda or object literal in the
+// enclosing function assigns. Such a captured local var is not smart-cast stable, so a repeated `!!` or `?.` on it
+// is required even when the compiler's flow analysis treats it as stable.
+func receiverIsLambdaAssignedLocal(file *scanner.File, recv uint32) bool {
+	if file == nil || recv == 0 || file.FlatType(recv) != "simple_identifier" {
+		return false
+	}
+	name := file.FlatNodeText(recv)
+	scope := uint32(0)
+	for p, ok := file.FlatParent(recv); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "function_declaration" {
+			scope = p
+			break
+		}
+	}
+	if scope == 0 {
+		return false
+	}
+	assigned := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if assigned {
+			return
+		}
+		switch file.FlatType(n) {
+		case "assignment":
+			if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); !ok || strings.TrimSpace(file.FlatNodeText(target)) != name {
+				return
+			}
+		case "postfix_expression", "prefix_expression":
+			if strings.Trim(strings.TrimSpace(file.FlatNodeText(n)), "+-") != name || !strings.ContainsAny(file.FlatNodeText(n), "+-") {
+				return
+			}
+		default:
+			return
+		}
+		for p, ok := file.FlatParent(n); ok && p != scope; p, ok = file.FlatParent(p) {
+			switch file.FlatType(p) {
+			case "lambda_literal", "anonymous_function", "object_literal":
+				assigned = true
+				return
+			}
+		}
+	})
+	return assigned
 }

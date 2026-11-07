@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 33, 34, 43, 44, 45, 57, 66
+// go-lines: 33, 34, 43, 44, 57, 66
 // Project and Java functions that only share a name with a well-known suspend
 // function or coroutine builder. Go matches the call text against its name list and
 // reports every call below; FIR is correct to drop them because none of these

@@ -2,6 +2,8 @@ package rules
 
 import (
 	"bytes"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -472,6 +474,99 @@ var composeContentDescriptionCanonicalFQNs = map[string][]string{
 	},
 }
 
+// composeCallSetsContentDescription reports whether a call passes contentDescription by name or,
+// for Icon/Image/AsyncImage, as its second positional argument.
+func composeCallSetsContentDescription(file *scanner.File, call uint32) bool {
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return false
+	}
+	if flatNamedValueArgument(file, args, "contentDescription") != 0 {
+		return true
+	}
+	switch flatCallNameAny(file, call) {
+	case "Icon", "Image", "AsyncImage":
+		return flatPositionalValueArgument(file, args, 1) != 0
+	}
+	return false
+}
+
+// composeSameFileHelperTakesContentDescription reports whether the file declares a function
+// called name with a contentDescription-style parameter that it can forward to an Icon.
+func composeSameFileHelperTakesContentDescription(file *scanner.File, name string) bool {
+	found := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if found || extractIdentifierFlat(file, fn) != name {
+			return
+		}
+		for _, param := range flatFunctionParameterNames(file, fn) {
+			if strings.HasSuffix(strings.ToLower(param), "contentdescription") {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// composeSubtreeSetsContentDescription reports whether any call under root sets a content
+// description directly or through a same-file helper that takes one.
+func composeSubtreeSetsContentDescription(file *scanner.File, root uint32) bool {
+	found := composeSubtreeAssignsSemanticsDescription(file, root) || composeSubtreeInvokesSlotParameter(file, root)
+	if found {
+		return true
+	}
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		if composeCallSetsContentDescription(file, call) {
+			found = true
+			return
+		}
+		if name := flatCallNameAny(file, call); name != "" && name != "IconButton" &&
+			composeSameFileHelperTakesContentDescription(file, name) {
+			found = true
+		}
+	})
+	return found
+}
+
+// composeSubtreeAssignsSemanticsDescription reports `contentDescription = ...` inside a semantics block.
+func composeSubtreeAssignsSemanticsDescription(file *scanner.File, root uint32) bool {
+	found := false
+	file.FlatWalkNodes(root, "assignment", func(assign uint32) {
+		if found || file.FlatNamedChildCount(assign) == 0 {
+			return
+		}
+		if file.FlatNodeTextEquals(file.FlatNamedChild(assign, 0), "contentDescription") &&
+			hasAncestorCallNamedFlat(file, assign, "semantics") {
+			found = true
+		}
+	})
+	return found
+}
+
+// composeSubtreeInvokesSlotParameter reports a call to a function-typed parameter of the enclosing
+// function (`icon()`), whose caller owns the description.
+func composeSubtreeInvokesSlotParameter(file *scanner.File, root uint32) bool {
+	fn, ok := flatEnclosingFunction(file, root)
+	if !ok {
+		return false
+	}
+	types := composeParamTypeTexts(file, fn)
+	found := false
+	file.FlatWalkNodes(root, "call_expression", func(call uint32) {
+		if found || flatReceiverNameFromCall(file, call) != "" {
+			return
+		}
+		if typ, ok := types[flatCallNameAny(file, call)]; ok && strings.Contains(typ, "->") {
+			found = true
+		}
+	})
+	return found
+}
+
 func composeContentDescriptionCallConfirmed(file *scanner.File, idx uint32, name string) bool {
 	if file == nil || idx == 0 || name == "" {
 		return false
@@ -611,15 +706,28 @@ type ComposeRawTextLiteralRule struct {
 	BaseRule
 	CustomPreviewWildcard bool
 	CustomPreviewPrefixes []string
+	// NonProductionPathMarkers are extra path substrings that mark sources as not user-facing.
+	NonProductionPathMarkers []string
 }
 
 func (r *ComposeRawTextLiteralRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func composeRawTextLiteralNonProductionFile(path string) bool {
+func composeRawTextLiteralNonProductionFile(path string, extraMarkers []string) bool {
 	if scanner.IsTestFile(path) {
 		return true
 	}
-	lower := strings.ToLower(path)
+	lower := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	// Debug, playground and sandbox sources do not ship user-facing strings.
+	for _, marker := range []string{"playground", "sandbox", "/debug"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	for _, marker := range extraMarkers {
+		if marker != "" && strings.Contains(lower, strings.ToLower(marker)) {
+			return true
+		}
+	}
 	return strings.Contains(lower, "/samples/") ||
 		strings.Contains(lower, "/sample/") ||
 		strings.Contains(lower, "/demos/") ||
@@ -658,6 +766,17 @@ func flatNamedBooleanArgumentIsFalse(file *scanner.File, args uint32, name strin
 	return expr != 0 && file.FlatType(expr) == "boolean_literal" && strings.TrimSpace(file.FlatNodeText(expr)) == "false"
 }
 
+// composeIndicationIsNullFlat reports whether the call passes `indication = null`, the shape of an invisible scrim click.
+func composeIndicationIsNullFlat(file *scanner.File, args uint32) bool {
+	arg := flatNamedValueArgument(file, args, "indication")
+	if arg == 0 {
+		return false
+	}
+	// The `null` token is unnamed, so read it from the argument text.
+	_, value, ok := strings.Cut(file.FlatNodeText(arg), "=")
+	return ok && strings.TrimSpace(value) == "null"
+}
+
 // ---------------------------------------------------------------------------
 // ComposeTextFieldMissingLabel
 // ---------------------------------------------------------------------------
@@ -665,6 +784,8 @@ func flatNamedBooleanArgumentIsFalse(file *scanner.File, args uint32, name strin
 type ComposeTextFieldMissingLabelRule struct {
 	FlatDispatchBase
 	BaseRule
+	// NonProductionPathMarkers are extra path substrings that mark sources as not user-facing.
+	NonProductionPathMarkers []string
 }
 
 func (r *ComposeTextFieldMissingLabelRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -672,6 +793,56 @@ func (r *ComposeTextFieldMissingLabelRule) Confidence() float64 { return api.Con
 var composeTextFieldCalls = map[string]bool{
 	"TextField":         true,
 	"OutlinedTextField": true,
+}
+
+// composeTextFieldCallResolvesToMaterial reports whether an unqualified call resolves through imports to the
+// Material TextField family, inside a @Composable and not shadowed by a local declaration.
+func composeTextFieldCallResolvesToMaterial(file *scanner.File, call uint32, name string) bool {
+	if navExpr, _ := flatCallExpressionParts(file, call); navExpr != 0 {
+		return false
+	}
+	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) {
+		return false
+	}
+	inComposable := false
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "function_declaration" && flatHasAnnotationNamed(file, p, "Composable") {
+			inComposable = true
+			break
+		}
+	}
+	if !inComposable {
+		return false
+	}
+	// A same-file class or function with this name shadows the import.
+	declared := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		switch file.FlatType(n) {
+		case "class_declaration", "function_declaration":
+			if extractIdentifierFlat(file, n) == name {
+				declared = true
+			}
+		}
+	})
+	if declared {
+		return false
+	}
+	imports := fileFactsCache().Imports(file)
+	if fqn, ok := imports.Aliases[name]; ok {
+		return fqn == "androidx.compose.material3."+name || fqn == "androidx.compose.material."+name
+	}
+	_, m3 := imports.Wildcards["androidx.compose.material3.*"]
+	_, m2 := imports.Wildcards["androidx.compose.material.*"]
+	return m3 || m2
+}
+
+// composeIsTestSourceOrFakeAt reports whether idx sits in a test source set or a Fake/Test class.
+func composeIsTestSourceOrFakeAt(file *scanner.File, idx uint32) bool {
+	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) {
+		return true
+	}
+	name := flatEnclosingClassName(file, idx)
+	return strings.HasPrefix(name, "Fake") || strings.Contains(name, "Test")
 }
 
 func hasSiblingTextCall(file *scanner.File, parent uint32, self uint32) bool {
@@ -714,6 +885,19 @@ var a11yFunctionPatterns = []string{
 // ---------------------------------------------------------------------------
 
 func findOutermostModifierChainCall(file *scanner.File, idx uint32) uint32 {
+	current := composeAscendModifierChain(file, idx)
+	// A modifier passed to `.then(...)` belongs to the chain of that `then` call.
+	for {
+		owner := composeThenCallOwning(file, current)
+		if owner == 0 {
+			return current
+		}
+		current = composeAscendModifierChain(file, owner)
+	}
+}
+
+// composeAscendModifierChain climbs from a call to the outermost call or navigation of the dotted chain it sits in.
+func composeAscendModifierChain(file *scanner.File, idx uint32) uint32 {
 	current := idx
 	for {
 		parent, ok := file.FlatParent(current)
@@ -727,6 +911,27 @@ func findOutermostModifierChainCall(file *scanner.File, idx uint32) uint32 {
 		}
 		return current
 	}
+}
+
+// composeThenCallOwning returns the `x.then(...)` call whose argument is node, looking through if, when and
+// parentheses around the argument expression. It returns 0 when node is not a `then` argument.
+func composeThenCallOwning(file *scanner.File, node uint32) uint32 {
+	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "if_expression", "when_expression", "when_entry", "control_structure_body", "parenthesized_expression",
+			"statements", "value_argument", "value_arguments", "call_suffix":
+			continue
+		case "call_expression":
+			navExpr, _ := flatCallExpressionParts(file, p)
+			if navExpr != 0 && flatNavigationExpressionLastIdentifier(file, navExpr) == "then" {
+				return p
+			}
+			return 0
+		default:
+			return 0
+		}
+	}
+	return 0
 }
 
 func flatCallName(file *scanner.File, idx uint32) string {
@@ -754,4 +959,224 @@ func flatFunctionName(file *scanner.File, fn uint32) string {
 		}
 	}
 	return ""
+}
+
+// composeInsideInspectionModeBranch reports a node in the branch of an if that runs only when
+// LocalInspectionMode.current (or a local bound to it) is true, which is preview-only UI.
+func composeInsideInspectionModeBranch(file *scanner.File, idx uint32) bool {
+	child := idx
+	for {
+		cur, ok := file.FlatParent(child)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(cur) {
+		case "function_declaration":
+			return false
+		case "if_expression":
+			cond, thenBody, elseBody := composeIfParts(file, cur)
+			if cond != 0 {
+				text := strings.TrimSpace(file.FlatNodeText(cond))
+				negated := strings.HasPrefix(text, "!")
+				text = strings.TrimSpace(strings.TrimPrefix(text, "!"))
+				if composeIsInspectionModeRead(file, cur, text) &&
+					(child == thenBody && !negated || child == elseBody && negated) {
+					return true
+				}
+			}
+		}
+		child = cur
+	}
+}
+
+// composeIfParts returns the condition and the then/else bodies of an if_expression.
+func composeIfParts(file *scanner.File, ifExpr uint32) (cond, thenBody, elseBody uint32) {
+	seenElse := false
+	for c := file.FlatFirstChild(ifExpr); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "else":
+			seenElse = true
+		case "control_structure_body":
+			if seenElse {
+				elseBody = c
+			} else if thenBody == 0 {
+				thenBody = c
+			}
+		case "(", ")", "if":
+		default:
+			if cond == 0 && file.FlatIsNamed(c) && thenBody == 0 {
+				cond = c
+			}
+		}
+	}
+	return cond, thenBody, elseBody
+}
+
+// composeIsInspectionModeRead reports `LocalInspectionMode.current` or a local val bound to it.
+func composeIsInspectionModeRead(file *scanner.File, from uint32, text string) bool {
+	if text == "LocalInspectionMode.current" {
+		return true
+	}
+	fn, ok := flatEnclosingFunction(file, from)
+	if !ok || text == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "property_declaration", func(prop uint32) {
+		if !found && extractIdentifierFlat(file, prop) == text && strings.Contains(file.FlatNodeText(prop), "LocalInspectionMode.current") {
+			found = true
+		}
+	})
+	return found
+}
+
+// composeDebugToolingPath reports debug, playground and sandbox sources, which are not user-facing.
+// extraMarkers are configured path substrings that count the same way.
+func composeDebugToolingPath(path string, extraMarkers []string) bool {
+	slash := "/" + strings.ToLower(strings.TrimPrefix(filepath.ToSlash(path), "/"))
+	for _, marker := range []string{"/debug", "/playground/", "/sandbox/"} {
+		if strings.Contains(slash, marker) {
+			return true
+		}
+	}
+	for _, marker := range extraMarkers {
+		if marker != "" && strings.Contains(slash, strings.ToLower(marker)) {
+			return true
+		}
+	}
+	return false
+}
+
+var composeSmallFixedSizeRe = regexp.MustCompile(`\b(?:size|width)\(\s*(\d+(?:\.\d+)?)\.dp\s*\)`)
+
+// composeTextFieldIsDescribedGridCell reports a text field that is one cell of a repeated indexed layout
+// (such as a verification code) whose cell carries a semantics contentDescription. The description
+// speaks for the cell, and a per-cell label would repeat on every cell.
+func composeTextFieldIsDescribedGridCell(file *scanner.File, call, args uint32) bool {
+	modifier := flatNamedValueArgument(file, args, "modifier")
+	described := modifier != 0 && strings.Contains(file.FlatNodeText(modifier), "contentDescription")
+	repeated := false
+walk:
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "class_declaration", "source_file":
+			break walk
+		case "lambda_literal":
+			if composeIsRepeatedCellLambda(file, p) {
+				repeated = true
+			}
+		case "call_expression":
+			if _, enclosingArgs := flatCallExpressionParts(file, p); enclosingArgs != 0 &&
+				strings.Contains(file.FlatNodeText(enclosingArgs), "contentDescription") {
+				described = true
+			}
+		}
+	}
+	if !described {
+		return false
+	}
+	if repeated {
+		return true
+	}
+	single := flatNamedValueArgument(file, args, "singleLine")
+	if single == 0 || modifier == 0 || !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(single)), "true") {
+		return false
+	}
+	m := composeSmallFixedSizeRe.FindStringSubmatch(file.FlatNodeText(modifier))
+	if m == nil {
+		return false
+	}
+	dp, err := strconv.ParseFloat(m[1], 64)
+	return err == nil && dp <= 64
+}
+
+var (
+	composeSingleCharInputRe = regexp.MustCompile(`\b(?:take|takeLast)\(\s*1\s*\)|\.length\s*(?:<=|==|<)\s*[12]\b|\.length\s*>\s*1\b|\bmaxLength\s*=\s*1\b`)
+	composeCodeBoxNameRe     = regexp.MustCompile(`(?i)otp|pin|digit|passcode|verification|codebox|codecell`)
+)
+
+// composeTextFieldIsSingleCharBox reports a field that holds one character of a code (OTP or PIN box): its
+// handlers cap the input at one character, or its enclosing composable is named for a code digit.
+func composeTextFieldIsSingleCharBox(file *scanner.File, call uint32) bool {
+	if composeSingleCharInputRe.MatchString(file.FlatNodeText(call)) {
+		return true
+	}
+	if fn, ok := flatEnclosingFunction(file, call); ok {
+		return composeCodeBoxNameRe.MatchString(flatFunctionName(file, fn))
+	}
+	return false
+}
+
+// composeIsRepeatedCellLambda reports a lambda run once per index: repeat, forEachIndexed, mapIndexed,
+// or map/forEach over a range such as `(0 until n)`.
+func composeIsRepeatedCellLambda(file *scanner.File, lambda uint32) bool {
+	call, ok := file.FlatParent(lambda)
+	for ok && file.FlatType(call) != "call_expression" {
+		call, ok = file.FlatParent(call)
+	}
+	if !ok {
+		return false
+	}
+	switch flatCallNameAny(file, call) {
+	case "repeat", "forEachIndexed", "mapIndexed", "itemsIndexed":
+		return true
+	case "map", "forEach":
+		start, end := file.FlatStartByte(call), file.FlatStartByte(lambda)
+		if end <= start || int(end) > len(file.Content) {
+			return false
+		}
+		head := string(file.Content[start:end])
+		return strings.Contains(head, " until ") || strings.Contains(head, "..")
+	}
+	return false
+}
+
+// composePassesPositionalRole reports an unlabeled `Role.X` argument, as in clickable(true, null, Role.Button) { }.
+func composePassesPositionalRole(file *scanner.File, args uint32) bool {
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" || flatHasValueArgumentLabel(file, arg) {
+			continue
+		}
+		expr := flatValueArgumentExpression(file, arg)
+		if expr == 0 || file.FlatType(expr) != "navigation_expression" {
+			continue
+		}
+		segments := flatNavigationChainIdentifiers(file, expr)
+		if len(segments) >= 2 && segments[len(segments)-2] == "Role" {
+			return true
+		}
+	}
+	return false
+}
+
+// composeTextCallMayBeCompose reports false when the file imports or declares a non-AndroidX Text, such as a design-system wrapper.
+func composeTextCallMayBeCompose(file *scanner.File) bool {
+	if fqn, ok := fileFactsCache().Imports(file).Aliases["Text"]; ok && !strings.HasPrefix(fqn, "androidx.") {
+		return false
+	}
+	declared := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if extractIdentifierFlat(file, fn) == "Text" {
+			declared = true
+		}
+	})
+	return !declared
+}
+
+// composeRawTextLiteralText returns the literal text of a string, excluding interpolated expressions.
+func composeRawTextLiteralText(file *scanner.File, expr uint32) string {
+	interpolated := false
+	var b strings.Builder
+	for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+		switch t := file.FlatType(child); {
+		case t == "string_content" || t == "string_fragment":
+			b.WriteString(file.FlatNodeText(child))
+		case strings.Contains(t, "interpolat"):
+			interpolated = true
+		}
+	}
+	if !interpolated {
+		return stringLiteralContent(file, expr)
+	}
+	return b.String()
 }

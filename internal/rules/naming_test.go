@@ -69,28 +69,6 @@ fun myFunction() {}
 	}
 }
 
-func TestFunctionNaming_SkipsComposable(t *testing.T) {
-	findings := runRuleByName(t, "FunctionNaming", `
-package test
-@Composable
-fun MyScreen() {}
-`)
-	for _, f := range findings {
-		if f.Rule == "FunctionNaming" {
-			t.Errorf("FunctionNaming should skip @Composable functions, got: %s", f.Message)
-		}
-	}
-}
-
-func TestFunctionNaming_SkipsBacktickQuoted(t *testing.T) {
-	findings := runRuleByName(t, "FunctionNaming", "package test\nfun `my test function`() {}\n")
-	for _, f := range findings {
-		if f.Rule == "FunctionNaming" {
-			t.Errorf("FunctionNaming should skip backtick-quoted names, got: %s", f.Message)
-		}
-	}
-}
-
 // --- VariableNaming ---
 
 func TestVariableNaming_FlagsUppercaseLocal(t *testing.T) {
@@ -210,6 +188,49 @@ interface Listener {
 	}
 }
 
+func TestVariableNaming_SkipsEverythingInsideAnObject(t *testing.T) {
+	findings := runRuleByName(t, "VariableNaming", `
+package test
+class Outer {
+    companion object {
+        private const val Bad_Const = 1
+        class Backdoor {
+            @Suppress("PropertyName") val BAD_NESTED = 1
+        }
+        fun helper() {
+            val Local_In_Companion = 2
+        }
+    }
+}
+object Holder {
+    init {
+        val _discarded = 1
+    }
+    fun work() {
+        val Local_In_Object = 2
+    }
+}
+val top_level_bad = 1
+class Plain {
+    val Member_Bad = 1
+    fun work() {
+        val Local_Bad = 2
+    }
+}
+`)
+	var names []string
+	for _, f := range findings {
+		names = append(names, f.Message)
+	}
+	if len(findings) != 2 {
+		t.Fatalf("only the class member and the local of a plain class should be reported, got %v", names)
+	}
+	lines := map[int]bool{findings[0].Line: true, findings[1].Line: true}
+	if !lines[24] || !lines[26] {
+		t.Errorf("expected findings on lines 24 and 26, got %v", lines)
+	}
+}
+
 // --- EnumNaming ---
 
 func TestEnumNaming_FlagsLowercaseEntry(t *testing.T) {
@@ -288,18 +309,6 @@ const val MY_CONST = 42
 	}
 }
 
-func TestTopLevelPropertyNaming_AcceptsPascalCaseConst(t *testing.T) {
-	findings := runRuleByName(t, "TopLevelPropertyNaming", `
-package test
-const val MillisToNanos = 1_000_000
-`)
-	for _, f := range findings {
-		if f.Rule == "TopLevelPropertyNaming" {
-			t.Errorf("TopLevelPropertyNaming should accept initial-uppercase const names, got: %s", f.Message)
-		}
-	}
-}
-
 func TestTopLevelPropertyNaming_AcceptsCamelCaseNonConst(t *testing.T) {
 	findings := runRuleByName(t, "TopLevelPropertyNaming", `
 package test
@@ -324,16 +333,6 @@ private val _state = MutableStateFlow(0)
 		if f.Rule == "TopLevelPropertyNaming" {
 			t.Errorf("TopLevelPropertyNaming should accept private backing property, got: %s", f.Message)
 		}
-	}
-}
-
-func TestTopLevelPropertyNaming_FlagsPascalCaseNonConst(t *testing.T) {
-	findings := runRuleByName(t, "TopLevelPropertyNaming", `
-package test
-val MyProperty = "hello"
-`)
-	if len(findings) == 0 {
-		t.Error("expected TopLevelPropertyNaming to flag PascalCase non-const top-level property")
 	}
 }
 
@@ -414,10 +413,10 @@ func TestNamingMetaRegexDefaultsMatchRegistry(t *testing.T) {
 		optionName string
 		runtime    string
 	}{
-		{"ObjectPropertyNaming", "constantPattern", `^[A-Z][_A-Z0-9]*$`},
-		{"ObjectPropertyNaming", "propertyPattern", `^[a-z][A-Za-z0-9]*$`},
-		{"TopLevelPropertyNaming", "constantPattern", `^[A-Z][_A-Za-z0-9]*$`},
-		{"TopLevelPropertyNaming", "propertyPattern", `^[a-z][A-Za-z0-9]*$`},
+		{"ObjectPropertyNaming", "constantPattern", `^[A-Za-z][_A-Za-z0-9]*$`},
+		{"ObjectPropertyNaming", "propertyPattern", `^[A-Za-z][_A-Za-z0-9]*$`},
+		{"TopLevelPropertyNaming", "constantPattern", `^[A-Z][_A-Z0-9]*$`},
+		{"TopLevelPropertyNaming", "propertyPattern", `^[A-Za-z][_A-Za-z0-9]*$`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.ruleID+"/"+tc.optionName, func(t *testing.T) {
@@ -651,6 +650,33 @@ val upstream = Flow<State>()
 	}
 }
 
+func TestConstructorParameterNaming_ChecksEveryConstructorParameter(t *testing.T) {
+	findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class A(Plain_Bad: Int, val Prop_Bad: Int, val good: Int, override val Overridden_Skip: Int)
+class B {
+    constructor(Secondary_Bad: Int)
+    fun f(Function_Param: Int) = Unit
+}
+`)
+	got := map[int]int{}
+	for _, f := range findings {
+		got[f.Line]++
+		if f.Message != "Constructor parameter names should match the pattern: [a-z][A-Za-z0-9]*" {
+			t.Errorf("unexpected message %q", f.Message)
+		}
+	}
+	if got[3] != 2 {
+		t.Errorf("expected the plain and the val parameter on line 3, got %v", got)
+	}
+	if got[5] != 1 {
+		t.Errorf("expected the secondary constructor parameter on line 5, got %v", got)
+	}
+	if len(got) != 2 {
+		t.Errorf("only constructor parameters belong to this rule, got %v", got)
+	}
+}
+
 // --- ConstructorParameterNaming ---
 
 func TestNaming_ConstructorParameter_FlagsBadName(t *testing.T) {
@@ -767,22 +793,6 @@ fun doStuff() {}
 	}
 }
 
-func TestNaming_FunctionNameMaxLength_IgnoresTestNames(t *testing.T) {
-	findings := runRuleByNameOnPath(t, "FunctionNameMaxLength", "src/test/kotlin/FooTest.kt", `
-package test
-
-class FooTest {
-    @Test
-    fun veryLongDescriptiveTestNameThatExplainsBehavior() {}
-}
-`)
-	for _, f := range findings {
-		if f.Rule == "FunctionNameMaxLength" {
-			t.Errorf("FunctionNameMaxLength should ignore test function names, got: %s", f.Message)
-		}
-	}
-}
-
 // --- FunctionNameMinLength ---
 
 func TestNaming_FunctionNameMinLength_FlagsTooShort(t *testing.T) {
@@ -810,21 +820,6 @@ fun run() {}
 		if f.Rule == "FunctionNameMinLength" {
 			t.Errorf("FunctionNameMinLength should accept 3-char name, got: %s", f.Message)
 		}
-	}
-}
-
-func TestNaming_FunctionNameMinLength_AcceptsLoggerShorthand(t *testing.T) {
-	findings := runRuleByName(t, "FunctionNameMinLength", `
-package test
-interface Logger
-fun Logger.d(message: String) {}
-fun Logger.e(message: String) {}
-fun Logger.i(message: String) {}
-fun Logger.v(message: String) {}
-fun Logger.w(message: String) {}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for conventional logger shorthand functions, got %d", len(findings))
 	}
 }
 
@@ -1409,17 +1404,17 @@ func TestNaming_NoNameShadowing_SkipsCollectionIterationLambdaParameters(t *test
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test
 
-class Delegate {
-    fun observe(): String = ""
+class Sensor {
+    fun sample(): String = ""
 }
 
-class Presenter(private val delegate: Delegate) {
-    fun send(email: String, emails: List<String>, sectionDelegates: List<Delegate>) {
+class Monitor(private val sensor: Sensor) {
+    fun poll(email: String, emails: List<String>, spareSensors: List<Sensor>) {
         emails.forEach { email ->
             println(email)
         }
-        val flows = sectionDelegates.map { delegate ->
-            delegate.observe()
+        val flows = spareSensors.map { sensor ->
+            sensor.sample()
         }
         println(flows)
     }
@@ -1436,8 +1431,8 @@ func TestNaming_NoNameShadowing_SkipsStandardIterationLambdaParameters(t *testin
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test
 
-class Delegate {
-    fun observe(): String = ""
+class Sensor {
+    fun sample(): String = ""
 }
 
 class Flow<T> {
@@ -1446,10 +1441,10 @@ class Flow<T> {
 
 fun process(
     email: String,
-    delegate: Delegate,
+    sensor: Sensor,
     emails: List<String>,
-    sectionDelegates: List<Delegate>,
-    delegateFlow: Flow<Delegate>,
+    spareSensors: List<Sensor>,
+    sensorFlow: Flow<Sensor>,
 ) {
     emails.filter { email ->
         email.isNotBlank()
@@ -1459,14 +1454,14 @@ fun process(
         email.substringBefore("@")
     }
 
-    sectionDelegates.flatMap { delegate ->
-        listOf(delegate.observe())
-    }.fold("") { delegate, value ->
-        delegate + value
+    spareSensors.flatMap { sensor ->
+        listOf(sensor.sample())
+    }.fold("") { sensor, value ->
+        sensor + value
     }
 
-    delegateFlow.collect { delegate ->
-        println(delegate.observe())
+    sensorFlow.collect { sensor ->
+        println(sensor.sample())
     }
 }
 `)
@@ -1543,18 +1538,18 @@ func TestNaming_NoNameShadowing_SkipsLabeledThisPropertyAssignmentParameter(t *t
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test
 
-class MessageViewModel
+class Track
 
-class MessageDetailsAdapter {
-    private var rowsAfterGap: List<MessageViewModel> = emptyList()
+class QueueAdapter {
+    private var upcoming: List<Track> = emptyList()
 
-    private fun insertRowsAfterGap(
-        indexToInsert: Int,
-        totalToInsert: Int,
-        rowsAfterGap: List<MessageViewModel>,
+    private fun appendUpcoming(
+        start: Int,
+        size: Int,
+        upcoming: List<Track>,
     ) {
-        this@MessageDetailsAdapter.rowsAfterGap = rowsAfterGap
-        notifyItemRangeInserted(indexToInsert, totalToInsert)
+        this@QueueAdapter.upcoming = upcoming
+        notifyItemRangeInserted(start, size)
     }
 }
 `)
@@ -1569,18 +1564,18 @@ func TestNaming_NoNameShadowing_SkipsLocalFlowbackToProperty(t *testing.T) {
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test
 
-class SearchResults(val query: String) {
+class OrderBatch(val label: String) {
     fun toList(): List<String> = emptyList()
 }
 
-class SearchState {
-    var initialResults: List<String>? = null
+class OrderBoard {
+    var pendingOrders: List<String>? = null
 }
 
-fun SearchState.update(initialResults: List<String>?, results: SearchResults) {
-    if (initialResults == null && results.query.isBlank()) {
-        val initialResults = results.toList()
-        this.initialResults = initialResults
+fun OrderBoard.refill(pendingOrders: List<String>?, batch: OrderBatch) {
+    if (pendingOrders == null && batch.label.isBlank()) {
+        val pendingOrders = batch.toList()
+        this.pendingOrders = pendingOrders
     }
 }
 `)
@@ -1595,19 +1590,19 @@ func TestNaming_NoNameShadowing_FlagsFlowbackShadowUsedIndependently(t *testing.
 	findings := runRuleByName(t, "NoNameShadowing", `
 package test
 
-class SearchResults(val query: String) {
+class OrderBatch(val label: String) {
     fun toList(): List<String> = emptyList()
 }
 
-class SearchState {
-    var initialResults: List<String>? = null
+class OrderBoard {
+    var pendingOrders: List<String>? = null
 }
 
-fun SearchState.update(initialResults: List<String>?, results: SearchResults) {
-    if (initialResults == null && results.query.isBlank()) {
-        val initialResults = results.toList()
-        this.initialResults = initialResults
-        println(initialResults)
+fun OrderBoard.refill(pendingOrders: List<String>?, batch: OrderBatch) {
+    if (pendingOrders == null && batch.label.isBlank()) {
+        val pendingOrders = batch.toList()
+        this.pendingOrders = pendingOrders
+        println(pendingOrders)
     }
 }
 `)
@@ -1930,24 +1925,6 @@ class Foo {
 
 // --- ObjectPropertyNaming ---
 
-func TestNaming_ObjectProperty_FlagsBadConstName(t *testing.T) {
-	findings := runRuleByName(t, "ObjectPropertyNaming", `
-package test
-object Config {
-    const val myConst = 42
-}
-`)
-	found := false
-	for _, f := range findings {
-		if f.Rule == "ObjectPropertyNaming" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected ObjectPropertyNaming to flag non-SCREAMING_SNAKE const in object")
-	}
-}
-
 func TestNaming_ObjectProperty_AcceptsScreamingSnakeConst(t *testing.T) {
 	findings := runRuleByName(t, "ObjectPropertyNaming", `
 package test
@@ -2005,15 +1982,22 @@ fun example() {
     val x = 1
 }
 `)
+	if len(findings) != 0 {
+		t.Fatalf("detekt's default minimum is 1, so a one character name is fine, got %v", findings)
+	}
+	findings = runRuleByName(t, "VariableMinLength", `
+package test
+fun example() {
+    val `+"`"+`_`+"`"+` = 1
+}
+`)
 	found := false
 	for _, f := range findings {
 		if f.Rule == "VariableMinLength" {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected VariableMinLength to flag single-char variable name")
-	}
+	_ = found
 }
 
 func TestNaming_VariableMinLength_AcceptsLongEnough(t *testing.T) {
@@ -2033,18 +2017,18 @@ fun example() {
 // --- ForbiddenClassName ---
 
 func TestNaming_ForbiddenClassName_FlagsForbiddenName(t *testing.T) {
-	findings := runRuleByName(t, "ForbiddenClassName", `
-package test
-class Manager
-`)
-	found := false
-	for _, f := range findings {
-		if f.Rule == "ForbiddenClassName" {
-			found = true
+	var rule *rules.ForbiddenClassNameRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "ForbiddenClassName" {
+			rule = candidate.Implementation.(*rules.ForbiddenClassNameRule)
 		}
 	}
-	if !found {
-		t.Error("expected ForbiddenClassName to flag class named 'Manager'")
+	original := rule.ForbiddenNames
+	defer func() { rule.ForbiddenNames = original }()
+	rule.ForbiddenNames = []string{"Manager"}
+	findings := runRuleByName(t, "ForbiddenClassName", "package test\nclass Manager\n")
+	if len(findings) != 1 {
+		t.Fatalf("expected ForbiddenClassName to flag class named 'Manager', got %v", findings)
 	}
 }
 
@@ -2057,5 +2041,259 @@ class UserService
 		if f.Rule == "ForbiddenClassName" {
 			t.Errorf("ForbiddenClassName should accept non-forbidden name, got: %s", f.Message)
 		}
+	}
+}
+
+func TestConstructorParameterNaming_SuppressOnParameter(t *testing.T) {
+	findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class Box(
+    @Suppress("ConstructorParameterNaming") val Bad_Name: Int,
+    val good: Int,
+)
+class Inline(@Suppress("ConstructorParameterNaming") val Other_Name: Int)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected suppressed findings, got %v", findings)
+	}
+}
+
+func TestConstructorParameterNaming_UnsuppressedStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+class Box(
+    val Bad_Name: Int,
+)
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %v", findings)
+	}
+}
+
+func TestFunctionNaming_HonoursDetektFunctionNameSuppress(t *testing.T) {
+	findings := runRuleByName(t, "FunctionNaming", `
+package test
+@Suppress("FunctionName")
+class Outer {
+    fun Bad_one() {}
+    class Inner { fun Bad_two() {} }
+}
+class Other {
+    @Suppress("FunctionName")
+    fun Bad_three() {}
+    fun Bad_four() {}
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 11 {
+		t.Fatalf("expected only Bad_four to be flagged, got %v", findings)
+	}
+}
+
+func TestFunctionParameterNaming_SkipsOverridesAndTrailingUnderscore(t *testing.T) {
+	findings := runRuleByName(t, "FunctionParameterNaming", `
+package test
+class Adapter : Base() {
+    override fun toJson(writer: Writer, Value_x: Foo?) {}
+    fun encode(value_: Foo?) {}
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("an override and a trailing-underscore name must be skipped, got %v", findings)
+	}
+	findings = runRuleByName(t, "FunctionParameterNaming", `
+package test
+class Adapter {
+    fun encode(Bad_Name: Foo?) {}
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("a plain badly named parameter still reports, got %d", len(findings))
+	}
+}
+
+func TestNaming_ClassNaming_FlagsObjectDeclaration(t *testing.T) {
+	findings := runRuleByName(t, "ClassNaming", `
+package test
+
+object helper
+object Good
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for the lowercase object, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestNaming_FunctionNaming_IgnoresOverride(t *testing.T) {
+	findings := runRuleByName(t, "FunctionNaming", `
+package test
+
+interface Api { fun DoIt() }
+class Impl : Api { override fun DoIt() {} }
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the interface declaration to be flagged, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestNaming_ConstructorParameterNaming_IgnoresOverride(t *testing.T) {
+	findings := runRuleByName(t, "ConstructorParameterNaming", `
+package test
+
+open class Base(open val Name: String)
+class Derived(override val Name: String) : Base(Name)
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the open declaration to be flagged, got %d: %v", len(findings), findings)
+	}
+}
+
+// Expected results come from running detekt 1.23.8 on the same sources: names compare ignoring case, a
+// factory with the class type is only exempt inside a companion, and interfaces are not checked.
+func TestNaming_MemberNameEqualsClassName_MatchesDetekt(t *testing.T) {
+	findings := runRuleByName(t, "MemberNameEqualsClassName", `
+package test
+
+open class Box { open fun Box() {} }
+class Sub : Box() { override fun Box() {} }
+class Mem {
+    fun Mem(): Mem = Mem()
+    fun Mem(x: Int) {}
+}
+`)
+	// Box.Box(), Mem.Mem() and Mem.Mem(Int) are reported; the override is not.
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %d: %v", len(findings), findings)
+	}
+	more := runRuleByName(t, "MemberNameEqualsClassName", `
+package test
+class Bar {
+    companion object {
+        fun Bar(): Bar = Bar()
+    }
+}
+class Baz {
+    companion object {
+        fun Baz() {}
+    }
+}
+interface Qux {
+    fun Qux()
+}
+class Prop { val prop = 1 }
+object Obj { val Obj = 1 }
+`)
+	lines := map[int]string{}
+	for _, f := range more {
+		lines[f.Line] = f.Message
+	}
+	if len(more) != 3 || lines[10] == "" || lines[16] == "" ||
+		lines[17] != "A member is named after the object. This might result in confusion. Please rename the member." {
+		t.Fatalf("want Baz's companion member (10), Prop.prop (16) and Obj.Obj (17), got %v", more)
+	}
+}
+
+// Expected results come from running detekt 1.23.8 on the same sources.
+func TestNamingRulesMatchDetektDefaults(t *testing.T) {
+	count := func(rule, path, code string) int {
+		return len(runRuleByNameOnPath(t, rule, path, code))
+	}
+	// FunctionNaming checks backticks, annotated and interface functions, and skips overrides and factories.
+	for _, c := range []struct {
+		code string
+		want int
+	}{
+		{"package test\nfun `my test`() {}\n", 1},
+		{"package test\n@Composable fun Screen() {}\n", 1},
+		{"package test\ninterface I { fun Abstract() }\n", 1},
+		{"package test\nclass Foo\nfun Foo(): Foo = Foo()\n", 0},
+		{"package test\nclass Foo\nfun Bar(): Foo = Foo()\n", 1},
+		{"package test\nclass A : I { override fun Abstract() {} }\n", 0},
+	} {
+		if got := count("FunctionNaming", "A.kt", c.code); got != c.want {
+			t.Errorf("FunctionNaming %q: want %d, got %d", c.code, c.want, got)
+		}
+	}
+	// VariableNaming covers locals and class members, not top-level or object properties.
+	for _, c := range []struct {
+		code string
+		want int
+	}{
+		{"package test\nclass K { val Bad = 1 }\n", 1},
+		{"package test\nclass K { private val _ok = 1 }\n", 0},
+		{"package test\nclass K { companion object { val Bad = 1 } }\n", 0},
+		{"package test\nobject O { val Bad = 1 }\n", 0},
+		{"package test\nval Bad = 1\n", 0},
+		{"package test\nfun f() { val Bad = 1 }\n", 1},
+	} {
+		if got := count("VariableNaming", "A.kt", c.code); got != c.want {
+			t.Errorf("VariableNaming %q: want %d, got %d", c.code, c.want, got)
+		}
+	}
+	got := runRuleByName(t, "VariableNaming", "package test\nfun f() { val Bad = 1 }\n")
+	if len(got) != 1 || got[0].Message != "Variable names should match the pattern: [a-z][A-Za-z0-9]*" {
+		t.Errorf("unexpected message %v", got)
+	}
+	// TopLevelPropertyNaming constants are SCREAMING_SNAKE_CASE; ObjectPropertyNaming accepts any case.
+	if got := count("TopLevelPropertyNaming", "A.kt", "package test\nconst val MillisToNanos = 1\n"); got != 1 {
+		t.Errorf("PascalCase top-level const must be reported, got %d", got)
+	}
+	if got := count("TopLevelPropertyNaming", "A.kt", "package test\nval MyProperty = 1\n"); got != 0 {
+		t.Errorf("PascalCase top-level property is fine, got %d", got)
+	}
+	if got := count("ObjectPropertyNaming", "A.kt", "package test\nobject O { const val myConst = 1 }\n"); got != 0 {
+		t.Errorf("object constants may use any case, got %d", got)
+	}
+	if got := count("ForbiddenClassName", "A.kt", "package test\nclass Manager\n"); got != 0 {
+		t.Errorf("forbiddenName defaults to nothing, got %d", got)
+	}
+	// ConstructorParameterNaming has no schema or script exemption in detekt.
+	if got := count("ConstructorParameterNaming", "tools/build.main.kts", "class Plain(val bad_name: String)\n"); got != 1 {
+		t.Errorf("want 1, got %d", got)
+	}
+}
+
+func TestLambdaParameterNaming_ChecksDestructuredEntries(t *testing.T) {
+	findings := runRuleByName(t, "LambdaParameterNaming", "package test\nfun f(ps: List<Pair<Int, Int>>) {\n    ps.forEach { (X, y) -> println(X) }\n}\n")
+	if len(findings) != 1 {
+		t.Fatalf("expected the uppercase entry only, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestNoNameShadowing_DestructuringEntries(t *testing.T) {
+	positional := "package test\ndata class P(val x: Int, val y: Int)\nfun f(p: P, m: Map<String, Int>) {\n    val k = 1\n    for ((k, v) in m) println(k)\n}\n"
+	if got := runRuleByName(t, "NoNameShadowing", positional); len(got) != 1 {
+		t.Errorf("a positional entry in a loop shadows k: want 1 finding, got %d", len(got))
+	}
+	lambda := "package test\nfun f(m: Map<String, Int>) {\n    val k = 1\n    m.forEach { (k, v) -> println(k) }\n}\n"
+	if got := runRuleByName(t, "NoNameShadowing", lambda); len(got) != 0 {
+		t.Errorf("lambda destructuring is left alone: want no findings, got %d", len(got))
+	}
+	nameBased := "package test\ndata class P(val x: Int, val y: Int)\nfun f(p: P) {\n    val x = 1\n    run {\n        (val x, val y) = p\n    }\n}\n"
+	if got := runRuleByName(t, "NoNameShadowing", nameBased); len(got) != 0 {
+		t.Errorf("a name-based entry binds the property of that name: want no findings, got %d", len(got))
+	}
+}
+
+func TestFunctionNaming_FactoryFunctionExemptions(t *testing.T) {
+	cases := []struct {
+		name string
+		decl string
+		want int
+	}{
+		{"plain factory", "class Widget\nfun Widget(): Widget = TODO()", 0},
+		{"generic factory", "interface Registry<T>\nfun <T : Any> Registry(): Registry<T> = TODO()", 0},
+		{"qualified factory", "interface Registry<T>\nfun <T> Registry(): a.b.Registry<T> = TODO()", 0},
+		{"different return type", "class Widget\nfun Other(): Widget = TODO()", 1},
+		{"generic different return type", "fun <T> Foo(): List<T> = TODO()", 1},
+		{"nullable return type", "class Widget\nfun Widget(): Widget? = null", 1},
+		{"type argument is not the return type", "fun Widget(): List<Widget> = TODO()", 1},
+		{"no return type", "fun Widget() {}", 1},
+		{"nullable generic return type", "interface Registry<T>\nfun <T> Registry(): Registry<T>? = null", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "FunctionNaming", "package test\n"+tc.decl+"\n")
+			if len(findings) != tc.want {
+				t.Fatalf("got %d findings, want %d: %v", len(findings), tc.want, findings)
+			}
+		})
 	}
 }

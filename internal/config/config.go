@@ -14,6 +14,8 @@ import (
 // The data structure is: ruleSet -> ruleName -> key -> value
 type Config struct {
 	data map[string]interface{}
+	// detekt records the detekt layer merged under krit.yml, if any.
+	detekt *DetektImport
 }
 
 // ModuleTemplateConfig describes the optional top-level module_template block.
@@ -166,6 +168,12 @@ func LoadConfig(path string, roots ...string) (*Config, error) {
 // used as a last resort — preserving the legacy single-arg call shape.
 // If no user config is found, defaults alone are returned.
 func LoadAndMerge(userPath string, defaultPath string, roots ...string) (*Config, error) {
+	return LoadAndMergeWith(LoadOptions{}, userPath, defaultPath, roots...)
+}
+
+// LoadAndMergeWith is LoadAndMerge with caller overrides such as an explicit
+// detekt config.
+func LoadAndMergeWith(opts LoadOptions, userPath string, defaultPath string, roots ...string) (*Config, error) {
 	var base *Config
 	if defaultPath != "" {
 		var err error
@@ -177,7 +185,7 @@ func LoadAndMerge(userPath string, defaultPath string, roots ...string) (*Config
 	} else {
 		base = &Config{data: make(map[string]interface{})}
 	}
-	return mergeUserConfig(base, userPath, roots)
+	return mergeUserConfig(base, userPath, roots, opts)
 }
 
 // LoadAndMergeDefaults is LoadAndMerge over krit's shipped defaults:
@@ -187,14 +195,20 @@ func LoadAndMerge(userPath string, defaultPath string, roots ...string) (*Config
 // default-krit.yml is where rule option defaults live, so the embedded copy
 // keeps a released binary's defaults identical to a checkout's.
 func LoadAndMergeDefaults(userPath string, roots ...string) (*Config, error) {
+	return LoadAndMergeDefaultsWith(LoadOptions{}, userPath, roots...)
+}
+
+// LoadAndMergeDefaultsWith is LoadAndMergeDefaults with caller overrides such
+// as an explicit detekt config.
+func LoadAndMergeDefaultsWith(opts LoadOptions, userPath string, roots ...string) (*Config, error) {
 	if path := FindDefaultConfig(); path != "" {
-		return LoadAndMerge(userPath, path, roots...)
+		return LoadAndMergeWith(opts, userPath, path, roots...)
 	}
 	base, err := parseConfig(shippedconfig.DefaultConfig(), "embedded "+shippedconfig.DefaultConfigName)
 	if err != nil {
 		return nil, err
 	}
-	return mergeUserConfig(base, userPath, roots)
+	return mergeUserConfig(base, userPath, roots, opts)
 }
 
 // DefaultConfigSource names where LoadAndMergeDefaults reads defaults from:
@@ -206,25 +220,40 @@ func DefaultConfigSource() string {
 	return "embedded"
 }
 
-func mergeUserConfig(base *Config, userPath string, roots []string) (*Config, error) {
+// mergeUserConfig layers defaults < detekt config < krit.yml, so krit.yml wins.
+func mergeUserConfig(base *Config, userPath string, roots []string, opts LoadOptions) (*Config, error) {
 	var user *Config
-	var err error
+	userFile := userPath
 	if userPath != "" {
+		var err error
 		user, err = loadFile(userPath)
 		if err != nil {
 			return nil, fmt.Errorf("loading config %s: %w", userPath, err)
 		}
 	} else {
-		user, err = autoDetect(roots...)
-		if err != nil || user == nil {
-			// No user config found, return defaults only
-			return base, nil //nolint:nilerr // autoDetect failure is non-fatal: krit.yml is optional, caller proceeds with built-in defaults
-		}
+		// A failed autoDetect is non-fatal: krit.yml is optional and the
+		// caller proceeds with built-in defaults.
+		user, userFile, _ = autoDetectFile(roots...)
 	}
 
-	// Merge user config over defaults
-	merged := mergeMaps(base.data, user.data)
-	return &Config{data: merged}, nil
+	layer, info, err := loadDetektLayer(user, userFile, roots, opts)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil && layer == nil && info == nil {
+		return base, nil
+	}
+
+	merged := base.data
+	if layer != nil {
+		canonicalizeAliases(layer)
+		merged = mergeMaps(merged, layer)
+	}
+	if user != nil {
+		canonicalizeAliases(user.data)
+		merged = mergeMaps(merged, user.data)
+	}
+	return &Config{data: merged, detekt: info}, nil
 }
 
 func loadFile(path string) (*Config, error) {
@@ -270,17 +299,23 @@ var Filenames = []string{"krit.yml", ".krit.yml"}
 // Returns (nil, nil) when no config is found; non-existence is a normal
 // outcome, not an error.
 func autoDetect(roots ...string) (*Config, error) {
+	cfg, _, err := autoDetectFile(roots...)
+	return cfg, err
+}
+
+// autoDetectFile is autoDetect that also returns the path it loaded.
+func autoDetectFile(roots ...string) (*Config, string, error) {
 	dirs := autoDetectDirs(roots)
 	seen := make(map[string]struct{}, len(dirs)*4)
 	for _, start := range dirs {
 		if start == "" {
 			continue
 		}
-		if cfg, err := walkUpForConfig(start, seen); cfg != nil || err != nil {
-			return cfg, err
+		if cfg, path, err := walkUpForConfig(start, seen); cfg != nil || err != nil {
+			return cfg, path, err
 		}
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 // walkUpForConfig walks from `start` upward toward the filesystem root,
@@ -293,7 +328,7 @@ func autoDetect(roots ...string) (*Config, error) {
 // by walk-up — while VCS markers are *after-probe* boundaries, so a
 // worktree root that owns both `.git/` and a `krit.yml` is still a
 // valid match.
-func walkUpForConfig(start string, seen map[string]struct{}) (*Config, error) {
+func walkUpForConfig(start string, seen map[string]struct{}) (*Config, string, error) {
 	abs, err := filepath.Abs(start)
 	if err != nil {
 		abs = start
@@ -302,12 +337,12 @@ func walkUpForConfig(start string, seen map[string]struct{}) (*Config, error) {
 	dir := abs
 	for {
 		if _, visited := seen[dir]; visited {
-			return nil, nil
+			return nil, "", nil
 		}
 		seen[dir] = struct{}{}
 
 		if home != "" && dir == home {
-			return nil, nil
+			return nil, "", nil
 		}
 
 		for _, name := range Filenames {
@@ -319,16 +354,17 @@ func walkUpForConfig(start string, seen map[string]struct{}) (*Config, error) {
 			if fi.IsDir() {
 				continue
 			}
-			return loadFile(candidate)
+			cfg, err := loadFile(candidate)
+			return cfg, candidate, err
 		}
 
 		if IsVCSRoot(dir) {
-			return nil, nil
+			return nil, "", nil
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return nil, nil
+			return nil, "", nil
 		}
 		dir = parent
 	}
@@ -531,12 +567,63 @@ func (c *Config) Has(ruleSet, rule, key string) bool {
 	return ok
 }
 
+// legacyRuleIDs maps rule IDs that were removed or renamed to the rule that
+// replaced them. A config block under the old ID still applies when the new
+// rule has no block of its own, so existing configs keep working. Only list
+// IDs whose detection moved to the new rule unchanged in meaning.
+var legacyRuleIDs = map[string]string{
+	// The Kotlin-source NestedScrolling rule was removed: Lint's check is layout-only.
+	"NestedScrolling": "NestedScrollingResource",
+	// Renamed without a change in what it checks.
+	"InvalidUsesTagAttributeManifest": "InvalidUsesFeatureRequiredManifest",
+	// Replaced by the layout check that Lint's RtlCompat actually is.
+	"RtlCompatManifest": "RtlCompatResource",
+	// The layout id-prefix check was renamed; Lint's CutPasteId is now a source check.
+	"CutPasteIdResource": "IdTypePrefixMismatchResource",
+	// Lint's GradleIdeError reports nothing in Lint 32; the krit check that used the id was renamed.
+	"GradleIdeError": "ApplyPluginInKotlinDsl",
+	// The Kotlin-source variants were retired for the manifest checks Lint's rules are.
+	"ExportedService":         "ExportedServiceManifest",
+	"ExportedReceiver":        "ExportedReceiverManifest",
+	"ExportedContentProvider": "ExportedContentProviderManifest",
+	// AppIndexingError and AppIndexingWarning are old Lint names of the Google App Indexing checks.
+	"AppIndexingErrorManifest":   "GoogleAppIndexingDeepLinkErrorManifest",
+	"AppIndexingWarningManifest": "GoogleAppIndexingWarningManifest",
+}
+
+// legacyRuleIDsByCurrent inverts legacyRuleIDs.
+var legacyRuleIDsByCurrent = func() map[string][]string {
+	out := map[string][]string{}
+	for old, current := range legacyRuleIDs {
+		out[current] = append(out[current], old)
+	}
+	return out
+}()
+
+// LegacyRuleIDs returns a copy of the table that maps removed or renamed rule
+// IDs to the rule that replaced them.
+func LegacyRuleIDs() map[string]string {
+	out := make(map[string]string, len(legacyRuleIDs))
+	for old, current := range legacyRuleIDs {
+		out[old] = current
+	}
+	return out
+}
+
 // getRuleConfig returns the config map for a specific rule within a ruleset.
+// A rule without its own block falls back to the block of a legacy ID.
 func (c *Config) getRuleConfig(ruleSet, rule string) map[string]interface{} {
 	if c == nil {
 		return nil
 	}
 	m, _ := lookupMap(c.data, ruleSet, rule)
+	if m == nil {
+		for _, old := range legacyRuleIDsByCurrent[rule] {
+			if m, _ = lookupMap(c.data, ruleSet, old); m != nil {
+				break
+			}
+		}
+	}
 	return m
 }
 
@@ -893,6 +980,26 @@ func toFloat64(v interface{}) (float64, bool) {
 	return 0, false
 }
 
+// valueWithReason returns the value of a detekt `{value: ..., reason: ...}` list entry.
+func valueWithReason(item interface{}) (string, bool) {
+	m, ok := item.(map[string]interface{})
+	if !ok {
+		if generic, isGeneric := item.(map[interface{}]interface{}); isGeneric {
+			m = make(map[string]interface{}, len(generic))
+			for k, v := range generic {
+				m[fmt.Sprintf("%v", k)] = v
+			}
+		} else {
+			return "", false
+		}
+	}
+	value, ok := m["value"]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%v", value), true
+}
+
 func toStringSlice(v interface{}) []string {
 	switch s := v.(type) {
 	case []interface{}:
@@ -900,6 +1007,8 @@ func toStringSlice(v interface{}) []string {
 		for _, item := range s {
 			if str, ok := item.(string); ok {
 				result = append(result, str)
+			} else if value, ok := valueWithReason(item); ok {
+				result = append(result, value)
 			} else {
 				result = append(result, fmt.Sprintf("%v", item))
 			}

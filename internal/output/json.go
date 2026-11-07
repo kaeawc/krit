@@ -32,21 +32,30 @@ type JSONReport struct {
 	PerfRules   []rules.RuleExecutionStat   `json:"perfRuleStats,omitempty"`
 }
 
+// ConfidenceValue is a finding confidence in (0, 1]. It always encodes with a
+// decimal point ("1.0", "0.75") so consumers see one numeric type.
+type ConfidenceValue float64
+
+// MarshalJSON encodes the value as a JSON number that always has a fraction.
+func (c ConfidenceValue) MarshalJSON() ([]byte, error) {
+	return appendConfidenceJSON(nil, float64(c)), nil
+}
+
 // JSONFinding is a single finding in JSON output.
 type JSONFinding struct {
-	File       string  `json:"file"`
-	Line       int     `json:"line"`
-	Column     int     `json:"column"`
-	StartByte  *int    `json:"startByte,omitempty"`
-	EndByte    *int    `json:"endByte,omitempty"`
-	RuleSet    string  `json:"ruleSet"`
-	Rule       string  `json:"rule"`
-	Severity   string  `json:"severity"`
-	Message    string  `json:"message"`
-	Fixable    bool    `json:"fixable"`
-	FixLevel   string  `json:"fixLevel,omitempty"`
-	Confidence float64 `json:"confidence,omitempty"`
-	Effort     string  `json:"effort,omitempty"`
+	File       string          `json:"file"`
+	Line       int             `json:"line"`
+	Column     int             `json:"column"`
+	StartByte  *int            `json:"startByte,omitempty"`
+	EndByte    *int            `json:"endByte,omitempty"`
+	RuleSet    string          `json:"ruleSet"`
+	Rule       string          `json:"rule"`
+	Severity   string          `json:"severity"`
+	Message    string          `json:"message"`
+	Fixable    bool            `json:"fixable"`
+	FixLevel   string          `json:"fixLevel,omitempty"`
+	Confidence ConfidenceValue `json:"confidence,omitempty"`
+	Effort     string          `json:"effort,omitempty"`
 	// SuggestedFixes carries non-autofix, ordered recommendations from the
 	// rule. It is intentionally additive: presence here does NOT change the
 	// fixable / fixLevel semantics, which remain tied to the rule's single
@@ -408,7 +417,7 @@ func buildJSONFindings(columns *scanner.FindingColumns, fixLevels, efforts map[s
 			Severity:   cols.SeverityAt(row),
 			Message:    cols.MessageAt(row),
 			Fixable:    isFixable,
-			Confidence: cols.ConfidenceAt(row),
+			Confidence: ConfidenceValue(cols.ConfidenceAt(row)),
 		}
 		if isFixable {
 			finding.FixLevel = fixLevels[rule]

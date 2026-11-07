@@ -66,7 +66,7 @@ internal object SetJavaScriptEnabled : FirFunctionCallChecker(MppCheckerKind.Com
         override val variableAssignmentCheckers = setOf(AssignmentChecker)
     }
 
-    private const val MESSAGE = "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+    private const val MESSAGE = "Using `setJavaScriptEnabled` can introduce XSS vulnerabilities into your application, review carefully"
     private val WEB_SETTINGS = Name.identifier("WebSettings")
     private val SETTER = Name.identifier("setJavaScriptEnabled")
     private val PROPERTY = Name.identifier("javaScriptEnabled")

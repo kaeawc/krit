@@ -1,28 +1,25 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 81, 82, 83, 84, 85, 86, 87, 88, 118, 119, 120, 121, 200, 201, 202, 203, 204, 205
-// Project functions named like the setter that pass the interval on to
-// AlarmManager. Go matches the call by name alone and reports every call in
-// forwarding(), scopes(), and stored() whose third argument is a short
-// literal. Each marked call sets a platform repeating alarm whose interval
-// comes from that literal, so the message is true and FIR reports it too. The
-// three unmarked Go lines (88, 121, 202) set no alarm interval from the
-// literal.
+// go-lines: 79, 80, 81, 82, 83, 84, 85, 87, 88, 118, 119, 120, 121, 200, 201, 202, 203, 204, 205
+// Project functions named like the setter that pass the trigger time or the
+// interval on to AlarmManager. Go matches the call by name alone and reports
+// every four-argument call in forwarding(), scopes(), and stored() whose
+// trigger time or interval is a short literal. Each marked argument reaches a
+// platform repeating alarm, so the message is true and FIR reports it too. The
+// unmarked calls that Go reports set no alarm value from the literal.
 package test.forwarding
 
 import android.app.AlarmManager
 import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
 
 // An extension on AlarmManager that passes its interval to the platform
 // member. An extension on AlarmManager (or a subtype, or a nullable one) whose
-// third parameter is a Long is reported like the member.
-fun AlarmManager.setInexactRepeating(type: Int, triggerAt: Long, intervalMillis: Long, context: Context, intent: Intent) {
-    setInexactRepeating(type, triggerAt, intervalMillis, PendingIntent.getBroadcast(context, 0, intent, 0))
+// interval parameter is a Long is reported like the member.
+fun AlarmManager.setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operations: Set<PendingIntent>) {
+    setRepeating(type, triggerAt, intervalMillis, operations.first())
 }
 
-fun AlarmManager?.setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, context: Context, intent: Intent) {
-    this?.setRepeating(type, triggerAt, intervalMillis, PendingIntent.getBroadcast(context, 0, intent, 0))
+fun AlarmManager?.setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operation: PendingIntent?) {
+    this?.setRepeating(type, triggerAt, intervalMillis, operation)
 }
 
 // A wrapper class member that passes the interval to AlarmManager.
@@ -30,10 +27,12 @@ class AlarmScheduler(private val am: AlarmManager) {
     fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operation: PendingIntent) {
         am.setRepeating(type, triggerAt, intervalMillis, operation)
     }
+}
 
-    // The interval reaches AlarmManager inside a lambda.
-    fun setInexactRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operation: PendingIntent) {
-        operation.let { am.setInexactRepeating(type, triggerAt, intervalMillis, it) }
+// The interval reaches AlarmManager inside a lambda.
+class LambdaScheduler(private val am: AlarmManager) {
+    fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operation: PendingIntent) {
+        operation.let { am.setRepeating(type, triggerAt, intervalMillis, it) }
     }
 }
 
@@ -70,55 +69,56 @@ fun forwarding(
     am: AlarmManager,
     nullable: AlarmManager?,
     sched: AlarmScheduler,
+    lambda: LambdaScheduler,
     facade: SchedulerFacade,
     seconds: SecondsScheduler,
     repeating: RepeatingScheduler,
     hourly: HourlyScheduler,
-    context: Context,
-    intent: Intent,
     op: PendingIntent,
 ) {
-    <!ShortAlarm!>am.setInexactRepeating(AlarmManager.RTC, 0L, 5000L, context, intent)<!>
-    <!ShortAlarm!>nullable.setRepeating(AlarmManager.RTC, 0L, 5000L, context, intent)<!>
-    <!ShortAlarm!>sched.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>sched.setInexactRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>facade.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>seconds.setRepeating(AlarmManager.RTC, 0L, 30L, op)<!>
-    <!ShortAlarm!>repeating.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    hourly.setRepeating(AlarmManager.RTC, 0L, 3L, op)
+    am.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, setOf(op))
+    nullable.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    sched.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    lambda.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    facade.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    seconds.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>30L<!>, op)
+    repeating.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    // The trigger time goes through a wrapper the same way.
+    sched.setRepeating(AlarmManager.RTC, <!ShortAlarm!>1000L<!>, 60000L, op)
+    hourly.setRepeating(AlarmManager.RTC, 6000L, 3L, op)
     // Not short, in either Go or FIR.
-    sched.setRepeating(AlarmManager.RTC, 0L, 60000L, op)
+    sched.setRepeating(AlarmManager.RTC, 6000L, 60000L, op)
 }
 
 // A generic extension bounded by AlarmManager.
-fun <T : AlarmManager> T.setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, context: Context, intent: Intent, requestCode: Int) {
-    setRepeating(type, triggerAt, intervalMillis, PendingIntent.getBroadcast(context, requestCode, intent, 0))
+fun <T : AlarmManager> T.setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, operations: List<PendingIntent>) {
+    setRepeating(type, triggerAt, intervalMillis, operations.first())
 }
 
 // A function that calls itself and never reaches AlarmManager. Go reports the
-// call in scopes() (line 121); nothing sets an alarm, so FIR does not.
+// call in scopes(); nothing sets an alarm, so FIR does not.
 class Recursive {
-    fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long) {
-        if (type > 0) setRepeating(type - 1, triggerAt, intervalMillis)
+    fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, retries: Int) {
+        if (type > 0) setRepeating(type - 1, triggerAt, intervalMillis, retries)
     }
 }
 
 // Local and anonymous wrappers that pass the interval on are reported too.
-fun scopes(am: AlarmManager, recursive: Recursive, context: Context, intent: Intent, op: PendingIntent) {
+fun scopes(am: AlarmManager, recursive: Recursive, op: PendingIntent) {
     class LocalScheduler {
-        fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long) {
+        fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, retries: Int) {
             am.setRepeating(type, triggerAt, intervalMillis, op)
         }
     }
     val anonymous = object {
-        fun setInexactRepeating(type: Int, triggerAt: Long, intervalMillis: Long) {
-            am.setInexactRepeating(type, triggerAt, intervalMillis, op)
+        fun setRepeating(type: Int, triggerAt: Long, intervalMillis: Long, retries: Int) {
+            am.setRepeating(type, triggerAt, intervalMillis, op)
         }
     }
-    <!ShortAlarm!>LocalScheduler().setRepeating(AlarmManager.RTC, 0L, 5000L)<!>
-    <!ShortAlarm!>anonymous.setInexactRepeating(AlarmManager.RTC, 0L, 5000L)<!>
-    <!ShortAlarm!>am.setRepeating(AlarmManager.RTC, 0L, 5000L, context, intent, 1)<!>
-    recursive.setRepeating(1, 0L, 5000L)
+    LocalScheduler().setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, 1)
+    anonymous.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, 1)
+    am.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, listOf(op))
+    recursive.setRepeating(1, 6000L, 5000L, 1)
 }
 
 // Wrappers that store the interval parameter in a member or a local before
@@ -197,10 +197,10 @@ fun stored(
     deferred: DeferredScheduler,
     op: PendingIntent,
 ) {
-    <!ShortAlarm!>member.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>local.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    reassigned.setRepeating(AlarmManager.RTC, 0L, 5000L, op)
-    <!ShortAlarm!>conditional.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>loop.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
-    <!ShortAlarm!>deferred.setRepeating(AlarmManager.RTC, 0L, 5000L, op)<!>
+    member.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    local.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    reassigned.setRepeating(AlarmManager.RTC, 6000L, 5000L, op)
+    conditional.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    loop.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
+    deferred.setRepeating(AlarmManager.RTC, 6000L, <!ShortAlarm!>5000L<!>, op)
 }

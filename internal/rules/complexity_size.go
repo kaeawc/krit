@@ -29,21 +29,11 @@ func (*LongMethodRule) Description() string {
 // roadmap/17.
 func (r *LongMethodRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// longMethodDeclarationLineFlat returns the 1-based line number of the `fun`
-// keyword within a function_declaration node. It walks the node's direct
-// children looking for the anonymous "fun" token, which is structurally
-// reliable for annotated functions (e.g. @Override\nsuspend fun) where the
-// node's start row is the annotation row, not the fun keyword row.
-func longMethodDeclarationLineFlat(file *scanner.File, idx uint32) int {
-	if file == nil {
-		return 1
-	}
-	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
-		if file.FlatNodeTextEquals(c, "fun") {
-			return file.FlatRow(c) + 1
-		}
-	}
-	return file.FlatRow(idx) + 1
+// classKindLabel names the declaration kind for messages: "Interface",
+// "Object", "Enum class" or "Class".
+// classIsEnum reports an `enum class`; the grammar keeps `enum` as a keyword child, not a modifier.
+func classIsEnum(file *scanner.File, idx uint32) bool {
+	return file.FlatHasChildOfType(idx, "enum") || file.FlatHasModifier(idx, "enum")
 }
 
 // LargeClassRule detects classes exceeding a line count.
@@ -69,6 +59,7 @@ type ComplexInterfaceRule struct {
 	AllowedDefinitions         int
 	IncludePrivateDeclarations bool
 	IncludeStaticDeclarations  bool
+	IgnoreOverloaded           bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This rule
@@ -100,64 +91,6 @@ type LongParameterListRule struct {
 // roadmap/17.
 func (r *LongParameterListRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// paramHasIgnoredAnnotationFlat reports whether the parameter at idx
-// carries any annotation whose simple name matches one of the names in
-// `annotations`. Used to honor LongParameterListRule.IgnoreAnnotatedParameter
-// so that, e.g., `@Composable`-annotated parameters can be excluded from
-// the parameter count.
-//
-// Tree-sitter Kotlin attaches annotations on function parameters to a
-// `parameter_modifiers` sibling that precedes the `parameter` node, while
-// class-constructor parameters carry their annotations as children of the
-// `class_parameter` node. The helper consults both shapes so callers can
-// pass either node kind opaquely.
-func paramHasIgnoredAnnotationFlat(file *scanner.File, idx uint32, annotations []string) bool {
-	if len(annotations) == 0 || file == nil || idx == 0 {
-		return false
-	}
-	// 1) Annotations attached as children (class_parameter case, and any
-	//    parameter shape that nests a `modifiers` child).
-	for _, name := range annotations {
-		if name == "" {
-			continue
-		}
-		if flatHasAnnotationNamed(file, idx, name) {
-			return true
-		}
-	}
-	// 2) Function-parameter case: annotations live on the preceding
-	//    `parameter_modifiers` sibling within `function_value_parameters`.
-	parent, ok := file.FlatParent(idx)
-	if !ok {
-		return false
-	}
-	var prevModifiers uint32
-	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
-		if child == idx {
-			break
-		}
-		if file.FlatType(child) == "parameter_modifiers" {
-			prevModifiers = child
-		} else if file.FlatType(child) == "parameter" || file.FlatType(child) == "class_parameter" {
-			// Only the parameter_modifiers immediately preceding `idx`
-			// belongs to it; reset on every other parameter node.
-			prevModifiers = 0
-		}
-	}
-	if prevModifiers == 0 {
-		return false
-	}
-	for _, name := range annotations {
-		if name == "" {
-			continue
-		}
-		if flatAnnotationListContains("", file.FlatNodeText(prevModifiers), name) {
-			return true
-		}
-	}
-	return false
-}
-
 // MethodOverloadingRule detects too many overloads of the same method name.
 type MethodOverloadingRule struct {
 	FlatDispatchBase
@@ -174,52 +107,73 @@ type MethodOverloadingRule struct {
 // roadmap/17.
 func (r *MethodOverloadingRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// checkScopeFlat counts the functions declared directly in a file or in a class, object or enum entry body,
+// keyed by name (extensions by `Receiver.name`), and reports each name that reaches the threshold.
 func (r *MethodOverloadingRule) checkScopeFlat(ctx *api.Context, node uint32) {
 	file := ctx.File
 	counts := make(map[string]int)
-	firstLine := make(map[string]int)
+	var order []string
 	addFunction := func(fn uint32) {
 		name := extractIdentifierFlat(file, fn)
 		if name == "" {
 			return
 		}
-		counts[name]++
-		if _, ok := firstLine[name]; !ok {
-			firstLine[name] = file.FlatRow(fn) + 1
+		if recv := functionReceiverTypeText(file, fn); recv != "" {
+			name = recv + "." + name
 		}
+		if counts[name] == 0 {
+			order = append(order, name)
+		}
+		counts[name]++
 	}
-
+	var anchorRow, anchorCol int
 	switch file.FlatType(node) {
 	case "source_file":
-		for i := 0; i < file.FlatChildCount(node); i++ {
-			child := file.FlatChild(node, i)
-			switch file.FlatType(child) {
-			case "function_declaration":
-				addFunction(child)
-			case "class_declaration":
-				r.checkScopeFlat(ctx, child)
+		for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "function_declaration" {
+				addFunction(c)
 			}
 		}
-	case "class_declaration":
+		anchorRow, anchorCol = 1, 1
+		if hdr, ok := file.FlatFindChild(node, "package_header"); ok {
+			anchorRow, anchorCol = file.FlatRow(hdr)+1, file.FlatCol(hdr)+1
+		} else {
+			for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
+				switch file.FlatType(c) {
+				case "import_list", "import_header", "line_comment", "multiline_comment", "file_annotation":
+					continue
+				}
+				anchorRow, anchorCol = file.FlatRow(c)+1, file.FlatCol(c)+1
+				break
+			}
+		}
+	case "class_declaration", "object_declaration", "companion_object":
 		body, _ := file.FlatFindChild(node, "class_body")
+		if body == 0 {
+			body, _ = file.FlatFindChild(node, "enum_class_body")
+		}
 		if body == 0 {
 			return
 		}
-		forEachDirectClassBodyNodeFlat(file, body, func(child uint32) {
-			switch file.FlatType(child) {
-			case "function_declaration":
-				addFunction(child)
-			case "class_declaration":
-				r.checkScopeFlat(ctx, child)
+		var collect func(b uint32)
+		collect = func(b uint32) {
+			for c := file.FlatFirstChild(b); c != 0; c = file.FlatNextSib(c) {
+				switch file.FlatType(c) {
+				case "function_declaration":
+					addFunction(c)
+				case "class_member_declarations":
+					collect(c)
+				}
 			}
-		})
+		}
+		collect(body)
+		anchorRow, anchorCol = declLine(file, node), declCol(file, node)
 	default:
 		return
 	}
-	for name, count := range counts {
-		if count > r.AllowedOverloads {
-			ctx.Emit(r.Finding(file, firstLine[name], 1,
-				fmt.Sprintf("Method '%s' has %d overloads (allowed: %d).", name, count, r.AllowedOverloads)))
+	for _, name := range order {
+		if counts[name] > r.AllowedOverloads {
+			ctx.EmitAt(anchorRow, anchorCol, fmt.Sprintf("The method '%s' is overloaded %d times.", name, counts[name]))
 		}
 	}
 }
@@ -237,6 +191,7 @@ type TooManyFunctionsRule struct {
 	IgnoreDeprecated             bool
 	IgnoreInternal               bool
 	IgnoreOverridden             bool
+	IgnoreAnnotatedFunctions     []string
 }
 
 // Confidence reports a tier-2 (medium) base confidence. This rule
@@ -258,8 +213,11 @@ func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scan
 	if r.IgnoreOverridden && file.FlatHasModifier(fnNode, "override") {
 		return false
 	}
-	if r.IgnoreDeprecated {
-		if mods, ok := file.FlatFindChild(fnNode, "modifiers"); ok && strings.Contains(file.FlatNodeText(mods), "Deprecated") {
+	if r.IgnoreDeprecated && flatHasAnnotationNamed(file, fnNode, "Deprecated") {
+		return false
+	}
+	for _, name := range r.IgnoreAnnotatedFunctions {
+		if name = strings.TrimPrefix(strings.TrimSpace(name), "@"); name != "" && flatHasAnnotationNamed(file, fnNode, name) {
 			return false
 		}
 	}
@@ -268,6 +226,9 @@ func (r *TooManyFunctionsRule) shouldCountFunctionFlat(fnNode uint32, file *scan
 
 func (r *TooManyFunctionsRule) countFunctionsInClassFlat(cls uint32, file *scanner.File) int {
 	body, _ := file.FlatFindChild(cls, "class_body")
+	if body == 0 {
+		body, _ = file.FlatFindChild(cls, "enum_class_body")
+	}
 	if body == 0 {
 		return 0
 	}
@@ -301,54 +262,75 @@ func forEachDirectClassBodyNodeFlat(file *scanner.File, body uint32, fn func(uin
 	}
 }
 
-// countComplexInterfaceMembersFlat tallies direct class-body declarations,
-// honoring ComplexInterfaceRule's includePrivateDeclarations and
-// includeStaticDeclarations options:
-//
-//   - includePrivate=false: direct private fun/val/var declarations are
-//     skipped.
-//   - includeStatic=true: companion-object members are also counted as if
-//     declared directly on the interface.
-//
-// Kotlin interfaces don't have a true "static" concept; companion-object
-// members are the closest analogue for this rule.
-func countComplexInterfaceMembersFlat(file *scanner.File, body uint32, includePrivate, includeStatic bool) int {
+// countComplexInterfaceMembersFlat counts the properties and functions declared in an interface body as
+// detekt's ComplexInterface does: private members only with includePrivate, companion members with
+// includeStatic, and with ignoreOverloaded each function name once (extensions as `Receiver.name`).
+func countComplexInterfaceMembersFlat(file *scanner.File, body uint32, includePrivate, includeStatic, ignoreOverloaded bool) int {
 	if body == 0 {
 		return 0
 	}
-	members := 0
-	countMember := func(member uint32) {
-		t := file.FlatType(member)
-		if t != "function_declaration" && t != "property_declaration" {
-			return
+	count := func(body uint32) int {
+		props := 0
+		seen := map[string]bool{}
+		funcs := 0
+		visit := func(member uint32) {
+			t := file.FlatType(member)
+			if t != "function_declaration" && t != "property_declaration" {
+				return
+			}
+			if !includePrivate && file.FlatHasModifier(member, "private") {
+				return
+			}
+			if t == "property_declaration" {
+				props++
+				return
+			}
+			if ignoreOverloaded {
+				name := extractIdentifierFlat(file, member)
+				if recv := functionReceiverTypeText(file, member); recv != "" {
+					name = recv + "." + name
+				}
+				if seen[name] {
+					return
+				}
+				seen[name] = true
+			}
+			funcs++
 		}
-		if !includePrivate && file.FlatHasModifier(member, "private") {
-			return
+		for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+			visit(c)
+			if file.FlatType(c) == "class_member_declarations" {
+				for g := file.FlatFirstChild(c); g != 0; g = file.FlatNextSib(g) {
+					visit(g)
+				}
+			}
 		}
-		members++
+		return props + funcs
 	}
-	visitChild := func(child uint32) {
-		t := file.FlatType(child)
-		if t == "function_declaration" || t == "property_declaration" {
-			countMember(child)
-			return
-		}
-		if includeStatic && t == "companion_object" {
-			if companionBody, ok := file.FlatFindChild(child, "class_body"); ok {
-				for j := 0; j < file.FlatChildCount(companionBody); j++ {
-					countMember(file.FlatChild(companionBody, j))
+	members := count(body)
+	if includeStatic {
+		for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "companion_object" {
+				if cb, ok := file.FlatFindChild(c, "class_body"); ok {
+					members += count(cb)
 				}
 			}
 		}
 	}
-	for i := 0; i < file.FlatChildCount(body); i++ {
-		child := file.FlatChild(body, i)
-		visitChild(child)
-		if file.FlatType(child) == "class_member_declarations" {
-			for j := 0; j < file.FlatChildCount(child); j++ {
-				visitChild(file.FlatChild(child, j))
+	return members
+}
+
+// functionReceiverTypeText returns the receiver type text of an extension function, or "".
+func functionReceiverTypeText(file *scanner.File, fn uint32) string {
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			return ""
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			if n := file.FlatNextSib(c); n != 0 && file.FlatType(n) == "." {
+				return file.FlatNodeText(c)
 			}
 		}
 	}
-	return members
+	return ""
 }

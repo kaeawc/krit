@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 22, 23, 28, 31
+// go-lines: 12, 13, 15, 17, 22, 23, 28, 31
 // Go's exemption: a generic exception that wraps the exception caught by the
 // nearest enclosing catch, passed directly as an argument.
 package test
@@ -19,16 +19,16 @@ fun wrapsCaught() {
 
 fun doesNotWrapCaught(outside: Throwable) {
     // Not the caught exception itself.
-    try { io() } catch (e: IOException) { <!TooGenericExceptionThrown!>throw<!> RuntimeException("cause", e.cause) }
-    try { io() } catch (e: IOException) { <!TooGenericExceptionThrown!>throw<!> RuntimeException(e.message) }
+    try { io() } catch (e: IOException) { throw <!TooGenericExceptionThrown!>RuntimeException("cause", e.cause)<!> }
+    try { io() } catch (e: IOException) { throw <!TooGenericExceptionThrown!>RuntimeException(e.message)<!> }
     // Only the nearest catch counts: `e` belongs to the outer one.
     try {
         io()
     } catch (e: IOException) {
-        try { io() } catch (inner: IllegalStateException) { <!TooGenericExceptionThrown!>throw<!> RuntimeException(e) }
+        try { io() } catch (inner: IllegalStateException) { throw <!TooGenericExceptionThrown!>RuntimeException(e)<!> }
     }
     // Outside any catch, a Throwable argument is no exemption.
-    <!TooGenericExceptionThrown!>throw<!> RuntimeException(outside)
+    throw <!TooGenericExceptionThrown!>RuntimeException(outside)<!>
 }
 
 fun failing(): Nothing = error("failing")
@@ -43,4 +43,4 @@ fun thrownTryWrapsCaught(): Nothing =
 // Divergence (recall): this catch block's value drops the caught exception,
 // and Go, reading only failing(), misses it.
 fun thrownTryDropsCaught(): Nothing =
-    <!TooGenericExceptionThrown!>throw<!> try { failing() } catch (e: IllegalStateException) { RuntimeException("dropped") }
+    throw try { failing() } catch (e: IllegalStateException) { <!TooGenericExceptionThrown!>RuntimeException("dropped")<!> }

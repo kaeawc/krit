@@ -242,12 +242,10 @@ func ParseKotlinFileCached(ctx context.Context, path string, pc *ParseCache) (*F
 
 	parser := GetKotlinParser()
 	defer PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	file, err := ParseKotlinFile(ctx, parser, path, content)
 	if err != nil {
 		return nil, err
 	}
-
-	file := NewParsedFile(path, content, tree)
 	if file.FlatTree != nil {
 		_ = pc.SaveAsync(path, content, file.FlatTree)
 	}
@@ -259,7 +257,7 @@ func newKotlinFileFromFlatTree(path string, content []byte, tree *FlatTree) *Fil
 		Path:     internString(path),
 		Language: LangKotlin,
 		Content:  content,
-		Lines:    strings.Split(string(content), "\n"),
+		Lines:    splitSourceLines(content),
 		FlatTree: tree,
 	}
 }
@@ -267,11 +265,12 @@ func newKotlinFileFromFlatTree(path string, content []byte, tree *FlatTree) *Fil
 // NewParsedFile builds a scanner.File from already-parsed Kotlin source.
 // The incoming tree is flattened immediately and not retained.
 func NewParsedFile(path string, content []byte, tree *sitter.Tree) *File {
-	lines := strings.Split(string(content), "\n")
+	lines := splitSourceLines(content)
 
 	var flatTree *FlatTree
 	if tree != nil {
 		flatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
+		restoreOriginalPositions(flatTree, content)
 	}
 
 	return &File{
@@ -295,14 +294,14 @@ func ParseGradleScript(ctx context.Context, path string, content []byte, metadat
 		Path:     internString(path),
 		Language: LangGradle,
 		Content:  content,
-		Lines:    strings.Split(string(content), "\n"),
+		Lines:    splitSourceLines(content),
 		Metadata: metadata,
 	}
 	if strings.HasSuffix(path, ".kts") {
 		parser := GetKotlinParser()
 		defer PutKotlinParser(parser)
-		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
-			file.FlatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
+		if ft, err := ParseKotlinFlat(ctx, parser, content); err == nil {
+			file.FlatTree = ft
 		}
 	} else if strings.HasSuffix(path, ".gradle") {
 		parser := GetGroovyParser()
@@ -628,7 +627,7 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 
 	var lines []string
 	if opts.buildLines {
-		lines = strings.Split(string(content), "\n")
+		lines = splitSourceLines(content)
 	}
 	var flatTree *FlatTree
 	if tree != nil {
@@ -669,7 +668,7 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 func newJavaFileFromFlatTreeWithOptions(path string, content []byte, tree *FlatTree, buildLines bool) *File {
 	var lines []string
 	if buildLines {
-		lines = strings.Split(string(content), "\n")
+		lines = splitSourceLines(content)
 	}
 	return &File{
 		Path:     internString(path),
@@ -816,7 +815,7 @@ func partitionIndexedPaths(paths []string, workers int) [][]indexedPath {
 }
 
 func isExcluded(path string, excludes []string) bool {
-	return isExcludedBuiltinDir(path) || isExcludedByPattern(path, excludes)
+	return isExcludedBuiltinDir(path) || fileignore.DocSamplePath(path) || isExcludedByPattern(path, excludes)
 }
 
 func isExcludedBuiltinDir(path string) bool {
@@ -902,4 +901,15 @@ func ReadLines(path string) ([]string, error) {
 		lines = append(lines, sc.Text())
 	}
 	return lines, sc.Err()
+}
+
+// splitSourceLines splits content on "\n". A leading UTF-8 byte order mark is not part of the first line's
+// text, so line-based rules see `package a` instead of `\ufeffpackage a`. LineOffset works on Content,
+// so offsets are unaffected.
+func splitSourceLines(content []byte) []string {
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > 0 {
+		lines[0] = strings.TrimPrefix(lines[0], "\ufeff")
+	}
+	return lines
 }

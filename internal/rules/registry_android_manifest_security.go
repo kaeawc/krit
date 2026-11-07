@@ -8,6 +8,22 @@ func registerAndroidManifestSecurityRules() {
 
 	// --- from android_manifest_security.go ---
 	{
+		r := &GrantAllUrisRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GrantAllUris", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "GrantAllUris",
+			Brief:      "Content provider shares everything",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &AllowBackupManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "AllowBackupManifest", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "AllowBackup",
@@ -29,7 +45,7 @@ func registerAndroidManifestSecurityRules() {
 			IssueID:    "HardcodedDebugMode",
 			Brief:      "Hardcoded value of android:debuggable in manifest",
 			Category:   ALCSecurity,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -74,7 +90,7 @@ func registerAndroidManifestSecurityRules() {
 	{
 		r := &MissingExportedFlagRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MissingExportedFlag", RuleSetName: androidRuleSet, Sev: "error"},
-			IssueID:    "MissingExportedFlag",
+			IssueID:    "IntentFilterExportedReceiver",
 			Brief:      "Component with intent-filter missing android:exported (API 31+)",
 			Category:   ALCSecurity,
 			ALSeverity: ALSError,
@@ -91,10 +107,74 @@ func registerAndroidManifestSecurityRules() {
 		r := &ExportedServiceManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "ExportedServiceManifest", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "ExportedService",
-			Brief:      "Exported service without required permission",
+			Brief:      "Exported service does not require permission",
 			Category:   ALCSecurity,
 			ALSeverity: ALSWarning,
 			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &ExportedReceiverManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExportedReceiverManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ExportedReceiver",
+			Brief:      "Exported receiver does not require permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &ExportedContentProviderManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ExportedContentProviderManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "ExportedContentProvider",
+			Brief:      "Exported content provider does not require permission",
+			Category:   ALCSecurity,
+			ALSeverity: ALSWarning,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &IllegalResourceRefManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "IllegalResourceRefManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "IllegalResourceRef",
+			Brief:      "Name and version must be integer or string, not resource",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   8,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &DeprecatedManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DeprecatedManifest", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "Deprecated",
+			Brief:      "Using deprecated resources",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   2,
 			Origin:     "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{

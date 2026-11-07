@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 22, 24, 26
-// Divergence: Go reports every function below except `aliased` because it
-// reads the declared return type's text, and each is named ResultSet (or ends
-// in `.ResultSet`).
+// go-lines: none
+// Go also reports these when the file mentions java.sql; here it does not, so
+// it matches FIR. Each function below is named ResultSet (or ends in
+// `.ResultSet`).
 // None of them is closeable or has a close() member (for a ResultSet that does,
 // see JdbcResultSetLeakedFromFunctionCloseable.kt), so the message ("callers almost always forget to
 // close it ... call .use {} instead") is not true of them: there is nothing to

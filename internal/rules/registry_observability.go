@@ -51,7 +51,7 @@ func registerObservabilityRules() {
 				if builderName != "launch" && builderName != "async" && builderName != "withContext" {
 					return
 				}
-				if lambda == 0 || coroutineContextHasMDCFlat(file, args) {
+				if lambda == 0 || coroutineContextHasMDCFlat(file, args) || enclosingBuilderHasMDCContextFlat(file, idx) {
 					return
 				}
 				logCall := firstCorrelationSensitiveLogCallFlat(file, lambda)
@@ -165,6 +165,10 @@ func registerObservabilityRules() {
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
+				// Fixture metric names in tests do not follow the production naming convention.
+				if metricNameInTestCode(ctx.File, ctx.Idx) {
+					return
+				}
 				name, ok := r.shouldFlag(ctx.File, ctx.Idx)
 				if !ok {
 					return
@@ -312,6 +316,9 @@ func registerObservabilityRules() {
 				if !receiverIsKnownLoggerFlat(file, idx, receiver) {
 					return
 				}
+				if loggerIsCompilerDiagnosticSink(file, idx, receiver) {
+					return
+				}
 				message := loggerStringConcatMessageArgFlat(file, idx)
 				if message == 0 {
 					return
@@ -337,7 +344,7 @@ func registerObservabilityRules() {
 				if _, ok := flatEnclosingFunction(file, idx); !ok {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Move LoggerFactory.getLogger(...) to a class-level logger field instead of creating a logger inside the function body.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Move LoggerFactory.getLogger(...) to a class-level logger field instead of creating a logger inside the function body.")
 			},
 		})
 	}
@@ -362,7 +369,7 @@ func registerObservabilityRules() {
 				if mdcRemoveOrClearMatchesFlat(file, fn, key, keyKnown) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "MDC.put(...) is not paired with MDC.remove(...) or MDC.clear() in this function. Use MDC.putCloseable(...).use { } or remove the key in a finally block to avoid leaking values across threads.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "MDC.put(...) is not paired with MDC.remove(...) or MDC.clear() in this function. Use MDC.putCloseable(...).use { } or remove the key in a finally block to avoid leaking values across threads.")
 			},
 		})
 	}

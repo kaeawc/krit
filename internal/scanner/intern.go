@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"hash/maphash"
 	"strings"
 	"sync"
 	"unsafe"
@@ -8,15 +9,30 @@ import (
 
 var globalStringPool = NewStringPool()
 
+// stringPoolShards spreads the pool over independent locks. One lock made every lookup contend on
+// the same cache line, which cost more than the lookups once rule dispatch ran on many workers.
+const stringPoolShards = 128
+
 // StringPool deduplicates repeated string values across scanner hot paths.
 type StringPool struct {
+	seed   maphash.Seed
+	shards [stringPoolShards]stringPoolShard
+}
+
+type stringPoolShard struct {
 	mu    sync.RWMutex
 	table map[string]string
+	// Keeps neighbouring shards' locks off the same cache line.
+	_ [40]byte
 }
 
 // NewStringPool creates a pool ready for concurrent use.
 func NewStringPool() *StringPool {
-	return &StringPool{table: make(map[string]string)}
+	p := &StringPool{seed: maphash.MakeSeed()}
+	for i := range p.shards {
+		p.shards[i].table = make(map[string]string)
+	}
+	return p
 }
 
 // Intern returns a canonical copy of s. The stored value is cloned on first
@@ -25,25 +41,26 @@ func (p *StringPool) Intern(s string) string {
 	if s == "" {
 		return ""
 	}
+	shard := &p.shards[maphash.String(p.seed, s)%stringPoolShards]
 
-	p.mu.RLock()
-	if v, ok := p.table[s]; ok {
-		p.mu.RUnlock()
+	shard.mu.RLock()
+	if v, ok := shard.table[s]; ok {
+		shard.mu.RUnlock()
 		return v
 	}
-	p.mu.RUnlock()
+	shard.mu.RUnlock()
 
 	cloned := strings.Clone(s)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.table == nil {
-		p.table = make(map[string]string)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	if shard.table == nil {
+		shard.table = make(map[string]string)
 	}
-	if v, ok := p.table[s]; ok {
+	if v, ok := shard.table[s]; ok {
 		return v
 	}
-	p.table[cloned] = cloned
+	shard.table[cloned] = cloned
 	return cloned
 }
 

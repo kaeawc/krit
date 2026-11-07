@@ -1,7 +1,7 @@
 # Performance Tuning
 
 Krit aims to be fast out of the box. This page lists the knobs available for
-people who need to push further — large monorepos, CI tight on wall-clock, or
+people who need to push further — large repositories, CI tight on wall-clock, or
 laptops on battery. Each option lists what it changes, when it's worth using,
 and what you give up.
 
@@ -20,8 +20,8 @@ krit --daemon .             # uses the running daemon
 ```
 
 Subsequent calls reuse the warm parse tree, cross-file index, resolver, and
-library facts. On a 50k-file Kotlin/Android repo this typically takes
-analyze-project from ~3s cold to ~50–150ms warm.
+library facts. On a large Kotlin/Android repo this typically takes
+analyze-project from seconds cold to a fraction of a second warm.
 
 The daemon also keeps an LSP and MCP server in the same process, so editors
 and AI agents share the warm state.
@@ -125,7 +125,7 @@ you're fine with whichever the system supports.
 
 ### When fanotify probably isn't worth it
 
-- Repos under ~10k files. The inotify cost is negligible.
+- Small and mid-sized repos. The inotify cost is negligible.
 - Networked / virtual filesystems (NFS, sshfs, virtio-fs). Many don't export
   file handles, which fanotify needs.
 - CI runners that recreate the worktree per job. The daemon doesn't live
@@ -254,6 +254,61 @@ near-zero on a warm run.
 | `--cache-dir PATH` | Override incremental cache directory |
 | `--store-dir PATH` | Use the unified store-backed cache |
 
+### Cache inventory and invalidation
+
+Every cache below sits under `<repo>/.krit/` unless noted. "Build" means the
+running Krit build: `buildid.Token()` is the VCS revision of a clean `go build`,
+or a SHA-256 of the executable when the tree is dirty or carries no VCS data.
+It is stable across runs of one binary and differs between any two builds, so
+dev builds that all print `krit dev` still invalidate each other's caches. The
+rule hash that keys findings is `cache.ComputeCacheKeyHash`: active rule IDs,
+the resolved config, the editorconfig switch and the build, with the oracle jar
+and schema identity mixed in.
+
+Findings and rule-dependent derived data. A different build never reads these:
+
+| Cache | Holds | Key inputs | Invalidated by |
+|---|---|---|---|
+| `cache/` (per-file analysis) | Per-file rule findings | File content hash, rule hash, oracle fact hash | Rule hash: rules, config, build, oracle jar, and project facts (module SDK levels, Gradle library facts) |
+| `findings-bundle-cache/` | Whole-run findings and delta manifests | Run fingerprint: rule hash, source set, cross-file structure, oracle facts, Gradle paths and library facts, compiler settings, XML inputs (manifests, resources, module SDK levels) | Any fingerprint field |
+| `cross-findings-cache/` | Cross-file rule findings | Cross-file index fingerprint, rule hash | Index fingerprint (sources, XML inputs, build), rule hash |
+| `cross-file-cache/` | Cross-file symbol and reference index | Source and XML content hashes, build, bloom library version | `CrossFileCacheVersion`, the shard version, the build |
+| `android-findings-cache/` | Manifest, resource, icon, Gradle and resource-source findings, merged resource indexes | Rule hash (with module SDK levels and RTL main-project facts), library facts, Java semantic facts, content fingerprint of the unit (a manifest also keys on its path and the module's `res/` and build script) | `androidFindingsCacheVersion`, any key input |
+| `fir-cache/`, `fir-incremental/` | FIR checker verdicts and incremental compiler state | Source hash, classpath, jar identity, rules and configs, per-file SDK levels, Kotlin settings | `FirCacheVersion`, the fingerprint, the build |
+| `types.json`, `types-cache/` | Type oracle facts | File hashes, backend jar token, `CacheVersion`, fact schema | Jar contents, schema versions, build |
+| `type-index-cache/` | Source type index (scopes, smart casts, declarations) | File path and content hash | `typeIndexCacheVersion`, the build (the directory is emptied when another build wrote it) |
+| `librarymodel-cache/` | Gradle project profile (SDK levels, dependencies, catalogs) | Gradle and catalog file hashes | `projectProfileCacheVersion`, the build |
+| `resource-cache/` | Parsed values, layout and drawable `ResourceIndex` per res dir | Content fingerprint of the dir, scan kinds | `resourceCacheVersion`, the build |
+| `parse-cache/xml/` | Parsed XML node trees | File content hash | `xmlParseCacheVersion`, grammar version, the build |
+
+Pure parse and discovery caches. They hold no rule output and change only with
+the grammar or the repair code, so they invalidate by version constant and a
+change to that code must bump it:
+
+| Cache | Holds | Invalidated by |
+|---|---|---|
+| `parse-cache/kotlin/`, `parse-cache/java/` | Tree-sitter trees after pre-parse rewrites and repair | `parseCacheVersion`, tree-sitter and grammar version, `kotlinTreeRepairRevision` |
+| `filewalk-cache/` | Directory listings per scan root | `filewalkCacheVersion`, filters, directory mtimes |
+| `tracked-files-cache/` | `git ls-files` listing | `trackedFilesCacheVersion`, git HEAD and index state |
+| `resource-graph-cache/` | Resource definition and reference graph | `resourceGraphVersion`, resource content |
+| `gradle-model/` | Gradle export written by `kritExportModel`, not by Krit | Re-exporting the model |
+
+Outside the repository: the experiment-matrix baseline cache
+(`~/.cache/krit/matrix-baseline`, keyed on the executable hash), the
+executable-hash memo (`buildid-hashes.json` in the user cache dir), and the AOT
+and daemon state under the system temp dir.
+
+Project-level inputs are part of the keys, not only file content. A layout's
+findings can depend on a manifest (`supportsRtl`, `targetSdkVersion`), on which
+apps include the module, and on a module's `minSdk` from `build.gradle(.kts)`,
+none of which change the layout's own hash. The Android phase hashes the
+module SDK levels and the RTL main-project facts into its rule hash, and the
+per-file analysis cache adds the SDK levels and the Gradle library facts.
+
+If a scan with the default cache disagrees with `--no-cache`, that is a bug in
+a key: run `krit --clear-cache` to recover, then report which cache held the
+stale data (move cache directories aside one at a time to find it).
+
 ### When the oracle cache re-runs the JVM
 
 The oracle and FIR checker reuse a persistent helper only while its jar is
@@ -327,8 +382,8 @@ picks fanotify).
 
 ## When to file a perf issue
 
-If a warm-daemon `analyze-project` takes more than ~300ms on a repo under
-50k files, that's likely a bug. Attach:
+If a warm-daemon `analyze-project` takes more than ~300ms on a mid-sized repo,
+that is likely a bug. Attach:
 
 - `krit --perf-rules` output
 - `krit --version`

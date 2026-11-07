@@ -172,9 +172,13 @@ type sarifArtifactLocation struct {
 	URI string `json:"uri"`
 }
 
+// sarifRegion lines and columns are 1-based in SARIF, so zero values are omitted instead of written.
+// The byte span is exact even when StartColumn counts bytes on a line with non-ASCII text.
 type sarifRegion struct {
-	StartLine   int `json:"startLine"`
-	StartColumn int `json:"startColumn"`
+	StartLine   int  `json:"startLine,omitempty"`
+	StartColumn int  `json:"startColumn,omitempty"`
+	ByteOffset  *int `json:"byteOffset,omitempty"`
+	ByteLength  int  `json:"byteLength,omitempty"`
 }
 
 type sarifProperties struct {
@@ -186,6 +190,14 @@ type sarifProperties struct {
 	OWASP        []string `json:"owasp,omitempty"`
 	SEICert      []string `json:"sei-cert,omitempty"`
 	Mitre        []string `json:"mitre,omitempty"`
+}
+
+func sarifRegionAt(cols scanner.FindingColumns, row int) sarifRegion {
+	region := sarifRegion{StartLine: max(cols.LineAt(row), 0), StartColumn: max(cols.ColumnAt(row), 0)}
+	if start, end := cols.StartByteAt(row), cols.EndByteAt(row); end > start {
+		region.ByteOffset, region.ByteLength = &start, end-start
+	}
+	return region
 }
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
@@ -266,7 +278,7 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
 					ArtifactLocation: sarifArtifactLocation{URI: pathToSARIFURI(cols.FileAt(row))},
-					Region:           sarifRegion{StartLine: cols.LineAt(row), StartColumn: cols.ColumnAt(row)},
+					Region:           sarifRegionAt(cols, row),
 				},
 			}},
 		}

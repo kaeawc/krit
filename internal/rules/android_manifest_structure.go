@@ -2,11 +2,10 @@ package rules
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
-
+	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -24,22 +23,23 @@ type DuplicateActivityManifestRule struct {
 
 func (r *DuplicateActivityManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	app := manifestApplicationNode(manifestRoot(m))
+	if app == nil {
 		return
 	}
-	seen := make(map[string]int) // name -> first line
-	for _, act := range m.Application.Activities {
-		if act.Name == "" {
+	seen := make(map[string]bool)
+	for _, act := range xmlChildrenNamed(app, "activity") {
+		name, ok := xmlAttrOf(act, "android:name")
+		if !ok || name.Value == "" {
 			continue
 		}
-		if firstLine, ok := seen[act.Name]; ok {
-			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
-				fmt.Sprintf("Activity `%s` is registered more than once (first at line %d). "+
-					"Duplicate activity declarations cause subtle bugs.",
-					act.Name, firstLine)))
-		} else {
-			seen[act.Name] = act.Line
+		// `.A`, `A` and `com.t.A` name the same class once the manifest package is applied.
+		key := qualifyManifestClass(m.Package, name.Value)
+		if seen[key] {
+			ctx.Emit(baseFindingAt(m.Path, name.Line, name.Col, r.BaseRule,
+				fmt.Sprintf("Duplicate registration for activity `%s`", key)))
 		}
+		seen[key] = true
 	}
 }
 
@@ -55,49 +55,47 @@ type WrongManifestParentManifestRule struct {
 	AndroidRule
 }
 
-// expectedParent maps element tags to their required parent tag.
-var expectedParent = map[string]string{
-	"activity":        "application",
-	"activity-alias":  "application",
-	"service":         "application",
-	"receiver":        "application",
-	"provider":        "application",
-	"uses-library":    "application",
-	"uses-sdk":        "manifest",
-	"uses-permission": "manifest",
-	"uses-feature":    "manifest",
-	"permission":      "manifest",
-	"application":     "manifest",
-	"instrumentation": "manifest",
+// manifestLevelTags must be direct children of <manifest>, like Lint's WrongManifestParent.
+var manifestLevelTags = map[string]bool{
+	"uses-sdk": true, "uses-permission": true, "permission": true, "permission-group": true,
+	"permission-tree": true, "uses-feature": true, "supports-screens": true,
+	"compatible-screens": true, "supports-gl-texture": true, "uses-configuration": true,
+	"application": true,
+}
+
+// applicationLevelTags must be direct children of <application>; <provider> may also sit in <queries>.
+var applicationLevelTags = map[string]bool{
+	"activity": true, "service": true, "receiver": true, "provider": true, "uses-library": true,
 }
 
 func (r *WrongManifestParentManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	for _, elem := range m.Elements {
-		expected, ok := expectedParent[elem.Tag]
-		if !ok {
-			continue
-		}
-		if elem.ParentTag != expected {
-			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
-				fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
-					elem.Tag, expected, elem.ParentTag)))
+	root := manifestRoot(ctx.Manifest)
+	if root == nil {
+		return
+	}
+	var walk func(node *android.XMLNode)
+	walk = func(node *android.XMLNode) {
+		for _, child := range node.Children {
+			r.checkParent(ctx, node, child)
+			walk(child)
 		}
 	}
-	// Also check components inside application
-	if m.Application != nil {
-		for _, c := range allComponents(m.Application) {
-			expected, ok := expectedParent[c.Tag]
-			if !ok {
-				continue
-			}
-			if c.ParentTag != expected {
-				ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
-					fmt.Sprintf("<%s> should be a child of <%s>, not <%s>.",
-						c.Tag, expected, c.ParentTag)))
-			}
-		}
+	walk(root)
+}
+
+func (r *WrongManifestParentManifestRule) checkParent(ctx *api.Context, parent, node *android.XMLNode) {
+	var msg string
+	switch {
+	case manifestLevelTags[node.Tag] && parent.Tag != "manifest":
+		msg = fmt.Sprintf("The <%s> element must be a direct child of the <manifest> root element", node.Tag)
+	case node.Tag == "provider" && parent.Tag != "application" && parent.Tag != "queries":
+		msg = "The <provider> element must be a direct child of the <application> element or the <queries> element"
+	case applicationLevelTags[node.Tag] && node.Tag != "provider" && parent.Tag != "application":
+		msg = fmt.Sprintf("The <%s> element must be a direct child of the <application> element", node.Tag)
+	default:
+		return
 	}
+	ctx.Emit(baseFindingAt(ctx.Manifest.Path, node.Line, node.Col+1, r.BaseRule, msg))
 }
 
 // ---------------------------------------------------------------------------
@@ -114,18 +112,45 @@ type GradleOverridesManifestRule struct {
 
 func (r *GradleOverridesManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.UsesSdk == nil {
+	if isNonMainManifestPath(m.Path) {
 		return
 	}
-	if m.MinSDK > 0 {
-		ctx.Emit(baseFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
-			"This `minSdkVersion` value in the manifest is overridden by the value in "+
-				"build.gradle. Remove the value from AndroidManifest.xml."))
+	// A manifest value is only overridden when the owning module's build script sets it.
+	gi := lookupManifestGradleInfo(m.Path)
+	if !gi.found {
+		return
 	}
-	if m.TargetSDK > 0 {
-		ctx.Emit(baseFinding(m.Path, m.UsesSdk.Line, r.BaseRule,
-			"This `targetSdkVersion` value in the manifest is overridden by the value in "+
-				"build.gradle. Remove the value from AndroidManifest.xml."))
+	root := manifestRoot(m)
+	if root == nil {
+		return
+	}
+	report := func(a android.XMLAttribute, gradleValue string) {
+		if gradleValue == "" {
+			gradleValue = "build.gradle"
+		}
+		ctx.Emit(baseFindingAt(m.Path, a.Line, a.Col, r.BaseRule,
+			fmt.Sprintf("This `%s` value (`%s`) is not used; it is always overridden by the value specified in the Gradle build script (`%s`)",
+				strings.TrimPrefix(a.Name, "android:"), a.Value, gradleValue)))
+	}
+	itoa := func(n int) string {
+		if n <= 0 {
+			return ""
+		}
+		return strconv.Itoa(n)
+	}
+	for _, sdk := range xmlChildrenNamed(root, "uses-sdk") {
+		if a, ok := xmlAttrOf(sdk, "android:minSdkVersion"); ok && gi.hasMinSdk && xmlAttrValue(sdk, "tools:overrideLibrary") == "" {
+			report(a, itoa(gi.minSdk))
+		}
+		if a, ok := xmlAttrOf(sdk, "android:targetSdkVersion"); ok && gi.hasTargetSdk {
+			report(a, itoa(gi.targetSdk))
+		}
+	}
+	if a, ok := xmlAttrOf(root, "android:versionCode"); ok && gi.hasVersionCode {
+		report(a, gi.versionCode)
+	}
+	if a, ok := xmlAttrOf(root, "android:versionName"); ok && gi.hasVersionName {
+		report(a, gi.versionName)
 	}
 }
 
@@ -135,6 +160,10 @@ func (r *GradleOverridesManifestRule) check(ctx *api.Context) {
 
 // UsesSdkManifestRule checks for a missing <uses-sdk> element. The manifest
 // should contain a <uses-sdk> element defining the minimum and target API levels.
+//
+// Off by default: Android Lint 32 dropped its UsesMinSdkAttributes check (AGP
+// moved minSdk and targetSdk to Gradle), so a manifest without <uses-sdk> is
+// normal. The rule remains for projects that keep SDK levels in the manifest.
 type UsesSdkManifestRule struct {
 	ManifestBase
 	AndroidRule
@@ -194,79 +223,92 @@ type MipmapLauncherRule struct {
 
 func (r *MipmapLauncherRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	root := manifestRoot(m)
+	if root == nil {
 		return
 	}
-	icon := m.Application.Icon
-	if icon == "" {
-		return // MissingApplicationIcon handles this case
-	}
-	if strings.HasPrefix(icon, "@drawable/") {
-		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
-			fmt.Sprintf("Launcher icon `%s` uses @drawable/ instead of @mipmap/. "+
-				"Use @mipmap/ resources for launcher icons to ensure proper density handling.",
-				icon)))
+	// Lint only reports when the module restricts densities with resConfigs.
+	if !lookupManifestGradleInfo(m.Path).hasDensityResConfig {
 		return
 	}
+	for _, app := range xmlChildrenNamed(root, "application") {
+		r.checkIcon(ctx, app)
+		for _, activity := range xmlChildrenNamed(app, "activity") {
+			if isLaunchableActivityNode(activity) {
+				r.checkIcon(ctx, activity)
+			}
+		}
+	}
+}
+
+func (r *MipmapLauncherRule) checkIcon(ctx *api.Context, element *android.XMLNode) {
+	icon, ok := xmlAttrOf(element, "android:icon")
+	if !ok || !strings.HasPrefix(icon.Value, "@drawable/") {
+		return
+	}
+	ctx.Emit(baseFindingAt(ctx.Manifest.Path, icon.Line, icon.Col, r.BaseRule,
+		"Should use `@mipmap` instead of `@drawable` for launcher icons"))
+}
+
+// isLaunchableActivityNode reports whether an activity declares an intent filter with the LAUNCHER category.
+func isLaunchableActivityNode(activity *android.XMLNode) bool {
+	for _, filter := range xmlChildrenNamed(activity, "intent-filter") {
+		for _, category := range xmlChildrenNamed(filter, "category") {
+			if xmlAttrValue(category, "android:name") == "android.intent.category.LAUNCHER" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
 // Rule: UniquePermissionRule
 // ---------------------------------------------------------------------------
 
-// UniquePermissionRule checks that custom permission names don't collide with
-// well-known system permission names.
+// UniquePermissionRule reports <permission> and <permission-group> elements whose unqualified
+// names collide, because aapt generates one Manifest.permission field per unqualified name.
 type UniquePermissionRule struct {
 	ManifestBase
 	AndroidRule
 }
 
-// systemPermissions is a set of well-known Android system permission names.
-var systemPermissions = map[string]bool{
-	"android.permission.ACCESS_COARSE_LOCATION":     true,
-	"android.permission.ACCESS_FINE_LOCATION":       true,
-	"android.permission.ACCESS_NETWORK_STATE":       true,
-	"android.permission.ACCESS_WIFI_STATE":          true,
-	"android.permission.BLUETOOTH":                  true,
-	"android.permission.BLUETOOTH_ADMIN":            true,
-	"android.permission.BLUETOOTH_CONNECT":          true,
-	"android.permission.BLUETOOTH_SCAN":             true,
-	"android.permission.CAMERA":                     true,
-	"android.permission.CALL_PHONE":                 true,
-	"android.permission.INTERNET":                   true,
-	"android.permission.NFC":                        true,
-	"android.permission.READ_CALENDAR":              true,
-	"android.permission.READ_CONTACTS":              true,
-	"android.permission.READ_EXTERNAL_STORAGE":      true,
-	"android.permission.READ_MEDIA_AUDIO":           true,
-	"android.permission.READ_MEDIA_IMAGES":          true,
-	"android.permission.READ_MEDIA_VIDEO":           true,
-	"android.permission.READ_PHONE_STATE":           true,
-	"android.permission.READ_SMS":                   true,
-	"android.permission.RECEIVE_BOOT_COMPLETED":     true,
-	"android.permission.RECORD_AUDIO":               true,
-	"android.permission.SEND_SMS":                   true,
-	"android.permission.VIBRATE":                    true,
-	"android.permission.WAKE_LOCK":                  true,
-	"android.permission.WRITE_CALENDAR":             true,
-	"android.permission.WRITE_CONTACTS":             true,
-	"android.permission.WRITE_EXTERNAL_STORAGE":     true,
-	"android.permission.FOREGROUND_SERVICE":         true,
-	"android.permission.POST_NOTIFICATIONS":         true,
-	"android.permission.BODY_SENSORS":               true,
-	"android.permission.ACTIVITY_RECOGNITION":       true,
-	"android.permission.ACCESS_BACKGROUND_LOCATION": true,
-}
-
 func (r *UniquePermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	for _, perm := range m.Permissions {
-		if systemPermissions[perm] {
-			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-				fmt.Sprintf("Custom permission `%s` collides with a system permission. "+
-					"Use a unique name prefixed with your application package.",
-					perm)))
+	root := manifestRoot(m)
+	if root == nil {
+		return
+	}
+	pkg := xmlAttrValue(root, "package")
+	r.checkUniqueNames(ctx, root, pkg, "permission", "Permission")
+	r.checkUniqueNames(ctx, root, pkg, "permission-group", "Permission group")
+}
+
+func (r *UniquePermissionRule) checkUniqueNames(ctx *api.Context, root *android.XMLNode, pkg, tag, label string) {
+	seen := make(map[string]string)
+	for _, element := range xmlChildrenNamed(root, tag) {
+		if node := xmlAttrValue(element, "tools:node"); node == android.ToolsNodeRemove || node == android.ToolsNodeRemoveAll {
+			continue
 		}
+		name, ok := xmlAttrOf(element, "android:name")
+		if !ok {
+			continue
+		}
+		qualified := strings.ReplaceAll(name.Value, "${applicationId}", pkg)
+		if strings.Contains(qualified, "${") {
+			continue
+		}
+		unqualified := qualified[strings.LastIndex(qualified, ".")+1:]
+		previous, dup := seen[unqualified]
+		if !dup {
+			seen[unqualified] = qualified
+			continue
+		}
+		if previous == qualified {
+			continue
+		}
+		ctx.Emit(baseFindingAt(ctx.Manifest.Path, name.Line, name.Col, r.BaseRule,
+			fmt.Sprintf("%s name `%s` is not unique (appears in both `%s` and `%s`)", label, unqualified, previous, qualified)))
 	}
 }
 
@@ -274,54 +316,76 @@ func (r *UniquePermissionRule) check(ctx *api.Context) {
 // Rule: SystemPermissionRule
 // ---------------------------------------------------------------------------
 
-// SystemPermissionRule flags requests for dangerous system permissions that
-// require runtime permission grants and careful justification.
+// SystemPermissionRule flags uses-permission requests for permissions that
+// only system apps can hold, which an ordinary app is never granted.
 type SystemPermissionRule struct {
 	ManifestBase
 	AndroidRule
 }
 
-// dangerousPermissions lists permissions in the "dangerous" protection level
-// that require runtime user approval.
-var dangerousPermissions = map[string]bool{
-	"android.permission.CAMERA":                     true,
-	"android.permission.RECORD_AUDIO":               true,
-	"android.permission.ACCESS_FINE_LOCATION":       true,
-	"android.permission.ACCESS_COARSE_LOCATION":     true,
-	"android.permission.ACCESS_BACKGROUND_LOCATION": true,
-	"android.permission.READ_CONTACTS":              true,
-	"android.permission.WRITE_CONTACTS":             true,
-	"android.permission.READ_CALENDAR":              true,
-	"android.permission.WRITE_CALENDAR":             true,
-	"android.permission.READ_EXTERNAL_STORAGE":      true,
-	"android.permission.WRITE_EXTERNAL_STORAGE":     true,
-	"android.permission.READ_PHONE_STATE":           true,
-	"android.permission.CALL_PHONE":                 true,
-	"android.permission.READ_SMS":                   true,
-	"android.permission.SEND_SMS":                   true,
-	"android.permission.BODY_SENSORS":               true,
-	"android.permission.ACTIVITY_RECOGNITION":       true,
-	"android.permission.READ_MEDIA_AUDIO":           true,
-	"android.permission.READ_MEDIA_IMAGES":          true,
-	"android.permission.READ_MEDIA_VIDEO":           true,
-	"android.permission.POST_NOTIFICATIONS":         true,
-	"android.permission.BLUETOOTH_CONNECT":          true,
-	"android.permission.BLUETOOTH_SCAN":             true,
+// systemOnlyPermissions lists permissions granted only to apps signed with the
+// platform key or installed in the system image (AOSP SystemPermissionsDetector).
+var systemOnlyPermissions = map[string]bool{
+	"android.permission.ACCESS_CHECKIN_PROPERTIES":      true,
+	"android.permission.ACCESS_SURFACE_FLINGER":         true,
+	"android.permission.BACKUP":                         true,
+	"android.permission.BIND_APPWIDGET":                 true,
+	"android.permission.BIND_DEVICE_ADMIN":              true,
+	"android.permission.BIND_INPUT_METHOD":              true,
+	"android.permission.BIND_REMOTEVIEWS":               true,
+	"android.permission.BIND_TEXT_SERVICE":              true,
+	"android.permission.BIND_VPN_SERVICE":               true,
+	"android.permission.BIND_WALLPAPER":                 true,
+	"android.permission.BRICK":                          true,
+	"android.permission.BROADCAST_PACKAGE_REMOVED":      true,
+	"android.permission.BROADCAST_SMS":                  true,
+	"android.permission.BROADCAST_WAP_PUSH":             true,
+	"android.permission.CALL_PRIVILEGED":                true,
+	"android.permission.CHANGE_COMPONENT_ENABLED_STATE": true,
+	"android.permission.CLEAR_APP_USER_DATA":            true,
+	"android.permission.CONFIRM_FULL_BACKUP":            true,
+	"android.permission.CONTROL_LOCATION_UPDATES":       true,
+	"android.permission.DELETE_CACHE_FILES":             true,
+	"android.permission.DELETE_PACKAGES":                true,
+	"android.permission.DEVICE_POWER":                   true,
+	"android.permission.DIAGNOSTIC":                     true,
+	"android.permission.DUMP":                           true,
+	"android.permission.FACTORY_TEST":                   true,
+	"android.permission.FORCE_BACK":                     true,
+	"android.permission.GLOBAL_SEARCH":                  true,
+	"android.permission.HARDWARE_TEST":                  true,
+	"android.permission.INJECT_EVENTS":                  true,
+	"android.permission.INSTALL_LOCATION_PROVIDER":      true,
+	"android.permission.INSTALL_PACKAGES":               true,
+	"android.permission.INTERNAL_SYSTEM_WINDOW":         true,
+	"android.permission.MANAGE_APP_TOKENS":              true,
+	"android.permission.MASTER_CLEAR":                   true,
+	"android.permission.MODIFY_PHONE_STATE":             true,
+	"android.permission.MOUNT_FORMAT_FILESYSTEMS":       true,
+	"android.permission.MOUNT_UNMOUNT_FILESYSTEMS":      true,
+	"android.permission.READ_FRAME_BUFFER":              true,
+	"android.permission.READ_INPUT_STATE":               true,
+	"android.permission.READ_LOGS":                      true,
+	"android.permission.REBOOT":                         true,
+	"android.permission.SET_ACTIVITY_WATCHER":           true,
+	"android.permission.SET_ORIENTATION":                true,
+	"android.permission.SET_POINTER_SPEED":              true,
+	"android.permission.SET_PROCESS_LIMIT":              true,
+	"android.permission.SET_TIME":                       true,
+	"android.permission.SHUTDOWN":                       true,
+	"android.permission.STATUS_BAR":                     true,
+	"android.permission.UPDATE_DEVICE_STATS":            true,
+	"android.permission.WRITE_APN_SETTINGS":             true,
+	"android.permission.WRITE_GSERVICES":                true,
+	"android.permission.WRITE_SECURE_SETTINGS":          true,
 }
 
 func (r *SystemPermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	for _, perm := range m.UsesPermissions {
-		if dangerousPermissions[perm] {
-			// Extract the short name after the last dot
-			short := perm
-			if idx := strings.LastIndex(perm, "."); idx >= 0 {
-				short = perm[idx+1:]
-			}
-			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-				fmt.Sprintf("Requesting dangerous permission `%s`. "+
-					"Ensure this permission is necessary and that runtime permission handling is implemented.",
-					short)))
+		if systemOnlyPermissions[perm] {
+			ctx.Emit(baseFinding(m.Path, permissionLine(m.UsesPermissionLines, perm), r.BaseRule,
+				fmt.Sprintf("Permission `%s` is only granted to system apps.", perm)))
 		}
 	}
 }
@@ -371,7 +435,7 @@ func (r *ManifestTypoRule) check(ctx *api.Context) {
 	for _, elem := range m.Elements {
 		if correct, ok := manifestTypos[elem.Tag]; ok {
 			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
-				fmt.Sprintf("Probable typo: `<%s>` should be `<%s>`.",
+				fmt.Sprintf("Misspelled tag `<%s>`: Did you mean `%s`?",
 					elem.Tag, correct)))
 		}
 	}
@@ -436,30 +500,50 @@ func (r *TargetNewerRule) check(ctx *api.Context) {
 // Rule: IntentFilterExportRequiredRule
 // ---------------------------------------------------------------------------
 
-// IntentFilterExportRequiredRule checks that components with intent-filters
-// explicitly declare android:exported. Starting with API 31, this is required.
-// This is stricter than MissingExportedFlag: it flags all component types.
+// IntentFilterExportRequiredRule is Lint's IntentFilterExportedReceiver: from targetSdk 31 an activity,
+// activity-alias, service or receiver with an intent filter must set android:exported.
 type IntentFilterExportRequiredRule struct {
 	ManifestBase
 	AndroidRule
 }
 
-func (r *IntentFilterExportRequiredRule) check(ctx *api.Context) {
+func (r *IntentFilterExportRequiredRule) check(ctx *api.Context) { checkExportedFlag(ctx, r.BaseRule) }
+
+const (
+	exportedFlagMessage  = "As of Android 12, `android:exported` must be set; use `true` to make the activity available to other apps, and `false` otherwise."
+	exportedLauncherNote = " For launcher activities, this should be set to true."
+	exportedLaunchableFn = "A launchable activity must be exported as of Android 12, which also makes it available to other apps."
+)
+
+// checkExportedFlag mirrors ExportedFlagDetector, which both exported-flag rules share. A missing flag is
+// an error from targetSdk 31 and a warning below it.
+func checkExportedFlag(ctx *api.Context, rule BaseRule) {
 	m := ctx.Manifest
 	if m.Application == nil {
 		return
 	}
-	// Only enforce for API 31+
-	if m.TargetSDK > 0 && m.TargetSDK < 31 {
-		return
+	missingSeverity := "warning"
+	if manifestTargetSDK(m) >= 31 {
+		missingSeverity = "error"
 	}
-	components := allComponents(m.Application)
+	var components []ManifestComponent
+	components = append(components, m.Application.Activities...)
+	components = append(components, m.Application.Services...)
+	components = append(components, m.Application.Receivers...)
 	for _, c := range components {
-		if c.HasIntentFilter && c.Exported == nil {
-			ctx.Emit(baseFinding(m.Path, c.Line, r.BaseRule,
-				fmt.Sprintf("%s `%s` declares an intent-filter but is missing android:exported. "+
-					"API 31+ requires android:exported on all components with intent-filters.",
-					cases.Title(language.Und).String(c.Tag), c.Name)))
+		exportedSet := c.Exported != nil || c.ExportedRaw != ""
+		switch {
+		case !exportedSet && (c.HasIntentFilter || c.HasNavGraph):
+			msg := exportedFlagMessage
+			if c.FirstFilterAction == "android.intent.action.MAIN" {
+				msg += exportedLauncherNote
+			}
+			f := baseFinding(m.Path, c.Line, rule, msg)
+			f.Severity = missingSeverity
+			ctx.Emit(f)
+		case c.ExportedRaw == "false" && c.FirstFilterAction == "android.intent.action.MAIN" &&
+			c.FirstFilterCategory == "android.intent.category.LAUNCHER":
+			ctx.Emit(baseFinding(m.Path, c.Line, rule, exportedLaunchableFn))
 		}
 	}
 }
@@ -477,22 +561,21 @@ type DuplicateUsesFeatureManifestRule struct {
 
 func (r *DuplicateUsesFeatureManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if len(m.UsesFeatures) == 0 {
+	root := manifestRoot(m)
+	if root == nil {
 		return
 	}
-	seen := make(map[string]int) // name -> first line
-	for _, f := range m.UsesFeatures {
-		if f.Name == "" {
+	seen := make(map[string]bool)
+	for _, f := range xmlChildrenNamed(root, "uses-feature") {
+		name, ok := xmlAttrOf(f, "android:name")
+		if !ok || name.Value == "" {
 			continue
 		}
-		if firstLine, ok := seen[f.Name]; ok {
-			ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
-				fmt.Sprintf("Duplicate `<uses-feature android:name=\"%s\">` (first at line %d). "+
-					"Remove the duplicate declaration.",
-					f.Name, firstLine)))
-		} else {
-			seen[f.Name] = f.Line
+		if seen[name.Value] {
+			ctx.Emit(baseFindingAt(m.Path, name.Line, name.Col, r.BaseRule,
+				fmt.Sprintf("Duplicate declaration of uses-feature `%s`", name.Value)))
 		}
+		seen[name.Value] = true
 	}
 }
 
@@ -521,7 +604,7 @@ func (r *MultipleUsesSdkManifestRule) check(ctx *api.Context) {
 	}
 	if count > 1 {
 		ctx.Emit(baseFinding(m.Path, secondLine, r.BaseRule,
-			fmt.Sprintf("Found %d `<uses-sdk>` elements. Only one is allowed per manifest.", count)))
+			"There should only be a single `<uses-sdk>` element in the manifest: merge these together"))
 		return
 	}
 }
@@ -538,26 +621,23 @@ type ManifestOrderManifestRule struct {
 	AndroidRule
 }
 
+// manifestOrderTags are the root children Lint expects before <application>.
+var manifestOrderTags = map[string]bool{
+	"uses-permission": true, "permission": true, "permission-tree": true, "permission-group": true,
+	"uses-sdk": true, "uses-configuration": true, "uses-feature": true, "supports-screens": true,
+	"compatible-screens": true, "supports-gl-texture": true,
+}
+
 func (r *ManifestOrderManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	// Find the line of the <application> element
-	appLine := 0
+	seenApplication := false
 	for _, elem := range m.Elements {
-		if elem.Tag == "application" {
-			appLine = elem.Line
-			break
-		}
-	}
-	if appLine == 0 {
-		return
-	}
-
-	for _, elem := range m.Elements {
-		if (elem.Tag == "uses-permission" || elem.Tag == "uses-sdk") && elem.Line > appLine {
+		switch {
+		case elem.Tag == "application":
+			seenApplication = true
+		case seenApplication && manifestOrderTags[elem.Tag] && elem.ParentTag == "manifest":
 			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
-				fmt.Sprintf("`<%s>` appears after `<application>` (line %d). "+
-					"Move `<%s>` before `<application>` for conventional manifest ordering.",
-					elem.Tag, appLine, elem.Tag)))
+				fmt.Sprintf("`<%s>` tag appears after `<application>` tag", elem.Tag)))
 		}
 	}
 }
@@ -575,67 +655,34 @@ type MissingVersionManifestRule struct {
 
 func (r *MissingVersionManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	// Skip variant manifests — they merge into main and inherit version info
-	// from build.gradle or the main manifest.
+	// Skip variant manifests: they merge into main and inherit version info from build.gradle or the main manifest.
 	if isNonMainManifestPath(m.Path) {
 		return
 	}
-	// Skip library module manifests — Android library modules never set
-	// versionCode/versionName (only app modules do). Heuristic: if the
-	// manifest has no <application> element, no activities/services/providers,
-	// it's a library stub.
-	if m.Application == nil {
-		return
-	}
-	if len(m.Application.Activities) == 0 &&
-		len(m.Application.Services) == 0 &&
-		len(m.Application.Receivers) == 0 &&
-		len(m.Application.Providers) == 0 {
-		// Minimal application element with no components — likely a library.
-		return
-	}
-	// Modern AGP projects set versionCode/versionName in build.gradle's
-	// defaultConfig, not the manifest. Skip if the build.gradle
-	// provides them, or if the module is clearly an Android
-	// application driven by a convention plugin.
+	// Lint reports this only for non-Gradle projects, where the manifest is the only place for the version.
 	if gi := lookupManifestGradleInfo(m.Path); gi.found {
-		if gi.hasVersionCode && gi.hasVersionName {
-			return
-		}
-		// Library and test modules never need versionCode/versionName.
-		if gi.isLibrary || gi.isTest {
-			return
-		}
-		// Sample apps and convention-plugin driven modules typically
-		// have versionCode/versionName supplied by the plugin itself,
-		// not the module build.gradle. Treat any gradle file that
-		// marks the module as an Android application as "versions
-		// managed elsewhere".
-		if gi.isApplication {
-			return
-		}
-	}
-	missingCode := m.VersionCode == ""
-	missingName := m.VersionName == ""
-	if !missingCode && !missingName {
 		return
 	}
-	// Emit a single combined finding when both are missing. Emitting two
-	// findings at the same (file, line, col) was producing duplicate
-	// keys in downstream reporting.
-	switch {
-	case missingCode && missingName:
-		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-			"Missing `android:versionCode` and `android:versionName` on <manifest>. "+
-				"Set a version code and name for release builds."))
-	case missingCode:
-		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-			"Missing `android:versionCode` on <manifest>. "+
-				"Set a version code for release builds."))
-	default: // missingName
-		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-			"Missing `android:versionName` on <manifest>. "+
-				"Set a version name for release builds."))
+	// Library manifests never carry a version. Without Gradle info, a manifest with no components is taken as one.
+	if m.Application == nil ||
+		(len(m.Application.Activities) == 0 && len(m.Application.Services) == 0 &&
+			len(m.Application.Receivers) == 0 && len(m.Application.Providers) == 0) {
+		return
+	}
+	line := 1
+	for _, elem := range m.Elements {
+		if elem.Tag == "manifest" {
+			line = elem.Line
+			break
+		}
+	}
+	if m.VersionCode == "" {
+		ctx.Emit(baseFinding(m.Path, line, r.BaseRule,
+			"Should set `android:versionCode` to specify the application version"))
+	}
+	if m.VersionName == "" {
+		ctx.Emit(baseFinding(m.Path, line, r.BaseRule,
+			"Should set `android:versionName` to specify the application version"))
 	}
 }
 
@@ -652,12 +699,12 @@ type MockLocationManifestRule struct {
 
 func (r *MockLocationManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.IsDebugManifest {
+	if m.IsDebugManifest || isDebugManifestPath(m.Path) {
 		return
 	}
 	for _, perm := range m.UsesPermissions {
 		if perm == "android.permission.ACCESS_MOCK_LOCATION" {
-			ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
+			ctx.Emit(baseFinding(m.Path, permissionLine(m.UsesPermissionLines, perm), r.BaseRule,
 				"`android.permission.ACCESS_MOCK_LOCATION` should only be declared in a debug-specific "+
 					"manifest, not in the main AndroidManifest.xml."))
 			return
@@ -695,23 +742,30 @@ func (r *UnpackedNativeCodeManifestRule) check(ctx *api.Context) {
 }
 
 // ---------------------------------------------------------------------------
-// Rule: InvalidUsesTagAttributeManifestRule
+// Rule: InvalidUsesFeatureRequiredManifestRule
 // ---------------------------------------------------------------------------
 
-// InvalidUsesTagAttributeManifestRule detects <uses-feature> elements where
-// android:required is set to a value other than "true" or "false".
-type InvalidUsesTagAttributeManifestRule struct {
+// InvalidUsesFeatureRequiredManifestRule detects <uses-feature> elements where
+// android:required is set to a value other than "true" or "false". This is a
+// krit-only check. It was named InvalidUsesTagAttributeManifest, which is the
+// id Android Lint uses for the automotive <uses name> check (see
+// InvalidUsesTagAttributeRule); the old id stays a suppression alias.
+type InvalidUsesFeatureRequiredManifestRule struct {
 	ManifestBase
 	AndroidRule
 }
 
-func (r *InvalidUsesTagAttributeManifestRule) check(ctx *api.Context) {
+func (r *InvalidUsesFeatureRequiredManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	for _, f := range m.UsesFeatures {
 		if f.Required == "" {
 			continue // not set is OK
 		}
-		if f.Required != "true" && f.Required != "false" {
+		// A resource reference or manifest placeholder resolves at build time.
+		if strings.HasPrefix(f.Required, "@") || strings.HasPrefix(f.Required, "?") || strings.Contains(f.Required, "${") {
+			continue
+		}
+		if !strings.EqualFold(f.Required, "true") && !strings.EqualFold(f.Required, "false") {
 			ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
 				fmt.Sprintf("`<uses-feature android:name=\"%s\">` has android:required=\"%s\". "+
 					"Value must be \"true\" or \"false\".",
@@ -723,3 +777,11 @@ func (r *InvalidUsesTagAttributeManifestRule) check(ctx *api.Context) {
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
+
+// permissionLine returns the recorded element line for a permission, or 1 when unknown.
+func permissionLine(lines map[string]int, name string) int {
+	if line := lines[name]; line > 0 {
+		return line
+	}
+	return 1
+}

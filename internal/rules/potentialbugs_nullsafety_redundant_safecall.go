@@ -30,19 +30,43 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 		return
 	}
 
-	// Trust the compiler's UNNECESSARY_SAFE_CALL verdict when available: it is
-	// emitted only for a genuinely non-null receiver, so the safe-cast /
-	// indexing / name-collision guards below are unnecessary on this path, and
-	// it covers dotted receivers the name-based heuristic skips.
-	if projectDiagnostic(ctx, DiagnosticProjection{
+	if r.projectCompilerVerdict(ctx) {
+		return
+	}
+
+	// The compiler analyzed this file and reported nothing, so the name-based guess would only add false positives.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
+
+	name, ok := unnecessarySafeCallReceiverName(file, idx)
+	if !ok {
+		return
+	}
+	structural := experiment.Enabled("unnecessary-safe-call-structural")
+
+	if unnecessarySafeCallShouldSkipReceiver(file, idx, name, structural) {
+		return
+	}
+	r.reportNonNullReceiver(ctx, name)
+}
+
+// projectCompilerVerdict trusts the compiler's UNNECESSARY_SAFE_CALL verdict when available: it is
+// emitted only for a genuinely non-null receiver, so the safe-cast / indexing / name-collision guards of
+// the heuristic are unnecessary on this path, and it covers dotted receivers the heuristic skips.
+func (r *UnnecessarySafeCallRule) projectCompilerVerdict(ctx *api.Context) bool {
+	return projectDiagnostic(ctx, DiagnosticProjection{
 		RuleID:       "UnnecessarySafeCall",
 		FactoryNames: []string{"UNNECESSARY_SAFE_CALL"},
+		Accept: func(ctx *api.Context, _ oracle.Diagnostic) bool {
+			return !receiverIsLambdaAssignedLocal(ctx.File, ctx.File.FlatChild(ctx.Idx, 0))
+		},
 		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
 			recv := ""
 			if r0 := ctx.File.FlatChild(ctx.Idx, 0); r0 != 0 {
 				recv = strings.TrimSpace(ctx.File.FlatNodeText(r0))
 			}
-			return fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", recv)
+			return provenNonNullMessage(ctx.File, ctx.Idx, "?.", recv, "safe call")
 		},
 		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
 			op := flatNavigationSafeCallOperator(ctx.File, ctx.Idx)
@@ -52,70 +76,71 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 			return &scanner.Fix{ByteMode: true, StartByte: int(ctx.File.FlatStartByte(op)), EndByte: int(ctx.File.FlatEndByte(op)), Replacement: "."}
 		},
 		Confidence: api.ConfidenceVeryHigh,
-	}) {
-		return
-	}
+	})
+}
 
+// unnecessarySafeCallReceiverName returns the simple identifier receiving the safe call at idx; ok is false for
+// receivers the name-based heuristic cannot judge.
+func unnecessarySafeCallReceiverName(file *scanner.File, idx uint32) (string, bool) {
 	// The navigation_expression has children: receiver, navigation_suffix
 	// The ?. operator is in the navigation_suffix
 	if file.FlatChildCount(idx) < 2 {
-		return
+		return "", false
 	}
 
 	receiver := file.FlatChild(idx, 0)
 	if receiver == 0 {
-		return
+		return "", false
 	}
 
 	// A safe-cast receiver `(x as? T)?.foo` is unconditionally nullable, so the
 	// `?.` is required — never flag it, whatever the resolver reports for the
 	// cast target type.
 	if flatAsExpressionIsSafeCast(file, receiver) {
-		return
+		return "", false
 	}
 
 	// An indexed receiver `m[k]?.foo` is nullable for a Map; skip it (see
 	// flatExpressionIsIndexing).
 	if flatExpressionIsIndexing(file, receiver) {
-		return
+		return "", false
 	}
 
 	// Extract receiver name
 	receiverText := file.FlatNodeText(receiver)
 	if flatNavigationHasSafeCall(file, receiver) {
-		return
+		return "", false
 	}
 
 	// Only resolve simple identifiers — dotted member accesses cannot be
 	// reliably resolved by bare name lookup (risk of name collision).
 	if strings.Contains(receiverText, ".") {
-		return
+		return "", false
 	}
 
 	name := strings.TrimSpace(receiverText)
-	if name == "" {
-		return
-	}
-	structural := experiment.Enabled("unnecessary-safe-call-structural")
+	return name, name != ""
+}
 
-	if unnecessarySafeCallShouldSkipReceiver(file, idx, name, structural) {
-		return
-	}
-
+// reportNonNullReceiver reports the safe call on name when the resolver or a same-file declaration shows the
+// receiver is non-null.
+func (r *UnnecessarySafeCallRule) reportNonNullReceiver(ctx *api.Context, name string) {
+	idx, file := ctx.Idx, ctx.File
 	// Locate the ?. operator via the AST so the fix range is correct even when
 	// the receiver text itself contains the literal `?.` substring (e.g. inside
 	// a string argument to a chained call).
 	safeOp := flatNavigationSafeCallOperator(file, idx)
-	makeFix := func() *scanner.Fix {
-		if safeOp == 0 {
-			return nil
+	emit := func(msg string) {
+		f := r.Finding(file, file.FlatRow(anchorOr(safeOp, idx))+1, file.FlatCol(anchorOr(safeOp, idx))+1, msg)
+		if safeOp != 0 {
+			f.Fix = &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(file.FlatStartByte(safeOp)),
+				EndByte:     int(file.FlatEndByte(safeOp)),
+				Replacement: ".",
+			}
 		}
-		return &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   int(file.FlatStartByte(safeOp)),
-			EndByte:     int(file.FlatEndByte(safeOp)),
-			Replacement: ".",
-		}
+		ctx.Emit(f)
 	}
 
 	// If the receiver is a function parameter with an explicit non-null type,
@@ -129,12 +154,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 		if resolved == nil || !resolved.Resolved || resolved.Kind == typeinfer.TypeGeneric || resolved.IsNullable() {
 			return
 		}
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
-		if fix := makeFix(); fix != nil {
-			f.Fix = fix
-		}
-		ctx.Emit(f)
+		emit(fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
 		return
 	}
 
@@ -149,23 +169,13 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 				return // Actually nullable — safe call is needed
 			}
 			// Known non-null (possibly via smart cast) — flag
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", name))
-			if fix := makeFix(); fix != nil {
-				f.Fix = fix
-			}
-			ctx.Emit(f)
+			emit(provenNonNullMessage(file, idx, "?.", name, "safe call"))
 			return
 		}
 	}
 
 	if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable val '%s'.", name))
-		if fix := makeFix(); fix != nil {
-			f.Fix = fix
-		}
-		ctx.Emit(f)
+		emit(fmt.Sprintf("Unnecessary safe call (?.) on non-nullable val '%s'.", name))
 	}
 }
 

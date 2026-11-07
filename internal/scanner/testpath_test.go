@@ -93,3 +93,28 @@ func TestIsTestFileOverrideSuppressesConvention(t *testing.T) {
 		t.Fatal("expected Gradle test source set convention after clearing override")
 	}
 }
+
+func TestIsTestFile_VariantQualifiedTestSourceSets(t *testing.T) {
+	InitTestPaths(nil, nil)
+	t.Cleanup(func() { InitTestPaths(nil, nil) })
+
+	for _, path := range []string{
+		"apps/app/src/testDebug/java/com/example/FooTest.kt",
+		"libs/x/src/testDebug/kotlin/Foo.kt",
+		"libs/x/src/androidTestDebug/kotlin/Foo.kt",
+		"src/testRelease/kotlin/Foo.kt",
+	} {
+		if !IsTestFile(path) {
+			t.Errorf("%s is a test source set", path)
+		}
+	}
+	for _, path := range []string{
+		"libs/x/src/testimony/kotlin/Foo.kt",
+		"libs/x/src/main/kotlin/Contest.kt",
+		"libs/x/src/internal/kotlin/Foo.kt",
+	} {
+		if IsTestFile(path) {
+			t.Errorf("%s is not a test source set", path)
+		}
+	}
+}

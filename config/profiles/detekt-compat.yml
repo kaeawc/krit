@@ -24,11 +24,11 @@ complexity:
   active: true
   CyclomaticComplexMethod:
     active: true
-    allowedComplexity: 15
+    allowedComplexity: 14
   LongParameterList:
     active: true
-    allowedFunctionParameters: 6
-    allowedConstructorParameters: 7
+    allowedFunctionParameters: 5
+    allowedConstructorParameters: 6
   # Other migrated thresholds already match Krit defaults.
 
 style:

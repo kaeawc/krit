@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 8, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 35, 39, 42, 44, 46, 48, 51, 54, 57, 59, 61, 66, 72, 75, 80, 83
+// go-lines: 8, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 35, 39, 44, 51, 54, 57, 59, 61, 66, 72, 75, 80, 83
 // Positives: an Elvis whose fallback is the stdlib empty value of the left
 // side's type, which `.orEmpty()` returns.
 package test

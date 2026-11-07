@@ -93,19 +93,25 @@ func Load(dir string) (*Model, []string, error) {
 // deduplicated in project-path and source-set order. The second result counts
 // missing entries before deduplication.
 func (m *Model) Classpath() ([]string, int) {
+	out, missing := m.ClasspathWithMissing()
+	return out, len(missing)
+}
+
+// ClasspathWithMissing is Classpath that lists the entries absent on disk
+// instead of counting them.
+func (m *Model) ClasspathWithMissing() (present, missing []string) {
 	if m == nil {
-		return nil, 0
+		return nil, nil
 	}
 	seen := map[string]bool{}
 	var out []string
-	missing := 0
 	add := func(p string) {
 		if p == "" || seen[p] {
 			return
 		}
 		seen[p] = true
 		if _, err := os.Stat(p); err != nil {
-			missing++
+			missing = append(missing, p)
 			return
 		}
 		out = append(out, p)

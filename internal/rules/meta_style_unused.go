@@ -67,7 +67,8 @@ func (r *UnusedPrivateMemberRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnusedPrivateMember",
 		RuleSet:       "style",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "semantic",
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[UnusedPrivateMemberRule]{

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 33
 // No-op @Binds functions Go misses: Go compares the written type text and
 // matches `@Binds` by spelling, while these parameter and return types are the
 // same type and the annotation is Dagger's @Binds.

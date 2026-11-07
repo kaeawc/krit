@@ -43,7 +43,8 @@ func (r *IntoMapDuplicateKeyRule) check(ctx *api.Context) {
 		idx  uint32
 		name string
 	}
-	groups := make(map[string][]entry)
+	type groupKey struct{ scope, key, valueType string }
+	groups := make(map[groupKey][]entry)
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil {
 			continue
@@ -66,17 +67,21 @@ func (r *IntoMapDuplicateKeyRule) check(ctx *api.Context) {
 			if !ok {
 				return
 			}
-			scope := pkg + "::" + enclosingClassChainFlat(file, idx)
-			groupKey := scope + "::" + keyLit
+			// Maps with different value types are separate multibindings, so the same key may repeat across them.
+			key := groupKey{
+				scope:     pkg + "::" + enclosingClassChainFlat(file, idx),
+				key:       keyLit,
+				valueType: strings.Join(strings.Fields(extractFunctionReturnTypeNameFlat(file, idx)), ""),
+			}
 			name := extractIdentifierFlat(file, idx)
-			groups[groupKey] = append(groups[groupKey], entry{file: file, idx: idx, name: name})
+			groups[key] = append(groups[key], entry{file: file, idx: idx, name: name})
 		})
 	}
-	for groupKey, entries := range groups {
+	for key, entries := range groups {
 		if len(entries) < 2 {
 			continue
 		}
-		keyLit := suffixAfterLastDoubleColon(groupKey)
+		keyLit := key.key
 		for _, e := range entries {
 			n := e.name
 			if n == "" {
@@ -84,20 +89,12 @@ func (r *IntoMapDuplicateKeyRule) check(ctx *api.Context) {
 			}
 			ctx.Emit(r.Finding(
 				e.file,
-				e.file.FlatRow(e.idx)+1,
-				1,
+				declLine(e.file, e.idx),
+				declCol(e.file, e.idx),
 				fmt.Sprintf("@IntoMap function '%s' shares key %s with %d other contribution(s) in the same module/component; use a distinct map key or remove the duplicate contribution.", n, keyLit, len(entries)-1),
 			))
 		}
 	}
-}
-
-func suffixAfterLastDoubleColon(s string) string {
-	idx := strings.LastIndex(s, "::")
-	if idx < 0 {
-		return ""
-	}
-	return s[idx+2:]
 }
 
 func (r *IntoSetDuplicateTypeRule) check(ctx *api.Context) {
@@ -110,7 +107,8 @@ func (r *IntoSetDuplicateTypeRule) check(ctx *api.Context) {
 		idx  uint32
 		name string
 	}
-	groups := make(map[string][]entry)
+	type groupKey struct{ scope, impl string }
+	groups := make(map[groupKey][]entry)
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil {
 			continue
@@ -129,21 +127,20 @@ func (r *IntoSetDuplicateTypeRule) check(ctx *api.Context) {
 			if !hasAnnotationFlat(file, idx, "Provides") {
 				return
 			}
-			impl := intoSetReturnedExpressionCallee(file, idx)
+			impl := intoSetReturnedExpression(file, idx)
 			if impl == "" {
 				return
 			}
-			scope := pkg + "::" + enclosingClassChainFlat(file, idx)
-			groupKey := scope + "::" + impl
+			key := groupKey{scope: pkg + "::" + enclosingClassChainFlat(file, idx), impl: impl}
 			name := extractIdentifierFlat(file, idx)
-			groups[groupKey] = append(groups[groupKey], entry{file: file, idx: idx, name: name})
+			groups[key] = append(groups[key], entry{file: file, idx: idx, name: name})
 		})
 	}
-	for groupKey, entries := range groups {
+	for key, entries := range groups {
 		if len(entries) < 2 {
 			continue
 		}
-		impl := suffixAfterLastDoubleColon(groupKey)
+		impl := key.impl
 		for _, e := range entries {
 			n := e.name
 			if n == "" {
@@ -151,20 +148,45 @@ func (r *IntoSetDuplicateTypeRule) check(ctx *api.Context) {
 			}
 			ctx.Emit(r.Finding(
 				e.file,
-				e.file.FlatRow(e.idx)+1,
-				1,
+				declLine(e.file, e.idx),
+				declCol(e.file, e.idx),
 				fmt.Sprintf("@IntoSet function '%s' contributes '%s' which is also contributed by %d other binding(s) in the same module/component; the set dedupes, so contributions are lost.", n, impl, len(entries)-1),
 			))
 		}
 	}
 }
 
-// intoSetReturnedExpressionCallee returns the simple-identifier callee of the
-// expression-body or single-return statement of `idx`. Used to compare two
-// `@IntoSet` providers that construct the same concrete implementation.
-func intoSetReturnedExpressionCallee(file *scanner.File, idx uint32) string {
-	if file == nil || idx == 0 {
+// intoSetReturnedExpression returns the whitespace-normalized text of the call returned by
+// the expression-body or single-return statement of `idx`. Two providers return the same set
+// element only when the whole expression matches, arguments included.
+func intoSetReturnedExpression(file *scanner.File, idx uint32) string {
+	callee := intoSetReturnedExpressionCallee(file, idx)
+	if callee == "" {
 		return ""
+	}
+	return strings.Join(strings.Fields(intoSetReturnedExpressionText(file, idx)), "")
+}
+
+func intoSetReturnedExpressionText(file *scanner.File, idx uint32) string {
+	expr := intoSetReturnedExpressionNode(file, idx)
+	if expr == 0 {
+		return ""
+	}
+	return file.FlatNodeText(expr)
+}
+
+func intoSetReturnedExpressionCallee(file *scanner.File, idx uint32) string {
+	expr := intoSetReturnedExpressionNode(file, idx)
+	if expr == 0 {
+		return ""
+	}
+	return calleeIdentifierText(file, expr)
+}
+
+// intoSetReturnedExpressionNode returns the call expression an expression body or single return yields, or 0.
+func intoSetReturnedExpressionNode(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
 	}
 	// Expression body: `= Foo()` — find call_expression sibling of `=`.
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
@@ -178,12 +200,12 @@ func intoSetReturnedExpressionCallee(file *scanner.File, idx uint32) string {
 		if next == 0 {
 			break
 		}
-		return calleeIdentifierText(file, next)
+		return nodeIfCall(file, next)
 	}
 	// Block body: look for the single return statement.
 	body, ok := file.FlatFindChild(idx, "function_body")
 	if !ok || body == 0 {
-		return ""
+		return 0
 	}
 	var lone uint32
 	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
@@ -195,22 +217,29 @@ func intoSetReturnedExpressionCallee(file *scanner.File, idx uint32) string {
 			continue
 		}
 		if lone != 0 {
-			return ""
+			return 0
 		}
 		lone = child
 	}
 	if lone == 0 {
-		return ""
+		return 0
 	}
 	if file.FlatType(lone) == "jump_expression" {
 		// `return Foo()`: walk down to call_expression
 		for c := file.FlatFirstChild(lone); c != 0; c = file.FlatNextSib(c) {
 			if file.FlatIsNamed(c) {
-				return calleeIdentifierText(file, c)
+				return nodeIfCall(file, c)
 			}
 		}
 	}
-	return calleeIdentifierText(file, lone)
+	return nodeIfCall(file, lone)
+}
+
+func nodeIfCall(file *scanner.File, idx uint32) uint32 {
+	if file.FlatType(idx) == "call_expression" {
+		return idx
+	}
+	return 0
 }
 
 func calleeIdentifierText(file *scanner.File, idx uint32) string {

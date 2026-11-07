@@ -1,16 +1,20 @@
 package fixtures.positive.style
 
-data class Config(var name: String = "", var version: String = "")
+class Settings {
+    var name: String = ""
+    var retries: Int = 0
+    val tags = mutableListOf<String>()
 
-fun setup(): Config {
-    val config = Config()
-    config.apply { }
-    return config
+    fun reset() {}
 }
 
-fun externalOnly(): Config {
-    val config = Config()
-    val x = "hello"
-    config.apply { println(x) }
-    return config
+fun configure(settings: Settings, retries: Int) {
+    settings.apply { this.name = "primary" }
+    settings.apply { this.reset() }
+    settings.apply { this.retries = retries }
+    settings.apply { this.tags.add("fast") }
+}
+
+fun configureOptional(settings: Settings?) {
+    settings?.apply { this.reset() }
 }

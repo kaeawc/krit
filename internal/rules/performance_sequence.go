@@ -20,7 +20,7 @@ type CouldBeSequenceRule struct {
 // collection chains that should use asSequence(); chain-length heuristic is
 // conservative but the threshold is a style call. Classified per
 // roadmap/17.
-func (r *CouldBeSequenceRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *CouldBeSequenceRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 // collectionTypes that benefit from asSequence() conversion.
 var sequenceCandidateTypes = map[string]bool{

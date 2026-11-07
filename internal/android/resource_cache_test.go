@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
@@ -751,5 +752,30 @@ func TestComputeDrawableDirFingerprint_StableAndSensitive(t *testing.T) {
 	}
 	if diff := computeLayoutDirFingerprint("/r/drawable", layoutShape); diff == base {
 		t.Error("drawable and layout fingerprints should not share key space")
+	}
+}
+
+func TestResourceIndexCache_MissesAcrossBuilds(t *testing.T) {
+	repo := t.TempDir()
+	open := func() *ResourceIndexCache {
+		c, err := NewResourceIndexCache(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		return c
+	}
+	idx := &ResourceIndex{}
+
+	buildid.OverrideTokenForTest(t, "rev:build-a")
+	if err := open().Save("fp", 0, "", idx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := open().Load("fp", 0, ""); !ok {
+		t.Fatal("same build must hit")
+	}
+	buildid.OverrideTokenForTest(t, "rev:build-b")
+	if _, ok := open().Load("fp", 0, ""); ok {
+		t.Fatal("an index written by another build must miss: the resource parser may have changed")
 	}
 }

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"path/filepath"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -18,6 +19,30 @@ var bitmapDecodeMethods = map[string]bool{
 	"decodeFile":     true,
 	"decodeResource": true,
 	"decodeStream":   true,
+}
+
+var bitmapSmallImageNames = []string{"thumb", "tiny", "icon", "avatar"}
+
+// bitmapDecodeInSmallImageContext reports a decode inside a file, class or function named for a small image.
+func bitmapDecodeInSmallImageContext(file *scanner.File, idx uint32) bool {
+	names := []string{filepath.Base(file.Path)}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration":
+			names = append(names, flatFunctionName(file, cur))
+		case "class_declaration", "object_declaration":
+			names = append(names, extractIdentifierFlat(file, cur))
+		}
+	}
+	for _, name := range names {
+		lower := strings.ToLower(name)
+		for _, small := range bitmapSmallImageNames {
+			if strings.Contains(lower, small) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Performance rule. Detection pattern-matches anti-patterns (allocation in
@@ -79,6 +104,11 @@ func simpleTypeReferenceName(text string) string {
 	return text
 }
 
+// arrayTypeArgIsNullable reports whether the type argument text such as `<Int?>` is nullable.
+func arrayTypeArgIsNullable(text string) bool {
+	return strings.HasSuffix(strings.TrimSpace(strings.Trim(strings.TrimSpace(text), "<>")), "?")
+}
+
 func primitiveArrayReplacementForTypeRef(typeRef string) (primitive string, replacement string, ok bool) {
 	typeRef = normalizeTypeReference(typeRef)
 	if typeRef == "" {
@@ -138,6 +168,8 @@ func containsRangeExpressionFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
+	// detekt looks at the root of the receiver chain: a parenthesized range, or a rangeTo, downTo or until
+	// call, however the chain continues after it.
 	switch file.FlatType(idx) {
 	case "range_expression":
 		return true
@@ -156,26 +188,17 @@ func containsRangeExpressionFlat(file *scanner.File, idx uint32) bool {
 			}
 		}
 		for i := 0; i < file.FlatChildCount(idx); i++ {
-			child := file.FlatChild(idx, i)
-			if file.FlatType(child) == "simple_identifier" {
-				continue
-			}
-			if containsRangeExpressionFlat(file, child) {
+			if child := file.FlatChild(idx, i); file.FlatType(child) != "simple_identifier" && containsRangeExpressionFlat(file, child) {
 				return true
 			}
 		}
+	case "navigation_expression":
+		return containsRangeExpressionFlat(file, file.FlatFirstChild(idx))
 	case "call_expression":
 		if rangeInfixOps[flatCallExpressionName(file, idx)] {
 			return true
 		}
-		navExpr, _ := flatCallExpressionParts(file, idx)
-		if navExpr != 0 && file.FlatNamedChildCount(navExpr) > 0 {
-			return containsRangeExpressionFlat(file, file.FlatNamedChild(navExpr, 0))
-		}
-	case "navigation_expression":
-		if file.FlatNamedChildCount(idx) > 0 {
-			return containsRangeExpressionFlat(file, file.FlatNamedChild(idx, 0))
-		}
+		return containsRangeExpressionFlat(file, file.FlatFirstChild(idx))
 	}
 	return false
 }
@@ -225,7 +248,12 @@ func forEachOnRangeFixFlat(file *scanner.File, callNode, receiver uint32) *scann
 		return nil
 	}
 
-	iterVar := "i"
+	// `return@forEach` would have to become `continue`, so leave those loops to the user.
+	if strings.Contains(file.FlatNodeText(ll), "@forEach") {
+		return nil
+	}
+
+	iterVar := "it"
 	params, _ := file.FlatFindChild(ll, "lambda_parameters")
 	if params != 0 {
 		for i := 0; i < file.FlatNamedChildCount(params); i++ {
@@ -275,48 +303,19 @@ func spreadOperatorShouldReportFlat(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
+	// Comment text with an unbalanced `/*` re-lexes ` * foo` lines as spreads outside any call.
+	if parent, ok := file.FlatParent(idx); !ok || file.FlatType(parent) != "value_argument" {
 		return false
 	}
+	// detekt skips forwarding the enclosing function's own vararg parameter.
 	if file.FlatChildCount(idx) > 0 {
-		child := file.FlatChild(idx, file.FlatChildCount(idx)-1)
-		if file.FlatType(child) == "call_expression" {
-			// Preserve the historical fast-path behavior: computed call
-			// results, including array factory calls, are not classified
-			// as guaranteed array-copy sites.
-			return false
-		}
-		if file.FlatType(child) == "simple_identifier" {
-			name := file.FlatNodeText(child)
-			if isEnclosingVarargParamFlat(file, idx, name) {
+		if child := file.FlatChild(idx, file.FlatChildCount(idx)-1); file.FlatType(child) == "simple_identifier" {
+			if isEnclosingVarargParamFlat(file, idx, file.FlatNodeText(child)) {
 				return false
 			}
 		}
-		if isSpreadIntoSQLBuilderFlat(file, idx) {
-			return false
-		}
 	}
 	return true
-}
-
-func isSpreadIntoSQLBuilderFlat(file *scanner.File, idx uint32) bool {
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "call_expression" {
-			switch flatCallExpressionName(file, p) {
-			case "select", "where", "columns", "projection",
-				"buildArgs", "selectColumns":
-				return true
-			}
-			// Continue walking: a wrapping helper call may itself be
-			// nested inside a SQL builder. Stopping here would cause
-			// nested builder calls to slip through.
-			continue
-		}
-		if file.FlatType(p) == "function_declaration" {
-			return false
-		}
-	}
-	return false
 }
 
 func isEnclosingVarargParamFlat(file *scanner.File, idx uint32, name string) bool {
@@ -357,6 +356,40 @@ func spreadParameterTextContainsName(paramText, name string) bool {
 	}) {
 		if part == name {
 			return true
+		}
+	}
+	return false
+}
+
+// arrayPrimitiveInParameterizedContext reports contexts that need Array<T>: JUnit parameter providers, vararg and generic type arguments.
+func arrayPrimitiveInParameterizedContext(file *scanner.File, idx uint32) bool {
+	inBody := false
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_body":
+			inBody = true
+		case "type_arguments", "type_projection":
+			return true
+		case "parameter", "class_parameter":
+			if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(cur)), "vararg") || file.FlatHasModifier(cur, "vararg") {
+				return true
+			}
+		case "function_declaration":
+			// An override signature must keep the supertype's parameter and return types.
+			if !inBody && file.FlatHasModifier(cur, "override") {
+				return true
+			}
+			name := flatFunctionName(file, cur)
+			if strings.Contains(name, "Parameters") || strings.Contains(strings.ToLower(name), "cartesianproduct") {
+				return true
+			}
+			if mods, found := file.FlatFindChild(cur, "modifiers"); found && strings.Contains(file.FlatNodeText(mods), "Parameters") {
+				return true
+			}
+		case "class_declaration":
+			if mods, found := file.FlatFindChild(cur, "modifiers"); found && strings.Contains(file.FlatNodeText(mods), "Parameterized") {
+				return true
+			}
 		}
 	}
 	return false

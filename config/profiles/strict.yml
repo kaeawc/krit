@@ -289,6 +289,8 @@ style:
     active: true
   UnnecessaryParentheses:
     active: true
+  UntilInsteadOfRangeTo:
+    active: true
   UnusedImport:
     active: true
   UnusedPrivateMember:

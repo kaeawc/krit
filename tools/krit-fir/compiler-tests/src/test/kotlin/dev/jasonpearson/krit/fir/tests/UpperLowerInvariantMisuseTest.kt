@@ -3,7 +3,7 @@ package dev.jasonpearson.krit.fir.tests
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
-// UpperLowerInvariantMisuse cases a golden cannot express: goldens compare the
+// UpperLowerInvariantMisuse cases a golden cannot express (each conversion feeds a Text(..) sink): goldens compare the
 // set of reported lines, while Go parity compares the number of findings per
 // line. The Go rule reports each call on the line where its call_expression
 // starts, which for a qualified call is the receiver's first line.
@@ -20,23 +20,25 @@ class UpperLowerInvariantMisuseTest {
         val source = """
             package ulimcounts
 
-            fun nested(label: String): String = label.uppercase().lowercase()
+            fun nested(label: String): String = Text(label.uppercase().lowercase())
 
             fun chain(title: String?): String? =
-                title
+                Text(title
                     ?.trim()
                     ?.uppercase()
-                    ?.lowercase()
+                    ?.lowercase())
 
-            fun receiverSpansLines(parts: List<String>): String = listOf(
+            fun receiverSpansLines(parts: List<String>): String = Text(listOf(
                 parts.first(),
                 parts.last(),
-            ).joinToString().lowercase()
+            ).joinToString().lowercase())
 
-            fun exemptOnLaterLine(parts: List<String>): String = listOf(
+            fun exemptOnLaterLine(parts: List<String>): String = Text(listOf(
                 parts.first(),
                 "currencyCode",
-            ).joinToString().uppercase()
+            ).joinToString().uppercase())
+
+            fun Text(text: String?): String = text.orEmpty()
         """.trimIndent()
         assertEquals(mapOf(3 to 2, 6 to 2, 11 to 1), findingsPerLine(source))
     }
@@ -61,16 +63,20 @@ class UpperLowerInvariantMisuseTest {
 
             import ulimother.uppercase
 
-            fun explicitImport(userName: String): String = userName.uppercase()
+            fun explicitImport(userName: String): String = Text(userName.uppercase())
 
-            fun stillStdlib(email: String): String = email.lowercase()
+            fun stillStdlib(email: String): String = Text(email.lowercase())
+
+            fun Text(text: String?): String = text.orEmpty()
         """.trimIndent()
         val star = """
             package ulimstar
 
             import ulimother.*
 
-            fun starImport(userName: String, email: String): String = userName.uppercase() + email.lowercase()
+            fun starImport(userName: String, email: String): String = Text(userName.uppercase()) + Text(email.lowercase())
+
+            fun Text(text: String?): String = text.orEmpty()
         """.trimIndent()
         val diags = KritFirProbe.diagnose(mapOf("Other.kt" to other, "Explicit.kt" to explicit, "Star.kt" to star))
             .filter { it.name == "UpperLowerInvariantMisuse" }

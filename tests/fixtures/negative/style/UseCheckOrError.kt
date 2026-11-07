@@ -5,18 +5,10 @@ fun process(valid: Boolean) {
     println("processing")
 }
 
-// Non-negated condition should not trigger
-fun processNonNegated(cond: Boolean) {
-    if (cond) throw IllegalStateException()
+// A throw with a cause cannot be expressed with check()/require()
+fun processWithCause(cond: Boolean, cause: Exception) {
+    if (cond) throw IllegalStateException("bad", cause)
     println("processing")
-}
-
-// Multiple statements in block should not trigger
-fun processMultiStatement(cond: Boolean) {
-    if (!cond) {
-        println("log")
-        throw IllegalStateException()
-    }
 }
 
 // Wrong exception type should not trigger UseCheckOrError

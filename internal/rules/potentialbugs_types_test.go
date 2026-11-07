@@ -69,29 +69,65 @@ class Foo {
 	}
 }
 
-// --- DontDowncastCollectionTypes ---
-
-func TestDontDowncastCollectionTypes_Positive(t *testing.T) {
-	findings := runRuleByName(t, "DontDowncastCollectionTypes", `
-package test
-fun foo(list: List<String>) {
-    val mutable = list as MutableList<String>
-}`)
-	if len(findings) == 0 {
-		t.Error("expected finding for downcasting List to MutableList")
+func TestEqualsWithHashCodeExist_SkipsClassesWithGeneratedMembers(t *testing.T) {
+	for _, header := range []string{"data class Foo(val id: Int)", "@JvmInline value class Foo(val id: Int)"} {
+		for _, member := range []string{
+			"override fun hashCode(): Int = 1",
+			"override fun equals(other: Any?): Boolean = true",
+		} {
+			findings := runRuleByName(t, "EqualsWithHashCodeExist", "package test\n"+header+" {\n    "+member+"\n}\n")
+			if len(findings) != 0 {
+				t.Errorf("%s with %q: expected no findings, got %d", header, member, len(findings))
+			}
+		}
 	}
 }
 
-func TestDontDowncastCollectionTypes_Negative(t *testing.T) {
-	findings := runRuleByName(t, "DontDowncastCollectionTypes", `
+func TestEqualsWithHashCodeExist_StillReportsPlainClassOverridingOnlyHashCode(t *testing.T) {
+	findings := runRuleByName(t, "EqualsWithHashCodeExist", `
 package test
-fun foo(list: List<String>) {
-    val mutable = list.toMutableList()
+class Foo(val id: Int) {
+    override fun hashCode(): Int = id
 }`)
-	for _, f := range findings {
-		if f.Rule == "DontDowncastCollectionTypes" {
-			t.Error("should not flag toMutableList() call")
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+// --- DontDowncastCollectionTypes ---
+
+func TestDontDowncastCollectionTypes_FollowsDetekt(t *testing.T) {
+	flagged := map[string]string{
+		"as MutableList":    "fun f(l: List<String>) { val m = l as MutableList<String> }",
+		"is MutableList":    "fun f(l: List<String>) { val m = l is MutableList<*> }",
+		"not is ArrayList":  "fun f(l: List<String>) { val m = l !is ArrayList<String> }",
+		"safe cast":         "fun f(l: Set<String>) { val m = l as? HashSet<String> }",
+		"nullable source":   "fun f(l: List<String>?) { val m = l as MutableList<String> }",
+		"map to hash map":   "fun f(l: Map<String, Int>) { val m = l as HashMap<String, Int> }",
+		"qualified array":   "fun f(l: List<String>) { val m = l as java.util.ArrayList<String> }",
+		"parenthesized lhs": "fun f(l: List<String>) { val m = (l) as MutableList<String> }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByNameWithResolver(t, "DontDowncastCollectionTypes", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
 		}
+	}
+	clean := map[string]string{
+		"collection source": "fun f(l: Collection<String>) { val m = l as ArrayList<String> }",
+		"iterable source":   "fun f(l: Iterable<String>) { val m = l as MutableList<String> }",
+		"mutable source":    "fun f(l: MutableList<String>?) { val m = l as MutableList<String> }",
+		"nullable target":   "fun f(l: Set<String>) { val m = l as MutableSet<String>? }",
+		"any source":        "fun f(l: Any) { val m = l as MutableList<String> }",
+		"copying call":      "fun f(l: List<String>) { val m = l.toMutableList() }",
+	}
+	for name, src := range clean {
+		if got := runRuleByNameWithResolver(t, "DontDowncastCollectionTypes", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
+	}
+	got := runRuleByNameWithResolver(t, "DontDowncastCollectionTypes", "package test\nfun f(l: List<String>) { val m = l as MutableList<String> }\n")
+	if len(got) == 1 && got[0].Message != "Down-casting from type List to MutableList is risky. Use `toMutableList()` instead." {
+		t.Errorf("unexpected message %q", got[0].Message)
 	}
 }
 
@@ -206,25 +242,43 @@ fun foo() {
 // --- ImplicitUnitReturnType ---
 
 func TestImplicitUnitReturnType_Positive(t *testing.T) {
-	findings := runRuleByName(t, "ImplicitUnitReturnType", `
+	findings := runRuleByNameWithResolver(t, "ImplicitUnitReturnType", `
 package test
-fun doSomething() {
-    println("hello")
-}`)
-	if len(findings) == 0 {
-		t.Error("expected finding for function without explicit return type")
+fun clearAll(l: MutableList<Int>) = l.clear()
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for an expression-body function that returns Unit, got %d", len(findings))
+	}
+	if findings[0].Fix == nil || findings[0].Fix.Replacement != ": Unit" {
+		t.Errorf("expected a fix inserting ': Unit', got %+v", findings[0].Fix)
+	}
+}
+
+func TestImplicitUnitReturnType_BranchingBodies(t *testing.T) {
+	cases := map[string]string{
+		"when with Unit branches": "fun pick(l: MutableList<Int>, b: Int) = when (b) { 1 -> l.clear(); else -> {} }",
+		"if with Unit branches":   "fun pick(l: MutableList<Int>, b: Boolean) = if (b) l.clear() else { Unit }",
+	}
+	for name, src := range cases {
+		if got := runRuleByNameWithResolver(t, "ImplicitUnitReturnType", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
 	}
 }
 
 func TestImplicitUnitReturnType_Negative(t *testing.T) {
-	findings := runRuleByName(t, "ImplicitUnitReturnType", `
-package test
-fun doSomething(): Unit {
-    println("hello")
-}`)
-	for _, f := range findings {
-		if f.Rule == "ImplicitUnitReturnType" {
-			t.Error("should not flag function with explicit Unit return type")
+	cases := map[string]string{
+		"explicit Unit":       "fun clearAll(l: MutableList<Int>): Unit = l.clear()",
+		"block body":          "fun clearAll(l: MutableList<Int>) {\n    l.clear()\n}",
+		"value expression":    "fun first(l: List<Int>) = l.size",
+		"explicit other type": "fun clearAll(l: MutableList<Int>): Any = l.clear()",
+		"Unit constant":       "fun nothing() = Unit",
+		"branch with a value": "fun pick(l: MutableList<Int>, b: Boolean) = if (b) l.clear() else 1",
+		"when without else":   "fun pick(l: MutableList<Int>, b: Int) = when (b) { 1 -> l.clear() }",
+	}
+	for name, src := range cases {
+		if got := runRuleByNameWithResolver(t, "ImplicitUnitReturnType", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
 		}
 	}
 }
@@ -306,6 +360,24 @@ fun bar() {
 	}
 }
 
+func TestAvoidReferentialEquality_NegativeSameInstanceShortCircuit(t *testing.T) {
+	findings := runRuleByName(t, "AvoidReferentialEquality", `
+package test
+class Node(val text: String) {
+    fun isSelf(candidate: Node) = candidate === this
+}
+fun update(text: String, original: String): Boolean {
+    if (normalize(text) === text) return false
+    return text === original
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "AvoidReferentialEquality" {
+			t.Errorf("should not flag same-instance short circuits: %v", f)
+		}
+	}
+}
+
 func TestAvoidReferentialEquality_NegativeNullCheck(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
@@ -370,10 +442,10 @@ func TestAvoidReferentialEquality_NegativeViewIdentity(t *testing.T) {
 package test
 
 class View
-class Binding(val blockMultiSelectList: View)
+class Binding(val totalsPanel: View)
 
 fun check(view: View, binding: Binding): Boolean {
-    return view !== binding.blockMultiSelectList
+    return view !== binding.totalsPanel
 }`)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for view identity check, got %d", len(findings))
@@ -384,10 +456,10 @@ func TestAvoidReferentialEquality_NegativeSourceOnlyBindingViewIdentity(t *testi
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-class Binding(val blockMultiSelectList: Any)
+class Binding(val totalsPanel: Any)
 
 fun check(view: Any, binding: Binding): Boolean {
-    return view !== binding.blockMultiSelectList
+    return view !== binding.totalsPanel
 }`)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for source-only binding view identity check, got %d", len(findings))
@@ -424,11 +496,11 @@ func TestAvoidReferentialEquality_NegativeThisFieldDelegateIdentity(t *testing.T
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-class Tracker(private val bufferingTracker: Any) {
-    private var delegate: Any = bufferingTracker
+class Ledger(private val primaryEntry: Any) {
+    private var current: Any = primaryEntry
 
-    fun isBuffered(candidate: Any): Boolean {
-        return this.delegate === candidate
+    fun isCurrent(candidate: Any): Boolean {
+        return this.current === candidate
     }
 }
 `)
@@ -441,8 +513,8 @@ func TestAvoidReferentialEquality_NegativeIterationIdentityIt(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-fun isLast(blocks: List<Any>, lastRichTextBlock: Any): Boolean {
-    return blocks.any { it === lastRichTextBlock }
+fun isFinal(steps: List<Any>, finalStep: Any): Boolean {
+    return steps.any { it === finalStep }
 }
 `)
 	if len(findings) != 0 {
@@ -482,13 +554,13 @@ func TestAvoidReferentialEquality_NegativeResourceCleanupGuard(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-class Bitmap {
+class Scan {
     fun recycle() = Unit
 }
 
-fun recycleOriginalIfCorrected(correctedBitmap: Bitmap, bitmap: Bitmap) {
-    if (correctedBitmap !== bitmap) {
-        bitmap.recycle()
+fun releaseIfRotated(rotatedScan: Scan, scan: Scan) {
+    if (rotatedScan !== scan) {
+        scan.recycle()
     }
 }
 `)
@@ -501,10 +573,10 @@ func TestAvoidReferentialEquality_NegativeSingletonTypeIdentity(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-object MKAppearance {
+object DefaultTheme {
     fun merge(other: Any): Any = when {
-        this === MKAppearance -> other
-        other === MKAppearance -> this
+        this === DefaultTheme -> other
+        other === DefaultTheme -> this
         else -> other
     }
 }
@@ -518,13 +590,13 @@ func TestAvoidReferentialEquality_NegativeQualifiedSingletonIdentity(t *testing.
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-sealed class WorkspaceOverlayState {
-    object Hidden : WorkspaceOverlayState()
-    object Expanded : WorkspaceOverlayState()
+sealed class DrawerState {
+    object Closed : DrawerState()
+    object Open : DrawerState()
 }
 
-fun isHidden(state: WorkspaceOverlayState): Boolean {
-    return state === WorkspaceOverlayState.Hidden
+fun isClosed(state: DrawerState): Boolean {
+    return state === DrawerState.Closed
 }
 `)
 	if len(findings) != 0 {
@@ -581,10 +653,10 @@ func TestAvoidReferentialEquality_PositiveNonLeadingCompareToIdentityCheck(t *te
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test
 
-class Row : Comparable<Row> {
+class Row(val label: String) : Comparable<Row> {
     override fun compareTo(other: Row): Int {
         println("comparing")
-        if (this === other) return 0
+        if (label === other.label) return 0
         return 1
     }
 }
@@ -821,18 +893,25 @@ class Foo {
 	}
 }
 
-func TestWrongEqualsTypeParameter_NegativeNoOverride(t *testing.T) {
-	findings := runRuleByName(t, "WrongEqualsTypeParameter", `
-package test
-class Foo {
-    fun equals(other: String): Boolean {
-        return false
-    }
-}`)
-	for _, f := range findings {
-		if f.Rule == "WrongEqualsTypeParameter" {
-			t.Error("should not flag equals without override modifier")
-		}
+func TestWrongEqualsTypeParameter_Overload(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"overload-string", "class Foo {\n    fun equals(other: Foo): Boolean = true\n}", 1},
+		{"overload-non-null-any", "class Foo {\n    fun equals(other: Any): Boolean = true\n}", 1},
+		{"extension", "fun Foo.equals(other: Foo): Boolean = true\nclass Foo", 0},
+		{"two-params", "class Foo {\n    fun equals(a: Foo, b: Foo): Boolean = true\n}", 0},
+		{"no-params", "class Foo {\n    fun equals(): Boolean = true\n}", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "WrongEqualsTypeParameter", "package test\n"+tc.src)
+			if len(findings) != tc.want {
+				t.Fatalf("want %d findings, got %d", tc.want, len(findings))
+			}
+		})
 	}
 }
 
@@ -1131,5 +1210,92 @@ fun log(r: Result) {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for when used as call argument")
+	}
+}
+
+func TestDoubleMutabilityForCollection_SkipsNullableLazyInit(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+class Cache {
+    private var items: MutableList<String>? = null
+    fun load() {
+        var local: MutableList<String>? = null
+        local = mutableListOf()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for nullable lazy-init vars, got %v", findings)
+	}
+}
+
+func TestDoubleMutabilityForCollection_SkipsReassignedVars(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+class Cache {
+    private var items: MutableList<String> = mutableListOf()
+    fun reset() {
+        this.items = mutableListOf()
+    }
+    fun run() {
+        var local: MutableList<String> = mutableListOf()
+        local = mutableListOf()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for reassigned vars, got %v", findings)
+	}
+}
+
+func TestDoubleMutabilityForCollection_SkipsNonPrivateMembers(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+class Cache {
+    var open: MutableList<String> = mutableListOf()
+    internal var shared: MutableList<String> = mutableListOf()
+    protected var inherited: MutableList<String> = mutableListOf()
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for non-private vars, got %v", findings)
+	}
+}
+
+func TestDoubleMutabilityForCollection_PositivePrivateNeverReassigned(t *testing.T) {
+	findings := runRuleByName(t, "DoubleMutabilityForCollection", `
+package test
+class Cache {
+    private var items: MutableList<String> = mutableListOf()
+}
+`)
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding, got %v", findings)
+	}
+}
+
+func TestEqualsWithHashCodeExist_Objects(t *testing.T) {
+	src := "package test\nobject A { override fun equals(other: Any?): Boolean = other is A }\n" +
+		"class B {\n companion object {\n override fun equals(other: Any?): Boolean = other is B\n }\n}\n" +
+		"object C { override fun equals(other: Any?): Boolean = other is C\n override fun hashCode(): Int = 1 }\n" +
+		"data object D { override fun equals(other: Any?): Boolean = other is D }\n"
+	if got := runRuleByName(t, "EqualsWithHashCodeExist", src); len(got) != 2 {
+		t.Fatalf("expected findings for object A and the companion only, got %d: %v", len(got), got)
+	}
+}
+
+func TestEqualsRules_RequireTheAnyNullableSignature(t *testing.T) {
+	// A hashCode override without a matching equals(Any?) is incomplete, and a differently typed equals is not
+	// the equals() contract detekt checks.
+	other := "package test\nclass A { override fun equals(other: String?): Boolean = true\n override fun hashCode() = 1 }\n"
+	if got := runRuleByName(t, "EqualsWithHashCodeExist", other); len(got) != 1 {
+		t.Errorf("EqualsWithHashCodeExist with equals(String?): want 1 finding, got %d", len(got))
+	}
+	if got := runRuleByName(t, "EqualsAlwaysReturnsTrueOrFalse", other); len(got) != 0 {
+		t.Errorf("EqualsAlwaysReturnsTrueOrFalse with equals(String?): want no findings, got %d", len(got))
+	}
+	receiver := "package test\nclass A { fun String.equals(o: Any?): Boolean = true\n override fun hashCode() = 1 }\n"
+	if got := runRuleByName(t, "EqualsAlwaysReturnsTrueOrFalse", receiver); len(got) != 0 {
+		t.Errorf("an extension equals is not the contract: want no findings, got %d", len(got))
 	}
 }

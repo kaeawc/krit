@@ -1,8 +1,9 @@
 package rules
 
 // OnClick rule — flags android:onClick handlers in layout XML that have no
-// matching `fun name(view: View)` method on the Activity/Fragment that
-// inflates the layout. The handler is resolved by reflection at runtime, so
+// matching `fun name(view: View)` method on the Activity that inflates the
+// layout. The handler resolves against the view's Activity context, so
+// layouts inflated by fragments, adapters or custom views are not checked. The handler is resolved by reflection at runtime, so
 // a missing or wrong-signature method compiles cleanly but throws
 // NoSuchMethodException when the user taps the view.
 //
@@ -12,6 +13,7 @@ package rules
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -32,6 +34,33 @@ type onClickClassSummary struct {
 	name     string
 	layouts  map[string]struct{}
 	methods  map[string]onClickMethodInfo
+	// inheritsHandlers is true when an app-defined superclass could declare handlers this file cannot see.
+	inheritsHandlers bool
+}
+
+var frameworkActivityBases = map[string]bool{
+	"Activity": true, "AppCompatActivity": true, "FragmentActivity": true, "ComponentActivity": true,
+}
+
+// onClickSuperclassName returns the simple name of the supertype with a constructor call, or "".
+func onClickSuperclassName(file *scanner.File, classIdx uint32) string {
+	for child := file.FlatFirstChild(classIdx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		ctor, ok := file.FlatFindChild(child, "constructor_invocation")
+		if !ok {
+			continue
+		}
+		userType, _ := file.FlatFindChild(ctor, "user_type")
+		if userType == 0 {
+			continue
+		}
+		if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
+			return file.FlatNodeText(ident)
+		}
+	}
+	return ""
 }
 
 type onClickMethodInfo struct {
@@ -58,10 +87,16 @@ func (r *OnClickRule) check(ctx *api.Context) {
 			if file.FlatType(classIdx) != "class_declaration" {
 				continue
 			}
+			superclass := onClickSuperclassName(file, classIdx)
+			if !strings.HasSuffix(superclass, "Activity") {
+				continue
+			}
 			summary := summarizeOnClickClass(file, classIdx)
 			if summary == nil || len(summary.layouts) == 0 {
 				continue
 			}
+			// A handler may be declared on an app-defined base activity.
+			summary.inheritsHandlers = !frameworkActivityBases[superclass]
 			emitOnClickFindings(ctx, r.BaseRule, summary, handlersByLayout)
 		}
 	}
@@ -87,7 +122,7 @@ func collectOnClickHandlerSites(idx *android.ResourceIndex) map[string][]onClick
 			})
 		})
 	}
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		add(layout)
 	}
 	return out
@@ -126,7 +161,7 @@ func collectClassMethods(file *scanner.File, body uint32, out map[string]onClick
 		paramCount, hasView := analyzeFunctionViewSignature(file, child)
 		out[name] = onClickMethodInfo{
 			idx:          child,
-			isPrivate:    file.FlatHasModifier(child, "private"),
+			isPrivate:    file.FlatHasModifier(child, "private") || file.FlatHasModifier(child, "protected"),
 			paramCount:   paramCount,
 			hasViewParam: hasView,
 		}
@@ -189,6 +224,9 @@ func emitOnClickFindings(ctx *api.Context, rule BaseRule, summary *onClickClassS
 		for _, site := range handlersByLayout[layoutName] {
 			method, ok := summary.methods[site.method]
 			if !ok {
+				if summary.inheritsHandlers {
+					continue
+				}
 				ctx.Emit(baseFinding(site.layoutPath, site.line, rule,
 					fmt.Sprintf("`android:onClick=\"%s\"` on `%s` has no matching method on `%s`. Declare `fun %s(view: View)` or remove the attribute.",
 						site.method, site.viewType, classDisplayName(summary), site.method)))

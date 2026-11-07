@@ -799,3 +799,44 @@ func (*capsStubResolver) AnnotationValueFlat(uint32, *scanner.File, string, stri
 	return ""
 }
 func (*capsStubResolver) IsExceptionSubtype(string, string) bool { return false }
+
+// TestDispatcher_RuleTimingToggleKeepsFindings checks that turning rule timing off drops the per-rule
+// durations but not the findings, and that the reused per-file Context does not leak between calls.
+func TestDispatcher_RuleTimingToggleKeepsFindings(t *testing.T) {
+	file := writeKotlinFile(t, sampleKotlin, "Timing.kt")
+	var seenRules []string
+	rule := func(id string) *api.Rule {
+		return api.FakeRule(id,
+			api.WithNodeTypes("call_expression"),
+			api.WithCheck(func(ctx *api.Context) {
+				if ctx.Rule == nil || ctx.Rule.ID != id {
+					t.Errorf("rule %s ran with context for %v", id, ctx.Rule)
+				}
+				seenRules = append(seenRules, id)
+				ctx.EmitAt(int(ctx.Node.StartRow)+1, 1, id)
+			}),
+		)
+	}
+	rules := []*api.Rule{rule("TimingA"), rule("TimingB")}
+
+	timed := NewDispatcher(rules, nil)
+	timedCols, timedStats := timed.RunColumnsWithStats(file)
+	if len(timedStats.RuleStatsByRule) == 0 {
+		t.Fatal("expected per-rule stats while timing is on")
+	}
+
+	untimed := NewDispatcher(rules, nil)
+	untimed.SetRuleTiming(false)
+	untimedCols, untimedStats := untimed.RunColumnsWithStats(file)
+	if len(untimedStats.RuleStatsByRule) != 0 || untimedStats.DispatchRuleNs != 0 {
+		t.Errorf("expected no per-rule stats while timing is off, got %d rules, %dns", len(untimedStats.RuleStatsByRule), untimedStats.DispatchRuleNs)
+	}
+	if timedCols.Len() == 0 || timedCols.Len() != untimedCols.Len() {
+		t.Fatalf("findings differ: timed=%d untimed=%d", timedCols.Len(), untimedCols.Len())
+	}
+	for i := 0; i < timedCols.Len(); i++ {
+		if timedCols.RuleAt(i) != untimedCols.RuleAt(i) || timedCols.LineAt(i) != untimedCols.LineAt(i) {
+			t.Errorf("row %d differs: %s:%d vs %s:%d", i, timedCols.RuleAt(i), timedCols.LineAt(i), untimedCols.RuleAt(i), untimedCols.LineAt(i))
+		}
+	}
+}

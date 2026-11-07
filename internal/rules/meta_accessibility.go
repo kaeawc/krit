@@ -54,6 +54,11 @@ func (r *ComposeRawTextLiteralRule) Meta() api.RuleDescriptor {
 				Description: "Annotation prefixes to treat as preview scaffolding, e.g. Custom matches CustomPreview.",
 				Apply:       func(r *ComposeRawTextLiteralRule, v []string) { r.CustomPreviewPrefixes = v },
 			}),
+			api.StringListOption(api.StringListOptionSpec[ComposeRawTextLiteralRule]{
+				Name:        "nonProductionPathMarkers",
+				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+				Apply:       func(r *ComposeRawTextLiteralRule, v []string) { r.NonProductionPathMarkers = v },
+			}),
 		},
 	}
 }
@@ -84,6 +89,13 @@ func (r *ComposeTextFieldMissingLabelRule) Meta() api.RuleDescriptor {
 		ID:            "ComposeTextFieldMissingLabel",
 		RuleSet:       "a11y",
 		DefaultActive: true,
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeTextFieldMissingLabelRule]{
+				Name:        "nonProductionPathMarkers",
+				Description: "Path substrings that mark sources as not user-facing, in addition to the built-in debug, playground and sandbox markers.",
+				Apply:       func(r *ComposeTextFieldMissingLabelRule, v []string) { r.NonProductionPathMarkers = v },
+			}),
+		},
 	}
 }
 

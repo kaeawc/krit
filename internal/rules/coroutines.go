@@ -92,7 +92,7 @@ func directCallArgumentsFlat(file *scanner.File, idx uint32) uint32 {
 
 func injectDispatcherNames(names []string) map[string]bool {
 	if len(names) == 0 {
-		return map[string]bool{"IO": true, "Default": true, "Unconfined": true, "Main": true}
+		return map[string]bool{"IO": true, "Default": true, "Unconfined": true}
 	}
 	out := make(map[string]bool, len(names))
 	for _, name := range names {

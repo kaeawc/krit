@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -86,6 +87,12 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 	fileCount := len(in.SourceFiles())
 	ruleCount := len(in.ActiveRules)
 
+	// Reports use one path spelling whatever form the scan paths took.
+	reported := columns
+	if rewritten := columns.RewriteFiles(ReportPathFunc(reportBasePath(in.BasePath, in.Paths), in.AbsolutePaths)); rewritten.N > 0 {
+		reported = &rewritten
+	}
+
 	switch in.Format {
 	case "json":
 		jsonFormatter := output.FormatJSONColumns
@@ -94,7 +101,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 		}
 		if err := jsonFormatter(
 			in.Writer,
-			columns,
+			reported,
 			in.Version,
 			fileCount,
 			ruleCount,
@@ -110,13 +117,13 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 			return OutputResult{}, fmt.Errorf("format json: %w", err)
 		}
 	case "plain":
-		output.FormatPlainColumns(in.Writer, columns)
+		output.FormatPlainColumns(in.Writer, reported)
 	case "sarif":
-		if err := output.FormatSARIFColumns(in.Writer, columns, in.Version); err != nil {
+		if err := output.FormatSARIFColumns(in.Writer, reported, in.Version); err != nil {
 			return OutputResult{}, fmt.Errorf("format sarif: %w", err)
 		}
 	case "checkstyle":
-		output.FormatCheckstyleColumns(in.Writer, columns)
+		output.FormatCheckstyleColumns(in.Writer, reported)
 	default:
 		return OutputResult{}, fmt.Errorf("unknown format: %s", in.Format)
 	}
@@ -175,3 +182,46 @@ func GitChangedFiles(ref string, scanPaths []string) (map[string]bool, error) {
 }
 
 var _ Phase[OutputInput, OutputResult] = OutputPhase{}
+
+// ReportPathFunc returns the mapping applied to finding file paths in reports.
+// By default a path under base (see reportBasePath) is reported relative to it
+// with forward slashes, and any other path is reported absolute. With absolute
+// set every path is reported absolute.
+func ReportPathFunc(base string, absolute bool) func(string) string {
+	return func(file string) string {
+		abs := absOrSelf(file)
+		if !absolute && base != "" && isWithinDir(base, abs) {
+			rel, _ := filepath.Rel(base, abs)
+			return filepath.ToSlash(rel)
+		}
+		return filepath.ToSlash(abs)
+	}
+}
+
+// reportBasePath resolves the directory finding paths are reported against:
+// --base-path when set, else the first scan path (its directory for a file).
+func reportBasePath(basePath string, paths []string) string {
+	if basePath == "" && len(paths) > 0 {
+		basePath = paths[0]
+	}
+	if basePath == "" {
+		return ""
+	}
+	abs := absOrSelf(basePath)
+	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+		return filepath.Dir(abs)
+	}
+	return abs
+}
+
+func absOrSelf(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+func isWithinDir(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}

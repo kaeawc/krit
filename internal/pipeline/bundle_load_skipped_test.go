@@ -20,8 +20,13 @@ func TestBundleHit_SkipsLoadOnFormatCacheHit(t *testing.T) {
 
 	// Seed the format cache so the first-and-only call should hit it.
 	fp := scanner.RunFingerprint{Version: "test", Rules: "rh", Config: "cfg"}
-	key := scanner.FindingsBundleKey(fp)
-	w.StoreBundleOutput(key, &CachedBundleOutput{
+	args := ProjectArgs{
+		Format:      "json",
+		JSONCompact: true,
+		ActiveRules: nil,
+		Paths:       []string{"."},
+	}
+	w.StoreBundleOutput(bundleOutputKey(fp, args), &CachedBundleOutput{
 		FindingsBytes: []byte(`[]`),
 		Total:         0,
 		ByRuleSet:     map[string]int{},
@@ -30,12 +35,6 @@ func TestBundleHit_SkipsLoadOnFormatCacheHit(t *testing.T) {
 
 	store := &loadCountingStore{}
 
-	args := ProjectArgs{
-		Format:      "json",
-		JSONCompact: true,
-		ActiveRules: nil,
-		Paths:       []string{"."},
-	}
 	host := ProjectHostState{
 		FindingsBundleStore:     store,
 		FindingsBundleCacheRoot: t.TempDir(),

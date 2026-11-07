@@ -21,6 +21,115 @@ import (
 // 1. FragmentConstructorRule
 // =====================================================================
 
+// kotlinMapExtensions are Kotlin Map extension functions that SparseArray does not offer.
+var kotlinMapExtensions = map[string]bool{
+	"getOrPut": true, "getOrElse": true, "mapValues": true, "mapKeys": true, "filterKeys": true, "filterValues": true,
+	"toMap": true, "toList": true, "withDefault": true, "plus": true, "minus": true, "asSequence": true, "forEach": true,
+	"entries": true, "keys": true, "values": true, "iterator": true, "getOrDefault": true, "putIfAbsent": true,
+	"computeIfAbsent": true, "computeIfPresent": true, "compute": true, "merge": true, "putAll": true,
+	"containsValue": true, "filter": true, "map": true, "flatMap": true, "toMutableMap": true,
+}
+
+// hashMapEscapesAsMap reports a HashMap that is typed as a Map, passed as an argument, returned, or used
+// with Kotlin map extensions, so it cannot become a SparseArray.
+func hashMapEscapesAsMap(file *scanner.File, call uint32) bool {
+	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "value_argument", "jump_expression":
+			return true
+		case "property_declaration":
+			name := extractIdentifierFlat(file, cur)
+			if typ := extractPropertyTypeFlat(file, cur); strings.Contains(typ, "Map<") && !strings.Contains(typ, "HashMap<") {
+				return true
+			}
+			scope, ok := file.FlatParent(cur)
+			if !ok || name == "" {
+				return false
+			}
+			escapes := false
+			file.FlatWalkNodes(scope, "simple_identifier", func(ident uint32) {
+				if escapes || !file.FlatNodeTextEquals(ident, name) {
+					return
+				}
+				parent, ok := file.FlatParent(ident)
+				if !ok {
+					return
+				}
+				switch file.FlatType(parent) {
+				case "value_argument", "jump_expression":
+					escapes = true
+				case "function_body":
+					// `fun f() = map` returns the variable.
+					escapes = true
+				case "for_statement":
+					// Iterating the map itself needs Map's iterator.
+					escapes = file.FlatNamedChild(parent, 0) != ident
+				case "navigation_expression":
+					if file.FlatNamedChild(parent, 0) == ident && kotlinMapExtensions[navigationMemberName(file, parent)] {
+						escapes = true
+					}
+				}
+			})
+			return escapes
+		case "assignment":
+			// `target = HashMap()` where the target is declared as a Map.
+			target := file.FlatNamedChild(cur, 0)
+			if target == 0 || file.FlatType(target) != "directly_assignable_expression" {
+				return false
+			}
+			return fileDeclaresMapProperty(file, strings.TrimSpace(file.FlatNodeText(target)))
+		case "function_body":
+			// An expression body is returned as the declared type.
+			fn, ok := file.FlatParent(cur)
+			if !ok || file.FlatType(fn) != "function_declaration" {
+				return false
+			}
+			typ := extractFunctionReturnTypeNameFlat(file, fn)
+			return (strings.HasPrefix(typ, "Map<") || strings.HasPrefix(typ, "MutableMap<")) && !strings.Contains(typ, "HashMap<")
+		case "statements", "class_body", "lambda_literal", "function_declaration":
+			return false
+		}
+	}
+	return false
+}
+
+// fileDeclaresMapProperty reports a property named name declared in file with a Map or MutableMap type.
+func fileDeclaresMapProperty(file *scanner.File, name string) bool {
+	found := false
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		if found || extractIdentifierFlat(file, prop) != name {
+			return
+		}
+		typ := extractPropertyTypeFlat(file, prop)
+		found = (strings.HasPrefix(typ, "Map<") || strings.HasPrefix(typ, "MutableMap<")) && !strings.Contains(typ, "HashMap<")
+	})
+	return found
+}
+
+// navigationMemberName returns the name selected by a navigation_expression such as `map.getOrPut`.
+func navigationMemberName(file *scanner.File, nav uint32) string {
+	return flatNavigationExpressionLastIdentifier(file, nav)
+}
+
+// fragmentLaunchedFromInstance reports a launchFragment call that is handed an instance of className,
+// the way fragment tests build one with constructor arguments.
+func fragmentLaunchedFromInstance(file *scanner.File, className string) bool {
+	if className == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+		if found {
+			return
+		}
+		switch flatCallNameAny(file, call) {
+		case "launchFragment", "launchFragmentInContainer":
+			found = strings.Contains(file.FlatNodeText(call), className+"(")
+		}
+	})
+	return found
+}
+
 // FragmentConstructorRule flags Fragment subclasses that have non-default
 // (parameterized) constructors without a no-arg constructor. The Android
 // framework re-instantiates fragments via reflection using the no-arg ctor.
@@ -46,35 +155,92 @@ var fragmentSuperclasses = []string{
 type fragmentConstructorState struct {
 	hasNoArgCtor bool
 	hasParamCtor bool
+	// hasInjectCtor is true when a constructor is DI-annotated, which implies a custom FragmentFactory.
+	hasInjectCtor bool
+}
+
+// fragmentCtorIsInjectAnnotatedFlat reports whether a constructor header carries @Inject or @AssistedInject.
+func fragmentCtorIsInjectAnnotatedFlat(file *scanner.File, ctor uint32) bool {
+	text := file.FlatNodeText(ctor)
+	if paren := strings.Index(text, "("); paren >= 0 {
+		text = text[:paren]
+	}
+	for _, ann := range strings.Fields(text) {
+		name := androidAnnotationSimpleName(ann)
+		if strings.HasPrefix(ann, "@") && (name == "Inject" || name == "AssistedInject") {
+			return true
+		}
+	}
+	return false
 }
 
 func fragmentConstructorStateFlat(file *scanner.File, classDecl uint32) fragmentConstructorState {
-	state := fragmentConstructorState{hasNoArgCtor: true}
+	state := fragmentConstructorState{}
+	hasPrimary, hasSecondary, implicitPrimary := false, false, false
+	// record notes one constructor. A primary constructor whose parameters all have defaults, or a
+	// secondary one annotated @JvmOverloads, also gets a JVM no-arg overload. Visibility is not considered.
+	record := func(ctor uint32, count, defaults int, overloads bool) {
+		if fragmentCtorIsInjectAnnotatedFlat(file, ctor) {
+			state.hasInjectCtor = true
+		}
+		if count == 0 || (defaults == count && overloads) {
+			state.hasNoArgCtor = true
+			return
+		}
+		state.hasParamCtor = true
+	}
 	for child := file.FlatFirstChild(classDecl); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
-		case "primary_constructor":
-			count, defaults := constructorParameterDefaultsFlat(file, child, "class_parameter")
-			if count == 0 {
-				state.hasNoArgCtor = true
-				continue
+		case "delegation_specifier":
+			// `: Base()` with no explicit constructor means an implicit no-arg primary constructor.
+			if _, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+				implicitPrimary = true
 			}
-			state.hasParamCtor = true
-			state.hasNoArgCtor = defaults == count
+		case "primary_constructor":
+			hasPrimary = true
+			count, defaults := constructorParameterDefaultsFlat(file, child, "class_parameter")
+			record(child, count, defaults, true)
 		case "class_body":
 			file.FlatWalkNodes(child, "secondary_constructor", func(ctor uint32) {
-				count, defaults := constructorParameterDefaultsFlat(file, ctor, "parameter")
-				if count == 0 {
-					state.hasNoArgCtor = true
+				if nearestClassBodyOwnerFlat(file, ctor) != classDecl {
 					return
 				}
-				state.hasParamCtor = true
-				if defaults == count {
-					state.hasNoArgCtor = true
-				}
+				hasSecondary = true
+				count, defaults := constructorParameterDefaultsFlat(file, ctor, "parameter")
+				record(ctor, count, defaults, fragmentCtorHeaderHasAnnotation(file, ctor, "JvmOverloads"))
 			})
 		}
 	}
+	// Without a primary constructor Kotlin generates no implicit no-arg constructor.
+	if !hasPrimary && (implicitPrimary || !hasSecondary) {
+		state.hasNoArgCtor = true
+	}
 	return state
+}
+
+// fragmentCtorHeaderHasAnnotation reports whether the constructor header (before its parameter list) carries @name.
+func fragmentCtorHeaderHasAnnotation(file *scanner.File, ctor uint32, name string) bool {
+	text := file.FlatNodeText(ctor)
+	if paren := strings.Index(text, "("); paren >= 0 {
+		text = text[:paren]
+	}
+	for _, w := range strings.Fields(text) {
+		if strings.HasPrefix(w, "@") && androidAnnotationSimpleName(w) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// nearestClassBodyOwnerFlat returns the class_declaration whose body directly holds node, or 0.
+func nearestClassBodyOwnerFlat(file *scanner.File, node uint32) uint32 {
+	for cur, ok := file.FlatParent(node); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration":
+			return cur
+		}
+	}
+	return 0
 }
 
 func constructorParameterDefaultsFlat(file *scanner.File, ctor uint32, paramType string) (count int, defaults int) {
@@ -103,6 +269,10 @@ func nearestConstructorAncestorFlat(file *scanner.File, idx uint32) uint32 {
 }
 
 func parameterHasDefaultValueFlat(file *scanner.File, param uint32) bool {
+	// A function or secondary-constructor parameter keeps its `= default` as following siblings.
+	if next := file.FlatNextSib(param); next != 0 && !file.FlatIsNamed(next) && file.FlatNodeTextEquals(next, "=") {
+		return true
+	}
 	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
 		if !file.FlatIsNamed(child) && file.FlatNodeTextEquals(child, "=") {
 			return true
@@ -165,6 +335,37 @@ func getSignaturesCallUsesDeprecatedFlag(file *scanner.File, call uint32) bool {
 	return functionLocalInitializerContainsGetSignatures(file, fn, name, call)
 }
 
+// getSignaturesJavaCallUsesDeprecatedFlag reports a Java getPackageInfo call whose flags argument has GET_SIGNATURES.
+func getSignaturesJavaCallUsesDeprecatedFlag(file *scanner.File, call uint32) bool {
+	if wrongViewCastCallName(file, call) != "getPackageInfo" {
+		return false
+	}
+	args := javaArgumentExpressions(file, call)
+	if len(args) < 2 {
+		return false
+	}
+	staticImport := sourceImportsOrMentions(file, "android.content.pm.PackageManager.GET_SIGNATURES")
+	found := false
+	visit := func(node uint32) {
+		switch file.FlatType(node) {
+		case "identifier":
+			if staticImport && file.FlatNodeText(node) == "GET_SIGNATURES" {
+				found = true
+			}
+		case "field_access":
+			text := strings.TrimSpace(file.FlatNodeText(node))
+			found = found || text == "PackageManager.GET_SIGNATURES" || strings.HasSuffix(text, ".PackageManager.GET_SIGNATURES")
+		case "decimal_integer_literal", "hex_integer_literal":
+			if v, ok := parseIntegerLiteralForFlag(file.FlatNodeText(node)); ok && v&getSignaturesFlagValue != 0 {
+				found = true
+			}
+		}
+	}
+	visit(args[1])
+	file.FlatWalkAllNodes(args[1], visit)
+	return found
+}
+
 func getSignaturesExprContainsFlag(file *scanner.File, expr uint32) bool {
 	if file == nil || expr == 0 {
 		return false
@@ -172,9 +373,16 @@ func getSignaturesExprContainsFlag(file *scanner.File, expr uint32) bool {
 	expr = flatUnwrapParenExpr(file, expr)
 	switch file.FlatType(expr) {
 	case "simple_identifier":
-		return file.FlatNodeText(expr) == "GET_SIGNATURES"
+		// A bare GET_SIGNATURES must be imported from PackageManager to be the platform flag.
+		return file.FlatNodeText(expr) == "GET_SIGNATURES" &&
+			(sourceImportsOrMentions(file, "android.content.pm.PackageManager.GET_SIGNATURES") ||
+				sourceImportsOrMentions(file, "android.content.pm.PackageManager.*"))
 	case "navigation_expression":
-		return flatNavigationExpressionLastIdentifier(file, expr) == "GET_SIGNATURES"
+		if flatNavigationExpressionLastIdentifier(file, expr) != "GET_SIGNATURES" {
+			return false
+		}
+		qualifier := strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(expr, 0)))
+		return qualifier == "PackageManager" || strings.HasSuffix(qualifier, ".PackageManager")
 	case "integer_literal", "long_literal", "hex_literal":
 		v, ok := parseIntegerLiteralForFlag(file.FlatNodeText(expr))
 		return ok && (v&getSignaturesFlagValue) != 0
@@ -286,25 +494,38 @@ var boxedPrimitiveConstructors = map[string]bool{
 	"Long":      true,
 	"Float":     true,
 	"Double":    true,
-	"Short":     true,
 	"Byte":      true,
 	"Boolean":   true,
 	"Character": true,
 }
 
+// boxedConstructorName returns the boxed type name of a bare or java.lang-qualified type reference.
+func boxedConstructorName(text string) (string, bool) {
+	name := strings.TrimPrefix(strings.TrimSpace(text), "java.lang.")
+	return name, boxedPrimitiveConstructors[name]
+}
+
+// useValueOfMessage mirrors Lint's message; multi-line arguments are elided.
+func useValueOfMessage(typeName, arg string) string {
+	if strings.Contains(arg, "\n") {
+		arg = "..."
+	}
+	return "Use `" + typeName + ".valueOf(" + arg + ")` instead"
+}
+
 // checkUseValueOfKotlinCall handles the Kotlin `Integer(42)` form
 // (a `call_expression` whose callee is a bare boxed-primitive identifier).
 func checkUseValueOfKotlinCall(ctx *api.Context, r *UseValueOfRule, file *scanner.File, idx uint32) {
-	typeName := flatCallExpressionName(file, idx)
-	if !boxedPrimitiveConstructors[typeName] {
-		return
-	}
-	// Skip qualified calls (e.g. `a.Integer(42)` or `Integer.valueOf(42)`).
+	// The callee is a bare boxed type or the same type qualified with java.lang.
 	firstNamed := file.FlatFirstChild(idx)
 	for firstNamed != 0 && !file.FlatIsNamed(firstNamed) {
 		firstNamed = file.FlatNextSib(firstNamed)
 	}
-	if firstNamed == 0 || file.FlatType(firstNamed) != "simple_identifier" {
+	if firstNamed == 0 {
+		return
+	}
+	typeName, ok := boxedConstructorName(file.FlatNodeText(firstNamed))
+	if !ok {
 		return
 	}
 	args := flatCallKeyArguments(file, idx)
@@ -321,10 +542,12 @@ func checkUseValueOfKotlinCall(ctx *api.Context, r *UseValueOfRule, file *scanne
 	if argCount != 1 {
 		return
 	}
-	f := r.Finding(file, file.FlatRow(idx)+1, 1,
-		"Use "+typeName+".valueOf() instead of "+typeName+"() constructor for better performance.")
+	argText := ""
 	if firstArg != 0 {
-		argText := file.FlatNodeText(firstArg)
+		argText = file.FlatNodeText(firstArg)
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, useValueOfMessage(typeName, argText))
+	if firstArg != 0 {
 		f.Fix = &scanner.Fix{
 			ByteMode:    true,
 			StartByte:   int(file.FlatStartByte(idx)),
@@ -348,9 +571,9 @@ func checkUseValueOfJavaNew(ctx *api.Context, r *UseValueOfRule, file *scanner.F
 		switch file.FlatType(child) {
 		case "type_identifier":
 			typeNode = child
-		case "scoped_type_identifier", "scoped_identifier", "generic_type":
-			// Reject qualified or generic types — `new java.lang.Integer(x)`
-			// resolves to the same constructor but is rare; conservatively skip.
+		case "scoped_type_identifier", "scoped_identifier":
+			typeNode = child
+		case "generic_type":
 			return
 		}
 		if typeNode != 0 {
@@ -360,8 +583,8 @@ func checkUseValueOfJavaNew(ctx *api.Context, r *UseValueOfRule, file *scanner.F
 	if typeNode == 0 {
 		return
 	}
-	typeName := file.FlatNodeText(typeNode)
-	if !boxedPrimitiveConstructors[typeName] {
+	typeName, ok := boxedConstructorName(file.FlatNodeText(typeNode))
+	if !ok {
 		return
 	}
 	args, _ := file.FlatFindChild(idx, "argument_list")
@@ -382,9 +605,8 @@ func checkUseValueOfJavaNew(ctx *api.Context, r *UseValueOfRule, file *scanner.F
 	if argCount != 1 {
 		return
 	}
-	f := r.Finding(file, file.FlatRow(idx)+1, 1,
-		"Use "+typeName+".valueOf() instead of new "+typeName+"() constructor; the constructor is deprecated since Java 9.")
 	argText := file.FlatNodeText(firstArg)
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, useValueOfMessage(typeName, argText))
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   int(file.FlatStartByte(idx)),
@@ -660,40 +882,107 @@ type ServiceCastRule struct {
 // Classified per roadmap/17.
 func (r *ServiceCastRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// serviceCastMap maps service constant names to their correct manager types.
+// serviceCastMap maps service constant names to their manager types, as in Lint's
+// ServiceCastDetector (package names stripped).
+//
+//nolint:gosec // G101 false positive: system service names, not credentials.
 var serviceCastMap = map[string]string{
-	"ACCESSIBILITY_SERVICE":   "AccessibilityManager",
-	"ACCOUNT_SERVICE":         "AccountManager",
-	"ACTIVITY_SERVICE":        "ActivityManager",
-	"ALARM_SERVICE":           "AlarmManager",
-	"AUDIO_SERVICE":           "AudioManager",
-	"BATTERY_SERVICE":         "BatteryManager",
-	"BLUETOOTH_SERVICE":       "BluetoothManager",
-	"CAMERA_SERVICE":          "CameraManager",
-	"CLIPBOARD_SERVICE":       "ClipboardManager",
-	"CONNECTIVITY_SERVICE":    "ConnectivityManager",
-	"DEVICE_POLICY_SERVICE":   "DevicePolicyManager",
-	"DISPLAY_SERVICE":         "DisplayManager",
-	"DOWNLOAD_SERVICE":        "DownloadManager",
-	"INPUT_METHOD_SERVICE":    "InputMethodManager",
-	"JOB_SCHEDULER_SERVICE":   "JobScheduler",
-	"KEYGUARD_SERVICE":        "KeyguardManager",
-	"LAYOUT_INFLATER_SERVICE": "LayoutInflater",
-	"LOCATION_SERVICE":        "LocationManager",
-	"MEDIA_ROUTER_SERVICE":    "MediaRouter",
-	"NOTIFICATION_SERVICE":    "NotificationManager",
-	"NSD_SERVICE":             "NsdManager",
-	"POWER_SERVICE":           "PowerManager",
-	"SEARCH_SERVICE":          "SearchManager",
-	"SENSOR_SERVICE":          "SensorManager",
-	"STORAGE_SERVICE":         "StorageManager",
-	"TELECOM_SERVICE":         "TelecomManager",
-	"TELEPHONY_SERVICE":       "TelephonyManager",
-	"USB_SERVICE":             "UsbManager",
-	"VIBRATOR_SERVICE":        "Vibrator",
-	"WALLPAPER_SERVICE":       "WallpaperManager",
-	"WIFI_SERVICE":            "WifiManager",
-	"WINDOW_SERVICE":          "WindowManager",
+	"ACCESSIBILITY_SERVICE":            "AccessibilityManager",
+	"ACCOUNT_SERVICE":                  "AccountManager",
+	"ACTIVITY_SERVICE":                 "ActivityManager",
+	"ALARM_SERVICE":                    "AlarmManager",
+	"APPWIDGET_SERVICE":                "AppWidgetManager",
+	"APP_OPS_SERVICE":                  "AppOpsManager",
+	"APP_SEARCH_SERVICE":               "AppSearchManager",
+	"AUDIO_SERVICE":                    "AudioManager",
+	"BATTERY_SERVICE":                  "BatteryManager",
+	"BIOMETRIC_SERVICE":                "BiometricManager",
+	"BLOB_STORE_SERVICE":               "BlobStoreManager",
+	"BLUETOOTH_SERVICE":                "BluetoothManager",
+	"CAMERA_SERVICE":                   "CameraManager",
+	"CAPTIONING_SERVICE":               "CaptioningManager",
+	"CARRIER_CONFIG_SERVICE":           "CarrierConfigManager",
+	"CLIPBOARD_SERVICE":                "ClipboardManager",
+	"COMPANION_DEVICE_SERVICE":         "CompanionDeviceManager",
+	"CONNECTIVITY_DIAGNOSTICS_SERVICE": "ConnectivityDiagnosticsManager",
+	"CONNECTIVITY_SERVICE":             "ConnectivityManager",
+	"CONSUMER_IR_SERVICE":              "ConsumerIrManager",
+	"CONTACT_KEYS_SERVICE":             "E2eeContactKeysManager",
+	"CREDENTIAL_SERVICE":               "CredentialManager",
+	"CROSS_PROFILE_APPS_SERVICE":       "CrossProfileApps",
+	"DEVICE_LOCK_SERVICE":              "DeviceLockManager",
+	"DEVICE_POLICY_SERVICE":            "DevicePolicyManager",
+	"DISPLAY_HASH_SERVICE":             "DisplayHashManager",
+	"DISPLAY_SERVICE":                  "DisplayManager",
+	"DOMAIN_VERIFICATION_SERVICE":      "DomainVerificationManager",
+	"DOWNLOAD_SERVICE":                 "DownloadManager",
+	"DROPBOX_SERVICE":                  "DropBoxManager",
+	"EUICC_SERVICE":                    "EuiccManager",
+	"FILE_INTEGRITY_SERVICE":           "FileIntegrityManager",
+	"FINGERPRINT_SERVICE":              "FingerprintManager",
+	"GAME_SERVICE":                     "GameManager",
+	"GRAMMATICAL_INFLECTION_SERVICE":   "GrammaticalInflectionManager",
+	"HARDWARE_PROPERTIES_SERVICE":      "HardwarePropertiesManager",
+	"HEALTHCONNECT_SERVICE":            "HealthConnectManager",
+	"INPUT_METHOD_SERVICE":             "InputMethodManager",
+	"INPUT_SERVICE":                    "InputManager",
+	"IPSEC_SERVICE":                    "IpSecManager",
+	"JOB_SCHEDULER_SERVICE":            "JobScheduler",
+	"KEYGUARD_SERVICE":                 "KeyguardManager",
+	"LAUNCHER_APPS_SERVICE":            "LauncherApps",
+	"LAYOUT_INFLATER_SERVICE":          "LayoutInflater",
+	"LOCALE_SERVICE":                   "LocaleManager",
+	"LOCATION_SERVICE":                 "LocationManager",
+	"MEDIA_COMMUNICATION_SERVICE":      "MediaCommunicationManager",
+	"MEDIA_METRICS_SERVICE":            "MediaMetricsManager",
+	"MEDIA_PROJECTION_SERVICE":         "MediaProjectionManager",
+	"MEDIA_ROUTER_SERVICE":             "MediaRouter",
+	"MEDIA_SESSION_SERVICE":            "MediaSessionManager",
+	"MIDI_SERVICE":                     "MidiManager",
+	"NETWORK_STATS_SERVICE":            "NetworkStatsManager",
+	"NFC_SERVICE":                      "NfcManager",
+	"NOTIFICATION_SERVICE":             "NotificationManager",
+	"NSD_SERVICE":                      "NsdManager",
+	"OVERLAY_SERVICE":                  "OverlayManager",
+	"PEOPLE_SERVICE":                   "PeopleManager",
+	"PERFORMANCE_HINT_SERVICE":         "PerformanceHintManager",
+	"PERSISTENT_DATA_BLOCK_SERVICE":    "PersistentDataBlockManager",
+	"POWER_SERVICE":                    "PowerManager",
+	"PRINT_SERVICE":                    "PrintManager",
+	"PROFILING_SERVICE":                "ProfilingManager",
+	"RESTRICTIONS_SERVICE":             "RestrictionsManager",
+	"ROLE_SERVICE":                     "RoleManager",
+	"SEARCH_SERVICE":                   "SearchManager",
+	"SECURITY_STATE_SERVICE":           "SecurityStateManager",
+	"SENSOR_SERVICE":                   "SensorManager",
+	"SHORTCUT_SERVICE":                 "ShortcutManager",
+	"STATUS_BAR_SERVICE":               "StatusBarManager",
+	"STORAGE_SERVICE":                  "StorageManager",
+	"STORAGE_STATS_SERVICE":            "StorageStatsManager",
+	"SYSTEM_HEALTH_SERVICE":            "SystemHealthManager",
+	"TELECOM_SERVICE":                  "TelecomManager",
+	"TELEPHONY_IMS_SERVICE":            "ImsManager",
+	"TELEPHONY_SERVICE":                "TelephonyManager",
+	"TELEPHONY_SUBSCRIPTION_SERVICE":   "SubscriptionManager",
+	"TEXT_CLASSIFICATION_SERVICE":      "TextClassificationManager",
+	"TEXT_SERVICES_MANAGER_SERVICE":    "TextServicesManager",
+	"TV_AD_SERVICE":                    "TvAdManager",
+	"TV_INPUT_SERVICE":                 "TvInputManager",
+	"TV_INTERACTIVE_APP_SERVICE":       "TvInteractiveAppManager",
+	"UI_MODE_SERVICE":                  "UiModeManager",
+	"USAGE_STATS_SERVICE":              "UsageStatsManager",
+	"USB_SERVICE":                      "UsbManager",
+	"USER_SERVICE":                     "UserManager",
+	"VIBRATOR_MANAGER_SERVICE":         "VibratorManager",
+	"VIBRATOR_SERVICE":                 "Vibrator",
+	"VIRTUAL_DEVICE_SERVICE":           "VirtualDeviceManager",
+	"VPN_MANAGEMENT_SERVICE":           "VpnManager",
+	"WALLPAPER_SERVICE":                "WallpaperManager",
+	"WIFI_AWARE_SERVICE":               "WifiAwareManager",
+	"WIFI_P2P_SERVICE":                 "WifiP2pManager",
+	"WIFI_RTT_RANGING_SERVICE":         "WifiRttManager",
+	"WIFI_SERVICE":                     "WifiManager",
+	"WINDOW_SERVICE":                   "WindowManager",
 }
 
 // =====================================================================
@@ -722,6 +1011,9 @@ func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 	if ancestorApplyLambdaShowsToast(file, call) {
 		return true
 	}
+	if toastResultEscapes(file, call) {
+		return true
+	}
 	toastVar := initializerAssignedName(file, call)
 	if toastVar == "" {
 		return false
@@ -733,6 +1025,30 @@ func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 		return classHasReceiverShowCall(file, cls, toastVar)
 	}
 	return false
+}
+
+// toastResultEscapes reports whether the Toast returned by makeText is handed
+// to the caller (returned, passed as an argument, assigned, or used as an
+// expression body), so the caller is responsible for showing it.
+func toastResultEscapes(file *scanner.File, call uint32) bool {
+	node := call
+	for {
+		parent, ok := file.FlatParent(node)
+		if !ok {
+			return false
+		}
+		switch file.FlatType(parent) {
+		case "parenthesized_expression", "as_expression", "navigation_expression":
+			if file.FlatType(parent) == "navigation_expression" && file.FlatFirstChild(parent) != node {
+				return false
+			}
+			node = parent
+		case "jump_expression", "value_argument", "assignment", "function_body":
+			return file.FlatType(parent) != "jump_expression" || strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(parent)), "return")
+		default:
+			return false
+		}
+	}
 }
 
 func classHasReceiverShowCall(file *scanner.File, cls uint32, receiverName string) bool {
@@ -752,7 +1068,10 @@ func ancestorApplyLambdaShowsToast(file *scanner.File, idx uint32) bool {
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
 		case "call_expression":
-			if flatCallExpressionName(file, parent) != "apply" {
+			scopeName := flatCallExpressionName(file, parent)
+			// apply/run expose the toast as `this`; also/let expose it as `it` or a named parameter.
+			implicitThis := scopeName == "apply" || scopeName == "run"
+			if !implicitThis && scopeName != "also" && scopeName != "let" {
 				continue
 			}
 			lambda := flatCallTrailingLambda(file, parent)
@@ -764,7 +1083,8 @@ func ancestorApplyLambdaShowsToast(file *scanner.File, idx uint32) bool {
 				if found || flatCallExpressionName(file, call) != "show" {
 					return
 				}
-				if flatReceiverNameFromCall(file, call) == "" {
+				receiver := flatReceiverNameFromCall(file, call)
+				if (implicitThis && receiver == "") || (!implicitThis && receiver == "it") {
 					found = true
 				}
 			})

@@ -20,8 +20,10 @@ check() {
 }
 
 FAIL=0
-check "playground/webservice" "playground/kotlin-webservice/" 15 35 || FAIL=$((FAIL + 1))
-check "playground/android-app" "playground/android-app/" 30 65 || FAIL=$((FAIL + 1))
+# Ranges include detekt-parity default-on rules (e.g. MayBeConstant flags the ~30
+# non-const vals in Constants.kt, true positives).
+check "playground/webservice" "playground/kotlin-webservice/" 40 80 || FAIL=$((FAIL + 1))
+check "playground/android-app" "playground/android-app/" 40 85 || FAIL=$((FAIL + 1))
 
 echo ""
 if [ $FAIL -eq 0 ]; then

@@ -99,7 +99,11 @@ const CacheFileName = "incremental.cache"
 // (`val f: T = x`) are indexed under their own name instead of the
 // initializer's, changing dead-code / unused-symbol findings for unchanged
 // source.
-const cachePayloadVersion = "v20"
+// v21: @SuppressLint and @Suppress(names = [...]) suppress findings, CRLF line
+// breaks and a leading BOM no longer hide line-based findings, and
+// EqualsOnSignatureLine/UnusedImport fixes change, so findings differ for
+// unchanged source.
+const cachePayloadVersion = "v21"
 
 // DefaultDir returns Krit's repo-local incremental cache directory.
 func DefaultDir(repoDir string) string {

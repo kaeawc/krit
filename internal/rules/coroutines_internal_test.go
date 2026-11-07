@@ -134,3 +134,24 @@ func TestInjectDispatcherHasInjectableHost(t *testing.T) {
 		})
 	}
 }
+
+func TestAnnotationTextListHasName(t *testing.T) {
+	cases := []struct {
+		text, name string
+		want       bool
+	}{
+		{"@Test", "Test", true},
+		{"@TestOnly", "Test", false},
+		{"@field:Inject lateinit", "Inject", true},
+		{"@javax.inject.Inject", "Inject", true},
+		{"@Named(\"@Inject\") private", "Inject", false},
+		{"@Foo(a = 1) @Inject", "Inject", true},
+		{"public @Provides", "Provides", true},
+		{"@ProvidesFoo", "Provides", false},
+	}
+	for _, c := range cases {
+		if got := annotationTextListHasName(c.text, c.name); got != c.want {
+			t.Errorf("annotationTextListHasName(%q, %q) = %v, want %v", c.text, c.name, got, c.want)
+		}
+	}
+}

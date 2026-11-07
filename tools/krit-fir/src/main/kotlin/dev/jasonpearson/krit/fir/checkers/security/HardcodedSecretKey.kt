@@ -64,7 +64,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    `.bytes` read on a constant string literal (Go matches `".bytes` only at
  *    the end of the argument);
  *  - the argument contains, anywhere, a `decode(x)` call on a receiver
- *    spelled `...Base64` or on `...Base64.getDecoder()` whose input `x` is a
+ *    spelled `...Base64` or on `...Base64.getDecoder()` (or the URL or MIME
+ *    decoder) whose input `x` is a
  *    hardcoded value (see [isHardcoded]) or the bytes of one. The decoder is
  *    matched by its spelling, as Go matches its text, so
  *    `android.util.Base64`, `java.util.Base64`, and
@@ -218,13 +219,15 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         return found
     }
 
+    private val decoderGetters = setOf("getDecoder", "getUrlDecoder", "getMimeDecoder")
+
     context(context: CheckerContext)
     private fun isLiteralBase64Decode(call: FirFunctionCall, walk: Walk): Boolean {
         if (call.calleeReference.name.asString() != "decode") return false
         val receiver = call.explicitReceiver ?: return false
         val decoder = when {
             spelledBase64(receiver) -> true
-            receiver is FirFunctionCall && receiver.calleeReference.name.asString() == "getDecoder" &&
+            receiver is FirFunctionCall && receiver.calleeReference.name.asString() in decoderGetters &&
                 receiver.argumentList.arguments.isEmpty() ->
                 receiver.explicitReceiver?.let(::spelledBase64) == true
             else -> false

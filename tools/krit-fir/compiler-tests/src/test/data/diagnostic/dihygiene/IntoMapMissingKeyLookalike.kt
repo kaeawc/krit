@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 28, 32
+// go-lines: 24
 // Divergence: Go matches "@IntoMap", "@Provides", and "@Binds" as substrings
 // of the function's annotation text, so it reports every function below. None
 // carries Dagger's @IntoMap: the first uses a project annotation named

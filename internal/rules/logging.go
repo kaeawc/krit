@@ -51,6 +51,31 @@ func buildLoggerImportsFromAST(file *scanner.File) (bool, map[string]string) {
 	return found, aliases
 }
 
+// fileImportsParameterizedLogger reports whether the file imports a logging
+// library whose messages take `{}` placeholders.
+func fileImportsParameterizedLogger(file *scanner.File) bool {
+	imports := fileFactsCache().Imports(file)
+	hasPrefix := func(fqn string) bool {
+		for _, prefix := range knownLoggerPackagePrefixes {
+			if prefix != "java.util.logging." && strings.HasPrefix(fqn, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, fqn := range imports.Aliases {
+		if hasPrefix(fqn) {
+			return true
+		}
+	}
+	for w := range imports.Wildcards {
+		if hasPrefix(w) {
+			return true
+		}
+	}
+	return false
+}
+
 func receiverHasKnownLoggerTypeFlat(file *scanner.File, idx uint32, receiver string) bool {
 	if file == nil || idx == 0 || receiver == "" {
 		return false
@@ -233,7 +258,11 @@ func receiverIsKnownLoggerFlat(file *scanner.File, call uint32, receiver string)
 	if isLikelyLogReceiver(receiver, aliases) {
 		return true
 	}
-	return knownLoggerImport
+	// A logger import alone does not make every receiver a logger; require a logger-like name.
+	if known, typed := receiverExplicitLoggerTypeStatusFlat(file, call, receiver, aliases); typed {
+		return known
+	}
+	return knownLoggerImport && strings.Contains(strings.ToLower(receiver), "log")
 }
 
 func receiverIsKnownParameterizedLoggerFlat(file *scanner.File, call uint32, receiver string) bool {
@@ -246,6 +275,13 @@ func receiverIsKnownParameterizedLoggerFlat(file *scanner.File, call uint32, rec
 	}
 	if receiverHasKnownLoggerTypeFlat(file, call, receiver) {
 		return true
+	}
+	// java.util.logging has no `{}` placeholders, so the parameterized form does not apply to it.
+	knownLoggerImport = knownLoggerImport && fileImportsParameterizedLogger(file)
+	for name, fqn := range aliases {
+		if strings.HasPrefix(fqn, "java.util.logging.") {
+			delete(aliases, name)
+		}
 	}
 	if isLikelyLogReceiver(receiver, aliases) {
 		return true

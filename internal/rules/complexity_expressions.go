@@ -23,25 +23,32 @@ type LabeledExpressionRule struct {
 // roadmap/17.
 func (r *LabeledExpressionRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// labeledExpressionLabelIgnored reports whether the label-node text matches
-// any name in the ignored list. Tree-sitter Kotlin emits a `label` node for
-// the trailing-`@` form (`process@`) used at the definition site; the
-// comparison strips the `@` so users configure plain identifiers like
-// `forEach` or `process`.
-func labeledExpressionLabelIgnored(labelText string, ignored []string) bool {
-	if len(ignored) == 0 {
-		return false
-	}
-	name := strings.TrimSuffix(strings.TrimPrefix(labelText, "@"), "@")
-	if name == "" {
-		return false
-	}
+// labeledExpressionLabelIgnored reports whether the label name contains any ignored entry, ignoring case.
+// Entries may carry a leading or trailing `*`, which detekt strips.
+func labeledExpressionLabelIgnored(name string, ignored []string) bool {
 	for _, candidate := range ignored {
-		if candidate == name {
+		candidate = strings.TrimSuffix(strings.TrimPrefix(candidate, "*"), "*")
+		if strings.Contains(strings.ToLower(name), strings.ToLower(candidate)) {
 			return true
 		}
 	}
 	return false
+}
+
+// thisLabelReportable reports a labeled `this` that does not name an enclosing class, as detekt does. Outside
+// a class there is nothing to name, and detekt reports nothing there.
+func thisLabelReportable(file *scanner.File, idx uint32, label string) bool {
+	inClass := false
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_declaration", "object_declaration":
+			inClass = true
+			if extractIdentifierFlat(file, p) == label {
+				return false
+			}
+		}
+	}
+	return inClass
 }
 
 // NamedArgumentsRule detects function calls with too many unnamed arguments.
@@ -105,6 +112,9 @@ func extractCallNameFlat(file *scanner.File, idx uint32) string {
 	for i := 0; i < file.FlatChildCount(idx); i++ {
 		child := file.FlatChild(idx, i)
 		switch file.FlatType(child) {
+		case "call_expression":
+			// `f(x) { ... }` nests the call with arguments inside the call with the trailing lambda.
+			return extractCallNameFlat(file, child)
 		case "simple_identifier":
 			return file.FlatNodeText(child)
 		case "navigation_expression":

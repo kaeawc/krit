@@ -36,7 +36,7 @@ type RoomFallbackToDestructiveMigrationRule struct {
 func (r *RoomExportSchemaDisabledRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func roomDatabaseExportSchemaDisabledFlat(file *scanner.File, idx uint32) bool {
-	text := findAnnotationTextFlat(file, idx, "Database")
+	text := findExactAnnotationTextFlat(file, idx, "Database")
 	if text == "" {
 		return false
 	}
@@ -77,7 +77,7 @@ func (r *RoomEntityChangedMigrationMissingRule) check(ctx *api.Context) {
 			continue
 		}
 		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
-			if !hasAnnotationFlat(file, idx, "Entity") {
+			if !hasExactAnnotationFlat(file, idx, "Entity") {
 				return
 			}
 			ctor, _ := file.FlatFindChild(idx, "primary_constructor")
@@ -94,7 +94,7 @@ func (r *RoomEntityChangedMigrationMissingRule) check(ctx *api.Context) {
 				if param == 0 || file.FlatType(param) != "class_parameter" {
 					continue
 				}
-				if hasAnnotationFlat(file, param, "Ignore") {
+				if hasExactAnnotationFlat(file, param, "Ignore") {
 					continue
 				}
 				column := roomEntityColumnName(file, param)
@@ -126,6 +126,7 @@ func collectRoomMigrationCorpus(files []*scanner.File) string {
 		}
 		appendMigrationDeclTexts(file, "object_declaration", &b)
 		appendMigrationDeclTexts(file, "class_declaration", &b)
+		appendMigrationDeclTexts(file, "object_literal", &b)
 	}
 	return b.String()
 }
@@ -209,7 +210,7 @@ func roomEntityColumnName(file *scanner.File, param uint32) string {
 }
 
 func annotationStringArg(file *scanner.File, idx uint32, annotation, arg string) string {
-	text := findAnnotationTextFlat(file, idx, annotation)
+	text := findExactAnnotationTextFlat(file, idx, annotation)
 	if text == "" {
 		return ""
 	}
@@ -364,13 +365,13 @@ func (r *RoomDatabaseVersionNotBumpedRule) check(ctx *api.Context) {
 		seenEntity := false
 		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
 			if hasDatabase {
-				if text := findAnnotationTextFlat(file, idx, "Database"); text != "" {
+				if text := findExactAnnotationTextFlat(file, idx, "Database"); text != "" {
 					if v := extractRoomDatabaseVersionLiteral(text); v != "" {
 						dbs = append(dbs, dbInfo{file, idx, v})
 					}
 				}
 			}
-			if hasEntity && !seenEntity && hasAnnotationFlat(file, idx, "Entity") {
+			if hasEntity && !seenEntity && hasExactAnnotationFlat(file, idx, "Entity") {
 				seenEntity = true
 			}
 		})
@@ -439,7 +440,7 @@ func (r *RoomMigrationUsesExecSQLWithInterpolationRule) Confidence() float64 {
 func enclosingMigrationOwnerFlat(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
-		case "class_declaration", "object_declaration":
+		case "class_declaration", "object_declaration", "object_literal":
 			for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
 				if file.FlatType(child) != "delegation_specifier" {
 					continue
@@ -471,10 +472,49 @@ func enclosedInBuildConfigDebugGuard(file *scanner.File, idx uint32) bool {
 		if file.FlatType(cur) != "if_expression" {
 			continue
 		}
-		cond := privacyIfConditionText(file, cur)
-		if strings.Contains(cond, "BuildConfig.DEBUG") {
+		cond := strings.Join(strings.Fields(privacyIfConditionText(file, cur)), "")
+		if !strings.Contains(cond, "BuildConfig.DEBUG") {
+			continue
+		}
+		negated := strings.Contains(cond, "!BuildConfig.DEBUG")
+		inElse := false
+		for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "else" && file.FlatStartByte(child) < file.FlatStartByte(idx) {
+				inElse = true
+			}
+		}
+		// The debug branch is the then-branch, or the else-branch of a negated check.
+		if inElse == negated {
 			return true
 		}
 	}
 	return false
+}
+
+var migrationConstantRefRe = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Z0-9_]*$`)
+
+// migrationInterpolationsAreConstants reports whether every interpolation in
+// the string is a SCREAMING_SNAKE constant reference, which is a fixed value
+// and not an injection vector.
+func migrationInterpolationsAreConstants(file *scanner.File, expr uint32) bool {
+	count := 0
+	allConst := true
+	file.FlatWalkAllNodes(expr, func(n uint32) {
+		switch file.FlatType(n) {
+		case "interpolated_identifier", "interpolated_expression":
+			if file.FlatType(n) == "interpolated_expression" {
+				if parent, ok := file.FlatParent(n); ok && file.FlatType(parent) == "interpolated_expression" {
+					return
+				}
+			}
+			count++
+			text := strings.TrimSpace(file.FlatNodeText(n))
+			text = strings.TrimPrefix(text, "$")
+			text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "{"), "}"))
+			if !migrationConstantRefRe.MatchString(text) {
+				allConst = false
+			}
+		}
+	})
+	return count > 0 && allConst
 }

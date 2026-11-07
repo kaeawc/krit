@@ -80,6 +80,41 @@ class MyFragment(val id: Int) : Fragment() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+
+	t.Run("inject-annotated primary constructor does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "FragmentConstructor", `
+package test
+import androidx.fragment.app.Fragment
+import javax.inject.Inject
+class MyFragment @Inject constructor(private val repo: Repo) : Fragment() {
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("assisted-inject primary constructor does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "FragmentConstructor", `
+package test
+import androidx.fragment.app.Fragment
+class MyFragment @AssistedInject constructor(@Assisted val id: Int, private val repo: Repo) : Fragment() {
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("inject-annotated secondary constructor does not trigger", func(t *testing.T) {
+		findings := runRuleByName(t, "FragmentConstructor", `
+package test
+import androidx.fragment.app.Fragment
+class MyFragment : Fragment {
+    @Inject constructor(repo: Repo) : super()
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 }
 
 func TestServiceCast(t *testing.T) {
@@ -89,6 +124,40 @@ package test
 class Foo {
     fun setup() {
         val mgr = getSystemService(ALARM_SERVICE) as PowerManager
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("message and severity follow Lint", func(t *testing.T) {
+		findings := runRuleByName(t, "ServiceCast", `
+package test
+class Foo {
+    fun setup() {
+        val mgr = getSystemService(ALARM_SERVICE) as PowerManager
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		want := "Suspicious cast to `PowerManager` for a `ALARM_SERVICE`: expected `AlarmManager`"
+		if findings[0].Message != want {
+			t.Fatalf("message = %q, want %q", findings[0].Message, want)
+		}
+		if findings[0].Severity != "error" {
+			t.Fatalf("severity = %q, want error", findings[0].Severity)
+		}
+	})
+
+	t.Run("services beyond the classic set are checked", func(t *testing.T) {
+		findings := runRuleByName(t, "ServiceCast", `
+package test
+class Foo {
+    fun setup() {
+        val mgr = getSystemService(Context.USAGE_STATS_SERVICE) as UserManager
+        val ok = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
     }
 }`)
 		if len(findings) != 1 {
@@ -336,6 +405,18 @@ class Foo {
 }
 
 func TestSparseArray(t *testing.T) {
+	t.Run("skips maps sized above 100 entries", func(t *testing.T) {
+		findings := runRuleByName(t, "UseSparseArrays", `
+package test
+class Foo {
+    val big = HashMap<Int, String>(500)
+    val small = HashMap<Int, String>(16)
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected only the small map to be reported, got %d", len(findings))
+		}
+	})
+
 	t.Run("flags HashMap with Int key", func(t *testing.T) {
 		findings := runRuleByName(t, "UseSparseArrays", `
 package test
@@ -473,6 +554,45 @@ class Foo {
 package test;
 class Foo {
     Integer num = Integer.valueOf(42);
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("message names the replacement call like Lint", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Long n = new Long(5L);
+}`)
+		if len(findings) != 1 || findings[0].Message != "Use `Long.valueOf(5L)` instead" {
+			t.Fatalf("unexpected findings: %+v", findings)
+		}
+	})
+
+	t.Run("flags java.lang qualified constructors in Java and Kotlin", func(t *testing.T) {
+		if f := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Number n = new java.lang.Integer(5);
+}`); len(f) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d", len(f))
+		}
+		if f := runRuleByName(t, "UseValueOf", `
+package test
+class Foo {
+    val n = java.lang.Integer(5)
+}`); len(f) != 1 {
+			t.Fatalf("expected 1 Kotlin finding, got %d", len(f))
+		}
+	})
+
+	t.Run("Short constructors are not reported like Lint", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "UseValueOf", `
+package test;
+class Foo {
+    Short n = new Short((short) 1);
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
@@ -700,4 +820,78 @@ class Foo {
 			t.Fatalf("expected no findings for GET_SIGNING_CERTIFICATES, got %d", len(findings))
 		}
 	})
+}
+
+func TestFragmentConstructor_TestSourceAndLaunchedInstanceIgnored(t *testing.T) {
+	code := `
+package test
+import androidx.fragment.app.Fragment
+class ArgFragment(val x: Int) : Fragment()
+`
+	plain := runRuleByName(t, "FragmentConstructor", code)
+	if len(plain) != 1 {
+		t.Fatalf("expected 1 finding in main source, got %d", len(plain))
+	}
+	inTest := runRuleByNameOnPath(t, "FragmentConstructor", "app/src/test/kotlin/ArgFragment.kt", code)
+	if len(inTest) != 0 {
+		t.Errorf("expected no findings in a test source set, got %d", len(inTest))
+	}
+	launched := runRuleByName(t, "FragmentConstructor", code+`
+fun check() { launchFragment(ArgFragment(1)) }
+`)
+	if len(launched) != 0 {
+		t.Errorf("expected no findings for a launchFragment(instance) fragment, got %d", len(launched))
+	}
+}
+
+func TestFragmentConstructor_SecondaryOnlyConstructors(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"secondary constructor only with params", "class MyFragment : Fragment { constructor(x: Int) : super() }", 1},
+		{"secondary constructor only with no-arg", "class MyFragment : Fragment { constructor() : super() }", 0},
+		{"implicit primary plus param secondary", "class MyFragment : Fragment() { constructor(x: Int) : this() }", 0},
+		{"secondary with all defaults gets no JVM overload", "class MyFragment : Fragment { constructor(x: Int = 1) : super() }", 1},
+		{"secondary with all defaults and JvmOverloads", "class MyFragment : Fragment { @JvmOverloads constructor(x: Int = 1) : super() }", 0},
+		{"no-arg beside private param constructor", "class MyFragment private constructor(x: Int) : Fragment() { constructor() : this(0) }", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "FragmentConstructor", "package test\nimport androidx.fragment.app.Fragment\n"+tc.body+"\n")
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
+func TestGetSignatures_FlagOwnerAndJava(t *testing.T) {
+	findings := runRuleByName(t, "GetSignatures", `
+package test
+import android.content.pm.PackageManager
+fun f(pm: PackageManager, other: Other) {
+    pm.getPackageInfo("a", PackageManager.GET_SIGNATURES)
+    other.getPackageInfo("a", Other.GET_SIGNATURES)
+    pm.getPackageInfo("a", GET_SIGNATURES)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the PackageManager flag to be reported, got %v", findings)
+	}
+	java := runJavaRuleByName(t, "GetSignatures", `
+package test;
+import android.content.pm.PackageManager;
+class A {
+    void f(PackageManager pm) throws Exception {
+        pm.getPackageInfo("a", PackageManager.GET_SIGNATURES);
+        pm.getPackageInfo("a", PackageManager.GET_SIGNING_CERTIFICATES);
+        pm.getPackageInfo("a", Other.GET_SIGNATURES);
+    }
+}
+`)
+	if len(java) != 1 {
+		t.Fatalf("expected 1 Java finding, got %v", java)
+	}
 }

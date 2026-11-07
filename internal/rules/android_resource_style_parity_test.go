@@ -170,12 +170,13 @@ func TestAaptCrashStyleItem(t *testing.T) {
 		if findings[0].Line != 5 {
 			t.Fatalf("expected finding on item line 5, got %d", findings[0].Line)
 		}
-		if !strings.Contains(findings[0].Message, "TitleBar") {
-			t.Fatalf("finding message missing style name: %q", findings[0].Message)
+		want := "This construct can potentially crash `aapt` during a build. Change `@+id/titlebar` to `@id/titlebar` and define the id explicitly using `<item type=\"id\" name=\"titlebar\"/>` instead."
+		if findings[0].Message != want {
+			t.Fatalf("unexpected message: %q", findings[0].Message)
 		}
 	})
 
-	t.Run("namespace-qualified generated id triggers", func(t *testing.T) {
+	t.Run("namespace-qualified generated id is not reported by Lint", func(t *testing.T) {
 		idx := styleIndex("res/values/styles.xml", &android.Style{
 			Name: "TitleBar",
 			Items: map[string]string{
@@ -186,8 +187,8 @@ func TestAaptCrashStyleItem(t *testing.T) {
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -326,14 +327,14 @@ func TestSpUsageResourceStyleItem(t *testing.T) {
 func TestSmallSpResourceStyleItem(t *testing.T) {
 	r := findResourceRule(t, "SmallSpResource")
 
-	t.Run("style item textSize 8sp triggers", func(t *testing.T) {
+	t.Run("style item with the bare name textSize and 8sp triggers", func(t *testing.T) {
 		idx := styleIndex("res/values/styles.xml", &android.Style{
 			Name: "TextAppearance.Caption",
 			Items: map[string]string{
-				"android:textSize": "8sp",
+				"textSize": "8sp",
 			},
 			ItemLines: map[string]int{
-				"android:textSize": 6,
+				"textSize": 6,
 			},
 		})
 		findings := runResourceRule(r, idx)
@@ -427,7 +428,7 @@ func TestSpUsageResourceDimenReference(t *testing.T) {
 func TestSmallSpResourceDimenReference(t *testing.T) {
 	r := findResourceRule(t, "SmallSpResource")
 
-	t.Run("textSize=@dimen/x where x is 8sp triggers", func(t *testing.T) {
+	t.Run("textSize=@dimen/x where x is 8sp is not followed, as in Lint", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "TextView",
 			Line: 8,
@@ -441,11 +442,8 @@ func TestSmallSpResourceDimenReference(t *testing.T) {
 			Line:     3,
 		}
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if findings[0].Line != 8 {
-			t.Fatalf("expected finding at usage line 8, got %d", findings[0].Line)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 

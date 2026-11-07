@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -232,7 +233,7 @@ func isRootGradleProjectScript(path string) bool {
 		return true
 	case "build.gradle", "build.gradle.kts":
 		dir := filepath.Dir(path)
-		if !dirHasSettingsScript(dir) {
+		if !dirHasSettingsScript(dir) || !settingsIncludesSubprojects(dir) {
 			return false
 		}
 		for ancestor := filepath.Dir(dir); ; ancestor = filepath.Dir(ancestor) {
@@ -244,6 +245,22 @@ func isRootGradleProjectScript(path string) bool {
 			}
 		}
 		return true
+	}
+	return false
+}
+
+var settingsIncludeRe = regexp.MustCompile(`(?m)^\s*include(?:Flat)?\b\s*\(?\s*['"]`)
+
+// settingsIncludesSubprojects reports whether the settings script in dir
+// includes other projects. In a single-project build the root build script is
+// the only module, so its dependencies are not misplaced.
+func settingsIncludesSubprojects(dir string) bool {
+	for _, settings := range []string{"settings.gradle.kts", "settings.gradle"} {
+		data, err := os.ReadFile(filepath.Join(dir, settings))
+		if err != nil {
+			continue
+		}
+		return settingsIncludeRe.MatchString(string(data))
 	}
 	return false
 }
@@ -315,6 +332,10 @@ func findRootProjectDependencyBlocksAST(file *scanner.File, allowed map[string]b
 		if flatCallNameAny(file, idx) != "dependencies" || !isTopLevelCallAST(file, idx) {
 			return
 		}
+		// A block gated on a CI or task condition is tooling wiring, not a module dependency.
+		if rootDependenciesGatedByCondition(file, idx) {
+			return
+		}
 		lambda := flatCallTrailingLambda(file, idx)
 		if lambda == 0 {
 			return
@@ -360,13 +381,64 @@ func collectRootDependencyConfigsAST(file *scanner.File, lambda uint32, allowed 
 		if !ok || file.FlatType(parent) != "statements" {
 			return
 		}
+		// Calls in nested lambdas (`forEach { add(...) }`) are not the block's own configurations.
+		if owner, ok := file.FlatParent(parent); !ok || owner != lambda {
+			return
+		}
+		// A configuration is a bare call; a receiver call such as `list.filterNot { }` is plain Kotlin.
+		if !rootDependencyCallIsBare(file, call) {
+			return
+		}
 		name := flatCallNameAny(file, call)
-		if name == "" || name == "dependencies" || allowed[name] {
+		if name == "" || name == "dependencies" || allowed[name] || rootDependencyKotlinHelpers[name] {
 			return
 		}
 		found[name] = true
 	})
 	return sortedGradleConfigurations(found)
+}
+
+// rootDependencyKotlinHelpers are receiver-less Kotlin functions that can appear as statements in a
+// dependencies block without declaring a configuration.
+var rootDependencyKotlinHelpers = map[string]bool{
+	"run": true, "with": true, "apply": true, "also": true, "let": true, "repeat": true, "check": true,
+	"require": true, "println": true, "error": true, "listOf": true, "mapOf": true, "setOf": true,
+}
+
+// rootDependencyCallIsBare reports a call written without a receiver, such as `implementation(x)`.
+func rootDependencyCallIsBare(file *scanner.File, call uint32) bool {
+	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "navigation_expression":
+			return false
+		case "call_expression":
+			// Trailing-lambda form: the callee lives on the nested call.
+			return rootDependencyCallIsBare(file, child)
+		}
+	}
+	return true
+}
+
+var rootDependencyConditionMarkers = []string{"CI", "getenv", "taskNames", "startParameter", "gradle.", "findProperty", "hasProperty", "providers."}
+
+// rootDependenciesGatedByCondition reports a dependencies call under an if or when whose condition reads CI or build-task state.
+func rootDependenciesGatedByCondition(file *scanner.File, idx uint32) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "if_expression", "when_expression":
+			cond, _, _ := composeIfParts(file, cur)
+			text := file.FlatNodeText(cur)
+			if cond != 0 {
+				text = file.FlatNodeText(cond)
+			}
+			for _, marker := range rootDependencyConditionMarkers {
+				if strings.Contains(text, marker) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func gradleLineStartsBlockCall(line, name string) bool {

@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestTextFieldsResource(t *testing.T) {
@@ -36,7 +39,7 @@ func TestTextFieldsResource(t *testing.T) {
 		}
 	})
 
-	t.Run("EditText with hint is clean", func(t *testing.T) {
+	t.Run("EditText with only a hint is still reported, as in Lint", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "EditText",
 			Line: 5,
@@ -45,8 +48,8 @@ func TestTextFieldsResource(t *testing.T) {
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 }
@@ -55,204 +58,9 @@ func TestTextFieldsResource(t *testing.T) {
 // NegativeMarginResource
 // ---------------------------------------------------------------------------
 
-func TestBackButtonResource(t *testing.T) {
-	r := findResourceRule(t, "BackButtonResource")
-
-	t.Run("Button with text Back triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Text: "Back",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "Back",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("Button with text back (lowercase) triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Text: "back",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "back",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("Button with @string/back triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Text: "@string/back",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "@string/back",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("Button with text Submit is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Text: "Submit",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "Submit",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("TextView with text Back is clean (not a button)", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "TextView",
-			Text: "Back",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "Back",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
 // ---------------------------------------------------------------------------
 // ButtonOrderResource
 // ---------------------------------------------------------------------------
-
-func TestButtonOrderResource(t *testing.T) {
-	r := findResourceRule(t, "ButtonOrderResource")
-
-	t.Run("Cancel after OK triggers", func(t *testing.T) {
-		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
-			Type:       "LinearLayout",
-			Line:       1,
-			Attributes: map[string]string{},
-			Children: []*android.View{
-				{
-					Type: "Button",
-					Text: "OK",
-					Line: 3,
-					Attributes: map[string]string{
-						"android:text": "OK",
-					},
-				},
-				{
-					Type: "Button",
-					Text: "Cancel",
-					Line: 7,
-					Attributes: map[string]string{
-						"android:text": "Cancel",
-					},
-				},
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("Cancel before OK is clean", func(t *testing.T) {
-		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
-			Type:       "LinearLayout",
-			Line:       1,
-			Attributes: map[string]string{},
-			Children: []*android.View{
-				{
-					Type: "Button",
-					Text: "Cancel",
-					Line: 3,
-					Attributes: map[string]string{
-						"android:text": "Cancel",
-					},
-				},
-				{
-					Type: "Button",
-					Text: "OK",
-					Line: 7,
-					Attributes: map[string]string{
-						"android:text": "OK",
-					},
-				},
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("Confirm and Dismiss with wrong order triggers", func(t *testing.T) {
-		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
-			Type:       "LinearLayout",
-			Line:       1,
-			Attributes: map[string]string{},
-			Children: []*android.View{
-				{
-					Type: "Button",
-					Text: "Confirm",
-					Line: 3,
-					Attributes: map[string]string{
-						"android:text": "Confirm",
-					},
-				},
-				{
-					Type: "Button",
-					Text: "Dismiss",
-					Line: 7,
-					Attributes: map[string]string{
-						"android:text": "Dismiss",
-					},
-				},
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("no button pair is clean", func(t *testing.T) {
-		idx := indexWithLayout("dialog", "res/layout/dialog.xml", &android.View{
-			Type:       "LinearLayout",
-			Line:       1,
-			Attributes: map[string]string{},
-			Children: []*android.View{
-				{
-					Type: "Button",
-					Text: "Submit",
-					Line: 3,
-					Attributes: map[string]string{
-						"android:text": "Submit",
-					},
-				},
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
 
 // ---------------------------------------------------------------------------
 // OverdrawResource
@@ -265,14 +73,16 @@ func TestOverdrawResource(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "LinearLayout",
 			Line:       1,
-			Background: "@drawable/bg",
-			Attributes: map[string]string{"android:background": "@drawable/bg"},
+			Background: "@color/white",
+			Attributes: map[string]string{"android:background": "@color/white"},
 			Children: []*android.View{
 				{
-					Type:       "FrameLayout",
-					Line:       3,
-					Background: "@color/white",
-					Attributes: map[string]string{"android:background": "@color/white"},
+					Type:         "FrameLayout",
+					Line:         3,
+					Background:   "@color/white",
+					LayoutWidth:  "match_parent",
+					LayoutHeight: "match_parent",
+					Attributes:   map[string]string{"android:background": "@color/white"},
 				},
 			},
 		})
@@ -348,256 +158,100 @@ func TestOverdrawResource(t *testing.T) {
 // RtlSymmetryResource
 // ---------------------------------------------------------------------------
 
-func TestButtonCaseResource(t *testing.T) {
-	r := findResourceRule(t, "ButtonCaseResource")
-
-	t.Run("ok lowercase triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "ok",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "should be `OK`") {
-			t.Errorf("unexpected message: %s", findings[0].Message)
-		}
-	})
-
-	t.Run("Ok mixed case triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "Ok",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("OK correct is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "OK",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("cancel lowercase triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "cancel",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "should be `CANCEL`") {
-			t.Errorf("unexpected message: %s", findings[0].Message)
-		}
-	})
-
-	t.Run("CANCEL correct is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "CANCEL",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("string resource is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "@string/ok_button",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("non-Button is ignored", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "TextView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "ok",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("empty index is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
 // ---------------------------------------------------------------------------
 // ButtonStyleResource
 // ---------------------------------------------------------------------------
-
-func TestButtonStyleResource(t *testing.T) {
-	r := findResourceRule(t, "ButtonStyleResource")
-
-	t.Run("button in dialog without borderless triggers", func(t *testing.T) {
-		idx := indexWithLayout("dialog_confirm", "res/layout/dialog_confirm.xml", &android.View{
-			Type:       "Button",
-			Line:       10,
-			Attributes: map[string]string{},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "borderless") {
-			t.Errorf("unexpected message: %s", findings[0].Message)
-		}
-	})
-
-	t.Run("button in alert layout without borderless triggers", func(t *testing.T) {
-		idx := indexWithLayout("alert_warning", "res/layout/alert_warning.xml", &android.View{
-			Type:       "Button",
-			Line:       10,
-			Attributes: map[string]string{},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("button with borderless style is clean", func(t *testing.T) {
-		idx := indexWithLayout("dialog_confirm", "res/layout/dialog_confirm.xml", &android.View{
-			Type: "Button",
-			Line: 10,
-			Attributes: map[string]string{
-				"style": "?android:attr/borderlessButtonStyle",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("button with Borderless in style is clean", func(t *testing.T) {
-		idx := indexWithLayout("dialog_confirm", "res/layout/dialog_confirm.xml", &android.View{
-			Type: "Button",
-			Line: 10,
-			Attributes: map[string]string{
-				"style": "@style/Widget.AppCompat.Button.Borderless",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("button in non-dialog layout is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type:       "Button",
-			Line:       10,
-			Attributes: map[string]string{},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("empty index is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
 
 // ---------------------------------------------------------------------------
 // AppCompatResource
 // ---------------------------------------------------------------------------
 
+func runAppCompatResource(r *api.Rule, idx *android.ResourceIndex, profile librarymodel.ProjectProfile) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
+	ctx := &api.Context{ResourceIndex: idx, Rule: r, Collector: collector, LibraryFacts: &librarymodel.Facts{Profile: profile}}
+	r.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
 func TestAppCompatResource(t *testing.T) {
 	r := findResourceRule(t, "AppCompatResource")
+	withAppCompat := librarymodel.ProjectProfile{
+		HasGradle: true, DependencyExtractionComplete: true,
+		Dependencies: []librarymodel.Dependency{{Group: "androidx.appcompat", Name: "appcompat"}},
+	}
+	withoutAppCompat := librarymodel.ProjectProfile{HasGradle: true, DependencyExtractionComplete: true}
+	unknown := librarymodel.ProjectProfile{HasGradle: true}
+	menu := func(path string, attrs map[string]string) *android.ResourceIndex {
+		return indexWithMenu("menu_main", path, &android.View{Type: "item", Line: 5, Attributes: attrs})
+	}
 
-	t.Run("android:showAsAction triggers", func(t *testing.T) {
-		idx := indexWithLayout("menu_main", "res/menu/menu_main.xml", &android.View{
-			Type: "item",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:showAsAction": "ifRoom",
-			},
-		})
-		findings := runResourceRule(r, idx)
+	t.Run("android:showAsAction with appcompat triggers", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"android:showAsAction": "ifRoom"})
+		findings := runAppCompatResource(r, idx, withAppCompat)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "app:showAsAction") {
+		want := "Should use `app:showAsAction` with the appcompat library with `xmlns:app=\"http://schemas.android.com/apk/res-auto\"`"
+		if findings[0].Message != want {
 			t.Errorf("unexpected message: %s", findings[0].Message)
 		}
 	})
 
-	t.Run("app:showAsAction is clean", func(t *testing.T) {
-		idx := indexWithLayout("menu_main", "res/menu/menu_main.xml", &android.View{
-			Type: "item",
-			Line: 5,
-			Attributes: map[string]string{
-				"app:showAsAction": "ifRoom",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
+	t.Run("actionViewClass and actionProviderClass are covered", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"android:actionViewClass": "x", "android:actionProviderClass": "y"})
+		if findings := runAppCompatResource(r, idx, withAppCompat); len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("v14 menu folder may use the android namespace", func(t *testing.T) {
+		idx := menu("res/menu-v14/menu_main.xml", map[string]string{"android:showAsAction": "ifRoom"})
+		if findings := runAppCompatResource(r, idx, withAppCompat); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("app:showAsAction without appcompat triggers", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"app:showAsAction": "ifRoom"})
+		findings := runAppCompatResource(r, idx, withoutAppCompat)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].Message != "Should use `android:showAsAction` when not using the appcompat library" {
+			t.Errorf("unexpected message: %s", findings[0].Message)
+		}
+	})
+
+	t.Run("android:showAsAction without appcompat is clean", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"android:showAsAction": "ifRoom"})
+		if findings := runAppCompatResource(r, idx, withoutAppCompat); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("app:showAsAction with appcompat is clean", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"app:showAsAction": "ifRoom"})
+		if findings := runAppCompatResource(r, idx, withAppCompat); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("unknown dependency graph is silent", func(t *testing.T) {
+		idx := menu("res/menu/menu_main.xml", map[string]string{"android:showAsAction": "ifRoom", "app:showAsAction": "never"})
+		if findings := runAppCompatResource(r, idx, unknown); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("no showAsAction is clean", func(t *testing.T) {
-		idx := indexWithLayout("menu_main", "res/menu/menu_main.xml", &android.View{
-			Type:       "item",
-			Line:       5,
-			Attributes: map[string]string{},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
+		idx := menu("res/menu/menu_main.xml", map[string]string{})
+		if findings := runAppCompatResource(r, idx, withAppCompat); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
+		if findings := runAppCompatResource(r, emptyIndex(), withAppCompat); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
@@ -707,3 +361,16 @@ func TestUseCompoundDrawablesResource(t *testing.T) {
 // ---------------------------------------------------------------------------
 // UnusedNamespaceResource
 // ---------------------------------------------------------------------------
+
+func TestTextFieldsResource_StyleOrLegacyAttributeSetsInput(t *testing.T) {
+	r := findResourceRule(t, "TextFieldsResource")
+	// Lint resolves the style, and reports the legacy input attributes as a missing inputType.
+	for attr, want := range map[string]int{"style": 0, "android:inputMethod": 0, "android:digits": 1, "android:numeric": 1, "android:phoneNumber": 1, "android:password": 1} {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "EditText", Line: 3, Attributes: map[string]string{attr: "x"},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != want {
+			t.Errorf("%s: expected %d findings, got %d", attr, want, len(findings))
+		}
+	}
+}

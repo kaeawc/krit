@@ -25,6 +25,7 @@ func TestAnalyzeFormatPlaceholders(t *testing.T) {
 		{"two positional", "%1$s, %2$s", 2, true},
 		{"mixed conversion types", "%1$d items at %2$.2f", 2, true},
 		{"trailing percent", "abc %", 0, false},
+		{"newline conversion takes no argument", "a%nb %s", 1, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -75,6 +75,24 @@ class UserRepositoryTest {
 	})
 }
 
+func TestUntestedPublicApiMemberAnnotationDoesNotSuppressClass(t *testing.T) {
+	findings := runUntestedPublicAPIFixture(t, map[string]string{
+		"src/main/kotlin/com/example/Repo.kt": `
+package com.example
+
+import androidx.annotation.VisibleForTesting
+
+class Repo {
+    @VisibleForTesting
+    fun hook() = 1
+}
+`,
+	})
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "Repo") {
+		t.Fatalf("expected a finding for Repo, got %v", findings)
+	}
+}
+
 func runUntestedPublicAPIFixture(t *testing.T, files map[string]string) []scanner.Finding {
 	t.Helper()
 	root := t.TempDir()

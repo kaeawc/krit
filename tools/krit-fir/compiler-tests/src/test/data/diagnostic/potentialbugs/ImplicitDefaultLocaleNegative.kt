@@ -94,3 +94,22 @@ class NonLiteralReceiver {
 
     fun parenthesized(value: Int): String = ("%d").format(value)
 }
+
+class Strings {
+    fun getString(id: Int): String = "%d $id"
+}
+
+val TEMPLATE_FORMAT = "${1}!"
+
+// A first argument that is neither a string literal nor a plain constant is
+// display text (a parameter, a resource string, a template), where the default
+// locale is the right one.
+class DisplayTextPatterns(private val strings: Strings) {
+    fun fromParameter(pattern: String, value: Int): String = String.format(pattern, value)
+
+    fun fromResource(value: Int): String = String.format(strings.getString(0), value)
+
+    fun fromTemplateConstant(value: Int): String = String.format(TEMPLATE_FORMAT, value)
+
+    fun fromNamedArgument(value: String): String = String.format(format = "%s", value)
+}

@@ -14,14 +14,27 @@ import (
 // via the `additionalMarkers` config option.
 var wellKnownOptInMarkers = map[string]bool{
 	// kotlin stdlib
-	"ExperimentalStdlibApi":     true,
-	"ExperimentalUnsignedTypes": true,
-	"ExperimentalMultiplatform": true,
-	"ExperimentalTypeInference": true,
-	"ExperimentalContracts":     true,
-	"ExperimentalTime":          true,
-	"ExperimentalSubclassOptIn": true,
-	"RequiresOptIn":             true,
+	"ExperimentalStdlibApi":                   true,
+	"ExperimentalUnsignedTypes":               true,
+	"ExperimentalMultiplatform":               true,
+	"ExperimentalTypeInference":               true,
+	"ExperimentalContracts":                   true,
+	"ExperimentalTime":                        true,
+	"ExperimentalSubclassOptIn":               true,
+	"RequiresOptIn":                           true,
+	"ExperimentalUuidApi":                     true,
+	"ExperimentalAtomicApi":                   true,
+	"ExperimentalNativeApi":                   true,
+	"ExperimentalForeignApi":                  true,
+	"ExperimentalObjCName":                    true,
+	"ExperimentalObjCRefinement":              true,
+	"ExperimentalJsExport":                    true,
+	"ExperimentalJsCollectionsApi":            true,
+	"ExperimentalWasmJsInterop":               true,
+	"ExperimentalAssociatedObjects":           true,
+	"ExperimentalForInheritanceCoroutinesApi": true,
+	"FormatStringsInDatetimeFormats":          true,
+	"ExperimentalGetImage":                    true,
 
 	// kotlinx.coroutines
 	"ExperimentalCoroutinesApi": true,
@@ -35,24 +48,33 @@ var wellKnownOptInMarkers = map[string]bool{
 	"InternalSerializationApi":     true,
 
 	// Compose / AndroidX
-	"ExperimentalComposeApi":             true,
-	"ExperimentalComposeUiApi":           true,
-	"ExperimentalAnimationApi":           true,
-	"ExperimentalAnimationGraphicsApi":   true,
-	"ExperimentalFoundationApi":          true,
-	"ExperimentalLayoutApi":              true,
-	"ExperimentalMaterialApi":            true,
-	"ExperimentalMaterial3Api":           true,
-	"ExperimentalMaterial3ExpressiveApi": true,
-	"ExperimentalTextApi":                true,
-	"ExperimentalPagingApi":              true,
-	"ExperimentalPagerApi":               true,
-	"ExperimentalCoilApi":                true,
-	"ExperimentalGlideComposeApi":        true,
-	"ExperimentalComposableApi":          true,
-	"InternalComposeApi":                 true,
-	"ExperimentalComposeRuntimeApi":      true,
-	"ExperimentalGraphicsApi":            true,
+	"ExperimentalComposeApi":                  true,
+	"ExperimentalComposeUiApi":                true,
+	"ExperimentalAnimationApi":                true,
+	"ExperimentalAnimationGraphicsApi":        true,
+	"ExperimentalFoundationApi":               true,
+	"ExperimentalLayoutApi":                   true,
+	"ExperimentalMaterialApi":                 true,
+	"ExperimentalMaterial3Api":                true,
+	"ExperimentalMaterial3ExpressiveApi":      true,
+	"ExperimentalTextApi":                     true,
+	"ExperimentalPagingApi":                   true,
+	"ExperimentalPagerApi":                    true,
+	"ExperimentalCoilApi":                     true,
+	"ExperimentalGlideComposeApi":             true,
+	"ExperimentalComposableApi":               true,
+	"InternalComposeApi":                      true,
+	"ExperimentalComposeRuntimeApi":           true,
+	"ExperimentalGraphicsApi":                 true,
+	"ExperimentalPermissionsApi":              true,
+	"ExperimentalSharedTransitionApi":         true,
+	"ExperimentalMaterial3WindowSizeClassApi": true,
+	"ExperimentalMaterial3AdaptiveApi":        true,
+	"ExperimentalTvMaterial3Api":              true,
+	"ExperimentalMaterialNavigationApi":       true,
+	"ExperimentalEncodingApi":                 true,
+	"ExperimentalPathApi":                     true,
+	"ExperimentalCircuitApi":                  true,
 
 	// kotlinx.atomicfu / kotlinx.io / others
 	"ExperimentalAtomicfuApi": true,
@@ -159,7 +181,7 @@ func (r *OptInMarkerNotRecognisedRule) check(ctx *api.Context) {
 		if wellKnownOptInMarkers[name] {
 			continue
 		}
-		if r.markerInAdditional(name) {
+		if r.markerInAdditional(name) || fileDeclaredTypeNames(file)[name] {
 			continue
 		}
 		ctx.Emit(r.Finding(file, file.FlatRow(arg)+1, file.FlatCol(arg)+1,
@@ -255,6 +277,51 @@ func optInAnnotationTarget(file *scanner.File, annotation uint32) (uint32, bool)
 	return 0, false
 }
 
+// optInMarkerIsAcknowledged reports a marked declaration whose propagation is deliberate or inherited: an override
+// (the contract's marker applies), a declaration or enclosing class that already has @OptIn, or a KDoc that warns
+// callers about the requirement or names the marker. A class that extends a same-file supertype
+// carrying the same marker must repeat it, so that is acknowledged too.
+func optInMarkerIsAcknowledged(file *scanner.File, decl uint32, marker string) bool {
+	if file.FlatHasModifier(decl, "override") {
+		return true
+	}
+	for cur := decl; cur != 0; {
+		if optInDeclarationHasOptIn(file, cur) || optInSupertypeRequiresMarker(file, cur, marker) {
+			return true
+		}
+		parent, ok := flatEnclosingAncestor(file, cur, "class_declaration", "object_declaration")
+		if !ok {
+			break
+		}
+		cur = parent
+	}
+	if doc, ok := flatPrecedingKDoc(file, decl); ok {
+		text := strings.ToLower(file.FlatNodeText(doc))
+		if marker != "" && strings.Contains(text, strings.ToLower(marker)) {
+			return true
+		}
+		for _, word := range []string{"opt in", "opt-in", "optin", "experimental", "unstable", "warning", "may change"} {
+			if strings.Contains(text, word) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func optInDeclarationHasOptIn(file *scanner.File, decl uint32) bool {
+	mods, ok := file.FlatFindChild(decl, "modifiers")
+	if !ok {
+		return false
+	}
+	for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "annotation" && annotationFinalName(file, child) == "OptIn" {
+			return true
+		}
+	}
+	return false
+}
+
 // OptInWithoutJustificationRule flags `@OptIn(...)` annotations whose
 // enclosing declaration lacks a preceding KDoc comment explaining why the
 // opt-in is safe.
@@ -324,17 +391,8 @@ func (r *RequiresOptInWithoutMessageRule) check(ctx *api.Context) {
 	if annotationFinalName(file, idx) != "RequiresOptIn" {
 		return
 	}
-	if ctor, ok := file.FlatFindChild(idx, "constructor_invocation"); ok {
-		if args, ok := file.FlatFindChild(ctor, "value_arguments"); ok {
-			for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-				if file.FlatType(arg) != "value_argument" {
-					continue
-				}
-				if flatValueArgumentLabel(file, arg) == "message" {
-					return
-				}
-			}
-		}
+	if requiresOptInHasArg(file, idx, "message", 0) {
+		return
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"@RequiresOptIn is missing a message argument; add message = \"...\" so callers see why opting in is required."))
@@ -389,6 +447,12 @@ func requiresOptInAnnotationOnDeclaration(file *scanner.File, decl uint32) uint3
 }
 
 func requiresOptInHasLevelArg(file *scanner.File, annotation uint32) bool {
+	return requiresOptInHasArg(file, annotation, "level", 1)
+}
+
+// requiresOptInHasArg reports whether the @RequiresOptIn annotation passes the
+// parameter either by label or at its position (message first, level second).
+func requiresOptInHasArg(file *scanner.File, annotation uint32, label string, position int) bool {
 	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
 	if !ok {
 		return false
@@ -397,13 +461,54 @@ func requiresOptInHasLevelArg(file *scanner.File, annotation uint32) bool {
 	if args == 0 {
 		return false
 	}
+	positional := 0
 	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 		if file.FlatType(arg) != "value_argument" {
 			continue
 		}
-		if flatValueArgumentLabel(file, arg) == "level" {
+		if got := flatValueArgumentLabel(file, arg); got != "" {
+			if got == label {
+				return true
+			}
+			continue
+		}
+		if positional == position {
 			return true
 		}
+		positional++
 	}
 	return false
+}
+
+// optInSupertypeRequiresMarker reports whether decl is a class or object that
+// extends a supertype declared in the same file and annotated with marker.
+// Kotlin then requires the subtype to carry the marker as well.
+func optInSupertypeRequiresMarker(file *scanner.File, decl uint32, marker string) bool {
+	if marker == "" {
+		return false
+	}
+	switch file.FlatType(decl) {
+	case "class_declaration", "object_declaration":
+	default:
+		return false
+	}
+	supers := testingQualitySupertypes(file, decl)
+	if len(supers) == 0 {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if found || n == decl || file.FlatType(n) != "class_declaration" {
+			return
+		}
+		name := extractIdentifierFlat(file, n)
+		for _, st := range supers {
+			if name == strings.TrimSpace(st) || strings.HasPrefix(strings.TrimSpace(st), name+"<") {
+				if hasAnnotationFlat(file, n, marker) {
+					found = true
+				}
+			}
+		}
+	})
+	return found
 }

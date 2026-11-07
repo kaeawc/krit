@@ -20,8 +20,20 @@ const DefaultConfigName = "default-krit.yml"
 // FS holds default-krit.yml, profiles/*.yml, and onboarding/*.json, at the
 // same relative paths they have under the repo's config/ directory.
 //
-//go:embed default-krit.yml profiles/*.yml onboarding/*.json
+//go:embed default-krit.yml detekt-defaults.yml profiles/*.yml onboarding/*.json
 var FS embed.FS
+
+// DetektDefaultsName is detekt-defaults.yml's path within FS.
+const DetektDefaultsName = "detekt-defaults.yml"
+
+// DetektDefaults returns detekt's own default configuration for the rulesets krit maps.
+func DetektDefaults() []byte {
+	data, err := FS.ReadFile(DetektDefaultsName)
+	if err != nil {
+		panic("embedded " + DetektDefaultsName + " missing: " + err.Error())
+	}
+	return data
+}
 
 // DefaultConfig returns the embedded default-krit.yml.
 func DefaultConfig() []byte {

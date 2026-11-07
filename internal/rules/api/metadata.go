@@ -125,7 +125,10 @@ type RegexOptionSpec[R any] struct {
 	Aliases     []string
 	Default     string
 	Description string
-	Apply       func(*R, *regexp.Regexp)
+	// Unanchored compiles the pattern as written, for rules that search text
+	// for a match instead of matching a whole name.
+	Unanchored bool
+	Apply      func(*R, *regexp.Regexp)
 }
 
 // RegexOption builds an OptRegex ConfigOption from a typed spec.
@@ -134,6 +137,7 @@ func RegexOption[R any](s RegexOptionSpec[R]) ConfigOption {
 		Name:        s.Name,
 		Aliases:     s.Aliases,
 		Type:        OptRegex,
+		Unanchored:  s.Unanchored,
 		Default:     s.Default,
 		Description: s.Description,
 		Apply: func(target interface{}, value interface{}) {
@@ -396,6 +400,10 @@ type ConfigOption struct {
 	// Description is the schema-level documentation for this option.
 	Description string
 
+	// Unanchored makes an OptRegex option compile its pattern as written
+	// instead of as a full-string match.
+	Unanchored bool
+
 	// Apply is invoked with the target rule and the parsed value when a
 	// config override is present. The closure downcasts target to the
 	// rule's concrete struct type and assigns the field. For OptRegex
@@ -589,7 +597,16 @@ func applyOption(rule interface{}, d RuleDescriptor, opt ConfigOption, cfg Confi
 			if pat == "" {
 				continue
 			}
-			compiled := CompileAnchoredPattern(d.ID, opt.Name, pat)
+			var compiled *regexp.Regexp
+			if opt.Unanchored {
+				var err error
+				if compiled, err = regexp.Compile(pat); err != nil {
+					reporter().Warnf("krit: invalid regex in config %s.%s: %q: %v\n", d.ID, opt.Name, pat, err)
+					compiled = nil
+				}
+			} else {
+				compiled = CompileAnchoredPattern(d.ID, opt.Name, pat)
+			}
 			if compiled == nil {
 				// Bad pattern — leave the field alone.
 				continue
@@ -661,12 +678,34 @@ func ValidateAnchoredPattern(pattern string) error {
 }
 
 func anchoredPattern(pattern string) string {
-	anchored := pattern
-	if !strings.HasPrefix(anchored, "^") {
-		anchored = "^" + anchored
+	start := strings.HasPrefix(pattern, "^")
+	end := strings.HasSuffix(pattern, "$") && !endsWithEscapedDollar(pattern)
+	if start && end {
+		return pattern
 	}
-	if !strings.HasSuffix(anchored, "$") {
-		anchored = anchored + "$"
+	if !strings.Contains(pattern, "|") {
+		anchored := pattern
+		if !start {
+			anchored = "^" + anchored
+		}
+		if !end {
+			anchored += "$"
+		}
+		return anchored
 	}
-	return anchored
+	core := strings.TrimPrefix(pattern, "^")
+	if end {
+		core = strings.TrimSuffix(core, "$")
+	}
+	// The group keeps a top-level alternation inside the anchors: `a|b` must not become `^a|b$`.
+	return "^(?:" + core + ")$"
+}
+
+// endsWithEscapedDollar reports a trailing `$` that an odd run of backslashes escapes.
+func endsWithEscapedDollar(pattern string) bool {
+	backslashes := 0
+	for i := len(pattern) - 2; i >= 0 && pattern[i] == '\\'; i-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }

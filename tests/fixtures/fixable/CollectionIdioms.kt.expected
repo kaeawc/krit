@@ -14,13 +14,13 @@ class CollectionIdioms {
     }
 
     fun emptyCollections() {
-        val strings = emptyList()
-        val numbers = emptySet()
-        val mapping = emptyMap()
+        val strings = listOf()
+        val numbers = setOf()
+        val mapping = mapOf()
     }
 
     fun sortReversed(items: List<Int>) {
-        val desc = items.sortedDescending()
+        val desc = items.sorted().reversed()
     }
 
     fun elementAccess(items: List<String>, map: Map<String, Int>) {

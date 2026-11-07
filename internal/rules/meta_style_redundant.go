@@ -69,7 +69,7 @@ func (r *UnnecessaryInnerClassRule) Meta() api.RuleDescriptor {
 		RuleSet:       "style",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonOpinionated,
-		FixLevel:      "idiomatic",
+		FixLevel:      "semantic",
 	}
 }
 

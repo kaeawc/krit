@@ -214,9 +214,9 @@ func TestLintDeprecatedDependency(t *testing.T) {
 			deprecatedCount++
 		}
 	}
-	// appcompat-v7 and junit should both be flagged.
-	if deprecatedCount < 2 {
-		t.Errorf("expected at least 2 DeprecatedDependency findings, got %d", deprecatedCount)
+	// appcompat-v7 is flagged; junit:junit (JUnit 4) is not deprecated.
+	if deprecatedCount != 1 {
+		t.Errorf("expected 1 DeprecatedDependency finding, got %d", deprecatedCount)
 	}
 }
 
@@ -378,5 +378,42 @@ func TestFindLineNumber(t *testing.T) {
 	line := findLineNumber(content, minSdkRe)
 	if line != 3 {
 		t.Errorf("findLineNumber = %d, want 3", line)
+	}
+}
+
+func TestParseBuildGradleContent_GroovyAndCommentedDependencies(t *testing.T) {
+	content := `dependencies {
+    implementation 'androidx.appcompat:appcompat:1.+'
+    api "com.google.guava:guava:31.0"
+    implementation group: 'org.example', name: 'lib', version: '2.0'
+    implementation 'org.example:managed'
+    // implementation 'org.commented:out:1.0'
+    /* implementation("org.block:commented:1.0") */
+    implementation("androidx.core:core-ktx:1.9.0") // trailing
+    maven { url = uri("https://host.example:8080/repo") }
+}
+`
+	cfg, err := ParseBuildGradleContent(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, d := range cfg.Dependencies {
+		got[d.Group+":"+d.Name] = d.Configuration + "@" + d.Version
+	}
+	want := map[string]string{
+		"androidx.appcompat:appcompat": "implementation@1.+",
+		"com.google.guava:guava":       "api@31.0",
+		"org.example:lib":              "implementation@2.0",
+		"org.example:managed":          "implementation@",
+		"androidx.core:core-ktx":       "implementation@1.9.0",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
 	}
 }

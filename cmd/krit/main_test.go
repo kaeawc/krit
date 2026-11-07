@@ -1350,3 +1350,32 @@ func TestRenameSubcommand_PlansAndReturnsTodo(t *testing.T) {
 		t.Fatalf("apply did not rewrite reference: %s", body)
 	}
 }
+
+func TestExplicitConfigUnloadableExitsNonZero(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(src, []byte("fun a() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	badYAML := filepath.Join(dir, "bad.yml")
+	if err := os.WriteFile(badYAML, []byte("a: [unclosed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string][]string{
+		"missing-validate": {"--validate-config", "--config", filepath.Join(dir, "nope.yml")},
+		"invalid-validate": {"--validate-config", "--config", badYAML},
+		"missing-scan":     {"--no-daemon", "--config", filepath.Join(dir, "nope.yml"), src},
+		"invalid-scan":     {"--no-daemon", "--config", badYAML, src},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, stderr, code := runKrit(t, args...)
+			if code == 0 {
+				t.Fatalf("expected non-zero exit, got 0\nstderr: %s", stderr)
+			}
+			if !strings.Contains(stderr, "error: config:") && !strings.Contains(stderr, "error: load config:") {
+				t.Fatalf("expected config error, got: %s", stderr)
+			}
+		})
+	}
+}

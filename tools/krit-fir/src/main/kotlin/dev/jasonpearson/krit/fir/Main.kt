@@ -33,6 +33,30 @@ fun main(args: Array<String>) {
         System.out.flush()
         exitProcess(0)
     }
+    // `--module-facts-file REQUEST --facts-dir DIR`: each module in the request is analyzed on its own against
+    // its (built) classpath and its oracle facts are written to DIR, one file per module. Modules do not
+    // depend on each other here, so a caller can split a request across processes.
+    extractCliValue(args, "--module-facts-file")?.let { path ->
+        val request = requireNotNull(parseModuleRequest(JavaFile(path).readText(), oneShot = true)) { "Missing modules" }
+        val dir = JavaFile(requireNotNull(extractCliValue(args, "--facts-dir")) { "--facts-dir is required" }).also { it.mkdirs() }
+        val session = AnalysisSession(emptyList(), emptyList(), request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() })
+        // An optional shared FIR check request: each module runs the checkers over its own requested files.
+        val check = extractCliValue(args, "--check-request")?.let { AnalysisSession.ModuleCheckIndex(parseRequest(JavaFile(it).readText())) }
+        for (module in request.modules) {
+            val started = System.nanoTime()
+            val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val (outcome, checked) = try {
+                session.analyzeModuleFacts(module, check)
+            } catch (e: Exception) {
+                System.err.println("FACTS\t${module.id}\tfailed\t${e.message?.lineSequence()?.firstOrNull()}")
+                continue
+            }
+            if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
+            JavaFile(dir, "$name.json").writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
+            System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
+        }
+        exitProcess(0)
+    }
     extractCliValue(args, "--modules-file")?.let { path ->
         val request = requireNotNull(parseModuleRequest(JavaFile(path).readText(), oneShot = true)) { "Missing modules" }
         val session = AnalysisSession(request.sourceDirs, request.classpath,
@@ -476,7 +500,7 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
  * (`--sources …`), and subsequent miss requests only carry the file
  * list. Comparing an empty `request.sourceDirs` to the session's
  * real source roots would mismatch every time, triggering a full
- * K2 FIR session rebuild per request (10-40 s on a 16 k-file repo).
+ * K2 FIR session rebuild per request (tens of seconds on a large repo).
  *
  * Empty fields therefore mean "reuse the current session". A
  * non-empty difference is still a rebuild.

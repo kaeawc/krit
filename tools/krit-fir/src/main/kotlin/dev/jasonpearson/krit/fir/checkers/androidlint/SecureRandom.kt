@@ -49,7 +49,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   are not reported, and a subclass constructor (`ThreadLocalRandom`, a
  *   project subclass) is not `java.util.Random`;
  * - `SecureRandom(seed)` is not reported here: that constructor belongs to the
- *   TrulyRandom rule;
+ *   HardcodedRandomSeed rule;
  * - `setSeed(bytes)` and a seed from a variable or parameter are not reported;
  * - a `java.util.Random`-typed variable whose declaration constructs a
  *   SecureRandom (`val r: Random = SecureRandom()`) counts as a SecureRandom

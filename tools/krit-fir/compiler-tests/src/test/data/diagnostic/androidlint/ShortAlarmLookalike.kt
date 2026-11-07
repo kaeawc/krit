@@ -1,11 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 35, 36, 37, 38, 43, 48
-// Lookalikes of AlarmManager.setRepeating / setInexactRepeating. Go matches the
-// call by name alone, whatever its receiver, and reports each call below whose
-// third positional argument is an integer literal under 60 000. None of them
-// passes that argument to AlarmManager, so none sets an alarm's repeat interval
-// and the message ("Short alarm interval") is not true of them: FIR does not
-// report them.
+// go-lines: 35x2, 37x2
+// Lookalikes of AlarmManager.setRepeating. Go matches the call by name alone,
+// whatever its receiver, and reports each four-argument call below whose trigger
+// time is an integer literal under 5 000 or whose interval is one under 60 000.
+// None of them passes those arguments to AlarmManager, so none sets an alarm's
+// trigger time or repeat interval and the message ("Value will be forced up
+// to ...") is not true of them: FIR does not report them.
 package test.lookalike
 
 import android.app.AlarmManager

@@ -5,12 +5,25 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.descriptors.Visibilities
+import dev.jasonpearson.krit.fir.support.lightChildren
+import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.declarations.utils.visibility
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.references.FirNamedReference
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
+import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
+import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirPropertyChecker
+import org.jetbrains.kotlin.fir.declarations.FirFile
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
@@ -53,10 +66,13 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   option does not list (`var c: MutableCollection<T> = mutableListOf()`, a
  *   `ConcurrentHashMap` imported as `HashMap`).
  *
- * Covered like Go: top-level, member, companion, object, interface, and local
- * `var`s, nullable types, `lateinit`, override, getter-backed, extension, and
- * delegated properties, and test files are skipped. Not reported, like Go:
- * `val`s and destructuring declarations.
+ * Covered like Go: private top-level, member, companion, object, and local
+ * `var`s, `lateinit`, getter-backed, extension, and delegated properties, and
+ * test files are skipped. Not reported, like Go: `val`s and destructuring
+ * declarations, and `var`s that have to stay `var`: a declared nullable type
+ * (a lazy-init holder), a name written by `x = ...`, `this.x = ...`, `+=` or
+ * `++` (a local within its block, a member anywhere in the file), and a member
+ * that is not private (other files can write it).
  *
  * Deliberate differences from Go (see the golden data):
  * - a mutable collection type Go cannot see from the declaration's text is
@@ -182,8 +198,46 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
         // Go skips scanner.IsTestFile files; the check request carries that
         // classification (configured test paths included).
         if (isInTestFile()) return
+        if (mustStayVar(declaration)) return
 
         report(source, MESSAGE)
+    }
+
+    // Go drops vars that have to be vars: nullable lazy-init holders, vars written
+    // after their declaration (a local within its block, a member anywhere in the
+    // file), and members other files can write (anything not private).
+    context(context: CheckerContext)
+    private fun mustStayVar(declaration: FirProperty): Boolean {
+        val typeSource = declaration.returnTypeRef.source
+        if (typeSource != null && lightChildren(typeSource, typeSource.lighterASTNode).any { it.tokenType == KtNodeTypes.NULLABLE_TYPE }) {
+            return true
+        }
+        // A member sits directly in a class, object, or file; anything else is a local.
+        val container = context.containingDeclarations.lastOrNull { it != declaration.symbol }
+        val isMember = container == null || container is FirClassSymbol<*> || container is FirFileSymbol
+        if (isMember && declaration.visibility != Visibilities.Private) return true
+        val block: FirElement? = context.containingElements.filterIsInstance<FirBlock>().lastOrNull()
+        val file: FirElement? = context.containingElements.filterIsInstance<FirFile>().firstOrNull()
+        val scope = (if (isMember) file else block) ?: return true
+        return declaration.name.asString() in reassignedNames(scope)
+    }
+
+    // Names written by `x = ...` or `this.x = ...` (also `+=` and `++`) inside [scope], matched by name as Go does.
+    private fun reassignedNames(scope: FirElement): Set<String> {
+        val names = mutableSetOf<String>()
+        scope.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (element is FirVariableAssignment) {
+                    val target = element.lValue as? FirQualifiedAccessExpression
+                    val receiver = target?.explicitReceiver
+                    if (target != null && (receiver == null || receiver is FirThisReceiverExpression)) {
+                        (target.calleeReference as? FirNamedReference)?.let { names += it.name.asString() }
+                    }
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return names
     }
 
     private fun matchers(): List<TypeMatcher> {

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 18, 19, 20, 21, 31, 32, 33, 34, 37, 39, 42, 45x2, 49, 55, 57, 59, 65, 70, 76, 84, 90, 91, 93, 94, 95, 96
+// go-lines: 17, 18, 19, 20, 21, 31, 32, 33, 34, 37, 39, 42, 45x2, 51, 55, 57, 59, 65, 70, 76, 84, 90, 91, 93, 94, 95, 96
 // Map lookups asserted with `!!`, which Go and FIR both report, and the
 // lookalikes both leave alone.
 package test

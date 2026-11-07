@@ -53,6 +53,40 @@ class AnalysisSessionExpressionsTest {
     }
 
     @Test
+    fun chainedCallsSharingAStartAreEachRecorded() {
+        val path = writeKt(
+            "Chain.kt",
+            """
+            package com.acme.chain
+
+            class Source {
+                fun query(): Query = Query()
+            }
+
+            class Query {
+                suspend fun awaitAll(): List<Int> = emptyList()
+            }
+
+            suspend fun caller(source: Source): List<Int> = source.query().awaitAll()
+            """.trimIndent(),
+        )
+
+        val expressions = expressionsFor(path)
+        val inner = expressions.entries.singleOrNull { it.value.callTarget == "com.acme.chain.Source.query" }
+        val outer = expressions.entries.singleOrNull { it.value.callTarget == "com.acme.chain.Query.awaitAll" }
+        assertNotNull(inner, "inner call missing: ${expressions.entries}")
+        assertNotNull(outer, "outer call missing: ${expressions.entries}")
+        assertEquals(inner.value.startByte, outer.value.startByte)
+        assertTrue(outer.value.endByte > inner.value.endByte, "outer must span the inner call: $inner $outer")
+        assertEquals(true, outer.value.callTargetSuspend)
+        assertEquals(false, inner.value.callTargetSuspend)
+        // One call keeps the plain key; the other carries its end byte.
+        val keys = setOf(inner.key, outer.key)
+        val plain = keys.single { '@' !in it }
+        assertTrue(keys.any { it == "$plain@${outer.value.endByte}" || it == "$plain@${inner.value.endByte}" }, "keys: $keys")
+    }
+
+    @Test
     fun keysUseOneBasedLineAndColumnAtTheCallSite() {
         val path = writeKt(
             "Position.kt",

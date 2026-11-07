@@ -18,7 +18,7 @@ internal data class MergedFirCheckers(
     val type: TypeCheckers,
 )
 
-// K2 2.4.20 checker-set surface: 39 expression, 24 declaration and 4 type
+// K2 2.4.21 checker-set surface: 39 expression, 24 declaration and 4 type
 // properties. New rules contribute checker sets; only a K2 API change requires
 // updating this file, and FirCheckerSurfaceTest fails when one is missed.
 //

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 17, 21, 24, 27, 31, 38, 40, 53, 55, 57
+// go-lines: 17, 24, 38, 40, 53, 55, 57
 // Go reports every call in this file; FIR reports none. Go matches the call by
 // name without resolving it and treats a Locale as explicit only when the
 // first argument is spelled `Locale.` or `Locale(`. None of these calls

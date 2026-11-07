@@ -194,3 +194,13 @@ class CountingStream(file: File) : FileInputStream(file) {
 
     fun readTwice(): Int = this.read() + read()
 }
+
+// A read into a buffer of 8 KiB or more already moves data in large chunks, so
+// a BufferedInputStream adds nothing: no finding. Smaller or unknown buffers
+// are reported above.
+fun largeBuffer(path: String): Int = FileInputStream(path).read(ByteArray(8192))
+
+fun largeLocalBuffer(path: String): Int {
+    val buffer = ByteArray(65536)
+    return FileInputStream(path).read(buffer)
+}

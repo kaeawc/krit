@@ -27,6 +27,11 @@ data class ModuleSpec(
     val compilerPluginClasspath: List<String> = emptyList(),
     /** The module's compiler plugin options, `plugin:<id>:<key>=<value>`. */
     val compilerPluginOptions: List<String> = emptyList(),
+    /**
+     * Source roots compiled with the module but not owned by it: dependencies that have no built output.
+     * Their files are neither checked nor reported as this module's.
+     */
+    val contextSourceRoots: List<String> = emptyList(),
 ) {
     internal val edges get() = (dependsOn + friends).distinct()
     internal val roots get() = (sourceRoots + generatedSourceRoots + fragments.flatMap { it.sourceRoots }).distinct()
@@ -236,10 +241,22 @@ internal class ModuleRunner(
         val requested = checkFiles.distinct()
         // Shared common sources may participate in multiple target compilations.
         // Prefer the deepest root; declaration order only breaks equal-root ties.
-        fun owner(path: String) = modules.mapNotNull { module ->
-            module.roots.filter { inRoots(path, listOf(it)) }.maxOfOrNull { File(it).canonicalPath.length }
-                ?.let { module.id to it }
-        }.maxByOrNull { it.second }?.first
+        // Roots are canonicalized once and looked up by walking a file's ancestors, deepest first, instead
+        // of testing every root of every module against every file.
+        val rootOwners = HashMap<java.nio.file.Path, String>()
+        for (module in modules) {
+            for (root in module.roots) rootOwners.putIfAbsent(File(root).canonicalFile.toPath(), module.id)
+        }
+        val ownerMemo = HashMap<String, String?>()
+        fun owner(path: String): String? = ownerMemo.getOrPut(path) {
+            var current: java.nio.file.Path? = File(path).canonicalFile.toPath()
+            var found: String? = null
+            while (current != null && found == null) {
+                found = rootOwners[current]
+                current = current.parent
+            }
+            found
+        }
         val owners = requested.associateWith(::owner)
         val unknown = owners.filterValues { it == null }.keys
         for (component in components) {
@@ -297,11 +314,27 @@ internal class ModuleRunner(
                         plugins = plugins)
                     ids.forEach { compiledSources[it] = paths.toList() }
                     beforeCompile(invocation)
+                    val timingStart = System.nanoTime()
+                    val timing = System.getenv("KRIT_MODULE_TIMING") != null
                     val session = AnalysisSession(spec.roots, cp, sessionJvmTarget)
                     val ownedSources = component.flatMap { sources.getValue(it.id) }.filter { owner(it) in ids }.toSet()
-                    val result = session.checkCompilation(id, ownFiles.map { FileRef(it) }, rules, configs, testFiles, scanPaths,
-                        sdkLevels, invocation, ownedSources)
-                    check(!result.compilerCrashed) { result.firstCompilerError ?: "Module compiler crashed" }
+                    val result = try {
+                        session.checkCompilation(id, ownFiles.map { FileRef(it) }, rules, configs, testFiles, scanPaths,
+                            sdkLevels, invocation, ownedSources)
+                    } catch (e: Exception) {
+                        if (!timing) throw e
+                        // Timing experiments keep going past a module whose compile crashes.
+                        System.err.println("MODTIME\t${ids.joinToString(",")}\t${paths.size}\t${(System.nanoTime() - timingStart) / 1_000_000}\tcrash")
+                        BatchResult(id, 0, 0, emptyList(), emptyMap(), errorFiles = ownFiles.associateWith { "crash" }, compilerCrashed = false,
+                            firstCompilerError = "crash: ${e.message}")
+                    }
+                    if (timing && result.firstCompilerError?.startsWith("crash") != true) {
+                        System.err.println("MODTIME\t${ids.joinToString(",")}\t${paths.size}\t${(System.nanoTime() - timingStart) / 1_000_000}\t${result.firstCompilerError != null}")
+                    }
+                    if (timing && result.compilerCrashed) {
+                        System.err.println("MODTIME\t${ids.joinToString(",")}\t${paths.size}\t${(System.nanoTime() - timingStart) / 1_000_000}\tcrashed")
+                    }
+                    check(timing || !result.compilerCrashed) { result.firstCompilerError ?: "Module compiler crashed" }
                     // Publish a new generation, never clear a directory a cached entry references.
                     val published = File(directory, "$key-${java.util.UUID.randomUUID()}")
                     Files.move(output.toPath(), published.toPath(), StandardCopyOption.ATOMIC_MOVE)

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 20, 21, 30, 39, 43
+// go-lines: 14, 20, 21, 44
 package test
 
 import android.content.pm.PackageManager
@@ -30,8 +30,9 @@ object Constants {
 fun forwardedConstant(pm: PackageManager) = <!GetSignatures!>pm.getPackageInfo("com.example", Constants.GET_SIGNATURES)<!>
 
 // Divergence (precision): a project constant named GET_SIGNATURES whose value
-// is a literal without the 0x40 bit is not the platform flag. Go reports the
-// call by the name; the flags do not ask for signatures, so FIR does not.
+// is a literal without the 0x40 bit is not the platform flag. FIR does not
+// report it. Go skips it too: a bare `LocalFlags.GET_SIGNATURES` is not owned by
+// PackageManager.
 object LocalFlags {
     const val GET_SIGNATURES = 1
 }

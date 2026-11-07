@@ -49,7 +49,7 @@ import org.jetbrains.kotlin.name.Name
  * `release()` on the same receiver.
  *
  * Like the Go rule, the acquire is a call written `acquire` with an explicit
- * receiver (`wl.acquire()`, `wl?.acquire()`, `holder.wl.acquire(timeout)`)
+ * receiver (`wl.acquire()`, `wl?.acquire()`, `holder.wl.acquire()`)
  * that is a WakeLock: its type is a class whose simple name is `WakeLock`
  * (`android.os.PowerManager.WakeLock`, or a class of the same name in any
  * package, as Go matches the receiver type by that simple name), or the
@@ -70,7 +70,8 @@ import org.jetbrains.kotlin.name.Name
  * variable reached through the same receiver chain (`wl` and `this.wl` in a
  * class are the same, `holder.wl` is not), or an alias of it. The finding
  * sits on the acquire call's first line, which is the receiver's first line,
- * with Go's message.
+ * with Go's message. `acquire(timeout)` is never reported, as it releases
+ * itself.
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Go matches a release by the last identifier of its receiver as written,
@@ -189,7 +190,8 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
                             // in the body counts, as Go walks the whole body.
                             if (name == release) {
                                 releases += candidate
-                            } else if (candidate.function === declaration) {
+                            } else if (candidate.function === declaration && element.argumentList.arguments.isEmpty()) {
+                                // acquire(timeout) releases itself when the timeout expires.
                                 acquires += candidate
                             }
                         }

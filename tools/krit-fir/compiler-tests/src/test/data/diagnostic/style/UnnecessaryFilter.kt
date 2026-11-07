@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28, 30, 32, 34, 36, 38, 41, 45, 49, 55, 62, 64, 68, 72, 76, 78, 81, 83, 87, 91, 95, 96
+// go-lines: 7, 9, 11, 13, 15, 17, 19, 21, 23, 26, 28, 30, 32, 34, 36, 38, 41, 45, 51, 58, 62, 64, 68, 72, 76, 78, 81, 83, 87, 91, 95, 96, 99, 101, 103
 // Positives: a stdlib filter with a trailing lambda followed by a
 // no-argument terminal that has a predicate overload.
 package test
@@ -94,3 +94,10 @@ fun continued(list: List<String>): Char = <!UnnecessaryFilter!>list<!>.filter { 
 fun twoChains(list: List<Int>): Int =
     <!UnnecessaryFilter!>list<!>.filter { it > 0 }.count() +
         <!UnnecessaryFilter!>list<!>.filter { it > 1 }.count()
+
+// detekt also reports the emptiness checks and the size property.
+fun isEmptyCheck(list: List<Int>): Boolean = <!UnnecessaryFilter!>list<!>.filter { it > 0 }.isEmpty()
+
+fun isNotEmptyCheck(list: List<Int>): Boolean = <!UnnecessaryFilter!>list<!>.filter { it > 0 }.isNotEmpty()
+
+fun sizeCheck(list: List<Int>): Int = <!UnnecessaryFilter!>list<!>.filter { it > 0 }.size

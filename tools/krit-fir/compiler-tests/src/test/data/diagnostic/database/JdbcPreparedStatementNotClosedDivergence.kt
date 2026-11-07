@@ -1,14 +1,14 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 13, 18, 23, 28, 35, 36, 37, 42, 43, 50, 60, 61, 74, 111, 117, 123, 134, 142, 143
+// go-lines: 23, 28, 35, 36, 37, 42, 43, 50, 60, 61, 74, 111, 117, 123, 134, 142, 143
 // Divergences from Go, each decided by the message ("PreparedStatement '<name>'
 // should be wrapped in use { } or explicitly closed with .close().").
 package test
 
 import java.sql.Connection
 
-// Go reports these: its cleanup search wants the exact text `<name>.close(`
-// or `<name>.use`, so a safe call, a `!!` receiver, a backticked receiver, or
-// a parenthesized receiver is missed. Each statement is closed, so no finding.
+// Go reports the backticked and parenthesized receivers: its cleanup search
+// wants the text `<name>.close(`, `<name>?.close(`, `<name>!!.close(` or
+// `<name>.use`. Each statement is closed, so no finding.
 fun safeCallClose(conn: Connection) {
     val stmt = conn.prepareStatement("SELECT 1")
     stmt?.close()

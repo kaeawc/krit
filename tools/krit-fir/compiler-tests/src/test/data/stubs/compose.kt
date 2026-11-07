@@ -81,6 +81,8 @@ inline fun <T> remember(vararg keys: Any?, crossinline calculation: @DisallowCom
 @Composable
 fun <T> rememberUpdatedState(newValue: T): State<T> = TODO()
 
+fun movableContentOf(content: @Composable () -> Unit): @Composable () -> Unit = TODO()
+
 @Composable
 inline fun rememberCoroutineScope(
     crossinline getContext: @DisallowComposableCalls () -> CoroutineContext = { EmptyCoroutineContext },

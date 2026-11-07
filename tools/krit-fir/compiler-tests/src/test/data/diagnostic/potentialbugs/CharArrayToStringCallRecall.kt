@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 26
 // Go misses these; the receiver is a kotlin.CharArray.
 package test
 
@@ -16,8 +16,8 @@ fun safeCast(value: Any): String {
     return <!CharArrayToStringCall!>chars.toString()<!>
 }
 
-// Go does not narrow a local var of a property getter in an `object {}`
-// expression.
+// Go narrows the local var of a property getter in an `object {}` expression
+// now, so it reports this one too.
 fun objectGetter(input: Any): Any = object {
     val s: String
         get() {

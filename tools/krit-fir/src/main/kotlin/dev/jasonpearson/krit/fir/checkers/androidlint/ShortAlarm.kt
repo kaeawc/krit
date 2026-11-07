@@ -4,8 +4,6 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.lightSourceOf
-import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -51,43 +49,43 @@ import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.ConstantValueKind
 
 /**
- * Flags an `AlarmManager.setRepeating` / `setInexactRepeating` call whose
- * interval (the third argument, `intervalMillis`) is a positive value below
- * 60 000 ms. The platform forces repeating alarms up to a minute, and short
- * alarms drain the battery.
+ * Flags an `AlarmManager.setRepeating(type, triggerAtMillis, intervalMillis, operation)`
+ * call as Android Lint's ShortAlarm does: a trigger time below 5 000 ms or an
+ * interval below 60 000 ms. Only `setRepeating` is checked (not
+ * `setInexactRepeating`), only its four-parameter overload, and any known
+ * value below the minimum counts, zero and negative values included. The
+ * finding is on the offending argument, with Lint's message
+ * "Value will be forced up to N as of Android 5.1; don't rely on this to be exact".
  *
- * Like the Go rule, the interval must be a known number: an integer literal
- * (`5000L`, `30000`), not a parameter, a variable, a call, or an expression;
- * a value of 0 or below, and 60 000 or more, is not reported. The finding is
- * on the first line of the call expression (the receiver's first line for
- * `alarmManager.setRepeating(...)`), with Go's message.
+ * Like the Go rule, the argument must be a known number: an integer literal
+ * (`5000L`, `30000`), not a parameter, a variable, a call, or an expression.
  *
  * Go matches the call by name alone, whatever its receiver. The message is
  * about the alarm the call sets, so this checker reports a call whose
- * resolved callee sets a platform repeating alarm from its third argument: a
+ * resolved callee sets a platform repeating alarm from that argument: a
  * member of `android.app.AlarmManager` (or a subclass); an extension on
- * AlarmManager whose third parameter is a Long; a function whose body it
+ * AlarmManager whose parameter is a Long; a function whose body it
  * cannot read (Java, a library, an interface member, or a function of another
  * file: a class file keeps no body) whose signature looks like an alarm API
  * (a `PendingIntent` or `AlarmManager.OnAlarmListener` parameter, or an
  * `AlarmManager` receiver or parameter), as Go does; or a Kotlin wrapper of the
- * same file whose body passes its third parameter into the interval of one of
+ * same file whose body passes that parameter into the same argument of one of
  * these, directly or through a local or member `var` it may have stored the
  * parameter in (ShortAlarmForwarding).
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: a project scheduler (also one named `AlarmManager`), a local
  *   or anonymous class, a top-level function, or an extension whose body
- *   never passes its third parameter to an AlarmManager interval (an empty
+ *   never passes the parameter to an AlarmManager argument (an empty
  *   lookalike, a retry count, a wrapper that sets a fixed hourly alarm, a
  *   wrapper that overwrites the stored parameter with a fixed interval before
- *   the call) sets no alarm interval from the literal, so it is not reported
+ *   the call) sets no alarm value from the literal, so it is not reported
  *   (ShortAlarmLookalike, ShortAlarmThirdParty, ShortAlarmForwarding). That holds
  *   for a lookalike declared in the file under check; one of another file shows
  *   no body, so only its signature is read (a class file keeps it): it is reported when that looks like an
  *   alarm API (a wrapper with a PendingIntent parameter), not otherwise (an unrelated
  *   `Poller.setRepeating(name, delay, intervalMs, task: Runnable)`).
- * - Recall: FIR reads the literal's value, so an interval Go cannot parse is
+ * - Recall: FIR reads the literal's value, so a value Go cannot parse is
  *   reported: a literal with underscores (`5_000L`), a hex or binary literal,
  *   a parenthesized literal, and a reference to a Kotlin `const val` whose
  *   value is such a literal (ShortAlarmRecall).
@@ -101,15 +99,16 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         override val functionCallCheckers = setOf(ShortAlarm)
     }
 
-    private const val MESSAGE =
-        "Short alarm interval. Consider using a minimum of 60 seconds for repeating alarms."
-    private const val MINIMUM_INTERVAL = 60_000L
-    private const val INTERVAL_INDEX = 2
+    private const val PARAMETER_COUNT = 4
+
+    // The trigger time (index 1) and the interval (index 2) with the minimum Lint enforces for each.
+    private class Bound(val index: Int, val minimum: Long)
+    private val bounds = listOf(Bound(1, 5_000L), Bound(2, 60_000L))
     private val alarmManager = ClassId(FqName("android.app"), Name.identifier("AlarmManager"))
     private val pendingIntent = ClassId(FqName("android.app"), Name.identifier("PendingIntent"))
     private val onAlarmListener = ClassId(FqName("android.app"), FqName("AlarmManager.OnAlarmListener"), false)
     private val alarmManagerType = alarmManager.constructClassLikeType(emptyArray(), isMarkedNullable = true)
-    private val repeatingSetters = setOf(Name.identifier("setRepeating"), Name.identifier("setInexactRepeating"))
+    private val repeatingSetter = Name.identifier("setRepeating")
     private val integralKinds = setOf(
         ConstantValueKind.Int,
         ConstantValueKind.Long,
@@ -121,18 +120,20 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
-        if (callee.name !in repeatingSetters) return
-        val interval = intervalArgument(expression, callee) ?: return
-        val millis = integralValue(interval, HashSet()) ?: return
-        if (millis <= 0 || millis >= MINIMUM_INTERVAL) return
-        if (!setsAlarmInterval(callee, HashSet())) return
-        val source = expression.source ?: return
-        report(qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source, MESSAGE)
+        if (callee.name != repeatingSetter || callee.valueParameterSymbols.size != PARAMETER_COUNT) return
+        for (bound in bounds) {
+            val argument = argumentFor(expression, callee, bound.index) ?: continue
+            val millis = integralValue(argument, HashSet()) ?: continue
+            if (millis >= bound.minimum) continue
+            if (!setsAlarmValue(callee, bound.index, HashSet())) continue
+            val source = argument.source ?: continue
+            report(source, "Value will be forced up to ${bound.minimum} as of Android 5.1; don't rely on this to be exact")
+        }
     }
 
-    // The argument bound to the callee's third value parameter.
-    private fun intervalArgument(call: FirFunctionCall, callee: FirNamedFunctionSymbol): FirExpression? {
-        val parameter = callee.valueParameterSymbols.getOrNull(INTERVAL_INDEX) ?: return null
+    // The argument bound to the callee's value parameter at [index].
+    private fun argumentFor(call: FirFunctionCall, callee: FirNamedFunctionSymbol, index: Int): FirExpression? {
+        val parameter = callee.valueParameterSymbols.getOrNull(index) ?: return null
         return call.resolvedArgumentMapping?.entries?.firstOrNull { it.value.symbol == parameter }?.key
     }
 
@@ -149,9 +150,9 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     // A function whose body never passes the parameter on (an empty
     // lookalike, a retry count) sets no alarm interval from it.
     context(context: CheckerContext)
-    private fun setsAlarmInterval(function: FirNamedFunctionSymbol, seen: MutableSet<FirNamedFunctionSymbol>): Boolean {
+    private fun setsAlarmValue(function: FirNamedFunctionSymbol, index: Int, seen: MutableSet<FirNamedFunctionSymbol>): Boolean {
         val original = function.unwrapFakeOverrides()
-        val parameter = original.valueParameterSymbols.getOrNull(INTERVAL_INDEX) ?: return false
+        val parameter = original.valueParameterSymbols.getOrNull(index) ?: return false
         val receiverType = original.resolvedReceiverType
         if (receiverType == null) {
             val owner = original.getContainingClassSymbol()
@@ -161,7 +162,7 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         }
         if (!seen.add(original)) return false
         val body = bodyOf(original) ?: return looksLikeAlarmApi(original)
-        return passesToInterval(ParameterFlow(body, parameter), seen)
+        return passesToValue(ParameterFlow(body, parameter), index, seen)
     }
 
     // Whether a function whose body cannot be read (another file, a library, Java, an abstract member) has the
@@ -186,29 +187,30 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private fun bodyOf(function: FirNamedFunctionSymbol): FirBlock? = function.bodyInCheckedFile()
 
     // Whether the function body holds a repeating-setter call (see
-    // [setsAlarmInterval]) whose interval argument may carry the parameter's
+    // [setsAlarmValue]) whose interval argument may carry the parameter's
     // value (see [ParameterFlow.carries]).
     context(context: CheckerContext)
-    private fun passesToInterval(flow: ParameterFlow, seen: MutableSet<FirNamedFunctionSymbol>): Boolean {
+    private fun passesToValue(flow: ParameterFlow, index: Int, seen: MutableSet<FirNamedFunctionSymbol>): Boolean {
         var found = false
         walkStatements(flow.body, emptyList()) { element, slots ->
-            found = element is FirFunctionCall && forwardsInterval(element, slots, flow, seen)
+            found = element is FirFunctionCall && forwardsValue(element, index, slots, flow, seen)
             found
         }
         return found
     }
 
     context(context: CheckerContext)
-    private fun forwardsInterval(
+    private fun forwardsValue(
         call: FirFunctionCall,
+        index: Int,
         slots: List<Slot>,
         flow: ParameterFlow,
         seen: MutableSet<FirNamedFunctionSymbol>,
     ): Boolean {
         val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
-        if (callee.name !in repeatingSetters) return false
-        val interval = intervalArgument(call, callee) ?: return false
-        return flow.carries(interval, slots, HashSet()) && setsAlarmInterval(callee, seen)
+        if (callee.name != repeatingSetter || callee.valueParameterSymbols.size != PARAMETER_COUNT) return false
+        val argument = argumentFor(call, callee, index) ?: return false
+        return flow.carries(argument, slots, HashSet()) && setsAlarmValue(callee, index, seen)
     }
 
     // One step on the way from a function body down to an element: the block

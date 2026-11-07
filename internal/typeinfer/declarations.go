@@ -301,6 +301,17 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 		}
 	}
 
+	if mods.sealed {
+		// Sealed intermediates are not variants of their parent, but a `when` over the parent must still cover them.
+		for _, st := range supertypes {
+			r.sealedVariants[SealedIntermediateKey(st)] = append(r.sealedVariants[SealedIntermediateKey(st)], name)
+			parts := strings.Split(st, ".")
+			if len(parts) > 1 {
+				key := SealedIntermediateKey(parts[len(parts)-1])
+				r.sealedVariants[key] = append(r.sealedVariants[key], name)
+			}
+		}
+	}
 	if !mods.sealed {
 		for _, st := range supertypes {
 			r.sealedVariants[st] = append(r.sealedVariants[st], name)
@@ -353,6 +364,15 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
+
+	// An object can be a permitted subtype of a sealed parent, so it is one of that parent's variants.
+	for _, st := range supertypes {
+		r.sealedVariants[st] = append(r.sealedVariants[st], name)
+		parts := strings.Split(st, ".")
+		if len(parts) > 1 {
+			r.sealedVariants[parts[len(parts)-1]] = append(r.sealedVariants[parts[len(parts)-1]], name)
+		}
+	}
 }
 
 func (r *defaultResolver) classKind(isEnum, isSealed, isInterface bool) string {
@@ -555,6 +575,7 @@ func flatFunctionSignature(file *scanner.File, idx uint32) (receiverType, funcNa
 
 func (r *defaultResolver) extractMembersFlat(bodyIdx uint32, file *scanner.File, it *ImportTable) []MemberInfo {
 	var members []MemberInfo
+	inInterface := flatBodyOwnerIsInterface(file, bodyIdx)
 	appendMember := func(memberIdx uint32) {
 		if memberIdx == 0 {
 			return
@@ -578,7 +599,7 @@ func (r *defaultResolver) extractMembersFlat(bodyIdx uint32, file *scanner.File,
 				Type:           retType,
 				Visibility:     mods.visibility,
 				IsOverride:     mods.override,
-				IsAbstract:     mods.abstract,
+				IsAbstract:     mods.abstract || (inInterface && !file.FlatHasChildOfType(memberIdx, "function_body")),
 				Params:         params,
 				TypeParameters: typeParams,
 			})
@@ -603,7 +624,7 @@ func (r *defaultResolver) extractMembersFlat(bodyIdx uint32, file *scanner.File,
 				Type:       typ,
 				Visibility: mods.visibility,
 				IsOverride: mods.override,
-				IsAbstract: mods.abstract,
+				IsAbstract: mods.abstract || (inInterface && flatInterfacePropertyIsAbstract(file, memberIdx)),
 			})
 		}
 	}
@@ -752,4 +773,32 @@ func flatExtractFunctionTypeParameters(file *scanner.File, funcIdx uint32) []str
 		}
 	}
 	return out
+}
+
+// flatBodyOwnerIsInterface reports whether the class body belongs to an interface declaration.
+func flatBodyOwnerIsInterface(file *scanner.File, bodyIdx uint32) bool {
+	owner, ok := file.FlatParent(bodyIdx)
+	if !ok || file.FlatType(owner) != "class_declaration" {
+		return false
+	}
+	for c := file.FlatFirstChild(owner); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "interface" {
+			return true
+		}
+	}
+	return false
+}
+
+// flatInterfacePropertyIsAbstract reports an interface property with no initializer and no getter body.
+func flatInterfacePropertyIsAbstract(file *scanner.File, prop uint32) bool {
+	for c := file.FlatFirstChild(prop); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "=", "getter", "property_delegate":
+			return false
+		}
+	}
+	if next, ok := file.FlatNextSibling(prop); ok && file.FlatType(next) == "getter" {
+		return false
+	}
+	return true
 }

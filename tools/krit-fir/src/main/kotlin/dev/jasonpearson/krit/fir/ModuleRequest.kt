@@ -39,7 +39,7 @@ internal fun parseModuleRequest(json: String, oneShot: Boolean = false): CheckRe
             m.strings("sourceRoots"), m.strings("generatedSourceRoots"), m.strings("classpath"),
             m.strings("dependsOn"), m.strings("friends"), m.strings("compilerArgs"),
             m.optionalString("jvmTarget", ""), fragments,
-            m.strings("compilerPluginClasspath"), m.strings("compilerPluginOptions"))
+            m.strings("compilerPluginClasspath"), m.strings("compilerPluginOptions"), m.strings("contextSourceRoots"))
     }
     @Suppress("UNCHECKED_CAST")
     val configs = (payload["ruleConfigs"] as? Map<String, Map<String, Any?>>).orEmpty()

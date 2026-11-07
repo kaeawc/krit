@@ -5,30 +5,18 @@ package test
 
 fun direct(x: Int): String = x.toString()
 
-// The conversion is stored first; toString's receiver is a variable.
+// detekt only matches the wrapper constructor, not valueOf or parse.
+fun conversions(x: Int, s: String) {
+    val a = Integer.valueOf(x).toString()
+    val b = Integer.parseInt(s).toString()
+    val c = java.lang.Integer.valueOf(x).toString()
+}
+
+// The constructor is stored first; toString's receiver is a variable.
 fun stored(x: Int): String {
-    val boxed = Integer.valueOf(x)
+    val boxed = Integer(x)
     return boxed.toString()
 }
 
-// An implicit receiver is not the conversion call as written.
-fun implicit(x: Int): String = with(Integer.valueOf(x)) { toString() }
-
-// A lambda parameter stands between the conversion and toString.
-fun viaLet(x: Int): String = Integer.valueOf(x).let { it.toString() }
-
-// Other members of the conversion's result.
-fun otherMembers(x: Int): Int = Integer.valueOf(x).hashCode() + Integer.valueOf(x).compareTo(1)
-
-// Other conversions and other static helpers.
-fun otherConversions(x: Int, s: String) {
-    val a = Integer.toString(x)
-    val b = java.lang.Short.parseShort(s).toString()
-    val c = java.lang.Boolean.parseBoolean(s).toString()
-    val d = Integer.decode(s).toString()
-    val f = Integer.valueOf(x)
-    val g = Integer.parseInt(s) + 1
-}
-
-// A callable reference, not a call of toString.
-fun reference(x: Int): () -> String = Integer.valueOf(x)::toString
+// Other members of the constructed value, and toString with arguments is still toString.
+fun otherMembers(x: Int): Int = Integer(x).hashCode()

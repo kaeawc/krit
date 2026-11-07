@@ -53,7 +53,7 @@ class WeakMessageDigestTest {
 
                     import com.example.crypto.MessageDigest
 
-                    fun hash() {
+                    fun digest() {
                         MessageDigest.getInstance("MD5")
                     }
                 """.trimIndent(),
@@ -68,7 +68,7 @@ class WeakMessageDigestTest {
                     import java.security.*
                     import com.example.crypto.MessageDigest
 
-                    fun hash() {
+                    fun digest() {
                         MessageDigest.getInstance("MD5")
                     }
                 """.trimIndent(),
@@ -84,7 +84,7 @@ class WeakMessageDigestTest {
 
                     import java.security.*
 
-                    fun hash() {
+                    fun digest() {
                         MessageDigest.getInstance("MD5")
                     }
                 """.trimIndent(),
@@ -101,7 +101,7 @@ class WeakMessageDigestTest {
 
                     import java.security.*
 
-                    fun hash() {
+                    fun digest() {
                         MessageDigest.getInstance("MD5")
                     }
                 """.trimIndent(),
@@ -115,7 +115,7 @@ class WeakMessageDigestTest {
         file,
         "package ${file.removeSuffix(".kt").lowercase()}\n\n" +
             "import java.security.MessageDigest\n\n" +
-            "fun hash() {\n" +
+            "fun digest() {\n" +
             "    MessageDigest.getInstance(\"" + literalContent + "\")\n" +
             "}\n",
         expected,

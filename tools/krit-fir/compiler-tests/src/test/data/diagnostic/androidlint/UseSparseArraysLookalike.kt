@@ -11,4 +11,4 @@ class HashMap<K, V>
 
 fun lookalike(): HashMap<Int, String> = HashMap<Int, String>()
 
-fun jdk(): Map<Int, String> = <!UseSparseArrays!>java.util.HashMap<Int, String>()<!>
+fun jdk(): java.util.HashMap<Int, String> = <!UseSparseArrays!>java.util.HashMap<Int, String>()<!>

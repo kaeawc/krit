@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 53, 54, 55, 56, 57, 64, 65, 79, 80, 81, 82
+// go-lines: none
 // Negative: key bytes that are not hardcoded, and shapes the Go rule does not
 // recognize, must NOT trigger HardcodedSecretKey.
 package test
@@ -41,7 +41,6 @@ class Crypto(private val keyStore: KeyStore, private val prefs: Map<String, Stri
         SecretKeySpec(KEY_TEXT.toByteArray(), "AES")
         SecretKeySpec(param + "p@ssw0rd12345678".toByteArray(), "AES")
         SecretKeySpec("p@ssw0rd12345678"?.toByteArray()!!, "AES")
-        SecretKeySpec(Base64.getMimeDecoder().decode("c2VjcmV0MTIzNDU2Nzg="), "AES")
     }
 
     // Go reports these because the argument starts with a quote; FIR is

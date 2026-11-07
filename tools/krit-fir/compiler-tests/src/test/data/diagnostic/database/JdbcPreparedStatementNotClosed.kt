@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 22, 29, 37, 48, 55, 60, 65, 70, 76, 83, 89, 91, 93, 105, 112, 118, 121, 126
+// go-lines: 17, 22, 29, 37, 48, 55, 60, 66, 70, 76, 83, 89, 91, 93, 105, 112, 118, 121, 126
 // Positive: a property that makes a JDBC PreparedStatement with no later
 // `<name>.close()` or `<name>.use { }` in its scope. Each is reported on the
 // property's first line (its first annotation or modifier, else `val`/`var`),

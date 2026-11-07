@@ -15,7 +15,13 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirValueParameter
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -74,14 +80,19 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   parameters), `return@verify true`, `= (true)`, `return (true)`, and a
  *   backticked
  *   `` `verify` ``.
- * Lambdas (`HostnameVerifier { _, _ -> true }`) are not declarations, and Go
- * does not report them either.
+ *
+ * A SAM-constructor lambda, `HostnameVerifier { _, _ -> true }`, is reported on
+ * the call, as Go reports it: the call creates a `javax.net.ssl.HostnameVerifier`
+ * and its lambda body is the literal `true`.
  */
 internal object AllowAllHostnameVerifier :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "AllowAllHostnameVerifier"
     override val declarationCheckers = object : DeclarationCheckers() {
         override val namedFunctionCheckers = setOf(AllowAllHostnameVerifier)
+    }
+    override val expressionCheckers = object : ExpressionCheckers() {
+        override val functionCallCheckers = setOf(SamLambda)
     }
 
     private val verify = Name.identifier("verify")
@@ -109,6 +120,23 @@ internal object AllowAllHostnameVerifier :
         if (!isHostnameVerifier(owner, session)) return
         if (!alwaysReturnsTrue(body)) return
         report(firstLine(source), MESSAGE)
+    }
+
+    /** `HostnameVerifier { _, _ -> true }`: a SAM constructor call whose lambda always returns true. */
+    private object SamLambda : FirFunctionCallChecker(MppCheckerKind.Common) {
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        override fun check(expression: FirFunctionCall) {
+            val source = expression.source ?: return
+            if (source.kind !is KtRealSourceElementKind) return
+            val created = expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible()
+            if (created.classId != hostnameVerifier) return
+            if (expression.calleeReference.toResolvedCallableSymbol()?.name?.asString() != "HostnameVerifier") return
+            val lambda = (expression.argumentList.arguments.singleOrNull() as? FirAnonymousFunctionExpression)
+                ?.anonymousFunction ?: return
+            val body = lambda.body ?: return
+            if (!alwaysReturnsTrue(body)) return
+            report(source, MESSAGE)
+        }
     }
 
     private fun hasType(param: FirValueParameter, classId: ClassId, session: FirSession): Boolean =

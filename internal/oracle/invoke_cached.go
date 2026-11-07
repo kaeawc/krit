@@ -21,8 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/fileignore"
@@ -85,54 +88,89 @@ func CollectKtFiles(sourceDirs []string) ([]string, error) {
 }
 
 func collectKotlinSourceFiles(sourceDirs []string) ([]string, error) {
+	// Each root is walked independently: the walks run in parallel, each worker with its own ignore
+	// matchers (they cache parsed .gitignore files and are not safe to share), and the per-root lists
+	// are merged in root order so the result matches a serial walk.
+	perRoot := make([][]string, len(sourceDirs))
+	errs := make([]error, len(sourceDirs))
+	workers := min(runtime.GOMAXPROCS(0), len(sourceDirs))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range max(workers, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ignoreMatchers := make(map[string]*fileignore.Matcher)
+			for i := range next {
+				perRoot[i], errs[i] = walkKotlinRoot(sourceDirs[i], ignoreMatchers)
+			}
+		}()
+	}
+	for i := range sourceDirs {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+
 	var out []string
 	seen := map[string]bool{}
-	ignoreMatchers := make(map[string]*fileignore.Matcher)
-	for _, root := range sourceDirs {
-		rootInfo, statErr := os.Stat(root)
-		if statErr != nil {
-			return nil, statErr
+	for i := range sourceDirs {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
-		matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
-		walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil //nolint:nilerr // Walk callback skip-and-continue: per-entry error means skip this entry
+		for _, p := range perRoot[i] {
+			// The same file can be reached through a relative and an absolute root, for example a
+			// scanned path and a Gradle model root; key on the absolute path so it is listed once.
+			key := filepath.Clean(AbsolutePath(p))
+			if seen[key] {
+				continue
 			}
-			if info.IsDir() {
-				base := filepath.Base(p)
-				if fileignore.DefaultPrunedDir(base) || matcher.Ignored(p, true) {
-					return filepath.SkipDir
-				}
-				if base == "testData" || base == "test-resources" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			// Match the krit-fir JVM side: KtFile includes both .kt and
-			// .kts (Kotlin script — used by build-logic gradle files).
-			// Limiting Go-side collection to .kt only would cause the
-			// cache path to silently drop .kts files that the plain
-			// Invoke path would have analyzed.
-			name := info.Name()
-			if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
-				return nil
-			}
-			if matcher.Ignored(p, false) {
-				return nil
-			}
-			if excludedByDefault(p) {
-				return nil
-			}
-			if seen[p] {
-				return nil
-			}
-			seen[p] = true
+			seen[key] = true
 			out = append(out, p)
-			return nil
-		})
-		if walkErr != nil {
-			return nil, walkErr
 		}
+	}
+	return out, nil
+}
+
+// walkKotlinRoot returns the Kotlin source files under one root, in walk order.
+func walkKotlinRoot(root string, ignoreMatchers map[string]*fileignore.Matcher) ([]string, error) {
+	rootInfo, statErr := os.Stat(root)
+	if statErr != nil {
+		return nil, statErr
+	}
+	matcher := fileignore.MatcherForPath(root, rootInfo, ignoreMatchers)
+	var out []string
+	walkErr := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // Walk callback skip-and-continue: per-entry error means skip this entry
+		}
+		if info.IsDir() {
+			base := filepath.Base(p)
+			if fileignore.DefaultPrunedDir(base) || matcher.Ignored(p, true) {
+				return filepath.SkipDir
+			}
+			if base == "testData" || base == "test-resources" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Match the krit-fir JVM side: KtFile includes both .kt and
+		// .kts (Kotlin script — used by build-logic gradle files).
+		// Limiting Go-side collection to .kt only would cause the
+		// cache path to silently drop .kts files that the plain
+		// Invoke path would have analyzed.
+		name := info.Name()
+		if !strings.HasSuffix(name, ".kt") && !strings.HasSuffix(name, ".kts") {
+			return nil
+		}
+		if matcher.Ignored(p, false) || excludedByDefault(p) {
+			return nil
+		}
+		out = append(out, p)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
 	}
 	return out, nil
 }
@@ -346,15 +384,19 @@ func writeSkippedPoisonEntries(
 		reporter().Warnf("warning: oracle analyzed 0 of %d requested files; not caching skipped markers for %d unexplained files\n", len(misses), len(unexplained))
 		addOracleInstant(tracker, "skippedPoisonEntriesSuppressed", map[string]int64{"requested": int64(len(misses)), "unexplained": int64(len(unexplained))}, nil)
 	}
-	skipped := 0
+	var skipped atomic.Int64
 	_ = trackOracle(tracker, "writeSkippedPoisonEntries", func() error {
+		pending := make([]string, 0, len(misses))
 		for _, p := range misses {
-			if analyzed[p] || unexplained[p] {
-				continue
+			if !analyzed[p] && !unexplained[p] {
+				pending = append(pending, p)
 			}
+		}
+		// Each entry hashes one file and writes one store key, so workers do not share state.
+		forEachParallel(pending, func(p string) {
 			hash, herr := ContentHash(p)
 			if herr != nil {
-				continue
+				return
 			}
 			entry := &CacheEntry{
 				V:           CacheVersion,
@@ -367,21 +409,22 @@ func writeSkippedPoisonEntries(
 				Approximation:          depsFile.approximation(),
 				CompilationFingerprint: depsFile.compilationFingerprint(),
 			}
-			writeErr := func() error {
-				if s != nil {
-					return WriteEntryToStore(s, entry)
-				}
-				return WriteEntry(cacheDir, entry)
-			}()
-			if writeErr == nil {
-				skipped++
+			var writeErr error
+			if s != nil {
+				writeErr = WriteEntryToStore(s, entry)
+			} else {
+				writeErr = WriteEntry(cacheDir, entry)
 			}
-		}
+			if writeErr == nil {
+				skipped.Add(1)
+			}
+		})
 		return nil
 	})
-	addOracleInstant(tracker, "skippedPoisonEntriesWritten", map[string]int64{"entries": int64(skipped)}, nil)
-	if skipped > 0 && verbose {
-		reporter().Verbosef("verbose: wrote %d jar-skipped poison entries\n", skipped)
+	written := int(skipped.Load())
+	addOracleInstant(tracker, "skippedPoisonEntriesWritten", map[string]int64{"entries": int64(written)}, nil)
+	if written > 0 && verbose {
+		reporter().Verbosef("verbose: wrote %d jar-skipped poison entries\n", written)
 	}
 }
 
@@ -1127,4 +1170,31 @@ func pruneLegacyScopes(root, keepName string, limit int) {
 		}
 		_ = os.RemoveAll(filepath.Join(root, old.name))
 	}
+}
+
+// forEachParallel runs fn for every item on a bounded pool of workers and waits for all of them.
+func forEachParallel(items []string, fn func(string)) {
+	workers := min(runtime.GOMAXPROCS(0), len(items))
+	if workers <= 1 {
+		for _, item := range items {
+			fn(item)
+		}
+		return
+	}
+	var wg sync.WaitGroup
+	next := make(chan string)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range next {
+				fn(item)
+			}
+		}()
+	}
+	for _, item := range items {
+		next <- item
+	}
+	close(next)
+	wg.Wait()
 }

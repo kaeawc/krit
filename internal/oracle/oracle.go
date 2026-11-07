@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,6 +81,8 @@ type expressionRange struct {
 	resolved   bool
 	suspend    bool
 	ann        []string
+	// smartCastDecls are the files whose properties the smart cast behind typ relies on.
+	smartCastDecls []string
 }
 
 // Stats is a snapshot of Oracle lookup hit/miss counters.
@@ -108,6 +112,21 @@ func packLineCol(line, col int) uint64 {
 	return uint64(line)<<32 | uint64(col)
 }
 
+// parseExpressionKey parses an expression key: "line:col", or "line:col@endByte" for an
+// expression that starts where another recorded one starts. Only the byte-range
+// index may hold the second form, since its line:col belongs to the other expression.
+func parseExpressionKey(s string) (key uint64, sharedStart bool, ok bool) {
+	if at := strings.IndexByte(s, '@'); at >= 0 {
+		if _, err := strconv.Atoi(s[at+1:]); err != nil {
+			return 0, false, false
+		}
+		key, ok = parseLineCol(s[:at])
+		return key, true, ok
+	}
+	key, ok = parseLineCol(s)
+	return key, false, ok
+}
+
 // parseLineCol parses a "line:col" string (from the oracle JSON) into a
 // packed uint64 key. Returns false if the string is malformed or contains
 // negative numbers.
@@ -127,12 +146,40 @@ func parseLineCol(s string) (uint64, bool) {
 	return uint64(line)<<32 | uint64(col), true
 }
 
+// blobHashesOf hashes every file's facts. Each hash depends on one file only, so they run on all CPUs.
+func blobHashesOf(files map[string]*File) map[string]string {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	hashes := make([]string, len(paths))
+	workers := min(runtime.GOMAXPROCS(0), len(paths))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range max(workers, 1) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range next {
+				hashes[i] = BlobHash(files[paths[i]])
+			}
+		}()
+	}
+	for i := range paths {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	out := make(map[string]string, len(paths))
+	for i, path := range paths {
+		out[path] = hashes[i]
+	}
+	return out
+}
+
 // newOracleShell allocates an Oracle with all empty indexes wired to raw.
 func newOracleShell(raw *Data) *Oracle {
-	blobHashes := make(map[string]string, len(raw.Files))
-	for path, file := range raw.Files {
-		blobHashes[path] = BlobHash(file)
-	}
+	blobHashes := blobHashesOf(raw.Files)
 	return &Oracle{
 		raw:                   raw,
 		blobHashes:            blobHashes,
@@ -177,6 +224,16 @@ func (o *Oracle) fileKey(path string) string {
 	return abs
 }
 
+// HasFileFacts reports whether the compiler analyzed path, so a missing diagnostic for it means the
+// compiler found nothing to report.
+func (o *Oracle) HasFileFacts(path string) bool {
+	if o == nil {
+		return false
+	}
+	_, ok := o.blobHashes[o.fileKey(path)]
+	return ok
+}
+
 // BlobHash returns the canonical fact hash captured for path before the
 // Oracle releases its raw declaration/expression payloads after indexing.
 func (o *Oracle) BlobHash(path string) string {
@@ -201,22 +258,28 @@ func (o *Oracle) indexFileExpressions(path string, file *File) {
 	var ctaMap map[uint64][]string
 	var ranges []expressionRange
 	for pos, et := range file.Expressions {
-		key, ok := parseLineCol(pos)
+		key, sharedStart, ok := parseExpressionKey(pos)
 		if !ok {
 			continue
 		}
 		typ := makeResolvedType(et.Type, et.Nullable)
-		exprMap[key] = typ
+		if !sharedStart {
+			exprMap[key] = typ
+		}
 		if et.EndByte > et.StartByte {
 			ranges = append(ranges, expressionRange{
-				start:    et.StartByte,
-				end:      et.EndByte,
-				typ:      typ,
-				target:   et.CallTarget,
-				resolved: et.CallTargetResolved,
-				suspend:  et.CallTargetSuspend,
-				ann:      append([]string(nil), et.Annotations...),
+				start:          et.StartByte,
+				end:            et.EndByte,
+				typ:            typ,
+				target:         et.CallTarget,
+				resolved:       et.CallTargetResolved,
+				suspend:        et.CallTargetSuspend,
+				ann:            append([]string(nil), et.Annotations...),
+				smartCastDecls: append([]string(nil), et.SmartCastDecls...),
 			})
+		}
+		if sharedStart {
+			continue
 		}
 		if et.CallTarget != "" {
 			if ctMap == nil {
@@ -261,9 +324,16 @@ func (o *Oracle) indexFileExpressions(path string, file *File) {
 	}
 }
 
-// indexFiles indexes declarations and expressions for all source files.
+// indexFiles indexes declarations and expressions for all source files, in path order for the same
+// reason as indexDependencies.
 func (o *Oracle) indexFiles(files map[string]*File) {
-	for path, file := range files {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		file := files[path]
 		for _, cls := range file.Declarations {
 			if cls.FQN != "" {
 				o.indexClass(cls.FQN, cls)
@@ -300,9 +370,7 @@ func Load(path string) (*Oracle, error) {
 
 	o := newOracleShell(&raw)
 
-	for fqn, cls := range raw.Dependencies {
-		o.indexClass(fqn, cls)
-	}
+	o.indexDependencies(raw.Dependencies)
 
 	o.indexFiles(raw.Files)
 
@@ -327,9 +395,7 @@ func LoadFromData(raw *Data) (*Oracle, error) {
 
 	o := newOracleShell(raw)
 
-	for fqn, cls := range raw.Dependencies {
-		o.indexClass(fqn, cls)
-	}
+	o.indexDependencies(raw.Dependencies)
 
 	o.indexFiles(raw.Files)
 
@@ -338,6 +404,20 @@ func LoadFromData(raw *Data) (*Oracle, error) {
 	o.freeRawFileData()
 
 	return o, nil
+}
+
+// indexDependencies indexes classes in FQN order. Classes that share a simple name replace each
+// other in the simple-name index, so a fixed order keeps lookups by simple name the same on every
+// load.
+func (o *Oracle) indexDependencies(deps map[string]*Class) {
+	fqns := make([]string, 0, len(deps))
+	for fqn := range deps {
+		fqns = append(fqns, fqn)
+	}
+	sort.Strings(fqns)
+	for _, fqn := range fqns {
+		o.indexClass(fqn, deps[fqn])
+	}
 }
 
 func (o *Oracle) indexClass(fqn string, cls *Class) {
@@ -352,7 +432,12 @@ func (o *Oracle) indexClass(fqn string, cls *Class) {
 
 	// Track sealed variants
 	if !cls.IsSealed {
-		for _, st := range cls.Supertypes {
+		for _, raw := range cls.Supertypes {
+			// A supertype such as `Result<Nothing>` names the same parent as `Result<T>`, so key on the bare name.
+			st := stripTypeArguments(raw)
+			if containsString(o.sealedVariants[st], simpleName) {
+				continue
+			}
 			o.sealedVariants[st] = append(o.sealedVariants[st], simpleName)
 			if stSimple := simpleNameOf(st); stSimple != st {
 				o.sealedVariants[stSimple] = append(o.sealedVariants[stSimple], simpleName)
@@ -460,7 +545,24 @@ func (o *Oracle) LookupClass(name string) *typeinfer.ClassInfo {
 
 // LookupSealedVariants returns known sealed variants.
 func (o *Oracle) LookupSealedVariants(name string) []string {
-	return o.sealedVariants[name]
+	return o.sealedVariants[stripTypeArguments(name)]
+}
+
+// stripTypeArguments removes a trailing `<...>` argument list from a type name.
+func stripTypeArguments(name string) string {
+	if i := strings.IndexByte(name, '<'); i > 0 {
+		return name[:i]
+	}
+	return name
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // LookupEnumEntries returns known enum entries.
@@ -590,7 +692,22 @@ func (o *Oracle) LookupExpressionFlat(file *scanner.File, idx uint32) *typeinfer
 		o.exprHits.Add(1)
 		return fact.typ
 	}
+	// With byte ranges, a missing fact means the compiler recorded nothing for this node. The line:col
+	// key would return the fact of a different expression that starts at the same position, such as the
+	// call `x.orEmpty()` for its receiver `x`.
+	if len(o.expressionRanges[o.fileKey(file.Path)]) > 0 {
+		return nil
+	}
 	return o.LookupExpression(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
+// LookupExpressionSmartCastDeclsFlat returns the files declaring the properties
+// a stable smart cast behind LookupExpressionFlat's type relies on.
+func (o *Oracle) LookupExpressionSmartCastDeclsFlat(file *scanner.File, idx uint32) []string {
+	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.typ != nil {
+		return fact.smartCastDecls
+	}
+	return nil
 }
 
 // LookupAnnotations returns annotation FQNs for a class or member key
@@ -616,8 +733,13 @@ func (o *Oracle) LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32)
 	if file == nil {
 		return nil
 	}
-	if fact := o.lookupRangeFact(file, idx); fact != nil && len(fact.ann) > 0 {
-		return append([]string(nil), fact.ann...)
+	if fact := o.lookupRangeFact(file, idx); fact != nil {
+		if len(fact.ann) > 0 {
+			return append([]string(nil), fact.ann...)
+		}
+		if fact.spans(file, idx) {
+			return nil
+		}
 	}
 	return o.LookupCallTargetAnnotations(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
@@ -638,8 +760,13 @@ func (o *Oracle) LookupCallTargetFlat(file *scanner.File, idx uint32) string {
 	if file == nil {
 		return ""
 	}
-	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.target != "" {
-		return fact.target
+	if fact := o.lookupRangeFact(file, idx); fact != nil {
+		if fact.target != "" {
+			return fact.target
+		}
+		if fact.spans(file, idx) {
+			return ""
+		}
 	}
 	return o.LookupCallTarget(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
@@ -663,10 +790,21 @@ func (o *Oracle) LookupCallTargetSuspendFlat(file *scanner.File, idx uint32) (bo
 	if file == nil {
 		return false, false
 	}
-	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.resolved {
-		return fact.suspend, true
+	if fact := o.lookupRangeFact(file, idx); fact != nil {
+		if fact.resolved {
+			return fact.suspend, true
+		}
+		if fact.spans(file, idx) {
+			return false, false
+		}
 	}
 	return o.LookupCallTargetSuspend(file.Path, file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+}
+
+// spans reports whether the fact covers exactly the node. The line:col fallback must not answer
+// for such a node: its key can hold another expression starting at the same position.
+func (r *expressionRange) spans(file *scanner.File, idx uint32) bool {
+	return r.start == int(file.FlatStartByte(idx)) && r.end == int(file.FlatEndByte(idx))
 }
 
 func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRange {
@@ -692,6 +830,11 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 		if r.start == start && r.end == end {
 			return r
 		}
+		// A fact for a part of the node speaks for the node only when the rest is a wrapper such as
+		// `!!`, `?` or parentheses. A call argument or index key is a different expression.
+		if !onlyWrapperBytes(file.Content, start, r.start) || !onlyWrapperBytes(file.Content, r.end, end) {
+			continue
+		}
 		// Prefer the LARGEST contained fact — the sub-expression closest to
 		// the whole queried node. The smallest contained fact is an inner
 		// token (a call argument, an index key, a cast source) whose type is
@@ -706,6 +849,22 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 		}
 	}
 	return best
+}
+
+// onlyWrapperBytes reports whether content[from:to] holds only whitespace, parentheses and the `!`/`?`
+// postfix markers.
+func onlyWrapperBytes(content []byte, from, to int) bool {
+	if from < 0 || to > len(content) || from > to {
+		return false
+	}
+	for _, b := range content[from:to] {
+		switch b {
+		case ' ', '\t', '\n', '\r', '(', ')', '!', '?':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // LookupDiagnostics returns compiler diagnostics for a source file.

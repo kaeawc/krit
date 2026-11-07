@@ -93,7 +93,19 @@ data class ExpressionPayload(
     val callTargetResolved: Boolean = false,
     val callTargetSuspend: Boolean = false,
     val annotations: List<String> = emptyList(),
+    /** Other source files declaring the properties a stable smart cast behind this type relies on. */
+    val smartCastDeclarations: List<String> = emptyList(),
 )
+
+/** True iff both payloads span the same byte range. */
+internal fun ExpressionPayload.sameRange(other: ExpressionPayload): Boolean =
+    startByte == other.startByte && endByte == other.endByte
+
+/**
+ * Key of an expression that starts where another recorded expression starts but ends at [endByte]:
+ * "line:col@endByte". The Go side reads it through the byte-range index only.
+ */
+internal fun rangeKey(key: String, endByte: Int): String = "$key@$endByte"
 
 /**
  * Compiler diagnostic surfaced through the analyze envelope. Field
@@ -102,6 +114,12 @@ data class ExpressionPayload(
  * `startByte` / `endByte` are 0-based UTF-8 byte offsets and are
  * emitted only when they describe a real range (`endByte > startByte`);
  * omitted otherwise to keep the wire payload minimal.
+ *
+ * `smartCastDeclarations` lists the other source files declaring the
+ * properties a smart cast behind a smart-cast-dependent verdict relies on.
+ * The oracle compiles every module as one, so such a smart cast is stable
+ * here even when a per-module build rejects it; the caller drops the
+ * verdict when one of those files belongs to another, non-friend module.
  */
 data class DiagnosticPayload(
     val factoryName: String,
@@ -111,6 +129,7 @@ data class DiagnosticPayload(
     val col: Int = 1,
     val startByte: Int = 0,
     val endByte: Int = 0,
+    val smartCastDeclarations: List<String> = emptyList(),
 )
 
 /**

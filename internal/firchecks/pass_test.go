@@ -293,6 +293,19 @@ func TestPassTargetsNeverChecksModelGeneratedSources(t *testing.T) {
 	}
 }
 
+func TestPassTargetsNeverChecksDocumentationSamples(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sample := filepath.Join(root, "docs", "references", "examples", "Sample.kt")
+	real := filepath.Join(root, "app", "src", "main", "kotlin", "Real.kt")
+	set := passTargets([]*scanner.File{{Path: sample, Content: []byte("x")}}, []string{sample, real}, true)
+	if len(set.paths) != 1 || set.paths[0] != real {
+		t.Fatalf("paths = %v, want only the module source", set.paths)
+	}
+}
+
 func TestRunPassDoesNotReportGeneratedSourceFinding(t *testing.T) {
 	p := newVerdictProject(t, map[string]string{
 		"src/main/kotlin/App.kt":               "class App\n",

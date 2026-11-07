@@ -13,9 +13,9 @@ import java.util.concurrent.*
 fun <T> build(): MutableList<T> = mutableListOf()
 
 class StarImport {
-    <!DoubleMutabilityForCollection!>var<!> list: MutableList<String> = build()
+    <!DoubleMutabilityForCollection!>private<!> var list: MutableList<String> = build()
 
-    <!DoubleMutabilityForCollection!>var<!> arrayList: ArrayList<String> = ArrayList()
+    <!DoubleMutabilityForCollection!>private<!> var arrayList: ArrayList<String> = ArrayList()
 
     val executor: Executor? = null
 }

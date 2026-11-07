@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 14, 17, 21, 22, 23, 24, 30, 38, 45, 54, 64, 72, 78, 79, 83, 87, 93, 98, 102, 107, 111
+// go-lines: 12, 14, 17, 21, 22, 23, 24, 30, 38, 45, 54, 64, 72, 78, 79, 83, 89, 94, 98, 102, 107, 111
 package test
 
 import android.content.Context

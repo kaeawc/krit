@@ -307,6 +307,10 @@ object OracleResponse {
                 sb.append(""","annotations":""")
                 appendStringList(sb, expr.annotations)
             }
+            if (expr.smartCastDeclarations.isNotEmpty()) {
+                sb.append(""","smartCastDecls":""")
+                appendStringList(sb, expr.smartCastDeclarations)
+            }
             sb.append("}")
         }
         sb.append("}")
@@ -331,6 +335,10 @@ object OracleResponse {
                 sb.append(d.startByte)
                 sb.append(""","endByte":""")
                 sb.append(d.endByte)
+            }
+            if (d.smartCastDeclarations.isNotEmpty()) {
+                sb.append(""","smartCastDecls":""")
+                appendStringList(sb, d.smartCastDeclarations)
             }
             sb.append("}")
         }

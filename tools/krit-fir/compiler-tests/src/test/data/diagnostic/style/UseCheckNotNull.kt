@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 8, 12, 16, 20, 26, 30, 34, 38, 44, 49, 56, 62, 69, 75, 78
+// go-lines: 8, 12, 16, 20, 26, 30, 34, 39, 44, 49, 56, 62, 69, 75, 78
 // Positives: kotlin.check called with a single `!=` null comparison of a
 // nullable value, with or without a trailing lazy-message lambda.
 package test

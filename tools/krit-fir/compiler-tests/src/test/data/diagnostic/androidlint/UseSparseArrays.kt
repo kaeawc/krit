@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 27, 31, 35, 38
+// go-lines: 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26, 28, 32, 36, 39
 // Positives: a java.util.HashMap constructor call with an Int, Integer, or Long
 // key, however HashMap is spelled and whatever the constructor arguments. Go
-// reports each of these too.
+// reports each of these too. A map that escapes as a Map is not reported; see
+// UseSparseArraysEscapes.kt.
 package test
 
 class Cache {
@@ -22,18 +23,18 @@ class Cache {
     val boxedLongKey = <!UseSparseArrays!>HashMap<java.lang.Long, String>()<!>
 }
 
-fun <T> generic(): MutableMap<Int, T> = <!UseSparseArrays!>HashMap<Int, T>()<!>
+fun <T> generic(): HashMap<Int, T> = <!UseSparseArrays!>HashMap<Int, T>()<!>
 
-fun chained(): Map<Int, String> = <!UseSparseArrays!>HashMap<Int, String>()<!>.apply { put(1, "a") }
+fun chained(): HashMap<Int, String> = <!UseSparseArrays!>HashMap<Int, String>()<!>.apply { put(1, "a") }
 
-fun multiline(): Map<Int, String> {
+fun multiline() {
     val map =
         <!UseSparseArrays!>HashMap<Int, String>()<!>
-    return map
+    map[1] = "a"
 }
 
-fun inLambda(): () -> Map<Int, String> = { <!UseSparseArrays!>HashMap<Int, String>()<!> }
+fun inLambda(): () -> HashMap<Int, String> = { <!UseSparseArrays!>HashMap<Int, String>()<!> }
 
 val anonymous = object {
-    fun make(): Map<Long, Int> = <!UseSparseArrays!>HashMap<Long, Int>()<!>
+    fun make(): HashMap<Long, Int> = <!UseSparseArrays!>HashMap<Long, Int>()<!>
 }

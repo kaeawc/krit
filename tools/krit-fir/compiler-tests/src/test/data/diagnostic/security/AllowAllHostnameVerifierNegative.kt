@@ -60,5 +60,15 @@ class NotAVerifier {
 // A top-level verify is not a member of any verifier.
 fun verify(hostname: String, session: SSLSession): Boolean = true
 
-// A lambda verifier is not a declaration; Go does not report it either.
-val lambdaVerifier = HostnameVerifier { _, _ -> true }
+// A lambda that validates the host is not an always-true verifier.
+val validatingLambda = HostnameVerifier { host, _ -> host == "example.com" }
+
+// The anonymous object's verify is not HostnameVerifier.verify, because the
+// object is not a verifier; both Go and FIR skip it.
+class AnonymousHelper : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean = hostname == session.peerHost
+
+    val probe = object {
+        fun verify(first: String, second: String): Boolean = true
+    }
+}

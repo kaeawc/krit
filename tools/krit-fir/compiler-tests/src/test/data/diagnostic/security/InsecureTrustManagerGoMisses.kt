@@ -31,7 +31,7 @@ class PartlyDelegated(delegate: X509TrustManager) : X509TrustManager by delegate
 // Go skips this class too, for its `by lazy` property.
 class LazyIssuers : X509TrustManager {
     private val issuers by lazy { emptyArray<X509Certificate>() }
-    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         throw CertificateException("no servers")
     }
@@ -41,7 +41,7 @@ class LazyIssuers : X509TrustManager {
 // Go needs the word TrustManager or X509TrustManager in the class text; an
 // import alias, a type alias, and X509ExtendedTrustManager do not have it.
 class Aliased : Tm {
-    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         throw CertificateException("no servers")
     }
@@ -49,7 +49,7 @@ class Aliased : Tm {
 }
 
 class TypeAliased : CertTrust {
-    <!InsecureTrustManager!>override<!> fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
+    override fun checkClientTrusted(chain: Array<X509Certificate>?, authType: String?) {}
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         throw CertificateException("no servers")
     }

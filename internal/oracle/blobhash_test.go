@@ -79,3 +79,15 @@ func TestBlobHash_SchemaVersionChangesHash(t *testing.T) {
 		t.Fatalf("schema version bump did not change BlobHash: %q", current)
 	}
 }
+
+func TestBlobHash_SmartCastDeclarationsChangeOnlyTheirDiagnostic(t *testing.T) {
+	plain := &File{Diagnostics: []*Diagnostic{{FactoryName: "UNNECESSARY_SAFE_CALL", Line: 2, Col: 5}}}
+	tagged := &File{Diagnostics: []*Diagnostic{{FactoryName: "UNNECESSARY_SAFE_CALL", Line: 2, Col: 5, SmartCastDecls: []string{"/b/Model.kt"}}}}
+	empty := &File{Diagnostics: []*Diagnostic{{FactoryName: "UNNECESSARY_SAFE_CALL", Line: 2, Col: 5, SmartCastDecls: []string{}}}}
+	if BlobHash(plain) == BlobHash(tagged) {
+		t.Fatal("a diagnostic's smart-cast declarations must be part of the hash")
+	}
+	if BlobHash(plain) != BlobHash(empty) {
+		t.Fatal("no smart-cast declarations must hash as before")
+	}
+}

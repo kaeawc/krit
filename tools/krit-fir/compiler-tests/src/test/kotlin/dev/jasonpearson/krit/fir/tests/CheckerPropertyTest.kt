@@ -47,7 +47,9 @@ class CheckerPropertyTest {
                             name,
                             """
                             package cp_${capture}_$keyed
+                            import androidx.compose.runtime.Composable
                             import androidx.compose.runtime.remember
+                            @Composable
                             fun Screen(seed: Int) {
                                 val v = $call
                                 use(v)
@@ -130,7 +132,7 @@ class CheckerPropertyTest {
             for (o in owners) {
                 for (d in dispatchers) {
                     val name = "inj_${o.key}_$d.kt"
-                    val shouldFlag = o.flagged && d != "Main"
+                    val shouldFlag = o.flagged && d != "Main" && d != "Unconfined"
                     add(
                         Case(
                             name,
@@ -214,8 +216,8 @@ class CheckerPropertyTest {
         val pairs = listOf(
             Pair3(
                 "compose_addKey", "ComposeRememberWithoutKey",
-                "package mm1\nimport androidx.compose.runtime.remember\nfun S(seed: Int) { val v = remember { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
-                "package mm1\nimport androidx.compose.runtime.remember\nfun S(seed: Int) { val v = remember(seed) { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
+                "package mm1\nimport androidx.compose.runtime.Composable\nimport androidx.compose.runtime.remember\n@Composable\nfun S(seed: Int) { val v = remember { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
+                "package mm1\nimport androidx.compose.runtime.Composable\nimport androidx.compose.runtime.remember\n@Composable\nfun S(seed: Int) { val v = remember(seed) { seed + 1 }; use(v) }\nfun use(x: Any?) {}",
             ),
             Pair3(
                 "flow_wrapRepeatOnLifecycle", "CollectInOnCreateWithoutLifecycle",

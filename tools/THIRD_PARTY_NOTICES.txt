@@ -3,9 +3,9 @@ the Apache License 2.0 in its published Maven POM; kotlin-compiler also
 repackages third-party libraries under that declaration.
 
 krit-fir.jar:
-- org.jetbrains.kotlin:kotlin-stdlib:2.3.21
-- org.jetbrains.kotlin:kotlin-compiler:2.3.21
-- org.jetbrains.kotlin:kotlin-script-runtime:2.3.21
+- org.jetbrains.kotlin:kotlin-stdlib:2.4.21
+- org.jetbrains.kotlin:kotlin-compiler:2.4.21
+- org.jetbrains.kotlin:kotlin-script-runtime:2.4.21
 - org.jetbrains.kotlin:kotlin-reflect:1.6.10
 - org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0
 - org.jetbrains:annotations:23.0.0

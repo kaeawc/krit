@@ -23,7 +23,10 @@ import kotlin.test.assertTrue
  * compile gives, `cacheDeps` included (Go's oracle cache invalidates on those edges).
  */
 class SharedOracleIncrementalTest {
-    @TempDir lateinit var tmp: Path
+    @TempDir lateinit var tempRoot: Path
+
+    // Canonical, because the compiler reports real paths (/tmp and /var are symlinks on macOS).
+    private val tmp: Path get() = tempRoot.toRealPath()
 
     private val src get() = tmp.resolve("src").toFile()
     private val snaps get() = tmp.resolve("snapshots").toFile()

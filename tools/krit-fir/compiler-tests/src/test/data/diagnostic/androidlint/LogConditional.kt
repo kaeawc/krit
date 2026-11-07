@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 120, 140, 143, 146, 149, 152, 153, 157, 163, 173, 174, 176, 179, 185, 190, 211, 214
+// go-lines: 14, 17, 20, 24, 25, 26, 27, 28, 29, 30, 31, 33, 45, 52, 58, 64, 126, 146, 149, 152, 155, 158, 159, 163, 169, 179, 180, 182, 185, 191, 196, 217, 220
 package test.logconditional
 
 import android.util.Log
@@ -98,6 +98,12 @@ fun isLoggableAnywhereInTheIf(verbose: Boolean) {
 }
 
 fun buildConfigGuards(verbose: Boolean) {
+    if (BuildConfig.DEBUG && verbose) {
+        Log.d(TAG, "a conjunct of the condition is the flag")
+    }
+    if (verbose && (BuildConfig.DEBUG)) {
+        Log.d(TAG, "parenthesized conjunct")
+    }
     if (BuildConfig.DEBUG) Log.d(TAG, "guarded")
     if ((BuildConfig.DEBUG)) {
         Log.d(TAG, "parenthesized guard")
@@ -142,8 +148,8 @@ fun notGuards(verbose: Boolean, level: Int) {
     if (!BuildConfig.DEBUG) {
         <!LogConditional!>Log.d(TAG, "negated")<!>
     }
-    if (BuildConfig.DEBUG && verbose) {
-        <!LogConditional!>Log.d(TAG, "combined condition")<!>
+    if (BuildConfig.DEBUG || verbose) {
+        <!LogConditional!>Log.d(TAG, "disjunction with the flag")<!>
     }
     if (BuildConfig.DEBUG == true) {
         <!LogConditional!>Log.d(TAG, "comparison")<!>

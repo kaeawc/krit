@@ -110,4 +110,45 @@ class UnreachableCatchBlockTest {
         """.trimIndent()
         assertEquals(mapOf(11 to 1), countsByLine(source))
     }
+
+    // kotlin.coroutines.cancellation.CancellationException is a typealias of
+    // java.util.concurrent.CancellationException, which extends
+    // IllegalStateException. The alias must expand to that class: the later
+    // CancellationException clause is shadowed, the reverse order is not, and
+    // an unrelated supertype does not shadow it.
+    @Test
+    fun cancellationExceptionAliasIsAnIllegalStateException() {
+        val source = """
+            package aliases
+
+            import java.io.IOException
+            import java.net.SocketTimeoutException
+            import java.time.DateTimeException
+            import java.time.zone.ZoneRulesException
+            import kotlin.coroutines.cancellation.CancellationException
+
+            fun r() {}
+
+            fun shadowed() {
+                try { r() } catch (e: IllegalStateException) { } catch (e: CancellationException) { }
+            }
+
+            fun reached() {
+                try { r() } catch (e: CancellationException) { } catch (e: IllegalStateException) { }
+            }
+
+            fun unrelated() {
+                try { r() } catch (e: IllegalArgumentException) { } catch (e: CancellationException) { }
+            }
+
+            fun io() {
+                try { r() } catch (e: IOException) { } catch (e: SocketTimeoutException) { }
+            }
+
+            fun time() {
+                try { r() } catch (e: DateTimeException) { } catch (e: ZoneRulesException) { }
+            }
+        """.trimIndent()
+        assertEquals(mapOf(12 to 1, 24 to 1, 28 to 1), countsByLine(source))
+    }
 }

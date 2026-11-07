@@ -119,7 +119,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         override val functionCallCheckers = setOf(ShowToast)
     }
 
-    private const val MESSAGE = "Toast.makeText() called without .show(). The toast will not be displayed."
+    private const val MESSAGE = "Toast created but not shown: did you forget to call `show()`?"
     private const val FLOW_BUDGET = 4
 
     private val toastClassId = ClassId(FqName("android.widget"), Name.identifier("Toast"))

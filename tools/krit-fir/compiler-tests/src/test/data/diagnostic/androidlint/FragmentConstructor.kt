@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 19, 24, 26, 28, 30, 33, 35, 37, 39, 41, 45, 47, 49, 52, 59, 65, 67, 71
+// go-lines: 17, 19, 24, 26, 28, 30, 33, 35, 37, 39, 42, 45, 47, 49, 52, 59, 65, 67, 71
 // Fragment subclasses with a parameterized constructor and no no-arg
 // constructor, the shapes Go reports: the finding sits on the declaration's
 // first line (its modifier list, else `class`), like Go.
@@ -38,8 +38,8 @@ import javax.inject.Inject
 
 <!FragmentConstructor!>internal<!> class Internal(val a: Int) : Fragment()
 
-<!FragmentConstructor!>@AndroidEntryPoint<!>
-class Injected @Inject constructor(private val dep: String) : Fragment()
+// A constructor annotation other than the DI ones does not excuse the class.
+<!FragmentConstructor!>class<!> OtherAnnotated @Deprecated("old") constructor(private val dep: String) : Fragment()
 
 /** KDoc is not part of the declaration's first line, in Go or here. */
 <!FragmentConstructor!>class<!> Documented(val a: Int) : Fragment()
@@ -73,6 +73,24 @@ fun local(): Fragment {
 }
 
 // --- Negatives ---
+
+// DI-annotated constructors: a custom FragmentFactory builds the class.
+@AndroidEntryPoint
+class Injected @Inject constructor(private val dep: String) : Fragment()
+
+annotation class AssistedInject
+
+class AssistedPrimary @AssistedInject constructor(private val dep: String) : Fragment()
+
+class InjectedSecondary : Fragment {
+    @Inject constructor(dep: String) : super()
+}
+
+class AssistedSecondary(val a: Int) : Fragment() {
+    @AssistedInject constructor(a: Int, b: Int) : this(a + b)
+}
+
+class QualifiedInject @javax.inject.Inject constructor(private val dep: String) : Fragment()
 
 class NoConstructor : Fragment()
 

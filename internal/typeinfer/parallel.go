@@ -25,6 +25,8 @@ type FileTypeInfo struct {
 	TypeAliases map[string]*ResolvedType // alias name or FQN → target type
 	Functions   map[string]*ResolvedType // function name → return type
 	Extensions  []*ExtensionFuncInfo     // extension functions
+	// SuspendFunctions lists the sorted names of functions declared `suspend` in the file.
+	SuspendFunctions []string
 }
 
 // IndexFileParallel extracts type info from a single file without
@@ -95,7 +97,27 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		TypeAliases: tmp.typeAliases,
 		Functions:   tmp.functions,
 		Extensions:  tmp.extensions,
+
+		SuspendFunctions: suspendFunctionNamesFlat(file),
 	}
+}
+
+// suspendFunctionNamesFlat returns the sorted names of functions declared `suspend` in the file.
+func suspendFunctionNamesFlat(file *scanner.File) []string {
+	seen := make(map[string]bool)
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if !file.FlatHasModifier(fn, "suspend") {
+			return
+		}
+		name := flatMemberName(file, fn)
+		if name == "" {
+			name = flatFindIdentifier(file, fn)
+		}
+		if name != "" {
+			seen[name] = true
+		}
+	})
+	return sortedKeys(seen)
 }
 
 // IndexFilesParallel indexes all files in parallel and merges results
@@ -247,7 +269,19 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 		}
 
 		r.extensions = append(r.extensions, fi.Extensions...)
+
+		for _, name := range fi.SuspendFunctions {
+			if r.suspendFuncs == nil {
+				r.suspendFuncs = make(map[string]bool)
+			}
+			r.suspendFuncs[name] = true
+		}
 	}
+}
+
+// DeclaresSuspendFunction reports whether any indexed source file declares a function with this name as `suspend`.
+func (r *defaultResolver) DeclaresSuspendFunction(name string) bool {
+	return r.suspendFuncs[name]
 }
 
 // sortClassInfos / orderedClassInfos / sortedKeys helpers keep the

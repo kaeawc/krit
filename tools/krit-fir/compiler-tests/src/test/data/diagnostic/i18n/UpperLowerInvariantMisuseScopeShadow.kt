@@ -13,25 +13,27 @@ package ulimscopeshadow
 class Member {
     fun String.uppercase(): String = this
 
-    fun use(s: String): String = s.uppercase()
+    fun use(s: String): String = Text(s.uppercase())
 }
 
 // Outside the class the member extension is not in scope, so the call is the
 // stdlib conversion again.
-fun outsideMember(s: String): String = <!UpperLowerInvariantMisuse!>s.uppercase()<!>
+fun outsideMember(s: String): String = Text(<!UpperLowerInvariantMisuse!>s.uppercase()<!>)
 
 // Go reports `s.lowercase()` here; it resolves to the local extension.
 fun localExtension(s: String): String {
     fun String.lowercase(): String = this
-    return s.lowercase()
+    return Text(s.lowercase())
 }
 
 // Go reports `s.uppercase()` here; it is an implicit invoke() of the local
 // function-typed value, not a call of kotlin.text.uppercase.
 fun localFunctionValue(s: String): String {
     val uppercase: String.() -> String = { this }
-    return s.uppercase()
+    return Text(s.uppercase())
 }
 
 // After the local scope ends, the stdlib conversion is reported again.
-fun afterLocal(s: String): String = <!UpperLowerInvariantMisuse!>s.lowercase()<!>
+fun afterLocal(s: String): String = Text(<!UpperLowerInvariantMisuse!>s.lowercase()<!>)
+
+fun Text(text: String?): String = text.orEmpty()

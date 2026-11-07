@@ -22,7 +22,10 @@ const (
 	// decode genuine type evidence as unresolved via the bool zero value.
 	// Bumped to 4 when scopes gained declaration and smart-cast start offsets.
 	// Bumped to 5 when reattached top-level annotations moved declaration starts.
-	typeIndexCacheVersion = 5
+	// Bumped to 6 when file info gained SuspendFunctions.
+	// Bumped to 8 when companion object, object literal and enum bodies gained their own scopes.
+	// Bumped to 9 when smart casts stopped leaking onto the root scope from files with several top-level declarations.
+	typeIndexCacheVersion = 9
 )
 
 var (
@@ -81,6 +84,8 @@ type packedFileTypeInfo struct {
 	TypeAliases map[string]*ResolvedType
 	Functions   map[string]*ResolvedType
 	Extensions  []*ExtensionFuncInfo
+
+	SuspendFunctions []string
 }
 
 type packedScope struct {
@@ -109,6 +114,8 @@ func packFileTypeInfo(info *FileTypeInfo) packedFileTypeInfo {
 		TypeAliases: info.TypeAliases,
 		Functions:   info.Functions,
 		Extensions:  info.Extensions,
+
+		SuspendFunctions: info.SuspendFunctions,
 	}
 }
 
@@ -146,6 +153,8 @@ func unpackFileTypeInfo(p packedFileTypeInfo) (*FileTypeInfo, bool) {
 		TypeAliases: p.TypeAliases,
 		Functions:   p.Functions,
 		Extensions:  p.Extensions,
+
+		SuspendFunctions: p.SuspendFunctions,
 	}, true
 }
 
@@ -196,6 +205,10 @@ func loadFileTypeInfoCached(cacheDir string, file *scanner.File) (*FileTypeInfo,
 		typeIndexMisses.Add(1)
 		return nil, false
 	}
+	if err := cacheutil.ResetOnBuildChange(cacheDir); err != nil {
+		typeIndexMisses.Add(1)
+		return nil, false
+	}
 	key := typeIndexCacheKey(file)
 	path := typeIndexCachePath(cacheDir, key)
 	f, err := os.Open(path)
@@ -225,6 +238,10 @@ func loadFileTypeInfoCached(cacheDir string, file *scanner.File) (*FileTypeInfo,
 func saveFileTypeInfoCached(cacheDir string, file *scanner.File, info *FileTypeInfo) error {
 	if cacheDir == "" || file == nil || info == nil {
 		return nil
+	}
+	// Entries come from krit's own type inference, so another build's entries are stale.
+	if err := cacheutil.ResetOnBuildChange(cacheDir); err != nil {
+		return fmt.Errorf("reset type-index cache: %w", err)
 	}
 	key := typeIndexCacheKey(file)
 	path := typeIndexCachePath(cacheDir, key)

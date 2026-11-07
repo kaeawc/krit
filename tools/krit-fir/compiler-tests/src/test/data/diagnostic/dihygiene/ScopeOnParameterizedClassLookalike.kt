@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 20, 27
+// go-lines: 15, 20, 27, 32
 // Local lookalikes: annotations in this package named like DI scopes but not
 // meta-annotated as scopes, so no DI framework treats them as one.
 package test

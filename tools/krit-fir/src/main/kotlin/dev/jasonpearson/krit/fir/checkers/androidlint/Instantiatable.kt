@@ -34,7 +34,7 @@ import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go Instantiatable rule: an Android component class (an
- * Activity, Service, BroadcastReceiver, ContentProvider, or Application) that
+ * Activity, Service, ContentProvider, or Application) that
  * the framework cannot instantiate because the class is `private` or its
  * primary constructor is `private`. Like Go, only class-like declarations are
  * visited (classes at any nesting, including local classes and members of
@@ -45,8 +45,9 @@ import org.jetbrains.kotlin.name.Name
  *
  * The component proof is the class's superclass closure: one of
  * `android.app.Activity`, `android.app.Service`,
- * `android.content.BroadcastReceiver`, `android.content.ContentProvider`, or
- * `android.app.Application`. Every name in Go's list (`AppCompatActivity`,
+ * `android.content.ContentProvider`, or `android.app.Application`. A
+ * BroadcastReceiver is not one: a receiver registered at runtime is created by
+ * app code, so it may be private. Every name in Go's list (`AppCompatActivity`,
  * `ComponentActivity`, `FragmentActivity`, `IntentService`, ...) extends one
  * of them.
  *
@@ -88,7 +89,6 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
         ClassId(FqName("android.app"), Name.identifier("Activity")),
         ClassId(FqName("android.app"), Name.identifier("Service")),
         ClassId(FqName("android.app"), Name.identifier("Application")),
-        ClassId(FqName("android.content"), Name.identifier("BroadcastReceiver")),
         ClassId(FqName("android.content"), Name.identifier("ContentProvider")),
     )
 

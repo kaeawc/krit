@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.types.isMarkedNullable
@@ -37,6 +38,18 @@ internal object OracleQualifiedAccessChecker :
     @OptIn(SymbolInternals::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirQualifiedAccessExpression) {
+        val collector = OracleCollectorRegistry.current() ?: return
+        val source = expression.source ?: return
+        val filePath = context.containingFileSymbol?.fir?.sourceFile?.path ?: return
+        val offsets = collector.offsetsFor(filePath) ?: return
+
+        // A member looked up on an unresolved receiver binds to any declaration of that name, so the compiler's
+        // choice of callee (and whether it is deprecated) describes the wrong declaration.
+        val viaError = ErrorInvolvement.calleeResolvedThroughError(expression)
+        if (viaError) {
+            expression.calleeReference.source?.let { collector.addErrorTaintedCallee(filePath, it.startOffset, it.endOffset) }
+        }
+
         // FirFunctionCall is a subtype of FirQualifiedAccessExpression
         // in FIR. OracleExpressionChecker already handles the call
         // case with full callTarget / suspend / annotations metadata,
@@ -44,28 +57,32 @@ internal object OracleQualifiedAccessChecker :
         // for non-call qualified accesses.
         if (expression is FirFunctionCall) return
 
-        val collector = OracleCollectorRegistry.current() ?: return
-        val source = expression.source ?: return
-        val filePath = context.containingFileSymbol?.fir?.sourceFile?.path ?: return
-        val offsets = collector.offsetsFor(filePath) ?: return
-
         val startOffset = source.startOffset
         val (line, col) = offsets.lineColAt(startOffset)
         val key = "$line:$col"
-        if (collector.hasExpression(filePath, key)) return
+        // A local whose inferred type came from a smart cast carries that smart cast's stability needs.
+        if (expression is FirPropertyAccessExpression) {
+            val files = OracleSmartCastChecker.localInitializerDeclarations(expression, context.session, collector) - filePath
+            if (files.isNotEmpty()) collector.addSmartCastDeclarations(filePath, startOffset, source.endOffset, files)
+        }
+        val startByte = offsets.byteOffsetAt(startOffset)
+        val endByte = offsets.byteOffsetAt(source.endOffset)
+        // An access of a chain such as `a.b.c()` shares its start with the call and with its receiver. Recording it
+        // under its own byte range keeps the property type from being lost to a same-start expression.
+        if (collector.hasExpressionRange(filePath, key, startByte, endByte)) return
 
         val resolvedType = runCatching { expression.resolvedType }.getOrNull() ?: return
-        val typeFqn = resolvedType.renderFqn()
+        val typeFqn = if (viaError) "<error>" else resolvedType.renderFqn()
         if (typeFqn.isBlank()) return
 
-        collector.addExpression(
+        collector.addCallExpression(
             filePath,
             key,
             ExpressionPayload(
                 type = typeFqn,
-                nullable = resolvedType.isMarkedNullable,
-                startByte = offsets.byteOffsetAt(startOffset),
-                endByte = offsets.byteOffsetAt(source.endOffset),
+                nullable = !viaError && resolvedType.isMarkedNullable,
+                startByte = startByte,
+                endByte = endByte,
                 callTarget = null,
                 callTargetResolved = false,
                 callTargetSuspend = false,

@@ -58,7 +58,7 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
     private val kotlinRequire = CallableId(FqName("kotlin"), Name.identifier("require"))
     private val VALUE = Name.identifier("value")
 
-    private const val MESSAGE = "Use 'requireNotNull(x)' instead of 'require(x != null)'."
+    private const val MESSAGE = "Use requireNotNull() instead of require() for checking not-null."
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

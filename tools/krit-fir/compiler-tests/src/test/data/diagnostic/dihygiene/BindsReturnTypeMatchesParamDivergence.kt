@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 33, 39, 45, 50, 56, 62, 68, 75, 81, 87, 93, 99
+// go-lines: 39, 45, 50, 56, 62, 68, 75, 81, 87, 93, 99
 // Go findings FIR drops. Go matches `@Binds` as a substring of the modifier
 // text and compares the parameter and return type text alone. None of these
 // functions is a no-op binding.

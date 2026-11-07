@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 15, 20, 24, 28, 32, 37, 44, 48, 53, 58, 63, 68, 72, 80, 86, 90, 93, 98
+// go-lines: 10, 15, 20, 24, 28, 32, 38, 44, 48, 53, 58, 63, 68, 72, 80, 86, 90, 93, 98
 // Positive: kotlin.require(x != null) on a nullable operand should trigger
 // UseRequireNotNull.
 package test

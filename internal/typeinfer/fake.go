@@ -74,6 +74,11 @@ func (f *FakeResolver) ClassHierarchy(typeName string) *ClassInfo {
 	return nil
 }
 
+// HasKnownSubtypes reports whether any configured class lists typeName as a supertype.
+func (f *FakeResolver) HasKnownSubtypes(typeName string) bool {
+	return anyClassExtends(f.Classes, typeName)
+}
+
 // SealedVariants returns the configured variants for the sealed class, or nil.
 func (f *FakeResolver) SealedVariants(sealedTypeName string) []string {
 	if v, ok := f.SealedMap[sealedTypeName]; ok {

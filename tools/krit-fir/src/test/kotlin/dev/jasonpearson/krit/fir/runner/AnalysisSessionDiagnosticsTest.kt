@@ -238,6 +238,215 @@ class AnalysisSessionDiagnosticsTest {
         assertEquals(emptyList(), diagnosticsFor(path).filter { it.factoryName == "DEPRECATION" })
     }
 
+    @Test
+    fun smartCastOnAnotherFilesPropertyNamesTheDeclaringFile() {
+        val model = writeKt(
+            "lib/Model.kt",
+            """
+            package com.acme.lib
+
+            class Profile(val name: String)
+            open class Account(val profile: Profile?)
+            """.trimIndent(),
+        )
+        val use = writeKt(
+            "app/Use.kt",
+            """
+            package com.acme.app
+
+            import com.acme.lib.Account
+            import com.acme.lib.Profile
+
+            class Admin : Account(null)
+            class Holder(val account: Account, val own: Profile?)
+
+            fun safeCall(a: Account): String? = if (a.profile != null) a.profile?.name else null
+            fun assertion(a: Account): String { checkNotNull(a.profile); return a.profile!!.name }
+            fun elvis(a: Account): Profile? = if (a.profile != null) a.profile ?: Profile("x") else null
+            fun comparison(a: Account): Boolean = a.profile != null && a.profile != null
+            fun inherited(a: Admin): String? = if (a.profile != null) (a.profile)?.name else null
+            fun chain(h: Holder): String? = if (h.account.profile != null) h.account.profile?.name else null
+            fun sameFile(h: Holder): String? = if (h.own != null) h.own?.name else null
+            fun local(p: Profile?): String? = if (p != null) p?.name else null
+            fun cast(a: Account): Profile? = if (a.profile != null) a.profile as Profile else null
+            """.trimIndent(),
+        )
+
+        val byLine = diagnosticsFor(use)
+            .filter { it.factoryName in setOf("UNNECESSARY_SAFE_CALL", "UNNECESSARY_NOT_NULL_ASSERTION", "USELESS_ELVIS", "SENSELESS_COMPARISON", "USELESS_CAST") }
+            .groupBy { it.line }
+        val modelFile = File(model).canonicalPath
+        fun declarations(line: Int) = byLine[line].orEmpty().also { assertTrue(it.isNotEmpty(), "no diagnostic on line $line: $byLine") }
+            .map { d -> d.smartCastDeclarations.map { File(it).canonicalPath } }
+        for (line in (9..14) + 17) {
+            assertEquals(listOf(listOf(modelFile)), declarations(line), "line $line")
+        }
+        // A property of the diagnosed file itself and a local need no other module's stability.
+        assertEquals(listOf(emptyList()), declarations(15))
+        assertEquals(listOf(emptyList()), declarations(16))
+    }
+
+    @Test
+    fun contractSmartCastOnAnotherFilesPropertyNamesTheDeclaringFile() {
+        val model = writeKt(
+            "lib/Model.kt",
+            """
+            package com.acme.lib
+
+            class Profile(val name: String)
+            class Account(val profile: Profile?)
+            val topLevel: Profile? = null
+            """.trimIndent(),
+        )
+        val use = writeKt(
+            "app/Use.kt",
+            """
+            package com.acme.app
+
+            import com.acme.lib.Account
+            import com.acme.lib.topLevel
+            import kotlin.contracts.ExperimentalContracts
+            import kotlin.contracts.contract
+
+            @OptIn(ExperimentalContracts::class)
+            fun <T : Any> assertNotNull(actual: T?, message: String? = null): T {
+                contract { returns() implies (actual != null) }
+                return actual ?: error(message.orEmpty())
+            }
+
+            fun viaContract(a: Account): String {
+                assertNotNull(a.profile)
+                return a.profile!!.name
+            }
+
+            fun viaTopLevel(): String {
+                assertNotNull(topLevel)
+                return topLevel!!.name
+            }
+            """.trimIndent(),
+        )
+
+        val byLine = diagnosticsFor(use).filter { it.factoryName == "UNNECESSARY_NOT_NULL_ASSERTION" }.groupBy { it.line }
+        val modelFile = File(model).canonicalPath
+        for (line in listOf(16, 21)) {
+            val found = byLine[line].orEmpty()
+            assertTrue(found.isNotEmpty(), "no diagnostic on line $line: $byLine")
+            assertEquals(listOf(listOf(modelFile)), found.map { d -> d.smartCastDeclarations.map { File(it).canonicalPath } }, "line $line")
+        }
+    }
+
+    @Test
+    fun localInitializedFromSmartCastNamesTheDeclaringFile() {
+        val model = writeKt(
+            "lib/Model.kt",
+            """
+            package com.acme.lib
+
+            class Profile(val name: String?)
+            class Account(val profile: Profile?)
+            """.trimIndent(),
+        )
+        val use = writeKt(
+            "app/Use.kt",
+            """
+            package com.acme.app
+
+            import com.acme.lib.Account
+            import com.acme.lib.Profile
+
+            fun viaLocal(a: Account): String? {
+                if (a.profile != null) {
+                    val p = a.profile
+                    return p?.name
+                }
+                return null
+            }
+
+            fun explicitType(a: Account): String? {
+                if (a.profile != null) {
+                    val p: Profile? = a.profile
+                    return p?.name
+                }
+                return null
+            }
+            """.trimIndent(),
+        )
+
+        val byLine = diagnosticsFor(use).filter { it.factoryName == "UNNECESSARY_SAFE_CALL" }.groupBy { it.line }
+        // The inferred local is non-null only through the smart cast of another file's property.
+        assertEquals(listOf(listOf(File(model).canonicalPath)), byLine[9].orEmpty().map { d -> d.smartCastDeclarations.map { File(it).canonicalPath } })
+        // An explicit nullable type keeps the safe call necessary, so there is no verdict at all.
+        assertEquals(emptyList(), byLine[17].orEmpty())
+    }
+
+    @Test
+    fun smartCastTypeOfAnotherFilesPropertyNamesTheDeclaringFile() {
+        val model = writeKt(
+            "lib/Model.kt",
+            """
+            package com.acme.lib
+
+            class Profile(val name: String)
+            class Account(val profile: Profile?)
+            """.trimIndent(),
+        )
+        val use = writeKt(
+            "app/Use.kt",
+            """
+            package com.acme.app
+
+            import com.acme.lib.Account
+            import com.acme.lib.Profile
+
+            fun take(p: Profile): String = p.name
+            fun other(a: Account): String = if (a.profile != null) take(a.profile) else ""
+            fun local(p: Profile?): String = if (p != null) take(p) else ""
+            """.trimIndent(),
+        )
+
+        val expressions = AnalysisSession(
+            sourceDirs = listOf(tmp.toFile().absolutePath),
+            classpath = stdlibClasspath,
+        ).analyze(emptyList()).files[use]?.expressions.orEmpty()
+        val smartCasts = expressions.values.filter { it.type == "com.acme.lib.Profile" && !it.nullable }
+        val tagged = smartCasts.filter { it.smartCastDeclarations.isNotEmpty() }
+        assertEquals(listOf(listOf(File(model).canonicalPath)), tagged.map { e -> e.smartCastDeclarations.map { File(it).canonicalPath } })
+        // The local's smart cast relies on no other file.
+        assertTrue(smartCasts.size > tagged.size, "expected an untagged local smart cast: $smartCasts")
+    }
+
+    @Test
+    fun safeCallOnErrorTypedReceiverIsNotRecorded() {
+        val use = writeKt(
+            "app/Use.kt",
+            """
+            package com.acme.app
+
+            import com.acme.missing.Wrapper
+            import com.acme.missing.Node
+
+            class Row(val wrapper: Wrapper) {
+                val node = wrapper.inner
+                val label: String? = node.name
+            }
+
+            fun viaParam(w: Wrapper): Int? = w.inner.parent?.size
+            fun viaInferred(r: Row): Int? = r.node.parent?.size
+            fun viaDeclared(n: Node): Int? = n.parent?.size
+            fun viaStdlibExtension(w: Wrapper): Int? = w.inner.root?.name?.length
+            fun viaChain(w: Wrapper): Int? = w.inner.root.parent?.name?.length
+            fun viaLocal(w: Wrapper): Int? {
+                val n = w.inner
+                return n?.size
+            }
+            fun genuine(s: String): Int? = s?.length
+            """.trimIndent(),
+        )
+        val diagnostics = diagnosticsFor(use).filter { it.factoryName == "UNNECESSARY_SAFE_CALL" }
+        // Only the receiver that is genuinely non-null keeps its verdict.
+        assertEquals(listOf(20), diagnostics.map { it.line })
+    }
+
     private fun diagnosticsFor(path: String): List<DiagnosticPayload> {
         val result = AnalysisSession(
             sourceDirs = listOf(tmp.toFile().absolutePath),
@@ -248,6 +457,7 @@ class AnalysisSessionDiagnosticsTest {
 
     private fun writeKt(name: String, source: String): String {
         val file = tmp.resolve(name).toFile()
+        file.parentFile.mkdirs()
         file.writeText(source)
         return file.absolutePath
     }

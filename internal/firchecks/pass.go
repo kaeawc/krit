@@ -16,6 +16,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
@@ -333,6 +334,9 @@ func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...
 	sort.Strings(ruleIDs)
 	for _, id := range ruleIDs {
 		r := stats.Rules[id]
+		if r.Confirmed == 0 && r.GoDropped == 0 && r.FirAdded == 0 && r.EnrichedWithFix == 0 && r.Suppressed == 0 && r.RuleErrorFiles == 0 {
+			continue // a rule with no verdicts only adds the shared gated-file count
+		}
 		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d rule-errors=%d\n",
 			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.RuleErrorFiles)
 	}
@@ -431,7 +435,8 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 		return abs
 	}
 	for _, f := range parsed {
-		if f == nil || f.Path == "" {
+		// A documentation sample is never compiled, so the checker must not be handed it.
+		if f == nil || f.Path == "" || fileignore.DocSamplePath(f.Path) {
 			continue
 		}
 		abs := add(f.Path)
@@ -440,7 +445,7 @@ func passTargets(parsed []*scanner.File, kotlinPaths []string, includeGenerated 
 		}
 	}
 	for _, path := range kotlinPaths {
-		if path == "" || (!includeGenerated && strings.Contains(filepath.ToSlash(path), "/generated/")) {
+		if path == "" || fileignore.DocSamplePath(path) || (!includeGenerated && strings.Contains(filepath.ToSlash(path), "/generated/")) {
 			continue
 		}
 		add(path)

@@ -1,10 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 27
-// Positives Go misses: `x` is a nullable parameter of each function below, so
-// check(x != null) should be checkNotNull(x). Go skips them because, in a file
-// that declares a class before them, its resolver carries the non-null fact
-// that `requireNotNull(x)` establishes in `narrowed` into every later
-// function with a parameter named `x`.
+// go-lines: 17, 21, 26
+// `x` is a nullable parameter of each function below, so check(x != null)
+// should be checkNotNull(x). The non-null fact that `requireNotNull(x)`
+// establishes in `narrowed` must not carry into later functions that have their
+// own parameter named `x`, even in a file that declares a class first.
 package test
 
 class Holder(val value: String?)

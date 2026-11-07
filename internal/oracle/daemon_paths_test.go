@@ -317,3 +317,27 @@ func TestAnalyzeWithDepsSendsAbsoluteFilesAndKeepsCallerSpelling(t *testing.T) {
 		t.Errorf("crashed = %v, want key %q", deps.Crashed, rel)
 	}
 }
+
+func TestCallerDataRespellsSmartCastDeclarations(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	root := filepath.Join("src", "main", "kotlin")
+	_, spelling := AbsoluteRequestPaths(nil)
+	spelling = spelling.WithDirs([]string{root})
+	use := filepath.Join(dir, root, "Use.kt")
+	model := filepath.Join(dir, root, "Model.kt")
+	raw := json.RawMessage(fmt.Sprintf(`{"files":{%q:{"diagnostics":[{"factoryName":"UNNECESSARY_SAFE_CALL","severity":"WARNING","message":"m","line":2,"col":3,"smartCastDecls":[%q,"/elsewhere/Other.kt"]}]}}}`, use, model))
+	data, err := unmarshalOracleData(&raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spelling.CallerData(data)
+	file := data.Files[filepath.Join(root, "Use.kt")]
+	if file == nil || len(file.Diagnostics) != 1 {
+		t.Fatalf("files = %#v", data.Files)
+	}
+	want := []string{filepath.Join(root, "Model.kt"), "/elsewhere/Other.kt"}
+	if got := file.Diagnostics[0].SmartCastDecls; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SmartCastDecls = %q, want %q", got, want)
+	}
+}

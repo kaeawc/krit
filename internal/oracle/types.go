@@ -25,6 +25,11 @@ type Diagnostic struct {
 	Col         int    `json:"col"`  // 1-based
 	StartByte   int    `json:"startByte,omitempty"`
 	EndByte     int    `json:"endByte,omitempty"`
+	// SmartCastDecls lists the other source files declaring the properties
+	// a smart cast behind this verdict relies on. The oracle compiles every
+	// module as one, so a verdict naming a file of another module would not
+	// hold in a per-module build (see SmartCastCrossesModules).
+	SmartCastDecls []string `json:"smartCastDecls,omitempty"`
 }
 
 // ExpressionType holds a compiler-resolved type for an expression at a source position.
@@ -37,6 +42,9 @@ type ExpressionType struct {
 	CallTargetResolved bool     `json:"callTargetResolved,omitempty"` // true when callTarget came from oracle resolution
 	CallTargetSuspend  bool     `json:"callTargetSuspend,omitempty"`  // true when the resolved callable symbol is suspend
 	Annotations        []string `json:"annotations,omitempty"`        // FQNs of annotations on the resolved symbol
+	// SmartCastDecls lists the other source files declaring the properties a
+	// stable smart cast behind Type relies on, like Diagnostic.SmartCastDecls.
+	SmartCastDecls []string `json:"smartCastDecls,omitempty"`
 }
 
 // Class describes a class, interface, object, or enum.

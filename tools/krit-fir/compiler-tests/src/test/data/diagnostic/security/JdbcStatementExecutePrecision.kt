@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 21, 22, 24, 26, 28, 35, 38, 39, 40, 51, 59, 84, 85, 86, 87, 88, 93, 94, 98, 99, 100, 118, 119, 120
+// go-lines: 24, 26, 28, 35, 38, 39, 40, 51, 59, 84, 86, 88, 93, 94, 98, 99, 100, 118, 119, 120
 // Go artifacts FIR drops: each Go finding here asserts something the code
 // does not have.
 package test

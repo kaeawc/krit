@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.oracle
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
+import org.jetbrains.kotlin.fir.types.ConeStarProjection
 import org.jetbrains.kotlin.fir.types.isMarkedNullable
 import org.jetbrains.kotlin.fir.types.renderReadable
 
@@ -24,8 +25,9 @@ internal fun ConeKotlinType.renderFqn(): String {
     val args = typeArguments
         .takeIf { it.isNotEmpty() }
         ?.joinToString(", ", "<", ">") { projection ->
-            (projection as? ConeKotlinTypeProjection)?.type?.renderFqn()
-                ?: projection.toString()
+            // A star projection has no stable toString (it prints an object identity hash).
+            if (projection === ConeStarProjection) "*"
+            else (projection as? ConeKotlinTypeProjection)?.type?.renderFqn() ?: projection.toString()
         }
         .orEmpty()
     val nullable = if (isMarkedNullable) "?" else ""

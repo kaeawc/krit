@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 23, 27, 31, 35, 39, 45, 50, 107
+// go-lines: 18, 27, 31, 35, 39, 45, 50, 107
 // Wakelock basics: an acquire on a WakeLock whose enclosing
 // function never releases the same receiver is reported on the acquire's
 // first line; a release anywhere in the function (before or after, in a
@@ -20,7 +20,7 @@ class SyncService(private val powerManager: PowerManager) {
 
     fun unreleasedTimeout() {
         val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "sync")
-        <!Wakelock!>wakeLock.acquire(1000L)<!>
+        wakeLock.acquire(1000L)
     }
 
     fun unreleasedParameter(wakeLock: WakeLock) {

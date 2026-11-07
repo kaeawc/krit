@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 21, 25
 // Divergence (recall): Go matches the written annotation text "@IntoMap",
 // "@Provides", and "@Binds", so it misses Dagger's annotations when they are
 // fully qualified, import-aliased, or written in the bracketed @[...] form

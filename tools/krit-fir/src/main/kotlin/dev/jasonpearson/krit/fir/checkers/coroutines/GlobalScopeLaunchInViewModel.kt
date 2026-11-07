@@ -3,12 +3,14 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.simpleName
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.FirDeclaration
 import org.jetbrains.kotlin.fir.declarations.utils.isFinal
 import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
@@ -46,7 +48,9 @@ import org.jetbrains.kotlin.text
  *   its supertypes;
  * - a receiver spelled `GlobalScope` (Go's test) whose value cannot be known,
  *   such as a parameter, a var, or a property with a getter, is reported;
- * - test files are not skipped.
+ * - test files are not skipped;
+ * - an `@OptIn(DelicateCoroutinesApi::class)` on the call's enclosing
+ *   declarations or the file marks the use as intentional and is not reported.
  *
  * Deliberate differences from Go, pinned by goldens and listed in the PR:
  * - Precision: a receiver spelled `GlobalScope` that provably is not
@@ -114,8 +118,14 @@ internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppChecker
         val ownerName = owner.name.asString()
         if (ownerSuffixes.none { ownerName.endsWith(it) }) return
 
+        // @OptIn(DelicateCoroutinesApi::class) on the call's declarations or the file marks the use as intentional.
+        if (context.containingElements.any { it is FirDeclaration && it.optsInToDelicateApi() }) return
+
         report(source, "GlobalScope.$method in $ownerName. Use viewModelScope instead for lifecycle-aware cancellation.")
     }
+
+    private fun FirDeclaration.optsInToDelicateApi(): Boolean =
+        annotations.any { it.simpleName() == "OptIn" && it.source?.text?.contains("DelicateCoroutinesApi") == true }
 
     /**
      * True when [expression] is kotlinx.coroutines.GlobalScope, false when it

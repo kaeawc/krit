@@ -12,7 +12,7 @@ import java.security.*
 import java.security.Signature as MessageDigest
 
 class Crypto {
-    fun hash() {
+    fun digest() {
         MessageDigest.getInstance("MD5")
         MessageDigest.getInstance("SHA1")
         <!WeakMessageDigest!>java.security.MessageDigest.getInstance("MD5")<!>

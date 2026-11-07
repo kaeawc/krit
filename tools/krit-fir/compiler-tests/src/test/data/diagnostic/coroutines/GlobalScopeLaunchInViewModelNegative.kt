@@ -63,3 +63,17 @@ fun topLevel() {
 fun UserViewModel.extension() {
     GlobalScope.launch { }
 }
+
+@OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+class OptedInViewModel {
+    fun f() {
+        GlobalScope.launch { }
+    }
+}
+
+class OptedInMemberViewModel {
+    @OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+    fun f() {
+        GlobalScope.launch { }
+    }
+}

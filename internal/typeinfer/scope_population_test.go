@@ -2,6 +2,8 @@ package typeinfer
 
 import (
 	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestScopePopulation_FunctionParams(t *testing.T) {
@@ -161,4 +163,71 @@ fun main() {
 	if nameType == nil || nameType.Name != "String" {
 		t.Fatalf("expected destructured name String, got %#v", nameType)
 	}
+}
+
+func TestScopePopulation_CompanionFunctionParamShadowsClassProperty(t *testing.T) {
+	src := `
+class U(val id: String) {
+    companion object {
+        fun isUserId(id: String?): Boolean = id != null
+    }
+}
+`
+	file := parseTestFile(t, src)
+	fi := IndexFileParallel(file)
+	if fi == nil {
+		t.Fatal("expected FileTypeInfo")
+	}
+	body := flatFirstOfType(file, "function_body")
+	if body == 0 {
+		t.Fatal("expected to find function_body")
+	}
+	scope := fi.RootScope.FindScopeAtOffset(file.FlatStartByte(body) + 1)
+	if scope == nil {
+		t.Fatal("expected to find function scope")
+	}
+	idType := scope.Lookup("id")
+	if idType == nil || !idType.IsNullable() {
+		t.Fatalf("the companion function parameter id: String? must win over the class property, got %#v", idType)
+	}
+}
+
+func TestScopePopulation_SmartCastDoesNotLeakFromLaterDeclarationsToRoot(t *testing.T) {
+	src := `
+interface First { fun a() }
+
+class Second {
+    fun checked(url: String?) {
+        requireNotNull(url)
+    }
+    fun other(url: String?) {
+        println(url)
+    }
+}
+`
+	file := parseTestFile(t, src)
+	fi := IndexFileParallel(file)
+	if fi == nil {
+		t.Fatal("expected FileTypeInfo")
+	}
+	if fi.RootScope.SmartCasts["url"] {
+		t.Fatal("a requireNotNull inside a function must not mark the root scope")
+	}
+	println := file.FlatStartByte(flatNthOfType(file, "function_body", 1)) + 1
+	scope := fi.RootScope.FindScopeAtOffset(println)
+	if typ := scope.LookupAt("url", println); typ == nil || !typ.IsNullable() {
+		t.Fatalf("the url parameter of the second function must stay nullable, got %#v", typ)
+	}
+}
+
+func flatNthOfType(file *scanner.File, nodeType string, n int) uint32 {
+	var found uint32
+	count := 0
+	file.FlatWalkNodes(0, nodeType, func(idx uint32) {
+		if count == n && found == 0 {
+			found = idx
+		}
+		count++
+	})
+	return found
 }

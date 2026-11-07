@@ -106,8 +106,13 @@ class BundleCodecTest {
                 "1:2" to ExpressionPayload("kotlin.Int", nullable = i == 1, startByte = 3, endByte = 9, callTarget = "p.f",
                     callTargetResolved = true, callTargetSuspend = i == 2, annotations = listOf("p.Marker")),
                 "4:5" to ExpressionPayload("kotlin.Unit"),
+                "4:5@12" to ExpressionPayload("p.Profile", startByte = 4, endByte = 12, smartCastDeclarations = listOf("/src/lib/Model.kt")),
             ),
-            diagnostics = listOf(DiagnosticPayload("UNRESOLVED_REFERENCE", "ERROR", "Unresolved \"x\" ünï", 4, 7, 30, -1)),
+            diagnostics = listOf(
+                DiagnosticPayload("UNRESOLVED_REFERENCE", "ERROR", "Unresolved \"x\" ünï", 4, 7, 30, -1),
+                DiagnosticPayload("UNNECESSARY_SAFE_CALL", "WARNING", "Unnecessary safe call", 5, 3, 40, 42,
+                    smartCastDeclarations = listOf("/src/b/Model.kt", "/src/c/Other.kt")),
+            ),
             lambdaSuspendByLineCol = mapOf("6:1" to true, "7:2" to false),
         )
         val entries = files.withIndex().associate { (i, f) ->

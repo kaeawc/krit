@@ -40,7 +40,7 @@ import org.jetbrains.kotlin.name.StandardClassIds
 // The overloads that take a Locale first are never reported.
 //
 // Mirrors the Go rule's evidence on top of FIR resolution:
-// - `.gradle.kts` scripts and files whose scan path ends in `Table.kt`,
+// - `.gradle.kts` and `.main.kts` scripts and files whose scan path ends in `Table.kt`,
 //   `Tables.kt`, `Dao.kt` or `DAO.kt` are skipped;
 // - only calls with an explicit receiver are reported, on the line where the
 //   whole qualified call starts (Go's call_expression);
@@ -52,7 +52,9 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   literal of `"...".format(...)`, and for `String.format(...)` the first
 //   argument when its text is a string literal, or when it names a property
 //   whose initializer is a plain string literal. Go finds that property by
-//   name, the first one in the file in source order, and so does this checker.
+//   name, the first one in the file in source order, and so does this checker;
+//   a first argument that is neither a string literal nor such a property
+//   (`getString(...)`, a parameter) is display text and is skipped too.
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Precision: Go matches the call by name and does not resolve it. FIR does
@@ -85,7 +87,7 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
     private val jdkCaseNames = setOf("toLowerCase", "toUpperCase").map(Name::identifier).toSet()
 
     // Go skips files whose path ends with one of these.
-    private val skippedPathSuffixes = listOf(".gradle.kts", "Table.kt", "Tables.kt", "Dao.kt", "DAO.kt")
+    private val skippedPathSuffixes = listOf(".gradle.kts", ".main.kts", "Table.kt", "Tables.kt", "Dao.kt", "DAO.kt")
 
     // Go's containsASCIIInvariantIdentifier list, matched as substrings of
     // the receiver's source text.
@@ -179,12 +181,13 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
         val first = lightChildren(source, arguments).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
             ?: return false
         val name = referenceSimpleName(source, argumentExpression(source, first))
-        if (name != null) {
-            val value = constStringPropertyValue(source, name)
-            if (value != null && isLocaleInsensitiveFormat(value)) return true
-        }
+        val constValue = name?.let { constStringPropertyValue(source, it) }
+        if (constValue != null && isLocaleInsensitiveFormat(constValue)) return true
         val text = lightText(source, first).trim()
-        return text.startsWith("\"") && isLocaleInsensitiveFormat(text)
+        val isLiteral = text.startsWith("\"")
+        if (isLiteral && isLocaleInsensitiveFormat(text)) return true
+        // A resource string or parameter is display text, where the default locale is right.
+        return constValue == null && !isLiteral
     }
 
     // The expression a value argument passes: the one after `=` for a named

@@ -326,6 +326,13 @@ func (l *LazyLookup) LookupCallTargetFlat(file *scanner.File, idx uint32) string
 	return ""
 }
 
+func (l *LazyLookup) LookupExpressionSmartCastDeclsFlat(file *scanner.File, idx uint32) []string {
+	if o := l.get(); o != nil {
+		return o.LookupExpressionSmartCastDeclsFlat(file, idx)
+	}
+	return nil
+}
+
 func (l *LazyLookup) LookupCallTargetSuspend(filePath string, line, col int) (bool, bool) {
 	if o := l.get(); o != nil {
 		return o.LookupCallTargetSuspend(filePath, line, col)
@@ -366,6 +373,14 @@ func (l *LazyLookup) LookupDiagnosticsForFlatRange(file *scanner.File, idx uint3
 		return o.LookupDiagnosticsForFlatRange(file, idx)
 	}
 	return nil
+}
+
+// HasFileFacts reports whether the compiler analyzed path.
+func (l *LazyLookup) HasFileFacts(path string) bool {
+	if o := l.get(); o != nil {
+		return o.HasFileFacts(path)
+	}
+	return false
 }
 
 var _ Lookup = (*LazyLookup)(nil)

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 21, 27, 31, 33, 35, 37, 42, 47, 49, 53, 57, 61, 64, 68, 71, 75, 79, 83, 86
+// go-lines: 21, 27, 31, 33, 35, 37, 48, 50, 55, 58, 62, 65, 69, 72, 76, 80, 84, 87
 // Android components the framework cannot instantiate: the class is private,
 // or its primary constructor is private. Go reports each of these too.
 package test
@@ -39,7 +39,8 @@ import androidx.fragment.app.FragmentActivity
     }
 }
 
-<!Instantiatable!>private<!> class PrivateReceiver : BroadcastReceiver() {
+// A receiver registered at runtime is created by app code, so it may be private.
+private class PrivateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
     }
 }

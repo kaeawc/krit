@@ -34,6 +34,10 @@ type TypeResolver interface {
 	IsExceptionSubtype(a, b string) bool
 }
 
+// SealedIntermediateKey is the SealedVariants key under which the sealed subtypes of a sealed
+// type are listed. SealedVariants(name) itself omits them.
+func SealedIntermediateKey(name string) string { return "sealed-subtypes:" + name }
+
 // ClassInfo holds information about a class resolved from source.
 type ClassInfo struct {
 	Name       string   // Simple name
@@ -331,4 +335,10 @@ func (s *ScopeTable) MarkSmartCastAfter(name string, startByte uint32) {
 	if current, ok := s.SmartCastStarts[name]; !ok || startByte < current {
 		s.SmartCastStarts[name] = startByte
 	}
+}
+
+// SubtypeFinder is an optional TypeResolver capability that answers whether any indexed source
+// class names the given type as a direct supertype.
+type SubtypeFinder interface {
+	HasKnownSubtypes(typeName string) bool
 }

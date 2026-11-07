@@ -15,36 +15,36 @@ class Negative {
     val inferred = mutableListOf<String>()
 
     // `var` with a read-only collection: the other recommended shape.
-    var readOnly: List<String> = emptyList()
+    private var readOnly: List<String> = emptyList()
 
-    var readOnlyInferred = listOf("a")
+    private var readOnlyInferred = listOf("a")
 
-    var readOnlyMap: Map<String, Int> = emptyMap()
+    private var readOnlyMap: Map<String, Int> = emptyMap()
 
     // A wrapper whose name merely contains a mutable collection's name.
-    var wrapper: MyMutableListWrapper = MyMutableListWrapper()
+    private var wrapper: MyMutableListWrapper = MyMutableListWrapper()
 
     // A mutable collection nested as a type argument.
-    var nested: List<MutableList<String>> = emptyList()
+    private var nested: List<MutableList<String>> = emptyList()
 
     // Mutable types the default mutableTypes do not list, not built by a
     // listed factory.
-    var concurrent: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
+    private var concurrent: ConcurrentHashMap<String, Int> = ConcurrentHashMap()
 
-    var collection: MutableCollection<String> = build()
+    private var collection: MutableCollection<String> = build()
 
-    var deque = ArrayDeque<String>()
+    private var deque = ArrayDeque<String>()
 
     // Text in a string or a comment is not an initializer.
-    var text = "mutableListOf<String>()"
+    private var text = "mutableListOf<String>()"
 
     /**
      * mutableListOf<String>() is mentioned here.
      */
-    var documented = emptyList<String>()
+    private var documented = emptyList<String>()
 
     // A function type returning a mutable list.
-    var supplier: () -> MutableList<String> = { mutableListOf() }
+    private var supplier: () -> MutableList<String> = { mutableListOf() }
 
     fun build(): MutableCollection<String> = mutableListOf()
 }
@@ -70,13 +70,51 @@ fun loop(lists: List<MutableList<String>>): Int {
 // be mutable (an immutable Collections.emptyList(), an unmodifiable
 // System.getenv()). Go reports none of these either.
 class PlatformTypes {
-    var keys = java.util.Collections.emptyList<String>()
+    private var keys = java.util.Collections.emptyList<String>()
 
-    var env = System.getenv()
+    private var env = System.getenv()
 
-    var flexList = java.util.Arrays.asList("a", "b")
+    private var flexList = java.util.Arrays.asList("a", "b")
 
-    var threads = Thread.getAllStackTraces()
+    private var threads = Thread.getAllStackTraces()
 
-    var names = System.getProperties().stringPropertyNames()
+    private var names = System.getProperties().stringPropertyNames()
+}
+
+// Vars that have to stay `var`: a declared nullable lazy-init holder, a var
+// written after its declaration (by name, also through `this`), and members
+// other files can write. Go drops these too.
+class MustStayVar {
+    private var lazy: MutableList<String>? = null
+
+    private var reassigned: MutableList<String> = mutableListOf()
+
+    private var viaThis: MutableMap<String, Int> = mutableMapOf()
+
+    var visible: MutableList<String> = mutableListOf()
+
+    internal var internalList: MutableSet<String> = mutableSetOf()
+
+    fun reset() {
+        reassigned = mutableListOf()
+        this.viaThis = mutableMapOf()
+    }
+}
+
+interface Api {
+    var abstractList: MutableList<String>
+}
+
+class Impl : Api {
+    override var abstractList: MutableList<String> = mutableListOf()
+}
+
+var topLevelVisible: MutableList<String> = mutableListOf()
+
+fun localReassigned(): Int {
+    var list = mutableListOf<String>()
+    var set: MutableSet<String> = mutableSetOf()
+    list = mutableListOf()
+    set = mutableSetOf()
+    return list.size + set.size
 }

@@ -40,7 +40,7 @@ import org.jetbrains.kotlin.name.Name
  * - an anonymous object (`object : Handler() { ... }`) that is an
  *   `android.os.Handler`, reported on its `object` keyword, like Go. As in
  *   Go, every anonymous Handler is reported, whatever it is constructed with
- *   and wherever it is declared.
+ *   and wherever it is declared (Lint skips one built on an explicit Looper).
  *
  * As in Go, the Looper exemption reads the source: a primary constructor
  * parameter counts when a type named `Looper` is written anywhere in it, the
@@ -75,10 +75,10 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
         override val classCheckers = setOf(HandlerLeak)
     }
 
-    private const val INNER_MESSAGE =
-        "This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."
+    private fun innerMessage(qualifiedName: String) =
+        "This `Handler` class should be static or leaks might occur ($qualifiedName)"
     private const val ANONYMOUS_MESSAGE =
-        "Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."
+        "This `Handler` class should be static or leaks might occur (anonymous android.os.Handler)"
 
     private val handlerClassId = ClassId(FqName("android.os"), Name.identifier("Handler"))
 
@@ -98,7 +98,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
                 // An inner class always has a modifier list (`inner`); Go
                 // reports its first line, where the first annotation or
                 // modifier stands.
-                report(firstModifierAnchor(source) ?: source, INNER_MESSAGE)
+                report(firstModifierAnchor(source) ?: source, innerMessage(declaration.symbol.classId.relativeClassName.asString()))
             }
         }
     }

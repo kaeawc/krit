@@ -45,9 +45,10 @@ func trackGradleBlocks(blocks []string, line string) []string {
 	for i := 0; i < len(line); i++ {
 		c := line[i]
 		if inQuote != 0 {
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == inQuote {
+			case inQuote:
 				inQuote = 0
 			}
 			continue

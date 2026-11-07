@@ -31,37 +31,37 @@ func rangeFrameworkSpecsForTarget(target, callName string) []rangeArgSpec {
 	switch {
 	case rangeTargetMatches(target, callName, "android.graphics.Color.argb"):
 		return []rangeArgSpec{
-			rangeFrameworkSpec(0, "alpha", "Color.argb", "argument", 0, 255),
-			rangeFrameworkSpec(1, "red", "Color.argb", "argument", 0, 255),
-			rangeFrameworkSpec(2, "green", "Color.argb", "argument", 0, 255),
-			rangeFrameworkSpec(3, "blue", "Color.argb", "argument", 0, 255),
+			rangeFrameworkSpec(0, "alpha", "Color.argb", "argument", 255),
+			rangeFrameworkSpec(1, "red", "Color.argb", "argument", 255),
+			rangeFrameworkSpec(2, "green", "Color.argb", "argument", 255),
+			rangeFrameworkSpec(3, "blue", "Color.argb", "argument", 255),
 		}
 	case rangeTargetMatches(target, callName, "android.graphics.Color.rgb"):
 		return []rangeArgSpec{
-			rangeFrameworkSpec(0, "red", "Color.rgb", "argument", 0, 255),
-			rangeFrameworkSpec(1, "green", "Color.rgb", "argument", 0, 255),
-			rangeFrameworkSpec(2, "blue", "Color.rgb", "argument", 0, 255),
+			rangeFrameworkSpec(0, "red", "Color.rgb", "argument", 255),
+			rangeFrameworkSpec(1, "green", "Color.rgb", "argument", 255),
+			rangeFrameworkSpec(2, "blue", "Color.rgb", "argument", 255),
 		}
 	case callName == "setAlpha" && rangeTargetAny(target,
 		"android.graphics.Paint.setAlpha",
 		"android.graphics.drawable.Drawable.setAlpha",
 		"android.widget.ImageView.setAlpha"):
-		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 0, 255)}
+		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 255)}
 	case callName == "setAlpha" && rangeTargetAny(target, "android.view.View.setAlpha"):
-		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 0, 1)}
+		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 1)}
 	default:
 		return nil
 	}
 }
 
-func rangeFrameworkSpec(index int, name, callLabel, argLabel string, from, to float64) rangeArgSpec {
+func rangeFrameworkSpec(index int, name, callLabel, argLabel string, to float64) rangeArgSpec {
 	return rangeArgSpec{
 		index:     index,
 		name:      name,
 		callLabel: callLabel,
 		argLabel:  argLabel,
 		bounds: rangeBounds{
-			from:          from,
+			from:          0,
 			to:            to,
 			fromInclusive: true,
 			toInclusive:   true,

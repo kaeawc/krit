@@ -68,7 +68,7 @@ func layoutInflationResultUnused(file *scanner.File, call uint32) bool {
 	if !ok || file.FlatType(stmts) != "statements" {
 		return false
 	}
-	return !(flatIsLastNamedChildOf(file, call, stmts) && flatIsExpressionBlock(file, stmts))
+	return !flatIsLastNamedChildOf(file, call, stmts) || !flatIsExpressionBlock(file, stmts)
 }
 
 // layoutInflationCallerHasNonNullViewGroup reports whether the enclosing

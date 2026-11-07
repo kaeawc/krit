@@ -124,16 +124,15 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 			}
 			return withDims[i].Path < withDims[j].Path
 		})
-		consistent := func(ref, ic *android.IconFile) (bool, float64, float64) {
+		consistent := func(ref, ic *android.IconFile) bool {
 			refMul, mul := android.DensityMultiplier(ref.Density), android.DensityMultiplier(ic.Density)
 			if refMul == 0 || mul == 0 {
-				return true, 0, 0
+				return true
 			}
 			expectedW := float64(ref.Width) / refMul * mul
 			expectedH := float64(ref.Height) / refMul * mul
 			// Allow 1px tolerance
-			ok := math.Abs(float64(ic.Width)-expectedW) <= 1 && math.Abs(float64(ic.Height)-expectedH) <= 1
-			return ok, expectedW, expectedH
+			return math.Abs(float64(ic.Width)-expectedW) <= 1 && math.Abs(float64(ic.Height)-expectedH) <= 1
 		}
 		var ref *android.IconFile
 		best := -1
@@ -143,7 +142,7 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 			}
 			agree := 0
 			for _, ic := range withDims {
-				if ok, _, _ := consistent(cand, ic); ok {
+				if consistent(cand, ic) {
 					agree++
 				}
 			}
@@ -158,8 +157,7 @@ func CheckIconDipSize(idx *android.IconIndex, c *scanner.FindingCollector) {
 			if ic == ref {
 				continue
 			}
-			ok, _, _ := consistent(ref, ic)
-			if !ok {
+			if !consistent(ref, ic) {
 				findings = append(findings, scanner.Finding{
 					File:     ic.Path,
 					Line:     1,

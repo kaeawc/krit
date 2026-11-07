@@ -242,7 +242,7 @@ func cutPasteReachable(file *scanner.File, first, second uint32) bool {
 	case "if_expression", "if_statement":
 		return !cutPasteIsBranch(file, armA) || !cutPasteIsBranch(file, armB) || armA == armB
 	case "when_expression", "switch_expression", "switch_block", "switch_statement":
-		return !(cutPasteIsCase(file, armA) && cutPasteIsCase(file, armB)) || armA == armB
+		return !cutPasteIsCase(file, armA) || !cutPasteIsCase(file, armB) || armA == armB
 	}
 	return true
 }

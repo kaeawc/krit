@@ -77,7 +77,7 @@ func (r *EllipsizeMaxLinesRule) check(ctx *api.Context) {
 			}
 			lines, hasLines := v.Attributes["android:lines"]
 			maxLines, hasMax := v.Attributes["android:maxLines"]
-			if !(hasLines && lines == "1") && !(hasMax && maxLines == "1") {
+			if (!hasLines || lines != "1") && (!hasMax || maxLines != "1") {
 				return
 			}
 			attr, value := "android:maxLines", maxLines

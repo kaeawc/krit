@@ -103,7 +103,7 @@ func (r *StringFormatMatchesResourceRule) check(ctx *api.Context) {
 		for _, cur := range withArgs[1:] {
 			// A quantity may drop arguments, so unnumbered specifiers of
 			// different lengths cannot be lined up and are skipped.
-			if len(cur.slots) != len(ref.slots) && !(cur.allPositional && ref.allPositional) {
+			if len(cur.slots) != len(ref.slots) && (!cur.allPositional || !ref.allPositional) {
 				continue
 			}
 			slotNums := make([]int, 0, len(cur.slots))

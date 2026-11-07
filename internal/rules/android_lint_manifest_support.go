@@ -27,8 +27,8 @@ func manifestMinSdk(m *manifest.Manifest) int {
 		return m.MinSDK
 	}
 	if m.Path != "" {
-		if min := lookupManifestGradleInfo(m.Path).minSdk; min > 0 {
-			return min
+		if minSdk := lookupManifestGradleInfo(m.Path).minSdk; minSdk > 0 {
+			return minSdk
 		}
 	}
 	return 1

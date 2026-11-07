@@ -58,25 +58,25 @@ func rtlResolveMains(ctx *api.Context, facts *librarymodel.Facts, path string) [
 	lenient := !known
 	out := make([]rtlMain, 0, len(in))
 	for _, m := range in {
-		min, target := m.MinSdk, m.TargetSdk
+		minSdk, target := m.MinSdk, m.TargetSdk
 		if facts != nil {
-			if min == 0 {
-				min = facts.Profile.MinSdkVersion
+			if minSdk == 0 {
+				minSdk = facts.Profile.MinSdkVersion
 			}
 			if target == 0 {
 				target = facts.Profile.TargetSdkVersion
 			}
 		}
-		if !lenient && min == 0 {
-			min = 1
+		if !lenient && minSdk == 0 {
+			minSdk = 1
 		}
 		// Gradle gives an unset targetSdk the minSdk.
 		if target == 0 {
-			target = min
+			target = minSdk
 		}
 		out = append(out, rtlMain{
 			enabled: m.HasApplication && !m.RtlOff && (target == 0 || target >= rtlAPI),
-			minSdk:  min,
+			minSdk:  minSdk,
 			target:  target,
 		})
 	}
@@ -133,10 +133,10 @@ func rtlApplies(flags int, mains []rtlMain, module rtlModule) (rtlMain, bool) {
 	for _, m := range mains {
 		switch {
 		case flags&rtlEnabled != 0 && !m.enabled:
-		case flags&rtlTargetBelow17 != 0 && !(m.target > 0 && m.target < rtlAPI):
-		case flags&rtlMinBelow17 != 0 && !(m.minSdk > 0 && m.minSdk < rtlAPI):
+		case flags&rtlTargetBelow17 != 0 && (m.target <= 0 || m.target >= rtlAPI):
+		case flags&rtlMinBelow17 != 0 && (m.minSdk <= 0 || m.minSdk >= rtlAPI):
 		case flags&rtlMinAtLeast17 != 0 && m.minSdk > 0 && m.minSdk < rtlAPI:
-		case flags&rtlModuleModern != 0 && !module.modern && !(m.minSdk >= rtlAPI):
+		case flags&rtlModuleModern != 0 && !module.modern && m.minSdk < rtlAPI:
 		default:
 			return m, true
 		}

@@ -250,7 +250,7 @@ func (r *WrongImportRule) check(ctx *api.Context) {
 	msg := "Don't include `android.R` here; use a fully qualified name for each usage instead"
 	if sub := strings.TrimPrefix(fqn, "android.R."); sub != fqn {
 		leaf := sub[strings.LastIndex(sub, ".")+1:]
-		referenced := wrongImportNameReferenced(file, idx, leaf)
+		referenced := wrongImportNameReferenced(file, leaf)
 		// A sub-class or id import that nothing resolves to is an unused import, which UnusedImport reports.
 		if !referenced {
 			return
@@ -276,7 +276,7 @@ func (r *WrongImportRule) check(ctx *api.Context) {
 // wrongImportNameReferenced reports whether a bare identifier named name outside import headers can resolve to
 // the imported symbol. Qualified selectors, named-argument labels, declaration names and identifiers shadowed by
 // a parameter, local or member of the same name do not count.
-func wrongImportNameReferenced(file *scanner.File, importIdx uint32, name string) bool {
+func wrongImportNameReferenced(file *scanner.File, name string) bool {
 	found := false
 	file.FlatWalkNodes(0, "simple_identifier", func(n uint32) {
 		if found || !file.FlatNodeTextEquals(n, name) {

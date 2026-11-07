@@ -414,8 +414,8 @@ func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
 		}
 		// A -vNN folder only loads on API NN and up, so the attribute is understood there.
 		folderVersion := iconFolderVersion(layout.FilePath)
-		var walk func(v *android.View, parent *android.View, localMin int)
-		walk = func(v *android.View, parent *android.View, localMin int) {
+		var walk func(v *android.View, localMin int)
+		walk = func(v *android.View, localMin int) {
 			if v == nil || resourceToolsIgnoreMatches(v, "UnusedAttribute") {
 				return
 			}
@@ -430,10 +430,10 @@ func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
 				}
 			}
 			for _, child := range v.Children {
-				walk(child, v, localMin)
+				walk(child, localMin)
 			}
 		}
-		walk(layout.RootView, nil, 0)
+		walk(layout.RootView, 0)
 	}
 }
 

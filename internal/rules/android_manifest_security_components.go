@@ -112,10 +112,10 @@ func isTestSupportModuleManifestPath(path string) bool {
 			break
 		}
 	}
-	switch {
-	case module == "":
+	switch module {
+	case "":
 		return false
-	case module == "test" || module == "tests" || module == "testing":
+	case "test", "tests", "testing":
 		return true
 	}
 	return strings.HasPrefix(module, "test-") || strings.HasSuffix(module, "-test") ||

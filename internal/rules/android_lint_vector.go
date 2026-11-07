@@ -179,7 +179,7 @@ func (r *InvalidVectorPathRule) check(ctx *api.Context) {
 	}
 }
 
-func (r *InvalidVectorPathRule) report(ctx *api.Context, vd android.VectorDrawable, attr android.VectorAttr, path string, from, to int, msg string) {
+func (r *InvalidVectorPathRule) report(ctx *api.Context, vd android.VectorDrawable, attr android.VectorAttr, path string, from, _ int, msg string) {
 	line, col := attr.ValueLine, attr.ValueCol
 	if path == attr.Value {
 		// The path is the attribute text itself, so point at the number.

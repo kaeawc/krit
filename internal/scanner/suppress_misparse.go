@@ -317,74 +317,89 @@ func matchBalanced(content []byte, open int) (int, bool) {
 func skipLiteral(content []byte, i int) (int, bool) {
 	switch content[i] {
 	case '/':
-		if i+1 >= len(content) {
-			return i, false
+		return skipComment(content, i)
+	case '\'':
+		return skipCharLiteral(content, i)
+	case '"':
+		return skipStringLiteral(content, i)
+	}
+	return i, false
+}
+
+// skipComment skips a line or nested block comment starting at the '/' at i.
+func skipComment(content []byte, i int) (int, bool) {
+	if i+1 >= len(content) {
+		return i, false
+	}
+	switch content[i+1] {
+	case '/':
+		for i < len(content) && content[i] != '\n' {
+			i++
 		}
-		switch content[i+1] {
-		case '/':
-			for i < len(content) && content[i] != '\n' {
+		return i, true
+	case '*':
+		depth := 0
+		for i+1 < len(content) {
+			switch {
+			case content[i] == '/' && content[i+1] == '*':
+				depth++
+				i += 2
+			case content[i] == '*' && content[i+1] == '/':
+				depth--
+				i += 2
+				if depth == 0 {
+					return i, true
+				}
+			default:
 				i++
 			}
-			return i, true
-		case '*':
-			depth := 0
-			for i+1 < len(content) {
-				switch {
-				case content[i] == '/' && content[i+1] == '*':
-					depth++
-					i += 2
-				case content[i] == '*' && content[i+1] == '/':
-					depth--
-					i += 2
-					if depth == 0 {
-						return i, true
-					}
-				default:
-					i++
-				}
-			}
-			return len(content), true
 		}
-		return i, false
-	case '\'':
-		for j := i + 1; j < len(content) && content[j] != '\n'; j++ {
-			if content[j] == '\\' {
-				j++
-				continue
-			}
-			if content[j] == '\'' {
-				return j + 1, true
+		return len(content), true
+	}
+	return i, false
+}
+
+// skipCharLiteral skips a character literal starting at the quote at i.
+func skipCharLiteral(content []byte, i int) (int, bool) {
+	for j := i + 1; j < len(content) && content[j] != '\n'; j++ {
+		if content[j] == '\\' {
+			j++
+			continue
+		}
+		if content[j] == '\'' {
+			return j + 1, true
+		}
+	}
+	return i, false
+}
+
+// skipStringLiteral skips a single-line or raw string literal starting at the quote at i.
+func skipStringLiteral(content []byte, i int) (int, bool) {
+	if i+2 < len(content) && content[i+1] == '"' && content[i+2] == '"' {
+		for j := i + 3; j+2 < len(content); j++ {
+			if content[j] == '"' && content[j+1] == '"' && content[j+2] == '"' {
+				return j + 3, true
 			}
 		}
-		return i, false
-	case '"':
-		if i+2 < len(content) && content[i+1] == '"' && content[i+2] == '"' {
-			for j := i + 3; j+2 < len(content); j++ {
-				if content[j] == '"' && content[j+1] == '"' && content[j+2] == '"' {
-					return j + 3, true
-				}
-			}
-			return len(content), true
+		return len(content), true
+	}
+	for j := i + 1; j < len(content) && content[j] != '\n'; j++ {
+		switch content[j] {
+		case '\\':
+			j++
+		case '"':
+			return j + 1, true
 		}
-		for j := i + 1; j < len(content) && content[j] != '\n'; j++ {
-			switch content[j] {
-			case '\\':
-				j++
-			case '"':
-				return j + 1, true
-			}
-		}
-		return i, false
 	}
 	return i, false
 }
 
 func skipBlankAndComments(content []byte, i int) int {
 	for i < len(content) {
-		switch c := content[i]; {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		switch content[i] {
+		case ' ', '\t', '\n', '\r':
 			i++
-		case c == '/':
+		case '/':
 			next, ok := skipLiteral(content, i)
 			if !ok {
 				return i
@@ -510,7 +525,7 @@ func nextStatementSibling(tree *FlatTree, idx uint32, content []byte) uint32 {
 			idx = parent
 		case endsDeclarationBody(tree, parent, idx):
 			// `fun f() =\n @A\n try {}` can leave the expression as the declaration's next sibling.
-			return expressionAfterDeclaration(tree, parent, content)
+			return expressionAfterDeclaration(tree, parent)
 		default:
 			return 0
 		}
@@ -529,7 +544,7 @@ func endsDeclarationBody(tree *FlatTree, parent, idx uint32) bool {
 
 // expressionAfterDeclaration returns the expression statement that follows the
 // declaration holding body, or 0 when the next statement is not an expression.
-func expressionAfterDeclaration(tree *FlatTree, body uint32, content []byte) uint32 {
+func expressionAfterDeclaration(tree *FlatTree, body uint32) uint32 {
 	decl := body
 	if nodeTypeName(tree.Types[body]) == "function_body" {
 		decl = tree.Parents[body]

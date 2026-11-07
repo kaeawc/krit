@@ -101,55 +101,60 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 			continue
 		}
 
-		knownRules := rulesBySet[key]
-
-		// Sort rule keys for deterministic output
-		ruleKeys := make([]string, 0, len(setMap))
-		for k := range setMap {
-			ruleKeys = append(ruleKeys, k)
-		}
-		sort.Strings(ruleKeys)
-
-		for _, ruleKey := range ruleKeys {
-			ruleVal := setMap[ruleKey]
-			if ruleKey == "active" {
-				// Ruleset-level active flag
-				continue
-			}
-			if ruleKey == "excludes" || ruleKey == "includes" {
-				if typeErr := checkType(key+"."+ruleKey, ruleVal, OptionTypeStringSlice); typeErr != nil {
-					errs = append(errs, *typeErr)
-				}
-				continue
-			}
-
-			if current, legacy := config.LegacyRuleIDs()[ruleKey]; legacy && !knownRules[ruleKey] && knownRules[current] {
-				errs = append(errs, ValidationError{
-					Path:    fmt.Sprintf("%s.%s", key, ruleKey),
-					Message: fmt.Sprintf("rule '%s' was replaced by '%s'; the old id is still honored", ruleKey, current),
-					Level:   "warning",
-				})
-				continue
-			}
-			if !knownRules[ruleKey] {
-				errs = append(errs, ValidationError{
-					Path:    fmt.Sprintf("%s.%s", key, ruleKey),
-					Message: fmt.Sprintf("unknown rule '%s' in ruleset '%s'", ruleKey, key),
-					Level:   "error",
-				})
-				continue
-			}
-
-			ruleMap, ok := ruleVal.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			allowedKeys := optionsByRule[ruleKey]
-			errs = append(errs, validateRuleFields(key, ruleKey, ruleMap, allowedKeys)...)
-		}
+		errs = append(errs, validateRuleSet(key, setMap, rulesBySet[key], optionsByRule)...)
 	}
 
+	return errs
+}
+
+// validateRuleSet checks the rule entries of one ruleset section.
+func validateRuleSet(key string, setMap map[string]interface{}, knownRules map[string]bool, optionsByRule map[string]map[string]OptionType) []ValidationError {
+	var errs []ValidationError
+	// Sort rule keys for deterministic output
+	ruleKeys := make([]string, 0, len(setMap))
+	for k := range setMap {
+		ruleKeys = append(ruleKeys, k)
+	}
+	sort.Strings(ruleKeys)
+
+	for _, ruleKey := range ruleKeys {
+		ruleVal := setMap[ruleKey]
+		if ruleKey == "active" {
+			// Ruleset-level active flag
+			continue
+		}
+		if ruleKey == "excludes" || ruleKey == "includes" {
+			if typeErr := checkType(key+"."+ruleKey, ruleVal, OptionTypeStringSlice); typeErr != nil {
+				errs = append(errs, *typeErr)
+			}
+			continue
+		}
+
+		if current, legacy := config.LegacyRuleIDs()[ruleKey]; legacy && !knownRules[ruleKey] && knownRules[current] {
+			errs = append(errs, ValidationError{
+				Path:    fmt.Sprintf("%s.%s", key, ruleKey),
+				Message: fmt.Sprintf("rule '%s' was replaced by '%s'; the old id is still honored", ruleKey, current),
+				Level:   "warning",
+			})
+			continue
+		}
+		if !knownRules[ruleKey] {
+			errs = append(errs, ValidationError{
+				Path:    fmt.Sprintf("%s.%s", key, ruleKey),
+				Message: fmt.Sprintf("unknown rule '%s' in ruleset '%s'", ruleKey, key),
+				Level:   "error",
+			})
+			continue
+		}
+
+		ruleMap, ok := ruleVal.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		allowedKeys := optionsByRule[ruleKey]
+		errs = append(errs, validateRuleFields(key, ruleKey, ruleMap, allowedKeys)...)
+	}
 	return errs
 }
 

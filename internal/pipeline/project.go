@@ -1138,7 +1138,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	indexResult.Jobs = args.Workers
 	indexResult.ProfileDispatch = args.ProfileDispatch
 	indexResult.EmitPerFileStats = args.EmitPerFileStats
-	indexResult.SkipRuleTiming = !(args.ShowPerf || args.PerfRules || args.ProfileDispatch || (host.Tracker != nil && host.Tracker.IsEnabled()))
+	indexResult.SkipRuleTiming = !args.ShowPerf && !args.PerfRules && !args.ProfileDispatch && (host.Tracker == nil || !host.Tracker.IsEnabled())
 	indexResult.Reporter = host.Reporter
 	indexResult.Tracker = host.Tracker
 	// WarmCrossFindings carries the pre-loaded findings forward to

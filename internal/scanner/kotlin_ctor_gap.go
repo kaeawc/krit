@@ -76,23 +76,13 @@ func lineStartOf(content []byte, i int) int {
 
 func ctorGapForHit(content []byte, hit int) []int {
 	ls := lineStartOf(content, hit)
-	prefix := bytes.TrimSpace(content[ls:hit])
-	if len(prefix) > 0 && prefix[0] != '@' && !isVisibilityPrefix(prefix) {
-		return nil
-	}
-	if bytes.ContainsAny(prefix, "{}=;") {
+	if !ctorGapPrefixAllowed(bytes.TrimSpace(content[ls:hit])) {
 		return nil
 	}
 	depth := 0
 	cur := ls
 	for n := 0; n < maxCtorGapLines && cur > 0; n++ {
-		// content[cur-1] is the '\n' ending the previous line.
-		pe := cur - 1
-		ps := lineStartOf(content, pe)
-		line := content[ps:pe]
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
+		ps, line := previousLine(content, cur)
 		trimmed := bytes.TrimSpace(line)
 		if bytes.HasSuffix(trimmed, []byte("*/")) {
 			// A block comment between the header and the constructor.
@@ -112,18 +102,44 @@ func ctorGapForHit(content []byte, hit int) []int {
 			cur = ps
 			continue
 		case ctorClassHeaderRe.Match(trimmed):
-			var breaks []int
-			for i := ps + len(line); i < ls; i++ {
-				if content[i] == '\n' || content[i] == '\r' {
-					breaks = append(breaks, i)
-				}
-			}
-			return breaks
+			return lineBreaksIn(content, ps+len(line), ls)
 		default:
 			return nil
 		}
 	}
 	return nil
+}
+
+// ctorGapPrefixAllowed reports whether the text before a constructor hit on its line may
+// precede a split constructor: nothing, an annotation, or a visibility modifier.
+func ctorGapPrefixAllowed(prefix []byte) bool {
+	if len(prefix) > 0 && prefix[0] != '@' && !isVisibilityPrefix(prefix) {
+		return false
+	}
+	return !bytes.ContainsAny(prefix, "{}=;")
+}
+
+// previousLine returns the start and text, without a trailing '\r', of the line ending just before cur.
+func previousLine(content []byte, cur int) (int, []byte) {
+	// content[cur-1] is the '\n' ending the previous line.
+	pe := cur - 1
+	ps := lineStartOf(content, pe)
+	line := content[ps:pe]
+	if len(line) > 0 && line[len(line)-1] == '\r' {
+		line = line[:len(line)-1]
+	}
+	return ps, line
+}
+
+// lineBreaksIn returns the offsets of '\n' and '\r' bytes in content[from:to].
+func lineBreaksIn(content []byte, from, to int) []int {
+	var breaks []int
+	for i := from; i < to; i++ {
+		if content[i] == '\n' || content[i] == '\r' {
+			breaks = append(breaks, i)
+		}
+	}
+	return breaks
 }
 
 func isVisibilityPrefix(p []byte) bool {

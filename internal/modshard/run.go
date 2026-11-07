@@ -576,19 +576,24 @@ func (c *identities) of(path string) string {
 // Results are memoized per path by identities.of, so each directory is walked once per run.
 func dirIdentity(root string) string {
 	h := sha256.New()
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return nil
+	// Unreadable entries are skipped rather than aborting the walk.
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr == nil && !d.IsDir() {
+			hashDirEntry(h, root, p, d)
 		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, p)
-		fmt.Fprintf(h, "%s|%d|%d;", rel, info.Size(), info.ModTime().UnixNano())
 		return nil
 	})
 	return fmt.Sprintf("%s|dir|%x", root, h.Sum(nil)[:12])
+}
+
+// hashDirEntry writes the relative path, size and modification time of d to h, skipping it when its info is unreadable.
+func hashDirEntry(h io.Writer, root, p string, d fs.DirEntry) {
+	info, err := d.Info()
+	if err != nil {
+		return
+	}
+	rel, _ := filepath.Rel(root, p)
+	fmt.Fprintf(h, "%s|%d|%d;", rel, info.Size(), info.ModTime().UnixNano())
 }
 
 // unitKey identifies a unit's facts: the krit-fir jar, the module's settings and plugins, its

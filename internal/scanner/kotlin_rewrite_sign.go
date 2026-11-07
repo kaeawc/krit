@@ -23,17 +23,25 @@ var signContinuationWords = map[string]bool{
 
 var signHeadWords = map[string]bool{"if": true, "while": true, "for": true, "when": true, "catch": true}
 
+// signBracket is an open bracket during signContext; 'T' marks a string template.
+type signBracket struct {
+	ch   byte
+	head bool
+}
+
+// signContextBuilder holds the bracket stack while signContext scans the source.
+type signContextBuilder struct {
+	r     *kotlinRewriter
+	ctx   *signLineContext
+	stack []signBracket
+}
+
 func (r *kotlinRewriter) signContext() *signLineContext {
 	if r.signCtx != nil {
 		return r.signCtx
 	}
 	o := r.orig
-	ctx := &signLineContext{enclosing: map[int]byte{}, headClose: map[int]bool{}}
-	type open struct {
-		ch   byte
-		head bool
-	}
-	var stack []open
+	b := &signContextBuilder{r: r, ctx: &signLineContext{enclosing: map[int]byte{}, headClose: map[int]bool{}}}
 	atLineStart := true
 	for i := 0; i < len(o); i++ {
 		c := o[i]
@@ -42,42 +50,58 @@ func (r *kotlinRewriter) signContext() *signLineContext {
 			continue
 		}
 		if atLineStart {
-			if c == ' ' || c == '\t' || c == '\r' || !r.isCode(i) && !(c == '"' || c == '\'') {
+			if c == ' ' || c == '\t' || c == '\r' || !r.isCode(i) && c != '"' && c != '\'' {
 				continue
 			}
 			atLineStart = false
-			if (c == '+' || c == '-') && r.isCode(i) {
-				var top byte
-				if len(stack) > 0 {
-					top = stack[len(stack)-1].ch
-				}
-				ctx.enclosing[i] = top
-			}
+			b.recordLeadingSign(i, c)
 		}
 		if !r.isCode(i) {
-			// The `${` and `}` of a string template are not code but delimit code.
-			switch {
-			case c == '$' && i+1 < len(o) && o[i+1] == '{' && !r.isCode(i+1):
-				stack = append(stack, open{ch: 'T'})
-			case c == '}' && len(stack) > 0 && stack[len(stack)-1].ch == 'T':
-				stack = stack[:len(stack)-1]
-			}
+			b.templateDelimiter(i, c)
 			continue
 		}
-		switch c {
-		case '(', '[', '{':
-			stack = append(stack, open{ch: c, head: c == '(' && signHeadWords[r.wordBefore(i)]})
-		case ')', ']', '}':
-			if len(stack) > 0 {
-				if stack[len(stack)-1].head && c == ')' {
-					ctx.headClose[i] = true
-				}
-				stack = stack[:len(stack)-1]
+		b.codeBracket(i, c)
+	}
+	r.signCtx = b.ctx
+	return b.ctx
+}
+
+// recordLeadingSign records the innermost open bracket for a `+` or `-` that starts a line at i.
+func (b *signContextBuilder) recordLeadingSign(i int, c byte) {
+	if (c != '+' && c != '-') || !b.r.isCode(i) {
+		return
+	}
+	var top byte
+	if len(b.stack) > 0 {
+		top = b.stack[len(b.stack)-1].ch
+	}
+	b.ctx.enclosing[i] = top
+}
+
+// templateDelimiter tracks the `${` and `}` of a string template, which are not code but delimit code.
+func (b *signContextBuilder) templateDelimiter(i int, c byte) {
+	o := b.r.orig
+	switch {
+	case c == '$' && i+1 < len(o) && o[i+1] == '{' && !b.r.isCode(i+1):
+		b.stack = append(b.stack, signBracket{ch: 'T'})
+	case c == '}' && len(b.stack) > 0 && b.stack[len(b.stack)-1].ch == 'T':
+		b.stack = b.stack[:len(b.stack)-1]
+	}
+}
+
+// codeBracket tracks the code bracket c at i, recording `)` that close a control-flow head.
+func (b *signContextBuilder) codeBracket(i int, c byte) {
+	switch c {
+	case '(', '[', '{':
+		b.stack = append(b.stack, signBracket{ch: c, head: c == '(' && signHeadWords[b.r.wordBefore(i)]})
+	case ')', ']', '}':
+		if len(b.stack) > 0 {
+			if b.stack[len(b.stack)-1].head && c == ')' {
+				b.ctx.headClose[i] = true
 			}
+			b.stack = b.stack[:len(b.stack)-1]
 		}
 	}
-	r.signCtx = ctx
-	return ctx
 }
 
 // wordBefore returns the identifier that ends just before i, skipping blanks.
@@ -114,5 +138,5 @@ func (r *kotlinRewriter) rewriteLeadingSign(ls, p int) {
 	if isIdentByte(o[prev]) && signContinuationWords[r.wordBefore(prev+1)] {
 		return
 	}
-	r.terminatePrevious(ls, true)
+	r.terminatePrevious(ls)
 }

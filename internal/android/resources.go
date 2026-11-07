@@ -504,71 +504,34 @@ func (idx *ResourceIndex) AllLayouts() []*Layout {
 }
 
 func (idx *ResourceIndex) ensureMaps() {
-	if idx.Layouts == nil {
-		idx.Layouts = make(map[string]*Layout)
-	}
-	if idx.LayoutConfigs == nil {
-		idx.LayoutConfigs = make(map[string]map[string]*Layout)
-	}
-	if idx.Strings == nil {
-		idx.Strings = make(map[string]string)
-	}
-	if idx.StringsNonTranslate == nil {
-		idx.StringsNonTranslate = make(map[string]bool)
-	}
-	if idx.StringsNonFormatted == nil {
-		idx.StringsNonFormatted = make(map[string]bool)
-	}
-	if idx.StringsTrailingWS == nil {
-		idx.StringsTrailingWS = make(map[string]bool)
-	}
-	if idx.StringsLocation == nil {
-		idx.StringsLocation = make(map[string]StringLocation)
-	}
-	if idx.StringSources == nil {
-		idx.StringSources = make(map[string]StringSource)
-	}
-	if idx.StringTranslations == nil {
-		idx.StringTranslations = make(map[string][]StringSource)
-	}
-	if idx.Colors == nil {
-		idx.Colors = make(map[string]string)
-	}
-	if idx.Dimensions == nil {
-		idx.Dimensions = make(map[string]string)
-	}
-	if idx.DimensionsLocation == nil {
-		idx.DimensionsLocation = make(map[string]StringLocation)
-	}
-	if idx.Styles == nil {
-		idx.Styles = make(map[string]*Style)
-	}
-	if idx.StringArrays == nil {
-		idx.StringArrays = make(map[string][]string)
-	}
-	if idx.StringArrayVariants == nil {
-		idx.StringArrayVariants = make(map[string][]StringArrayVariant)
-	}
-	if idx.Plurals == nil {
-		idx.Plurals = make(map[string]map[string]string)
-	}
-	if idx.PluralSources == nil {
-		idx.PluralSources = make(map[string]string)
-	}
-	if idx.PluralsLocation == nil {
-		idx.PluralsLocation = make(map[string]StringLocation)
-	}
-	if idx.PluralsNonTranslate == nil {
-		idx.PluralsNonTranslate = make(map[string]bool)
-	}
-	if idx.Integers == nil {
-		idx.Integers = make(map[string]string)
-	}
-	if idx.Booleans == nil {
-		idx.Booleans = make(map[string]string)
-	}
-	if idx.IDs == nil {
-		idx.IDs = make(map[string]bool)
+	ensureMap(&idx.Layouts)
+	ensureMap(&idx.LayoutConfigs)
+	ensureMap(&idx.Strings)
+	ensureMap(&idx.StringsNonTranslate)
+	ensureMap(&idx.StringsNonFormatted)
+	ensureMap(&idx.StringsTrailingWS)
+	ensureMap(&idx.StringsLocation)
+	ensureMap(&idx.StringSources)
+	ensureMap(&idx.StringTranslations)
+	ensureMap(&idx.Colors)
+	ensureMap(&idx.Dimensions)
+	ensureMap(&idx.DimensionsLocation)
+	ensureMap(&idx.Styles)
+	ensureMap(&idx.StringArrays)
+	ensureMap(&idx.StringArrayVariants)
+	ensureMap(&idx.Plurals)
+	ensureMap(&idx.PluralSources)
+	ensureMap(&idx.PluralsLocation)
+	ensureMap(&idx.PluralsNonTranslate)
+	ensureMap(&idx.Integers)
+	ensureMap(&idx.Booleans)
+	ensureMap(&idx.IDs)
+}
+
+// ensureMap allocates *m when it is nil.
+func ensureMap[K comparable, V any](m *map[K]V) {
+	if *m == nil {
+		*m = make(map[K]V)
 	}
 }
 
@@ -621,30 +584,10 @@ func (idx *ResourceIndex) mergeStringEntries(other *ResourceIndex) {
 	for name := range other.StringsNonTranslate {
 		idx.StringsNonTranslate[name] = true
 	}
-	for name := range other.StringsNonFormatted {
-		if idx.StringsNonFormatted == nil {
-			idx.StringsNonFormatted = make(map[string]bool)
-		}
-		idx.StringsNonFormatted[name] = true
-	}
-	for name := range other.StringsWithMarkup {
-		if idx.StringsWithMarkup == nil {
-			idx.StringsWithMarkup = make(map[string]bool)
-		}
-		idx.StringsWithMarkup[name] = true
-	}
-	for name := range other.StringsWithNote {
-		if idx.StringsWithNote == nil {
-			idx.StringsWithNote = make(map[string]bool)
-		}
-		idx.StringsWithNote[name] = true
-	}
-	for name := range other.StringsTrailingWS {
-		if idx.StringsTrailingWS == nil {
-			idx.StringsTrailingWS = make(map[string]bool)
-		}
-		idx.StringsTrailingWS[name] = true
-	}
+	mergeNameSet(&idx.StringsNonFormatted, other.StringsNonFormatted)
+	mergeNameSet(&idx.StringsWithMarkup, other.StringsWithMarkup)
+	mergeNameSet(&idx.StringsWithNote, other.StringsWithNote)
+	mergeNameSet(&idx.StringsTrailingWS, other.StringsTrailingWS)
 	for name, loc := range other.StringsLocation {
 		if standsIn(name) {
 			continue
@@ -661,6 +604,16 @@ func (idx *ResourceIndex) mergeStringEntries(other *ResourceIndex) {
 			idx.StringSources = make(map[string]StringSource)
 		}
 		idx.StringSources[name] = src
+	}
+}
+
+// mergeNameSet marks every key of src as true in *dst, allocating *dst on first use.
+func mergeNameSet(dst *map[string]bool, src map[string]bool) {
+	for name := range src {
+		if *dst == nil {
+			*dst = make(map[string]bool)
+		}
+		(*dst)[name] = true
 	}
 }
 

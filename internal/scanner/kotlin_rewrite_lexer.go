@@ -42,14 +42,8 @@ func (lx *kotlinLexer) code(i int, inTemplate bool) int {
 		c := src[i]
 		switch c {
 		case '/':
-			if i+1 < n && src[i+1] == '/' {
-				for i < n && src[i] != '\n' {
-					i++
-				}
-				continue
-			}
-			if i+1 < n && src[i+1] == '*' {
-				i = lx.blockComment(i)
+			if j, ok := lx.comment(i); ok {
+				i = j
 				continue
 			}
 		case '"':
@@ -68,13 +62,8 @@ func (lx *kotlinLexer) code(i int, inTemplate bool) int {
 			i += k + 2
 			continue
 		case '$':
-			j := i
-			for j < n && src[j] == '$' {
-				j++
-			}
-			if j-i >= 2 && j < n && src[j] == '"' {
-				lx.dollarPrefixes = append(lx.dollarPrefixes, [2]int{i, j})
-				i = lx.str(j, j-i)
+			if j, ok := lx.multiDollarString(i); ok {
+				i = j
 				continue
 			}
 		case '{':
@@ -89,6 +78,37 @@ func (lx *kotlinLexer) code(i int, inTemplate bool) int {
 		i++
 	}
 	return i
+}
+
+// comment skips a line or block comment starting at the '/' at i. ok is false when none starts there.
+func (lx *kotlinLexer) comment(i int) (int, bool) {
+	src := lx.src
+	n := len(src)
+	if i+1 < n && src[i+1] == '/' {
+		for i < n && src[i] != '\n' {
+			i++
+		}
+		return i, true
+	}
+	if i+1 < n && src[i+1] == '*' {
+		return lx.blockComment(i), true
+	}
+	return i, false
+}
+
+// multiDollarString scans a `$$"..."` string whose dollar run starts at i. ok is false when the run does not prefix a string.
+func (lx *kotlinLexer) multiDollarString(i int) (int, bool) {
+	src := lx.src
+	n := len(src)
+	j := i
+	for j < n && src[j] == '$' {
+		j++
+	}
+	if j-i >= 2 && j < n && src[j] == '"' {
+		lx.dollarPrefixes = append(lx.dollarPrefixes, [2]int{i, j})
+		return lx.str(j, j-i), true
+	}
+	return i, false
 }
 
 func (lx *kotlinLexer) blockComment(i int) int {
@@ -154,10 +174,7 @@ func (lx *kotlinLexer) str(i, dollars int) int {
 	} else {
 		i++
 	}
-	need := dollars
-	if need < 1 {
-		need = 1
-	}
+	need := max(dollars, 1)
 	for i < n {
 		c := src[i]
 		switch {
@@ -170,43 +187,60 @@ func (lx *kotlinLexer) str(i, dollars int) int {
 		case !raw && c == '\n':
 			return i
 		case raw && c == '"':
-			j := i
-			for j < n && src[j] == '"' {
-				j++
-			}
-			if j-i >= 3 {
-				lx.mask[j-1] = true
+			j, closed := lx.rawQuotes(i)
+			if closed {
 				return j
 			}
 			i = j
 			continue
 		case c == '$':
-			j := i
-			for j < n && src[j] == '$' {
-				j++
-			}
-			var next byte
-			if j < n {
-				next = src[j]
-			}
-			interp := j-i >= need && (next == '{' || isIdentStartByte(next))
-			if dollars >= 2 {
-				keep := j
-				if interp {
-					keep = j - 1
-				}
-				for p := i; p < keep; p++ {
-					lx.edits = append(lx.edits, byteEdit{p, '_'})
-				}
-			}
-			if interp && next == '{' {
-				i = lx.code(j+1, true)
-				continue
-			}
-			i = j
+			i = lx.strDollars(i, dollars, need)
 			continue
 		}
 		i++
 	}
 	return i
+}
+
+// rawQuotes skips the run of quotes at i inside a raw string. closed reports whether the run ends the string.
+func (lx *kotlinLexer) rawQuotes(i int) (int, bool) {
+	src := lx.src
+	j := i
+	for j < len(src) && src[j] == '"' {
+		j++
+	}
+	if j-i >= 3 {
+		lx.mask[j-1] = true
+		return j, true
+	}
+	return j, false
+}
+
+// strDollars handles the dollar run at i inside a string whose template prefix needs need dollars,
+// and returns the index to resume scanning from.
+func (lx *kotlinLexer) strDollars(i, dollars, need int) int {
+	src := lx.src
+	n := len(src)
+	j := i
+	for j < n && src[j] == '$' {
+		j++
+	}
+	var next byte
+	if j < n {
+		next = src[j]
+	}
+	interp := j-i >= need && (next == '{' || isIdentStartByte(next))
+	if dollars >= 2 {
+		keep := j
+		if interp {
+			keep = j - 1
+		}
+		for p := i; p < keep; p++ {
+			lx.edits = append(lx.edits, byteEdit{p, '_'})
+		}
+	}
+	if interp && next == '{' {
+		return lx.code(j+1, true)
+	}
+	return j
 }

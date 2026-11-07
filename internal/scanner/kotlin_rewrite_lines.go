@@ -43,20 +43,26 @@ func (r *kotlinRewriter) rewriteLines() {
 }
 
 func (r *kotlinRewriter) rewriteLine(ls, p, le int) {
+	r.rewriteLeadingToken(ls, p, le)
+	r.rewriteLineShapes(p, le)
+}
+
+// rewriteLeadingToken handles a line whose first token the grammar attaches to the previous line.
+func (r *kotlinRewriter) rewriteLeadingToken(ls, p, le int) {
 	o := r.orig
 	line := o[p:le]
 	switch o[p] {
 	case 'a':
-		if len(line) > 2 && line[1] == 's' && (line[2] == ' ' || line[2] == '\t' || line[2] == '?') {
+		if startsCastContinuation(line) {
 			r.joinWithPrevious(ls, p)
 		}
 	case 'i':
 		if bytes.HasPrefix(line, []byte("in ")) && bytes.Contains(line, []byte("->")) {
-			r.terminatePrevious(ls, true)
+			r.terminatePrevious(ls)
 		}
 	case '!':
-		if len(line) > 1 && line[1] != '=' && line[1] != '!' && bytes.Contains(line, []byte("->")) {
-			r.terminatePrevious(ls, true)
+		if startsNegatedWhenBranch(line) {
+			r.terminatePrevious(ls)
 			r.wrapNegatedIdentifier(p, le)
 		}
 	case 'w':
@@ -64,18 +70,21 @@ func (r *kotlinRewriter) rewriteLine(ls, p, le int) {
 			r.joinWithPrevious(ls, p)
 		}
 	case 'e':
-		if bytes.HasPrefix(line, []byte("else")) {
-			if k := r.skipWS(p + 4); k+1 < len(o) && o[k] == '-' && o[k+1] == '>' {
-				r.terminatePrevious(ls, true)
-			}
+		if r.startsElseBranch(p, line) {
+			r.terminatePrevious(ls)
 		}
 	case '+', '-':
 		r.rewriteLeadingSign(ls, p)
 	case '.':
-		if len(line) > 1 && line[1] >= '0' && line[1] <= '9' {
-			r.terminatePrevious(ls, true)
+		if startsFractionLiteral(line) {
+			r.terminatePrevious(ls)
 		}
 	}
+}
+
+// rewriteLineShapes handles constructs anywhere on the line starting at p.
+func (r *kotlinRewriter) rewriteLineShapes(p, le int) {
+	line := r.orig[p:le]
 	if bytes.Contains(line, []byte(" if ")) && bytes.Contains(line, []byte("->")) {
 		r.rewriteWhenGuard(p, le)
 	}
@@ -90,6 +99,30 @@ func (r *kotlinRewriter) rewriteLine(ls, p, le int) {
 	if (hasCallSuffix(line) || startsChainContinuation(line)) && hasAssignOp(line) {
 		r.rewriteCallChainAssignment(p, le)
 	}
+}
+
+// startsCastContinuation reports a line starting with `as T` or `as? T`.
+func startsCastContinuation(line []byte) bool {
+	return len(line) > 2 && line[1] == 's' && (line[2] == ' ' || line[2] == '\t' || line[2] == '?')
+}
+
+// startsNegatedWhenBranch reports a when branch that starts with a negation, as in `!in x ->`.
+func startsNegatedWhenBranch(line []byte) bool {
+	return len(line) > 1 && line[1] != '=' && line[1] != '!' && bytes.Contains(line, []byte("->"))
+}
+
+// startsElseBranch reports an `else ->` when branch at p.
+func (r *kotlinRewriter) startsElseBranch(p int, line []byte) bool {
+	if !bytes.HasPrefix(line, []byte("else")) {
+		return false
+	}
+	k := r.skipWS(p + 4)
+	return k+1 < len(r.orig) && r.orig[k] == '-' && r.orig[k+1] == '>'
+}
+
+// startsFractionLiteral reports a line starting with a literal like `.5f`.
+func startsFractionLiteral(line []byte) bool {
+	return len(line) > 1 && line[1] >= '0' && line[1] <= '9'
 }
 
 // startsChainContinuation reports a line that continues a call chain from the line above, as in
@@ -149,20 +182,18 @@ func (r *kotlinRewriter) lastCodeSkippingComments(ls int) int {
 
 // terminatePrevious ends the statement above the line starting at ls with a
 // ';' so the line starts a new statement.
-func (r *kotlinRewriter) terminatePrevious(ls int, allowBrace bool) bool {
+func (r *kotlinRewriter) terminatePrevious(ls int) {
 	prev := r.lastCodeSkippingComments(ls)
 	if prev < 0 || prev+1 >= len(r.orig) || !isSpaceByte(r.orig[prev+1]) {
-		return false
+		return
 	}
 	switch c := r.orig[prev]; {
-	case isIdentByte(c), c == ')', c == ']', c == '"', c == '\'', c == '?', c == '!':
-	case c == '}' && allowBrace:
+	case isIdentByte(c), c == ')', c == ']', c == '"', c == '\'', c == '?', c == '!', c == '}':
 	default:
-		return false
+		return
 	}
 	r.set(prev+1, ';')
 	r.semis = append(r.semis, uint32(prev+1))
-	return true
 }
 
 func (r *kotlinRewriter) rewriteWhenGuard(p, le int) {
@@ -303,7 +334,7 @@ func (r *kotlinRewriter) rewriteCallChainAssignment(p, le int) {
 		}
 		if ls := lineStartOf(o, start); len(bytes.TrimSpace(o[ls:start])) == 0 {
 			// The '(' would continue the previous line as a call.
-			r.terminatePrevious(ls, true)
+			r.terminatePrevious(ls)
 		}
 		r.set(start-1, '(')
 		r.set(opStart-1, ')')
@@ -338,93 +369,140 @@ func (r *kotlinRewriter) statementBoundary(i int) bool {
 	return p >= 3 && r.wordAt(p-3, "else")
 }
 
+// chainScan is the backward scan state of chainStart.
+type chainScan struct {
+	pos               int
+	groupBeforeSuffix bool
+	first             bool
+}
+
 // chainStart scans backward from the last byte at end over a chain of names,
 // calls and index suffixes. It reports the chain start and whether the chain
 // has a call or index group followed by another suffix.
 func (r *kotlinRewriter) chainStart(end int) (int, bool) {
 	o := r.orig
-	pos := end
-	groupBeforeSuffix := false
-	first := true
-	for pos >= 0 {
-		c := o[pos]
+	st := chainScan{pos: end, first: true}
+	for st.pos >= 0 {
+		c := o[st.pos]
+		var start int
+		var result, done bool
 		switch {
 		case c == '}':
-			// A trailing lambda: `f(x) { ... }[i] = v`.
-			if first {
+			if !r.chainLambdaStep(&st) {
 				return 0, false
 			}
-			groupBeforeSuffix = true
-			open := r.matchBraceBackward(pos)
-			if open < 1 {
-				return 0, false
-			}
-			pos = open - 1
-			for pos >= 0 && (o[pos] == ' ' || o[pos] == '\t') {
-				pos--
-			}
-			if pos < 0 || !(o[pos] == ')' || isIdentByte(o[pos])) {
-				return 0, false
-			}
-			continue
 		case c == ')' || c == ']':
-			if !first {
-				groupBeforeSuffix = true
-			}
-			open := r.matchBackward(pos)
-			if open < 1 {
-				return 0, false
-			}
-			pos = open - 1
-			if c == ')' && !first && (pos < 0 || !(isIdentByte(o[pos]) || o[pos] == ')' || o[pos] == ']' || o[pos] == '>' || o[pos] == '`')) && r.castInside(open) {
-				// `(x as T).prop`: the parenthesized receiver starts the chain.
-				return open, true
-			}
-			if pos >= 0 && o[pos] == '>' && c == ')' {
-				if lt := r.matchAngleBackward(pos); lt > 0 {
-					pos = lt - 1
-				}
-			}
-			if pos < 0 || !(isIdentByte(o[pos]) || o[pos] == ')' || o[pos] == ']' || o[pos] == '}' || o[pos] == '`') {
-				return 0, false
-			}
-			first = false
-			continue
+			start, result, done = r.chainGroupStep(&st, c)
 		case isIdentByte(c) || c == '`':
-			idStart := pos
-			if c == '`' {
-				k := bytes.LastIndexByte(o[:pos], '`')
-				if k < 0 {
-					return 0, false
-				}
-				idStart = k
-			} else {
-				for idStart > 0 && isIdentByte(o[idStart-1]) {
-					idStart--
-				}
-			}
-			first = false
-			pos = idStart - 1
-			if pos >= 0 && o[pos] == '.' {
-				pos--
-				if pos >= 0 && o[pos] == '?' {
-					pos--
-				}
-				// A dot that starts its line continues the chain on the line above.
-				if k := skipSpaceBackward(o, pos); k < pos && bytes.IndexByte(o[k+1:pos+1], '\n') >= 0 {
-					pos = k
-				}
-				if pos >= 1 && o[pos] == '!' && o[pos-1] == '!' {
-					pos -= 2
-				}
-				continue
-			}
-			return idStart, groupBeforeSuffix
+			start, result, done = r.chainNameStep(&st, c)
 		default:
 			return 0, false
 		}
+		if done {
+			return start, result
+		}
 	}
 	return 0, false
+}
+
+// chainLambdaStep steps over a trailing lambda: `f(x) { ... }[i] = v`.
+// It reports false when the lambda cannot be part of the chain.
+func (r *kotlinRewriter) chainLambdaStep(st *chainScan) bool {
+	o := r.orig
+	if st.first {
+		return false
+	}
+	st.groupBeforeSuffix = true
+	open := r.matchBraceBackward(st.pos)
+	if open < 1 {
+		return false
+	}
+	st.pos = open - 1
+	for st.pos >= 0 && (o[st.pos] == ' ' || o[st.pos] == '\t') {
+		st.pos--
+	}
+	if st.pos < 0 || (o[st.pos] != ')' && !isIdentByte(o[st.pos])) {
+		return false
+	}
+	return true
+}
+
+// chainGroupStep steps over the call or index group closing with c at st.pos.
+// done is true when the scan ends with the given start and result.
+func (r *kotlinRewriter) chainGroupStep(st *chainScan, c byte) (start int, result, done bool) {
+	o := r.orig
+	if !st.first {
+		st.groupBeforeSuffix = true
+	}
+	open := r.matchBackward(st.pos)
+	if open < 1 {
+		return 0, false, true
+	}
+	st.pos = open - 1
+	if c == ')' && !st.first && r.isCastReceiver(open, st.pos) {
+		// `(x as T).prop`: the parenthesized receiver starts the chain.
+		return open, true, true
+	}
+	if st.pos >= 0 && o[st.pos] == '>' && c == ')' {
+		if lt := r.matchAngleBackward(st.pos); lt > 0 {
+			st.pos = lt - 1
+		}
+	}
+	if st.pos < 0 || !isChainGroupCallee(o[st.pos]) {
+		return 0, false, true
+	}
+	st.first = false
+	return 0, false, false
+}
+
+// isCastReceiver reports whether the parenthesized group opening at open, after the byte at pos,
+// is a receiver of its own such as `(x as T)` rather than call arguments.
+func (r *kotlinRewriter) isCastReceiver(open, pos int) bool {
+	o := r.orig
+	if pos >= 0 && (isIdentByte(o[pos]) || o[pos] == ')' || o[pos] == ']' || o[pos] == '>' || o[pos] == '`') {
+		return false
+	}
+	return r.castInside(open)
+}
+
+// isChainGroupCallee reports whether b can end the expression a call or index group applies to.
+func isChainGroupCallee(b byte) bool {
+	return isIdentByte(b) || b == ')' || b == ']' || b == '}' || b == '`'
+}
+
+// chainNameStep steps over the name ending with c at st.pos and the member access before it.
+// done is true when the scan ends with the given start and result.
+func (r *kotlinRewriter) chainNameStep(st *chainScan, c byte) (start int, result, done bool) {
+	o := r.orig
+	idStart := st.pos
+	if c == '`' {
+		k := bytes.LastIndexByte(o[:st.pos], '`')
+		if k < 0 {
+			return 0, false, true
+		}
+		idStart = k
+	} else {
+		for idStart > 0 && isIdentByte(o[idStart-1]) {
+			idStart--
+		}
+	}
+	st.first = false
+	st.pos = idStart - 1
+	if st.pos < 0 || o[st.pos] != '.' {
+		return idStart, st.groupBeforeSuffix, true
+	}
+	st.pos--
+	if st.pos >= 0 && o[st.pos] == '?' {
+		st.pos--
+	}
+	// A dot that starts its line continues the chain on the line above.
+	if k := skipSpaceBackward(o, st.pos); k < st.pos && bytes.IndexByte(o[k+1:st.pos+1], '\n') >= 0 {
+		st.pos = k
+	}
+	if st.pos >= 1 && o[st.pos] == '!' && o[st.pos-1] == '!' {
+		st.pos -= 2
+	}
+	return 0, false, false
 }
 
 // matchBackward returns the index of the bracket that opens the one closing at
@@ -478,30 +556,42 @@ func (r *kotlinRewriter) rewriteCommasAndRefs() {
 	for i := 0; i < len(o); i++ {
 		switch o[i] {
 		case ',':
-			j := i + 1
-			for j < len(o) && isSpaceByte(o[j]) {
-				j++
-			}
-			if j >= len(o) {
-				continue
-			}
-			switch o[j] {
-			case ']', '>':
-				if r.isCode(i) {
-					r.set(i, ' ')
-				}
-			case ')':
-				k := r.skipWS(j + 1)
-				if k+1 < len(o) && o[k] == '-' && o[k+1] == '>' && r.isCode(i) {
-					r.set(i, ' ')
-				}
+			if r.isRejectedTrailingComma(i) && r.isCode(i) {
+				r.set(i, ' ')
 			}
 		case '?':
-			if i > 0 && isIdentByte(o[i-1]) && i+2 < len(o) && (o[i+1] == ':' && o[i+2] == ':' || o[i+1] == '.' && o[i+2] == '(') && r.isCode(i) {
+			if r.isNullableRefQuestion(i) && r.isCode(i) {
 				r.set(i, ' ')
 			}
 		}
 	}
+}
+
+// isRejectedTrailingComma reports whether the comma at i trails a type argument list,
+// an index suffix or a function type parameter list.
+func (r *kotlinRewriter) isRejectedTrailingComma(i int) bool {
+	o := r.orig
+	j := i + 1
+	for j < len(o) && isSpaceByte(o[j]) {
+		j++
+	}
+	if j >= len(o) {
+		return false
+	}
+	switch o[j] {
+	case ']', '>':
+		return true
+	case ')':
+		k := r.skipWS(j + 1)
+		return k+1 < len(o) && o[k] == '-' && o[k+1] == '>'
+	}
+	return false
+}
+
+// isNullableRefQuestion reports whether the '?' at i is the `?` of `Type?::member` or `Type?.(`.
+func (r *kotlinRewriter) isNullableRefQuestion(i int) bool {
+	o := r.orig
+	return i > 0 && isIdentByte(o[i-1]) && i+2 < len(o) && (o[i+1] == ':' && o[i+2] == ':' || o[i+1] == '.' && o[i+2] == '(')
 }
 
 // rewriteTypedDestructuringParam blanks the type of lambda parameters like
@@ -598,12 +688,14 @@ func (r *kotlinRewriter) modifierUsedAsName(at, end int) bool {
 		return p >= 0 && (o[p] == '{' || o[p] == ',')
 	}
 	ls := lineStartOf(o, at)
-	if len(bytes.TrimSpace(o[ls:at])) != 0 {
+	if len(bytes.TrimSpace(o[ls:at])) != 0 || k >= len(o) {
 		return false
 	}
-	if k >= len(o) {
-		return false
-	}
+	return startsCallOrAssignment(o, k, end)
+}
+
+// startsCallOrAssignment reports whether o[k] starts a call directly after a name ending at end, or an assignment.
+func startsCallOrAssignment(o []byte, k, end int) bool {
 	switch o[k] {
 	case '(':
 		return k == end
@@ -645,7 +737,7 @@ func (r *kotlinRewriter) wrapNegatedIdentifier(p, le int) {
 	if p < 1 || (o[p-1] != ' ' && o[p-1] != '\t') || p+3 >= le {
 		return
 	}
-	if !(o[p+1] == 'i' && (o[p+2] == 's' || o[p+2] == 'n') && isIdentByte(o[p+3])) {
+	if o[p+1] != 'i' || (o[p+2] != 's' && o[p+2] != 'n') || !isIdentByte(o[p+3]) {
 		return
 	}
 	end := p + 1
@@ -727,18 +819,23 @@ func (r *kotlinRewriter) rewriteFunctionTypeReceivers() {
 			}
 			j = lt - 1
 		}
-		// Replace the dots between the qualifier names.
-		for j >= 1 && isIdentByte(o[j]) {
-			for j >= 0 && isIdentByte(o[j]) {
-				j--
-			}
-			if j >= 1 && o[j] == '.' && isIdentByte(o[j-1]) {
-				r.set(j, '_')
-				j--
-				continue
-			}
-			break
+		r.joinQualifiedName(j)
+	}
+}
+
+// joinQualifiedName replaces the dots between the names of the qualified name ending at j with '_'.
+func (r *kotlinRewriter) joinQualifiedName(j int) {
+	o := r.orig
+	for j >= 1 && isIdentByte(o[j]) {
+		for j >= 0 && isIdentByte(o[j]) {
+			j--
 		}
+		if j >= 1 && o[j] == '.' && isIdentByte(o[j-1]) {
+			r.set(j, '_')
+			j--
+			continue
+		}
+		break
 	}
 }
 

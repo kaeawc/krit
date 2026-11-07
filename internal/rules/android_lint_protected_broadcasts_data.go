@@ -674,6 +674,8 @@ var lintProtectedBroadcastActions = map[string]bool{
 }
 
 // lintFrameworkActionConstants maps "Class.CONSTANT" to the value of a framework action constant.
+//
+//nolint:gosec // G101 false positive: intent action names, not credentials.
 var lintFrameworkActionConstants = map[string]string{
 	"AccountManager.ACTION_ACCOUNT_REMOVED":                                     "android.accounts.action.ACCOUNT_REMOVED",
 	"AccountManager.LOGIN_ACCOUNTS_CHANGED_ACTION":                              "android.accounts.LOGIN_ACCOUNTS_CHANGED",

@@ -884,6 +884,8 @@ func (r *ServiceCastRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // serviceCastMap maps service constant names to their manager types, as in Lint's
 // ServiceCastDetector (package names stripped).
+//
+//nolint:gosec // G101 false positive: system service names, not credentials.
 var serviceCastMap = map[string]string{
 	"ACCESSIBILITY_SERVICE":            "AccessibilityManager",
 	"ACCOUNT_SERVICE":                  "AccountManager",

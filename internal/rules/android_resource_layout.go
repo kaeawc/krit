@@ -927,6 +927,7 @@ type DeprecatedResourceRule struct {
 // Confidence reports a tier-1 (high) base confidence: the checks compare attribute and tag names.
 func (r *DeprecatedResourceRule) Confidence() float64 { return api.ConfidenceHigh }
 
+//nolint:gosec // G101 false positive: attribute deprecation messages, not credentials.
 var deprecatedLayoutAttrs = map[string]string{
 	"android:autoText":    "Use `inputType` instead",
 	"android:capitalize":  "Use `inputType` instead",

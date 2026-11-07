@@ -1486,17 +1486,47 @@ func projectRtlMains(manifestPaths, gradlePaths []string) (func(string) ([]api.R
 	for _, app := range apps {
 		lines = append(lines, fmt.Sprintf("%s|%v", app.moduleDir, app.main))
 	}
-	fallback := func(path string) ([]api.RtlMainProject, bool) {
+	fallbackMains := func(path string) []api.RtlMainProject {
 		if own, ok := byDir[moduleDirOfFile(path)]; ok {
-			return []api.RtlMainProject{own}, true
+			return []api.RtlMainProject{own}
 		}
-		return all, true
+		return all
 	}
+	fallback := func(path string) ([]api.RtlMainProject, bool) { return fallbackMains(path), true }
 
 	root := findGradleRoot(moduleDirOfManifest(manifestPaths[0]))
 	if root == "" {
 		return fallback, finishRtlFingerprint(lines)
 	}
+	graph := rtlModuleGraph(root, gradlePaths)
+	if len(graph.Modules) == 0 {
+		return fallback, finishRtlFingerprint(lines)
+	}
+	_ = module.ParseAllDependencies(graph)
+
+	mains := rtlMainsByModule(graph, apps)
+	names := make([]string, 0, len(graph.Modules))
+	for name := range graph.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		levels := android.ResolveSDKLevels(filepath.Join(graph.Modules[name].Dir, "x"))
+		lines = append(lines, fmt.Sprintf("%s|%v|%v", name, mains[name], levels))
+	}
+	resolve := func(path string) ([]api.RtlMainProject, bool) {
+		mod := graph.FileToModule(path)
+		if mod == "" {
+			return fallbackMains(path), true
+		}
+		return mains[mod], true
+	}
+	return resolve, finishRtlFingerprint(lines)
+}
+
+// rtlModuleGraph discovers the Gradle modules under root, adding modules found
+// only in the scanned build scripts.
+func rtlModuleGraph(root string, gradlePaths []string) *module.Graph {
 	graph, err := module.DiscoverModules(context.Background(), root)
 	if err != nil || graph == nil {
 		graph = module.NewModuleGraph(root)
@@ -1508,12 +1538,11 @@ func projectRtlMains(manifestPaths, gradlePaths []string) (func(string) ([]api.R
 			graph.Modules[path] = m
 		}
 	}
-	if len(graph.Modules) == 0 {
-		return fallback, finishRtlFingerprint(lines)
-	}
-	_ = module.ParseAllDependencies(graph)
+	return graph
+}
 
-	// mains[module] lists the apps that include the module, the module's own app first.
+// rtlMainsByModule lists, per module, the apps that include it, the module's own app first.
+func rtlMainsByModule(graph *module.Graph, apps []rtlApp) map[string][]api.RtlMainProject {
 	mains := map[string][]api.RtlMainProject{}
 	for _, app := range apps {
 		appModule := graph.FileToModule(app.moduleDir + string(filepath.Separator) + "x")
@@ -1534,23 +1563,7 @@ func projectRtlMains(manifestPaths, gradlePaths []string) (func(string) ([]api.R
 			}
 		}
 	}
-	names := make([]string, 0, len(graph.Modules))
-	for name := range graph.Modules {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		levels := android.ResolveSDKLevels(filepath.Join(graph.Modules[name].Dir, "x"))
-		lines = append(lines, fmt.Sprintf("%s|%v|%v", name, mains[name], levels))
-	}
-	resolve := func(path string) ([]api.RtlMainProject, bool) {
-		mod := graph.FileToModule(path)
-		if mod == "" {
-			return fallback(path)
-		}
-		return mains[mod], true
-	}
-	return resolve, finishRtlFingerprint(lines)
+	return mains
 }
 
 func finishRtlFingerprint(lines []string) string {

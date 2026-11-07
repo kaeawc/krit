@@ -15,8 +15,9 @@ package rules
 //   android_resource_values.go  — value/string rules
 
 import (
-	"github.com/kaeawc/krit/internal/android"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/android"
 )
 
 // Resource-rule marker types. These are empty structs embedded by

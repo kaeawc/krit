@@ -322,7 +322,7 @@ func TestClickableViewAccessibilityResource(t *testing.T) {
 		"chip":                clickable("com.google.android.material.chip.Chip", map[string]string{}),
 		"touch-absorbing row": clickable("LinearLayout", map[string]string{}, &android.View{Type: "ImageView", Attributes: map[string]string{}}),
 		"custom group":        clickable("com.example.ui.RowLayout", map[string]string{}, &android.View{Type: "ImageView", Attributes: map[string]string{}}),
-		"full-screen scrim":   &android.View{Type: "View", LayoutWidth: "match_parent", LayoutHeight: "match_parent", Line: 5, Attributes: map[string]string{"android:clickable": "true"}},
+		"full-screen scrim":   {Type: "View", LayoutWidth: "match_parent", LayoutHeight: "match_parent", Line: 5, Attributes: map[string]string{"android:clickable": "true"}},
 		"non-focusable scrim": clickable("View", map[string]string{"android:focusable": "false"}),
 	}
 	for name, view := range cleanCases {

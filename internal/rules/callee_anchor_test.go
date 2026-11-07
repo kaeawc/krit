@@ -1,9 +1,10 @@
 package rules_test
 
 import (
-	"github.com/kaeawc/krit/internal/rules"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
 )
 
 func TestCalleeAnchor_ReportsOnCalledMethodName(t *testing.T) {

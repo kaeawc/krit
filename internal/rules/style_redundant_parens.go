@@ -27,17 +27,18 @@ const (
 
 func parenExprPriority(file *scanner.File, n uint32) int {
 	// The grammar parses `!a || b` as `!(a || b)`; the real top-level operator is the binary one.
-	for file.FlatType(n) == "prefix_expression" {
+	if file.FlatType(n) == "prefix_expression" {
 		operand := uint32(0)
 		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
 			if file.FlatIsNamed(c) && !isFlatCommentNode(file, c) {
 				operand = c
 			}
 		}
-		if operand == 0 || parenExprPriority(file, operand) >= parenPrioPrefix {
-			break
+		if operand != 0 {
+			if prio := parenExprPriority(file, operand); prio < parenPrioPrefix {
+				return prio
+			}
 		}
-		return parenExprPriority(file, operand)
 	}
 	switch file.FlatType(n) {
 	case "postfix_expression", "navigation_expression", "call_expression", "indexing_expression":
@@ -116,27 +117,7 @@ func parenthesesNecessary(file *scanner.File, paren, inner uint32) bool {
 	case "multiplicative_expression", "additive_expression", "range_expression", "infix_expression",
 		"elvis_expression", "check_expression", "comparison_expression", "equality_expression",
 		"conjunction_expression", "disjunction_expression", "as_expression":
-		parentPrio := parenExprPriority(file, parent)
-		first := parenIsFirstOperand(file, parent, paren)
-		// `a < b as T` would read T<... as type arguments.
-		if itype == "as_expression" && ptype == "comparison_expression" && file.FlatNodeTextEquals(parenOperator(file, parent), "<") {
-			return true
-		}
-		if itype == "if_expression" && first {
-			return true
-		}
-		// detekt gives `is` and `!is` the highest priority when they are a right operand.
-		if itype == "check_expression" && !first && ptype == "elvis_expression" && parenCheckIsTypeTest(file, inner) {
-			return false
-		}
-		if innerPrio == parentPrio {
-			// && and || are associative; every other operator needs the parentheses on its right side.
-			if !first && (ptype == "conjunction_expression" || ptype == "disjunction_expression") {
-				return false
-			}
-			return !first
-		}
-		return innerPrio < parentPrio
+		return parenBinaryOperandNecessary(file, parent, paren, inner, innerPrio)
 	case "prefix_expression":
 		if innerPrio == parenPrioPrefix {
 			return parenPrefixSignsClash(file, parent, inner)
@@ -153,7 +134,35 @@ func parenthesesNecessary(file *scanner.File, paren, inner uint32) bool {
 			return !parenCalleeCanLoseParens(file, inner)
 		}
 	}
-	return itype == "if_expression" && parenIfNeedsParens(file, paren, parent)
+	return itype == "if_expression" && parenIfNeedsParens(file, parent)
+}
+
+// parenBinaryOperandNecessary decides whether a parenthesized operand of a binary-like parent needs its
+// parentheses, comparing the operand's priority with the parent's.
+func parenBinaryOperandNecessary(file *scanner.File, parent, paren, inner uint32, innerPrio int) bool {
+	ptype := file.FlatType(parent)
+	itype := file.FlatType(inner)
+	parentPrio := parenExprPriority(file, parent)
+	first := parenIsFirstOperand(file, parent, paren)
+	// `a < b as T` would read T<... as type arguments.
+	if itype == "as_expression" && ptype == "comparison_expression" && file.FlatNodeTextEquals(parenOperator(file, parent), "<") {
+		return true
+	}
+	if itype == "if_expression" && first {
+		return true
+	}
+	// detekt gives `is` and `!is` the highest priority when they are a right operand.
+	if itype == "check_expression" && !first && ptype == "elvis_expression" && parenCheckIsTypeTest(file, inner) {
+		return false
+	}
+	if innerPrio == parentPrio {
+		// && and || are associative; every other operator needs the parentheses on its right side.
+		if !first && (ptype == "conjunction_expression" || ptype == "disjunction_expression") {
+			return false
+		}
+		return !first
+	}
+	return innerPrio < parentPrio
 }
 
 // parenOperator returns the operator token of a binary expression, or 0.
@@ -186,7 +195,7 @@ func parenCheckIsTypeTest(file *scanner.File, check uint32) bool {
 
 // parenIfNeedsParens lists the places where a parenthesized if expression must keep its parentheses because the
 // surrounding syntax would otherwise absorb what follows it.
-func parenIfNeedsParens(file *scanner.File, paren, parent uint32) bool {
+func parenIfNeedsParens(file *scanner.File, parent uint32) bool {
 	switch file.FlatType(parent) {
 	case "if_expression", "when_condition", "indexing_suffix", "interpolated_expression":
 		return true

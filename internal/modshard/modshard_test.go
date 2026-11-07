@@ -341,3 +341,29 @@ func TestCopyFileLeavesNoPartialFile(t *testing.T) {
 		t.Fatalf("temp files left behind: %v", left)
 	}
 }
+
+func TestUnitKeyChangesWithClasspathDirectoryContents(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	_ = os.MkdirAll(src, 0o755)
+	_ = os.WriteFile(filepath.Join(src, "A.kt"), []byte("class A"), 0o644)
+	classes := filepath.Join(root, "classes", "pkg")
+	_ = os.MkdirAll(classes, 0o755)
+	class := filepath.Join(classes, "Dep.class")
+	_ = os.WriteFile(class, []byte("v1"), 0o644)
+	unit := Unit{Spec: firchecks.ModuleSpec{ID: "m", SourceRoots: []string{src}, Classpath: []string{filepath.Join(root, "classes")}}}
+	key := func() string { k, _ := unitKey(unit, "", newIdentities(), nil); return k }
+	k1 := key()
+	if k1 != key() {
+		t.Fatal("key is not stable for an unchanged directory")
+	}
+	_ = os.WriteFile(class, []byte("version2"), 0o644)
+	k2 := key()
+	if k2 == k1 {
+		t.Error("editing a class inside a classpath directory must change the key")
+	}
+	_ = os.WriteFile(filepath.Join(classes, "New.class"), []byte("x"), 0o644)
+	if key() == k2 {
+		t.Error("adding a class inside a classpath directory must change the key")
+	}
+}

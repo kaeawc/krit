@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -560,10 +561,34 @@ func (c *identities) of(path string) string {
 	}
 	v := path + "|missing"
 	if info, err := os.Stat(path); err == nil {
-		v = fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())
+		if info.IsDir() {
+			v = dirIdentity(path)
+		} else {
+			v = fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())
+		}
 	}
 	c.seen[path] = v
 	return v
+}
+
+// dirIdentity fingerprints a classpath directory by the relative path, size and modification time
+// of every file under it, since a directory's own mtime does not change when a nested class does.
+// Results are memoized per path by identities.of, so each directory is walked once per run.
+func dirIdentity(root string) string {
+	h := sha256.New()
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		fmt.Fprintf(h, "%s|%d|%d;", rel, info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return fmt.Sprintf("%s|dir|%x", root, h.Sum(nil)[:12])
 }
 
 // unitKey identifies a unit's facts: the krit-fir jar, the module's settings and plugins, its

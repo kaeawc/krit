@@ -54,7 +54,8 @@ func ComputeResourceCodeRefs(sources [][]byte) *api.ResourceCodeRefs {
 	return refs
 }
 
-// stripSourceComments blanks // and /* */ comments so references in them do not count.
+// stripSourceComments blanks // and /* */ comments so references in them do not count. String,
+// raw string and char literals are copied through, so "image/*" does not start a comment.
 func stripSourceComments(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -71,12 +72,41 @@ func stripSourceComments(s string) string {
 			}
 			i += end + 4
 			b.WriteByte(' ')
+		case strings.HasPrefix(s[i:], `"""`):
+			end := strings.Index(s[i+3:], `"""`)
+			n := len(s) - i
+			if end >= 0 {
+				n = end + 6
+			}
+			b.WriteString(s[i : i+n])
+			i += n
+		case s[i] == '"' || s[i] == '\'':
+			n := quotedLiteralLen(s[i:])
+			b.WriteString(s[i : i+n])
+			i += n
 		default:
 			b.WriteByte(s[i])
 			i++
 		}
 	}
 	return b.String()
+}
+
+// quotedLiteralLen returns the length of the single-line string or char literal at the start of s.
+// An unterminated literal ends at the line break.
+func quotedLiteralLen(s string) int {
+	quote := s[0]
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case quote:
+			return i + 1
+		case '\n':
+			return i
+		}
+	}
+	return len(s)
 }
 
 // resourceFieldName turns a resource name into its R field name.

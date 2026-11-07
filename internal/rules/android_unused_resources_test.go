@@ -139,3 +139,19 @@ func TestUnusedResourcesCodeRefsAcrossLines(t *testing.T) {
 		t.Fatalf("a reference split over lines must count, got %v", refs.Refs)
 	}
 }
+
+func TestUnusedResourcesCodeRefsRespectsLiterals(t *testing.T) {
+	refs := rules.ComputeResourceCodeRefs([][]byte{
+		[]byte("val mime = \"image/*\"\nval a = R.string.after_mime\nval q = '\"'\nval b = R.string.after_char"),
+		[]byte("val raw = \"\"\"\n// not a comment /*\n\"\"\"\nval c = R.string.after_raw\n/* R.string.in_block */"),
+		[]byte("val esc = \"\\\" /* \"\nval d = R.string.after_escape"),
+	})
+	for _, want := range []string{"string/after_mime", "string/after_char", "string/after_raw", "string/after_escape"} {
+		if !refs.Refs[want] {
+			t.Errorf("missing reference %s in %v", want, refs.Refs)
+		}
+	}
+	if refs.Refs["string/in_block"] {
+		t.Errorf("a real block comment must still be stripped")
+	}
+}

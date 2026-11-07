@@ -9,13 +9,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 const (
 	projectProfileCacheDirName = "librarymodel-cache"
-	projectProfileCacheVersion = 2
+	// The profile comes from krit's own Gradle parsing, so each entry also records the build that wrote it.
+	projectProfileCacheVersion = 3
 )
 
 var (
@@ -56,6 +58,7 @@ func ProjectProfileCacheDir(repoDir string) string {
 type projectProfileCachePayload struct {
 	Version     int            `json:"version"`
 	Hasher      string         `json:"hasher"`
+	Build       string         `json:"build"`
 	PathsKey    string         `json:"pathsKey"`
 	Fingerprint string         `json:"fingerprint"`
 	InputPaths  []string       `json:"inputPaths"`
@@ -79,6 +82,7 @@ func LoadProjectProfileCache(cacheDir string, paths []string) (ProjectProfile, b
 	if err := json.Unmarshal(data, &payload); err != nil ||
 		payload.Version != projectProfileCacheVersion ||
 		payload.Hasher != hashutil.HasherName() ||
+		payload.Build != buildid.Token() ||
 		payload.PathsKey != projectProfilePathsKey(paths) {
 		projectProfileCacheMisses.Add(1)
 		return ProjectProfile{}, false
@@ -102,6 +106,7 @@ func SaveProjectProfileCache(cacheDir string, paths []string, profile ProjectPro
 	payload := projectProfileCachePayload{
 		Version:     projectProfileCacheVersion,
 		Hasher:      hashutil.HasherName(),
+		Build:       buildid.Token(),
 		PathsKey:    projectProfilePathsKey(paths),
 		Fingerprint: projectProfileFingerprint(paths, inputs),
 		InputPaths:  inputs,

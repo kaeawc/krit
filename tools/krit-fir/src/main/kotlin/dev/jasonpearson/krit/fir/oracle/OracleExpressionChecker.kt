@@ -40,9 +40,14 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
         val endOffset = source.endOffset
         val (line, col) = offsets.lineColAt(startOffset)
         val key = "$line:$col"
-        if (collector.hasExpression(filePath, key)) return
+        val startByte = offsets.byteOffsetAt(startOffset)
+        val endByte = offsets.byteOffsetAt(endOffset)
+        if (collector.hasExpressionRange(filePath, key, startByte, endByte)) return
 
-        val callee = expression.calleeReference.toResolvedCallableSymbol()
+        // A callee looked up on an error-typed receiver is the compiler's guess, so report it as unresolved: Go rules then
+        // fall back to the call's name instead of trusting a declaration the program may not call.
+        val viaError = ErrorInvolvement.calleeResolvedThroughError(expression)
+        val callee = expression.calleeReference.toResolvedCallableSymbol()?.takeUnless { viaError }
         val lexicalFallback = expression.calleeReference.name.asString()
 
         var callTarget: String = lexicalFallback
@@ -73,19 +78,20 @@ internal object OracleExpressionChecker : FirFunctionCallChecker(MppCheckerKind.
         // format so rule jars see stable, fully qualified strings. Pre-2.6 the oracle pass left this empty because no
         // Go-side rule consumed it; now the FIR-backed Resolver does.
         val resolvedType = runCatching { expression.resolvedType }.getOrNull()
-        val typeFqn = resolvedType?.renderFqn().orEmpty()
-        val typeNullable = resolvedType?.isMarkedNullable == true
+        // The Go side reads a leading "<error>" as an unknown type, which is what a guessed callee's type is.
+        val typeFqn = if (viaError) "<error>" else resolvedType?.renderFqn().orEmpty()
+        val typeNullable = !viaError && resolvedType?.isMarkedNullable == true
         val payload = ExpressionPayload(
             type = typeFqn,
             nullable = typeNullable,
-            startByte = offsets.byteOffsetAt(startOffset),
-            endByte = offsets.byteOffsetAt(endOffset),
+            startByte = startByte,
+            endByte = endByte,
             callTarget = callTarget,
             callTargetResolved = callTargetResolved,
             callTargetSuspend = callTargetSuspend,
             annotations = annotations,
         )
-        collector.addExpression(filePath, key, payload)
+        collector.addCallExpression(filePath, key, payload)
         recordLambdaSuspendArguments(collector, filePath, offsets, expression, callee)
     }
 

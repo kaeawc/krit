@@ -14,7 +14,7 @@ func (r *CognitiveComplexMethodRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[CognitiveComplexMethodRule]{
 				Name:        "allowedComplexity",
 				Aliases:     []string{"threshold"},
-				Default:     15,
+				Default:     14,
 				Description: "Maximum allowed cognitive complexity.",
 				Apply:       func(r *CognitiveComplexMethodRule, v int) { r.AllowedComplexity = v },
 			}),
@@ -49,9 +49,15 @@ func (r *ComplexInterfaceRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[ComplexInterfaceRule]{
 				Name:        "allowedDefinitions",
 				Aliases:     []string{"threshold"},
-				Default:     10,
+				Default:     9,
 				Description: "Maximum allowed definitions in an interface.",
 				Apply:       func(r *ComplexInterfaceRule, v int) { r.AllowedDefinitions = v },
+			}),
+			api.BoolOption(api.BoolOptionSpec[ComplexInterfaceRule]{
+				Name:        "ignoreOverloaded",
+				Default:     false,
+				Description: "Count overloaded functions once.",
+				Apply:       func(r *ComplexInterfaceRule, v bool) { r.IgnoreOverloaded = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[ComplexInterfaceRule]{
 				Name:        "includePrivateDeclarations",
@@ -81,12 +87,6 @@ func (r *CyclomaticComplexMethodRule) Meta() api.RuleDescriptor {
 				Default:     14,
 				Description: "Maximum allowed cyclomatic complexity.",
 				Apply:       func(r *CyclomaticComplexMethodRule, v int) { r.AllowedComplexity = v },
-			}),
-			api.BoolOption(api.BoolOptionSpec[CyclomaticComplexMethodRule]{
-				Name:        "ignoreLocalFunctions",
-				Default:     false,
-				Description: "Ignore local functions.",
-				Apply:       func(r *CyclomaticComplexMethodRule, v bool) { r.IgnoreLocalFunctions = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[CyclomaticComplexMethodRule]{
 				Name:        "ignoreNestingFunctions",
@@ -140,7 +140,7 @@ func (r *LargeClassRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[LargeClassRule]{
 				Name:        "allowedLines",
 				Aliases:     []string{"threshold"},
-				Default:     600,
+				Default:     599,
 				Description: "Maximum allowed lines in a class.",
 				Apply:       func(r *LargeClassRule, v int) { r.AllowedLines = v },
 			}),
@@ -157,7 +157,7 @@ func (r *LongMethodRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[LongMethodRule]{
 				Name:        "allowedLines",
 				Aliases:     []string{"threshold"},
-				Default:     60,
+				Default:     59,
 				Description: "Maximum allowed lines in a method.",
 				Apply:       func(r *LongMethodRule, v int) { r.AllowedLines = v },
 			}),
@@ -215,7 +215,7 @@ func (r *MethodOverloadingRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[MethodOverloadingRule]{
 				Name:        "allowedOverloads",
 				Aliases:     []string{"threshold"},
-				Default:     6,
+				Default:     5,
 				Description: "Maximum allowed method overloads.",
 				Apply:       func(r *MethodOverloadingRule, v int) { r.AllowedOverloads = v },
 			}),
@@ -250,7 +250,7 @@ func (r *NestedBlockDepthRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[NestedBlockDepthRule]{
 				Name:        "allowedDepth",
 				Aliases:     []string{"threshold"},
-				Default:     4,
+				Default:     3,
 				Description: "Maximum allowed nesting depth.",
 				Apply:       func(r *NestedBlockDepthRule, v int) { r.AllowedDepth = v },
 			}),
@@ -311,14 +311,24 @@ func (r *StringLiteralDuplicationRule) Meta() api.RuleDescriptor {
 				Apply:       func(r *StringLiteralDuplicationRule, v int) { r.AllowedWithLengthLessThan = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[StringLiteralDuplicationRule]{
+				Name:        "excludeStringsWithLessThan5Characters",
+				Default:     true,
+				Description: "Ignore strings shorter than 5 characters. detekt's name for allowedWithLengthLessThan: 5; false turns the floor off.",
+				Apply: func(r *StringLiteralDuplicationRule, v bool) {
+					if !v {
+						r.AllowedWithLengthLessThan = 0
+					}
+				},
+			}),
+			api.BoolOption(api.BoolOptionSpec[StringLiteralDuplicationRule]{
 				Name:        "ignoreAnnotation",
-				Default:     false,
+				Default:     true,
 				Description: "Ignore strings in annotations.",
 				Apply:       func(r *StringLiteralDuplicationRule, v bool) { r.IgnoreAnnotation = v },
 			}),
 			api.StringOption(api.StringOptionSpec[StringLiteralDuplicationRule]{
 				Name:        "ignoreStringsRegex",
-				Default:     "",
+				Default:     "$^",
 				Description: "Strings matching this regex are ignored.",
 				Apply:       func(r *StringLiteralDuplicationRule, v string) { r.IgnoreStringsRegex = v },
 			}),
@@ -334,33 +344,33 @@ func (r *TooManyFunctionsRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.IntOption(api.IntOptionSpec[TooManyFunctionsRule]{
 				Name:        "allowedFunctionsPerClass",
-				Default:     0,
-				Description: "Maximum allowed functions per class (0 = use file limit).",
+				Default:     10,
+				Description: "Maximum allowed functions per class.",
 				Apply:       func(r *TooManyFunctionsRule, v int) { r.AllowedFunctionsPerClass = v },
 			}),
 			api.IntOption(api.IntOptionSpec[TooManyFunctionsRule]{
 				Name:        "allowedFunctionsPerEnum",
-				Default:     0,
-				Description: "Maximum allowed functions per enum (0 = use file limit).",
+				Default:     10,
+				Description: "Maximum allowed functions per enum.",
 				Apply:       func(r *TooManyFunctionsRule, v int) { r.AllowedFunctionsPerEnum = v },
 			}),
 			api.IntOption(api.IntOptionSpec[TooManyFunctionsRule]{
 				Name:        "allowedFunctionsPerFile",
 				Aliases:     []string{"threshold"},
-				Default:     11,
+				Default:     10,
 				Description: "Maximum allowed functions per file.",
 				Apply:       func(r *TooManyFunctionsRule, v int) { r.AllowedFunctionsPerFile = v },
 			}),
 			api.IntOption(api.IntOptionSpec[TooManyFunctionsRule]{
 				Name:        "allowedFunctionsPerInterface",
-				Default:     0,
-				Description: "Maximum allowed functions per interface (0 = use file limit).",
+				Default:     10,
+				Description: "Maximum allowed functions per interface.",
 				Apply:       func(r *TooManyFunctionsRule, v int) { r.AllowedFunctionsPerInterface = v },
 			}),
 			api.IntOption(api.IntOptionSpec[TooManyFunctionsRule]{
 				Name:        "allowedFunctionsPerObject",
-				Default:     0,
-				Description: "Maximum allowed functions per object (0 = use file limit).",
+				Default:     10,
+				Description: "Maximum allowed functions per object.",
 				Apply:       func(r *TooManyFunctionsRule, v int) { r.AllowedFunctionsPerObject = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[TooManyFunctionsRule]{
@@ -380,6 +390,11 @@ func (r *TooManyFunctionsRule) Meta() api.RuleDescriptor {
 				Default:     false,
 				Description: "Ignore overridden functions when counting.",
 				Apply:       func(r *TooManyFunctionsRule, v bool) { r.IgnoreOverridden = v },
+			}),
+			api.StringListOption(api.StringListOptionSpec[TooManyFunctionsRule]{
+				Name:        "ignoreAnnotatedFunctions",
+				Description: "Functions annotated with one of these are not counted.",
+				Apply:       func(r *TooManyFunctionsRule, v []string) { r.IgnoreAnnotatedFunctions = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[TooManyFunctionsRule]{
 				Name:        "ignorePrivate",

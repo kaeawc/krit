@@ -37,7 +37,7 @@ func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 	if javaAwareCallName(file, ctx.Idx) != "registerReceiver" {
 		return
 	}
-	if !dynamicReceiverHasContextReceiver(file, ctx.Idx) {
+	if !dynamicReceiverHasContextReceiver(file, ctx.Idx) || fileDeclaresRegisterReceiver(file) {
 		return
 	}
 	if !broadcastReceiverExportedFlagMissing(file, ctx.Idx) {
@@ -59,6 +59,9 @@ func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 
 func (r *ImplicitPendingIntentRule) check(ctx *api.Context) {
 	file := ctx.File
+	if scanner.IsTestFile(file.Path) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) {
+		return
+	}
 	if !implicitPendingIntentCall(file, ctx.Idx) {
 		return
 	}
@@ -153,6 +156,10 @@ func startActivityFindParseURIAssignment(file *scanner.File, launch uint32, inte
 			if container == 0 || !startActivityContainerAssignsReceiver(file, container, intentVar) {
 				return
 			}
+			// A fixed URI literal is not untrusted input.
+			if _, literal := weakGetInstanceFirstStringArg(file, call); literal {
+				return
+			}
 			parseStart = file.FlatStartByte(container)
 		})
 	}
@@ -245,6 +252,8 @@ func startActivityHasGuardBetween(file *scanner.File, launch uint32, intentVar s
 			if strings.Contains(text, intentVar+".setPackage(") ||
 				strings.Contains(text, intentVar+".setComponent(") ||
 				strings.Contains(text, intentVar+".setClassName(") ||
+				strings.Contains(text, intentVar+".setSelector(") ||
+				strings.Contains(text, intentVar+".selector =") ||
 				strings.Contains(text, intentVar+".component") {
 				guarded = true
 			}
@@ -303,23 +312,24 @@ func implicitPendingIntentFlagsExpr(file *scanner.File, call uint32) (uint32, bo
 		if named := flatNamedValueArgument(file, args, "flags"); named != 0 {
 			return flatValueArgumentExpression(file, named), true
 		}
-		var last uint32
+		// The flags are the fourth argument; a fifth Bundle argument may follow.
+		positional := 0
 		for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 			if file.FlatType(arg) != "value_argument" || flatHasValueArgumentLabel(file, arg) {
 				continue
 			}
-			last = arg
+			if positional == 3 {
+				return flatValueArgumentExpression(file, arg), true
+			}
+			positional++
 		}
-		if last == 0 {
-			return 0, false
-		}
-		return flatValueArgumentExpression(file, last), true
+		return 0, false
 	case "method_invocation":
 		args, ok := file.FlatFindChild(call, "argument_list")
-		if !ok || file.FlatNamedChildCount(args) == 0 {
+		if !ok || file.FlatNamedChildCount(args) < 4 {
 			return 0, false
 		}
-		return file.FlatNamedChild(args, file.FlatNamedChildCount(args)-1), true
+		return file.FlatNamedChild(args, 3), true
 	default:
 		return 0, false
 	}

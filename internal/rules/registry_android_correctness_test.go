@@ -24,7 +24,6 @@ func TestRegisterAndroidCorrectnessRules_AllRulesPresent(t *testing.T) {
 		"WrongThread",
 		"SQLiteString",
 		"Registered",
-		"NestedScrolling",
 		"ScrollViewCount",
 		"SimpleDateFormat",
 		"SetTextI18n",

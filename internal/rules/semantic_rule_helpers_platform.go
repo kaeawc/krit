@@ -126,6 +126,15 @@ func conditionIsBuildConfigDebugFlat(file *scanner.File, cond uint32) bool {
 	if file == nil || cond == 0 {
 		return false
 	}
+	// `BuildConfig.DEBUG && other` still only runs when DEBUG is true.
+	if inner := flatUnwrapParenExpr(file, cond); file.FlatType(inner) == "conjunction_expression" {
+		for c := file.FlatFirstChild(inner); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) && conditionIsBuildConfigDebugFlat(file, c) {
+				return true
+			}
+		}
+		return false
+	}
 	text := strings.TrimSpace(file.FlatNodeText(cond))
 	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
 		inner := strings.TrimSpace(text[1 : len(text)-1])
@@ -303,7 +312,42 @@ func assignmentReceiverBeforeFinal(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
+// apiHasPrecedingVersionReturnGuard reports an earlier `if (Build.VERSION.SDK_INT < N) return` (or throw) in the
+// block that holds the node, so the code after it only runs on N and above.
+func apiHasPrecedingVersionReturnGuard(file *scanner.File, idx uint32) bool {
+	scope := enclosingAncestor(file, idx, "function_declaration", "secondary_constructor", "anonymous_initializer", "lambda_literal")
+	if scope == 0 {
+		return false
+	}
+	nodeStmt, nodeContainer := missingPermissionContainingStatement(file, idx)
+	if nodeContainer == 0 {
+		return false
+	}
+	guarded := false
+	file.FlatWalkNodes(scope, "if_expression", func(ifExpr uint32) {
+		if guarded || file.FlatStartByte(ifExpr) >= file.FlatStartByte(idx) {
+			return
+		}
+		ifStmt, ifContainer := missingPermissionContainingStatement(file, ifExpr)
+		if ifContainer != nodeContainer || file.FlatEndByte(ifStmt) > file.FlatStartByte(nodeStmt) {
+			return
+		}
+		cond, thenBody, _ := missingPermissionIfParts(file, ifExpr)
+		if cond == 0 || thenBody == 0 {
+			return
+		}
+		condText := strings.Join(strings.Fields(file.FlatNodeText(cond)), "")
+		if strings.Contains(condText, "SDK_INT<") && missingPermissionBodyTerminates(file, thenBody) {
+			guarded = true
+		}
+	})
+	return guarded
+}
+
 func apiGuardedByVersionCheckFlat(file *scanner.File, idx uint32) bool {
+	if apiHasPrecedingVersionReturnGuard(file, idx) {
+		return true
+	}
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		if declarationHasAPIGuardAnnotationFlat(file, p) {
 			return true
@@ -513,4 +557,12 @@ func sensitiveFileReceiverLiteral(ctx *api.Context, call uint32) string {
 		}
 	}
 	return ""
+}
+
+// newAPICompatReceiver reports whether the API reference is written through a compat helper such as
+// ContextCompat.getColor, which works on every API level.
+func newAPICompatReceiver(file *scanner.File, idx uint32, name string) bool {
+	text := file.FlatNodeText(idx)
+	i := strings.Index(text, name)
+	return i > 0 && strings.Contains(text[:i], "Compat")
 }

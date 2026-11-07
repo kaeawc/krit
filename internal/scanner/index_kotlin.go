@@ -26,6 +26,12 @@ func collectDeclarationsFlat(file *File, symbols *[]Symbol) {
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		nodeType := file.FlatType(idx)
 		switch nodeType {
+		case "function_declaration", "class_declaration", "object_declaration", "property_declaration":
+			if isLocalKotlinDeclaration(file, idx) {
+				return
+			}
+		}
+		switch nodeType {
 		case "function_declaration":
 			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
 			if name == "" {
@@ -360,6 +366,19 @@ func countNamedChildrenOfType(file *File, parent uint32, nodeTypes ...string) in
 		}
 	}
 	return count
+}
+
+// isLocalKotlinDeclaration reports a declaration inside a function, accessor, initializer or lambda body.
+// Locals are not part of the symbol table because no other file can reference them.
+func isLocalKotlinDeclaration(file *File, idx uint32) bool {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_body", "lambda_literal", "anonymous_function", "getter", "setter",
+			"anonymous_initializer", "secondary_constructor", "property_delegate":
+			return true
+		}
+	}
+	return false
 }
 
 func hasFlatAncestorType(file *File, idx uint32, want string) bool {

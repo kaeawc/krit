@@ -43,3 +43,62 @@ func ancestorFinalizesEditor(file *scanner.File, idx uint32) bool {
 	}
 	return false
 }
+
+// editorChainEscapes reports whether the expression chain that starts at idx
+// (the `edit()` call and any fluent calls on it) is returned, passed as an
+// argument or stored, so another owner is responsible for finalizing it.
+func editorChainEscapes(file *scanner.File, idx uint32) bool {
+	top := idx
+	for parent, ok := file.FlatParent(top); ok; parent, ok = file.FlatParent(top) {
+		switch file.FlatType(parent) {
+		case "navigation_expression", "call_expression", "call_suffix", "navigation_suffix", "parenthesized_expression":
+			top = parent
+			continue
+		}
+		switch file.FlatType(parent) {
+		case "jump_expression", "value_argument", "function_body":
+			return true
+		case "assignment":
+			return assignmentRHS(file, parent) == top
+		}
+		return false
+	}
+	return false
+}
+
+// chainRootName returns the simple identifier at the start of a call chain such as `e.putInt(1).apply()`.
+func chainRootName(file *scanner.File, call uint32) string {
+	cur := call
+	for cur != 0 {
+		switch file.FlatType(cur) {
+		case "simple_identifier":
+			return file.FlatNodeText(cur)
+		case "call_expression", "navigation_expression", "parenthesized_expression":
+			cur = file.FlatNamedChild(cur, 0)
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
+// variableEscapes reports whether the local named name is later returned, passed as an argument or assigned elsewhere inside fn.
+func variableEscapes(file *scanner.File, fn uint32, name string) bool {
+	escapes := false
+	file.FlatWalkNodes(fn, "simple_identifier", func(id uint32) {
+		if escapes || !file.FlatNodeTextEquals(id, name) {
+			return
+		}
+		parent, ok := file.FlatParent(id)
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "jump_expression", "value_argument", "function_body":
+			escapes = true
+		case "assignment":
+			escapes = assignmentRHS(file, parent) == id
+		}
+	})
+	return escapes
+}

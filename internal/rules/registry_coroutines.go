@@ -2,10 +2,12 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/coroutines"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
@@ -68,7 +70,7 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 			if !collectInOnCreateOracleConfirmed(oracleLookup, file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"Flow.collect inside onCreate/onStart/onViewCreated should be wrapped in repeatOnLifecycle to stop collecting when the lifecycle is stopped.")
 		},
 	})
@@ -103,7 +105,7 @@ func registerCoroutinesGlobalCoroutineUsage() {
 	r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			switch file.FlatType(idx) {
@@ -168,6 +170,16 @@ func registerCoroutinesGlobalCoroutineUsage() {
 				if receiver != "GlobalScope" {
 					return
 				}
+				// detekt only looks at launch and async; other members, such as coroutineContext, are fine.
+				selector := ""
+				if suffix := file.FlatChild(idx, file.FlatChildCount(idx)-1); file.FlatType(suffix) == "navigation_suffix" {
+					if id, ok := file.FlatFindChild(suffix, "simple_identifier"); ok {
+						selector = file.FlatNodeText(id)
+					}
+				}
+				if selector != "launch" && selector != "async" {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"GlobalScope usage detected. Prefer structured concurrency with a proper CoroutineScope.")
 			}
@@ -176,7 +188,7 @@ func registerCoroutinesGlobalCoroutineUsage() {
 }
 
 func registerCoroutinesInjectDispatcher() {
-	r := &InjectDispatcherRule{BaseRule: BaseRule{RuleName: "InjectDispatcher", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers."}, DispatcherNames: []string{"IO", "Default", "Unconfined", "Main"}}
+	r := &InjectDispatcherRule{BaseRule: BaseRule{RuleName: "InjectDispatcher", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects hardcoded Dispatchers.IO/Default/Unconfined passed as arguments instead of injected dispatchers."}, DispatcherNames: []string{"IO", "Default", "Unconfined"}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -217,6 +229,10 @@ func registerCoroutinesInjectDispatcher() {
 				// dispatcher" alternative. It doesn't hide the other
 				// operands of a combined context (`Main + IO` runs on IO).
 				if op.name == "Main" {
+					continue
+				}
+				// Unconfined is a deliberate choice (e.g. with CoroutineStart.UNDISPATCHED), not a swappable default.
+				if op.name == "Unconfined" {
 					continue
 				}
 				if !injectDispatcherReferenceConfirmed(file, op.node) {
@@ -317,10 +333,20 @@ func registerCoroutinesRedundantSuspendModifier() {
 			}
 			hasSuspendCall := false
 			hasUnresolvedCall := false
+			locals := suspendFunctionLocalNames(file, idx)
 			walkCallsRespectingScope(file, body, func(callIdx uint32) bool {
 				if hasSuspendCall {
 					return false
 				}
+				callName := flatCallExpressionName(file, callIdx)
+				// A function declared `suspend` anywhere in the project may be what this call resolves to.
+				if callName != "" && coroutines.ProjectDeclaresSuspendFunction(ctx.Resolver, callName) {
+					hasSuspendCall = true
+					return false
+				}
+				// Chained calls like `flow.first()` or `turbine.awaitItem()` share names with non-suspend overloads,
+				// so an oracle verdict is not trusted for them.
+				chainMaybeSuspend := suspendCallIsPossibleChain(file, callIdx, callName, locals)
 				provenNonSuspend := false
 				if oracleLookup != nil {
 					if isSuspend, ok := oracleLookupCallTargetSuspendFlat(oracleLookup, file, callIdx); ok {
@@ -328,7 +354,12 @@ func registerCoroutinesRedundantSuspendModifier() {
 							hasSuspendCall = true
 							return false
 						}
-						provenNonSuspend = true
+						provenNonSuspend = !chainMaybeSuspend
+						if provenNonSuspend {
+							// The compiler resolved this call to a function that is not suspend, so the coroutines
+							// package prefix and the name lists below do not apply.
+							return true
+						}
 					}
 					if ct := oracleLookupCallTargetFlat(oracleLookup, file, callIdx); ct != "" {
 						if knownSuspendFQNs[ct] {
@@ -373,31 +404,37 @@ func registerCoroutinesRedundantSuspendModifier() {
 						}
 					}
 				}
+				if chainMaybeSuspend {
+					hasUnresolvedCall = true
+				}
 				if !provenNonSuspend && file.FlatChildCount(callIdx) > 0 {
+					// Member calls, invoke on a value and other callee shapes may be suspend; only bare allow-listed names are safe.
 					first := file.FlatChild(callIdx, 0)
-					if first != 0 {
-						ft := file.FlatType(first)
-						if ft == "navigation_expression" || ft == "simple_identifier" {
-							calleeName := file.FlatNodeText(first)
-							if dot := strings.LastIndex(calleeName, "."); dot >= 0 {
-								calleeName = calleeName[dot+1:]
-							}
-							if !commonNonSuspendCallees[calleeName] {
-								hasUnresolvedCall = true
-							}
-						}
+					if first == 0 || file.FlatType(first) != "simple_identifier" || !commonNonSuspendCallees[file.FlatNodeText(first)] {
+						hasUnresolvedCall = true
 					}
 				}
 				return true
 			})
+			// `for (x in channel)` calls the suspend `hasNext` without a call expression.
+			if !hasSuspendCall {
+				switch forLoopSuspendVerdict(ctx, body) {
+				case forLoopSuspends:
+					hasSuspendCall = true
+				case forLoopUnknown:
+					hasUnresolvedCall = true
+				}
+			}
 			if !hasSuspendCall && hasUnresolvedCall {
 				return
 			}
 			if !hasSuspendCall {
 				name := extractIdentifierFlat(file, idx)
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Function '%s' has a redundant suspend modifier. No suspend calls found inside.", name))
 				suspendNode := file.FlatFindModifierNode(idx, "suspend")
+				// Point at the `suspend` keyword, which can follow other modifiers.
+				anchor := anchorOr(suspendNode, idx)
+				f := r.Finding(file, file.FlatRow(anchor)+1, file.FlatCol(anchor)+1,
+					fmt.Sprintf("Function '%s' has a redundant suspend modifier. No suspend calls found inside.", name))
 				if suspendNode != 0 {
 					endByte := int(file.FlatEndByte(suspendNode))
 					if endByte < len(file.Content) && file.Content[endByte] == ' ' {
@@ -416,13 +453,31 @@ func registerCoroutinesRedundantSuspendModifier() {
 	})
 }
 
+// sleepInsteadOfDelayMessage is detekt's finding message for SleepInsteadOfDelay.
+const sleepInsteadOfDelayMessage = "This use of Thread.sleep() inside a suspend function should be replaced by delay()."
+
+// isThreadSleepSpelling reports whether the receiver-and-name text, with its whitespace removed, names
+// java.lang.Thread.sleep as `Thread.sleep` or by its qualified name.
+func isThreadSleepSpelling(text, separator string) bool {
+	text = strings.Join(strings.Fields(text), "")
+	return text == "Thread"+separator+"sleep" || text == "java.lang.Thread"+separator+"sleep"
+}
+
 func registerCoroutinesSleepInsteadOfDelay() {
 	r := &SleepInsteadOfDelayRule{BaseRule: BaseRule{RuleName: "SleepInsteadOfDelay", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects Thread.sleep() usage inside suspend functions or coroutine builder lambdas instead of delay()."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression", "callable_reference"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			if file.FlatType(idx) == "callable_reference" {
+				// detekt also reports a reference to the function: `Thread::sleep`.
+				if !isThreadSleepSpelling(file.FlatNodeText(idx), "::") || !isInsideSuspendContextFlat(file, idx) {
+					return
+				}
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, sleepInsteadOfDelayMessage))
+				return
+			}
 			if file.FlatChildCount(idx) == 0 {
 				return
 			}
@@ -430,19 +485,19 @@ func registerCoroutinesSleepInsteadOfDelay() {
 			if file.FlatType(callee) != "navigation_expression" {
 				return
 			}
-			navText := file.FlatNodeText(callee)
-			if !strings.HasPrefix(navText, "Thread") || !strings.HasSuffix(navText, "sleep") {
-				return
-			}
-			parts := strings.SplitN(navText, ".", 2)
-			if len(parts) != 2 || strings.TrimSpace(parts[0]) != "Thread" || strings.TrimSpace(parts[1]) != "sleep" {
+			if !isThreadSleepSpelling(file.FlatNodeText(callee), ".") {
 				return
 			}
 			if !isInsideSuspendContextFlat(file, idx) {
 				return
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"Thread.sleep() used in suspend context. Use delay() instead.")
+			f := r.Finding(file, callLine(file, idx), callCol(file, idx), sleepInsteadOfDelayMessage)
+			// `delay(ms)` needs the import and takes a single argument; `Thread.sleep(ms, nanos)` has no equivalent.
+			args := directCallArgumentsFlat(file, idx)
+			if args == 0 || file.FlatNamedChildCount(args) != 1 || !fileImportsFQN(file, "kotlinx.coroutines.delay") {
+				ctx.Emit(f)
+				return
+			}
 			startByte := int(file.FlatStartByte(callee))
 			endByte := int(file.FlatEndByte(callee))
 			if file.FlatChildCount(idx) > 1 {
@@ -474,15 +529,26 @@ func registerCoroutinesCoroutineLaunchedInTestWithoutRunTest() {
 				return
 			}
 			funText := file.FlatNodeText(idx)
-			if strings.Contains(funText, "runTest") {
+			if strings.Contains(funText, "runTest") || strings.Contains(funText, "runBlocking") {
 				return
 			}
 			file.FlatWalkNodes(idx, "call_expression", func(callNode uint32) {
-				callText := file.FlatNodeText(callNode)
-				if strings.HasPrefix(callText, "launch") || strings.HasPrefix(callText, "async") {
-					ctx.EmitAt(file.FlatRow(callNode)+1, file.FlatCol(callNode)+1,
-						"Coroutine launched in @Test without runTest. Use runTest { } to properly handle coroutines in tests.")
+				// Only the bare `launch`/`async` builders, not names that start with them.
+				first := file.FlatFirstChild(callNode)
+				if first != 0 && file.FlatType(first) == "call_expression" {
+					first = file.FlatFirstChild(first)
 				}
+				if first == 0 || file.FlatType(first) != "simple_identifier" {
+					return
+				}
+				if name := file.FlatNodeText(first); name != "launch" && name != "async" {
+					return
+				}
+				if parent, ok := file.FlatParent(callNode); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == callNode {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(callNode)+1, file.FlatCol(callNode)+1,
+					"Coroutine launched in @Test without runTest. Use runTest { } to properly handle coroutines in tests.")
 			})
 		},
 	})
@@ -496,15 +562,23 @@ func registerCoroutinesSuspendFunInFinallySection() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			file.FlatWalkNodes(idx, "call_expression", func(callNode uint32) {
-				callText := file.FlatNodeText(callNode)
-				for name := range knownSuspendFunctions {
-					if strings.HasPrefix(callText, name+"(") || strings.HasPrefix(callText, name+" ") ||
-						strings.HasPrefix(callText, name+"{") {
-						ctx.EmitAt(file.FlatRow(callNode)+1, file.FlatCol(callNode)+1,
-							fmt.Sprintf("Suspend function '%s' called in finally block. This may not execute if the coroutine is cancelled.", name))
-						return
-					}
+				// `f(a) { }` nests the call `f(a)` under an outer call_expression; report the outer one only.
+				if parent, ok := file.FlatParent(callNode); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == callNode {
+					return
 				}
+				first := file.FlatFirstChild(callNode)
+				if first != 0 && file.FlatType(first) == "call_expression" {
+					first = file.FlatFirstChild(first)
+				}
+				if first == 0 || file.FlatType(first) != "simple_identifier" {
+					return
+				}
+				name := file.FlatNodeText(first)
+				if !isSuspendingCallName(name) || suspendCallInNonCancellableBlock(file, callNode, idx) {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(callNode)+1, file.FlatCol(callNode)+1,
+					fmt.Sprintf("Suspend function '%s' called in finally block. This may not execute if the coroutine is cancelled.", name))
 			})
 		},
 	})
@@ -514,12 +588,16 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 	r := &SuspendFunSwallowedCancellationRule{BaseRule: BaseRule{RuleName: "SuspendFunSwallowedCancellation", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects catch blocks that catch CancellationException without rethrowing, breaking structured concurrency."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"catch_block"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"catch_block", "call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
 			api.NeedsOracleSuspendMarkers,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			if file.FlatType(idx) == "call_expression" {
+				checkRunCatchingWithSuspendCall(ctx, r)
+				return
+			}
 			caughtType := extractCaughtTypeNameFlat(file, idx)
 			if caughtType == "" {
 				return
@@ -539,35 +617,21 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 			if tryExpr == 0 || !isInsideSuspendFunctionFlat(file, tryExpr) || !tryBlockHasSuspendCallFlat(file, tryExpr, ctx.Resolver) {
 				return
 			}
+			// An earlier `catch (e: CancellationException)` already handles cancellation for this clause.
+			if caughtType != "CancellationException" && earlierCatchHandlesCancellation(file, idx) {
+				return
+			}
 			caughtVar := extractCaughtVarNameFlat(file, idx)
-			if !catchBodyRethrowsCaughtException(file, idx, caughtVar) {
+			if !catchBodyRethrowsCaughtException(file, idx, caughtVar) && !catchBodyCallsEnsureActive(file, idx) {
 				msg := "CancellationException is caught but not rethrown. This can break structured concurrency."
 				if caughtType != "CancellationException" {
 					msg = fmt.Sprintf("Catching '%s' swallows CancellationException without rethrowing. This can break structured concurrency.", caughtType)
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, 1, msg)
-				endByte := int(file.FlatEndByte(idx))
-				if endByte > 0 && file.Content[endByte-1] == '}' {
-					catchLine := file.Lines[file.FlatRow(idx)]
-					indent := ""
-					for _, ch := range catchLine {
-						if ch == ' ' || ch == '\t' {
-							indent += string(ch)
-						} else {
-							break
-						}
-					}
-					varName := caughtVar
-					if varName == "" {
-						varName = "e"
-					}
-					insertion := indent + "    throw " + varName + "\n" + indent
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   endByte - 1,
-						EndByte:     endByte,
-						Replacement: insertion + "}",
-					}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				// Appending `throw e` is only right when the clause catches CancellationException itself;
+				// for a broader type it would also rethrow every other exception.
+				if caughtType == "CancellationException" {
+					f.Fix = catchRethrowFix(file, idx, caughtVar)
 				}
 				ctx.Emit(f)
 			}
@@ -575,30 +639,56 @@ func registerCoroutinesSuspendFunSwallowedCancellation() {
 	})
 }
 
+// checkRunCatchingWithSuspendCall is detekt's SuspendFunSwallowedCancellation: kotlin.runCatching whose lambda
+// makes a suspend call catches the CancellationException as an ordinary failure.
+func checkRunCatchingWithSuspendCall(ctx *api.Context, r *SuspendFunSwallowedCancellationRule) {
+	idx, file := ctx.Idx, ctx.File
+	if flatCallExpressionName(file, idx) != "runCatching" {
+		return
+	}
+	cr, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok || cr.Oracle() == nil {
+		return
+	}
+	if oracleLookupCallTargetFlat(cr.Oracle(), file, idx) != "kotlin.runCatching" {
+		return
+	}
+	suspends := false
+	skipBuilderLambdas := func(call uint32) bool {
+		return call != idx && nonInlineScopeBuilders[flatCallExpressionName(file, call)]
+	}
+	walkCallsRespectingScopeSkipping(file, idx, skipBuilderLambdas, func(call uint32) bool {
+		if isSuspend, known := oracleLookupCallTargetSuspendFlat(cr.Oracle(), file, call); known && isSuspend {
+			suspends = true
+			return false
+		}
+		return true
+	})
+	if !suspends {
+		return
+	}
+	ctx.Emit(r.Finding(file, callLine(file, idx), callCol(file, idx),
+		"`runCatching` does not propagate `CancellationException`, don't use it with `suspend` lambda blocks."))
+}
+
 func registerCoroutinesSuspendFunWithCoroutineScopeReceiver() {
 	r := &SuspendFunWithCoroutineScopeReceiverRule{BaseRule: BaseRule{RuleName: "SuspendFunWithCoroutineScopeReceiver", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects functions that are both suspend and extension on CoroutineScope, which should be one or the other."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
+		// The resolver walks the supertypes of a receiver class.
+		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !hasSuspendModifierFlat(file, idx) {
 				return
 			}
-			hasCoroutineScopeReceiver := false
-			nodeText := file.FlatNodeText(idx)
-			funIdx := strings.Index(nodeText, "fun ")
-			if funIdx >= 0 {
-				afterFun := nodeText[funIdx+4:]
-				trimmed := strings.TrimSpace(afterFun)
-				if strings.HasPrefix(trimmed, "CoroutineScope.") {
-					hasCoroutineScopeReceiver = true
-				}
-			}
+			hasCoroutineScopeReceiver := functionReceiverIsCoroutineScope(file.FlatNodeText(idx)) ||
+				receiverTypeIsCoroutineScope(ctx, idx)
 			if !hasCoroutineScopeReceiver {
 				return
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
+			f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 				"Suspend function with CoroutineScope receiver. A function should either be suspend or be an extension on CoroutineScope, not both.")
 			suspendNode := file.FlatFindModifierNode(idx, "suspend")
 			if suspendNode != 0 {
@@ -633,7 +723,7 @@ func registerCoroutinesChannelReceiveWithoutClose() {
 				return
 			}
 			propName := extractIdentifierFlat(file, idx)
-			if propName == "" {
+			if propName == "" || !importsCoroutinesChannels(file) {
 				return
 			}
 			classDecl, ok := flatEnclosingAncestor(file, idx, "class_declaration")
@@ -643,8 +733,13 @@ func registerCoroutinesChannelReceiveWithoutClose() {
 			if classHasCallOn(file, classDecl, propName, channelCloseNames) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Channel '%s' is never closed. This leaks the receiver coroutine.", propName))
+			// Receivers launched in a cancellable scope end with it, and test channels die with the test.
+			if scanner.IsTestFile(file.Path) || isTestDoubleClassName(file, classDecl) ||
+				channelReceivesAllScopeBound(file, 0, propName) {
+				return
+			}
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+				fmt.Sprintf("Channel '%s' is never closed. A receiver can wait on it until its scope is cancelled; close the channel from the owner's teardown.", propName))
 		},
 	})
 }
@@ -703,10 +798,13 @@ func registerCoroutinesConcurrentModificationIteration() {
 			if body == 0 {
 				return
 			}
+			if concurrentIterationIterableIsSafe(file, idx, iterableName) {
+				return
+			}
 			file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
 				receiver := flatReceiverNameFromCall(file, callIdx)
 				method := flatCallExpressionName(file, callIdx)
-				if receiver == iterableName && mutatingMethods[method] {
+				if receiver == iterableName && mutatingMethods[method] && !mutationFollowedByLoopExit(file, callIdx) {
 					ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
 						fmt.Sprintf("Collection '%s' is modified while being iterated. This causes ConcurrentModificationException.", iterableName))
 				}
@@ -739,10 +837,41 @@ func registerCoroutinesCoroutineScopeCreatedButNeverCancelled() {
 			if classHasCallOn(file, classDecl, propName, coroutineScopeCancelNames) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("CoroutineScope '%s' is created but never cancelled. This leaks coroutines.", propName))
+			// A test fake hands its scope out through the interface, so the test owns the cancellation.
+			if coroutineScopeEscapesFake(file, classDecl) {
+				return
+			}
+			if coroutineScopeResetInTeardown(file, classDecl, propName) {
+				return
+			}
+			if coroutineScopeHasParentJob(file, idx) || coroutineScopeCancelledInFile(file, propName) {
+				return
+			}
+			// A DI singleton or a scope handed to another owner lives as long as that owner, not this class.
+			if coroutineScopeOwnerIsDISingleton(file, classDecl) || coroutineScopeHandedToConsumer(file, classDecl, propName) {
+				return
+			}
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+				fmt.Sprintf("CoroutineScope '%s' is created but never cancelled. Coroutines launched in it can outlive the owner; cancel it from the owner's teardown.", propName))
 		},
 	})
+}
+
+var coroutineFakeClassPrefixes = []string{"Fake", "Test", "Stub", "Dummy", "Noop", "NoOp"}
+
+// coroutineScopeEscapesFake reports a scope property in a class named like a test fake, or in a test
+// source or a `test` package. The test owns the cancellation, whatever the property visibility.
+func coroutineScopeEscapesFake(file *scanner.File, classDecl uint32) bool {
+	if scanner.IsTestFile(file.Path) || strings.Contains(filepath.ToSlash(file.Path), "/test/") {
+		return true
+	}
+	name := extractIdentifierFlat(file, classDecl)
+	for _, prefix := range coroutineFakeClassPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func registerCoroutinesDeferredAwaitInFinally() {
@@ -763,7 +892,7 @@ func registerCoroutinesDeferredAwaitInFinally() {
 			if hasAncestorCallNamedFlat(file, idx, "runCatching") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"Deferred.await() in finally block can throw and mask the original exception. Wrap in runCatching.")
 		},
 	})
@@ -791,7 +920,7 @@ func registerCoroutinesFlowWithoutFlowOn() {
 			if strings.Contains(chainText, ".flowOn(") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"Flow chain has a terminal operator without .flowOn(). Blocking operations in the flow builder may run on the wrong dispatcher.")
 		},
 	})
@@ -820,7 +949,7 @@ func registerCoroutinesSynchronizedOnString() {
 				return
 			}
 			if file.FlatType(argExpr) == "string_literal" || file.FlatType(argExpr) == "line_string_literal" {
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"synchronized() on a string literal. Interned strings share a monitor across classloaders. Use a dedicated Any() object.")
 			}
 		},
@@ -852,7 +981,7 @@ func registerCoroutinesSynchronizedOnBoxedPrimitive() {
 			argType := file.FlatType(argExpr)
 			if argType == "integer_literal" || argType == "long_literal" || argType == "boolean_literal" ||
 				argType == "real_literal" || argType == "character_literal" {
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"synchronized() on a boxed primitive literal. Boxed primitives have identity-equality surprises. Use a dedicated Any() object.")
 				return
 			}
@@ -860,7 +989,7 @@ func registerCoroutinesSynchronizedOnBoxedPrimitive() {
 				varName := file.FlatNodeText(argExpr)
 				propType := resolvePropertyTypeInScope(file, idx, varName)
 				if boxedPrimitiveTypes[propType] {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						fmt.Sprintf("synchronized() on a boxed primitive (%s). Boxed primitives have identity-equality surprises. Use a dedicated Any() object.", propType))
 				}
 			}
@@ -892,7 +1021,7 @@ func registerCoroutinesSynchronizedOnNonFinal() {
 			}
 			varName := file.FlatNodeText(argExpr)
 			if isVarPropertyInScope(file, idx, varName) {
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					fmt.Sprintf("synchronized() on non-final property '%s'. Reassignment changes the monitor object. Use val instead of var.", varName))
 			}
 		},
@@ -935,11 +1064,12 @@ func registerCoroutinesVolatileMissingOnDcl() {
 			if !strings.Contains(classText, "synchronized") {
 				return
 			}
-			nullChecks := countDclNullChecks(file, classDecl, propName)
-			if nullChecks < 2 {
+			// Double-checked locking needs an unsynchronized check plus a re-check under the lock.
+			outside, inside := countDclNullChecksSplit(file, classDecl, propName)
+			if outside == 0 || inside == 0 {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 				fmt.Sprintf("Double-checked locking on '%s' without @Volatile. Add @Volatile or use 'by lazy'.", propName))
 		},
 	})
@@ -985,7 +1115,7 @@ func registerCoroutinesMutableStateInObject() {
 				if mutableStateInObjectShouldSkip(file, idx, propIdx, propText, propName) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(propIdx)+1, file.FlatCol(propIdx)+1,
+				ctx.EmitAt(declLine(file, propIdx), declCol(file, propIdx),
 					fmt.Sprintf("Mutable 'var %s' in object declaration. Shared mutable state without synchronization is a race condition.", propName))
 			})
 		},
@@ -1016,9 +1146,15 @@ func registerCoroutinesStateFlowMutableLeak() {
 			if file.FlatHasModifier(idx, "override") {
 				return
 			}
+			if stateFlowMutableLeakInHiddenContainer(file, idx) {
+				return
+			}
+			if stateFlowMutableLeakIsTestSupport(file, idx, r.TestSupportClassNames) || !stateFlowMutableLeakTypeIsMutable(file, idx, propText) {
+				return
+			}
 			propName := extractIdentifierFlat(file, idx)
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("MutableStateFlow '%s' is publicly exposed. Keep it private and expose as StateFlow<T>.", propName))
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+				fmt.Sprintf("MutableStateFlow '%s' is publicly exposed. %s", propName, stateFlowLeakRemedy(file, idx)))
 		},
 	})
 }
@@ -1042,7 +1178,7 @@ func registerCoroutinesSharedFlowWithoutReplay() {
 			if strings.Contains(propText, "MutableSharedFlow()") ||
 				(strings.Contains(propText, "MutableSharedFlow<") && strings.Contains(propText, ">()")) {
 				propName := extractIdentifierFlat(file, idx)
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("MutableSharedFlow '%s' created without replay or extraBufferCapacity. Default config is lossy.", propName))
 			}
 		},
@@ -1050,7 +1186,7 @@ func registerCoroutinesSharedFlowWithoutReplay() {
 }
 
 func registerCoroutinesStateFlowCompareByReference() {
-	r := &StateFlowCompareByReferenceRule{BaseRule: BaseRule{RuleName: "StateFlowCompareByReference", RuleSetName: "coroutines", Sev: "info", Desc: "Detects redundant .distinctUntilChanged() after .map{} on StateFlow, which already deduplicates by equality."}}
+	r := &StateFlowCompareByReferenceRule{BaseRule: BaseRule{RuleName: "StateFlowCompareByReference", RuleSetName: "coroutines", Sev: "info", Desc: "Detects .distinctUntilChanged() applied directly to a StateFlow, which already conflates equal values and ignores the operator."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -1060,18 +1196,68 @@ func registerCoroutinesStateFlowCompareByReference() {
 			if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "distinctUntilChanged" {
 				return
 			}
-			chainText := file.FlatNodeText(idx)
-			if !strings.Contains(chainText, ".map") {
+			receiver := file.FlatFirstChild(navExpr)
+			if receiver == 0 || !receiverIsStateFlow(ctx, receiver) {
 				return
 			}
-			if !strings.Contains(chainText, "state") && !strings.Contains(chainText, "State") &&
-				!strings.Contains(chainText, "uiState") && !strings.Contains(chainText, "flow") {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"Redundant .distinctUntilChanged() after .map{}. StateFlow already deduplicates by structural equality.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+				"distinctUntilChanged() on a StateFlow has no effect. A StateFlow already conflates equal values; remove the operator.")
 		},
 	})
+}
+
+// receiverIsStateFlow reports whether expr is statically a StateFlow: a `MutableStateFlow(...)`,
+// `.asStateFlow()` or `.stateIn(...)` call, or a name declared in the file with a StateFlow type
+// or such an initializer.
+func receiverIsStateFlow(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	if file.FlatType(expr) == "call_expression" {
+		return stateFlowFactoryCall(file, expr)
+	}
+	name := ""
+	switch file.FlatType(expr) {
+	case "simple_identifier":
+		name = file.FlatNodeText(expr)
+	case "navigation_expression":
+		if first := file.FlatFirstChild(expr); first != 0 && file.FlatType(first) == "this_expression" {
+			name = flatNavigationExpressionLastIdentifier(file, expr)
+		}
+	}
+	if name == "" {
+		return false
+	}
+	found := false
+	for _, nodeType := range []string{"property_declaration", "parameter", "class_parameter"} {
+		file.FlatWalkNodes(0, nodeType, func(decl uint32) {
+			if found || extractIdentifierFlat(file, decl) != name {
+				return
+			}
+			found = declaredAsStateFlow(file, decl)
+		})
+	}
+	return found
+}
+
+func stateFlowFactoryCall(file *scanner.File, call uint32) bool {
+	switch flatCallNameAny(file, call) {
+	case "MutableStateFlow", "asStateFlow", "stateIn":
+		return true
+	}
+	return false
+}
+
+// declaredAsStateFlow reports a declaration whose type is StateFlow or MutableStateFlow, or whose initializer builds one.
+func declaredAsStateFlow(file *scanner.File, decl uint32) bool {
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type":
+			base := lastTypeSegment(file.FlatNodeText(child))
+			return base == "StateFlow" || base == "MutableStateFlow"
+		case "call_expression":
+			return stateFlowFactoryCall(file, child)
+		}
+	}
+	return false
 }
 
 func registerCoroutinesGlobalScopeLaunchInViewModel() {
@@ -1097,7 +1283,11 @@ func registerCoroutinesGlobalScopeLaunchInViewModel() {
 			if !strings.HasSuffix(className, "ViewModel") && !strings.HasSuffix(className, "Presenter") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			// @OptIn(DelicateCoroutinesApi::class) marks the GlobalScope use as intentional.
+			if optsInTo(file, idx, "DelicateCoroutinesApi") {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				fmt.Sprintf("GlobalScope.%s in %s. Use viewModelScope instead for lifecycle-aware cancellation.", method, className))
 		},
 	})
@@ -1130,7 +1320,7 @@ func registerCoroutinesSupervisorScopeInEventHandler() {
 			if stmtCount > 1 {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"supervisorScope with a single child operation. Supervisor semantics are only useful with multiple concurrent children.")
 		},
 	})
@@ -1207,7 +1397,7 @@ func registerCoroutinesLaunchWithoutCoroutineExceptionHandler() {
 					return
 				}
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"launch{} contains throw but no CoroutineExceptionHandler. Uncaught exceptions will crash the app.")
 		},
 	})
@@ -1221,4 +1411,51 @@ func registerCoroutinesMainDispatcherInLibraryCode() {
 		Confidence: r.Confidence(), Implementation: r,
 		Check: r.check,
 	})
+}
+
+// stateFlowLeakRemedy suggests a fix that is legal for the member kind:
+// interface and abstract members cannot be private.
+func stateFlowLeakRemedy(file *scanner.File, idx uint32) string {
+	if file.FlatHasModifier(idx, "abstract") {
+		return "Declare it as StateFlow<T> and keep the MutableStateFlow in the implementing class."
+	}
+	if cls := flatEnclosingClassLike(file, idx); cls != 0 && file.FlatHasChildOfType(cls, "interface") {
+		return "Declare it as StateFlow<T> and keep the MutableStateFlow in the implementing class."
+	}
+	if stateFlowLeakInRecoveredInterfaceBody(file, idx) {
+		return "Declare it as StateFlow<T> and keep the MutableStateFlow in the implementing class."
+	}
+	return "Keep it private and expose as StateFlow<T>."
+}
+
+// stateFlowLeakInRecoveredInterfaceBody reports a property that error recovery moved out of an interface body.
+// An annotated supertype (`: @Suppress("x") Base {`) ends the interface header early, so its members become
+// siblings that follow a body-less interface declaration.
+func stateFlowLeakInRecoveredInterfaceBody(file *scanner.File, idx uint32) bool {
+	for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "class_declaration":
+			return file.FlatHasChildOfType(prev, "interface") && !file.FlatHasChildOfType(prev, "class_body")
+		case "property_declaration", "function_declaration", "object_declaration", "ERROR":
+			continue
+		}
+	}
+	// Recovery may also leave the interface header in an ERROR node before the member list's class_body.
+	body, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(body) != "class_body" {
+		return false
+	}
+	for prev, ok := file.FlatPrevSibling(body); ok; prev, ok = file.FlatPrevSibling(prev) {
+		if file.FlatType(prev) != "ERROR" {
+			continue
+		}
+		var header uint32
+		for child := file.FlatFirstChild(prev); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "class_declaration" {
+				header = child
+			}
+		}
+		return header != 0 && file.FlatHasChildOfType(header, "interface") && !file.FlatHasChildOfType(header, "class_body")
+	}
+	return false
 }

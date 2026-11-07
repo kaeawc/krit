@@ -5,13 +5,12 @@ import java.net.SocketException;
 
 class ErrorClassifier {
 
-  // instanceof type-check on a value that is NOT the caught variable is the
-  // "instanceof instead of polymorphism" smell this rule targets.
-  String classify(Throwable failure) {
+  // instanceof on the caught variable is what multiple catch blocks are for.
+  String classify() {
     try {
       return "ok";
     } catch (Exception outer) {
-      if (failure instanceof SocketException) {
+      if (outer instanceof SocketException) {
         return "socket";
       }
       return "other";

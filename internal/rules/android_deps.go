@@ -15,6 +15,7 @@ const (
 	AndroidDepValuesArrays
 	AndroidDepValuesExtraText
 	AndroidDepValuesAliasItems
+	AndroidDepValuesTypography
 )
 
 const AndroidDepValues = AndroidDepValuesStrings | AndroidDepValuesDimensions | AndroidDepValuesPlurals | AndroidDepValuesArrays | AndroidDepValuesExtraText | AndroidDepValuesAliasItems

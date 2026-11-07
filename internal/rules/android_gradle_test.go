@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -124,6 +125,10 @@ func TestStringInteger(t *testing.T) {
 		if findings[0].Line != 3 {
 			t.Fatalf("expected line 3, got %d", findings[0].Line)
 		}
+		const want = "Use an integer rather than a string here (replace `\"24\"` with just `24`)"
+		if findings[0].Message != want {
+			t.Fatalf("got %q, want %q", findings[0].Message, want)
+		}
 	})
 
 	t.Run("quoted targetSdk triggers", func(t *testing.T) {
@@ -215,6 +220,32 @@ func TestDynamicVersion(t *testing.T) {
 		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("groovy map notation and artifact suffixes trigger", func(t *testing.T) {
+		content := `dependencies {
+    implementation group: 'g1', name: 'n1', version: '1.+'
+    implementation(group: "g2", name: "n2", version: "2.+")
+    implementation 'g3:n3:1.0.+@aar'
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
+		if len(findings) != 3 {
+			t.Fatalf("expected 3 findings, got %v", findings)
+		}
+		byLine := map[int]string{}
+		for _, f := range findings {
+			byLine[f.Line] = f.Message
+		}
+		for _, line := range []int{2, 3, 4} {
+			if _, ok := byLine[line]; !ok {
+				t.Fatalf("no finding on line %d: %v", line, findings)
+			}
+		}
+		if !strings.Contains(byLine[4], "`1.0.+`") {
+			t.Fatalf("version should drop the @aar suffix: %q", byLine[4])
 		}
 	})
 
@@ -464,8 +495,8 @@ func TestExpiredTargetSdkVersion(t *testing.T) {
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
 		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 1 || findings[0].Message != "Google Play requires that apps target API level 34 or higher." {
+			t.Fatalf("unexpected findings %+v", findings)
 		}
 	})
 
@@ -582,6 +613,18 @@ func TestDeprecatedDependency(t *testing.T) {
 		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("JUnit 4 and Dagger are not deprecated", func(t *testing.T) {
+		content := `dependencies {
+    testImplementation("junit:junit:4.13.2")
+    implementation("com.google.dagger:dagger:2.50")
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		if findings := runGradleRule(r, "build.gradle.kts", content, cfg); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -900,11 +943,11 @@ func TestGradleDeprecated(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GradleGetter
+// GroovySetterInKotlinDsl
 // ---------------------------------------------------------------------------
 
-func TestGradleGetter(t *testing.T) {
-	r := findGradleRule(t, "GradleGetter")
+func TestGroovySetterInKotlinDsl(t *testing.T) {
+	r := findGradleRule(t, "GroovySetterInKotlinDsl")
 
 	t.Run("compileSdkVersion in kts triggers", func(t *testing.T) {
 		content := `android {
@@ -1042,6 +1085,22 @@ func TestGradlePath(t *testing.T) {
 		}
 	})
 
+	t.Run("file and dir forms trigger, escapes and comments do not", func(t *testing.T) {
+		content := `dependencies {
+    implementation(fileTree(dir: '/opt/libs', include: ['*.jar']))
+    implementation(files("C:/libs/foo.jar"))
+    val f = file("/etc/key")
+    implementation(files("libs/a\nb.jar")) // C:\\old
+    implementation(files("${rootDir}/libs/foo.jar"))
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 3 {
+			t.Fatalf("expected 3 findings (lines 2-4), got %v", findings)
+		}
+	})
+
 	t.Run("relative path is clean", func(t *testing.T) {
 		content := `dependencies {
     implementation(files("libs/foo.jar"))
@@ -1063,73 +1122,84 @@ func TestGradlePath(t *testing.T) {
 func TestGradleOverrides(t *testing.T) {
 	r := findGradleRule(t, "GradleOverrides")
 
-	t.Run("both minSdk and targetSdk triggers", func(t *testing.T) {
-		content := `android {
+	// writeModule creates <module>/build.gradle.kts and, when manifest is not empty, src/main/AndroidManifest.xml.
+	writeModule := func(t *testing.T, build, manifest string) (string, string) {
+		t.Helper()
+		dir := t.TempDir()
+		if manifest != "" {
+			if err := os.MkdirAll(filepath.Join(dir, "src", "main"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "src", "main", "AndroidManifest.xml"), []byte(manifest), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return filepath.Join(dir, "build.gradle.kts"), build
+	}
+	const both = `android {
     defaultConfig {
         minSdk = 24
         targetSdk = 34
     }
 }
 `
+	const manifestWithSdk = `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="30"/>
+</manifest>`
+	const manifestWithoutSdk = `<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application/>
+</manifest>`
+
+	t.Run("manifest values overridden by both triggers per value", func(t *testing.T) {
+		path, content := writeModule(t, both, manifestWithSdk)
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		findings := runGradleRule(r, path, content, cfg)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
 		}
-		if findings[0].Line != 4 {
-			t.Fatalf("expected line 4, got %d", findings[0].Line)
+		if findings[0].Line != 3 || findings[1].Line != 4 {
+			t.Fatalf("expected lines 3 and 4, got %d and %d", findings[0].Line, findings[1].Line)
 		}
 	})
 
-	t.Run("only minSdk is clean", func(t *testing.T) {
+	t.Run("gradle values without manifest declarations are clean", func(t *testing.T) {
+		path, content := writeModule(t, both, manifestWithoutSdk)
+		cfg, _ := android.ParseBuildGradleContent(content)
+		if findings := runGradleRule(r, path, content, cfg); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("module without a manifest is clean", func(t *testing.T) {
+		path, content := writeModule(t, both, "")
+		cfg, _ := android.ParseBuildGradleContent(content)
+		if findings := runGradleRule(r, path, content, cfg); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("only the overridden value is reported", func(t *testing.T) {
 		content := `android {
     defaultConfig {
         minSdk = 24
     }
 }
 `
+		path, content := writeModule(t, content, manifestWithSdk)
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("only targetSdk is clean", func(t *testing.T) {
-		content := `android {
-    defaultConfig {
-        targetSdk = 34
-    }
-}
-`
-		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("neither is clean", func(t *testing.T) {
-		content := `android {
-    defaultConfig {
-        applicationId = "com.example.app"
-    }
-}
-`
-		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+		findings := runGradleRule(r, path, content, cfg)
+		if len(findings) != 1 || findings[0].Line != 3 {
+			t.Fatalf("expected one finding on line 3, got %v", findings)
 		}
 	})
 }
 
 // ---------------------------------------------------------------------------
-// GradleIdeError
+// ApplyPluginInKotlinDsl
 // ---------------------------------------------------------------------------
 
-func TestGradleIdeError(t *testing.T) {
-	r := findGradleRule(t, "GradleIdeError")
+func TestApplyPluginInKotlinDsl(t *testing.T) {
+	r := findGradleRule(t, "ApplyPluginInKotlinDsl")
 
 	t.Run("apply plugin in kts triggers", func(t *testing.T) {
 		content := `apply plugin: 'com.android.application'
@@ -1159,6 +1229,18 @@ android {
 		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("nested apply and apply from are clean", func(t *testing.T) {
+		content := `subprojects {
+    apply(plugin = "com.android.library")
+}
+apply(from = "plugins.gradle.kts")
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		if findings := runGradleRule(r, "build.gradle.kts", content, cfg); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -1224,6 +1306,19 @@ func TestAndroidGradlePluginVersion(t *testing.T) {
 		findings := runGradleRule(r, "build.gradle", content, cfg)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("plugins block version triggers and comments do not", func(t *testing.T) {
+		content := `plugins {
+    id("com.android.application") version "4.2" apply false
+}
+// classpath 'com.android.tools.build:gradle:3.0.0'
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 || findings[0].Line != 2 {
+			t.Fatalf("expected one finding on line 2, got %v", findings)
 		}
 	})
 
@@ -1426,9 +1521,10 @@ func TestGradleRulesRegistered(t *testing.T) {
 		"MinSdkTooLow",
 		"GradleDeprecated",
 		"GradleGetter",
+		"GroovySetterInKotlinDsl",
 		"GradlePath",
 		"GradleOverrides",
-		"GradleIdeError",
+		"ApplyPluginInKotlinDsl",
 		"AndroidGradlePluginVersion",
 		"NewerVersionAvailable",
 	}
@@ -1444,4 +1540,244 @@ func TestGradleRulesRegistered(t *testing.T) {
 			t.Errorf("expected Gradle rule %q to be registered in rule registry (NeedsGradle)", name)
 		}
 	}
+}
+
+func TestGradleDependencyAndDeprecatedDependency_LinesAndSymbolicVersions(t *testing.T) {
+	content := `dependencies {
+    implementation("androidx.recyclerview:recyclerview:latest.release")
+    implementation("androidx.appcompat:appcompat:1.0.0")
+    implementation("com.android.support:appcompat-v7:28.0.0")
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	newer := runGradleRule(findGradleRule(t, "GradleDependency"), "build.gradle.kts", content, cfg)
+	if len(newer) != 1 || newer[0].Line != 3 {
+		t.Fatalf("GradleDependency: expected one finding on line 3 (latest.release skipped), got %v", newer)
+	}
+	deprecated := runGradleRule(findGradleRule(t, "DeprecatedDependency"), "build.gradle.kts", content, cfg)
+	if len(deprecated) != 1 || deprecated[0].Line != 4 {
+		t.Fatalf("DeprecatedDependency: expected one finding on line 4, got %v", deprecated)
+	}
+}
+
+func TestGradlePluginCompatibility_UsesWrapperVersionAndClasspath(t *testing.T) {
+	dir := t.TempDir()
+	wrapper := filepath.Join(dir, "gradle", "wrapper")
+	if err := os.MkdirAll(wrapper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	props := "distributionUrl=https\\://services.gradle.org/distributions/gradle-6.1.1-bin.zip\n"
+	if err := os.WriteFile(filepath.Join(wrapper, "gradle-wrapper.properties"), []byte(props), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := `buildscript {
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.1.0")
+    }
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	r := findGradleRule(t, "GradlePluginCompatibility")
+	findings := runGradleRule(r, filepath.Join(dir, "build.gradle.kts"), content, cfg)
+	if len(findings) != 1 || findings[0].Line != 3 {
+		t.Fatalf("expected one finding on line 3, got %v", findings)
+	}
+	if !strings.Contains(findings[0].Message, "requires Gradle >= 8.0") || !strings.Contains(findings[0].Message, "6.1") {
+		t.Fatalf("unexpected message %q", findings[0].Message)
+	}
+
+	// A compatible wrapper stays clean.
+	if err := os.WriteFile(filepath.Join(wrapper, "gradle-wrapper.properties"), []byte("distributionUrl=https\\://x/gradle-8.4-all.zip\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if findings := runGradleRule(r, filepath.Join(dir, "build.gradle.kts"), content, cfg); len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %v", findings)
+	}
+}
+
+func TestTargetSdkRulesSkipLibraryModules(t *testing.T) {
+	content := `plugins { id("com.android.library") }
+android {
+    defaultConfig {
+        targetSdk = 28
+    }
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	for _, name := range []string{"OldTargetApi", "ExpiredTargetSdkVersion"} {
+		if findings := runGradleRule(findGradleRule(t, name), "build.gradle.kts", content, cfg); len(findings) != 0 {
+			t.Errorf("%s: expected 0 findings for a library module, got %d", name, len(findings))
+		}
+	}
+	app := `plugins { id("com.android.application") }
+android {
+    defaultConfig {
+        targetSdk = 28
+    }
+}
+`
+	cfg, _ = android.ParseBuildGradleContent(app)
+	for _, name := range []string{"OldTargetApi", "ExpiredTargetSdkVersion"} {
+		if findings := runGradleRule(findGradleRule(t, name), "build.gradle.kts", app, cfg); len(findings) != 1 {
+			t.Errorf("%s: expected 1 finding for an application module, got %d", name, len(findings))
+		}
+	}
+}
+
+func TestRemoteVersionAnchorsOnDependencyLine(t *testing.T) {
+	r := findGradleRule(t, "RemoteVersion")
+	content := `dependencies {
+    // implementation("com.commented:dep:+")
+    implementation("com.example:lib:+")
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+	if len(findings) != 1 || findings[0].Line != 3 {
+		t.Fatalf("expected one finding on line 3 and none for the commented dependency, got %v", findings)
+	}
+}
+
+func TestNewerVersionAvailableAnchorsOnDependencyLine(t *testing.T) {
+	r := findGradleRule(t, "NewerVersionAvailable")
+	content := `dependencies {
+    // implementation("androidx.appcompat:appcompat:0.9.0")
+    implementation("androidx.appcompat:appcompat:1.0.0")
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+	if len(findings) != 1 || findings[0].Line != 3 {
+		t.Fatalf("expected one finding on line 3, got %v", findings)
+	}
+}
+
+func TestStringInteger_ConvertedLiteralIsClean(t *testing.T) {
+	r := findGradleRule(t, "StringInteger")
+	content := `android {
+    defaultConfig {
+        minSdk = "24".toInt()
+        targetSdk = "34".toIntOrNull() ?: 34
+    }
+}
+`
+	cfg, _ := android.ParseBuildGradleContent(content)
+	if findings := runGradleRule(r, "build.gradle.kts", content, cfg); len(findings) != 0 {
+		t.Fatalf("a converted literal is an integer, got %d findings", len(findings))
+	}
+}
+
+func TestGradleDeprecated_LintReplacements(t *testing.T) {
+	r := findGradleRule(t, "GradleDeprecated")
+	cases := map[string]string{
+		"compile 'a:b:1'":             "`compile` is deprecated; replace with either `api` to maintain current behavior, or `implementation` to improve build performance by not sharing this dependency transitively.",
+		"debugCompile 'a:b:1'":        "`debugCompile` is deprecated; replace with either `debugApi` to maintain current behavior, or `debugImplementation` to improve build performance by not sharing this dependency transitively.",
+		"testCompile 'a:b:1'":         "`testCompile` is deprecated; replace with `testImplementation`",
+		"androidTestCompile 'a:b:1'":  "`androidTestCompile` is deprecated; replace with `androidTestImplementation`",
+		"provided 'a:b:1'":            "`provided` is deprecated; replace with `compileOnly`",
+		"apk 'a:b:1'":                 "`apk` is deprecated; replace with `runtimeOnly`",
+		"releaseProvided('a:b:1')":    "`releaseProvided` is deprecated; replace with `releaseCompileOnly`",
+		"implementation 'a:b:1'":      "",
+		"compileOnly 'a:b:1'":         "",
+		"// compile 'a:b:1'":          "",
+		"classpath 'compile:foo:1.0'": "",
+	}
+	for line, want := range cases {
+		content := "dependencies {\n    " + line + "\n}\n"
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle", content, cfg)
+		switch {
+		case want == "" && len(findings) != 0:
+			t.Errorf("%q: expected no finding, got %+v", line, findings)
+		case want != "" && (len(findings) != 1 || findings[0].Message != want):
+			t.Errorf("%q: got %+v, want %q", line, findings, want)
+		}
+	}
+}
+
+func TestGradleDynamicVersion_LintWording(t *testing.T) {
+	r := findGradleRule(t, "GradleDynamicVersion")
+	content := "dependencies {\n    implementation 'com.android.support:appcompat-v7:+'\n    implementation 'g:a:1.+'\n    implementation 'g:b:1.0'\n}\n"
+	cfg, _ := android.ParseBuildGradleContent(content)
+	findings := runGradleRule(r, "build.gradle", content, cfg)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %+v", findings)
+	}
+	want := "Avoid using + in version numbers; can lead to unpredictable and unrepeatable builds (com.android.support:appcompat-v7:+)"
+	if findings[0].Message != want {
+		t.Fatalf("unexpected message %q", findings[0].Message)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GradleGetter (Lint's check)
+// ---------------------------------------------------------------------------
+
+func TestGradleGetter(t *testing.T) {
+	r := findGradleRule(t, "GradleGetter")
+	run := func(path, content string) []scanner.Finding {
+		cfg, _ := android.ParseBuildGradleContent(content)
+		return runGradleRule(r, path, content, cfg)
+	}
+	const message = "Bad method name: pick a unique method name which does not conflict with the implicit getters for the defaultConfig properties. For example, try using the prefix compute- instead of get-."
+
+	t.Run("getter calls inside defaultConfig are reported", func(t *testing.T) {
+		findings := run("build.gradle", `android {
+    defaultConfig {
+        versionCode getVersionCode()
+        versionName getVersionName()
+        minSdkVersion 21
+    }
+}
+
+def getVersionCode() { return 1 }
+def getVersionName() { return "1.0" }
+`)
+		if len(findings) != 2 || findings[0].Line != 3 || findings[1].Line != 4 || findings[0].Message != message {
+			t.Fatalf("expected findings on lines 3 and 4, got %+v", findings)
+		}
+	})
+	t.Run("Kotlin assignment form", func(t *testing.T) {
+		findings := run("build.gradle.kts", `android {
+    defaultConfig {
+        versionCode = getVersionCode()
+    }
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 3 {
+			t.Fatalf("expected a finding on line 3, got %+v", findings)
+		}
+	})
+	t.Run("other names, other blocks and comments are clean", func(t *testing.T) {
+		findings := run("build.gradle", `android {
+    defaultConfig {
+        versionCode computeVersionCode()
+        // versionName getVersionName()
+        versionName "1.0"
+    }
+    productFlavors {
+        paid {
+            versionCode getVersionCode()
+        }
+    }
+}
+versionCode getVersionCode()
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %+v", findings)
+		}
+	})
+	t.Run("a nested block inside defaultConfig does not hide the following line", func(t *testing.T) {
+		findings := run("build.gradle", `android {
+    defaultConfig {
+        manifestPlaceholders = [key: "v"]
+        testInstrumentationRunnerArguments { arg "a", "b" }
+        versionName getVersionName()
+    }
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 5 {
+			t.Fatalf("expected a finding on line 5, got %+v", findings)
+		}
+	})
 }

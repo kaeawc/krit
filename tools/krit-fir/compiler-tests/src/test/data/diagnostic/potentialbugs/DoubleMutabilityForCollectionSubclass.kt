@@ -17,7 +17,7 @@ fun <K, V> cache(): LinkedHashMap<K, V> = LinkedHashMap()
 fun <T> fresh(): HashSet<T> = HashSet()
 
 class Holder {
-    <!DoubleMutabilityForCollection!>var<!> map: LinkedHashMap<String, Int> = cache()
+    <!DoubleMutabilityForCollection!>private<!> var map: LinkedHashMap<String, Int> = cache()
 
-    <!DoubleMutabilityForCollection!>var<!> set: HashSet<String> = fresh()
+    <!DoubleMutabilityForCollection!>private<!> var set: HashSet<String> = fresh()
 }

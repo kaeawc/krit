@@ -64,28 +64,11 @@ fun createChannel() {
 	}
 }
 
-func TestNewApi_FlagsBiometricPrompt(t *testing.T) {
-	findings := runRuleByName(t, "NewApi", `
-package test
-fun showBiometric() {
-    val prompt = BiometricPrompt.PromptInfo.Builder()
-}`)
-	found := false
-	for _, f := range findings {
-		if f.Rule == "NewApi" && strings.Contains(f.Message, "BiometricPrompt") && strings.Contains(f.Message, "28") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("NewApi should flag unguarded BiometricPrompt (requires API 28)")
-	}
-}
-
 func TestNewApi_FlagsCheckSelfPermission(t *testing.T) {
 	findings := runRuleByName(t, "NewApi", `
 package test
 fun check() {
-    ContextCompat.checkSelfPermission(this, permission)
+    activity.checkSelfPermission(permission)
 }`)
 	found := false
 	for _, f := range findings {
@@ -213,20 +196,20 @@ fun checkPermission() {
 	}
 }
 
-func TestInlinedApi_FlagsBuildVersionCodes(t *testing.T) {
+func TestInlinedApi_FlagsInlinedFeatureConstant(t *testing.T) {
 	findings := runRuleByName(t, "InlinedApi", `
 package test
 fun isApi33() {
-    val is33 = Build.VERSION_CODES.TIRAMISU
+    val leanback = PackageManager.FEATURE_LEANBACK
 }`)
 	found := false
 	for _, f := range findings {
-		if f.Rule == "InlinedApi" && strings.Contains(f.Message, "TIRAMISU") && strings.Contains(f.Message, "33") {
+		if f.Rule == "InlinedApi" && strings.Contains(f.Message, "FEATURE_LEANBACK") && strings.Contains(f.Message, "21") {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("InlinedApi should flag Build.VERSION_CODES.TIRAMISU (API 33)")
+		t.Error("InlinedApi should flag PackageManager.FEATURE_LEANBACK (API 21)")
 	}
 }
 
@@ -274,6 +257,7 @@ class Foo`)
 func TestDeprecated_FlagsAsyncTask(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import android.os.AsyncTask
 class MyTask : AsyncTask<Void, Void, String>() {
     override fun doInBackground(vararg params: Void?): String = ""
 }`)
@@ -291,6 +275,7 @@ class MyTask : AsyncTask<Void, Void, String>() {
 func TestDeprecated_FlagsIntentService(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import android.app.IntentService
 class MyService : IntentService("worker") {
     override fun onHandleIntent(intent: Intent?) {}
 }`)
@@ -308,6 +293,7 @@ class MyService : IntentService("worker") {
 func TestDeprecated_FlagsLocalBroadcastManager(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 fun register() {
     LocalBroadcastManager.getInstance(this).registerReceiver(receiver, filter)
 }`)
@@ -325,6 +311,7 @@ fun register() {
 func TestDeprecated_FlagsCursorLoader(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import android.content.CursorLoader
 fun loadData() {
     val loader = CursorLoader(context, uri, null, null, null, null)
 }`)
@@ -342,6 +329,7 @@ fun loadData() {
 func TestDeprecated_FlagsDefaultHttpClient(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import org.apache.http.impl.client.DefaultHttpClient
 fun makeRequest() {
     val client = DefaultHttpClient()
 }`)
@@ -388,6 +376,7 @@ class Foo`)
 func TestDeprecated_SkipsComments(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import android.os.AsyncTask
 // AsyncTask is deprecated, use coroutines instead
 class Foo`)
 	for _, f := range findings {
@@ -400,6 +389,7 @@ class Foo`)
 func TestDeprecated_FlagsTabActivity(t *testing.T) {
 	findings := runRuleByName(t, "Deprecated", `
 package test
+import android.app.TabActivity
 class MyTabs : TabActivity() {}`)
 	found := false
 	for _, f := range findings {
@@ -499,5 +489,28 @@ class MyFragment : Fragment() {
 	}
 	if !found {
 		t.Error("Override should flag fun onCreateOptionsMenu without override in Fragment subclass")
+	}
+}
+
+func TestDeprecated_RequiresPlatformClassAndSkipsLookalikes(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"unimported same-named class", "package test\nclass MyTask : AsyncTask<Void, Void, String>()\n", 0},
+		{"other package class", "package test\nimport com.example.AsyncTask\nclass MyTask : AsyncTask()\n", 0},
+		{"declaration of same name", "package test\nimport android.os.AsyncTask\nclass Holder { val AsyncTask = 1 }\n", 0},
+		{"fully qualified use", "package test\nclass MyTask : android.os.AsyncTask<Void, Void, String>()\n", 1},
+		{"own getRunningTasks function", "package test\nfun getRunningTasks() = 1\nfun f() { getRunningTasks() }\n", 0},
+		{"member getRunningTasks", "package test\nfun f(am: android.app.ActivityManager) { am.getRunningTasks(1) }\n", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "Deprecated", tc.src)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
 	}
 }

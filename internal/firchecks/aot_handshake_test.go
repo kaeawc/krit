@@ -45,8 +45,8 @@ func TestFirJVMArgsUseLeydenCacheWhenSupported(t *testing.T) {
 	if !containsJVMArg(args, "-XX:AOTCache="+cachePath) {
 		t.Fatalf("supported JDK args missing AOT cache %q: %v", cachePath, args)
 	}
-	if !containsJVMArg(args, "-Xmx1g") {
-		t.Fatalf("checker args missing oracle-aligned heap cap: %v", args)
+	if !containsJVMArg(args, "-XX:MaxRAMPercentage=25") {
+		t.Fatalf("checker args missing RAM-relative heap cap: %v", args)
 	}
 }
 

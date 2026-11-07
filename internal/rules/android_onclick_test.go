@@ -191,3 +191,49 @@ class FormActivity : AppCompatActivity() {
 		t.Fatalf("expected 0 findings without onClick attribute, got %d", len(findings))
 	}
 }
+
+func TestOnClickRule_OnlyChecksActivities(t *testing.T) {
+	idx := onClickIndexWithHandler("fragment_form", "onSubmitClicked")
+	findings := runOnClickRule(t, `package test
+class FormFragment : Fragment() {
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, state: Bundle?): View {
+        return inflater.inflate(R.layout.fragment_form, container, false)
+    }
+}
+`, idx)
+	if len(findings) != 0 {
+		t.Fatalf("a fragment-inflated layout resolves onClick on the host activity, got %d findings", len(findings))
+	}
+}
+
+func TestOnClickRule_AppDefinedBaseActivityMayDeclareHandler(t *testing.T) {
+	idx := onClickIndexWithHandler("activity_form", "onSubmitClicked")
+	findings := runOnClickRule(t, `package test
+class FormActivity : BaseFormActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_form)
+    }
+}
+`, idx)
+	if len(findings) != 0 {
+		t.Fatalf("handler may be inherited from BaseFormActivity, got %d findings", len(findings))
+	}
+}
+
+func TestOnClickRule_FlagsProtectedHandler(t *testing.T) {
+	idx := onClickIndexWithHandler("activity_form", "onSubmitClicked")
+	findings := runOnClickRule(t, `package test
+class FormActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_form)
+    }
+
+    protected fun onSubmitClicked(view: View) {}
+}
+`, idx)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for protected handler, got %d", len(findings))
+	}
+}

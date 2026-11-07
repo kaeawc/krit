@@ -9,6 +9,15 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
+// arrayLiteralFactories are the array factory functions an annotation argument can replace with `[...]`.
+var arrayLiteralFactories = map[string]bool{
+	"arrayOf": true, "booleanArrayOf": true, "charArrayOf": true, "byteArrayOf": true, "shortArrayOf": true,
+	"intArrayOf": true, "longArrayOf": true, "floatArrayOf": true, "doubleArrayOf": true,
+	"ubyteArrayOf": true, "ushortArrayOf": true, "uintArrayOf": true, "ulongArrayOf": true,
+}
+
+const explicitCollectionAccessMessage = "Prefer usage of the indexed access operator [] for map element access or insert methods."
+
 func registerStyleIdiomaticDataRules() {
 
 	// --- from style_idiomatic_data.go ---
@@ -19,39 +28,46 @@ func registerStyleIdiomaticDataRules() {
 			NodeTypes: []string{"annotation"}, Confidence: api.ConfidenceHigher, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Require an actual call to `arrayOf` somewhere under this
-				// annotation — not just the substring, which fired on
-				// `@Foo("arrayOf(x)" as String)` or KDoc-like usages.
-				var arrayOfCall uint32
-				file.FlatWalkNodes(idx, "call_expression", func(call uint32) {
-					if arrayOfCall != 0 {
-						return
-					}
-					if flatCallExpressionName(file, call) == "arrayOf" {
-						arrayOfCall = call
-					}
-				})
-				if arrayOfCall == 0 {
+				// detekt reports each arrayOf-style call that is directly an argument of the annotation (also after a spread).
+				ctor, ok := file.FlatFindChild(idx, "constructor_invocation")
+				if !ok {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, 1, "Use array literal '[]' syntax in annotations instead of 'arrayOf()'.")
-				// Fix: replace the `arrayOf(args)` span with `[args]`. The
-				// args range is precisely the value_arguments node minus
-				// its outer parens, which we reconstruct from the AST
-				// rather than string-scanning for matching parens.
-				args := flatCallKeyArguments(file, arrayOfCall)
-				if args != 0 {
-					argsStart := int(file.FlatStartByte(args))
-					argsEnd := int(file.FlatEndByte(args))
-					inner := string(file.Content[argsStart+1 : argsEnd-1]) // strip the ( )
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(arrayOfCall)),
-						EndByte:     int(file.FlatEndByte(arrayOfCall)),
-						Replacement: "[" + inner + "]",
-					}
+				args, _ := file.FlatFindChild(ctor, "value_arguments")
+				if args == 0 {
+					return
 				}
-				ctx.Emit(f)
+				for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+					if file.FlatType(arg) != "value_argument" {
+						continue
+					}
+					expr := flatValueArgumentExpression(file, arg)
+					spread := false
+					if expr != 0 && file.FlatType(expr) == "spread_expression" {
+						spread = true
+						for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+							if file.FlatType(c) == "call_expression" {
+								expr = c
+							}
+						}
+					}
+					if expr == 0 || file.FlatType(expr) != "call_expression" || !arrayLiteralFactories[flatCallExpressionName(file, expr)] {
+						continue
+					}
+					f := r.Finding(file, file.FlatRow(expr)+1, file.FlatCol(expr)+1, "Array literals [...] should be preferred as they are more readable than `arrayOf(...)` expressions.")
+					// Fix: replace the `arrayOf(args)` span with `[args]`, reconstructed from the AST.
+					if inner := flatCallKeyArguments(file, expr); inner != 0 && !spread {
+						argsStart := int(file.FlatStartByte(inner))
+						argsEnd := int(file.FlatEndByte(inner))
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(expr)),
+							EndByte:     int(file.FlatEndByte(expr)),
+							Replacement: "[" + string(file.Content[argsStart+1:argsEnd-1]) + "]",
+						}
+					}
+					ctx.Emit(f)
+				}
 			},
 		})
 	}
@@ -103,7 +119,7 @@ func registerStyleIdiomaticDataRules() {
 				default:
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx), msg)
 				if name == "flatMap" && selectorName == "size" && chainEnd != 0 {
 					if lambdaSuffix, ok := file.FlatFindChild(idx, "call_suffix"); ok {
 						if lambdaNode, ok := file.FlatFindChild(lambdaSuffix, "annotated_lambda"); ok {
@@ -136,93 +152,65 @@ func registerStyleIdiomaticDataRules() {
 		})
 	}
 	{
-		r := &UseLetRule{BaseRule: BaseRule{RuleName: "UseLet", RuleSetName: "style", Sev: "warning", Desc: "Detects null checks that could be replaced with ?.let {} scope function."}}
+		r := &UseLetRule{BaseRule: BaseRule{RuleName: "UseLet", RuleSetName: "style", Sev: "warning", Desc: "Detects if/else with a null branch that could use ?.let {}."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"if_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if strings.Contains(text, "!= null") && !strings.Contains(text, "else") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Null check could be replaced with ?.let { }.")
+				if useLetReportable(file, idx) {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Use `?.let {}` instead of if/else with a null block when checking for nullable values")
 				}
 			},
 		})
 	}
 	{
-		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes with only properties in the constructor that could be data classes."}, AllowVars: false}
+		r := &UseDataClassRule{BaseRule: BaseRule{RuleName: "UseDataClass", RuleSetName: "style", Sev: "warning", Desc: "Detects classes that only hold data and could be data classes."}, AllowVars: false}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if file.FlatHasModifier(idx, "data") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "sealed") || file.FlatHasModifier(idx, "enum") || file.FlatHasModifier(idx, "annotation") {
-					return
-				}
-				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
-				if ctor == 0 {
-					return
-				}
-				paramCount := 0
-				sawVar := false
-				file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
-					trimmed := strings.TrimSpace(file.FlatNodeText(p))
-					if strings.HasPrefix(trimmed, "val ") {
-						paramCount++
-					} else if strings.HasPrefix(trimmed, "var ") {
-						paramCount++
-						sawVar = true
-					}
-				})
-				if paramCount == 0 {
-					return
-				}
-				// AllowVars: when false, classes whose primary constructor
-				// includes any `var` property are excluded from the
-				// data-class suggestion. Mutable
-				// constructor properties don't fit the immutable-value
-				// pattern that data classes capture idiomatically.
-				if !r.AllowVars && sawVar {
-					return
-				}
-				body, _ := file.FlatFindChild(idx, "class_body")
-				if body != 0 {
-					for i := 0; i < file.FlatChildCount(body); i++ {
-						if file.FlatType(file.FlatChild(body, i)) == "function_declaration" {
-							return
-						}
-					}
-				}
-				name := extractIdentifierFlat(file, idx)
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Class '%s' could be a data class.", name))
-			},
+			Check: r.check,
 		})
 	}
 	{
-		r := &UseIfInsteadOfWhenRule{BaseRule: BaseRule{RuleName: "UseIfInsteadOfWhen", RuleSetName: "style", Sev: "warning", Desc: "Detects when expressions with two or fewer branches that could be replaced with if."}}
+		r := &UseIfInsteadOfWhenRule{BaseRule: BaseRule{RuleName: "UseIfInsteadOfWhen", RuleSetName: "style", Sev: "warning", Desc: "Detects when expressions with exactly two branches, one of them else, that could be replaced with if."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"when_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// detekt: exactly two entries, one of them else, and no entry with several conditions.
 				entryCount := 0
-				containsVarDecl := false
+				hasElse := false
+				multiCondition := false
+				subjectDeclaresVariable := false
 				for i := 0; i < file.FlatChildCount(idx); i++ {
 					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "when_entry" {
+					switch file.FlatType(child) {
+					case "when_subject":
+						subjectDeclaresVariable = file.FlatHasChildOfType(child, "variable_declaration")
+					case "when_entry":
 						entryCount++
-						if r.IgnoreWhenContainingVariableDeclaration && !containsVarDecl {
-							file.FlatWalkNodes(child, "property_declaration", func(uint32) {
-								containsVarDecl = true
-							})
+						conditions := 0
+						for ec := file.FlatFirstChild(child); ec != 0; ec = file.FlatNextSib(ec) {
+							switch file.FlatType(ec) {
+							case "else":
+								hasElse = true
+							case "when_condition":
+								conditions++
+							}
+						}
+						if conditions > 1 {
+							multiCondition = true
 						}
 					}
 				}
-				if r.IgnoreWhenContainingVariableDeclaration && containsVarDecl {
+				if r.IgnoreWhenContainingVariableDeclaration && subjectDeclaresVariable {
 					return
 				}
-				if entryCount <= 2 {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1, "When expression with two or fewer branches could be replaced with if.")
+				if entryCount == 2 && hasElse && !multiCondition {
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Binary expressions are better expressed using an `if` expression than a `when` expression.")
 					f.Fix = buildUseIfInsteadOfWhenFix(file, idx)
 					ctx.Emit(f)
 				}
@@ -308,7 +296,7 @@ func registerStyleIdiomaticDataRules() {
 				if strings.HasPrefix(defaultText, "{") && strings.HasSuffix(defaultText, "}") {
 					defaultText = strings.TrimSpace(defaultText[1 : len(defaultText)-1])
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Use '.%s {}' instead of manual %s() check.", info.replacement, methodName))
+				f := r.Finding(file, calleeLine(file, idx), calleeCol(file, idx), fmt.Sprintf("Use '.%s {}' instead of manual %s() check.", info.replacement, methodName))
 				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiver + "." + info.replacement + " { " + defaultText + " }"}
 				ctx.Emit(f)
 			},
@@ -326,7 +314,7 @@ func registerStyleIdiomaticDataRules() {
 					return
 				}
 				methodName := target.CalleeName
-				if methodName != "get" && methodName != "set" {
+				if methodName != "get" && methodName != "set" && methodName != "put" {
 					return
 				}
 				argsNode := uint32(0)
@@ -345,7 +333,11 @@ func registerStyleIdiomaticDataRules() {
 				if methodName == "get" && argCount < 1 {
 					return
 				}
-				if methodName == "set" && argCount < 2 {
+				if (methodName == "set" || methodName == "put") && argCount < 2 {
+					return
+				}
+				// set() and put() return a value, so only a statement-level call can become `x[i] = v`.
+				if (methodName == "set" || methodName == "put") && !callIsStatement(file, idx) {
 					return
 				}
 				receiver := target.Receiver.Node
@@ -358,26 +350,31 @@ func registerStyleIdiomaticDataRules() {
 				for i := 0; i < file.FlatChildCount(argsNode); i++ {
 					child := file.FlatChild(argsNode, i)
 					if file.FlatType(child) == "value_argument" {
-						argTexts = append(argTexts, file.FlatNodeText(child))
+						// Index operands cannot be named arguments.
+						if expr := flatValueArgumentExpression(file, child); expr != 0 && flatHasValueArgumentLabel(file, child) {
+							argTexts = append(argTexts, file.FlatNodeText(expr))
+						} else {
+							argTexts = append(argTexts, file.FlatNodeText(child))
+						}
 					}
 				}
 				receiverText := file.FlatNodeText(receiver)
 				if methodName == "get" {
-					f := r.Finding(file, row, col, "Use index operator instead of explicit 'get' call.")
+					f := r.Finding(file, row, col, explicitCollectionAccessMessage)
 					f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiverText + "[" + strings.Join(argTexts, ", ") + "]"}
 					ctx.Emit(f)
 					return
 				}
 				keys := strings.Join(argTexts[:len(argTexts)-1], ", ")
 				value := argTexts[len(argTexts)-1]
-				f := r.Finding(file, row, col, "Use index operator instead of explicit 'set' call.")
+				f := r.Finding(file, row, col, explicitCollectionAccessMessage)
 				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: receiverText + "[" + keys + "] = " + value}
 				ctx.Emit(f)
 			},
 		})
 	}
 	{
-		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks with multiple it. references that could use .apply {} instead."}}
+		r := &AlsoCouldBeApplyRule{BaseRule: BaseRule{RuleName: "AlsoCouldBeApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .also {} blocks whose statements all start with it. and could use .apply {} instead."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Fix: api.FixSemantic, Implementation: r,
@@ -388,11 +385,19 @@ func registerStyleIdiomaticDataRules() {
 				}
 				lambda := flatCallTrailingLambda(file, idx)
 				if lambda == 0 {
+					// detekt also takes a lambda that is the only parenthesized argument.
+					if _, args := flatCallExpressionParts(file, idx); args != 0 && file.FlatNamedChildCount(args) == 1 {
+						if expr := flatValueArgumentExpression(file, file.FlatNamedChild(args, 0)); expr != 0 && file.FlatType(expr) == "lambda_literal" {
+							lambda = expr
+						}
+					}
+				}
+				if lambda == 0 {
 					return
 				}
 				receiverStatements, ok := alsoLambdaReceiverStatementCount(file, lambda)
-				if ok && receiverStatements >= 2 {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1, "'also' with multiple 'it.' references could be replaced with 'apply'.")
+				if ok && receiverStatements >= 1 {
+					f := r.Finding(file, callLine(file, idx), callCol(file, idx), "When an `also` block contains only `it`-started expressions, simplify it to the `apply` block.")
 					f.Fix = buildAlsoCouldBeApplyFix(file, idx, lambda)
 					ctx.Emit(f)
 				}
@@ -414,16 +419,30 @@ func registerStyleIdiomaticDataRules() {
 						break
 					}
 				}
-				if navNode == 0 {
+				// A bare `equals(null)` calls this.equals(null); it is reported but has no rewrite.
+				bare := navNode == 0 && file.FlatFirstChild(idx) != 0 && file.FlatType(file.FlatFirstChild(idx)) == "simple_identifier" &&
+					file.FlatNodeTextEquals(file.FlatFirstChild(idx), "equals")
+				if navNode == 0 && !bare {
 					return
 				}
 				for i := 0; i < file.FlatChildCount(idx); i++ {
 					child := file.FlatChild(idx, i)
-					if (file.FlatType(child) == "call_suffix" || file.FlatType(child) == "value_arguments") && strings.Contains(file.FlatNodeText(child), "null") {
-						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Use '== null' instead of '.equals(null)'.")
+					if (file.FlatType(child) == "call_suffix" || file.FlatType(child) == "value_arguments") && callArgumentsAreExactlyNull(file, child) {
+						f := r.Finding(file, callLine(file, idx), callCol(file, idx), "Equals() method is called with null as parameter. Consider using == to compare to null.")
+						if bare {
+							ctx.Emit(f)
+							return
+						}
 						navText := file.FlatNodeText(navNode)
-						if dotIdx := strings.LastIndex(navText, ".equals"); dotIdx >= 0 {
-							f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(navNode)) + dotIdx, EndByte: int(file.FlatEndByte(idx)), Replacement: " == null"}
+						// `a?.equals(null)` yields a nullable Boolean, so no plain `== null` equivalent exists.
+						if dotIdx := strings.LastIndex(navText, ".equals"); dotIdx >= 0 && !strings.HasSuffix(navText[:dotIdx], "?") {
+							start, end := int(file.FlatStartByte(navNode)), int(file.FlatEndByte(idx))
+							receiver := navText[:dotIdx]
+							replacement := receiver + " == null"
+							if equalsCallNeedsParens(file, idx) {
+								replacement = "(" + replacement + ")"
+							}
+							f.Fix = &scanner.Fix{ByteMode: true, StartByte: start, EndByte: end, Replacement: replacement}
 						}
 						ctx.Emit(f)
 						return
@@ -672,6 +691,7 @@ func alsoStatementNavWithItReceiver(file *scanner.File, stmt uint32) uint32 {
 			return nav
 		}
 		return 0
+	// Assignments such as `it.name = x` are a krit extension: detekt does not count them, though apply fits them best.
 	case "assignment", "assignment_expression":
 		return alsoStatementNavWithItReceiver(file, file.FlatNamedChild(stmt, 0))
 	case "directly_assignable_expression":
@@ -730,4 +750,26 @@ func alsoNavigationReceiverIsIt(file *scanner.File, nav uint32) bool {
 	}
 	first := file.FlatNamedChild(nav, 0)
 	return first != 0 && file.FlatType(first) == "simple_identifier" && file.FlatNodeText(first) == "it"
+}
+
+// callArgumentsAreExactlyNull reports whether a call suffix holds a single argument that is the literal null.
+func callArgumentsAreExactlyNull(file *scanner.File, suffix uint32) bool {
+	args := suffix
+	if file.FlatType(suffix) == "call_suffix" {
+		args, _ = file.FlatFindChild(suffix, "value_arguments")
+	}
+	if args == 0 {
+		return false
+	}
+	count := 0
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		count++
+		if strings.TrimSpace(file.FlatNodeText(arg)) != "null" {
+			return false
+		}
+	}
+	return count == 1
 }

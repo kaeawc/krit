@@ -324,3 +324,53 @@ func TestRegression_UnnecessarySafeCall_MapIndexReceiverNotFlagged(t *testing.T)
 		t.Fatalf("safe call on a Map indexed receiver must not be flagged; got %d: %v", len(findings), findings)
 	}
 }
+
+// TestRegression_NullabilityHeuristicsSkipCompilerAnalyzedFiles: when the compiler analyzed a file and
+// reported nothing, the name-based guesses must not add findings.
+func TestRegression_NullabilityHeuristicsSkipCompilerAnalyzedFiles(t *testing.T) {
+	cases := []struct {
+		rule string
+		code string
+	}{
+		{"UnnecessarySafeCall", "fun check() {\n    val name: String = \"hello\"\n    val len = name?.length\n}\n"},
+		{"UselessCallOnNotNull", "class Holder(val label: String?)\nfun f(h: Holder) = h.label.orEmpty()\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.rule, func(t *testing.T) {
+			file := parseInline(t, tc.code)
+			fake := oracle.NewFakeOracle()
+			fake.AnalyzedFiles[file.Path] = true
+			if findings := runRuleOnFileWithFakeOracle(t, tc.rule, file, fake); len(findings) != 0 {
+				t.Fatalf("%s flagged a compiler-analyzed file with no diagnostic: %v", tc.rule, findings)
+			}
+		})
+	}
+}
+
+// TestRegression_ErrorTypedOperandsStaySilentWhenTheCompilerDropsTheVerdict: an operand whose class is missing from
+// the classpath has an error type, which the compiler treats as non-null. The oracle drops those verdicts, and the
+// name-based guesses must not bring them back for a file the compiler analyzed.
+func TestRegression_ErrorTypedOperandsStaySilentWhenTheCompilerDropsTheVerdict(t *testing.T) {
+	const imports = "package test\nimport com.acme.missing.Missing\n"
+	cases := []struct {
+		rule string
+		code string
+	}{
+		{"UnnecessarySafeCall", imports + "fun f(m: Missing) = m?.name\n"},
+		{"UnnecessaryNotNullOperator", imports + "fun f(m: Missing) = m!!\n"},
+		{"UselessElvisOnNonNull", imports + "fun f(m: Missing) = m ?: Missing()\n"},
+		{"UnnecessaryNotNullCheck", imports + "fun f(m: Missing): Boolean = m != null\n"},
+		{"Deprecation", imports + "fun f(m: Missing) = m.str.capitalize()\n"},
+		{"UnreachableCode", imports + "fun f(): Int {\n    val s = try {\n        load()\n    } catch (e: IllegalStateException) {\n        return 1\n    }\n    return s\n}\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.rule, func(t *testing.T) {
+			file := parseInline(t, tc.code)
+			fake := oracle.NewFakeOracle()
+			fake.AnalyzedFiles[file.Path] = true
+			if findings := runRuleOnFileWithFakeOracle(t, tc.rule, file, fake); len(findings) != 0 {
+				t.Fatalf("%s flagged an error-typed operand the compiler dropped: %v", tc.rule, findings)
+			}
+		})
+	}
+}

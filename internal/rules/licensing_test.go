@@ -702,3 +702,17 @@ func snapshotDefaultInactive() func() {
 		}
 	}
 }
+
+func TestCopyrightYearOutdated_PresentRangeIsCurrent(t *testing.T) {
+	findings := runRuleByName(t, "CopyrightYearOutdated", `
+/*
+ * Copyright (c) 2016-present, Example Contributors.
+ */
+package test
+
+fun currentFeature() = 42
+`)
+	if len(findings) != 0 {
+		t.Fatalf("a '-present' range tracks the current year, got %d findings", len(findings))
+	}
+}

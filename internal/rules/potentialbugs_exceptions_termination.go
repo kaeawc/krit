@@ -26,7 +26,7 @@ func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 	type catchEntry struct {
 		typeName string
-		line     int
+		keyword  uint32
 	}
 	var catches []catchEntry
 	for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -40,28 +40,28 @@ func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *api.Context) {
 		}
 		catches = append(catches, catchEntry{
 			typeName: typeName,
-			line:     file.FlatRow(child) + 1,
+			keyword:  catchKeywordNode(file, child),
 		})
 	}
 	for i := 0; i < len(catches); i++ {
 		for j := i + 1; j < len(catches); j++ {
 			parentType := catches[i].typeName
 			childType := catches[j].typeName
-			childLine := catches[j].line
+			keyword := catches[j].keyword
 			if parentType == childType {
-				ctx.Emit(r.Finding(file, childLine, 1,
-					fmt.Sprintf("Duplicate catch block for '%s'.", childType)))
+				ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
+					fmt.Sprintf("Duplicate catch block for '%s'.", simpleTypeName(childType))), file, keyword))
 				continue
 			}
 			if ctx.Resolver != nil {
 				if ctx.Resolver.IsExceptionSubtype(childType, parentType) {
-					ctx.Emit(r.Finding(file, childLine, 1,
-						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", childType, parentType)))
+					ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
+						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", simpleTypeName(childType), simpleTypeName(parentType))), file, keyword))
 				}
 			} else {
 				if typeinfer.IsSubtypeOfException(childType, parentType) {
-					ctx.Emit(r.Finding(file, childLine, 1,
-						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", childType, parentType)))
+					ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
+						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", simpleTypeName(childType), simpleTypeName(parentType))), file, keyword))
 				}
 			}
 		}
@@ -236,7 +236,8 @@ func blockTerminatesFlat(file *scanner.File, idx uint32) bool {
 	}
 	// Unwrap single control_structure_body → statements
 	stmts := idx
-	if file.FlatType(idx) == "control_structure_body" {
+	switch file.FlatType(idx) {
+	case "control_structure_body", "catch_block", "finally_block", "lambda_literal":
 		for i := 0; i < file.FlatChildCount(idx); i++ {
 			child := file.FlatChild(idx, i)
 			if file.FlatType(child) == "statements" {
@@ -258,18 +259,139 @@ func blockTerminatesFlat(file *scanner.File, idx uint32) bool {
 	if last == 0 {
 		return false
 	}
-	if file.FlatType(last) == "jump_expression" {
-		text := file.FlatNodeText(last)
-		return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
-	}
-	if isNothingCallFlat(file, last) {
-		return true
-	}
-	// Recursively check nested if/when
-	if file.FlatType(last) == "if_expression" {
-		return ifAllBranchesTerminateFlat(file, last)
+	return statementTerminatesFlat(file, last, nil)
+}
+
+// statementTerminatesFlat reports whether control cannot continue past a statement: a return or throw, a
+// Nothing-returning call, an if or when whose branches all terminate, a try whose body and handlers all
+// terminate, a loop that never ends, or a scope-function call whose lambda terminates.
+func statementTerminatesFlat(file *scanner.File, stmt uint32, resolver typeinfer.TypeResolver) bool {
+	switch file.FlatType(stmt) {
+	case "jump_expression":
+		first := file.FlatFirstChild(stmt)
+		return first != 0 && (file.FlatType(first) == "return" || file.FlatType(first) == "throw")
+	case "if_expression":
+		return ifAllBranchesTerminateFlat(file, stmt)
+	case "when_expression":
+		return whenIsExhaustiveAndTerminatesFlat(file, stmt, resolver)
+	case "try_expression":
+		return tryTerminatesFlat(file, stmt)
+	case "while_statement", "do_while_statement":
+		return loopNeverEndsFlat(file, stmt)
+	case "call_expression":
+		if isNothingReturningCallFlat(file, stmt, resolver) {
+			return true
+		}
+		return scopeCallLambdaTerminatesFlat(file, stmt)
 	}
 	return false
+}
+
+// tryTerminatesFlat: a finally block that terminates decides the outcome; otherwise the try body and every
+// catch block must terminate.
+func tryTerminatesFlat(file *scanner.File, try uint32) bool {
+	var catches []uint32
+	finally := uint32(0)
+	bodyStmts := uint32(0)
+	seenKeyword := false
+	for c := file.FlatFirstChild(try); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "try":
+			seenKeyword = true
+		case "statements":
+			if seenKeyword && bodyStmts == 0 {
+				bodyStmts = c
+			}
+		case "catch_block":
+			catches = append(catches, c)
+		case "finally_block":
+			finally = c
+		}
+	}
+	if finally != 0 && blockTerminatesFlat(file, finally) {
+		return true
+	}
+	if bodyStmts == 0 || !blockTerminatesFlat(file, bodyStmts) {
+		return false
+	}
+	for _, c := range catches {
+		if !blockTerminatesFlat(file, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// loopNeverEndsFlat reports `while (true)` and `do ... while (true)` without a `break` that leaves the loop.
+func loopNeverEndsFlat(file *scanner.File, loop uint32) bool {
+	var cond uint32
+	for c := file.FlatFirstChild(loop); c != 0; c = file.FlatNextSib(c) {
+		t := file.FlatType(c)
+		if t == "boolean_literal" || t == "true" {
+			cond = c
+		}
+	}
+	if cond == 0 || !file.FlatNodeTextEquals(cond, "true") {
+		return false
+	}
+	body, ok := file.FlatFindChild(loop, "control_structure_body")
+	if !ok {
+		return false
+	}
+	return !loopBodyMayBreak(file, body)
+}
+
+// loopBodyMayBreak reports a `break` that could leave the loop: an unlabeled one outside any nested loop, or any labeled one.
+func loopBodyMayBreak(file *scanner.File, body uint32) bool {
+	found := false
+	file.FlatWalkNodes(body, "jump_expression", func(n uint32) {
+		if found {
+			return
+		}
+		first := file.FlatFirstChild(n)
+		if first == 0 || file.FlatType(first) != "break" {
+			return
+		}
+		if strings.HasPrefix(file.FlatNodeText(n), "break@") {
+			found = true
+			return
+		}
+		for p, ok := file.FlatParent(n); ok && p != body; p, ok = file.FlatParent(p) {
+			switch file.FlatType(p) {
+			case "for_statement", "while_statement", "do_while_statement":
+				return
+			}
+		}
+		found = true
+	})
+	return found
+}
+
+// terminatingScopeCalls are inline functions whose lambda result is the call's result, so a lambda that
+// always returns makes the call itself end the function.
+var terminatingScopeCalls = map[string]bool{
+	"let": true, "run": true, "with": true, "use": true, "synchronized": true, "withLock": true,
+}
+
+// scopeCallLambdaTerminatesFlat reports `x.let { return 1 }` and similar calls with a terminating lambda.
+func scopeCallLambdaTerminatesFlat(file *scanner.File, call uint32) bool {
+	if !terminatingScopeCalls[flatCallExpressionName(file, call)] {
+		return false
+	}
+	var lambda uint32
+	file.FlatWalkNodes(call, "lambda_literal", func(n uint32) {
+		if lambda == 0 {
+			lambda = n
+		}
+	})
+	if lambda == 0 {
+		return false
+	}
+	stmts, ok := file.FlatFindChild(lambda, "statements")
+	if !ok {
+		return false
+	}
+	return blockTerminatesFlat(file, stmts)
 }
 
 // whenIsExhaustiveAndTerminates checks if a when expression has an else branch
@@ -328,8 +450,12 @@ func whenIsExhaustiveAndTerminatesFlat(file *scanner.File, idx uint32, resolver 
 	if !hasElse && allTerminate && resolver != nil {
 		subjectName := whenSubjectTypeNameFlat(file, idx, resolver)
 		if subjectName != "" {
-			variants := resolver.SealedVariants(subjectName)
-			if len(variants) > 0 && branchCount >= len(variants) {
+			// The same variant name can be indexed more than once, so count distinct names.
+			distinct := map[string]bool{}
+			for _, v := range resolver.SealedVariants(subjectName) {
+				distinct[v] = true
+			}
+			if len(distinct) > 0 && branchCount >= len(distinct) {
 				return true
 			}
 			entries := resolver.EnumEntries(subjectName)
@@ -451,16 +577,7 @@ func missingReturnFunctionTerminates(file *scanner.File, body uint32, resolver t
 	if last == 0 {
 		return false
 	}
-	switch file.FlatType(last) {
-	case "jump_expression":
-		text := file.FlatNodeText(last)
-		return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
-	case "if_expression":
-		return ifAllBranchesTerminateFlat(file, last)
-	case "when_expression":
-		return whenIsExhaustiveAndTerminatesFlat(file, last, resolver)
-	}
-	return isNothingReturningCallFlat(file, last, resolver)
+	return statementTerminatesFlat(file, last, resolver)
 }
 
 func (r *MissingReturnRule) check(ctx *api.Context) {

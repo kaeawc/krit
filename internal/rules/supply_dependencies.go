@@ -117,7 +117,8 @@ func findGradleSnapshotDependencies(content string) []gradleSnapshotDependency {
 	var out []gradleSnapshotDependency
 	for _, ref := range gradleDependencyBlockLines(content) {
 		codeOnly := gradleStripStringsAndComments(ref.text)
-		if !gradleDepConfigLineRe.MatchString(codeOnly) {
+		config := gradleDepConfigLineRe.FindString(codeOnly)
+		if config == "" || gradleConfigIsNotReleaseShipped(config) {
 			continue
 		}
 		for _, literal := range gradleStringLiterals(stripGradleLineComment(ref.text)) {
@@ -134,6 +135,12 @@ func findGradleSnapshotDependencies(content string) []gradleSnapshotDependency {
 		}
 	}
 	return out
+}
+
+// gradleConfigIsNotReleaseShipped reports test and debug-only configurations,
+// whose dependencies are not packaged into a release artifact.
+func gradleConfigIsNotReleaseShipped(config string) bool {
+	return strings.HasPrefix(config, "test") || strings.HasPrefix(config, "androidTest") || strings.HasPrefix(config, "debug")
 }
 
 func findGradleDependenciesWithoutGroup(content string) []gradleDependencyWithoutGroup {
@@ -166,7 +173,8 @@ func parseGradleCoordinate(raw string) (group, name, version string, ok bool) {
 	// data.
 	group = strings.TrimSpace(parts[0])
 	name = strings.TrimSpace(parts[1])
-	version = strings.TrimSpace(parts[2])
+	// `group:name:1.0@aar` carries the artifact type after the version.
+	version = strings.TrimSpace(strings.SplitN(parts[2], "@", 2)[0])
 	return group, name, version, group != "" && name != "" && version != ""
 }
 
@@ -175,7 +183,10 @@ func isGradleCoordinateWithoutGroup(raw string) bool {
 	if len(parts) != 2 {
 		return false
 	}
-	return strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+	name, version := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+	// `group:name` (version supplied by a BOM or platform) is a normal coordinate;
+	// only `name:version` omits the group.
+	return name != "" && version != "" && version[0] >= '0' && version[0] <= '9'
 }
 
 func parseKTSNamedDependency(line string) (group, name, version string, ok bool) {

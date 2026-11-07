@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
@@ -41,9 +42,11 @@ import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
+import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirBackingFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirSyntheticPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
@@ -68,7 +71,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * closure (so `X509TrustManager`, `X509ExtendedTrustManager`, project base
  * classes, type aliases, and import aliases of them all count). Like Go, the
  * parameters are not inspected: an overload with other parameters declared on
- * a trust manager counts too.
+ * a trust manager counts too. An empty `checkClientTrusted` is not reported
+ * when the same class declares a `checkServerTrusted` that does something.
  *
  * The body does nothing when it is empty (comments and `;` aside), or holds
  * only a bare or labeled `return` (Go's shapes), or only statements that
@@ -133,7 +137,9 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
         "Trust manager check method accepts certificates without validation. " +
             "Perform certificate validation or remove the trust-all manager."
 
-    private val checkNames = setOf(Name.identifier("checkServerTrusted"), Name.identifier("checkClientTrusted"))
+    private val serverCheck = Name.identifier("checkServerTrusted")
+    private val clientCheck = Name.identifier("checkClientTrusted")
+    private val checkNames = setOf(serverCheck, clientCheck)
     private val trustManager = ClassId(FqName("javax.net.ssl"), Name.identifier("TrustManager"))
     private val unitClassId = ClassId(FqName("kotlin"), Name.identifier("Unit"))
 
@@ -168,6 +174,8 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
         val owner = context.containingDeclarations.lastOrNull { it != declaration.symbol } as? FirClassSymbol<*> ?: return
         if (!isTrustManager(owner, context.session)) return
         if (!isTrivialBlock(body)) return
+        // An empty checkClientTrusted is normal for a client that validates servers.
+        if (declaration.name == clientCheck && serverCheckValidates(owner)) return
         report(firstLine(source), MESSAGE)
     }
 
@@ -178,6 +186,13 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
         symbol.classId == trustManager ||
             lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
                 .any { it.classId == trustManager }
+
+    @OptIn(SymbolInternals::class, DirectDeclarationsAccess::class)
+    private fun serverCheckValidates(owner: FirClassSymbol<*>): Boolean =
+        owner.declarationSymbols.filterIsInstance<FirNamedFunctionSymbol>().any { symbol ->
+            val body = symbol.fir.body
+            symbol.name == serverCheck && body != null && !isTrivialBlock(body)
+        }
 
     private fun isTrivialBlock(block: FirBlock): Boolean = block.statements.all(::isNoOp)
 

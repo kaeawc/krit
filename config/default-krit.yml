@@ -14,13 +14,25 @@ config:
 analysis:
   depth: balanced
 
+# Kotlin script (.kts) files: Gradle build scripts, *.main.kts and other scripts.
+#
+#   auto  - (Default) Each rule's script scope decides: detekt-style source rules
+#           run, Android framework, Compose, DI, public-API and test rules do not.
+#   all   - Every rule runs on scripts, as on .kt files.
+#   none  - No source rule runs on scripts. Gradle rules still read build scripts.
+#
+# include / exclude name rules that run on scripts (or never do) whatever the
+# policy says. See docs/kotlin-scripts.md.
+scripts:
+  policy: auto
+
 fir:
   goAuthoritativeRules: []
 
 android-lint:
   active: true
   NegativeMarginResource:
-    active: true
+    active: false
     # Project-approved negative margin patterns:
     #   - 'android:layout_marginTop'
     #   - 'android:layout_marginTop=-8dp'
@@ -35,6 +47,7 @@ comments:
   AbsentOrWrongFileLicense:
     active: false
     licenseTemplate: 'Copyright'
+    licenseTemplateFile: ''
     licenseTemplateIsRegex: false
   DeprecatedBlockTag:
     active: false
@@ -44,13 +57,14 @@ comments:
     active: false
   EndOfSentenceFormat:
     active: false
-    endOfSentenceFormat: '([.?!][ \t\n\r])|([.?!]$)'
+    endOfSentenceFormat: '([.?!][ \t\n\r\f<])|([.?!:]$)'
   KDocReferencesNonPublicProperty:
     active: false
   OutdatedDocumentation:
     active: false
-    matchTypeParameters: false
-    matchDeclarationsOrder: false
+    matchTypeParameters: true
+    matchDeclarationsOrder: true
+    allowParamOnConstructorProperties: false
   UndocumentedPublicClass:
     active: false
     excludes:
@@ -93,17 +107,16 @@ complexity:
   active: true
   CognitiveComplexMethod:
     active: false
-    allowedComplexity: 15
+    allowedComplexity: 14
   ComplexCondition:
     active: true
     allowedConditions: 3
   CyclomaticComplexMethod:
     active: true
     allowedComplexity: 14
-    ignoreSingleWhenExpression: true
-    ignoreSimpleWhenEntries: true
+    ignoreSingleWhenExpression: false
+    ignoreSimpleWhenEntries: false
     ignoreNestingFunctions: false
-    ignoreLocalFunctions: false
     nestingFunctions:
       - 'also'
       - 'apply'
@@ -119,37 +132,44 @@ complexity:
     excludes:
       - '**/test/**'
       - '**/androidTest/**'
+      - '**/commonTest/**'
+      - '**/jvmTest/**'
+      - '**/androidUnitTest/**'
+      - '**/androidInstrumentedTest/**'
+      - '**/jsTest/**'
+      - '**/iosTest/**'
     allowedDuplications: 2
     ignoreAnnotation: true
     allowedWithLengthLessThan: 5
     ignoreStringsRegex: '$^'
   LargeClass:
     active: true
-    allowedLines: 600
+    allowedLines: 599
   LongMethod:
     active: true
-    allowedLines: 60
+    allowedLines: 59
   LongParameterList:
     active: true
-    allowedFunctionParameters: 8
-    allowedConstructorParameters: 10
-    ignoreDefaultParameters: true
+    allowedFunctionParameters: 5
+    allowedConstructorParameters: 6
+    ignoreDefaultParameters: false
     ignoreDataClasses: true
     ignoreAnnotatedParameter: []
   NestedBlockDepth:
     active: true
-    allowedDepth: 4
+    allowedDepth: 3
   ComplexInterface:
     active: false
-    allowedDefinitions: 10
+    allowedDefinitions: 9
     includeStaticDeclarations: false
     includePrivateDeclarations: false
+    ignoreOverloaded: false
   LabeledExpression:
     active: false
     ignoredLabels: []
   MethodOverloading:
     active: false
-    allowedOverloads: 6
+    allowedOverloads: 5
   NamedArguments:
     active: false
     allowedArguments: 3
@@ -175,15 +195,15 @@ complexity:
       - '**/androidInstrumentedTest/**'
       - '**/jsTest/**'
       - '**/iosTest/**'
-    allowedFunctionsPerFile: 11
-    allowedFunctionsPerClass: 11
-    allowedFunctionsPerInterface: 11
-    allowedFunctionsPerObject: 11
-    allowedFunctionsPerEnum: 11
+    allowedFunctionsPerFile: 10
+    allowedFunctionsPerClass: 10
+    allowedFunctionsPerInterface: 10
+    allowedFunctionsPerObject: 10
+    allowedFunctionsPerEnum: 10
     ignoreDeprecated: false
     ignorePrivate: false
     ignoreInternal: false
-    ignoreOverridden: true
+    ignoreOverridden: false
 
 coroutines:
   active: true
@@ -229,7 +249,7 @@ empty-blocks:
     active: true
   EmptyFunctionBlock:
     active: true
-    ignoreOverridden: true
+    ignoreOverridden: false
   EmptyIfBlock:
     active: true
   EmptyInitBlock:
@@ -371,16 +391,6 @@ naming:
       - '**/iosTest/**'
     functionPattern: '[a-z][a-zA-Z0-9]*'
     excludeClassPattern: '$^'
-    ignoreAnnotated:
-      - 'Composable'
-      - 'Preview'
-      - 'CustomPreview'
-      - 'DarkPreview'
-      - 'LightPreview'
-      - 'PreviewParameter'
-      - 'PreviewLightDark'
-      - 'Test'
-      - 'ParameterizedTest'
   FunctionParameterNaming:
     active: true
     parameterPattern: '[a-z][A-Za-z0-9]*'
@@ -415,14 +425,10 @@ naming:
     privatePropertyPattern: '(_)?[A-Za-z][_A-Za-z0-9]*'
   PackageNaming:
     active: true
-    # Permissive default that allows digits and underscores in any
-    # package segment (starting with a letter). Real-world Kotlin
-    # packages commonly carry version suffixes like `coil3`,
-    # `androidx.core2`, or `ktor3.client`.
-    packagePattern: '[a-z][a-zA-Z0-9_]*(\.[a-z][a-zA-Z0-9_]*)*'
+    packagePattern: '[a-z]+(\.[a-z][A-Za-z0-9]*)*'
   TopLevelPropertyNaming:
     active: true
-    constantPattern: '[A-Z][_A-Za-z0-9]*'
+    constantPattern: '[A-Z][_A-Z0-9]*'
     propertyPattern: '[A-Za-z][_A-Za-z0-9]*'
     privatePropertyPattern: '_?[A-Za-z][_A-Za-z0-9]*'
   VariableNaming:
@@ -432,10 +438,7 @@ naming:
     excludeClassPattern: '$^'
   ForbiddenClassName:
     active: false
-    forbiddenName:
-      - 'Manager'
-      - 'Helper'
-      - 'Util'
+    forbiddenName: []
   FunctionNameMaxLength:
     active: false
     maximumFunctionNameLength: 30
@@ -452,7 +455,7 @@ naming:
     maximumVariableNameLength: 64
   VariableMinLength:
     active: false
-    minimumVariableNameLength: 2
+    minimumVariableNameLength: 1
 
 performance:
   active: true
@@ -648,6 +651,8 @@ style:
   RedundantVisibilityModifier:
     active: false
   TrailingWhitespace:
+    active: false
+  UntilInsteadOfRangeTo:
     active: false
   UnusedImport:
     active: false
@@ -856,7 +861,7 @@ style:
     active: true
   VarCouldBeVal:
     active: true
-    ignoreLateinitVar: true
+    ignoreLateinitVar: false
   WildcardImport:
     active: true
     excludeImports:
@@ -877,6 +882,7 @@ style:
   DataClassContainsFunctions:
     active: false
     conversionFunctionPrefix: 'to'
+    allowOperators: false
   DoubleNegativeExpression:
     active: false
   DoubleNegativeLambda:
@@ -885,6 +891,9 @@ style:
       - 'takeUnless'
       - 'none'
       - 'filterNot'
+    negativeFunctionNameParts:
+      - 'not'
+      - 'non'
   EqualsOnSignatureLine:
     active: false
   ForbiddenAnnotation:
@@ -903,9 +912,7 @@ style:
       - 'ExperimentalApi'
   ForbiddenSuppress:
     active: false
-    rules:
-      - 'ForbiddenRule'
-      - 'UNCHECKED_CAST'
+    rules: []
   MultilineLambdaItParameter:
     active: false
   MultilineRawStringIndentation:

@@ -213,130 +213,86 @@ type DontDowncastCollectionTypesRule struct {
 	BaseRule
 }
 
-var mutableCollectionToMethodMap = map[string]string{
-	"MutableList":         "toMutableList()",
-	"MutableSet":          "toMutableSet()",
-	"MutableMap":          "toMutableMap()",
-	"MutableCollection":   "toMutableList()",
-	"MutableIterator":     "toMutableList().iterator()",
-	"MutableListIterator": "toMutableList().listIterator()",
-	"MutableIterable":     "toMutableList()",
+// dontDowncastFixMethods maps the mutable targets that have a copying conversion to that conversion.
+var dontDowncastFixMethods = map[string]string{
+	"MutableList": "toMutableList()",
+	"MutableSet":  "toMutableSet()",
+	"MutableMap":  "toMutableMap()",
 }
 
-// immutableToMutableMap maps immutable collection types to their mutable counterparts.
-var immutableToMutableMap = map[string]string{
-	"List": "MutableList", "Set": "MutableSet", "Map": "MutableMap",
-	"Collection": "MutableCollection", "Iterable": "MutableIterable",
-	"Iterator": "MutableIterator", "ListIterator": "MutableListIterator",
+// dontDowncastImmutable and dontDowncastMutable are detekt 1.23.8's type lists.
+var dontDowncastImmutable = map[string]bool{"List": true, "Map": true, "Set": true}
+
+var dontDowncastMutable = map[string]bool{
+	"MutableList": true, "MutableMap": true, "MutableSet": true, "ArrayList": true,
+	"LinkedHashSet": true, "HashSet": true, "LinkedHashMap": true, "HashMap": true,
 }
 
 func (r *DontDowncastCollectionTypesRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
-	if file == nil || idx == 0 {
+	if file == nil || idx == 0 || ctx.Resolver == nil {
 		return
 	}
-
-	// Walk as_expression children: find source expression (before 'as') and type node (after 'as').
-	var sourceIdx, typeNode uint32
-	seenAs := false
+	// The source is the first named child, the target type the last (`x as T`, `x is T`, `x !is T`).
+	sourceIdx := uint32(0)
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-		ct := file.FlatType(child)
-		if ct == "as" || ct == "as?" {
-			seenAs = true
-			continue
-		}
-		if !file.FlatIsNamed(child) {
-			continue
-		}
-		if !seenAs {
+		if file.FlatIsNamed(child) {
 			sourceIdx = child
-		} else if typeNode == 0 {
-			typeNode = child
-		}
-	}
-	if typeNode == 0 {
-		return
-	}
-
-	// Resolve the base user_type (unwrap nullable_type if needed).
-	baseType := typeNode
-	if file.FlatType(typeNode) == "nullable_type" {
-		inner, ok := file.FlatFindChild(typeNode, "user_type")
-		if !ok {
-			return
-		}
-		baseType = inner
-	}
-	if file.FlatType(baseType) != "user_type" {
-		return
-	}
-	typeIdent, ok := file.FlatFindChild(baseType, "type_identifier")
-	if !ok {
-		return
-	}
-	targetType := file.FlatNodeText(typeIdent)
-
-	if _, ok := mutableCollectionToMethodMap[targetType]; !ok {
-		return
-	}
-
-	skip, resolverConfirmed := dontDowncastCheckResolver(ctx, file, sourceIdx, targetType)
-	if skip {
-		return
-	}
-
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Don't downcast collection type to '%s'. This can lead to unexpected mutations.", targetType))
-	if resolverConfirmed {
-		f.Confidence = 0.9
-	} else {
-		f.Confidence = 0.8
-	}
-
-	if sourceIdx != 0 {
-		expr := file.FlatNodeText(sourceIdx)
-		if method, ok := mutableCollectionToMethodMap[targetType]; ok {
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   int(file.FlatStartByte(idx)),
-				EndByte:     int(file.FlatEndByte(idx)),
-				Replacement: expr + "." + method,
-			}
-		}
-	}
-
-	ctx.Emit(f)
-}
-
-func dontDowncastCheckResolver(ctx *api.Context, file *scanner.File, sourceIdx uint32, targetType string) (skip bool, confirmed bool) {
-	if ctx.Resolver == nil || sourceIdx == 0 {
-		return false, false
-	}
-	sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
-	if sourceType.Kind == typeinfer.TypeUnknown {
-		return false, false
-	}
-	if _, alreadyMutable := mutableCollectionToMethodMap[sourceType.Name]; alreadyMutable {
-		return true, false
-	}
-	expectedImmutable := ""
-	for immutable, mutable := range immutableToMutableMap {
-		if mutable == targetType {
-			expectedImmutable = immutable
 			break
 		}
 	}
-	if expectedImmutable != "" && sourceType.Name != expectedImmutable {
-		info := ctx.Resolver.ClassHierarchy(sourceType.Name)
-		if info != nil {
-			for _, st := range info.Supertypes {
-				parts := strings.Split(st, ".")
-				if parts[len(parts)-1] == expectedImmutable {
-					return false, true
-				}
-			}
-			return true, false
+	typeNode := lastNamedChild(file, idx)
+	// Only a plain user type counts: `as MutableList<T>?` is a nullable type and never reports.
+	if sourceIdx == 0 || typeNode == sourceIdx || file.FlatType(typeNode) != "user_type" {
+		return
+	}
+	typeIdent := uint32(0)
+	for c := file.FlatFirstChild(typeNode); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "type_identifier" {
+			typeIdent = c
 		}
 	}
-	return false, true
+	if typeIdent == 0 {
+		return
+	}
+	targetType := file.FlatNodeText(typeIdent)
+	if !dontDowncastMutable[targetType] {
+		return
+	}
+	sourceType := ctx.Resolver.ResolveFlatNode(sourceIdx, file)
+	if sourceType == nil || sourceType.Kind == typeinfer.TypeUnknown || !dontDowncastImmutable[resolvedTypeShortName(sourceType)] {
+		return
+	}
+
+	msg := fmt.Sprintf("Down-casting from type %s to %s is risky.", resolvedTypeShortName(sourceType), targetType)
+	if strings.HasPrefix(targetType, "Mutable") {
+		msg += fmt.Sprintf(" Use `to%s()` instead.", targetType)
+	}
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+	f.Confidence = 0.9
+	if method, ok := dontDowncastFixMethods[targetType]; ok && file.FlatType(idx) == "as_expression" {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(idx)),
+			EndByte:     int(file.FlatEndByte(idx)),
+			Replacement: file.FlatNodeText(sourceIdx) + "." + method,
+		}
+	}
+	ctx.Emit(f)
+}
+
+// resolvedTypeShortName is the simple class name of t without type arguments or nullability.
+func resolvedTypeShortName(t *typeinfer.ResolvedType) string {
+	name := t.FQN
+	if name == "" {
+		name = t.Name
+	}
+	if i := strings.IndexByte(name, '<'); i >= 0 {
+		name = name[:i]
+	}
+	name = strings.TrimSuffix(name, "?")
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
 }

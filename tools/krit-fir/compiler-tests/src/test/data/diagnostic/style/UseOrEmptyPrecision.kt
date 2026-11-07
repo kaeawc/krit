@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 11, 13, 16, 18, 20, 28, 33, 37
+// go-lines: 11, 28, 33, 37
 // Go reports every Elvis below; `.orEmpty()` does not replace any of them.
 package test
 

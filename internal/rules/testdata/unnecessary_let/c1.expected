@@ -1,0 +1,71 @@
+9:26: let expression can be omitted
+10:31: let expression can be omitted
+17:20: let expression can be omitted
+18:21: let expression can be omitted
+20:27: let expression can be omitted
+21:27: let expression can be omitted
+22:27: let expression can be omitted
+23:27: let expression can be omitted
+24:27: let expression can be omitted
+25:19: let expression can be omitted
+26:29: let expression can be omitted
+27:21: let expression can be omitted
+28:21: let expression can be replaced with a simple if
+32:21: let expression can be omitted
+33:27: let expression can be omitted
+34:27: let expression can be omitted
+35:27: let expression can be omitted
+36:27: let expression can be omitted
+39:27: let expression can be omitted
+41:29: let expression can be omitted
+43:27: let expression can be omitted
+44:27: let expression can be omitted
+44:42: let expression can be omitted
+45:27: let expression can be omitted
+46:27: let expression can be omitted
+48:37: let expression can be omitted
+49:27: let expression can be omitted
+50:28: let expression can be omitted
+51:29: let expression can be omitted
+52:27: let expression can be omitted
+53:28: let expression can be omitted
+54:36: let expression can be omitted
+56:36: let expression can be omitted
+57:36: let expression can be omitted
+58:27: let expression can be omitted
+59:27: let expression can be omitted
+60:27: let expression can be omitted
+61:29: let expression can be omitted
+62:31: let expression can be omitted
+63:60: let expression can be omitted
+64:63: let expression can be omitted
+65:31: let expression can be omitted
+69:22: let expression can be replaced with a simple if
+70:28: let expression can be replaced with a simple if
+72:29: let expression can be omitted
+75:35: let expression can be omitted
+76:27: let expression can be omitted
+77:27: let expression can be omitted
+79:41: let expression can be omitted
+81:32: let expression can be omitted
+82:28: let expression can be omitted
+83:27: let expression can be omitted
+84:31: let expression can be omitted
+85:20: let expression can be replaced with a simple if
+86:45: let expression can be omitted
+86:97: let expression can be omitted
+87:27: let expression can be omitted
+88:34: let expression can be omitted
+89:15: let expression can be omitted
+90:27: let expression can be omitted
+92:28: let expression can be omitted
+93:19: let expression can be omitted
+94:19: let expression can be omitted
+95:19: let expression can be omitted
+96:21: let expression can be replaced with a simple if
+97:27: let expression can be omitted
+99:27: let expression can be omitted
+101:21: let expression can be omitted
+102:21: let expression can be omitted
+104:21: let expression can be replaced with a simple if
+105:19: let expression can be omitted

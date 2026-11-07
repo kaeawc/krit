@@ -35,7 +35,8 @@ func (r *UseEmptyCounterpartRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UseEmptyCounterpart",
 		RuleSet:       "style",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -73,5 +74,24 @@ func (r *UseRequireRule) Meta() api.RuleDescriptor {
 		RuleSet:       "style",
 		DefaultActive: true,
 		FixLevel:      "idiomatic",
+	}
+}
+
+func (r *PreferToOverPairSyntaxRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "PreferToOverPairSyntax",
+		RuleSet:       "style",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
+	}
+}
+
+func (r *ExplicitBackingFieldCandidateRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ExplicitBackingFieldCandidate",
+		RuleSet:       "style",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
+		FixLevel:      "semantic",
 	}
 }

@@ -63,6 +63,6 @@ func (r *LocaleGetDefaultForFormattingRule) check(ctx *api.Context) {
 		return
 	}
 
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+	ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 		"'withLocale(Locale.getDefault())' on a persistence/network formatter; pass Locale.ROOT (or Locale.US) so output is locale-independent.")
 }

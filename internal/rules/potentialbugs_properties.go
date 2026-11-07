@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -45,10 +47,10 @@ type UnnamedParameterUseRule struct {
 func (r *UnnamedParameterUseRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // ---------------------------------------------------------------------------
-// UnusedUnaryOperatorRule detects standalone +x or -x as expression statements
-// whose result is never used. This catches the common bug where a line like
-// `+ 3` appears to continue a previous expression but is actually parsed as
-// a separate unary prefix expression with no effect.
+// UnusedUnaryOperatorRule detects a `+x` or `-x` that starts a line and whose
+// result is never used. This catches the common bug where a line like `+ 3`
+// appears to continue the expression above but is a separate statement.
+// See checkUnusedUnaryOperator.
 // ---------------------------------------------------------------------------
 type UnusedUnaryOperatorRule struct {
 	FlatDispatchBase
@@ -131,6 +133,10 @@ func (r *UselessPostfixExpressionRule) Confidence() float64 { return api.Confide
 // single named variable.
 func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if file.FlatType(idx) == "assignment" {
+		r.checkAssignmentOfOwnPostfix(ctx)
+		return
+	}
 	first := file.FlatFirstChild(idx)
 	if first == 0 || file.FlatType(first) != "return" {
 		return
@@ -139,7 +145,27 @@ func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *api.Context)
 	for operand != 0 && !file.FlatIsNamed(operand) {
 		operand = file.FlatNextSib(operand)
 	}
-	if operand == 0 || file.FlatType(operand) != "postfix_expression" {
+	if operand == 0 {
+		return
+	}
+	if file.FlatType(operand) != "postfix_expression" {
+		// detekt also checks postfix expressions that are direct children of the returned expression.
+		holder := operand
+		// PSI nests `a++.f()` as a qualified expression whose receiver is the postfix.
+		if file.FlatType(operand) == "call_expression" {
+			if nav := file.FlatFirstChild(operand); nav != 0 && file.FlatType(nav) == "navigation_expression" {
+				holder = nav
+			}
+		}
+		for child := file.FlatFirstChild(holder); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) != "postfix_expression" {
+				continue
+			}
+			if _, ok := localPostfixTarget(file, idx, child); ok {
+				ctx.Emit(r.Finding(file, file.FlatRow(child)+1, file.FlatCol(child)+1,
+					"Useless postfix expression in return statement. The increment/decrement has no effect."))
+			}
+		}
 		return
 	}
 	target := file.FlatFirstChild(operand)
@@ -162,16 +188,69 @@ func (r *UselessPostfixExpressionRule) checkUselessPostfixFlat(ctx *api.Context)
 	}
 
 	varName := file.FlatNodeText(target)
+	// A property keeps the new value after the return, so only a local variable loses it.
+	if !returnTargetIsLocalVariable(file, idx, varName) {
+		return
+	}
 	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Useless postfix expression in return statement. The increment/decrement has no effect.")
-	indent := detectIndent(file.Content, int(file.FlatStartByte(idx)))
+	// The local is gone after the return, so returning the old value is all that is left.
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
 		StartByte:   int(file.FlatStartByte(idx)),
 		EndByte:     int(file.FlatEndByte(idx)),
-		Replacement: varName + opText + "\n" + indent + "return " + varName,
+		Replacement: "return " + varName,
 	}
 	ctx.Emit(f)
+}
+
+// checkAssignmentOfOwnPostfix reports `x = x++`, which assigns the old value back to x.
+func (r *UselessPostfixExpressionRule) checkAssignmentOfOwnPostfix(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	var left, right uint32
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "directly_assignable_expression":
+			left = c
+		case "postfix_expression":
+			right = c
+		case "=":
+		default:
+			if file.FlatIsNamed(c) {
+				return
+			}
+		}
+	}
+	if left == 0 || right == 0 || file.FlatChildCount(idx) != 3 {
+		return
+	}
+	operand := file.FlatFirstChild(right)
+	for operand != 0 && !file.FlatIsNamed(operand) {
+		operand = file.FlatNextSib(operand)
+	}
+	if operand == 0 || strings.Join(strings.Fields(file.FlatNodeText(operand)), "") != strings.Join(strings.Fields(file.FlatNodeText(left)), "") {
+		return
+	}
+	if text := file.FlatNodeText(right); !strings.HasSuffix(text, "++") && !strings.HasSuffix(text, "--") {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Useless postfix expression: the assignment stores the value from before the increment/decrement back into the variable."))
+}
+
+// returnTargetIsLocalVariable reports a `var name` declared inside the function that holds node.
+func returnTargetIsLocalVariable(file *scanner.File, node uint32, name string) bool {
+	fn, ok := flatEnclosingAncestor(file, node, "function_declaration")
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(fn, "property_declaration", func(decl uint32) {
+		if !found && propertyDeclarationNameFlat(file, decl) == name && file.FlatHasChildOfType(decl, "binding_pattern_kind") {
+			found = true
+		}
+	})
+	return found
 }
 
 func propertyDeclarationNameFlat(file *scanner.File, idx uint32) string {
@@ -187,4 +266,176 @@ func propertyDeclarationNameFlat(file *scanner.File, idx uint32) string {
 		return ""
 	}
 	return file.FlatNodeText(ident)
+}
+
+// loopHasUnconditionalJump follows detekt: a break, continue or return that is a direct statement of the loop
+// body, where a return only counts when no earlier statement holds a jump and it is not `x ?: break`.
+func loopHasUnconditionalJump(file *scanner.File, loop uint32) bool {
+	label := ""
+	if prev, ok := file.FlatPrevSibling(loop); ok && file.FlatType(prev) == "label" {
+		label = strings.TrimSuffix(file.FlatNodeText(prev), "@")
+	}
+	body, ok := file.FlatFindChild(loop, "control_structure_body")
+	if !ok {
+		return false
+	}
+	if file.FlatFirstChild(body) == 0 || file.FlatType(file.FlatFirstChild(body)) != "{" {
+		for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				return loopStatementIsJump(file, c)
+			}
+		}
+		return false
+	}
+	stmts, ok := file.FlatFindChild(body, "statements")
+	if !ok {
+		return false
+	}
+	for c := file.FlatFirstChild(stmts); c != 0; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) || isCommentNodeType(file.FlatType(c)) {
+			continue
+		}
+		if label != "" {
+			if cont := firstContinueIn(file, c); cont != 0 && jumpLabel(file, cont) == label {
+				return false
+			}
+		}
+		if loopStatementIsJump(file, c) {
+			return true
+		}
+	}
+	return false
+}
+
+func isCommentNodeType(t string) bool { return t == "line_comment" || t == "multiline_comment" }
+
+// jumpKind returns "return", "break" or "continue" for a jump_expression, else "".
+func jumpKind(file *scanner.File, n uint32) string {
+	if file.FlatType(n) != "jump_expression" {
+		return ""
+	}
+	first := file.FlatFirstChild(n)
+	if first == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(file.FlatType(first), "@")
+}
+
+func jumpLabel(file *scanner.File, jump uint32) string {
+	if l, ok := file.FlatFindChild(jump, "label"); ok {
+		return strings.TrimSuffix(file.FlatNodeText(l), "@")
+	}
+	return ""
+}
+
+// firstContinueIn returns the first continue expression in document order, including n itself.
+func firstContinueIn(file *scanner.File, n uint32) uint32 {
+	if jumpKind(file, n) == "continue" {
+		return n
+	}
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if found := firstContinueIn(file, c); found != 0 {
+			return found
+		}
+	}
+	return 0
+}
+
+func loopStatementIsJump(file *scanner.File, n uint32) bool {
+	switch jumpKind(file, n) {
+	case "break", "continue":
+		return true
+	case "return":
+		return !returnFollowedByElvisJump(file, n) && !jumpPrecedesSibling(file, n)
+	}
+	return false
+}
+
+// returnFollowedByElvisJump matches `return x ?: break` and `return x ?: continue`.
+func returnFollowedByElvisJump(file *scanner.File, ret uint32) bool {
+	for c := file.FlatFirstChild(ret); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "elvis_expression" {
+			continue
+		}
+		last := uint32(0)
+		for r := file.FlatFirstChild(c); r != 0; r = file.FlatNextSib(r) {
+			if file.FlatIsNamed(r) {
+				last = r
+			}
+		}
+		k := jumpKind(file, last)
+		return last != 0 && (k == "break" || k == "continue")
+	}
+	return false
+}
+
+// jumpPrecedesSibling reports whether an earlier sibling of n contains a jump statement anywhere inside.
+func jumpPrecedesSibling(file *scanner.File, n uint32) bool {
+	for prev, ok := file.FlatPrevSibling(n); ok; prev, ok = file.FlatPrevSibling(prev) {
+		if subtreeHasLoopJump(file, prev) {
+			return true
+		}
+	}
+	return false
+}
+
+func subtreeHasLoopJump(file *scanner.File, n uint32) bool {
+	if file.FlatType(n) == "jump_expression" && loopStatementIsJump(file, n) {
+		return true
+	}
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if subtreeHasLoopJump(file, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// propertyRefCouldBeClassProperty filters identifiers that cannot name a property of the enclosing class: a
+// member selected on another receiver (`other.id`), a named-argument label and a declared local name.
+func propertyRefCouldBeClassProperty(file *scanner.File, ident uint32) bool {
+	parent, ok := file.FlatParent(ident)
+	if !ok {
+		return true
+	}
+	switch file.FlatType(parent) {
+	case "navigation_suffix":
+		nav, ok := file.FlatParent(parent)
+		if !ok {
+			return false
+		}
+		recv := file.FlatFirstChild(nav)
+		return recv != 0 && file.FlatType(recv) == "this_expression"
+	case "variable_declaration":
+		return false
+	case "value_argument":
+		next := file.FlatNextSib(ident)
+		return next == 0 || file.FlatType(next) != "="
+	}
+	return true
+}
+
+// localDeclaredNames returns the names declared as locals under idx, which shadow class properties.
+func localDeclaredNames(file *scanner.File, idx uint32) map[string]bool {
+	names := map[string]bool{}
+	file.FlatWalkNodes(idx, "variable_declaration", func(decl uint32) {
+		if id, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
+			names[file.FlatNodeText(id)] = true
+		}
+	})
+	return names
+}
+
+// localPostfixTarget returns the name of the local variable that `name++` or `name--` changes.
+func localPostfixTarget(file *scanner.File, ret, postfix uint32) (string, bool) {
+	target := file.FlatFirstChild(postfix)
+	if target == 0 || file.FlatType(target) != "simple_identifier" {
+		return "", false
+	}
+	op := file.FlatNextSib(target)
+	if op == 0 || (file.FlatType(op) != "++" && file.FlatType(op) != "--") {
+		return "", false
+	}
+	name := file.FlatNodeText(target)
+	return name, returnTargetIsLocalVariable(file, ret, name)
 }

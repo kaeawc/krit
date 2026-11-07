@@ -13,3 +13,11 @@ fun foo(args: Array<String>) {
 fun baz(items: List<String>) {
     bar(*items.toTypedArray())
 }
+
+// detekt reports spreading an array factory too.
+fun arrayFactories() {
+    bar(*arrayOf("a", "b"))
+    takeInts(*intArrayOf(1, 2))
+    bar(*arrayOfNulls<String>(2))
+    bar(*emptyArray<String>())
+}

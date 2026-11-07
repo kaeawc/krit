@@ -79,6 +79,12 @@ func (r *MaxLineLengthRule) Meta() api.RuleDescriptor {
 				Description: "Exclude raw string lines from check.",
 				Apply:       func(r *MaxLineLengthRule, v bool) { r.ExcludeRawStrings = v },
 			}),
+			api.BoolOption(api.BoolOptionSpec[MaxLineLengthRule]{
+				Name:        "ignoreUnwrappableLines",
+				Default:     true,
+				Description: "Skip long lines that cannot be wrapped without changing their meaning (SQL, log messages, resource references, call chains, string content). krit extension; detekt reports them, so detekt's defaults set this to false.",
+				Apply:       func(r *MaxLineLengthRule, v bool) { r.IgnoreUnwrappableLines = v },
+			}),
 			api.IntOption(api.IntOptionSpec[MaxLineLengthRule]{
 				Name:        "maxLineLength",
 				Aliases:     []string{"threshold"},

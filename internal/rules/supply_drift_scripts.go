@@ -111,7 +111,10 @@ func findApplyPluginTwice(content string) []applyPluginTwiceFinding {
 				}
 			}
 		}
-		applied = append(applied, gradleApplyPluginOccurrences(rawNoComment, lineNo)...)
+		// An apply inside subprojects { } or allprojects { } targets other projects.
+		if depth == 0 {
+			applied = append(applied, gradleApplyPluginOccurrences(rawNoComment, lineNo)...)
+		}
 
 		openBraces, closeBraces := countGradleBraces(code)
 		depth += openBraces - closeBraces
@@ -151,6 +154,10 @@ func findApplyPluginTwiceAST(file *scanner.File) []applyPluginTwiceFinding {
 		case "plugins":
 			collectPluginsBlockIDsAST(file, idx, declared)
 		case "apply":
+			if _, nested := flatEnclosingAncestor(file, idx, "lambda_literal"); nested {
+				// An apply inside subprojects { } or allprojects { } targets other projects.
+				return
+			}
 			if id, ok := applyPluginIDAST(file, idx); ok {
 				applied = append(applied, gradlePluginOccurrence{id: id, line: file.FlatRow(idx) + 1})
 			}

@@ -40,33 +40,45 @@ func indexWithLayout(name, filePath string, root *android.View) *android.Resourc
 		LayoutConfigs: map[string]map[string]*android.Layout{
 			name: {"": layout},
 		},
-		Strings:            make(map[string]string),
-		Colors:             make(map[string]string),
-		Dimensions:         make(map[string]string),
-		DimensionsLocation: make(map[string]android.StringLocation),
-		Styles:             make(map[string]*android.Style),
-		StringArrays:       make(map[string][]string),
-		Plurals:            make(map[string]map[string]string),
-		Integers:           make(map[string]string),
-		Booleans:           make(map[string]string),
-		IDs:                make(map[string]bool),
+		Strings:             make(map[string]string),
+		Colors:              make(map[string]string),
+		Dimensions:          make(map[string]string),
+		DimensionsLocation:  make(map[string]android.StringLocation),
+		Styles:              make(map[string]*android.Style),
+		StringArrays:        make(map[string][]string),
+		StringArrayVariants: make(map[string][]android.StringArrayVariant),
+		Plurals:             make(map[string]map[string]string),
+		Integers:            make(map[string]string),
+		Booleans:            make(map[string]string),
+		IDs:                 make(map[string]bool),
 	}
 }
 
 func emptyIndex() *android.ResourceIndex {
 	return &android.ResourceIndex{
-		Layouts:            make(map[string]*android.Layout),
-		LayoutConfigs:      make(map[string]map[string]*android.Layout),
-		Strings:            make(map[string]string),
-		StringsLocation:    make(map[string]android.StringLocation),
-		Colors:             make(map[string]string),
-		Dimensions:         make(map[string]string),
-		DimensionsLocation: make(map[string]android.StringLocation),
-		Styles:             make(map[string]*android.Style),
-		StringArrays:       make(map[string][]string),
-		Plurals:            make(map[string]map[string]string),
-		Integers:           make(map[string]string),
-		Booleans:           make(map[string]string),
-		IDs:                make(map[string]bool),
+		Layouts:             make(map[string]*android.Layout),
+		LayoutConfigs:       make(map[string]map[string]*android.Layout),
+		Strings:             make(map[string]string),
+		StringsLocation:     make(map[string]android.StringLocation),
+		Colors:              make(map[string]string),
+		Dimensions:          make(map[string]string),
+		DimensionsLocation:  make(map[string]android.StringLocation),
+		Styles:              make(map[string]*android.Style),
+		StringArrays:        make(map[string][]string),
+		StringArrayVariants: make(map[string][]android.StringArrayVariant),
+		Plurals:             make(map[string]map[string]string),
+		Integers:            make(map[string]string),
+		Booleans:            make(map[string]string),
+		IDs:                 make(map[string]bool),
 	}
+}
+
+// indexWithMenu is indexWithLayout for a res/menu file, which layout rules never see.
+func indexWithMenu(name, filePath string, root *android.View) *android.ResourceIndex {
+	idx := indexWithLayout(name, filePath, root)
+	idx.MenuVariants = idx.LayoutVariants
+	idx.Layouts = map[string]*android.Layout{}
+	idx.LayoutConfigs = map[string]map[string]*android.Layout{}
+	idx.MenuVariants = []*android.Layout{{Name: name, FilePath: filePath, RootView: root}}
+	return idx
 }

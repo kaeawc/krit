@@ -1,6 +1,9 @@
 package firchecks
 
 import (
+	"path/filepath"
+	"strings"
+
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
@@ -31,6 +34,9 @@ type ModuleSpec struct {
 	// Kotlin compiler plugins (gradlemodel.CompilerPlugins).
 	CompilerPluginClasspath []string `json:"compilerPluginClasspath,omitempty"`
 	CompilerPluginOptions   []string `json:"compilerPluginOptions,omitempty"`
+	// ContextSourceRoots are compiled with the module but belong to other modules: dependencies that
+	// have no built output. Their files are not checked as this module's.
+	ContextSourceRoots []string `json:"contextSourceRoots,omitempty"`
 }
 
 // AnalyzeModulesRequest is the protocol-only module check request. Consumers
@@ -90,6 +96,16 @@ func ModuleSpecsFromModel(m *gradlemodel.Model) []ModuleSpec {
 		}
 	}
 	var specs []ModuleSpec
+	generatedOf := map[string][]string{}
+	embeddableCompiler := ""
+	for _, p := range m.Projects {
+		for _, s := range p.SourceSets {
+			generatedOf[ModuleID(p.Path, s.Name)] = s.GeneratedClasspath
+			if embeddableCompiler == "" {
+				embeddableCompiler = embeddableCompilerJar(gradlemodel.ResolveKotlinSettings(s.Kotlin).Plugins.Classpath)
+			}
+		}
+	}
 	for _, p := range m.Projects {
 		for _, s := range p.SourceSets {
 			kotlin := gradlemodel.ResolveKotlinSettings(s.Kotlin)
@@ -105,7 +121,7 @@ func ModuleSpecsFromModel(m *gradlemodel.Model) []ModuleSpec {
 				CompilerArgs:         nonNil(kotlin.CompilerArgs()),
 				JVMTarget:            s.JvmTarget,
 				// Like the compiler arguments, a module's plugins are its own.
-				CompilerPluginClasspath: kotlin.Plugins.Classpath,
+				CompilerPluginClasspath: withEmbeddableCompiler(kotlin.Plugins.Classpath, embeddableCompiler),
 				CompilerPluginOptions:   kotlin.Plugins.Options,
 			}
 			for _, dep := range s.ProjectDeps {
@@ -122,7 +138,86 @@ func ModuleSpecsFromModel(m *gradlemodel.Model) []ModuleSpec {
 			specs = append(specs, spec)
 		}
 	}
+	addDependencyGeneratedClasspath(specs, generatedOf)
 	return specs
+}
+
+// embeddableCompilerJar returns the kotlin-compiler-embeddable jar among plugin jars, or "".
+func embeddableCompilerJar(pluginJars []string) string {
+	for _, jar := range pluginJars {
+		if strings.HasPrefix(filepath.Base(jar), "kotlin-compiler-embeddable-") {
+			return jar
+		}
+	}
+	return ""
+}
+
+// withEmbeddableCompiler adds the embeddable compiler jar to a plugin set that has an embeddable
+// plugin but not the jar. Such a plugin refers to relocated compiler classes and cannot load
+// without it, and the module would then compile without its plugins.
+func withEmbeddableCompiler(pluginJars []string, compilerJar string) []string {
+	if compilerJar == "" || embeddableCompilerJar(pluginJars) != "" {
+		return pluginJars
+	}
+	for _, jar := range pluginJars {
+		if strings.Contains(filepath.Base(jar), "-embeddable-") {
+			return append(append([]string{}, pluginJars...), compilerJar)
+		}
+	}
+	return pluginJars
+}
+
+// addDependencyGeneratedClasspath gives each module the generated classes (R, BuildConfig) of every
+// module it depends on, directly or transitively. A whole-repo compile sees all of them at once; a
+// module compile only sees its own classpath plus its dependencies' compiled output, which does not
+// include classes generated from resources.
+func addDependencyGeneratedClasspath(specs []ModuleSpec, generatedOf map[string][]string) {
+	byID := make(map[string]*ModuleSpec, len(specs))
+	for i := range specs {
+		byID[specs[i].ID] = &specs[i]
+	}
+	closure := map[string][]string{}
+	var collect func(id string, visiting map[string]bool) []string
+	collect = func(id string, visiting map[string]bool) []string {
+		if done, ok := closure[id]; ok {
+			return done
+		}
+		if visiting[id] {
+			return nil
+		}
+		visiting[id] = true
+		var out []string
+		seen := map[string]bool{}
+		add := func(list []string) {
+			for _, entry := range list {
+				if entry != "" && !seen[entry] {
+					seen[entry] = true
+					out = append(out, entry)
+				}
+			}
+		}
+		if spec := byID[id]; spec != nil {
+			for _, dep := range spec.DependsOn {
+				add(generatedOf[dep])
+				add(collect(dep, visiting))
+			}
+		}
+		delete(visiting, id)
+		closure[id] = out
+		return out
+	}
+	for i := range specs {
+		have := map[string]bool{}
+		for _, entry := range specs[i].Classpath {
+			have[entry] = true
+		}
+		for _, entry := range collect(specs[i].ID, map[string]bool{}) {
+			if !have[entry] {
+				have[entry] = true
+				specs[i].Classpath = append(specs[i].Classpath, entry)
+			}
+		}
+	}
 }
 
 func nonNil(in []string) []string {

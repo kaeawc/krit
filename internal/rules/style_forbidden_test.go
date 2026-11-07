@@ -92,7 +92,7 @@ fun example() {}
 	}
 }
 
-func TestForbiddenComment_JavaLineAndBlockComments(t *testing.T) {
+func TestForbiddenComment_JavaLineAndBlockCommentsNotReported(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "ForbiddenComment", `
 package test;
 class Example {
@@ -102,8 +102,8 @@ class Example {
   }
 }
 `)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2 Java forbidden-comment findings, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt analyzes only Kotlin, expected no Java findings, got %d", len(findings))
 	}
 }
 
@@ -160,14 +160,14 @@ fun example() {
 
 // --- WildcardImport ---
 
-func TestWildcardImport_Java(t *testing.T) {
+func TestWildcardImport_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "WildcardImport", `
 package test;
 import com.example.api.*;
 class Example {}
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java wildcard-import finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -237,8 +237,8 @@ package test;
 import sun.misc.Unsafe;
 class Example {}
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java forbidden-import finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -445,9 +445,95 @@ fun imported() {}
 	}
 }
 
+// --- ForbiddenComment: detekt anchors and messages ---
+
+func TestForbiddenComment_ReportsEveryMarkerWithDetektMessage(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenComment", `package test
+// FIXME: and TODO: both
+fun f() {}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected one finding per marker, got %d: %v", len(findings), findings)
+	}
+	got := map[string]bool{findings[0].Message: true, findings[1].Message: true}
+	for _, want := range []string{
+		"Forbidden FIXME todo marker in comment, please fix the problem.",
+		"Forbidden TODO todo marker in comment, please do the changes.",
+	} {
+		if !got[want] {
+			t.Errorf("missing message %q in %v", want, got)
+		}
+	}
+}
+
+func TestForbiddenComment_KDocChecksOnlyTheDefaultSectionAtItsStart(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenComment", `package test
+/**
+ * Intro text.
+ * TODO: later
+ * @param x STOPSHIP: tag
+ */
+fun f(x: Int) {}
+
+/**
+ * @param x STOPSHIP: only in a tag
+ */
+fun g(x: Int) {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the default section to be checked, got %d: %v", len(findings), findings)
+	}
+	if findings[0].Line != 3 || findings[0].Col != 2 {
+		t.Errorf("expected the finding at the start of the default section (3:2), got %d:%d", findings[0].Line, findings[0].Col)
+	}
+}
+
 // --- ForbiddenSuppress ---
 
+func configureForbiddenSuppress(t *testing.T, rules string) {
+	t.Helper()
+	rulespkg.ApplyConfig(loadTempConfig(t, "style:\n  ForbiddenSuppress:\n    active: true\n    rules: "+rules+"\n"))
+	t.Cleanup(func() { rulespkg.ApplyConfig(config.NewConfig()) })
+}
+
+func TestForbiddenSuppress_ReportsNothingWithoutConfiguredRules(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenSuppress", `
+package test
+@Suppress("UNCHECKED_CAST")
+fun example() {}
+`)
+	if len(findings) != 0 {
+		t.Errorf("an empty rules list forbids nothing, got %v", findings)
+	}
+}
+
+func TestForbiddenSuppress_MessageNamesTheForbiddenRules(t *testing.T) {
+	configureForbiddenSuppress(t, `["LongMethod", "MagicNumber"]`)
+	findings := runRuleByName(t, "ForbiddenSuppress", `
+package test
+@Suppress("LongMethod", "MagicNumber", "Other")
+fun a() {}
+@SuppressWarnings("LongMethod")
+fun b() {}
+@Suppress("detekt.LongMethod")
+fun c() {}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+	}
+	msgs := map[string]bool{findings[0].Message: true, findings[1].Message: true}
+	for _, want := range []string{
+		`Cannot @Suppress rules "LongMethod", "MagicNumber" due to the current configuration.`,
+		`Cannot @Suppress rule "LongMethod" due to the current configuration.`,
+	} {
+		if !msgs[want] {
+			t.Errorf("missing message %q in %v", want, msgs)
+		}
+	}
+}
+
 func TestForbiddenSuppress_SuppressAnnotation(t *testing.T) {
+	configureForbiddenSuppress(t, `["UNCHECKED_CAST"]`)
 	findings := runRuleByName(t, "ForbiddenSuppress", `
 package test
 @Suppress("UNCHECKED_CAST")
@@ -676,5 +762,104 @@ fun example() {
 		if f.Rule == "MandatoryBracesLoops" {
 			t.Errorf("Should NOT flag loop with braces, got: %s", f.Message)
 		}
+	}
+}
+
+func TestForbiddenVoid_NegativeJavaLibraryGenerics(t *testing.T) {
+	findings := runRuleByName(t, "ForbiddenVoid", `
+package test
+import android.os.OutcomeReceiver
+import java.util.concurrent.Callable
+import java.util.concurrent.Future
+
+fun receiver(): OutcomeReceiver<Void, Exception>? = null
+fun pending(): Future<Void>? = null
+fun work(): Callable<Void>? = null
+fun task(): Task<Void>? = null
+fun listener(): OnSuccessListener<Void>? = null
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for Void as a Java generic type argument, got %d", len(findings))
+	}
+}
+
+func TestForbiddenImport_DetektImportsGlobsAndPatterns(t *testing.T) {
+	rulespkg.ApplyConfig(loadTempConfig(t, `
+style:
+  ForbiddenImport:
+    active: true
+    imports: ["wild.card.*", "exact.Name"]
+    forbiddenPatterns: 'regex\.pat\..*'
+`))
+	t.Cleanup(func() { rulespkg.ApplyConfig(config.NewConfig()) })
+
+	findings := runRuleByName(t, "ForbiddenImport", `
+package test
+import wild.card.Thing
+import wild.cardx.Other
+import exact.Name
+import exact.Name2
+import regex.pat.Deep
+import exact.Name as Aliased
+import com.assun.Thing
+`)
+	got := 0
+	for _, f := range findings {
+		if f.Rule == "ForbiddenImport" {
+			got++
+		}
+	}
+	if got != 4 {
+		t.Fatalf("expected 4 findings (wild.card.Thing, exact.Name, regex.pat.Deep, aliased exact.Name), got %d: %v", got, findings)
+	}
+}
+
+func applySingleFix(t *testing.T, src string, f scanner.Finding) string {
+	t.Helper()
+	if f.Fix == nil {
+		t.Fatalf("finding %q has no fix", f.Message)
+	}
+	return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:]
+}
+
+func TestForbiddenSuppress_FixOnlyRemovesTheAnnotation(t *testing.T) {
+	configureForbiddenSuppress(t, `["x", "y", "z"]`)
+	src := "package test\n\nclass A(@Suppress(\"x\") val b: Int) {\n  @Suppress(\"y\") fun f() {}\n\n  @Suppress(\"z\")\n  fun g() {}\n}\n"
+	findings := runRuleByName(t, "ForbiddenSuppress", src)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %d", len(findings))
+	}
+	wants := []string{
+		"class A(val b: Int) {\n  @Suppress(\"y\")",
+		"  fun f() {}\n\n  @Suppress(\"z\")",
+		"{}\n\n  fun g() {}\n}",
+	}
+	for i, f := range findings {
+		if got := applySingleFix(t, src, f); !strings.Contains(got, wants[i]) {
+			t.Errorf("finding %d: fixed source %q does not contain %q", i, got, wants[i])
+		}
+	}
+}
+
+func TestForbiddenOptIn_MarkerClassesMatchClassLiteralShapes(t *testing.T) {
+	rulespkg.ApplyConfig(loadTempConfig(t, `
+style:
+  ForbiddenOptIn:
+    active: true
+    markerClasses: ["ExperimentalStuff", "kotlin.ExperimentalStdlibApi"]
+`))
+	t.Cleanup(func() { rulespkg.ApplyConfig(config.NewConfig()) })
+
+	findings := runRuleByName(t, "ForbiddenOptIn", `
+package test
+@OptIn(ExperimentalStuff::class)
+fun a() {}
+@OptIn(kotlin.ExperimentalStdlibApi::class)
+fun b() {}
+@OptIn(OtherMarker::class)
+fun c() {}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected the two configured markers to be reported, got %d: %v", len(findings), findings)
 	}
 }

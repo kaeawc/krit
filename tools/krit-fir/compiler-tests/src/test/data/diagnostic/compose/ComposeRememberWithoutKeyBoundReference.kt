@@ -7,8 +7,10 @@
 // as a key argument; the reference is the calculation, and there is no key.
 package test
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 
+@Composable
 fun MyComposable(model: Any) {
     val value = <!ComposeRememberWithoutKey!>remember<!>(model::toString)
     <!PrintlnInProduction!>println<!>(value)

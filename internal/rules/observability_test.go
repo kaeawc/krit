@@ -1542,6 +1542,52 @@ fun handle(registry: Registry) {
 	}
 }
 
+func TestMetricNameMissingUnit_NegativeTestCode(t *testing.T) {
+	const decls = `
+package test
+
+interface Registry {
+    fun counter(name: String): Counter
+}
+interface Counter { fun increment() }
+`
+	t.Run("test source set", func(t *testing.T) {
+		findings := runRuleByNameOnPath(t, "MetricNameMissingUnit", "src/test/kotlin/MetricsTest.kt", decls+`
+fun handle(registry: Registry) {
+    registry.counter("requests").increment()
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %v", findings)
+		}
+	})
+	t.Run("test class", func(t *testing.T) {
+		findings := runRuleByName(t, "MetricNameMissingUnit", decls+`
+class RecorderTest {
+    fun records(registry: Registry) {
+        registry.counter("requests").increment()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %v", findings)
+		}
+	})
+	t.Run("Test annotated function", func(t *testing.T) {
+		findings := runRuleByName(t, "MetricNameMissingUnit", decls+`
+class Recorder {
+    @Test
+    fun records(registry: Registry) {
+        registry.counter("requests").increment()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %v", findings)
+		}
+	})
+}
+
 func TestMetricNameMissingUnit_NegativeSuffix(t *testing.T) {
 	findings := runRuleByName(t, "MetricNameMissingUnit", `
 package test
@@ -2334,5 +2380,25 @@ fun emit(req: String) {
 				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
 			}
 		})
+	}
+}
+
+func TestMetricCounterNotMonotonic_UpDownPairingSkipped(t *testing.T) {
+	findings := runRuleByName(t, "MetricCounterNotMonotonic", `
+package test
+
+interface Counter {
+    fun increment()
+    fun increment(amount: Double)
+}
+
+class Tracker(private val inFlight: Counter, private val errors: Counter) {
+    fun start() { inFlight.increment() }
+    fun finish() { inFlight.increment(-1.0) }
+    fun fail() { errors.increment(-1.0) }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the unpaired counter to be flagged, got %d: %v", len(findings), findings)
 	}
 }

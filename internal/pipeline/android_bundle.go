@@ -134,7 +134,7 @@ func (in AndroidInput) persistResourceSourceBundleManifest(key, bundleKey string
 	}
 }
 
-const mergedResourceIndexBundleVersion = 1
+const mergedResourceIndexBundleVersion = 2
 
 type mergedResourceIndexBundlePayload struct {
 	Version int                    `json:"version"`

@@ -160,3 +160,30 @@ func TestFilterPluginRules(t *testing.T) {
 		t.Fatalf("maturity=stable: got %v, want Stable and Unset", got)
 	}
 }
+
+// TestListRulesJSONReportsScriptScope checks the per-rule script applicability
+// that docs/kotlin-scripts.md documents.
+func TestListRulesJSONReportsScriptScope(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code, ok := PrintListRules(&stdout, &stderr, false, "", "", "json", nil, nil); !ok {
+		t.Fatalf("PrintListRules failed: code=%d stderr=%q", code, stderr.String())
+	}
+	var doc ListedRules
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, r := range doc.Rules {
+		got[r.ID] = r.Scripts
+	}
+	for id, want := range map[string]string{
+		"TooGenericExceptionCaught":             "all",
+		"MagicNumber":                           "none",
+		"DeadCode":                              "none",
+		"ComposeClickableWithoutMinTouchTarget": "none",
+	} {
+		if got[id] != want {
+			t.Errorf("%s scripts = %q, want %q", id, got[id], want)
+		}
+	}
+}

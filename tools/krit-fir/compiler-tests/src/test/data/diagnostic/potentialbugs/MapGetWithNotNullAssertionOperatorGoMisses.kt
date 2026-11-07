@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 43
+// go-lines: 24, 43
 // Map lookups asserted with `!!` that Go misses because its source type
 // inference cannot prove the receiver is a map, or cannot prove the key has
 // the map's key type. Each one is a Map.get call (or the stdlib extension
@@ -16,7 +16,7 @@ class Settings : HashMap<String, String>() {
     fun viaSuper(key: String): String = <!MapGetWithNotNullAssertionOperator!>super.get(key)!!<!>
 }
 
-// Go does not type a companion object's property, even a declared one.
+// Go types a companion object's declared property now, so it reports this one too.
 class Defaults {
     companion object {
         private val values: Map<String, String> = mapOf("a" to "b")

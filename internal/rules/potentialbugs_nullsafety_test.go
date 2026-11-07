@@ -166,10 +166,12 @@ func TestUnsafeCast_NestedDiagnosticNotClaimedByEnclosingCast(t *testing.T) {
 	// The compiler emits CAST_NEVER_SUCCEEDS on the inner cast `obj as Foo`.
 	// The enclosing cast `(obj as Foo) as Bar` contains that range, so a plain
 	// overlap check would wrongly attribute the diagnostic (and its deleting
-	// fix) to the outer cast too. Foo/Bar are unresolved, so the local
+	// fix) to the outer cast too. Foo/Bar are open classes, so the local
 	// never-succeeds fallback stays off and only the diagnostic path can fire.
 	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnsafeCast", `
 package test
+open class Foo
+open class Bar
 fun process(obj: Any) {
     val x = (obj as Foo) as Bar
 }
@@ -282,6 +284,49 @@ fun f() {
 	}
 	if findings[0].Confidence != api.ConfidenceVeryHigh {
 		t.Fatalf("projected confidence = %v, want VeryHigh", findings[0].Confidence)
+	}
+}
+
+func TestUnnecessaryNotNullOperator_SmartCastWording(t *testing.T) {
+	message := func(code, nodeText string) string {
+		findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessaryNotNullOperator", code, "postfix_expression", nodeText, "UNNECESSARY_NOT_NULL_ASSERTION")
+		if len(findings) != 1 {
+			t.Fatalf("expected one projected finding for %s, got %d", nodeText, len(findings))
+		}
+		return findings[0].Message
+	}
+	// A member access may be non-null only through an earlier assertion, so it must not be called non-nullable.
+	member := message(`
+package test
+import com.example.Tag
+fun f(tag: Tag) {
+    check(tag.style!!.bold)
+    check(tag.style!!.italic)
+}
+`, "tag.style!!")
+	if strings.Contains(member, "non-nullable") || !strings.Contains(member, "'tag.style'") {
+		t.Fatalf("member access message should not claim a non-nullable type: %q", member)
+	}
+	nullable := message(`
+package test
+fun f(name: String?) {
+    if (name != null) {
+        check(name!!.isEmpty())
+    }
+}
+`, "name!!")
+	if strings.Contains(nullable, "non-nullable") || !strings.Contains(nullable, "smart-cast") {
+		t.Fatalf("nullable-declared receiver should be described as smart-cast: %q", nullable)
+	}
+	plain := message(`
+package test
+import com.example.CONFIG
+fun f() {
+    val x = CONFIG!!
+}
+`, "CONFIG!!")
+	if !strings.Contains(plain, "non-nullable 'CONFIG'") {
+		t.Fatalf("unknown simple receiver keeps the non-nullable wording: %q", plain)
 	}
 }
 
@@ -539,6 +584,89 @@ fun greet(name: String?) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for safe call ?., got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_MessageInsideRxMapperAvoidsSafeCall(t *testing.T) {
+	const plain = "Calling !! on a nullable type will throw a NullPointerException at runtime in case the value is null. It should be avoided. Prefer requireNotNull(x) { \"reason\" } or checkNotNull(x) { \"reason\" }; use a safe call (?.) only when null is a valid case."
+	rx := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+import io.reactivex.rxjava3.core.Observable
+fun names(source: Observable<User>) = source.map { it.name!! }
+fun loads(source: Observable<User>) = source.flatMap { val key = it.label!!; load(key) }
+`)
+	if len(rx) != 2 {
+		t.Fatalf("both bangs stay flagged, got %d: %v", len(rx), rx)
+	}
+	for _, f := range rx {
+		if f.Message == plain || !strings.Contains(f.Message, "requireNotNull") || !strings.Contains(f.Message, "checkNotNull") {
+			t.Fatalf("an Rx mapper cannot return null, so suggest requireNotNull/checkNotNull: %q", f.Message)
+		}
+	}
+	// Outside an Rx file, or inside another lambda, the plain advice stays.
+	for name, src := range map[string]string{
+		"no rx import": `
+package test
+fun names(source: List<User>) = source.map { it.name!! }
+`,
+		"non-mapper lambda": `
+package test
+import io.reactivex.rxjava3.core.Observable
+fun names(source: Observable<User>) = source.subscribe { val shown = it.name!!; show(shown) }
+`,
+	} {
+		f := runRuleByName(t, "UnsafeCallOnNullableType", src)
+		if len(f) != 1 || f[0].Message != plain {
+			t.Fatalf("%s: expected the plain message, got %v", name, f)
+		}
+	}
+}
+
+func TestUnsafeCallOnNullableType_MessagePrefersPreconditionsForPlatformAndArgumentShapes(t *testing.T) {
+	cases := map[string]struct {
+		src  string
+		want string
+	}{
+		"super call": {`
+package test
+class Screen : BaseScreen() {
+    override fun title(): String {
+        return super.title()!!
+    }
+}
+`, "platform-type"},
+		"argument": {`
+package test
+fun show(name: String?) {
+    render(name!!)
+}
+`, "requireNotNull"},
+		"column read": {`
+package test
+fun read(reader: RowReader): ByteArray {
+    return reader.getBlob(0)!!
+}
+`, "requireNotNull"},
+	}
+	for name, tc := range cases {
+		f := runRuleByName(t, "UnsafeCallOnNullableType", tc.src)
+		if len(f) != 1 {
+			t.Fatalf("%s: expected one finding, got %v", name, f)
+		}
+		if !strings.Contains(f[0].Message, tc.want) || !strings.Contains(f[0].Message, "NotNull") || strings.Contains(f[0].Message, "Consider using safe calls") {
+			t.Fatalf("%s: message should lead with a precondition and mention %q: %q", name, tc.want, f[0].Message)
+		}
+	}
+	f := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+class Screen : BaseScreen() {
+    override fun title(): String {
+        return super.title()!!
+    }
+}
+`)
+	if !strings.Contains(f[0].Message, "checkNotNull") {
+		t.Fatalf("platform call should suggest checkNotNull: %q", f[0].Message)
 	}
 }
 
@@ -1230,6 +1358,27 @@ class Holder {
 
 // --- NullableToStringCall ---
 
+func TestNullableToStringCall_TemplateShapes(t *testing.T) {
+	flagged := map[string]string{
+		"safe call result": "fun f(x: String?) { val r = \"${x?.length}\" }",
+		"plain nullable":   "fun f(x: String?) { val r = \"$x\" }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByNameWithResolver(t, "NullableToStringCall", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	clean := map[string]string{
+		"not-null assertion": "fun f(x: String?) { val r = \"${x!!}\" }",
+		"elvis fallback":     "fun f(x: String?) { val r = \"${x ?: \"\"}\" }",
+	}
+	for name, src := range clean {
+		if got := runRuleByNameWithResolver(t, "NullableToStringCall", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
+	}
+}
+
 func TestNullableToStringCall_Positive(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "NullableToStringCall", `
 package test
@@ -1530,6 +1679,29 @@ fun convert(obj: Any?) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for safe cast as?, got %d", len(findings))
+	}
+}
+
+func TestCastNullableToNonNullableType_FollowsDetektShapes(t *testing.T) {
+	flagged := map[string]string{
+		"safe call source":                "fun f(s: String?) { val j = s?.length as Int }",
+		"elvis of nullables":              "fun f(s: String?, t: String?) { val j = (s ?: t) as String }",
+		"unbounded type parameter source": "fun <T> f(s: T) { val j = s as String }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	clean := map[string]string{
+		"parenthesized safe cast": "fun f(x: Any?) { val j = (x as? String) as String }",
+		"chained cast":            "fun f(x: Any?) { val j = x as? String as String }",
+		"nullable type parameter": "fun <T> f(s: String?) { val j = s as T }",
+	}
+	for name, src := range clean {
+		if got := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
 	}
 }
 
@@ -2368,5 +2540,317 @@ func TestGetterNullableReceiverFlat_BacktickColonBoundary(t *testing.T) {
 		if strings.Contains(f.Message, "this") {
 			t.Fatalf("did not expect a finding on this?.uppercase() inside an extension property with nullable receiver; got: %+v", f)
 		}
+	}
+}
+
+func TestUnsafeCast_DiagnosticRequiresKotlinSourceResolvedTypes(t *testing.T) {
+	// An unresolved target type is not a source-resolved Kotlin type, so the compiler verdict is not reported.
+	unresolved := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
+package test
+fun process(obj: Any) {
+    val v = obj as UnknownLibraryType
+}
+`, "obj as UnknownLibraryType", "CAST_NEVER_SUCCEEDS")
+	if len(unresolved) != 0 {
+		t.Fatalf("expected no finding for an unresolved target type, got %d", len(unresolved))
+	}
+	// A project Kotlin class on both sides still reports.
+	resolved := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
+package test
+class Left
+class Right
+fun process(left: Left) {
+    val v = left as Right
+}
+`, "left as Right", "CAST_NEVER_SUCCEEDS")
+	if len(resolved) != 1 {
+		t.Fatalf("expected 1 finding for Kotlin source types, got %d", len(resolved))
+	}
+}
+
+func TestUnsafeCast_SkipsPlatformCallSource(t *testing.T) {
+	findings := runRuleByNameWithOracleDiagnostic(t, "UnsafeCast", `
+package test
+import android.view.ViewStub
+class Holder(private val stub: ViewStub) {
+    fun inflateIt() {
+        val view = stub.inflate() as CustomBanner
+    }
+}
+`, "stub.inflate() as CustomBanner", "CAST_NEVER_SUCCEEDS")
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for a cast from a platform call result, got %d", len(findings))
+	}
+}
+
+func TestUnsafeCallOnNullableType_PreconditionGuards(t *testing.T) {
+	cases := map[string]string{
+		"elvis return":    "other ?: return\n    other!!.run()",
+		"check":           "check(other != null)\n    other!!.run()",
+		"require":         "require(other != null && ready)\n    other!!.run()",
+		"requireNotNull":  "requireNotNull(other)\n    other!!.run()",
+		"checkNotNull":    "checkNotNull(other) { \"missing\" }\n    other!!.run()",
+		"val elvis throw": "val x = other ?: throw IllegalStateException()\n    other!!.run()",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "UnsafeCallOnNullableType", "package test\n\nclass A {\n  var other: Foo? = null\n  fun f(ready: Boolean) {\n    "+body+"\n  }\n}\n")
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestUnsafeCallOnNullableType_UnrelatedPreconditionStillReports(t *testing.T) {
+	findings := runRuleByName(t, "UnsafeCallOnNullableType", `
+package test
+
+class A {
+  var other: Foo? = null
+  var third: Foo? = null
+  fun f() {
+    requireNotNull(third)
+    other!!.run()
+  }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestUnnecessarySafeCall_NoOracleKotlinTestAssertNotNullDoesNotSmartCast(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessarySafeCall", `
+package test
+
+import kotlin.test.assertNotNull
+
+class State(val workspaces: List<String>?)
+
+fun check(next: () -> State?, state: State) {
+    var latest: State? = next()
+    assertNotNull(latest)
+    println(latest?.workspaces)
+    assertNotNull(state.workspaces)
+    println(state.workspaces?.size)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("source-only path must not infer a smart cast from kotlin.test.assertNotNull, got %v", findings)
+	}
+}
+
+func TestUnsafeCallOnNullableType_GenericFieldNamesOnlyExemptWithProtoImports(t *testing.T) {
+	plain := "package test\nclass U(val id: String?, val value: Int?)\nfun f(u: U) {\n    println(u.id!!)\n    println(u.value!!)\n}\n"
+	if got := runRuleByName(t, "UnsafeCallOnNullableType", plain); len(got) != 2 {
+		t.Errorf("ordinary id/value fields must be reported, got %d", len(got))
+	}
+	proto := "package test\nimport com.squareup.wire.Message\nclass U(val id: String?, val value: Int?)\nfun f(u: U) {\n    println(u.id!!)\n    println(u.value!!)\n}\n"
+	if got := runRuleByName(t, "UnsafeCallOnNullableType", proto); len(got) != 0 {
+		t.Errorf("proto field reads stay exempt in files that import Wire, got %d", len(got))
+	}
+}
+
+func TestNullCheckOnMutableProperty_LocalVarsAreSmartCastable(t *testing.T) {
+	local := "package test\nfun top(p: String?) {\n    var v: String? = p\n    if (v != null) { println(v.length) }\n}\n"
+	if got := runRuleByNameWithResolver(t, "NullCheckOnMutableProperty", local); len(got) != 0 {
+		t.Errorf("a local var can be smart-cast, got %v", got)
+	}
+	member := "package test\nclass B {\n    var s: String? = null\n    fun a() { if (s != null) { println(s.length) } }\n}\n"
+	if got := runRuleByNameWithResolver(t, "NullCheckOnMutableProperty", member); len(got) != 1 {
+		t.Errorf("a mutable member property must still be reported, got %d", len(got))
+	}
+}
+
+func TestNullSafety_ConstructorVarIsNotSmartCast(t *testing.T) {
+	src := `
+package test
+class Holder(var p: String?, val q: String?) {
+    fun f() {
+        if (p != null) { p!!.length; p?.length }
+    }
+}
+`
+	for _, rule := range []string{"UnnecessaryNotNullOperator", "UnnecessarySafeCall"} {
+		if got := runRuleByName(t, rule, src); len(got) != 0 {
+			t.Fatalf("%s: constructor var must not be treated as smart cast, got %d findings", rule, len(got))
+		}
+	}
+}
+
+// runRuleByNameWithExpressionTypes runs a rule with an oracle that reports the given nullability for the
+// first expression whose text equals each key.
+func runRuleByNameWithExpressionTypes(t *testing.T, ruleName, code string, nullable map[string]bool) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+	for text, isNullable := range nullable {
+		found := false
+		for i := range file.FlatTree.Types {
+			idx := uint32(i)
+			if found || strings.TrimSpace(file.FlatNodeText(idx)) != text {
+				continue
+			}
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			rt := &typeinfer.ResolvedType{Name: "String", FQN: "kotlin.String", Kind: typeinfer.TypeClass, Nullable: isNullable, Resolved: true}
+			if isNullable {
+				rt.Kind = typeinfer.TypeNullable
+			}
+			fake.Expressions[file.Path][key] = rt
+			found = true
+		}
+		if !found {
+			t.Fatalf("expression %q not found", text)
+		}
+	}
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+func TestUnsafeCallOnNullableType_SkipsOperandTheCompilerTypesAsNonNull(t *testing.T) {
+	const src = `
+package test
+fun f(dir: Dir, name: Name) {
+    val a = dir.entries()!!
+    val b = name.value()!!
+}
+`
+	got := runRuleByNameWithExpressionTypes(t, "UnsafeCallOnNullableType", src,
+		map[string]bool{"dir.entries()": false, "name.value()": true})
+	if len(got) != 1 || got[0].Line != 5 {
+		t.Fatalf("want only the nullable operand on line 5 reported (a platform type is not nullable), got %+v", got)
+	}
+}
+
+func TestUnsafeCallOnNullableType_ReportsEveryBangBangWithoutOracleFact(t *testing.T) {
+	const src = `
+package test
+fun f(dir: Dir) {
+    val a = dir.entries()!!
+}
+`
+	got := runRuleByNameWithResolver(t, "UnsafeCallOnNullableType", src)
+	if len(got) != 1 {
+		t.Fatalf("want the !! reported when the compiler has no fact for the operand, got %+v", got)
+	}
+}
+
+func TestUnsafeCallOnNullableType_FlowGuardDoesNotHideUnstableOperand(t *testing.T) {
+	const src = `
+package test
+class Holder {
+    var name: String? = null
+    fun f() {
+        if (name != null) {
+            val c = name!!
+        }
+    }
+}
+`
+	// Without a compiler fact the null check is read as a smart cast.
+	if got := runRuleByNameWithResolver(t, "UnsafeCallOnNullableType", src); len(got) != 0 {
+		t.Fatalf("want the guarded !! left alone without a compiler fact, got %+v", got)
+	}
+	// A `var` property is never smart-cast: the compiler types the operand as nullable and the !! is needed.
+	got := runRuleByNameWithExpressionTypes(t, "UnsafeCallOnNullableType", src, map[string]bool{"name!!": true})
+	if len(got) != 1 {
+		t.Fatalf("want the !! on the unstable property reported, got %+v", got)
+	}
+}
+
+func TestUnsafeCallOnNullableType_SmartCastOperandIsNotReported(t *testing.T) {
+	const src = `
+package test
+fun f(name: Name) {
+    val c = name.value()!!
+}
+`
+	// The compiler records the smart-cast type; UnnecessaryNotNullOperator owns this shape.
+	got := runRuleByNameWithExpressionTypes(t, "UnsafeCallOnNullableType", src, map[string]bool{"name.value()": false})
+	if len(got) != 0 {
+		t.Fatalf("want no findings for an operand the compiler types as non-null, got %+v", got)
+	}
+}
+
+func TestUnnecessaryNotNullCheck_PreconditionOnNonNullParameter(t *testing.T) {
+	flagged := map[string]string{
+		"requireNotNull": "fun f(value: String) { requireNotNull(value) }",
+		"checkNotNull":   "fun f(value: Int) { checkNotNull(value) }",
+		"with message":   "fun f(value: Foo) { requireNotNull(value) { \"never\" } }",
+		"assigned":       "fun f(value: Foo) { val v = requireNotNull(value) }",
+		"constructor":    "class A { constructor(value: String) { requireNotNull(value) } }",
+	}
+	for name, src := range flagged {
+		got := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", "package test\n"+src+"\n")
+		if len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+			continue
+		}
+		if !strings.HasPrefix(got[0].Message, "Using `") || !strings.HasSuffix(got[0].Message, "is unnecessary") {
+			t.Errorf("%s: message %q is not detekt's", name, got[0].Message)
+		}
+	}
+	clean := map[string]string{
+		"nullable parameter":       "fun f(value: String?) { requireNotNull(value) }",
+		"nullable generic bound":   "fun <T : Any?> f(value: T) { requireNotNull(value) }",
+		"inferred local":           "fun f() { val v = compute(); requireNotNull(v) }",
+		"shadowed by nullable":     "fun f(value: String) { val other = value; fun g(value: String?) { requireNotNull(value) } }",
+		"call result":              "fun f(value: String) { requireNotNull(value.firstOrNull()) }",
+		"member call":              "fun f(value: String) { obj.requireNotNull(value) }",
+		"unrelated function":       "fun f(value: String) { requireNoNulls(value) }",
+		"property not a parameter": "class A { val value: String = \"\"; fun f() { requireNotNull(value) } }",
+	}
+	for name, src := range clean {
+		if got := runRuleByNameWithResolver(t, "UnnecessaryNotNullCheck", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d (%s)", name, len(got), got[0].Message)
+		}
+	}
+}
+
+func TestNullCheckOnMutableProperty_FollowsDetekt(t *testing.T) {
+	flagged := map[string]string{
+		"member var read in body":    "class A { var p: String? = null\n fun f() { if (p != null) { println(p) } } }",
+		"constructor var":            "class A(var p: String?) { fun f() { if (p != null) { println(p) } } }",
+		"lateinit var":               "class A { lateinit var p: String\n fun f() { if (p != null) { println(p) } } }",
+		"custom getter":              "class A { val p: String? get() = null\n fun f() { if (p != null) { println(p) } } }",
+		"top level var":              "var p: String? = null\nfun f() { if (p != null) { println(p) } }",
+		"companion var":              "class A { companion object { var p: String? = null }\n fun f() { if (p != null) { println(p) } } }",
+		"reversed null comparison":   "class A { var p: String? = null\n fun f() { if (null != p) { println(p) } } }",
+		"read in the same condition": "class A { var p: String? = null\n fun f() { if (p != null && p!!.length > 1) { } } }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByName(t, "NullCheckOnMutableProperty", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	clean := map[string]string{
+		"val property":          "class A { val p: String? = null\n fun f() { if (p != null) { println(p) } } }",
+		"equality check":        "class A { var p: String? = null\n fun f() { if (p == null) return\n println(p) } }",
+		"no read in the if":     "class A { var p: String? = null\n fun f() { if (p != null) { println(1) } } }",
+		"not in an if":          "class A { var p: String? = null\n fun f() = p != null }",
+		"shadowing parameter":   "class A { var p: String? = null\n fun f(p: String?) { if (p != null) { println(p) } } }",
+		"shadowing local":       "class A { var p: String? = null\n fun f() { val p = \"x\"\n if (p != null) { println(p) } } }",
+		"qualified receiver":    "class A { var p: String? = null\n fun f(o: A) { if (o.p != null) { println(o.p) } } }",
+		"non-property variable": "fun f() { var p: String? = null\n if (p != null) { println(p) } }",
+	}
+	for name, src := range clean {
+		if got := runRuleByName(t, "NullCheckOnMutableProperty", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
+	}
+	got := runRuleByName(t, "NullCheckOnMutableProperty", "package test\nclass A { var p: String? = null\n fun f() { if (p != null) { println(p) } } }\n")
+	if len(got) == 1 && got[0].Message != "Null-check is being called on mutable property 'test.A.p'." {
+		t.Errorf("unexpected message %q", got[0].Message)
 	}
 }

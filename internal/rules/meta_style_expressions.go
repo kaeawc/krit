@@ -69,6 +69,12 @@ func (r *FunctionOnlyReturningConstantRule) Meta() api.RuleDescriptor {
 				Apply:       func(r *FunctionOnlyReturningConstantRule, v bool) { r.IgnoreActualFunction = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[FunctionOnlyReturningConstantRule]{
+				Name:        "ignoreIdioms",
+				Default:     true,
+				Description: "Skip functions that take parameters, bind through dependency injection or are tests. krit extension; detekt reports them, so detekt's defaults set this to false.",
+				Apply:       func(r *FunctionOnlyReturningConstantRule, v bool) { r.IgnoreIdioms = v },
+			}),
+			api.BoolOption(api.BoolOptionSpec[FunctionOnlyReturningConstantRule]{
 				Name:        "ignoreOverridableFunction",
 				Default:     false,
 				Description: "Ignore open/override functions.",
@@ -100,7 +106,7 @@ func (r *MayBeConstantRule) Meta() api.RuleDescriptor {
 		ID:            "MayBeConstant",
 		RuleSet:       "style",
 		DefaultActive: true,
-		FixLevel:      "idiomatic",
+		FixLevel:      "semantic",
 	}
 }
 
@@ -139,7 +145,8 @@ func (r *ReturnCountRule) Meta() api.RuleDescriptor {
 			}),
 			api.StringListOption(api.StringListOptionSpec[ReturnCountRule]{
 				Name:        "excludedFunctions",
-				Description: "Functions excluded from this rule.",
+				Default:     []string{"equals"},
+				Description: "Functions excluded from this rule; `*` and `?` act as wildcards.",
 				Apply:       func(r *ReturnCountRule, v []string) { r.ExcludedFunctions = v },
 			}),
 			api.IntOption(api.IntOptionSpec[ReturnCountRule]{
@@ -158,6 +165,14 @@ func (r *SafeCastRule) Meta() api.RuleDescriptor {
 		ID:            "SafeCast",
 		RuleSet:       "style",
 		DefaultActive: true,
+		Options: []api.ConfigOption{
+			api.BoolOption(api.BoolOptionSpec[SafeCastRule]{
+				Name:        "reportRedundantCasts",
+				Default:     false,
+				Description: "Also report an `as` cast that repeats a preceding is-check (krit extension; detekt does not report it).",
+				Apply:       func(r *SafeCastRule, v bool) { r.ReportRedundantCasts = v },
+			}),
+		},
 	}
 }
 
@@ -193,7 +208,7 @@ func (r *VarCouldBeValRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[VarCouldBeValRule]{
 				Name:        "ignoreLateinitVar",
-				Default:     true,
+				Default:     false,
 				Description: "Ignore lateinit var declarations.",
 				Apply:       func(r *VarCouldBeValRule, v bool) { r.IgnoreLateinitVar = v },
 			}),

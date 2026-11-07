@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 13
+// go-lines: 13
 // Divergence (precision): a same-package function named HashMap wins over the
 // default-imported HashMap class, so the unqualified call is not a
 // java.util.HashMap constructor call. Go reports it because it matches the
@@ -10,4 +10,4 @@ fun <K, V> HashMap(): MutableMap<K, V> = mutableMapOf()
 
 fun lookalike(): MutableMap<Int, String> = HashMap<Int, String>()
 
-fun jdk(): Map<Int, String> = <!UseSparseArrays!>kotlin.collections.HashMap<Int, String>()<!>
+fun jdk(): HashMap<Int, String> = <!UseSparseArrays!>kotlin.collections.HashMap<Int, String>()<!>

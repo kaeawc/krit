@@ -13,9 +13,9 @@ func (r *AppCompatResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *CutPasteIDResourceRule) Meta() api.RuleDescriptor {
+func (r *IDTypePrefixMismatchResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
-		ID:            "CutPasteIdResource",
+		ID:            "IdTypePrefixMismatchResource",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
 	}

@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -24,6 +25,7 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 	}
 
 	targetsByName := make(map[string][]visibleForTestingTarget)
+	plainOverloads := make(map[string][]visibleForTestingSignature)
 	for _, file := range index.Files {
 		if file == nil || file.FlatTree == nil {
 			continue
@@ -45,6 +47,14 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 				return
 			}
 			if !flatHasAnnotationNamed(file, idx, "VisibleForTesting") {
+				if plainName := file.FlatChildTextOrEmpty(idx, "simple_identifier"); plainName != "" {
+					key := flatEnclosingOwnerName(file, idx) + "." + plainName
+					plainOverloads[key] = append(plainOverloads[key], visibleForTestingSignature{
+						minArgs: flatFunctionMinArgumentCount(file, idx),
+						maxArgs: flatFunctionMaxArgumentCount(file, idx),
+						params:  flatFunctionParameterTypes(file, idx),
+					})
+				}
 				return
 			}
 			name := file.FlatChildTextOrEmpty(idx, "simple_identifier")
@@ -52,12 +62,15 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 				return
 			}
 			targetsByName[name] = append(targetsByName[name], visibleForTestingTarget{
-				name:    name,
-				owner:   flatEnclosingOwnerName(file, idx),
-				file:    file.Path,
-				node:    idx,
-				minArgs: flatFunctionMinArgumentCount(file, idx),
-				maxArgs: flatFunctionMaxArgumentCount(file, idx),
+				name:  name,
+				owner: flatEnclosingOwnerName(file, idx),
+				file:  file.Path,
+				node:  idx,
+				visibleForTestingSignature: visibleForTestingSignature{
+					minArgs: flatFunctionMinArgumentCount(file, idx),
+					maxArgs: flatFunctionMaxArgumentCount(file, idx),
+					params:  flatFunctionParameterTypes(file, idx),
+				},
 			})
 		})
 	}
@@ -65,7 +78,6 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 	if len(targetsByName) == 0 {
 		return
 	}
-
 	// Narrow the scan to files that reference at least one target
 	// name. The CodeIndex's per-name ReferenceFiles map gives us the
 	// exact set, so a corpus with thousands of files but only a few
@@ -97,7 +109,10 @@ func (r *VisibleForTestingCallerInNonTestRule) check(ctx *api.Context) {
 			if file.FlatType(idx) != "call_expression" {
 				return
 			}
-			target, confidence, ok := resolveVisibleForTestingCallTarget(file, idx, targetsByName)
+			if visibleForTestingCallerIsExempt(file, idx) {
+				return
+			}
+			target, confidence, ok := resolveVisibleForTestingCallTarget(ctx, file, idx, targetsByName, plainOverloads)
 			if !ok {
 				return
 			}
@@ -128,18 +143,41 @@ func visibleForTestingAnnotationMayMatch(file *scanner.File) bool {
 	return bytes.Contains(file.Content, visibleForTestingAnnotationBytes)
 }
 
-var visibleForTestingAnnotationBytes = []byte("VisibleForTesting")
-
-type visibleForTestingTarget struct {
-	name    string
-	owner   string
-	file    string
-	node    uint32
-	minArgs int
-	maxArgs int
+// visibleForTestingCallerIsExempt reports calls made from another @VisibleForTesting declaration or a Fake* class.
+func visibleForTestingCallerIsExempt(file *scanner.File, call uint32) bool {
+	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "property_declaration":
+			if flatHasAnnotationNamed(file, cur, "VisibleForTesting") {
+				return true
+			}
+		case "class_declaration", "object_declaration":
+			if flatHasAnnotationNamed(file, cur, "VisibleForTesting") || strings.HasPrefix(extractIdentifierFlat(file, cur), "Fake") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targetsByName map[string][]visibleForTestingTarget) (visibleForTestingTarget, float64, bool) {
+var visibleForTestingAnnotationBytes = []byte("VisibleForTesting")
+
+// visibleForTestingSignature is the arity range and normalized parameter types of one overload.
+type visibleForTestingSignature struct {
+	minArgs int
+	maxArgs int
+	params  []string
+}
+
+type visibleForTestingTarget struct {
+	visibleForTestingSignature
+	name  string
+	owner string
+	file  string
+	node  uint32
+}
+
+func resolveVisibleForTestingCallTarget(ctx *api.Context, file *scanner.File, call uint32, targetsByName map[string][]visibleForTestingTarget, plainOverloads map[string][]visibleForTestingSignature) (visibleForTestingTarget, float64, bool) {
 	// Cheap AST-only callee-name peek BEFORE the expensive
 	// semantic ResolveCallTarget. The flatCallExpressionName lookup
 	// is a constant-time child read; ResolveCallTarget can walk
@@ -152,7 +190,8 @@ func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targets
 	if name := flatCallExpressionName(file, call); name == "" || len(targetsByName[name]) == 0 {
 		return visibleForTestingTarget{}, 0, false
 	}
-	callTarget, ok := semantics.ResolveCallTarget(&api.Context{File: file}, call)
+	callCtx := &api.Context{File: file, Resolver: ctx.Resolver}
+	callTarget, ok := semantics.ResolveCallTarget(callCtx, call)
 	if !ok || callTarget.CalleeName == "" {
 		return visibleForTestingTarget{}, 0, false
 	}
@@ -166,7 +205,8 @@ func resolveVisibleForTestingCallTarget(file *scanner.File, call uint32, targets
 	if receiver != "" {
 		if target, ok := uniqueVisibleForTestingTarget(candidates, func(t visibleForTestingTarget) bool {
 			return visibleForTestingArityMatches(t, argCount) &&
-				(t.owner == receiver || strings.HasSuffix(t.owner, "."+receiver))
+				(t.owner == receiver || strings.HasSuffix(t.owner, "."+receiver)) &&
+				visibleForTestingResolvesToTarget(callCtx, call, callTarget, t, candidates, plainOverloads[t.owner+"."+t.name])
 		}); ok {
 			confidence, ok := semantics.ConfidenceForEvidence(0.85, semantics.EvidenceQualifiedReceiver)
 			return target, confidence, ok
@@ -580,4 +620,191 @@ func openForTestingCollectImportPath(file *scanner.File, idx uint32, afterAs boo
 		}
 		openForTestingCollectImportPath(file, child, afterAs, path, alias)
 	}
+}
+
+// visibleForTestingResolvesToTarget reports whether the call binds to target rather than to a
+// sibling overload. An oracle signature decides first; otherwise argument types are compared with
+// each overload's parameter types, and any other overload that could also accept the call makes it ambiguous.
+func visibleForTestingResolvesToTarget(ctx *api.Context, call uint32, callTarget semantics.CallTarget, target visibleForTestingTarget, annotated []visibleForTestingTarget, plain []visibleForTestingSignature) bool {
+	if sig, ok := visibleForTestingOracleSignature(callTarget); ok {
+		return slices.Equal(sig, target.params)
+	}
+	argTypes := visibleForTestingArgumentTypes(ctx, call)
+	argCount := len(callTarget.Arguments)
+	if !visibleForTestingAccepts(target.visibleForTestingSignature, argCount, argTypes) {
+		return false
+	}
+	for _, other := range annotated {
+		if other.node != target.node && other.owner == target.owner && visibleForTestingAccepts(other.visibleForTestingSignature, argCount, argTypes) {
+			return false
+		}
+	}
+	for _, other := range plain {
+		if visibleForTestingAccepts(other, argCount, argTypes) {
+			return false
+		}
+	}
+	return true
+}
+
+// visibleForTestingOracleSignature parses `owner.name(kotlin.Boolean, kotlin.Int)` style targets.
+func visibleForTestingOracleSignature(target semantics.CallTarget) ([]string, bool) {
+	if !target.Resolved {
+		return nil, false
+	}
+	open, closeIdx := strings.Index(target.QualifiedName, "("), strings.LastIndex(target.QualifiedName, ")")
+	if open < 0 || closeIdx < open {
+		return nil, false
+	}
+	var params []string
+	for _, part := range splitTopLevelCommas(target.QualifiedName[open+1 : closeIdx]) {
+		params = append(params, normalizeParameterTypeName(part))
+	}
+	return params, true
+}
+
+func visibleForTestingAccepts(sig visibleForTestingSignature, argCount int, argTypes []visibleForTestingArgType) bool {
+	if argCount < sig.minArgs || argCount > sig.maxArgs {
+		return false
+	}
+	for i, arg := range argTypes {
+		if i < len(sig.params) && !visibleForTestingTypeCompatible(arg, sig.params[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// visibleForTestingArgType is an argument type; name is empty when unknown.
+type visibleForTestingArgType struct {
+	name    string
+	literal bool
+}
+
+// visibleForTestingArgumentTypes returns positional argument types, or nil when any argument is named.
+func visibleForTestingArgumentTypes(ctx *api.Context, call uint32) []visibleForTestingArgType {
+	file := ctx.File
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return nil
+	}
+	var types []visibleForTestingArgType
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		if _, named := file.FlatFindChild(arg, "="); named {
+			return nil
+		}
+		types = append(types, visibleForTestingExpressionType(ctx, flatValueArgumentExpression(file, arg)))
+	}
+	return types
+}
+
+func visibleForTestingExpressionType(ctx *api.Context, expr uint32) visibleForTestingArgType {
+	file := ctx.File
+	if expr == 0 {
+		return visibleForTestingArgType{}
+	}
+	switch file.FlatType(expr) {
+	case "boolean_literal":
+		return visibleForTestingArgType{name: "Boolean", literal: true}
+	case "string_literal":
+		return visibleForTestingArgType{name: "String", literal: true}
+	case "character_literal":
+		return visibleForTestingArgType{name: "Char", literal: true}
+	case "integer_literal":
+		text := file.FlatNodeText(expr)
+		if strings.HasSuffix(text, "L") {
+			return visibleForTestingArgType{name: "Long", literal: true}
+		}
+		return visibleForTestingArgType{name: "Int", literal: true}
+	case "real_literal":
+		if text := file.FlatNodeText(expr); strings.HasSuffix(text, "f") || strings.HasSuffix(text, "F") {
+			return visibleForTestingArgType{name: "Float", literal: true}
+		}
+		return visibleForTestingArgType{name: "Double", literal: true}
+	}
+	if ctx.Resolver != nil {
+		if typ := ctx.Resolver.ResolveFlatNode(expr, file); typ != nil && typ.Resolved {
+			return visibleForTestingArgType{name: typ.Name}
+		}
+	}
+	return visibleForTestingArgType{}
+}
+
+var visibleForTestingPrimitiveTypes = map[string]bool{
+	"Boolean": true, "String": true, "Char": true, "Int": true, "Long": true,
+	"Short": true, "Byte": true, "Float": true, "Double": true,
+}
+
+// visibleForTestingTypeCompatible is false only when both types are well-known value types that differ.
+func visibleForTestingTypeCompatible(arg visibleForTestingArgType, param string) bool {
+	if arg.name == "" || !visibleForTestingPrimitiveTypes[param] || !visibleForTestingPrimitiveTypes[arg.name] {
+		return true
+	}
+	if arg.name == param {
+		return true
+	}
+	// An integer literal also fits the narrower and wider integral types.
+	return arg.literal && arg.name == "Int" && (param == "Long" || param == "Short" || param == "Byte")
+}
+
+func flatFunctionParameterTypes(file *scanner.File, funcDecl uint32) []string {
+	params, ok := file.FlatFindChild(funcDecl, "function_value_parameters")
+	if !ok {
+		return nil
+	}
+	var types []string
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "parameter" {
+			continue
+		}
+		text := file.FlatNodeText(child)
+		if cut := strings.Index(text, "="); cut >= 0 {
+			text = text[:cut]
+		}
+		if colon := strings.Index(text, ":"); colon >= 0 {
+			types = append(types, normalizeParameterTypeName(text[colon+1:]))
+		} else {
+			types = append(types, "")
+		}
+	}
+	return types
+}
+
+// normalizeParameterTypeName reduces a type to its simple name without nullability or type arguments.
+func normalizeParameterTypeName(text string) string {
+	text = strings.TrimSpace(text)
+	if cut := strings.Index(text, "<"); cut >= 0 {
+		text = text[:cut]
+	}
+	text = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), "?"))
+	if dot := strings.LastIndex(text, "."); dot >= 0 {
+		text = text[dot+1:]
+	}
+	return text
+}
+
+// splitTopLevelCommas splits on commas outside angle brackets and parentheses.
+func splitTopLevelCommas(text string) []string {
+	var parts []string
+	depth, start := 0, 0
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '<', '(':
+			depth++
+		case '>', ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, text[start:i])
+				start = i + 1
+			}
+		}
+	}
+	if strings.TrimSpace(text[start:]) != "" {
+		parts = append(parts, text[start:])
+	}
+	return parts
 }

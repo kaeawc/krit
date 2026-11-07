@@ -7,7 +7,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirPropertyAccessExpressionChecker
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -21,6 +24,8 @@ import org.jetbrains.kotlin.text
 
 // Flags `xs.filter { pred }.first()` (and firstOrNull, last, lastOrNull,
 // single, singleOrNull, count, any, none) that can be `xs.first { pred }`.
+// Like detekt, `xs.filter { pred }.isEmpty()` / `.isNotEmpty()` (to `none` /
+// `any`) and `xs.filter { pred }.size` (to `count`) are reported too.
 //
 // Like the Go rule:
 // - the terminal call is one of those names with no arguments at all;
@@ -61,6 +66,7 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
     override val ruleId = "UnnecessaryFilter"
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(UnnecessaryFilter)
+        override val propertyAccessExpressionCheckers = setOf(SizeChecker)
     }
 
     private val stdlibPackages = setOf(
@@ -72,7 +78,11 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
 
     private val stdlibTerminators = setOf(
         "first", "firstOrNull", "last", "lastOrNull", "single", "singleOrNull", "count", "any", "none",
+        "isEmpty", "isNotEmpty",
     )
+
+    // The predicate form each emptiness check turns into.
+    private val replacements = mapOf("isEmpty" to "none", "isNotEmpty" to "any")
 
     // kotlinx.coroutines.flow has predicate overloads of these terminals only.
     private val flowTerminators = setOf("first", "firstOrNull", "count")
@@ -80,9 +90,11 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val terminal = resolvedFunction(expression) ?: return
-        if (!terminal.isTopLevelIn(stdlibPackages) && !terminal.isTopLevelInFlow()) return
         val name = terminal.callableName.asString()
         if (name !in stdlibTerminators) return
+        // isEmpty() is a member of Collection; the rest are top-level extensions.
+        val stdlibMember = name == "isEmpty" && terminal.classId?.packageFqName in stdlibPackages
+        if (!stdlibMember && !terminal.isTopLevelIn(stdlibPackages) && !terminal.isTopLevelInFlow()) return
         if (expression.argumentList.arguments.isNotEmpty()) return
 
         val filterCall = filterCallOf(expression.explicitReceiver) ?: return
@@ -101,7 +113,25 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
         // suggested replacement changes the call name.
         if ("return@filter" in predicate) return
 
-        report(expression.source, "Replace '.filter $predicate.$name()' with '.$name $predicate'.")
+        val replacement = replacements[name] ?: name
+        report(expression.source, "Replace '.filter $predicate.$name()' with '.$replacement $predicate'.")
+    }
+
+    // `xs.filter { p }.size` is `xs.count { p }`.
+    private object SizeChecker : FirPropertyAccessExpressionChecker(MppCheckerKind.Common) {
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        override fun check(expression: FirPropertyAccessExpression) {
+            val property = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return
+            val id = property.callableId ?: return
+            if (id.callableName.asString() != "size" || id.classId?.packageFqName !in stdlibPackages) return
+            val filterCall = filterCallOf(expression.explicitReceiver) ?: return
+            val filter = resolvedFunction(filterCall) ?: return
+            if (filter.callableName.asString() != "filter" || !filter.isTopLevelIn(stdlibPackages)) return
+            val lambda = trailingLambdaOf(filterCall) ?: return
+            val predicate = lambdaText(filterCall, lambda) ?: return
+            if ("return@filter" in predicate) return
+            report(expression.source, "Replace '.filter $predicate.size' with '.count $predicate'.")
+        }
     }
 
     // The callable id of the function a call resolves to, or null when it does

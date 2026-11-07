@@ -3,13 +3,15 @@ package scanner
 import (
 	"bytes"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // SuppressionFilter is the single per-file query object that combines
 // every suppression source Krit understands:
-//   - @Suppress / @SuppressWarnings annotations (byte-range, via SuppressionIndex)
+//   - @Suppress / @SuppressWarnings / @SuppressLint annotations (byte-range, via SuppressionIndex)
 //   - config-level per-rule `excludes` glob patterns
 //   - baseline entries (project-level; pointer only, filtering is per-finding
 //     and requires the full Finding struct, so callers apply it via
@@ -50,6 +52,28 @@ func (f *SuppressionFilter) WithRuleAliases(aliases map[string][]string) *Suppre
 		return f
 	}
 	f.ruleAliases = aliases
+	return f
+}
+
+// WithExcludedRules suppresses every finding of the listed rule IDs in this
+// file, like a config `excludes` glob that matches the file. The set is shared,
+// not copied, and must not be modified afterwards. Safe on a nil receiver.
+func (f *SuppressionFilter) WithExcludedRules(ids map[string]bool) *SuppressionFilter {
+	if f == nil || len(ids) == 0 {
+		return f
+	}
+	if len(f.excludedRules) == 0 {
+		f.excludedRules = ids
+		return f
+	}
+	merged := make(map[string]bool, len(f.excludedRules)+len(ids))
+	for id := range f.excludedRules {
+		merged[id] = true
+	}
+	for id := range ids {
+		merged[id] = true
+	}
+	f.excludedRules = merged
 	return f
 }
 
@@ -136,6 +160,30 @@ func (f *SuppressionFilter) IsSuppressedAt(ruleID, ruleSet string, line, byteOff
 	return f.annotationSuppresses(ruleID, ruleSet, line, byteOffset, aliases)
 }
 
+// IsSuppressedAtColumn is IsSuppressed for a finding with a 1-based column,
+// so an annotation that starts mid-line (e.g. on a constructor parameter)
+// covers the finding. A column below 2 checks the first non-blank byte of the
+// line, since indented declarations start after their indent.
+func (f *SuppressionFilter) IsSuppressedAtColumn(ruleID, ruleSet string, line, col int) bool {
+	if f == nil {
+		return false
+	}
+	byteOffset := -1
+	if f.file != nil && line >= 1 {
+		start := f.file.LineOffset(line - 1)
+		var off int
+		if col > 1 {
+			off = start + col - 1
+		} else {
+			off = skipLineIndent(f.file.Content, start)
+		}
+		if off < len(f.file.Content) {
+			byteOffset = off
+		}
+	}
+	return f.IsSuppressedAt(ruleID, ruleSet, line, byteOffset)
+}
+
 // annotationSuppresses checks the @Suppress / @SuppressWarnings index at the
 // start of line and, when known, at the finding's own start byte.
 func (f *SuppressionFilter) annotationSuppresses(ruleID, ruleSet string, line, byteOffset int, aliases []string) bool {
@@ -148,6 +196,19 @@ func (f *SuppressionFilter) annotationSuppresses(ruleID, ruleSet string, line, b
 	}
 	return byteOffset >= 0 && byteOffset != lineOffset && byteOffset < len(f.file.Content) &&
 		f.annotations.isSuppressedWithAliases(byteOffset, ruleID, ruleSet, aliases)
+}
+
+// skipLineIndent returns the offset of the first non-blank byte at or after
+// offset on the same line, or offset itself when the line is blank.
+func skipLineIndent(content []byte, offset int) int {
+	i := offset
+	for i < len(content) && (content[i] == ' ' || content[i] == '\t') {
+		i++
+	}
+	if i >= len(content) || content[i] == '\n' || content[i] == '\r' {
+		return offset
+	}
+	return i
 }
 
 // suppressionByteOffsetForLine maps a 1-based finding line to a byte
@@ -204,29 +265,48 @@ func (f *SuppressionFilter) Baseline() *Baseline {
 	return f.baseline
 }
 
+// IncludePatternPrefix marks an `includes` glob inside a rule's exclude list:
+// the rule is skipped for a file unless some include glob matches it.
+const IncludePatternPrefix = "!"
+
 func matchAnyExcludePattern(filePath string, patterns []string) bool {
 	filePath = filepath.ToSlash(filePath)
+	hasInclude, included := false, false
 	for _, p := range patterns {
+		if strings.HasPrefix(p, IncludePatternPrefix) {
+			hasInclude = true
+			included = included || matchExcludePatternSlash(filePath, p[len(IncludePatternPrefix):])
+			continue
+		}
 		if matchExcludePatternSlash(filePath, p) {
 			return true
 		}
 	}
-	return false
+	return hasInclude && !included
 }
 
-// matchExcludePatternSlash mirrors rules.matchExcludePattern but is kept
-// in-package so scanner avoids an import cycle. Semantics:
-//   - **/dir/**   matches any path containing /dir/
+// MatchExcludePattern reports whether filePath matches a rule exclude glob.
+// Semantics:
+//   - **/dir/**   matches any path containing a dir/ segment run, including a
+//     relative path that starts with it; dir may hold further * or ** wildcards
 //   - **/*suffix  matches any path ending with suffix
 //   - **/name     matches any path ending with /name
 //   - plain glob  matches the basename
+func MatchExcludePattern(filePath, pattern string) bool {
+	return matchExcludePatternSlash(filepath.ToSlash(filePath), pattern)
+}
+
 func matchExcludePatternSlash(filePath, pattern string) bool {
 	pattern = filepath.ToSlash(pattern)
 	if strings.HasPrefix(pattern, "**/") {
 		suffix := pattern[3:]
 		if strings.Contains(suffix, "/**") {
 			inner := strings.TrimSuffix(suffix, "/**")
-			return strings.Contains(filePath, "/"+inner+"/")
+			rooted := "/" + strings.TrimPrefix(filePath, "/")
+			if strings.ContainsRune(inner, '*') {
+				return excludeInnerRegexp(inner).MatchString(rooted)
+			}
+			return strings.Contains(rooted, "/"+inner+"/")
 		}
 		if strings.HasPrefix(suffix, "*") {
 			return strings.HasSuffix(filePath, suffix[1:])
@@ -235,6 +315,36 @@ func matchExcludePatternSlash(filePath, pattern string) bool {
 	}
 	matched, _ := filepath.Match(pattern, filepath.Base(filePath))
 	return matched
+}
+
+var excludeInnerCache sync.Map // inner pattern -> *regexp.Regexp
+
+// excludeInnerRegexp compiles the directory part of a **/inner/** pattern:
+// ** spans any number of segments and * stays inside one segment.
+func excludeInnerRegexp(inner string) *regexp.Regexp {
+	if v, ok := excludeInnerCache.Load(inner); ok {
+		return v.(*regexp.Regexp)
+	}
+	var b strings.Builder
+	b.WriteString("/")
+	for i := 0; i < len(inner); i++ {
+		switch {
+		case strings.HasPrefix(inner[i:], "**/"):
+			b.WriteString("(?:[^/]+/)*")
+			i += 2
+		case strings.HasPrefix(inner[i:], "**"):
+			b.WriteString(".*")
+			i++
+		case inner[i] == '*':
+			b.WriteString("[^/]*")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(inner[i])))
+		}
+	}
+	b.WriteString("/")
+	re := regexp.MustCompile(b.String())
+	excludeInnerCache.Store(inner, re)
+	return re
 }
 
 // parseInlineIgnores scans for `// krit:ignore[...]` and
@@ -247,21 +357,144 @@ func parseInlineIgnores(content []byte) map[int]map[string]bool {
 		return nil
 	}
 	out := make(map[int]map[string]bool)
-	line := 1
-	start := 0
-	for i := 0; i <= len(content); i++ {
-		if i < len(content) && content[i] != '\n' {
-			continue
-		}
-		lineBytes := content[start:i]
-		addInlineIgnore(out, line, lineBytes)
-		line++
-		start = i + 1
-	}
+	lx := inlineLexer{content: content, line: 1, out: out}
+	lx.scanCode(false)
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+// inlineLexer walks Kotlin source and reports only real `//` line comments, so
+// a `// krit:ignore` inside a string literal or block comment does not suppress anything.
+type inlineLexer struct {
+	content []byte
+	pos     int
+	line    int
+	out     map[int]map[string]bool
+}
+
+// scanCode scans code until the end of input or, when inTemplate is set, the `}` closing a string template.
+func (lx *inlineLexer) scanCode(inTemplate bool) {
+	depth := 0
+	for lx.pos < len(lx.content) {
+		c := lx.content[lx.pos]
+		switch {
+		case c == '\n':
+			lx.line++
+			lx.pos++
+		case c == '/' && lx.peek(1) == '/':
+			end := bytes.IndexByte(lx.content[lx.pos:], '\n')
+			if end < 0 {
+				end = len(lx.content) - lx.pos
+			}
+			addInlineIgnore(lx.out, lx.line, lx.content[lx.pos:lx.pos+end])
+			lx.pos += end
+		case c == '/' && lx.peek(1) == '*':
+			lx.skipBlockComment()
+		case c == '"':
+			if lx.peek(1) == '"' && lx.peek(2) == '"' {
+				lx.pos += 3
+				lx.skipString(true)
+			} else {
+				lx.pos++
+				lx.skipString(false)
+			}
+		case c == '\'':
+			lx.skipChar()
+		case inTemplate && c == '{':
+			depth++
+			lx.pos++
+		case inTemplate && c == '}':
+			if depth == 0 {
+				lx.pos++
+				return
+			}
+			depth--
+			lx.pos++
+		default:
+			lx.pos++
+		}
+	}
+}
+
+func (lx *inlineLexer) peek(n int) byte {
+	if lx.pos+n < len(lx.content) {
+		return lx.content[lx.pos+n]
+	}
+	return 0
+}
+
+// skipBlockComment skips a possibly nested block comment starting at lx.pos.
+func (lx *inlineLexer) skipBlockComment() {
+	depth := 0
+	for lx.pos < len(lx.content) {
+		switch {
+		case lx.content[lx.pos] == '/' && lx.peek(1) == '*':
+			depth++
+			lx.pos += 2
+		case lx.content[lx.pos] == '*' && lx.peek(1) == '/':
+			depth--
+			lx.pos += 2
+			if depth == 0 {
+				return
+			}
+		default:
+			if lx.content[lx.pos] == '\n' {
+				lx.line++
+			}
+			lx.pos++
+		}
+	}
+}
+
+// skipString skips the rest of a string literal whose opening quote was consumed.
+func (lx *inlineLexer) skipString(raw bool) {
+	for lx.pos < len(lx.content) {
+		c := lx.content[lx.pos]
+		switch {
+		case c == '\n':
+			lx.line++
+			lx.pos++
+			if !raw {
+				return // unterminated regular string; resume at the next line
+			}
+		case c == '\\' && !raw:
+			lx.pos += 2
+		case c == '$' && lx.peek(1) == '{':
+			lx.pos += 2
+			lx.scanCode(true)
+		case c == '"' && !raw:
+			lx.pos++
+			return
+		case c == '"' && lx.peek(1) == '"' && lx.peek(2) == '"':
+			lx.pos += 3
+			for lx.pos < len(lx.content) && lx.content[lx.pos] == '"' {
+				lx.pos++
+			}
+			return
+		default:
+			lx.pos++
+		}
+	}
+}
+
+// skipChar skips a char literal, or a lone quote that is not one.
+func (lx *inlineLexer) skipChar() {
+	rest := lx.content[lx.pos+1:]
+	switch {
+	case len(rest) >= 2 && rest[0] != '\\' && rest[0] != '\n' && rest[1] == '\'':
+		lx.pos += 3
+	case len(rest) >= 3 && rest[0] == '\\':
+		end := bytes.IndexByte(rest[1:min(len(rest), 10)], '\'')
+		if end < 0 {
+			lx.pos++
+			return
+		}
+		lx.pos += end + 3
+	default:
+		lx.pos++
+	}
 }
 
 func addInlineIgnore(out map[int]map[string]bool, line int, lineBytes []byte) {
@@ -274,6 +507,9 @@ func addInlineIgnore(out map[int]map[string]bool, line int, lineBytes []byte) {
 		return
 	}
 	rest := lineBytes[idx+len("krit:ignore"):]
+	if len(rest) > 0 && isIdentByte(rest[0]) {
+		return // e.g. `krit:ignored` is not a directive
+	}
 	rest = bytes.TrimLeft(rest, "-")
 	if bytes.HasPrefix(rest, []byte("all")) {
 		set := ensureInline(out, line)
@@ -320,11 +556,36 @@ type Suppression struct {
 // SuppressionIndex provides O(log n) lookup for whether a finding is suppressed.
 type SuppressionIndex struct {
 	suppressions []Suppression // sorted by StartByte
+	needleStarts []int         // sorted offsets of Suppress( / SuppressWarnings( in the source
+}
+
+// hasNeedleIn reports whether a suppress needle starts inside [start, end).
+func (idx *SuppressionIndex) hasNeedleIn(start, end int) bool {
+	i := sort.SearchInts(idx.needleStarts, start)
+	return i < len(idx.needleStarts) && idx.needleStarts[i] < end
+}
+
+// findSuppressionNeedles returns the sorted start offsets of every suppress needle.
+func findSuppressionNeedles(content []byte) []int {
+	var out []int
+	for _, needle := range suppressionNeedles {
+		for from := 0; from < len(content); {
+			i := bytes.Index(content[from:], needle)
+			if i < 0 {
+				break
+			}
+			out = append(out, from+i)
+			from += i + 1
+		}
+	}
+	sort.Ints(out)
+	return out
 }
 
 var suppressionNeedles = [][]byte{
 	[]byte("Suppress("),
 	[]byte("SuppressWarnings("),
+	[]byte("SuppressLint("), // Android Lint ids; same argument shape as @Suppress
 }
 
 // BuildSuppressionIndexFlat walks the flat tree once to find all
@@ -337,7 +598,9 @@ func BuildSuppressionIndexFlat(tree *FlatTree, content []byte) *SuppressionIndex
 	if tree == nil || len(tree.Types) == 0 {
 		return idx
 	}
+	idx.needleStarts = findSuppressionNeedles(content)
 	flatWalkForSuppressions(tree, 0, content, idx)
+	addIgnoreAnnotatedSuppressions(tree, content, idx)
 	sort.Slice(idx.suppressions, func(i, j int) bool {
 		return idx.suppressions[i].StartByte < idx.suppressions[j].StartByte
 	})
@@ -411,6 +674,18 @@ var kotlinCompilerWarningAliases = map[string][]string{
 	// krit rules.
 	"unused": {"UnusedParameter", "UnusedPrivateProperty", "UnusedPrivateMember", "UnusedPrivateFunction", "UnusedPrivateClass", "UnusedVariable", "UnusedImport"},
 
+	// detekt rule names whose krit ids differ.
+	"ComplexMethod":              {"CyclomaticComplexMethod"},
+	"PackageName":                {"PackageNaming"},
+	"VariableName":               {"VariableNaming"},
+	"FunctionMaxLength":          {"FunctionNameMaxLength"},
+	"FunctionMinLength":          {"FunctionNameMinLength"},
+	"PackageDirectoryMismatch":   {"InvalidPackageDeclaration"},
+	"EmptyKtFile":                {"EmptyKotlinFile"},
+	"CommentOverPrivateFunction": {"DocumentationOverPrivateFunction"},
+	"CommentOverPrivateProperty": {"DocumentationOverPrivateProperty"},
+	"UnnecessaryAbstractClass":   {"AbstractClassCanBeConcreteClass", "AbstractClassCanBeInterface"},
+
 	// IntelliJ Kotlin inspection IDs used in `@Suppress(...)` for naming
 	// conventions. These pair up with krit's naming rules.
 	"EnumEntryName":       {"EnumNaming"},
@@ -459,44 +734,33 @@ func flatWalkForSuppressions(tree *FlatTree, idx uint32, content []byte, out *Su
 	nodeType := nodeTypeName(tree.Types[idx])
 
 	switch nodeType {
-	case "prefix_expression", "annotation":
-		if flatProcessSuppressionNode(tree, idx, content, out) {
-			return
+	case "annotation":
+		flatProcessSuppressionNode(tree, idx, content, out)
+		return
+	case "prefix_expression":
+		flatProcessSuppressionNode(tree, idx, content, out)
+		// The annotated operand can hold further annotated expressions.
+		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+			if nodeTypeName(tree.Types[child]) != "annotation" {
+				flatWalkForSuppressions(tree, child, content, out)
+			}
 		}
 		return
 	case "file_annotation":
 		flatProcessFileAnnotation(tree, idx, content, out)
 		return
-	case "source_file", "program", "class_body", "statements", "function_body", "modifiers",
-		"class_declaration", "function_declaration", "property_declaration",
-		"method_declaration", "constructor_declaration", "field_declaration",
-		"local_variable_declaration",
-		"object_declaration", "companion_object", "secondary_constructor",
-		"primary_constructor", "anonymous_initializer", "enum_entry", "lambda_literal",
-		"class_member_declarations", "block",
-		"control_structure_body", "catch_block", "finally_block",
-		"call_expression", "annotated_lambda", "call_suffix",
-		"if_expression", "when_expression", "when_entry", "try_expression":
-	default:
-		return
 	}
 
+	// Descend into every node that contains a suppress needle, so annotations on
+	// expressions nested in arguments, loops, elvis operands and the like count.
+	if !out.hasNeedleIn(int(tree.StartBytes[idx]), int(tree.EndBytes[idx])) {
+		return
+	}
 	for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
 		switch nodeTypeName(tree.Types[child]) {
-		case "prefix_expression", "annotation":
-			flatProcessSuppressionNode(tree, child, content, out)
 		case "file_annotation":
 			flatProcessFileAnnotation(tree, child, content, out)
-		case "modifiers", "source_file", "program", "class_body", "statements", "function_body",
-			"class_declaration", "function_declaration", "property_declaration",
-			"method_declaration", "constructor_declaration", "field_declaration",
-			"local_variable_declaration",
-			"object_declaration", "companion_object", "secondary_constructor",
-			"primary_constructor", "anonymous_initializer", "enum_entry",
-			"class_member_declarations", "block",
-			"lambda_literal", "control_structure_body", "catch_block", "finally_block",
-			"call_expression", "annotated_lambda", "call_suffix",
-			"if_expression", "when_expression", "when_entry", "try_expression":
+		default:
 			flatWalkForSuppressions(tree, child, content, out)
 		}
 	}
@@ -520,31 +784,73 @@ func flatProcessFileAnnotation(tree *FlatTree, idx uint32, content []byte, out *
 	})
 }
 
-func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out *SuppressionIndex) bool {
-	textBytes := FlatNodeBytes(tree, idx, content)
-	if !hasSuppressionNeedle(textBytes) {
-		return false
+func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out *SuppressionIndex) {
+	parseText := suppressionAnnotationText(tree, idx, content)
+	if parseText == nil {
+		return
 	}
-	parseText := textBytes
+	rules := extractSuppressedRules(string(parseText))
+	var target uint32
+	if isAnnotationOnly(tree, idx, content) {
+		// The grammar split the annotation from its declaration; it applies to
+		// the next statement.
+		target = nextStatementSibling(tree, idx, content)
+		if target == 0 {
+			return
+		}
+	} else if operand := splitReturnOperand(tree, idx, content); operand != 0 {
+		target = operand
+	} else {
+		target = flatFindAnnotationTarget(tree, idx)
+	}
+	if target == 0 && idx != 0 {
+		return
+	}
+	if cs, ce, ok := constructorSuppressionSpan(tree, target, content); ok {
+		out.suppressions = append(out.suppressions, Suppression{StartByte: cs, EndByte: ce, Rules: rules})
+		return
+	}
+	// Cover the annotation itself when it precedes its target, so findings
+	// reported at the annotation line match.
+	start := min(int(tree.StartBytes[target]), int(tree.StartBytes[idx]))
+	out.suppressions = append(out.suppressions, Suppression{
+		StartByte: start,
+		EndByte:   suppressionTargetEnd(tree, target, content),
+		Rules:     rules,
+	})
+}
+
+// suppressionAnnotationText returns the text of the suppress annotation that
+// drives the annotation or prefix_expression at idx, including an argument
+// list the grammar parsed as a separate node. It returns nil when idx carries
+// no suppress annotation.
+func suppressionAnnotationText(tree *FlatTree, idx uint32, content []byte) []byte {
+	ann := idx
 	if nodeTypeName(tree.Types[idx]) == "prefix_expression" {
+		// Only a suppress annotation may drive a prefix_expression; others merely wrap code that mentions one.
+		ann = 0
 		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
-			if nodeTypeName(tree.Types[child]) == "annotation" && flatAnnotationHasArgs(tree, child) {
-				parseText = FlatNodeBytes(tree, child, content)
+			if nodeTypeName(tree.Types[child]) == "annotation" {
+				ann = child
 				break
 			}
 		}
+		if ann == 0 {
+			return nil
+		}
 	}
-	rules := extractSuppressedRules(string(parseText))
-	target := flatFindAnnotationTarget(tree, idx)
-	if target == 0 && idx != 0 {
-		return true
+	var text []byte
+	if flatAnnotationHasArgs(tree, ann) {
+		text = FlatNodeBytes(tree, ann, content)
+	} else if end := detachedArgsEnd(tree, ann, content); end > 0 {
+		text = content[tree.StartBytes[ann]:end]
+	} else if ann == idx {
+		text = FlatNodeBytes(tree, ann, content)
 	}
-	out.suppressions = append(out.suppressions, Suppression{
-		StartByte: int(tree.StartBytes[target]),
-		EndByte:   int(tree.EndBytes[target]),
-		Rules:     rules,
-	})
-	return true
+	if !hasSuppressionNeedle(text) {
+		return nil
+	}
+	return text
 }
 
 func flatAnnotationHasArgs(tree *FlatTree, idx uint32) bool {
@@ -557,19 +863,8 @@ func flatAnnotationHasArgs(tree *FlatTree, idx uint32) bool {
 }
 
 func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
-	if nodeTypeName(tree.Types[idx]) == "prefix_expression" {
-		var annChild uint32
-		hasOperand := false
-		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
-			if nodeTypeName(tree.Types[child]) == "annotation" {
-				annChild = child
-			} else {
-				hasOperand = true
-			}
-		}
-		if annChild != 0 && hasOperand && flatAnnotationHasArgs(tree, annChild) {
-			return idx
-		}
+	if nodeTypeName(tree.Types[idx]) == "prefix_expression" && prefixAnnotationWrapsOperand(tree, idx) {
+		return idx
 	}
 
 	parent := tree.Parents[idx]
@@ -580,25 +875,57 @@ func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
 		return tree.Parents[parent]
 	}
 	parentType := nodeTypeName(tree.Types[parent])
-	if parentType == "source_file" || parentType == "statements" || parentType == "class_body" {
-		foundSelf := false
-		for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
-			if child == idx {
-				foundSelf = true
-				continue
+	if parentType == "parameter_modifiers" {
+		// Function parameter modifiers are a sibling that precedes the parameter they annotate.
+		for sib := tree.NextSibs[parent]; sib != 0; sib = tree.NextSibs[sib] {
+			if nodeTypeName(tree.Types[sib]) == "parameter" {
+				return sib
 			}
-			if !foundSelf {
-				continue
-			}
-			childType := nodeTypeName(tree.Types[child])
-			if childType == "prefix_expression" || childType == "annotation" {
-				continue
-			}
-			return child
 		}
 		return parent
 	}
+	if parentType == "source_file" || parentType == "statements" || parentType == "class_body" {
+		if next := nextAnnotatedSibling(tree, parent, idx); next != 0 {
+			return next
+		}
+	}
 	return parent
+}
+
+// prefixAnnotationWrapsOperand reports whether the prefix_expression at idx pairs an annotation
+// that has arguments with an operand, so the expression itself is the target.
+func prefixAnnotationWrapsOperand(tree *FlatTree, idx uint32) bool {
+	var annChild uint32
+	hasOperand := false
+	for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+		if nodeTypeName(tree.Types[child]) == "annotation" {
+			annChild = child
+		} else {
+			hasOperand = true
+		}
+	}
+	return annChild != 0 && hasOperand && flatAnnotationHasArgs(tree, annChild)
+}
+
+// nextAnnotatedSibling returns the first child of parent after idx that is not an annotation,
+// prefix_expression or comment, or 0 when there is none.
+func nextAnnotatedSibling(tree *FlatTree, parent, idx uint32) uint32 {
+	foundSelf := false
+	for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
+		if child == idx {
+			foundSelf = true
+			continue
+		}
+		if !foundSelf {
+			continue
+		}
+		childType := nodeTypeName(tree.Types[child])
+		if childType == "prefix_expression" || childType == "annotation" || isCommentNode(tree, child) {
+			continue
+		}
+		return child
+	}
+	return 0
 }
 
 func hasSuppressionNeedle(text []byte) bool {
@@ -610,7 +937,7 @@ func hasSuppressionNeedle(text []byte) bool {
 	return false
 }
 
-// extractSuppressedRules parses rule names from @Suppress("Rule1", "Rule2") or @SuppressWarnings("...")
+// extractSuppressedRules parses rule names from @Suppress("Rule1", "Rule2"), @SuppressWarnings("...") or @SuppressLint("...")
 func extractSuppressedRules(text string) map[string]bool {
 	// Find the arguments between ( and )
 	start := strings.Index(text, "(")
@@ -620,11 +947,10 @@ func extractSuppressedRules(text string) map[string]bool {
 	}
 	args := text[start+1 : end]
 
+	// Take every string literal, so `names = ["A", "B"]`, `value = [...]` and `arrayOf(...)` work like varargs.
 	rules := make(map[string]bool)
-	for _, arg := range strings.Split(args, ",") {
+	for _, arg := range suppressionStringLiterals(args) {
 		arg = strings.TrimSpace(arg)
-		// Remove quotes
-		arg = strings.Trim(arg, "\"'")
 		// Remove detekt prefix
 		arg = strings.TrimPrefix(arg, "detekt.")
 		arg = strings.TrimPrefix(arg, "detekt:")
@@ -639,4 +965,95 @@ func extractSuppressedRules(text string) map[string]bool {
 	}
 
 	return rules
+}
+
+// suppressionStringLiterals returns the contents of the double-quoted string literals in an annotation argument list.
+func suppressionStringLiterals(args string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		if args[i] != '"' {
+			continue
+		}
+		var b strings.Builder
+		j := i + 1
+		for ; j < len(args) && args[j] != '"'; j++ {
+			if args[j] == '\\' && j+1 < len(args) {
+				j++
+			}
+			b.WriteByte(args[j])
+		}
+		out = append(out, b.String())
+		i = j
+	}
+	return out
+}
+
+var (
+	ignoreAnnotatedMu    sync.RWMutex
+	ignoreAnnotatedRules map[string]map[string]bool // simple annotation name -> rule IDs it silences
+)
+
+// SetRuleIgnoreAnnotated installs the per-rule `ignoreAnnotated` config: a
+// declaration carrying one of a rule's annotations is exempt from that rule.
+// It replaces any earlier setting; a nil map clears it.
+func SetRuleIgnoreAnnotated(byRule map[string][]string) {
+	idx := map[string]map[string]bool{}
+	for rule, anns := range byRule {
+		for _, ann := range anns {
+			name := simpleAnnotationName(ann)
+			if name == "" {
+				continue
+			}
+			if idx[name] == nil {
+				idx[name] = map[string]bool{}
+			}
+			idx[name][rule] = true
+		}
+	}
+	ignoreAnnotatedMu.Lock()
+	ignoreAnnotatedRules = idx
+	ignoreAnnotatedMu.Unlock()
+}
+
+// simpleAnnotationName reduces `@com.x.Name(args)` or `Name` to `Name`.
+func simpleAnnotationName(s string) string {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "@"))
+	if i := strings.IndexAny(s, "( \t\r\n"); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "."); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
+}
+
+// addIgnoreAnnotatedSuppressions adds a suppression over each declaration
+// annotated with an annotation configured via ignoreAnnotated.
+func addIgnoreAnnotatedSuppressions(tree *FlatTree, content []byte, out *SuppressionIndex) {
+	ignoreAnnotatedMu.RLock()
+	byAnn := ignoreAnnotatedRules
+	ignoreAnnotatedMu.RUnlock()
+	if len(byAnn) == 0 {
+		return
+	}
+	for i := range tree.Types {
+		idx := uint32(i)
+		if nodeTypeName(tree.Types[idx]) != "annotation" {
+			continue
+		}
+		name := simpleAnnotationName(strings.TrimPrefix(string(FlatNodeBytes(tree, idx, content)), "@file:"))
+		rules, ok := byAnn[name]
+		if !ok {
+			continue
+		}
+		target := flatFindAnnotationTarget(tree, idx)
+		if target == 0 {
+			continue
+		}
+		out.suppressions = append(out.suppressions, Suppression{
+			StartByte: int(tree.StartBytes[target]),
+			EndByte:   suppressionTargetEnd(tree, target, content),
+			Rules:     rules,
+		})
+	}
 }

@@ -137,8 +137,9 @@ func TestDetectProject_NonExistentPath(t *testing.T) {
 // resolves --repo to an absolute path before passing it through.
 //
 // Repro shape: a directory with a build.gradle.kts and a
-// settings.gradle.kts (no .git, no manifest) must yield GradlePaths
-// of length 1 when probed with ".".
+// settings.gradle.kts (no .git, no manifest) must yield both scripts in
+// GradlePaths when probed with ".". Settings scripts are included because
+// modern projects declare their repositories there.
 func TestDetectProject_RelativeDotRoot_FindsGradle(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "build.gradle.kts"), []byte("dependencies {}\n"), 0o644); err != nil {
@@ -160,8 +161,8 @@ func TestDetectProject_RelativeDotRoot_FindsGradle(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(prev) })
 
 	proj := DetectProject([]string{"."})
-	if len(proj.GradlePaths) != 1 {
-		t.Fatalf("expected 1 GradlePath with root=\".\", got %d (project=%+v)", len(proj.GradlePaths), proj)
+	if len(proj.GradlePaths) != 2 {
+		t.Fatalf("expected build and settings GradlePaths with root=\".\", got %d (project=%+v)", len(proj.GradlePaths), proj)
 	}
 }
 
@@ -212,5 +213,22 @@ func TestDetectProjectWithIndex_FallsBackWhenListingUnavailable(t *testing.T) {
 	}
 	if len(proj.ManifestPaths) != 1 || proj.ManifestPaths[0] != manifest {
 		t.Fatalf("ManifestPaths = %v, want [%s]", proj.ManifestPaths, manifest)
+	}
+}
+
+func TestDetectProject_IncludesSettingsAndInitScripts(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"settings.gradle.kts", "init.gradle", "notes.gradle.kts"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proj := DetectProject([]string{dir})
+	got := map[string]bool{}
+	for _, p := range proj.GradlePaths {
+		got[filepath.Base(p)] = true
+	}
+	if !got["settings.gradle.kts"] || !got["init.gradle"] || got["notes.gradle.kts"] {
+		t.Fatalf("unexpected GradlePaths %v", proj.GradlePaths)
 	}
 }

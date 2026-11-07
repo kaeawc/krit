@@ -18,10 +18,14 @@ fun f() {
 }
 `)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected exactly one finding for nested ((42)), got %d", len(findings))
+	// detekt reports both pairs; only the outermost carries the fix.
+	if len(findings) != 2 {
+		t.Fatalf("expected a finding per pair for nested ((42)), got %d", len(findings))
 	}
 	fix := findings[0].Fix
+	if findings[1].Fix != nil && findings[0].Fix == nil {
+		fix = findings[1].Fix
+	}
 	if fix == nil {
 		t.Fatal("finding is missing a Fix")
 	}
@@ -42,11 +46,21 @@ fun f() {
 }
 `)
 
-	if len(findings) != 1 {
-		t.Fatalf("expected exactly one finding for (((42))), got %d", len(findings))
+	if len(findings) != 3 {
+		t.Fatalf("expected a finding per pair for (((42))), got %d", len(findings))
 	}
-	if rep := strings.TrimSpace(findings[0].Fix.Replacement); rep != "42" {
-		t.Errorf("expected replacement %q, got %q", "42", rep)
+	fixes := 0
+	for _, f := range findings {
+		if f.Fix == nil {
+			continue
+		}
+		fixes++
+		if rep := strings.TrimSpace(f.Fix.Replacement); rep != "42" {
+			t.Errorf("expected replacement %q, got %q", "42", rep)
+		}
+	}
+	if fixes != 1 {
+		t.Errorf("expected only the outermost pair to carry a fix, got %d fixes", fixes)
 	}
 }
 
@@ -67,4 +81,43 @@ fun caller() {
     take({ 42 })
 }
 `)
+}
+
+// TestUnnecessaryParentheses_FollowsOperatorPrecedenceLikeDetekt covers the operand positions detekt decides by precedence.
+func TestUnnecessaryParentheses_FollowsOperatorPrecedenceLikeDetekt(t *testing.T) {
+	findings := runRuleByName(t, "UnnecessaryParentheses", `package test
+fun f(a: Int, b: Int, c: Boolean, d: Boolean, n: Int?) {
+    val keep1 = (a + b) * 2
+    val keep2 = a - (b - 1)
+    val keep3 = (c || d) && c
+    val keep4 = a ?: (b ?: 1)
+    val drop1 = a + (b * 2)
+    val drop2 = (a > b) == c
+    val drop3 = (a + b) > 3
+    val drop4 = (n?.plus(1)) ?: 0
+    val drop5 = c && (d && c)
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	want := []int{7, 8, 9, 10, 11}
+	if len(lines) != len(want) {
+		t.Fatalf("expected findings on lines %v, got %v", want, lines)
+	}
+	got := map[int]bool{}
+	for _, l := range lines {
+		got[l] = true
+	}
+	for _, l := range want {
+		if !got[l] {
+			t.Errorf("missing finding on line %d (got %v)", l, lines)
+		}
+	}
+	for _, f := range findings {
+		if !strings.HasPrefix(f.Message, "Parentheses in (") || !strings.Contains(f.Message, " are unnecessary and can be replaced with: ") {
+			t.Errorf("unexpected message %q", f.Message)
+		}
+	}
 }

@@ -1,10 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Divergence (recall): uses of android.util.FloatMath that Go misses, each a
-// true positive FIR resolves. Go reports a navigation expression only when its
-// receiver is the bare identifier `FloatMath`, so it misses:
-// - a fully qualified receiver (`android.util.FloatMath.sqrt(x)`), whose first
-//   child is itself a navigation expression;
+// go-lines: 17, 29
+// Divergence (recall): uses of android.util.FloatMath that Go mostly misses,
+// each a true positive FIR resolves. Go reports a navigation expression whose
+// receiver is `FloatMath` or the qualified `android.util.FloatMath` (go-lines
+// 18 and 30), so it misses:
 // - an import alias (`FM.sqrt(x)`) or a typealias (`Fm.sqrt(x)`);
 // - a statically imported member (`sqrt(x)`), which has no receiver at all;
 // - a callable reference (`FloatMath::sqrt`), which is not a navigation

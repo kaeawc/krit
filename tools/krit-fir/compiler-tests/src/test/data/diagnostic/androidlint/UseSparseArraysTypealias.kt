@@ -9,9 +9,9 @@ package test
 typealias IntMap<V> = HashMap<Int, V>
 typealias JMap<K, V> = java.util.HashMap<K, V>
 
-fun intMap(): Map<Int, String> = <!UseSparseArrays!>IntMap<String>()<!>
+fun intMap(): HashMap<Int, String> = <!UseSparseArrays!>IntMap<String>()<!>
 
-fun jMap(): Map<Int, String> = <!UseSparseArrays!>JMap<Int, String>()<!>
+fun jMap(): HashMap<Int, String> = <!UseSparseArrays!>JMap<Int, String>()<!>
 
 // An alias whose key is not Int or Long is reported by neither.
 typealias NameMap<V> = HashMap<String, V>

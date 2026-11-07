@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <permission android:name="com.example.SHARE" android:protectionLevel="signatureOrSystem" />
+</manifest>

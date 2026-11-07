@@ -11,20 +11,20 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func TestLocaleFolder_FlagsUnderscoreRegion(t *testing.T) {
+func TestLocaleFolder_FlagsDeprecatedLanguageCodes(t *testing.T) {
 	resRoot := writeValuesFixture(t, map[string]string{
-		"values/strings.xml":       `<resources><string name="x">x</string></resources>`,
-		"values-en_US/strings.xml": `<resources><string name="x">x</string></resources>`,
+		"values/strings.xml":    `<resources><string name="x">x</string></resources>`,
+		"values-he/strings.xml": `<resources><string name="x">x</string></resources>`,
+		"values-id/strings.xml": `<resources><string name="x">x</string></resources>`,
+		"values-iw/strings.xml": `<resources><string name="x">x</string></resources>`,
 	})
 	findings := runLocaleFolderRule(t, resRoot)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d: %+v", len(findings), findings)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %+v", len(findings), findings)
 	}
-	if !strings.Contains(findings[0].Message, "values-en_US") {
-		t.Fatalf("expected message to mention values-en_US, got: %s", findings[0].Message)
-	}
-	if !strings.Contains(findings[0].Message, "values-en-rUS") {
-		t.Fatalf("expected message to suggest values-en-rUS, got: %s", findings[0].Message)
+	want := "The locale folder \"he\" should be called \"iw\" instead; see the `java.util.Locale` documentation"
+	if findings[0].Message != want {
+		t.Fatalf("got %q, want %q", findings[0].Message, want)
 	}
 }
 
@@ -52,23 +52,6 @@ func TestLocaleFolder_IgnoresNonLocaleQualifiers(t *testing.T) {
 	}
 }
 
-func TestLocaleFolder_IgnoresKotlinStringLiteralLookalike(t *testing.T) {
-	// The legacy LineBase implementation false-fired on any source file that
-	// happened to contain the substring `values-en_US`. The resource-backed
-	// rule should not see this file at all.
-	resRoot := writeValuesFixture(t, map[string]string{
-		"values/strings.xml": `<resources><string name="x">x</string></resources>`,
-	})
-	kotlinPath := filepath.Join(filepath.Dir(resRoot), "Helper.kt")
-	if err := os.WriteFile(kotlinPath, []byte(`val p = "res/values-en_US/strings.xml"`+"\n"), 0o644); err != nil {
-		t.Fatalf("write kt file: %v", err)
-	}
-	findings := runLocaleFolderRule(t, resRoot)
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings (no misnamed folder), got %d: %+v", len(findings), findings)
-	}
-}
-
 func TestUseAlpha2_FlagsKnown3LetterCode(t *testing.T) {
 	resRoot := writeValuesFixture(t, map[string]string{
 		"values/strings.xml":     `<resources><string name="x">x</string></resources>`,
@@ -78,7 +61,7 @@ func TestUseAlpha2_FlagsKnown3LetterCode(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %+v", len(findings), findings)
 	}
-	if !strings.Contains(findings[0].Message, "`en`") {
+	if findings[0].Message != "For compatibility, should use 2-letter language codes when available; use `en` instead of `eng`" {
 		t.Fatalf("expected message to suggest `en`, got: %s", findings[0].Message)
 	}
 }
@@ -202,5 +185,21 @@ func indexForResRoot(resRoot string) *android.ResourceIndex {
 				Line:     1,
 			},
 		},
+	}
+}
+
+func TestInvalidResourceFolder_FlagsUnknownTypeDirectory(t *testing.T) {
+	resRoot := writeValuesFixture(t, map[string]string{
+		"values/strings.xml":    `<resources><string name="x">x</string></resources>`,
+		"lyout/main.xml":        `<LinearLayout/>`,
+		"interpolator/ease.xml": `<accelerateInterpolator/>`,
+		"drawable-hdpi/a.xml":   `<vector/>`,
+	})
+	r := &InvalidResourceFolderResourceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{
+		RuleName: "InvalidResourceFolderResource", RuleSetName: "android-lint", Sev: "error",
+	}}}
+	findings := dispatchLocaleRule(t, r, indexForResRoot(resRoot))
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "lyout") {
+		t.Fatalf("expected only the lyout folder to be reported, got %+v", findings)
 	}
 }

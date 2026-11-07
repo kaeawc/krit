@@ -73,10 +73,11 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         override val functionCallCheckers = setOf(DefaultLocale)
     }
 
-    private const val CASE_MESSAGE =
-        "Implicitly using the default locale. Use lowercase(Locale) or uppercase(Locale) instead."
+    private fun caseMessage(method: String) =
+        "Implicitly using the default locale is a common source of bugs: Use `$method(Locale)` instead. " +
+            "For strings meant to be internal use `Locale.ROOT`, otherwise `Locale.getDefault()`."
     private const val FORMAT_MESSAGE =
-        "Implicitly using the default locale. Use String.format(Locale, ...) instead."
+        "Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
 
     private val kotlinText = FqName("kotlin.text")
     private val javaString = ClassId(FqName("java.lang"), Name.identifier("String"))
@@ -96,7 +97,7 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         val callableId = callee.callableId ?: return
         val message = when (callee.name) {
             format -> FORMAT_MESSAGE.takeIf { isDefaultLocaleFormat(callee) }
-            in caseNames -> CASE_MESSAGE.takeIf { isDefaultLocaleCaseConversion(callee) }
+            in caseNames -> caseMessage(callee.name.asString()).takeIf { isDefaultLocaleCaseConversion(callee) }
             else -> null
         } ?: return
         // Owner proof: the kotlin.text top-level extension, a java.lang.String

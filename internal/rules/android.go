@@ -19,9 +19,12 @@ package rules
 //   Category.RTL         → android-lint (rtl)
 
 import (
+	"regexp"
 	"strings"
+	"unicode"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // AndroidLintCategory represents the AOSP lint category.
@@ -68,6 +71,9 @@ func (r AndroidRule) Description() string {
 	}
 	return r.Desc
 }
+
+// LintIssueID returns the AOSP issue ID, which @SuppressLint and tools:ignore use.
+func (r AndroidRule) LintIssueID() string { return r.IssueID }
 
 const androidRuleSet = "android-lint"
 
@@ -252,6 +258,10 @@ func (r *HardcodedTextRule) check(ctx *api.Context) {
 	if !hardcodedTextReceiverProven(ctx, idx) {
 		return
 	}
+	// Tests and Compose previews carry sample copy that is never shown to users.
+	if scanner.IsTestFile(file.Path) || hardcodedTextInPreview(file, idx) {
+		return
+	}
 	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatType(child) != "value_argument" {
 			continue
@@ -280,7 +290,11 @@ func (r *HardcodedTextRule) check(ctx *api.Context) {
 		if hardcodedTextStringLiteralIsPureInterpolation(valueText) {
 			continue
 		}
-		ctx.EmitAt(file.FlatRow(idx)+1, 1,
+		// Empty, whitespace and punctuation-only literals have nothing to translate.
+		if !strings.ContainsFunc(valueText, unicode.IsLetter) {
+			continue
+		}
+		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 			"Hardcoded text. Use string resources for localization.")
 		return
 	}
@@ -326,7 +340,7 @@ type WakelockRule struct {
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *WakelockRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *WakelockRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 // SetJavaScriptEnabledRule detects setJavaScriptEnabled(true) calls.
 type SetJavaScriptEnabledRule struct {
@@ -342,32 +356,6 @@ type SetJavaScriptEnabledRule struct {
 // Classified per roadmap/17.
 func (r *SetJavaScriptEnabledRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ExportedServiceRule detects exported services without permission.
-type ExportedServiceRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *ExportedServiceRule) Confidence() float64 { return api.ConfidenceMedium }
-
-func (r *ExportedServiceRule) check(ctx *api.Context) {
-	file, idx := ctx.File, ctx.Idx
-	if !exportedClassExtendsAndroid(file, idx, "Service", "android.app.Service") {
-		return
-	}
-	if exportedPermissionEnforcedInClass(file, idx) {
-		return
-	}
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Service subclass may be exported without permission. Ensure permissions are enforced.")
-}
-
 // PrivateKeyRule detects private key content in source.
 type PrivateKeyRule struct {
 	LineBase
@@ -382,17 +370,35 @@ type PrivateKeyRule struct {
 // Classified per roadmap/17.
 func (r *PrivateKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// privateKeyHeaderRe matches a PEM private key header; the dashes keep prose that merely names the format from matching.
+var privateKeyHeaderRe = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----`)
+
+// pemBodyRe matches a run of base64 as found in a PEM body.
+var pemBodyRe = regexp.MustCompile(`[A-Za-z0-9+/]{60,}`)
+
 func (r *PrivateKeyRule) check(ctx *api.Context) {
 	file := ctx.File
+	// Test sources are not packaged, and tests embed throwaway keys on purpose.
+	if scanner.IsTestFile(file.Path) {
+		return
+	}
 	var st lineScanState
 	for i, line := range file.Lines {
 		scrubbed := stripCommentsKeepStrings(line, &st)
-		if strings.Contains(scrubbed, "BEGIN RSA PRIVATE KEY") ||
-			strings.Contains(scrubbed, "BEGIN PRIVATE KEY") ||
-			strings.Contains(scrubbed, "BEGIN EC PRIVATE KEY") {
-			ctx.Emit(r.Finding(file, i+1, 1,
-				"Private key detected in source code. Remove and use secure key storage."))
+		loc := privateKeyHeaderRe.FindStringIndex(scrubbed)
+		if loc == nil {
+			continue
 		}
+		// A key has a base64 body after the header. Code that only names the header (a PEM parser) has none.
+		rest := scrubbed[loc[1]:]
+		for j := i + 1; j < len(file.Lines) && j <= i+40; j++ {
+			rest += "\n" + file.Lines[j]
+		}
+		if !pemBodyRe.MatchString(rest) {
+			continue
+		}
+		ctx.Emit(r.Finding(file, i+1, strings.Index(line, "PRIVATE KEY")+1,
+			"Private key detected in source code. Remove and use secure key storage."))
 	}
 }
 
@@ -411,8 +417,8 @@ type ObsoleteLayoutParamsRule struct {
 // Classified per roadmap/17.
 func (r *ObsoleteLayoutParamsRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ViewHolderRule detects RecyclerView.Adapter subclasses that do not
-// implement the ViewHolder pattern (missing ViewHolder or onCreateViewHolder).
+// ViewHolderRule detects unconditional layout inflation inside
+// Adapter.getView, which skips recycling the convertView (AOSP "ViewHolder").
 type ViewHolderRule struct {
 	FlatDispatchBase
 	AndroidRule
@@ -425,3 +431,19 @@ type ViewHolderRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *ViewHolderRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// hardcodedTextInPreview reports whether idx sits in a function annotated with a @Preview-style annotation.
+func hardcodedTextInPreview(file *scanner.File, idx uint32) bool {
+	for fn, ok := flatEnclosingFunction(file, idx); ok; fn, ok = flatEnclosingFunction(file, fn) {
+		mods, found := file.FlatFindChild(fn, "modifiers")
+		if !found {
+			continue
+		}
+		for _, w := range strings.Fields(file.FlatNodeText(mods)) {
+			if strings.HasPrefix(w, "@") && strings.Contains(w, "Preview") {
+				return true
+			}
+		}
+	}
+	return false
+}

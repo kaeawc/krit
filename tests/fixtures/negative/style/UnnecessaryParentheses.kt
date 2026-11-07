@@ -9,5 +9,5 @@ fun example(): Int {
 
 fun precedenceNeeded() {
     val a = (2 + 3) * 4
-    val b = (a > 0) && (a < 10)
+    val b = (a > 0 || a < -10) && a < 10
 }

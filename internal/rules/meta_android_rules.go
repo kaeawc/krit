@@ -13,15 +13,6 @@ func (r *ContentDescriptionRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *ExportedServiceRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "ExportedService",
-		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
-	}
-}
-
 func (r *HardcodedTextRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "HardcodedText",

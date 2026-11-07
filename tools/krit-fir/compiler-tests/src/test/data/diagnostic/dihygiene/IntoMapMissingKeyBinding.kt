@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 35, 39, 43
+// go-lines: none
 // The binding annotation: Go accepts any annotation written @Provides... or
 // @Binds..., so a Dagger @IntoMap function with a project annotation named
 // that way is reported by both (the first two functions).

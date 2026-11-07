@@ -16,7 +16,7 @@ class Holder {
 }
 
 class Crypto {
-    fun hash() {
+    fun digest() {
         <!WeakMessageDigest!>MessageDigest.getInstance("MD5")<!>
         <!WeakMessageDigest!>java.security.MessageDigest.getInstance("MD5")<!>
     }

@@ -298,7 +298,7 @@ class OracleDispatchTest {
         // via `--sources …`). Before this fix, comparing an empty
         // request.sourceDirs to the session's real source roots
         // mismatched on every call, triggering a full K2 FIR session
-        // rebuild per request (10-40 s on a 16 k-file repo).
+        // rebuild per request (tens of seconds on a large repo).
         val sessionWithSources = AnalysisSession(listOf("/repo/src/main"), listOf("/lib.jar"))
         val request = CheckRequest(
             id = 1,

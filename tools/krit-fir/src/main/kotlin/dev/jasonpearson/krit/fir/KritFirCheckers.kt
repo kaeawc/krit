@@ -2,11 +2,18 @@ package dev.jasonpearson.krit.fir
 
 import dev.jasonpearson.krit.fir.incremental.CompileRecordingRegistry
 import dev.jasonpearson.krit.fir.incremental.SurfaceFileChecker
+import dev.jasonpearson.krit.fir.oracle.OracleBlockTaintChecker
+import dev.jasonpearson.krit.fir.oracle.OracleCheckNotNullTaintChecker
 import dev.jasonpearson.krit.fir.oracle.OracleClassChecker
+import dev.jasonpearson.krit.fir.oracle.OracleElvisTaintChecker
+import dev.jasonpearson.krit.fir.oracle.OracleEqualityTaintChecker
 import dev.jasonpearson.krit.fir.oracle.OracleExpressionChecker
 import dev.jasonpearson.krit.fir.oracle.OracleFileChecker
 import dev.jasonpearson.krit.fir.oracle.OracleQualifiedAccessChecker
+import dev.jasonpearson.krit.fir.oracle.OracleSafeCallTaintChecker
+import dev.jasonpearson.krit.fir.oracle.OracleShadowedCallTaintChecker
 import dev.jasonpearson.krit.fir.oracle.OracleSmartCastChecker
+import dev.jasonpearson.krit.fir.oracle.OracleTypeOperatorTaintChecker
 import dev.jasonpearson.krit.fir.rules.SmokeChecker
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
@@ -20,9 +27,15 @@ class KritFirCheckers(session: FirSession) : FirAdditionalCheckersExtension(sess
     private val merged = mergeFirRules(
         FirRuleDiscovery.enabled(),
         baseExpressions = listOf(object : ExpressionCheckers() {
-            override val functionCallCheckers = setOf(OracleExpressionChecker)
+            override val functionCallCheckers = setOf(OracleExpressionChecker, OracleShadowedCallTaintChecker)
             override val qualifiedAccessExpressionCheckers = setOf(OracleQualifiedAccessChecker)
             override val smartCastExpressionCheckers = setOf(OracleSmartCastChecker)
+            override val safeCallExpressionCheckers = setOf(OracleSafeCallTaintChecker)
+            override val checkNotNullCallCheckers = setOf(OracleCheckNotNullTaintChecker)
+            override val elvisExpressionCheckers = setOf(OracleElvisTaintChecker)
+            override val typeOperatorCallCheckers = setOf(OracleTypeOperatorTaintChecker)
+            override val equalityOperatorCallCheckers = setOf(OracleEqualityTaintChecker)
+            override val blockCheckers = setOf(OracleBlockTaintChecker)
         }),
         baseDeclarations = listOf(object : DeclarationCheckers() {
             override val classCheckers = setOf(SmokeChecker, OracleClassChecker)

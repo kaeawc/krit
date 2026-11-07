@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 43, 53, 73, 87, 124, 139, 144, 149, 163, 171
+// go-lines: 43, 53, 73, 87, 139, 144, 149, 163
 // Go's evidence, kept as Go reads it. Any enclosing call named `show` counts,
 // up to the nearest named function (not across it), whatever it shows; a
 // receiverless `show()` anywhere in an enclosing `apply` lambda counts; and a

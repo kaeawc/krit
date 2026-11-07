@@ -3,10 +3,12 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -312,4 +314,64 @@ func findTiming(entries []perf.TimingEntry, name string) (perf.TimingEntry, bool
 		}
 	}
 	return perf.TimingEntry{}, false
+}
+
+func TestAttachOracleModules_MapsFilesToTheirGradleProject(t *testing.T) {
+	root := t.TempDir()
+	graph := module.NewModuleGraph(root)
+	graph.Modules[":app"] = &module.Module{Path: ":app", Dir: filepath.Join(root, "app")}
+	graph.Modules[":lib"] = &module.Module{Path: ":lib", Dir: filepath.Join(root, "lib")}
+	resolver := oracle.NewCompositeResolver(oracle.NewFakeOracle(), typeinfer.NewResolver())
+	attachOracleModules(resolver, graph, nil, IndexInput{})
+	diag := func(decl string) oracle.Diagnostic {
+		return oracle.Diagnostic{FactoryName: "UNNECESSARY_SAFE_CALL", SmartCastDecls: []string{filepath.Join(root, decl)}}
+	}
+	use := filepath.Join(root, "app", "src", "test", "kotlin", "UseTest.kt")
+	if !resolver.SmartCastCrossesModules(use, diag("lib/src/main/kotlin/Model.kt")) {
+		t.Fatal("a property of another project must cross modules")
+	}
+	if resolver.SmartCastCrossesModules(use, diag("app/src/main/kotlin/Model.kt")) {
+		t.Fatal("a test source set must see its project's main source set as the same module")
+	}
+	// A later run without a graph clears the mapping: every verdict stands.
+	attachOracleModules(resolver, nil, nil, IndexInput{})
+	if resolver.SmartCastCrossesModules(use, diag("lib/src/main/kotlin/Model.kt")) {
+		t.Fatal("without a module graph no verdict may be dropped")
+	}
+}
+
+func TestAttachOracleModules_PrefersTheExportedGradleModel(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"app", "lib", ".krit/gradle-model"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Settings that include projects through a plugin list none of them.
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte("plugins { id(\"example.projects\") }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := fmt.Sprintf(`{"schema":2,"projects":[{"path":":app","dir":%q,"sourceSets":[]},{"path":":lib","dir":%q,"sourceSets":[]}]}`,
+		filepath.Join(root, "app"), filepath.Join(root, "lib"))
+	if err := os.WriteFile(filepath.Join(root, ".krit", "gradle-model", "all.json"), []byte(model), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := IndexInput{ParseResult: ParseResult{Paths: []string{root}}}
+	graph, err := module.DiscoverModules(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := oracle.NewCompositeResolver(oracle.NewFakeOracle(), typeinfer.NewResolver())
+	attachOracleModules(resolver, graph, (IndexPhase{}).gradleProjectIndex(in), in)
+	d := oracle.Diagnostic{FactoryName: "UNNECESSARY_SAFE_CALL", SmartCastDecls: []string{filepath.Join(root, "lib", "src", "main", "kotlin", "Model.kt")}}
+	if !resolver.SmartCastCrossesModules(filepath.Join(root, "app", "src", "main", "kotlin", "Use.kt"), d) {
+		t.Fatal("the gradle model must place the two files in different projects")
+	}
+	if resolver.SmartCastCrossesModules(filepath.Join(root, "lib", "src", "test", "kotlin", "ModelTest.kt"), d) {
+		t.Fatal("a project's test source set shares its main source set's module")
+	}
+	in.NoGradleModel = true
+	if (IndexPhase{}).gradleProjectIndex(in) != nil {
+		t.Fatal("NoGradleModel must disable model discovery")
+	}
 }

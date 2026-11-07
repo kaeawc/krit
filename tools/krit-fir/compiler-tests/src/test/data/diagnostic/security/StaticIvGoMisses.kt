@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 39, 41
 // Deliberate improvements: each IV below is built from inline literal bytes,
 // so each call is a real finding. Go misses them because it parses the
 // argument's source text: its number parser rejects `-0x10`, `0b1`, `(1)`, a

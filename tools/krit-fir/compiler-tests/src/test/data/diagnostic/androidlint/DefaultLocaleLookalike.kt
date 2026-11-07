@@ -1,9 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 20, 22, 30
-// Local lookalikes. Go reports every call below by name (toLowerCase /
-// toUpperCase on any receiver, format on the receiver text `String`); FIR
-// does not, because each resolves to a project declaration, not to a JDK or
-// stdlib API that uses the default locale.
+// go-lines: 19, 23, 31
+// Local lookalikes. Go reports the zero-argument toLowerCase / toUpperCase calls
+// and `String.format` by name; FIR does not, because each resolves to a project
+// declaration, not to a JDK or stdlib API that uses the default locale. A call
+// with an argument (`name.toUpperCase("!")`) is never the zero-argument
+// default-locale conversion, so Go skips it too.
 package test
 
 class Name(private val value: String) {

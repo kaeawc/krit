@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -66,7 +67,7 @@ func registerComposeColumnRowInScrollable() {
 				if !composeFlatCallContainsCall(file, lambda, "LazyColumn") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Column with verticalScroll should not contain LazyColumn; use a single LazyColumn for the scrollable content.")
 			} else if file.FlatNodeTextEquals(nameNode, "Row") {
 				if !composeFlatNodeMayContain(file, call, composeHorizontalScrollToken) ||
@@ -77,7 +78,7 @@ func registerComposeColumnRowInScrollable() {
 				if !composeFlatCallContainsCall(file, lambda, "LazyRow") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Row with horizontalScroll should not contain LazyRow; use a single LazyRow for the scrollable content.")
 			}
 		},
@@ -105,7 +106,13 @@ func registerComposeDerivedStateMisuse() {
 			if !composeIsDirectStateComparisonFlat(file, body, delegatedReads, stateHolders) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			// A comparison reduces a changing value to fewer distinct values, which is what
+			// derivedStateOf is for. It is redundant only for a Boolean state or a remember keyed on the state.
+			name := composeComparedStateName(file, body, delegatedReads, stateHolders)
+			if name == "" || !composeStateIsBooleanFlat(file, idx, name) && !composeRememberKeyedOnFlat(file, idx, name, delegatedReads) {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"derivedStateOf around a direct state comparison is unnecessary; the state read already drives recomposition.")
 		},
 	})
@@ -118,6 +125,10 @@ func registerComposeLambdaCapturesUnstableState() {
 		NodeTypes: []string{"lambda_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			// Strong skipping remembers lambdas automatically, so the capture is harmless.
+			if composeStrongSkippingEnabled(ctx.LibraryFacts) {
+				return
+			}
 			if !composeIsNamedArgumentLambdaFlat(file, idx, "onClick") {
 				return
 			}
@@ -125,10 +136,15 @@ func registerComposeLambdaCapturesUnstableState() {
 			if itemsLambda == 0 || !composeLambdaBelongsToCallFlat(file, itemsLambda, "items", "itemsIndexed") {
 				return
 			}
+			own := composeLambdaParameterNamesFlat(file, idx)
 			for _, paramName := range composeLambdaParameterNamesFlat(file, itemsLambda) {
+				// An onClick parameter with the same name shadows the item.
+				if slices.Contains(own, paramName) {
+					continue
+				}
 				if composeLambdaReferencesIdentifierFlat(file, idx, paramName) {
 					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"inline Compose callback captures the current lazy item; hoist it behind remember(item) before passing it to onClick.")
+						"inline Compose callback captures lazy item "+paramName+"; hoist it behind remember("+paramName+") before passing it to onClick.")
 					return
 				}
 			}
@@ -137,7 +153,7 @@ func registerComposeLambdaCapturesUnstableState() {
 }
 
 func registerComposeModifierFillAfterSize() {
-	r := &ComposeModifierFillAfterSizeRule{BaseRule: BaseRule{RuleName: "ComposeModifierFillAfterSize", RuleSetName: "compose", Sev: "info", Desc: "Detects Modifier chains where fillMaxWidth/Height/Size follows size(), overriding the explicit size."}}
+	r := &ComposeModifierFillAfterSizeRule{BaseRule: BaseRule{RuleName: "ComposeModifierFillAfterSize", RuleSetName: "compose", Sev: "info", Desc: "Detects Modifier chains where fillMaxWidth/Height/Size follows size(), which makes the fillMax call a no-op."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"call_expression"}, LexicalCalleeNames: []string{"fillMaxHeight", "fillMaxSize", "fillMaxWidth"}, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -150,8 +166,8 @@ func registerComposeModifierFillAfterSize() {
 			if prev == 0 || flatCallExpressionName(file, prev) != "size" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"fillMax* after size() overrides the explicit size on one or both axes; drop the size() or swap the order so fillMax*() is applied first.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+				"fillMax* after size() has no effect because size() already fixes the constraints on those axes; remove one of the two.")
 		},
 	})
 }
@@ -170,28 +186,33 @@ func registerComposeModifierBackgroundAfterClip() {
 			if prev == 0 || flatCallExpressionName(file, prev) != "background" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			// background(color, shape) already clips its own paint to the shape.
+			if _, bgArgs := flatCallExpressionParts(file, prev); bgArgs != 0 &&
+				(flatNamedValueArgument(file, bgArgs, "shape") != 0 || flatPositionalValueArgument(file, bgArgs, 1) != 0) {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"background() applied before clip() paints the un-clipped rectangle; put .clip(...) before .background(...) so the background respects the clip shape.")
 		},
 	})
 }
 
 func registerComposeModifierClickableBeforePadding() {
-	r := &ComposeModifierClickableBeforePaddingRule{BaseRule: BaseRule{RuleName: "ComposeModifierClickableBeforePadding", RuleSetName: "compose", Sev: "warning", Desc: "Detects Modifier chains where clickable is applied before padding, excluding the padding region from the click area."}}
+	r := &ComposeModifierClickableBeforePaddingRule{BaseRule: BaseRule{RuleName: "ComposeModifierClickableBeforePadding", RuleSetName: "compose", Sev: "info", Desc: "Detects Modifier chains where padding is applied before clickable, which leaves the padding outside the click area and ripple."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, LexicalCalleeNames: []string{"padding"}, Confidence: api.ConfidenceMedium, Implementation: r,
+		NodeTypes: []string{"call_expression"}, LexicalCalleeNames: []string{"clickable"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if flatCallExpressionName(file, idx) != "padding" {
+			if flatCallExpressionName(file, idx) != "clickable" {
 				return
 			}
 			prev := composeChainedCallPrev(file, idx)
-			if prev == 0 || flatCallExpressionName(file, prev) != "clickable" {
+			if prev == 0 || flatCallExpressionName(file, prev) != "padding" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"clickable { } before padding() makes the click area exclude the padding region; put .padding(...) first so the click hit test covers the padded bounds.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+				"padding() before clickable { } keeps the padding outside the click area and ripple; put .clickable(...) first if the padded bounds should be tappable.")
 		},
 	})
 }
@@ -217,7 +238,7 @@ func registerComposePreviewAnnotationMissing() {
 			if !strings.HasSuffix(name, "Preview") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 				"@Composable function named "+name+" is missing @Preview; add @Preview so Android Studio renders it in the preview pane.")
 		},
 	})
@@ -283,7 +304,7 @@ func registerComposeStringResourceInsideLambda() {
 			if len(label) < 3 || label[0] != 'o' || label[1] != 'n' || label[2] < 'A' || label[2] > 'Z' {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"stringResource() is composition-only and will crash when invoked from a "+label+" callback; hoist the resource lookup above the lambda.")
 		},
 	})
@@ -307,9 +328,80 @@ func registerComposeRememberWithoutKey() {
 			if lambda == 0 {
 				return
 			}
-			paramName, ok := composeLambdaReferencesEnclosingParam(file, lambda)
-			if !ok {
+			names, fn := composeLambdaReferencedParams(file, lambda)
+			if fn == 0 || !flatHasAnnotationNamed(file, fn, "Composable") || composeKeyRuleExemptFunction(file, fn) {
 				return
+			}
+			// A local computed from a parameter goes stale with it, so it counts as a captured value too.
+			derived := map[string]struct{}{}
+			if paramNames := flatFunctionParameterNames(file, fn); len(paramNames) > 0 {
+				paramSet := make(map[string]struct{}, len(paramNames))
+				for _, n := range paramNames {
+					paramSet[n] = struct{}{}
+				}
+				derived = composeLocalsDerivedFromParams(file, fn, lambda, paramSet)
+				if len(derived) > 0 {
+					all := make(map[string]struct{}, len(paramSet)+len(derived))
+					for n := range paramSet {
+						all[n] = struct{}{}
+					}
+					for n := range derived {
+						all[n] = struct{}{}
+					}
+					names = composeLambdaReferencedNames(file, lambda, all)
+				}
+			}
+			// A state-seeding factory copies the parameter into local state on purpose.
+			if composeSeedsMutableState(file, lambda) {
+				return
+			}
+			if composeRememberDocumentedFirstCapture(file, idx, lambda) {
+				return
+			}
+			if composeRememberIsUnkeyedFallbackArm(file, idx) {
+				return
+			}
+			keyed := composeEnclosingKeyBlockParams(file, idx)
+			variable := composeRememberedVariableName(file, idx)
+			reported := map[string]bool{}
+			// A factory parameter does not trigger a report alone, but it is a captured name the key list must keep.
+			factories := map[string]bool{}
+			paramTypes := composeParamTypeTexts(file, fn)
+			for _, name := range names {
+				if strings.HasPrefix(name, "initial") || strings.HasPrefix(name, "default") {
+					continue
+				}
+				if keyed[name] || composeParamIsStableNavigator(paramTypes[name]) {
+					continue
+				}
+				if composeParamReadOnlyInTrackingBlock(file, lambda, name, paramTypes[name]) {
+					continue
+				}
+				if composeResyncsStateFromParam(file, fn, lambda, variable, name) {
+					continue
+				}
+				// An invoke-only factory lambda builds a one-shot holder; keying on it would rebuild the object.
+				if composeParamIsInvokeOnlyFactory(file, lambda, name, paramTypes[name]) {
+					continue
+				}
+				if composeParamIsInjectedFactory(file, lambda, name, paramTypes[name]) {
+					factories[name] = true
+					continue
+				}
+				reported[name] = true
+			}
+			if len(reported) == 0 {
+				return
+			}
+			var captured []string
+			noun := "parameter"
+			for _, name := range names {
+				if reported[name] || factories[name] {
+					captured = append(captured, name)
+					if _, isDerived := derived[name]; isDerived {
+						noun = "value"
+					}
+				}
 			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
 			var oracleLookup oracle.Lookup
@@ -319,8 +411,8 @@ func registerComposeRememberWithoutKey() {
 			if !composeRememberOracleConfirmed(oracleLookup, file, idx) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"remember { } reads enclosing parameter "+paramName+" but has no keys; the cached value won't update when "+paramName+" changes. Pass remember("+paramName+") { ... }.")
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+				"remember { } reads enclosing "+composeNounPlural(noun, len(captured))+" "+composeNameList(captured)+" but has no keys; the cached value won't update when "+composeChangeVerb(captured)+". Pass remember("+composeNameList(captured)+") { ... }.")
 		},
 	})
 }
@@ -370,14 +462,33 @@ func registerComposeLaunchedEffectWithoutKeys() {
 					return
 				}
 			}
-			paramName, ok := composeLambdaReferencesEnclosingParam(file, lambda)
-			if !ok {
+			if fn, ok := flatEnclosingFunction(file, idx); ok && composeKeyRuleExemptFunction(file, fn) {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"LaunchedEffect body reads enclosing parameter "+paramName+" but is keyed only on constants; the effect won't re-run when "+paramName+" changes. Pass LaunchedEffect("+paramName+") { ... }.")
+			// One-shot effects and callback reads are intentional with constant keys.
+			if composeLambdaHasOnceOnlyShape(file, lambda) || composeEffectDocumentedOneShot(file, idx) {
+				return
+			}
+			// A receiver-only parameter alone is not reported, but once one is, the fix keys on every captured parameter.
+			if len(composeLambdaReadsDataParams(file, lambda, false)) == 0 {
+				return
+			}
+			params := composeLambdaReadsDataParams(file, lambda, true)
+			list := strings.Join(params, ", ")
+			noun := "parameter "
+			verb := " changes"
+			if len(params) > 1 {
+				noun, verb = "parameters ", " change"
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+				"LaunchedEffect body reads enclosing "+noun+list+" but is keyed only on constants; the effect won't re-run when "+list+verb+". Pass LaunchedEffect("+list+") { ... }.")
 		},
 	})
+}
+
+var composeMutableStateFactories = map[string]bool{
+	"mutableStateOf": true, "mutableIntStateOf": true, "mutableLongStateOf": true, "mutableFloatStateOf": true,
+	"mutableDoubleStateOf": true, "mutableStateListOf": true, "mutableStateMapOf": true,
 }
 
 func registerComposeMutableStateInComposition() {
@@ -406,11 +517,16 @@ func registerComposeMutableStateInComposition() {
 				if file.FlatType(child) != "call_expression" {
 					continue
 				}
-				if flatCallExpressionName(file, child) != "mutableStateOf" {
+				callee := flatCallExpressionName(file, child)
+				if !composeMutableStateFactories[callee] {
+					return
+				}
+				// A callback or effect body runs outside composition.
+				if composeRefInDeferredLambda(file, fn, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
-					"mutableStateOf() as a plain local in a @Composable creates a fresh state on every recomposition; wrap it in remember { mutableStateOf(...) } or use `by remember { mutableStateOf(...) }`.")
+					callee+"() as a plain local in a @Composable creates a fresh state on every recomposition; wrap it in remember { "+callee+"(...) } or use `by remember { "+callee+"(...) }`.")
 				return
 			}
 		},
@@ -453,8 +569,7 @@ func registerComposeStatefulDefaultParameter() {
 				if name == "" {
 					continue
 				}
-				first := name[0]
-				if first < 'A' || first > 'Z' {
+				if !composeIsStateHolderTypeFlat(file, name) {
 					continue
 				}
 				ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
@@ -523,10 +638,16 @@ func registerComposeDisposableEffectMissingDispose() {
 			if last == 0 {
 				return
 			}
+			// `return@DisposableEffect onDispose { }` ends the block the same way.
+			if file.FlatType(last) == "jump_expression" {
+				if v := file.FlatNamedChild(last, file.FlatNamedChildCount(last)-1); v != 0 && file.FlatType(v) == "call_expression" {
+					last = v
+				}
+			}
 			if file.FlatType(last) == "call_expression" && flatCallNameAny(file, last) == "onDispose" {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"DisposableEffect body must end with onDispose { ... }; without it the resource registered in the block leaks when the composable leaves composition.")
 		},
 	})
@@ -613,26 +734,53 @@ func registerComposeSideEffectInComposition() {
 			if !composeFileHasRuntimeComposableEvidence(file) {
 				return
 			}
+			// Test doubles and test sources are not production composition.
+			if composeIsTestSourceOrFake(file, fn) {
+				return
+			}
 			if !composeAssignmentIsDirectFunctionBodyStatement(file, idx, fn) {
+				return
+			}
+			if composeAssignmentInitializesFreshRememberedState(file, idx, fn) {
+				return
+			}
+			if composeAssignmentTargetsPlainLocal(file, idx, fn) {
 				return
 			}
 			if composeAssignmentIsMutableTransitionTargetState(file, idx, fn) {
 				return
 			}
-			if composeAssignmentSynchronizesRememberedObject(file, idx, fn) {
+			// Writing state after reading it in the same composition is still a side effect.
+			afterRead := composeAssignmentIsStateWriteAfterRead(file, idx, fn)
+			if !afterRead && composeAssignmentSynchronizesRememberedObject(file, idx, fn) {
 				return
 			}
 			if composeAssignmentCapturesComposableParameter(file, idx, fn) {
 				return
 			}
+			if composeAssignmentDocumentedIdempotent(file, idx) {
+				return
+			}
 			if composeAssignmentRHSIsRememberOrAnimateCall(file, idx) {
 				return
 			}
-			if composeAssignmentUpdatesMutableStateValue(file, idx, fn) {
+			if !afterRead && composeAssignmentUpdatesMutableStateValue(file, idx, fn) {
 				return
 			}
+			subject := "assignment"
+			if lhs, _, ok := composeAssignmentTextParts(file, idx); ok {
+				lhs = strings.TrimSpace(lhs)
+				switch {
+				case strings.Contains(lhs, ".current"):
+					subject = "state write through a CompositionLocal (`" + lhs + "`)"
+				case strings.HasSuffix(lhs, ".value"):
+					subject = "MutableState write (`" + lhs + "`)"
+				case strings.HasSuffix(lhs, "]"):
+					subject = "state map write (`" + lhs + "`)"
+				}
+			}
 			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"assignment inside a @Composable function body runs on every recomposition; wrap the mutation in LaunchedEffect / SideEffect / DisposableEffect so it only runs when intended.")
+				subject+" inside a @Composable function body runs on every recomposition; wrap the mutation in LaunchedEffect / SideEffect / DisposableEffect so it only runs when intended.")
 		},
 	})
 }
@@ -648,6 +796,10 @@ func registerComposeUnstableParameter() {
 				return
 			}
 			if composeUnstableParameterShouldSkipFunctionFlat(file, idx) {
+				return
+			}
+			// Strong skipping makes unstable parameters skippable, and only Unit-returning restartable composables skip at all.
+			if composeStrongSkippingEnabled(ctx.LibraryFacts) || !composeIsSkippableRestartableFlat(file, idx) {
 				return
 			}
 			params, _ := file.FlatFindChild(idx, "function_value_parameters")
@@ -737,7 +889,7 @@ func registerComposeRememberSaveableNonParcelable() {
 			if _, safe := composeSaverSafeBuiltins[name]; safe {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"rememberSaveable { "+name+"() } with no `saver`/`stateSaver` falls back to AutoSaver, which only handles primitives and Parcelable/Serializable. If "+name+" isn't @Parcelize, pass an explicit saver; otherwise suppress this warning.")
 		},
 	})

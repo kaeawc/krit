@@ -35,9 +35,13 @@ func (r *KotlinVersionMismatchAcrossModulesRule) check(ctx *api.Context) {
 	if len(modules) < 2 {
 		return
 	}
-	majority := majorityKotlinJvmTarget(modules)
+	majority, strict := majorityKotlinJvmTarget(modules)
 	if majority == 0 {
 		return
+	}
+	baseline := "the project majority is"
+	if !strict {
+		baseline = "no target has a majority, so the highest target is"
 	}
 	summary := formatModuleKotlinJvmTargets(modules)
 	for _, mod := range modules {
@@ -51,7 +55,7 @@ func (r *KotlinVersionMismatchAcrossModulesRule) check(ctx *api.Context) {
 			RuleSet:    r.RuleSetName,
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
-			Message:    fmt.Sprintf("Module %s uses Kotlin JVM target %d, but the project majority is %d. Align Kotlin JVM targets across modules. Project values: %s.", mod.modulePath, mod.value, majority, summary),
+			Message:    fmt.Sprintf("Module %s uses Kotlin JVM target %d, but %s %d. Align Kotlin JVM targets across modules. Project values: %s.", mod.modulePath, mod.value, baseline, majority, summary),
 			Confidence: r.Confidence(),
 		})
 	}
@@ -132,21 +136,29 @@ func primaryKotlinJvmTarget(targets gradleJvmTargets) (value, line int, ok bool)
 	return 0, 0, false
 }
 
-func majorityKotlinJvmTarget(modules []moduleKotlinJvmTarget) int {
+// majorityKotlinJvmTarget returns the most common target and whether it has a
+// strict majority. On a tie it returns the highest tied target.
+func majorityKotlinJvmTarget(modules []moduleKotlinJvmTarget) (value int, strict bool) {
 	counts := map[int]int{}
 	for _, mod := range modules {
 		counts[mod.value]++
 	}
-	bestValue, bestCount := 0, 0
+	if len(counts) < 2 {
+		return 0, false
+	}
+	bestValue, bestCount, tied := 0, 0, false
 	for value, count := range counts {
-		if count > bestCount || (count == bestCount && (bestValue == 0 || value < bestValue)) {
-			bestValue, bestCount = value, count
+		switch {
+		case count > bestCount:
+			bestValue, bestCount, tied = value, count, false
+		case count == bestCount:
+			tied = true
+			if value > bestValue {
+				bestValue = value
+			}
 		}
 	}
-	if len(counts) < 2 {
-		return 0
-	}
-	return bestValue
+	return bestValue, !tied
 }
 
 func formatModuleKotlinJvmTargets(modules []moduleKotlinJvmTarget) string {
@@ -220,8 +232,8 @@ func gradleJvmTargetSummary(values, toolchain []gradleJvmTargetValue) string {
 }
 
 var (
-	gradleJvmTargetAssignRe      = regexp.MustCompile(`\bjvmTarget\b\s*(?:=|\()\s*["']?([^"')\s]+)`)
-	gradleJavaCompatibilityRe    = regexp.MustCompile(`\b(?:sourceCompatibility|targetCompatibility)\b\s*(?:=|\()\s*([^)\s;]+)`)
+	gradleJvmTargetAssignRe      = regexp.MustCompile(`\bjvmTarget\b\s*(?:=|\(|\.set\()\s*["']?([^"')\s]+)`)
+	gradleJavaCompatibilityRe    = regexp.MustCompile(`\b(?:sourceCompatibility|targetCompatibility)\b(?:\s*(?:=|\()\s*|\s+)([^)\s;]+)`)
 	gradleJvmToolchainCallRe     = regexp.MustCompile(`\bjvmToolchain\s*\(\s*(\d+)\s*\)`)
 	gradleJvmToolchainLanguageRe = regexp.MustCompile(`\blanguageVersion\b\s*=\s*JavaLanguageVersion\.of\(\s*(\d+)\s*\)`)
 	gradlePluginIDCallRe         = regexp.MustCompile(`\bid\s*\(\s*["']([^"']+)["']\s*\)`)
@@ -267,6 +279,8 @@ func collectGradleJvmTargets(content string) gradleJvmTargets {
 func normalizeJvmTargetVersion(raw string) (int, bool) {
 	value := strings.Trim(strings.TrimSpace(raw), `"'`)
 	value = strings.TrimPrefix(value, "JavaVersion.")
+	value = strings.TrimPrefix(value, "JvmTarget.")
+	value = strings.TrimPrefix(value, "JVM_")
 	value = strings.TrimPrefix(value, "VERSION_")
 	value = strings.TrimPrefix(value, "VERSION_1_")
 	if value == "1.8" || value == "8" {

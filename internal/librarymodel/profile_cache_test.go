@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/buildid"
 )
 
 func TestProjectProfileCache_HitAndGradleInvalidation(t *testing.T) {
@@ -69,5 +71,27 @@ room-runtime = { module = "androidx.room:room-runtime", version = "2.7.0" }
 `)
 	if _, ok := LoadProjectProfileCache(cacheDir, []string{buildPath}); ok {
 		t.Fatal("expected cache miss after new ancestor version catalog appears")
+	}
+}
+
+func TestProjectProfileCache_MissesAcrossBuilds(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := ProjectProfileCacheDir(root)
+	buildPath := filepath.Join(root, "app", "build.gradle.kts")
+	if err := os.MkdirAll(filepath.Dir(buildPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, buildPath, "android {\n    compileSdk = 35\n}\n")
+
+	buildid.OverrideTokenForTest(t, "rev:build-a")
+	if err := SaveProjectProfileCache(cacheDir, []string{buildPath}, ProfileFromGradlePaths([]string{buildPath})); err != nil {
+		t.Fatalf("SaveProjectProfileCache: %v", err)
+	}
+	if _, ok := LoadProjectProfileCache(cacheDir, []string{buildPath}); !ok {
+		t.Fatal("same build must hit")
+	}
+	buildid.OverrideTokenForTest(t, "rev:build-b")
+	if _, ok := LoadProjectProfileCache(cacheDir, []string{buildPath}); ok {
+		t.Fatal("a profile written by another build must miss: the Gradle parsing code may have changed")
 	}
 }

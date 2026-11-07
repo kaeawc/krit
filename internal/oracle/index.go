@@ -218,7 +218,7 @@ func (idx *Index) ingestFile(path string, file *File) {
 		if et == nil {
 			continue
 		}
-		key, ok := parseLineCol(pos)
+		key, _, ok := parseExpressionKey(pos)
 		if !ok {
 			continue
 		}

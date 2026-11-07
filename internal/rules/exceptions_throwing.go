@@ -72,35 +72,6 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[s
 	return r.allowlist
 }
 
-func throwingExceptionArgCountFlat(file *scanner.File, idx uint32) int {
-	if !experiment.Enabled("exceptions-throw-fastpath") {
-		callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
-		if callSuffix == 0 {
-			return -1
-		}
-		valueArgs, _ := file.FlatFindChild(callSuffix, "value_arguments")
-		if valueArgs == 0 {
-			return -1
-		}
-		argCount := 0
-		for i := 0; i < file.FlatChildCount(valueArgs); i++ {
-			if file.FlatType(file.FlatChild(valueArgs, i)) == "value_argument" {
-				argCount++
-			}
-		}
-		return argCount
-	}
-	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
-	if callSuffix == 0 {
-		return -1
-	}
-	argList, _ := file.FlatFindChild(callSuffix, "value_arguments")
-	if argList == 0 {
-		return -1
-	}
-	return file.FlatNamedChildCount(argList)
-}
-
 // ThrowingNewInstanceOfSameExceptionRule detects catch(e: X) { throw X(e) }.
 type ThrowingNewInstanceOfSameExceptionRule struct {
 	FlatDispatchBase
@@ -240,8 +211,7 @@ var throwableBaseTypes = []string{"Throwable", "Exception", "Error", "RuntimeExc
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {
 	file.FlatWalkNodes(idx, "jump_expression", func(n uint32) {
-		text := file.FlatNodeText(n)
-		if strings.HasPrefix(text, "throw ") || text == "throw" {
+		if first := file.FlatFirstChild(n); first != 0 && file.FlatType(first) == "throw" {
 			fn(n)
 		}
 	})
@@ -319,6 +289,25 @@ func throwTargetArgUsageFlat(file *scanner.File, target uint32, varName string) 
 	return argCount, hasVar
 }
 
+// throwTargetHasExtraArgumentFlat reports a constructor argument that is neither the caught variable nor a member of it.
+func throwTargetHasExtraArgumentFlat(file *scanner.File, target uint32, varName string) bool {
+	args := throwTargetArgsFlat(file, target)
+	if args == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		text := strings.TrimSpace(file.FlatNodeText(child))
+		text = strings.TrimSpace(text[strings.LastIndex(text, "=")+1:])
+		if varName == "" || (text != varName && !strings.HasPrefix(text, varName+".") && !strings.HasPrefix(text, varName+"?.")) {
+			return true
+		}
+	}
+	return false
+}
+
 func throwTargetArgsFlat(file *scanner.File, target uint32) uint32 {
 	switch file.FlatType(target) {
 	case "call_expression":
@@ -372,6 +361,32 @@ func hasLaterCatchSibling(file *scanner.File, catchNode uint32) bool {
 	for sib := file.FlatNextSib(catchNode); sib != 0; sib = file.FlatNextSib(sib) {
 		if file.FlatType(sib) == kind {
 			return true
+		}
+	}
+	return false
+}
+
+// jumpLeavesOnlyNestedScope reports a return or throw inside idx that stays within a declaration nested in
+// the finally block, such as a local function, anonymous function or object member. A return labeled
+// with the name of the lambda call (`return@forEach`) also only leaves that lambda.
+func jumpLeavesOnlyNestedScope(file *scanner.File, jump, boundary uint32) bool {
+	label := ""
+	if text := file.FlatNodeText(jump); strings.HasPrefix(text, "return@") {
+		label = text[len("return@"):]
+		end := 0
+		for end < len(label) && (label[end] == '_' || label[end] >= '0' && label[end] <= '9' || label[end] >= 'a' && label[end] <= 'z' || label[end] >= 'A' && label[end] <= 'Z') {
+			end++
+		}
+		label = label[:end]
+	}
+	for p, ok := file.FlatParent(jump); ok && p != boundary; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "anonymous_function", "class_body", "object_literal", "secondary_constructor", "method_declaration", "lambda_expression":
+			return true
+		case "lambda_literal":
+			if label != "" && lambdaCalleeNameForNestingFlat(file, p) == label {
+				return true
+			}
 		}
 	}
 	return false

@@ -1,8 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 21, 25, 29, 34, 40, 47, 54, 58, 62, 66, 71, 77, 80, 83, 87, 92, 97, 106, 112, 305, 311
+// go-lines: 19, 24, 28, 32, 37, 43, 50, 57, 69, 74, 80, 83, 90, 95, 100, 109, 115
 // SharedPreferences.edit() calls whose Editor is never committed or applied,
 // the shape the Go rule reports, in every kind of function container, and the
-// finalized forms Go leaves alone.
+// finalized forms Go leaves alone. Go also leaves alone an Editor that escapes
+// the function (returned, passed on, or stored by a getter or a nested class's
+// init block or constructor call); the checker still reports those, so go-lines
+// omits them.
 package test
 
 import android.content.SharedPreferences
@@ -295,9 +298,9 @@ class HeaderHolder(prefs: SharedPreferences) : EditorHolder(prefs.edit())
 
 class HeaderDefault(prefs: SharedPreferences, val editor: SharedPreferences.Editor = prefs.edit())
 
-// Inside a function, Go reports an edit call in a nested class's init block or
-// secondary constructor like any other in the function, and so does the
-// checker.
+// Inside a function, the checker reports an edit call in a nested class's init
+// block or secondary constructor like any other in the function. Go skips it:
+// the Editor is held by the class or passed to its super constructor.
 fun localInitHeld(prefs: SharedPreferences): Any = object {
     private val editor: SharedPreferences.Editor
 

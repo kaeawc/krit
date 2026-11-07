@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -79,6 +80,7 @@ func (r *FanInFanOutHotspotRule) Confidence() float64 { return api.ConfidenceMed
 func (r *FanInFanOutHotspotRule) check(ctx *api.Context) {
 	index := ctx.CodeIndex
 	stats := index.ClassLikeFanInStats(r.IgnoreCommentReferences)
+	filesByPath := deadCodeFilesByPath(index.Files)
 	for _, stat := range stats {
 		if stat.FanIn < r.AllowedFanIn {
 			break
@@ -97,10 +99,11 @@ func (r *FanInFanOutHotspotRule) check(ctx *api.Context) {
 		}
 		msg += "; consider splitting responsibilities or narrowing its API surface."
 
+		line, col := symbolAnchor(filesByPath[stat.Symbol.File], stat.Symbol)
 		ctx.Emit(scanner.Finding{
 			File:     stat.Symbol.File,
-			Line:     stat.Symbol.Line,
-			Col:      1,
+			Line:     line,
+			Col:      col,
 			RuleSet:  r.RuleSetName,
 			Rule:     r.RuleName,
 			Severity: r.Sev,
@@ -109,8 +112,15 @@ func (r *FanInFanOutHotspotRule) check(ctx *api.Context) {
 	}
 }
 
+// formatFanInExamples names the referencing files by base name, so the message (and the baseline ID built from
+// it) does not depend on the checkout location.
 func formatFanInExamples(files []string) string {
 	const maxExamples = 3
+	names := make([]string, len(files))
+	for i, f := range files {
+		names[i] = filepath.Base(f)
+	}
+	files = names
 	if len(files) <= maxExamples {
 		return "referenced by " + strings.Join(files, ", ")
 	}

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 42, 46, 71
+// go-lines: 43, 72
 // Anonymous functions (`fun() { }`) around the edit call or the finalizing
 // call. Go's enclosing-call walk and its later-call search cross anonymous
 // functions and lambdas alike, and so do the checker's.
@@ -35,9 +35,10 @@ class Anonymous(private val prefs: SharedPreferences) {
     }
 
     // An anonymous function passed to a scope function runs at once, like a
-    // lambda, and applies or commits the Editor it receives. Go reports both
-    // calls (the finalizing call has an argument, so it is not Go's
-    // finalizing shape); the message is false, so the checker does not.
+    // lambda, and applies or commits the Editor it receives. Go reports the
+    // `also` form (the finalizing call has an argument, so it is not Go's
+    // finalizing shape) and skips the `with` form; the message is false of
+    // both, so the checker reports neither.
     fun alsoAnonymous() {
         prefs.edit().putString("k", "v").also(fun(e: SharedPreferences.Editor) { e.apply() })
     }

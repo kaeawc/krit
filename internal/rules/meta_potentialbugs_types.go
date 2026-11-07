@@ -61,6 +61,13 @@ func (r *ElseCaseInsteadOfExhaustiveWhenRule) Meta() api.RuleDescriptor {
 		ID:            "ElseCaseInsteadOfExhaustiveWhen",
 		RuleSet:       "potential-bugs",
 		DefaultActive: true,
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ElseCaseInsteadOfExhaustiveWhenRule]{
+				Name:        "ignoredSubjectTypes",
+				Description: "Fully qualified subject types whose when expressions may keep an else branch.",
+				Apply:       func(r *ElseCaseInsteadOfExhaustiveWhenRule, v []string) { r.IgnoredSubjectTypes = v },
+			}),
+		},
 	}
 }
 

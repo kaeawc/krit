@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -29,7 +30,11 @@ func registerStyleUnnecessaryRules() {
 				if suffix == 0 {
 					return
 				}
-				_, _, stmts := flatTrailingLambdaParts(file, suffix)
+				// Explicit type arguments (`map<A, B> { it }`) change the result type, so the call is not a no-op.
+				if file.FlatHasChildOfType(suffix, "type_arguments") {
+					return
+				}
+				_, params, stmts := flatTrailingLambdaParts(file, suffix)
 				if stmts == 0 {
 					return
 				}
@@ -37,11 +42,23 @@ func registerStyleUnnecessaryRules() {
 					return
 				}
 				stmt := file.FlatNamedChild(stmts, 0)
-				if stmt == 0 || !file.FlatNodeTextEquals(stmt, "it") {
+				// The lambda returns its only parameter: the implicit `it` or one that is named.
+				paramName := "it"
+				if params != 0 {
+					paramName = strings.TrimSpace(file.FlatNodeText(params))
+					if strings.ContainsAny(paramName, ",:()") {
+						return
+					}
+				}
+				if stmt == 0 || !file.FlatNodeTextEquals(stmt, paramName) {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Redundant '.map { it }' \u2014 this is a no-op.")
+				// On a Set, Map.values, or other Iterable, map { it } converts to a List, so only List receivers are redundant.
+				if !mapReceiverIsKnownList(file, idx, file.FlatNamedChild(navExpr, 0)) {
+					return
+				}
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
+					"This 'map' call can be removed.")
 				if child := flatLastChildOfType(file, navExpr, "navigation_suffix"); child != 0 {
 					if file.FlatChildTextOrEmpty(child, "simple_identifier") == "map" {
 						f.Fix = &scanner.Fix{
@@ -57,49 +74,11 @@ func registerStyleUnnecessaryRules() {
 		})
 	}
 	{
-		r := &UnnecessaryApplyRule{BaseRule: BaseRule{RuleName: "UnnecessaryApply", RuleSetName: "style", Sev: "warning", Desc: "Detects .apply {} blocks that are empty or do not reference the receiver."}}
+		r := &UnnecessaryApplyRule{BaseRule: BaseRule{RuleName: "UnnecessaryApply", RuleSetName: "style", Sev: "warning", Desc: "Detects `receiver.apply { ... }` blocks whose single statement only reaches the receiver, where an ordinary call or assignment is enough."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatCallExpressionName(file, idx) != "apply" {
-					return
-				}
-				suffix, _ := file.FlatFindChild(idx, "call_suffix")
-				if suffix == 0 {
-					return
-				}
-				if flatCallSuffixLambdaNode(file, suffix) == 0 {
-					return
-				}
-				_, _, stmts := flatTrailingLambdaParts(file, suffix)
-				var msg string
-				if stmts == 0 {
-					msg = "Unnecessary empty '.apply {}' block."
-				} else if file.FlatChildCount(stmts) == 0 {
-					msg = "Unnecessary empty '.apply {}' block."
-				} else if !flatApplyBodyReferencesThis(file, stmts) {
-					msg = "'.apply {}' block does not reference the receiver \u2014 consider removing it or using 'also'/'let'."
-				} else {
-					return
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-				navExpr, _ := flatCallExpressionParts(file, idx)
-				if navExpr != 0 {
-					if child := flatLastChildOfType(file, navExpr, "navigation_suffix"); child != 0 {
-						if strings.Contains(file.FlatNodeText(child), "apply") {
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   int(file.FlatStartByte(child)),
-								EndByte:     int(file.FlatEndByte(idx)),
-								Replacement: "",
-							}
-						}
-					}
-				}
-				ctx.Emit(f)
-			},
+			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
@@ -107,85 +86,21 @@ func registerStyleUnnecessaryRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				navNode, _ := flatCallExpressionParts(file, idx)
-				if navNode == 0 {
-					return
-				}
-				navSuffix := flatLastChildOfType(file, navNode, "navigation_suffix")
-				if navSuffix == 0 {
-					return
-				}
-				funcIdent, _ := file.FlatFindChild(navSuffix, "simple_identifier")
-				if funcIdent == 0 || !file.FlatNodeTextEquals(funcIdent, "let") {
-					return
-				}
-				isSafeCall := strings.Contains(file.FlatNodeText(navSuffix), "?.")
-				suffix, _ := file.FlatFindChild(idx, "call_suffix")
-				if suffix == 0 {
-					return
-				}
-				lambdaLit, params, stmts := flatTrailingLambdaParts(file, suffix)
-				if lambdaLit == 0 {
-					return
-				}
-				paramName := "it"
-				if params != 0 && file.FlatChildCount(params) > 0 {
-					paramName = file.FlatNodeText(file.FlatChild(params, 0))
-				}
-				if stmts == 0 || file.FlatChildCount(stmts) != 1 {
-					return
-				}
-				stmtText := strings.TrimSpace(file.FlatNodeText(file.FlatChild(stmts, 0)))
-				if stmtText == paramName {
-					msg := "Unnecessary '.let { " + paramName + " }' \u2014 the value can be used directly."
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(navSuffix)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: "",
-					}
-					ctx.Emit(f)
-					return
-				}
-				prefix := paramName + "."
-				if strings.HasPrefix(stmtText, prefix) && !strings.Contains(stmtText, "{") {
-					remainder := stmtText[len(paramName):]
-					if isSafeCall {
-						msg := "Unnecessary '?.let { " + stmtText + " }' \u2014 can be replaced with '?." + stmtText[len(prefix):] + "'."
-						f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   int(file.FlatStartByte(navSuffix)),
-							EndByte:     int(file.FlatEndByte(idx)),
-							Replacement: "?" + remainder,
-						}
-						ctx.Emit(f)
-						return
-					}
-					msg := "Unnecessary '.let { " + stmtText + " }' \u2014 can be replaced with '" + remainder + "'."
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(navSuffix)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: remainder,
-					}
-					ctx.Emit(f)
-				}
-			},
+			Check: func(ctx *api.Context) { unnecessaryLetCheck(r, ctx) },
 		})
 	}
 	{
 		r := &UnnecessaryFilterRule{BaseRule: BaseRule{RuleName: "UnnecessaryFilter", RuleSetName: "style", Sev: "warning", Desc: "Detects .filter {}.first() chains that can be simplified to .first {} with the predicate."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression", "navigation_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixIdiomatic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "navigation_expression" {
+					checkFilterSize(ctx, r, idx)
+					return
+				}
 				navExpr, _ := flatCallExpressionParts(file, idx)
 				if navExpr == 0 {
 					return
@@ -226,7 +141,7 @@ func registerStyleUnnecessaryRules() {
 				}
 				msg := fmt.Sprintf("Replace '.filter %s.%s()' with '.%s %s'.",
 					predText, terminalName, replacement, predText)
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx), msg)
 				filterNavExpr, _ := flatCallExpressionParts(file, filterCall)
 				filterNavSuffix := flatLastChildOfType(file, filterNavExpr, "navigation_suffix")
 				if filterNavSuffix != 0 {
@@ -287,7 +202,7 @@ func registerStyleUnnecessaryRules() {
 					if receiverNode == 0 {
 						return
 					}
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					f := r.Finding(file, callLine(file, idx), callCol(file, idx),
 						"Use .any { predicate } instead of .filter { predicate }.any().")
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
@@ -307,28 +222,19 @@ func registerStyleUnnecessaryRules() {
 					return
 				}
 				dotStart := int(file.FlatStartByte(navSuffix))
-				switch {
-				case methodName == "any" && (bodyText == "true" || bodyText == "it"):
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Replace '.any { "+bodyText+" }' with '.isNotEmpty()'.")
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   dotStart,
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: ".isNotEmpty()",
-					}
-					ctx.Emit(f)
-				case methodName == "none" && bodyText == "true":
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Replace '.none { true }' with '.isEmpty()'.")
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   dotStart,
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: ".isEmpty()",
-					}
-					ctx.Emit(f)
+				// `any { it }` is not covered: on Boolean elements it asks whether any element is true. isNotEmpty() does not exist on Iterable or Sequence, so the fix is the parameterless call.
+				if bodyText != "true" {
+					return
 				}
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
+					"Replace '."+methodName+" { true }' with '."+methodName+"()'.")
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   dotStart,
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: "." + methodName + "()",
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -340,6 +246,10 @@ func registerStyleUnnecessaryRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 2 {
+					return
+				}
+				// The grammar reads the class body of `class A : B by make() { ... }` as a trailing lambda.
+				if _, inDelegation := flatEnclosingAncestor(file, idx, "delegation_specifier", "explicit_delegation", "class_declaration", "object_declaration"); inDelegation && unnecessaryBracesCallIsDelegate(file, idx) {
 					return
 				}
 				innerCall := file.FlatChild(idx, 0)
@@ -382,34 +292,27 @@ func registerStyleUnnecessaryRules() {
 		r := &UnnecessaryFullyQualifiedNameRule{BaseRule: BaseRule{RuleName: "UnnecessaryFullyQualifiedName", RuleSetName: "style", Sev: "warning", Desc: "Detects fully qualified names that are unnecessary because the type is already imported."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"navigation_expression", "user_type"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if !strings.Contains(text, ".") {
+				text := strings.Join(strings.Fields(file.FlatNodeText(idx)), "")
+				if !strings.Contains(text, ".") || nodeHasAncestorTypeFlat(file, idx, "import_header", "package_header") {
 					return
 				}
-				imports := make(map[string]bool)
-				for _, line := range file.Lines {
-					trimmed := strings.TrimSpace(line)
-					if strings.HasPrefix(trimmed, "import ") {
-						imp := strings.TrimPrefix(trimmed, "import ")
-						imp = strings.TrimSpace(imp)
-						imports[imp] = true
-					}
+				imports := filefacts.FileFact(fileFactsCache(), file, slotUnnecessaryFQNImports, func() map[string]bool {
+					return unnecessaryFQNImports(file)
+				})
+				short, ok := "", imports[text]
+				if !ok {
+					return
 				}
-				for imp := range imports {
-					parts := strings.Split(imp, ".")
-					if len(parts) < 2 {
-						continue
-					}
-					if strings.Contains(text, imp) {
-						shortName := parts[len(parts)-1]
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-							fmt.Sprintf("Unnecessary fully qualified name '%s'. Use '%s' since it's already imported.", imp, shortName))
-						return
-					}
+				short = text[strings.LastIndex(text, ".")+1:]
+				// A user_type that is only the qualifier of a longer type (Outer.Inner) is not a use of the import.
+				if p, hasParent := file.FlatParent(idx); hasParent && file.FlatType(p) == "user_type" && file.FlatType(idx) == "user_type" {
+					return
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Unnecessary fully qualified name '%s'. Use '%s' since it's already imported.", text, short))
 			},
 		})
 	}
@@ -446,7 +349,7 @@ func registerStyleUnnecessaryRules() {
 				}
 				msg := fmt.Sprintf("Replace '%s().%s()' with '%s()' for a single sort operation.",
 					innerMethod, outerMethod, replacement)
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+				f := r.Finding(file, callLine(file, idx), callCol(file, idx), msg)
 				navExpr, _ := flatCallExpressionParts(file, receiverCall)
 				if navExpr != 0 && file.FlatNamedChildCount(navExpr) > 0 {
 					innerReceiver := file.FlatNamedChild(navExpr, 0)
@@ -485,4 +388,80 @@ func registerStyleUnnecessaryRules() {
 			},
 		})
 	}
+}
+
+// unnecessaryBracesCallIsDelegate reports a call that is the delegate expression of a supertype (`by call()`).
+func unnecessaryBracesCallIsDelegate(file *scanner.File, call uint32) bool {
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "delegation_specifier", "explicit_delegation":
+			return true
+		case "class_body", "function_body", "statements", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+// unnecessaryFQNImports returns the plain (non-wildcard, non-aliased) imports of a file whose
+// short name is not also declared in the file.
+func unnecessaryFQNImports(file *scanner.File) map[string]bool {
+	out := make(map[string]bool)
+	declared := make(map[string]bool)
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		switch file.FlatType(n) {
+		case "class_declaration", "object_declaration", "type_alias":
+			if name := extractIdentifierFlat(file, n); name != "" {
+				declared[name] = true
+			}
+		}
+	})
+	file.FlatWalkNodes(0, "import_header", func(n uint32) {
+		path := importStatementPath(file, n)
+		if strings.Contains(path, " as ") || strings.HasSuffix(path, "*") || !strings.Contains(path, ".") {
+			return
+		}
+		path = strings.Join(strings.Fields(path), "")
+		if declared[path[strings.LastIndex(path, ".")+1:]] {
+			return
+		}
+		out[path] = true
+	})
+	return out
+}
+
+// checkFilterSize reports `xs.filter { p }.size`, which `xs.count { p }` states directly.
+func checkFilterSize(ctx *api.Context, r *UnnecessaryFilterRule, nav uint32) {
+	file := ctx.File
+	// A navigation that is the callee of a call (`.size()`) is not the property.
+	if parent, ok := file.FlatParent(nav); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == nav {
+		return
+	}
+	if flatNavigationExpressionLastIdentifier(file, nav) != "size" || flatLastChildOfType(file, nav, "navigation_suffix") == 0 {
+		return
+	}
+	filterCall := file.FlatNamedChild(nav, 0)
+	if filterCall == 0 || file.FlatType(filterCall) != "call_expression" || flatCallExpressionName(file, filterCall) != "filter" {
+		return
+	}
+	predText := flatFilterPredicateText(file, filterCall)
+	if predText == "" {
+		return
+	}
+	if ctx.Resolver != nil && flatFilterCheckReceiver(filterCall, file, ctx.Resolver) {
+		return
+	}
+	msg := fmt.Sprintf("Replace '.filter %s.size' with '.count %s'.", predText, predText)
+	f := r.Finding(file, file.FlatRow(nav)+1, file.FlatCol(nav)+1, msg)
+	if filterNavExpr, _ := flatCallExpressionParts(file, filterCall); filterNavExpr != 0 {
+		if suffix := flatLastChildOfType(file, filterNavExpr, "navigation_suffix"); suffix != 0 {
+			f.Fix = &scanner.Fix{
+				ByteMode:    true,
+				StartByte:   int(file.FlatStartByte(suffix)),
+				EndByte:     int(file.FlatEndByte(nav)),
+				Replacement: ".count " + predText,
+			}
+		}
+	}
+	ctx.Emit(f)
 }

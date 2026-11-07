@@ -37,8 +37,8 @@ class OtherSpellings {
 class LocaleMentionedInPattern {
     // Go skips a call whose first argument starts with `Locale.`; here it is
     // the pattern or a format argument, and the overload without a Locale is
-    // called.
-    fun staticPattern(value: Int): String = <!ImplicitDefaultLocale!>String.format(Locale.US.toString(), value)<!>
+    // called. A pattern that is not a literal or a plain constant is display text.
+    fun staticPattern(value: Int): String = String.format(Locale.US.toString(), value)
 
     fun instanceArgument(): String = <!ImplicitDefaultLocale!>"%d".format(Locale.US.hashCode())<!>
 }

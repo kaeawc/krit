@@ -50,7 +50,8 @@ func (r *RequiredSizeResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "RequiredSizeResource",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -112,5 +113,37 @@ func (r *UselessParentResourceRule) Meta() api.RuleDescriptor {
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
+func (r *GridLayoutResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GridLayoutResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *DeprecatedResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "DeprecatedResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *ChildInNonViewGroupResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ChildInNonViewGroupResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *EnforceUtf8ResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "EnforceUtf8Resource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
 	}
 }

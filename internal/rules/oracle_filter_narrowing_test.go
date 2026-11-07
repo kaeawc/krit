@@ -90,9 +90,6 @@ func TestMissingPermissionOracleFiltersAreNarrowed(t *testing.T) {
 func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	for _, id := range []string{
 		"ComposeClickableWithoutMinTouchTarget",
-		"LogOfSharedPreferenceRead",
-		"PlainFileWriteOfSensitive",
-		"SharedPreferencesForSensitiveKey",
 		"SpreadOperator",
 		"SwallowedException",
 	} {
@@ -104,14 +101,23 @@ func TestResolverOnlyRulesDoNotContributeToOracle(t *testing.T) {
 	}
 }
 
-func TestUnsafeCallOnNullableTypeStaysLocalASTOnly(t *testing.T) {
-	rule := findRegisteredRule(t, "UnsafeCallOnNullableType")
-	if rule.Needs != 0 {
-		t.Fatalf("UnsafeCallOnNullableType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+// The editor and file receivers come from SDK calls such as prefs.edit(), which only the oracle resolves.
+func TestPrivacyStorageRulesUseOracleCallTargets(t *testing.T) {
+	for _, id := range []string{"LogOfSharedPreferenceRead", "PlainFileWriteOfSensitive", "SharedPreferencesForSensitiveKey"} {
+		rule := findRegisteredRule(t, id)
+		if rule.Needs&api.NeedsOracleCallTargets == 0 || rule.Oracle == nil || rule.Oracle.AllFiles || len(rule.Oracle.Identifiers) == 0 {
+			t.Fatalf("%s should consume oracle call targets for files naming its methods, got Needs=%b Oracle=%+v", id, rule.Needs, rule.Oracle)
+		}
 	}
-	if rule.Oracle != nil {
-		t.Fatalf("UnsafeCallOnNullableType should not contribute to KAA, got Oracle=%+v",
-			rule.Oracle)
+}
+
+// detekt reports `!!` only on a NULLABLE operand type, so platform types and smart casts need the compiler's
+// expression type. Only files that contain `!!` contribute to the oracle.
+func TestUnsafeCallOnNullableTypeUsesOracleExprTypeForBangBangFiles(t *testing.T) {
+	rule := findRegisteredRule(t, "UnsafeCallOnNullableType")
+	if rule.Needs&api.NeedsOracleExprType == 0 || rule.Oracle == nil || rule.Oracle.AllFiles || len(rule.Oracle.Identifiers) == 0 {
+		t.Fatalf("UnsafeCallOnNullableType should consume oracle expression types for files naming !!, got Needs=%b Oracle=%+v",
+			rule.Needs, rule.Oracle)
 	}
 }
 
@@ -133,17 +139,6 @@ func TestDoubleMutabilityForCollectionStaysLocalASTOnly(t *testing.T) {
 	}
 	if RuleNeedsKotlinOracle(rule) {
 		t.Fatalf("DoubleMutabilityForCollection should not contribute to KAA, got Oracle=%+v",
-			rule.Oracle)
-	}
-}
-
-func TestImplicitUnitReturnTypeStaysLocalASTOnly(t *testing.T) {
-	rule := findRegisteredRule(t, "ImplicitUnitReturnType")
-	if rule.Needs != 0 {
-		t.Fatalf("ImplicitUnitReturnType should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
-	}
-	if RuleNeedsKotlinOracle(rule) {
-		t.Fatalf("ImplicitUnitReturnType should not contribute to KAA, got Oracle=%+v",
 			rule.Oracle)
 	}
 }

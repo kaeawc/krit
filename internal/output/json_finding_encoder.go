@@ -64,7 +64,7 @@ func appendFindingJSON(dst []byte, f JSONFinding) []byte {
 
 	if f.Confidence != 0 {
 		dst = append(dst, `,"confidence":`...)
-		dst = appendJSONFloat(dst, f.Confidence)
+		dst = appendConfidenceJSON(dst, float64(f.Confidence))
 	}
 
 	if f.Effort != "" {
@@ -174,6 +174,19 @@ func appendJSONEscapedByte(dst []byte, b byte) []byte {
 // negative-exponent 'e' results (`1e-07` → `1e-7`) so the output is
 // byte-identical to `json.Marshal`. Notable cases: 0.75 → "0.75",
 // 1 → "1", 1e-7 → "1e-7", 1e21 → "1e+21", 1e-10 → "1e-10".
+// appendConfidenceJSON appends v as a JSON number that keeps a fractional part
+// when v is whole, so 1 encodes as 1.0.
+func appendConfidenceJSON(dst []byte, v float64) []byte {
+	start := len(dst)
+	dst = appendJSONFloat(dst, v)
+	for _, c := range dst[start:] {
+		if c == '.' || c == 'e' {
+			return dst
+		}
+	}
+	return append(dst, '.', '0')
+}
+
 func appendJSONFloat(dst []byte, v float64) []byte {
 	abs := v
 	if abs < 0 {

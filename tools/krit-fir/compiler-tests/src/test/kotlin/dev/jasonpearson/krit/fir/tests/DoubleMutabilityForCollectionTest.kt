@@ -55,10 +55,10 @@ class DoubleMutabilityForCollectionTest {
         import com.example.buildMap
 
         class Holder {
-            var list: MutableList<String> = buildList()
-            var map: MutableMap<String, Int> = buildMap()
-            var factoryMap = mutableMapOf<String, Int>()
-            var collection: MutableCollection<String> = buildCollection()
+            private var list: MutableList<String> = buildList()
+            private var map: MutableMap<String, Int> = buildMap()
+            private var factoryMap = mutableMapOf<String, Int>()
+            private var collection: MutableCollection<String> = buildCollection()
         }
     """
 
@@ -86,8 +86,8 @@ class DoubleMutabilityForCollectionTest {
     private val bags = """
         package use
 
-        var exampleBag: com.example.Bag = com.example.Bag()
-        var otherBag: other.Bag = other.Bag()
+        private var exampleBag: com.example.Bag = com.example.Bag()
+        private var otherBag: other.Bag = other.Bag()
     """
 
     @Test fun qualifiedCustomTypeMatchesThatClass() {
@@ -115,7 +115,7 @@ class DoubleMutabilityForCollectionTest {
 
             fun names(): Names = mutableListOf()
 
-            var aliased: Names = names()
+            private var aliased: Names = names()
         """
         assertEquals(
             mapOf("Use.kt" to mapOf(7 to 1)),
@@ -127,7 +127,7 @@ class DoubleMutabilityForCollectionTest {
         val use = """
             package use
 
-            var list = mutableListOf<String>()
+            private var list = mutableListOf<String>()
         """
         assertEquals(mapOf("Use.kt" to mapOf(3 to 1)), findings(use))
         assertEquals(emptyMap(), findings(use, testFiles = setOf("Use.kt")))

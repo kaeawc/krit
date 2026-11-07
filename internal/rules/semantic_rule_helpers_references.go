@@ -256,6 +256,9 @@ func fileHasReferenceNameOutsideNode(file *scanner.File, name string, exclude ui
 	summary := fileReferenceSummaryForUnusedChecks(file)
 	excludeStart := file.FlatStartByte(exclude)
 	excludeEnd := file.FlatEndByte(exclude)
+	if file.FlatType(exclude) == "property_declaration" {
+		excludeEnd = propertyDeclarationOwnEnd(file, exclude)
+	}
 	for _, ref := range summary.ByName[name] {
 		if ref.Start >= excludeStart && ref.End <= excludeEnd {
 			continue
@@ -263,6 +266,45 @@ func fileHasReferenceNameOutsideNode(file *scanner.File, name string, exclude ui
 		return true
 	}
 	return contentHasIdentifierOutsideRange(file.Content, name, excludeStart, excludeEnd)
+}
+
+// declarationKeywordOperators are declaration keywords the parser reads as infix function names.
+var declarationKeywordOperators = map[string]bool{
+	"private": true, "protected": true, "internal": true, "public": true, "override": true,
+	"val": true, "var": true, "fun": true, "lateinit": true, "open": true, "abstract": true,
+	"final": true, "const": true,
+}
+
+// propertyDeclarationOwnEnd returns the byte where a property's own text ends. Error recovery can
+// extend a property node over the members that follow it (as infix calls on a modifier keyword) or
+// over the rest of a class whose constructor ended in a default value, so the node end is clamped.
+func propertyDeclarationOwnEnd(file *scanner.File, prop uint32) uint32 {
+	end := file.FlatEndByte(prop)
+	clamp := func(pos uint32) {
+		if pos > file.FlatStartByte(prop) && pos < end {
+			end = pos
+		}
+	}
+	file.FlatWalkAllNodes(prop, func(node uint32) {
+		switch file.FlatType(node) {
+		case "ERROR":
+			if file.FlatHasChildOfType(node, ")") {
+				clamp(file.FlatStartByte(node))
+			}
+		case "infix_expression":
+			if file.FlatChildCount(node) != 3 {
+				return
+			}
+			lhs, op := file.FlatChild(node, 0), file.FlatChild(node, 1)
+			if file.FlatType(op) != "simple_identifier" || !declarationKeywordOperators[file.FlatNodeText(op)] {
+				return
+			}
+			if file.FlatRow(op) > file.FlatRow(lhs)+strings.Count(file.FlatNodeText(lhs), "\n") {
+				clamp(file.FlatEndByte(lhs))
+			}
+		}
+	})
+	return end
 }
 
 func contentHasIdentifierOutsideRange(content []byte, name string, excludeStart, excludeEnd uint32) bool {

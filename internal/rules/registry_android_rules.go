@@ -26,11 +26,22 @@ func registerAndroidRules() {
 				if name != "Image" && name != "Icon" {
 					return
 				}
-				_, args := flatCallExpressionParts(file, idx)
+				// Only the Compose Image and Icon composables, not same-named project functions.
+				if !composeContentDescriptionImported(file, name) {
+					return
+				}
+				navExpr, args := flatCallExpressionParts(file, idx)
+				if navExpr != 0 {
+					return
+				}
 				if flatNamedValueArgument(file, args, "contentDescription") != 0 {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				// contentDescription is the second positional parameter of both composables.
+				if second := flatPositionalValueArgument(file, args, 1); second != 0 && flatValueArgumentLabel(file, second) == "" {
+					return
+				}
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Image/Icon without contentDescription. Provide a description for accessibility.")
 			},
 		})
@@ -53,7 +64,7 @@ func registerAndroidRules() {
 				if !ok {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Obsolete Compose layout modifier '"+name+"' was renamed to '"+replacement+"' in Compose 1.0.")
 			},
 		})
@@ -61,24 +72,14 @@ func registerAndroidRules() {
 	{
 		r := &ViewHolderRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "ViewHolder", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "ViewHolder", Brief: "View holder candidates",
+			IssueID:  "ViewHolder", Brief: "Unconditional layout inflation in Adapter.getView",
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Needs: api.NeedsResolver, Confidence: api.ConfidenceMedium, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if !isRecyclerAdapterClassFlat(ctx, idx) {
-					return
-				}
-				if classHasMemberFunctionFlat(file, idx, "onCreateViewHolder") || classHasNestedViewHolderFlat(file, idx) {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"RecyclerView.Adapter subclass should implement the ViewHolder pattern.")
-			},
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			Check: checkViewHolder,
 		})
 	}
 	{
@@ -120,7 +121,7 @@ func registerAndroidRules() {
 				if hasAndroidLogGuardFlat(ctx, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 					"Unconditional logging call. Wrap in Log.isLoggable() or BuildConfig.DEBUG for performance.")
 			},
 		})
@@ -140,14 +141,15 @@ func registerAndroidRules() {
 				if flatContainsStringInterpolation(file, idx) {
 					return
 				}
-				content := stringLiteralContent(file, idx)
+				// A path embedded in prose or a URL (`see /sdcard/ in docs`) is not a hardcoded path.
+				content := strings.TrimPrefix(stringLiteralContent(file, idx), "file://")
 				switch {
-				case strings.Contains(content, "/sdcard"), strings.Contains(content, "/mnt/sdcard"):
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead.")
-				case strings.Contains(content, "/data/data/"), strings.Contains(content, "/data/user/"):
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Hardcoded /data/ path. Use Context.getFilesDir() instead; the per-user data directory can vary.")
+				case strings.HasPrefix(content, "/sdcard"), strings.HasPrefix(content, "/mnt/sdcard"):
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Do not hardcode \"/sdcard/\"; use `Environment.getExternalStorageDirectory().getPath()` instead")
+				case strings.HasPrefix(content, "/data/data/"), strings.HasPrefix(content, "/data/user/"):
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"Do not hardcode \"/data/\"; use `Context.getFilesDir().getPath()` instead")
 				}
 			},
 		})
@@ -169,6 +171,10 @@ func registerAndroidRules() {
 				if !wakeLockAcquireCall(ctx, idx) {
 					return
 				}
+				// acquire(timeout) releases itself when the timeout expires.
+				if _, args := flatCallExpressionParts(file, idx); args != 0 && file.FlatNamedChildCount(args) > 0 {
+					return
+				}
 				fn, ok := flatEnclosingFunction(file, idx)
 				if !ok {
 					return
@@ -188,7 +194,7 @@ func registerAndroidRules() {
 				if foundRelease {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 					"WakeLock acquired without release. Ensure WakeLock.release() is called.")
 			},
 		})
@@ -237,19 +243,10 @@ func registerAndroidRules() {
 				default:
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1,
-					"Using setJavaScriptEnabled(true). Review for XSS vulnerabilities.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"Using `setJavaScriptEnabled` can introduce XSS vulnerabilities into your application, review carefully")
 			},
 		})
-	}
-	{
-		r := &ExportedServiceRule{AndroidRule: AndroidRule{
-			BaseRule: BaseRule{RuleName: "ExportedService", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "ExportedService", Brief: "Exported service does not require permission",
-			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 5,
-			Origin: "AOSP Android Lint",
-		}}
-		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
 	{
 		r := &PrivateKeyRule{AndroidRule: AndroidRule{
@@ -260,4 +257,18 @@ func registerAndroidRules() {
 		}}
 		api.Register(&api.Rule{ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev), Needs: api.NeedsLinePass, Confidence: r.Confidence(), Implementation: r, Check: r.check})
 	}
+}
+
+// composeContentDescriptionImported reports whether the file imports the Compose Image or Icon composable named name.
+func composeContentDescriptionImported(file *scanner.File, name string) bool {
+	candidates := []string{"androidx.compose.foundation.Image"}
+	if name == "Icon" {
+		candidates = []string{"androidx.compose.material.Icon", "androidx.compose.material3.Icon"}
+	}
+	for _, fqn := range candidates {
+		if fileFactsCache().Imports(file).HasFQN(fqn) {
+			return true
+		}
+	}
+	return false
 }

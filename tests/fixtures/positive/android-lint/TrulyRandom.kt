@@ -1,7 +1,7 @@
 package test
 
-import java.security.SecureRandom
+import javax.crypto.KeyGenerator
 
-fun createRandom(): SecureRandom {
-    return SecureRandom(byteArrayOf(1, 2, 3))
+fun createKey(): Any {
+    return KeyGenerator.getInstance("AES")
 }

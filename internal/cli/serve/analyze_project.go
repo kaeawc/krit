@@ -146,8 +146,8 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		// AnalysisCacheDirty opts cacheCheck into the incremental
 		// CheckFilesIncremental path: only files in the dirty set
 		// get the os.Stat + content-hash NeedsReanalysis check; the
-		// rest hit the cache directly. On the kotlin-corpus warm
-		// baseline this collapses ~245 ms of 18 k-file stat sweep
+		// rest hit the cache directly. On a large-repo warm
+		// baseline this collapses a large per-file stat sweep
 		// to a map walk. The watcher's continuous presence is the
 		// correctness gate — same trust contract as the resident
 		// parsed-trees cache.
@@ -594,6 +594,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 			DryRun:              args.DryRun,
 			MaxFixLevel:         maxFixLevel,
 			BasePath:            basePath,
+			AbsolutePaths:       args.AbsolutePaths,
 			// Wire is line-delimited; compact JSON keeps the body
 			// free of internal newlines.
 			JSONCompact: true,
@@ -814,7 +815,7 @@ func resolveBaselineDryRunArgs(args daemon.AnalyzeProjectArgs, paths []string) (
 // requiring krit.yml.
 func loadDaemonConfig(root string) (*config.Config, error) {
 	userCfgPath := clishared.FindConfigInDir(root)
-	cfg, mergeErr := config.LoadAndMergeDefaults(userCfgPath)
+	cfg, mergeErr := config.LoadAndMergeDefaults(userCfgPath, root)
 	if cfg == nil {
 		cfg = config.NewConfig()
 	}

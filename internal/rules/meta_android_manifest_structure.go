@@ -37,9 +37,9 @@ func (r *IntentFilterExportRequiredRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *InvalidUsesTagAttributeManifestRule) Meta() api.RuleDescriptor {
+func (r *InvalidUsesFeatureRequiredManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
-		ID:            "InvalidUsesTagAttributeManifest",
+		ID:            "InvalidUsesFeatureRequiredManifest",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
 	}
@@ -139,11 +139,15 @@ func (r *UnpackedNativeCodeManifestRule) Meta() api.RuleDescriptor {
 	}
 }
 
+// Meta: off by default. Lint 32 no longer has UsesMinSdkAttributes: AGP moved minSdk and
+// targetSdk into Gradle, so a missing <uses-sdk> is normal. The rule stays for projects that
+// still keep SDK levels in the manifest.
 func (r *UsesSdkManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UsesSdkManifest",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonObsolete,
 	}
 }
 

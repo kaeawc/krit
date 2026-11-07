@@ -23,6 +23,7 @@ import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReference
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
@@ -75,6 +76,9 @@ import java.util.IdentityHashMap
  *   FileInputStream(p)).read()`, `(FileInputStream(p) as InputStream).read()`,
  *   `run { DataInputStream(FileInputStream(p)) }.read()`, `object :
  *   FilterInputStream(FileInputStream(p)) {}.read()`);
+ * - a read into a buffer known to hold 8 KiB or more (`ByteArray(8192)`, or a
+ *   local val initialized with one) is not reported, since a BufferedInputStream
+ *   adds nothing there; buffers of unknown size are still reported;
  * - a `buffered()` / `BufferedInputStream(...)` call among the stream's
  *   sources makes the read buffered, even when another source is a raw
  *   FileInputStream (`SequenceInputStream(BufferedInputStream(a), b)`,
@@ -137,8 +141,28 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
         if (receiver is FirThisReceiverExpression || receiver is FirSuperReceiverExpression) return
         if (!isSubtype(receiver.resolvedType, INPUT_STREAM)) return
         if (Flow().source(receiver) != Source.FILE) return
+        if (fillsLargeBuffer(expression)) return
         report(expression.source, MESSAGE)
     }
+
+    private val BYTE_ARRAY = ClassId.fromString("kotlin/ByteArray")
+
+    // A read into a buffer of 8 KiB or more already moves data in large chunks, so
+    // a BufferedInputStream adds nothing. Buffers of unknown size are still reported.
+    private fun fillsLargeBuffer(call: FirFunctionCall): Boolean {
+        var buffer = call.argumentList.arguments.firstOrNull() ?: return false
+        if (buffer is FirPropertyAccessExpression) {
+            val symbol = buffer.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
+            if (!symbol.isLocal || !symbol.isVal) return false
+            buffer = symbol.resolvedInitializer ?: return false
+        }
+        val constructor = buffer as? FirFunctionCall ?: return false
+        if (constructor.calleeReference.toResolvedCallableSymbol()?.callableId?.classId != BYTE_ARRAY) return false
+        val size = (constructor.argumentList.arguments.firstOrNull() as? FirLiteralExpression)?.value as? Number
+        return size != null && size.toLong() >= LARGE_BUFFER_BYTES
+    }
+
+    private const val LARGE_BUFFER_BYTES = 8192L
 
     context(context: CheckerContext)
     private fun isSubtype(type: ConeKotlinType, of: ConeKotlinType): Boolean = type.isSubtypeOf(of, context.session)

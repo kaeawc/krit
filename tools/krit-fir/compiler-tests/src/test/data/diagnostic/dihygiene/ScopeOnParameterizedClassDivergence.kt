@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 23, 28, 33, 39, 46
+// go-lines: 33, 39, 46
 // Go matches `@<ScopeName>` as text anywhere in the class's modifier list.
 // These generic classes carry no DI scope, so the message ("@Singleton on
 // generic class ... shares one instance") is false of them.

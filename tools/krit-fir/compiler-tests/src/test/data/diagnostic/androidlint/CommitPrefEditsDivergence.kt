@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 29, 34, 39, 45, 51, 57, 61, 70, 75, 83, 93, 101, 106, 111, 116, 121
+// go-lines: 29, 30, 40, 58, 62, 76, 102, 107, 112, 117, 122
 // Go findings the checker drops because the message is false of the code: the
 // call is not SharedPreferences.edit(), or the Editor it returns is committed
-// or applied. Go reports every one of these.
+// or applied. Go still reports the lines in go-lines; it already skips the KTX
+// `edit { }` lambda and the editors finalized by a later call or scope function.
 package test
 
 import android.content.SharedPreferences

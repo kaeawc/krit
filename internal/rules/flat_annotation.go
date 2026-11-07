@@ -45,8 +45,12 @@ func hasAnnotationNamed(file *scanner.File, idx uint32, name string) bool {
 	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok && check(mods) {
 		return true
 	}
-	if prev, ok := file.FlatPrevSibling(idx); ok && check(prev) {
-		return true
+	// Some grammar versions emit the modifiers as a detached preceding sibling; a preceding
+	// declaration must not lend its own annotations to this one.
+	if prev, ok := file.FlatPrevSibling(idx); ok {
+		if t := file.FlatType(prev); (t == "modifiers" || t == "parameter_modifiers" || t == "annotation") && check(prev) {
+			return true
+		}
 	}
 	return false
 }
@@ -108,54 +112,9 @@ func annotationHasClassLiteralArgIn(file *scanner.File, annotation uint32, names
 			continue
 		}
 		expr := flatValueArgumentExpression(file, arg)
-		// `Foo::class` is a class_literal with a child naming the type.
-		if expr == 0 || file.FlatType(expr) != "class_literal" {
-			continue
-		}
-		// Last simple_identifier of the class_literal is the class name.
-		name := ""
-		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatType(c) == "simple_identifier" {
-				name = file.FlatNodeText(c)
-			}
-			if file.FlatType(c) == "navigation_expression" {
-				if n := flatNavigationExpressionLastIdentifier(file, c); n != "" {
-					name = n
-				}
-			}
-		}
+		// `Foo::class` parses as a class_literal, callable_reference or navigation_expression.
+		name := optInMarkerName(file, expr)
 		if name != "" && names[name] {
-			return true
-		}
-	}
-	return false
-}
-
-// annotationHasStringArgIn returns true when the annotation has a
-// value_argument whose expression is a non-interpolated string_literal
-// with content in `names`. Used by rules like ForbiddenSuppress to
-// match on `@Suppress("RuleX")` arguments.
-func annotationHasStringArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
-	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
-	if !ok {
-		return false
-	}
-	args, _ := file.FlatFindChild(ctor, "value_arguments")
-	if args == 0 {
-		return false
-	}
-	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-		if file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		expr := flatValueArgumentExpression(file, arg)
-		if expr == 0 || file.FlatType(expr) != "string_literal" {
-			continue
-		}
-		if flatContainsStringInterpolation(file, expr) {
-			continue
-		}
-		if names[stringLiteralContent(file, expr)] {
 			return true
 		}
 	}

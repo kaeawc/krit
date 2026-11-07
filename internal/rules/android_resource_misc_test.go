@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestResourceRulesRegistered(t *testing.T) {
@@ -383,57 +385,22 @@ func TestIllegalResourceRefResource(t *testing.T) {
 func TestWrongFolderResource(t *testing.T) {
 	r := findResourceRule(t, "WrongFolderResource")
 
-	t.Run("drawable reference not found triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "ImageView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:src": "@drawable/missing_icon",
-			},
-		})
-		idx.Drawables = []string{"existing_icon"}
+	t.Run("resources root in a layout folder triggers", func(t *testing.T) {
+		idx := indexWithLayout("res", "res/layout/res.xml", &android.View{Type: "resources", Line: 1, Col: 1, Attributes: map[string]string{}})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "not found") {
-			t.Fatalf("expected message about not found, got %q", findings[0].Message)
+		if len(findings) != 1 || findings[0].Message != "This file should be placed in a `values`/ folder, not a `layout`/ folder" {
+			t.Fatalf("got %+v", findings)
 		}
 	})
 
-	t.Run("drawable reference found is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "ImageView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:src": "@drawable/existing_icon",
-			},
-		})
-		idx.Drawables = []string{"existing_icon"}
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("no drawables in index skips check", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "ImageView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:src": "@drawable/anything",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("empty index is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("other roots and other folders are clean, like Lint", func(t *testing.T) {
+		for path, root := range map[string]string{
+			"res/layout/main.xml": "LinearLayout", "res/menu/res.xml": "resources", "res/drawable/res.xml": "resources",
+		} {
+			idx := indexWithLayout("x", path, &android.View{Type: root, Line: 1, Attributes: map[string]string{}})
+			if got := runResourceRule(r, idx); len(got) != 0 {
+				t.Errorf("%s with <%s>: expected no finding, got %d", path, root, len(got))
+			}
 		}
 	})
 }
@@ -505,13 +472,13 @@ func TestResAutoResource(t *testing.T) {
 func TestUnusedNamespaceResource(t *testing.T) {
 	r := findResourceRule(t, "UnusedNamespaceResource")
 
-	t.Run("unused xmlns:tools triggers", func(t *testing.T) {
+	t.Run("unused custom-attribute namespace triggers", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "LinearLayout",
 			Line: 1,
 			Attributes: map[string]string{
 				"xmlns:android":         "http://schemas.android.com/apk/res/android",
-				"xmlns:tools":           "http://schemas.android.com/tools",
+				"xmlns:foo":             "http://schemas.android.com/apk/res/com.foo",
 				"android:layout_width":  "match_parent",
 				"android:layout_height": "match_parent",
 			},
@@ -529,8 +496,8 @@ func TestUnusedNamespaceResource(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "xmlns:tools") {
-			t.Fatalf("expected message about xmlns:tools, got %q", findings[0].Message)
+		if !strings.Contains(findings[0].Message, "`foo`") {
+			t.Fatalf("expected message about foo, got %q", findings[0].Message)
 		}
 	})
 
@@ -561,7 +528,7 @@ func TestUnusedNamespaceResource(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple unused namespaces all trigger", func(t *testing.T) {
+	t.Run("only custom-attribute namespaces are tracked, as in Lint", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "LinearLayout",
 			Line: 1,
@@ -569,13 +536,14 @@ func TestUnusedNamespaceResource(t *testing.T) {
 				"xmlns:android":         "http://schemas.android.com/apk/res/android",
 				"xmlns:app":             "http://schemas.android.com/apk/res-auto",
 				"xmlns:tools":           "http://schemas.android.com/tools",
+				"xmlns:foo":             "http://schemas.android.com/apk/res/com.foo",
 				"android:layout_width":  "match_parent",
 				"android:layout_height": "match_parent",
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 2 {
-			t.Fatalf("expected 2 findings (app and tools), got %d", len(findings))
+		if len(findings) != 1 {
+			t.Fatalf("expected only foo, got %d", len(findings))
 		}
 	})
 
@@ -672,76 +640,84 @@ func TestInvalidResourceFolderResource(t *testing.T) {
 // MissingIdResource
 // ---------------------------------------------------------------------------
 
-func TestUnusedAttributeResource(t *testing.T) {
+func unusedAttributeFindings(t *testing.T, minSdk int, path string, root *android.View) []scanner.Finding {
+	t.Helper()
 	r := findResourceRule(t, "UnusedAttributeResource")
+	collector := scanner.NewFindingCollector(0)
+	ctx := &api.Context{
+		ResourceIndex: indexWithLayout("main", path, root),
+		Rule:          r,
+		Collector:     collector,
+		LibraryFacts:  librarymodel.FactsForProfile(librarymodel.ProjectProfile{MinSdkVersion: minSdk}),
+	}
+	r.Check(ctx)
+	return api.ContextFindings(ctx)
+}
 
-	t.Run("elevation attribute triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "CardView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:elevation": "4dp",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if !strings.Contains(findings[0].Message, "elevation") {
-			t.Errorf("expected message to mention 'elevation', got %q", findings[0].Message)
-		}
-	})
+func TestUnusedAttributeResource(t *testing.T) {
+	view := func(tag string, attrs map[string]string, kids ...*android.View) *android.View {
+		return &android.View{Type: tag, Line: 5, Attributes: attrs, Children: kids}
+	}
 
-	t.Run("translationZ triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "View",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:translationZ": "2dp",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+	t.Run("attribute newer than minSdk triggers with Lint's wording", func(t *testing.T) {
+		got := unusedAttributeFindings(t, 19, "res/layout/main.xml", view("CardView", map[string]string{"android:elevation": "4dp"}))
+		if len(got) != 1 || got[0].Message != "Attribute `elevation` is only used in API level 21 and higher (current min is 19)" {
+			t.Fatalf("got %+v", got)
 		}
 	})
 
-	t.Run("stateListAnimator triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "Button",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:stateListAnimator": "@null",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+	t.Run("the attribute table covers more than three attributes", func(t *testing.T) {
+		attrs := map[string]string{"android:tooltipText": "x", "android:letterSpacing": "1", "android:backgroundTint": "#f00"}
+		if got := unusedAttributeFindings(t, 19, "res/layout/main.xml", view("TextView", attrs)); len(got) != 3 {
+			t.Fatalf("expected 3 findings, got %+v", got)
 		}
 	})
 
-	t.Run("view without api21 attributes is clean", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type: "TextView",
-			Line: 5,
-			Attributes: map[string]string{
-				"android:text": "@string/hello",
-			},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("attributes the platform tolerates are left alone", func(t *testing.T) {
+		attrs := map[string]string{
+			"android:textAlignment": "center", "android:autofillHints": "name", "android:layout_marginStart": "4dp",
+			"android:layout_width": "match_parent", "android:text": "x", "android:id": "@+id/a", "android:fontFamily": "sans",
+		}
+		if got := unusedAttributeFindings(t, 19, "res/layout/main.xml", view("TextView", attrs)); len(got) != 0 {
+			t.Fatalf("expected no findings, got %+v", got)
 		}
 	})
 
-	t.Run("empty index is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("minSdk at or above the level is clean", func(t *testing.T) {
+		if got := unusedAttributeFindings(t, 21, "res/layout/main.xml", view("View", map[string]string{"android:translationZ": "2dp"})); len(got) != 0 {
+			t.Fatalf("expected no findings, got %+v", got)
+		}
+	})
+
+	t.Run("tools:targetApi on the element or an ancestor excuses the attribute", func(t *testing.T) {
+		child := view("Button", map[string]string{"android:elevation": "4dp"})
+		parent := view("LinearLayout", map[string]string{"tools:targetApi": "lollipop"}, child)
+		if got := unusedAttributeFindings(t, 19, "res/layout/main.xml", parent); len(got) != 0 {
+			t.Fatalf("expected no findings, got %+v", got)
+		}
+	})
+
+	t.Run("foreground and include theme have their own messages", func(t *testing.T) {
+		got := unusedAttributeFindings(t, 19, "res/layout/main.xml", view("LinearLayout", map[string]string{"android:foreground": "@drawable/a"},
+			view("include", map[string]string{"android:theme": "@style/T"}),
+			view("FrameLayout", map[string]string{"android:foreground": "@drawable/a"})))
+		want := []string{
+			"Attribute `android:foreground` has no effect on API levels lower than 23 (current min is 19)",
+			"Attribute `android:theme` is only used by `<include>` tags in API level 23 and higher (current min is 19)",
+		}
+		if len(got) != 2 || got[0].Message != want[0] || got[1].Message != want[1] {
+			t.Fatalf("got %+v", got)
 		}
 	})
 }
 
-// ---------------------------------------------------------------------------
-// StringFormatInvalidResource
-// ---------------------------------------------------------------------------
+func TestUnusedAttributeResource_VersionedFolder(t *testing.T) {
+	view := &android.View{Type: "View", Line: 5, Attributes: map[string]string{"android:elevation": "4dp"}}
+	if findings := unusedAttributeFindings(t, 19, "res/layout-v21/main.xml", view); len(findings) != 0 {
+		t.Fatalf("a -v21 folder understands elevation, got %d findings", len(findings))
+	}
+	ignored := &android.View{Type: "View", Line: 5, Attributes: map[string]string{"android:elevation": "4dp", "tools:ignore": "UnusedAttribute"}}
+	if findings := unusedAttributeFindings(t, 19, "res/layout/main.xml", ignored); len(findings) != 0 {
+		t.Fatalf("tools:ignore should suppress, got %d findings", len(findings))
+	}
+}

@@ -1,9 +1,14 @@
 package rules_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 const wrongConstantAnnotatedApi = `
@@ -71,12 +76,12 @@ func wrongConstantFixture(body string) string {
 }
 
 // ---------------------------------------------------------------------------
-// TrulyRandom
+// HardcodedRandomSeed
 // ---------------------------------------------------------------------------
 
-func TestTrulyRandom(t *testing.T) {
+func TestHardcodedRandomSeed(t *testing.T) {
 	t.Run("hardcoded seed triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 import java.security.SecureRandom
 fun example() {
@@ -88,7 +93,7 @@ fun example() {
 	})
 
 	t.Run("string seed triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 import java.security.SecureRandom
 fun example() {
@@ -100,7 +105,7 @@ fun example() {
 	})
 
 	t.Run("default constructor is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 import java.security.SecureRandom
 fun example() {
@@ -112,7 +117,7 @@ fun example() {
 	})
 
 	t.Run("comment is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "TrulyRandom", `
+		findings := runRuleByName(t, "HardcodedRandomSeed", `
 package test
 // Don't use SecureRandom(byteArrayOf(1)) in production
 fun example() {}`)
@@ -133,6 +138,38 @@ package test
 import android.location.LocationManager
 fun startTracking(locationManager: LocationManager) {
     locationManager.requestLocationUpdates("gps", 1000, 10f, listener)
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("call inside try catching SecurityException is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+fun getLocation(locationManager: LocationManager) {
+    try {
+        locationManager.getLastKnownLocation("gps")
+    } catch (e: SecurityException) {
+        println(e)
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("call inside the catch block of a SecurityException try still triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "MissingPermission", `
+package test
+import android.location.LocationManager
+fun getLocation(locationManager: LocationManager) {
+    try {
+        println("x")
+    } catch (e: SecurityException) {
+        locationManager.getLastKnownLocation("gps")
+    }
 }`)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -431,6 +468,7 @@ func TestGridLayout(t *testing.T) {
 	t.Run("GridLayout without columnCount triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
+import android.widget.GridLayout
 fun example() {
     val grid = GridLayout(context)
     grid.addView(child)
@@ -443,6 +481,7 @@ fun example() {
 	t.Run("GridLayout with columnCount is clean", func(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
+import android.widget.GridLayout
 fun example() {
     val grid = GridLayout(context)
     grid.columnCount = 3
@@ -455,6 +494,7 @@ fun example() {
 	t.Run("unrelated columnCount does not satisfy GridLayout", func(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
+import android.widget.GridLayout
 fun example() {
     val grid = GridLayout(context)
     val columnCount = 3
@@ -468,11 +508,38 @@ fun example() {
 	t.Run("no GridLayout is clean", func(t *testing.T) {
 		findings := runRuleByName(t, "GridLayout", `
 package test
+import android.widget.GridLayout
 fun example() {
     val layout = LinearLayout(context)
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("configured in a scope function or by setter is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "GridLayout", `
+package test
+import android.widget.GridLayout
+fun example() {
+    val a = GridLayout(context).apply { columnCount = 2 }
+    val b = GridLayout(context)
+    b.setColumnCount(2)
+    val c = GridLayout(context).also { it.columnCount = 4 }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findings)
+		}
+	})
+
+	t.Run("GridLayout not imported from a view library is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "GridLayout", `
+package test
+fun example() {
+    val grid = GridLayout(context)
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findings)
 		}
 	})
 }
@@ -559,35 +626,30 @@ fun example() {}`)
 // ---------------------------------------------------------------------------
 
 func TestProguard(t *testing.T) {
-	t.Run("proguard.cfg reference triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "Proguard", `
-package test
-fun getProguardFile(): String {
-    return "proguard.cfg"
-}`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+	r := findGradleRule(t, "Proguard")
+	run := func(path, content string) []scanner.Finding {
+		cfg, _ := android.ParseBuildGradleContent(content)
+		return runGradleRule(r, path, content, cfg)
+	}
+
+	t.Run("proguard.cfg reference triggers in Kotlin and Groovy scripts", func(t *testing.T) {
+		kts := run("build.gradle.kts", "android {\n  buildTypes { release { proguardFiles(\"proguard.cfg\") } }\n}\n")
+		groovy := run("build.gradle", "android {\n  buildTypes { release { proguardFile 'proguard.cfg' } }\n}\n")
+		if len(kts) != 1 || kts[0].Line != 2 || len(groovy) != 1 {
+			t.Fatalf("expected one finding per script, got kts=%v groovy=%v", kts, groovy)
 		}
 	})
 
-	t.Run("proguard-rules.pro is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "Proguard", `
-package test
-fun getProguardFile(): String {
-    return "proguard-rules.pro"
-}`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("proguard-rules.pro and comments are clean", func(t *testing.T) {
+		got := run("build.gradle.kts", "// migrated from proguard.cfg\nandroid { buildTypes { release { proguardFiles(\"proguard-rules.pro\") } } } // not proguard.cfg\n")
+		if len(got) != 0 {
+			t.Fatalf("expected 0 findings, got %v", got)
 		}
 	})
 
-	t.Run("comment is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "Proguard", `
-package test
-// Migrated from proguard.cfg
-fun example() {}`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("Kotlin sources are not reported", func(t *testing.T) {
+		if got := runRuleByName(t, "Proguard", "package test\nval f = \"proguard.cfg\"\n"); len(got) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(got))
 		}
 	})
 }
@@ -639,33 +701,59 @@ fun example() {}
 // ---------------------------------------------------------------------------
 
 func TestNfcTechWhitespace(t *testing.T) {
+	r := findResourceRule(t, "NfcTechWhitespace")
+	run := func(t *testing.T, nfcXML string) []scanner.Finding {
+		t.Helper()
+		resDir := filepath.Join(t.TempDir(), "res")
+		if err := os.MkdirAll(filepath.Join(resDir, "values"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(resDir, "xml"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(resDir, "values", "strings.xml"), []byte(`<resources><string name="a">A</string></resources>`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(resDir, "xml", "nfc_tech_filter.xml"), []byte(nfcXML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		idx, err := android.ScanResourceDir(resDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runResourceRule(r, idx)
+	}
+
 	t.Run("leading whitespace in tech triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "NfcTechWhitespace", `
-package test
-val xml = "<tech> android.nfc.tech.Ndef</tech>"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		findings := run(t, "<resources>\n  <tech-list>\n    <tech> android.nfc.tech.Ndef</tech>\n  </tech-list>\n</resources>\n")
+		if len(findings) != 1 || findings[0].Line != 3 {
+			t.Fatalf("expected 1 finding on line 3, got %v", findings)
+		}
+		if want := "There should not be any whitespace inside `<tech>` elements"; findings[0].Message != want {
+			t.Fatalf("message = %q", findings[0].Message)
+		}
+	})
+
+	t.Run("tech outside a tech-list is clean", func(t *testing.T) {
+		if findings := run(t, "<resources><tech> android.nfc.tech.Ndef</tech></resources>"); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("trailing whitespace in tech triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "NfcTechWhitespace", `
-package test
-val xml = "<tech>android.nfc.tech.Ndef </tech>"
-`)
+		findings := run(t, "<resources><tech-list><tech>android.nfc.tech.Ndef\n</tech></tech-list></resources>")
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
-	t.Run("no tech element is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "NfcTechWhitespace", `
-package test
-val xml = "<tag>value</tag>"
-`)
+	t.Run("trimmed tech names and Kotlin strings are clean", func(t *testing.T) {
+		findings := run(t, "<resources><tech-list><tech>android.nfc.tech.Ndef</tech></tech-list></resources>")
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+		if got := runRuleByName(t, "NfcTechWhitespace", "package test\nval xml = \"<tech> android.nfc.tech.Ndef</tech>\"\n"); len(got) != 0 {
+			t.Fatalf("a Kotlin string must not be reported, got %d", len(got))
 		}
 	})
 }
@@ -675,43 +763,45 @@ val xml = "<tag>value</tag>"
 // ---------------------------------------------------------------------------
 
 func TestLibraryCustomView(t *testing.T) {
-	t.Run("hardcoded namespace triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-val ns = "http://schemas.android.com/apk/res/com.example.mylib"
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+	r := findResourceRule(t, "LibraryCustomView")
+	layout := func(ns string) *android.View {
+		return &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{"xmlns:app": ns}}
+	}
+	moduleLayoutPath := func(t *testing.T, plugin string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "build.gradle.kts"), []byte("plugins {\n    id(\""+plugin+"\")\n}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(dir, "src", "main", "res", "layout", "main.xml")
+	}
+
+	t.Run("hardcoded namespace in a library layout triggers", func(t *testing.T) {
+		idx := indexWithLayout("main", moduleLayoutPath(t, "com.android.library"), layout("http://schemas.android.com/apk/res/com.example.mylib"))
+		if got := runResourceRule(r, idx); len(got) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(got))
 		}
 	})
 
-	t.Run("res-auto is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-val ns = "http://schemas.android.com/apk/res-auto"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("hardcoded namespace in an application layout is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", moduleLayoutPath(t, "com.android.application"), layout("http://schemas.android.com/apk/res/com.example.mylib"))
+		if got := runResourceRule(r, idx); len(got) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(got))
 		}
 	})
 
-	t.Run("android namespace is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-val ns = "http://schemas.android.com/apk/res/android"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("res-auto and android namespaces are clean", func(t *testing.T) {
+		for _, ns := range []string{"http://schemas.android.com/apk/res-auto", "http://schemas.android.com/apk/res/android"} {
+			idx := indexWithLayout("main", moduleLayoutPath(t, "com.android.library"), layout(ns))
+			if got := runResourceRule(r, idx); len(got) != 0 {
+				t.Fatalf("%s: expected 0 findings, got %d", ns, len(got))
+			}
 		}
 	})
 
-	t.Run("comment is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "LibraryCustomView", `
-package test
-// Use http://schemas.android.com/apk/res/com.example instead of hardcoded
-fun example() {}`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("Kotlin strings are not reported", func(t *testing.T) {
+		if got := runRuleByName(t, "LibraryCustomView", "package test\nval ns = \"http://schemas.android.com/apk/res/com.example.mylib\"\n"); len(got) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(got))
 		}
 	})
 }
@@ -721,45 +811,67 @@ fun example() {}`)
 // ---------------------------------------------------------------------------
 
 func TestUnknownIdInLayout(t *testing.T) {
-	t.Run("suspicious double underscore id triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-fun example() {
-    val view = findViewById(R.id.__bad_id)
-}`)
+	r := findResourceRule(t, "UnknownIdInLayout")
+
+	build := func(views ...*android.View) *android.ResourceIndex {
+		idx := emptyIndex()
+		for i, root := range views {
+			name := fmt.Sprintf("layout%d", i)
+			idx.Layouts[name] = &android.Layout{Name: name, FilePath: "res/layout/" + name + ".xml", RootView: root}
+		}
+		return idx
+	}
+	declares := func(id string) *android.View {
+		return &android.View{Type: "TextView", Line: 2, Attributes: map[string]string{"android:id": "@+id/" + id}}
+	}
+	references := func(id string, children ...*android.View) *android.View {
+		ref := &android.View{Type: "TextView", Line: 3, Attributes: map[string]string{"android:layout_below": "@+id/" + id}}
+		return &android.View{Type: "RelativeLayout", Line: 1, Attributes: map[string]string{}, Children: append(children, ref)}
+	}
+
+	t.Run("id declared only in another layout triggers", func(t *testing.T) {
+		idx := build(references("title"), &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{declares("title")}})
+		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
-	t.Run("leading underscore id triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-fun example() {
-    val view = findViewById(R.id._private_id)
-}`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("normal id is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-fun example() {
-    val view = findViewById(R.id.my_button)
-}`)
-		if len(findings) != 0 {
+	t.Run("id declared in the same layout is clean", func(t *testing.T) {
+		idx := build(references("title", declares("title")))
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
-	t.Run("comment is clean", func(t *testing.T) {
-		findings := runRuleByName(t, "UnknownIdInLayout", `
-package test
-// R.id.__old should not be used
-fun example() {}`)
-		if len(findings) != 0 {
+	t.Run("id declared nowhere is left to UnknownId", func(t *testing.T) {
+		idx := build(references("ghost"))
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("@id references are not judged", func(t *testing.T) {
+		ref := references("title")
+		ref.Children[0].Attributes["android:layout_below"] = "@id/title"
+		idx := build(ref, &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{declares("title")}})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("message follows Lint", func(t *testing.T) {
+		idx := build(references("title"), &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{declares("title")}})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Message != "The id \"`title`\" is not referring to any views in this layout" {
+			t.Fatalf("got %+v", findings)
+		}
+	})
+
+	t.Run("layout with an unresolvable include is skipped", func(t *testing.T) {
+		include := &android.View{Type: "include", Line: 2, Attributes: map[string]string{"layout": "@layout/header"}}
+		idx := build(references("title", include), &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{declares("title")}})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
@@ -772,6 +884,7 @@ fun example() {}`)
 func TestNewAospRulesRegistered(t *testing.T) {
 	expected := []string{
 		"TrulyRandom",
+		"HardcodedRandomSeed",
 		"MissingPermission",
 		"WrongConstant",
 		"Instantiatable",

@@ -3,6 +3,7 @@ package rules
 import (
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ApplyConfig applies YAML configuration to all registered rules.
@@ -20,6 +21,7 @@ import (
 // back to the metaByName index for rules without a concrete config target.
 func ApplyConfig(cfg *config.Config) {
 	registerCustomPatternRulesFromConfig(cfg)
+	SetScriptPolicy(ParseScriptPolicy(cfg))
 
 	if cfg == nil {
 		return
@@ -32,6 +34,7 @@ func ApplyConfig(cfg *config.Config) {
 	ensureDefaultInactive()
 
 	adapter := NewConfigAdapter(cfg)
+	ignoreAnnotated := map[string][]string{}
 
 	for _, r := range api.Registry {
 		ruleName := r.ID
@@ -40,8 +43,12 @@ func ApplyConfig(cfg *config.Config) {
 		// Per-rule excludes (config-compatible file exclusion globs)
 		// apply to every rule regardless of whether the rule publishes
 		// Meta() — the exclusion map is consulted at dispatch time.
-		if excludes := cfg.GetStringList(ruleSetName, ruleName, "excludes"); excludes != nil {
-			SetRuleExcludes(ruleName, excludes)
+		// Ruleset-level excludes/includes add to the rule's own.
+		if globs := ruleFileGlobs(cfg, ruleSetName, ruleName); globs != nil {
+			SetRuleExcludes(ruleName, globs)
+		}
+		if anns := cfg.GetStringList(ruleSetName, ruleName, "ignoreAnnotated"); len(anns) > 0 {
+			ignoreAnnotated[ruleName] = anns
 		}
 
 		meta, ok := MetaForRule(r)
@@ -71,6 +78,28 @@ func ApplyConfig(cfg *config.Config) {
 			DefaultInactive[ruleName] = true
 		}
 	}
+	scanner.SetRuleIgnoreAnnotated(ignoreAnnotated)
+}
+
+// ruleFileGlobs returns a rule's exclude globs, with `includes` encoded as
+// negated entries (see scanner.IncludePatternPrefix) and the ruleset's own
+// excludes/includes added. It returns nil when nothing is configured.
+func ruleFileGlobs(cfg *config.Config, ruleSet, rule string) []string {
+	excludes := cfg.GetStringList(ruleSet, rule, "excludes")
+	includes := cfg.GetStringList(ruleSet, rule, "includes")
+	excludes = append(excludes[:len(excludes):len(excludes)], cfg.GetTopLevelStringList(ruleSet, "excludes")...)
+	includes = append(includes[:len(includes):len(includes)], cfg.GetTopLevelStringList(ruleSet, "includes")...)
+	if len(excludes) == 0 && len(includes) == 0 {
+		if cfg.Has(ruleSet, rule, "excludes") {
+			return []string{}
+		}
+		return nil
+	}
+	out := excludes
+	for _, inc := range includes {
+		out = append(out, scanner.IncludePatternPrefix+inc)
+	}
+	return out
 }
 
 // applyAliasActiveOverride handles the 4 alias-registered rules whose

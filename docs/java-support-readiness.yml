@@ -88,10 +88,10 @@ ruleSetDefaults:
     reason: DI source rules need Java annotation and class-shape coverage before being counted as supported.
   empty-blocks:
     status: partial
-    reason: Common Java block shapes are supported; Kotlin-only file/constructor/when rules remain non-Java or need design.
+    reason: Empty-block rules are ported from detekt, which analyzes only Kotlin sources; they do not run on Java.
   exceptions:
     status: partial
-    reason: Method-level Java throw checks and common catch/finally rules are supported; remaining exception rules still need Java-specific call/constructor argument analysis or broader false-positive review.
+    reason: Exception rules are ported from detekt, which analyzes only Kotlin sources; they do not run on Java unless a per-rule entry says otherwise.
   i18n:
     status: supported
     evidence:
@@ -111,7 +111,7 @@ ruleSetDefaults:
     reason: Some Java performance/resource rules are supported, but remaining rules need per-rule classification.
   potential-bugs:
     status: partial
-    reason: Basic java.lang.System/Runtime lifecycle checks and Java package declaration checks are supported; many remaining potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
+    reason: The detekt-ported lifecycle and package checks are Kotlin-only; many remaining potential-bugs rules encode Kotlin syntax or type semantics and need per-rule Java classification.
   privacy:
     status: pending
     reason: Privacy source rules need Java receiver/import coverage before being counted as supported.
@@ -126,7 +126,7 @@ ruleSetDefaults:
     reason: High-value Android security and literal credential Java rules are supported; remaining source rules need Java parity review.
   style:
     status: partial
-    reason: Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+    reason: detekt-ported style rules are Kotlin-only because detekt does not analyze Java; the remaining style rules encode Kotlin syntax or ktlint behavior and require explicit per-rule review.
   testing:
     status: pending
     reason: Test-source rules need Java test-framework and syntax coverage before being counted as supported.
@@ -159,6 +159,16 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_correctness_test.go
+  ClickableViewAccessibility:
+    status: supported
+    fixtures:
+      - internal/rules/android_correctness_test.go
+  ExplicitBackingFieldCandidate:
+    status: not-applicable
+    reason: "Targets Kotlin 2.4 explicit backing fields (`field = ...`); Java has no such construct."
+  PreferToOverPairSyntax:
+    status: not-applicable
+    reason: "Targets the Kotlin kotlin.Pair constructor and the infix `to` function; Java has neither."
   CollectInOnCreateWithoutLifecycle:
     status: not-applicable
     reason: "Targets Kotlin coroutines `Flow.collect` calls in Android lifecycle callbacks; Java lifecycle code doesn't use the Kotlin Flow API."
@@ -173,6 +183,9 @@ rules:
   ComposeRememberWithoutKey:
     status: not-applicable
     reason: "Targets Kotlin Compose `remember { … }` blocks; Compose is Kotlin-only."
+  CustomViewStyleable:
+    status: pending
+    reason: Matches Kotlin obtainStyledAttributes call expressions; Java custom views are not checked yet.
   CursorLoopWithColumnIndexInLoop:
     status: supported
     fixtures:
@@ -194,71 +207,50 @@ rules:
     fixtures:
       - internal/rules/android_security_test.go
   EmptyCatchBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyClassBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyDoWhileBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyElseBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyFinallyBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyForBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyFunctionBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyIfBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyTryBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   EmptyWhileBlock:
-    status: supported
-    fixtures:
-      - internal/rules/emptyblocks_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ExceptionRaisedInUnexpectedLocation:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ExitOutsideMain:
-    status: supported
-    fixtures:
-      - internal/rules/potentialbugs_lifecycle_test.go
-      - internal/javafacts/source_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ExplicitGarbageCollectionCall:
-    status: supported
-    fixtures:
-      - internal/rules/potentialbugs_lifecycle_test.go
-      - internal/javafacts/source_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ForbiddenComment:
-    status: supported
-    fixtures:
-      - internal/rules/style_forbidden_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java comments are not reported."
   ForbiddenImport:
-    status: supported
-    fixtures:
-      - internal/rules/style_forbidden_test.go
-  GrantAllUris:
-    status: supported
-    fixtures:
-      - internal/rules/android_source_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   GsonPolymorphicFromJson:
     status: supported
     fixtures:
@@ -303,9 +295,8 @@ rules:
     fixtures:
       - internal/rules/android_security_test.go
   InstanceOfCheckForException:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   JavaObjectInputStream:
     status: supported
     fixtures:
@@ -329,25 +320,20 @@ rules:
     status: pending
     reason: Kotlin call_expression coverage only; Java method_invocation parity for android.util.Log receivers still needs implementation.
   MaxChainedCallsOnSameLine:
-    status: supported
-    fixtures:
-      - internal/rules/style_format_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   MaxLineLength:
-    status: supported
-    fixtures:
-      - internal/rules/style_format_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   NewLineAtEndOfFile:
-    status: supported
-    fixtures:
-      - cmd/krit/main_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   MissingPackageDeclaration:
-    status: supported
-    fixtures:
-      - internal/rules/potentialbugs_lifecycle_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   NoTabs:
-    status: supported
-    fixtures:
-      - tests/fixtures/fixable/per-rule/NoTabs.java
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   OkHttpClientCreatedPerCall:
     status: supported
     fixtures:
@@ -367,6 +353,9 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_security_test.go
+  Recycle:
+    status: pending
+    reason: Kotlin property_declaration coverage only; Java local variable declarations are not inspected yet.
   RecyclerAdapterStableIdsDefault:
     status: supported
     fixtures:
@@ -379,14 +368,21 @@ rules:
     status: supported
     fixtures:
       - internal/rules/resource_cost_test.go
+  ResourceAsColor:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for setTextColor/setBackgroundColor still needs implementation.
+  ResourceType:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for Resources/Context getters still needs implementation.
+  RtlAware:
+    status: pending
+    reason: Kotlin call_expression coverage only; Java method_invocation parity for View.getPaddingLeft/Right still needs implementation.
   ReturnFromFinally:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   RethrowCaughtException:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   RuntimeExecUnsafeShape:
     status: supported
     fixtures:
@@ -395,6 +391,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_security_test.go
+  SSLCertificateSocketFactoryCreateSocket:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_calls_test.go
+  SSLCertificateSocketFactoryGetInsecure:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_calls_test.go
   SecureRandom:
     status: supported
     fixtures:
@@ -409,6 +413,14 @@ rules:
   SetTextI18n:
     status: pending
     reason: Kotlin call_expression coverage only; Java method_invocation parity for TextView/Button receivers still needs implementation.
+  SetWorldReadable:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_file_permissions_test.go
+  SetWorldWritable:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_file_permissions_test.go
   ShowToast:
     status: pending
     reason: Kotlin call_expression coverage only; Java method_invocation parity for Toast.makeText receivers still needs implementation.
@@ -436,29 +448,36 @@ rules:
     status: not-applicable
     reason: Rule dispatches on Kotlin property_declaration and matches the val/var initializer chain; Java local variables are syntactically and structurally different.
   ThrowingExceptionInMain:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ThrowingExceptionFromFinally:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   ThrowingNewInstanceOfSameException:
-    status: supported
-    fixtures:
-      - internal/rules/exceptions_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   TrailingWhitespace:
-    status: supported
-    fixtures:
-      - tests/fixtures/fixable/per-rule/TrailingWhitespace.java
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   UnderscoresInNumericLiterals:
-    status: supported
-    fixtures:
-      - internal/rules/style_format_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   UnprotectedDynamicReceiver:
     status: supported
     fixtures:
       - internal/rules/android_security_test.go
+  UnspecifiedRegisterReceiverFlag:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_register_receiver_test.go
+  UsableSpace:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_storage_test.go
+  WakelockTimeout:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_wakelock_test.go
   WebViewDebuggingEnabled:
     status: supported
     fixtures:
@@ -480,13 +499,15 @@ rules:
     fixtures:
       - internal/rules/android_source_test.go
   WildcardImport:
-    status: supported
-    fixtures:
-      - internal/rules/style_forbidden_test.go
+    status: not-applicable
+    reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."
   WorldReadableFiles:
     status: supported
     fixtures:
       - internal/rules/android_source_test.go
+  UnsafeCallOnNullableType:
+    status: not-applicable
+    reason: "Targets the Kotlin `!!` operator; Java has no not-null assertion."
   WorldWriteableFiles:
     status: supported
     fixtures:
@@ -494,6 +515,12 @@ rules:
   WrongCall:
     status: pending
     reason: Kotlin call_expression coverage only; Java method_invocation parity for View subclass receivers still needs implementation.
+  TextViewEdits:
+    status: pending
+    reason: Kotlin as_expression coverage only; Java cast_expression parity for TextView receivers still needs implementation.
+  WrongThread:
+    status: pending
+    reason: Kotlin function_declaration coverage only; Java method_declaration parity for thread annotations still needs implementation.
   XmlExternalEntity:
     status: supported
     fixtures:

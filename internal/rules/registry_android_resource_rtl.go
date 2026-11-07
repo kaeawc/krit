@@ -8,10 +8,28 @@ func registerAndroidResourceRtlRules() {
 
 	// --- from android_resource_rtl.go ---
 	{
+		r := &RtlCompatResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RtlCompatResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "RtlCompat",
+			Brief:      "Right-to-left text compatibility issues",
+			Category:   ALCI18N,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Aliases: []string{"RtlCompatManifest"},
+			Needs:   api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			NeedsLibraryFacts: true,
+			Check:             r.check,
+		})
+	}
+	{
 		r := &RtlHardcodedResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "RtlHardcodedResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "RtlHardcoded",
-			Brief:      "Using left/right instead of start/end for RTL",
+			Brief:      "Using left/right instead of start/end for RTL (applies unless the including app sets supportsRtl=false or targets below API 17)",
 			Category:   ALCI18N,
 			ALSeverity: ALSWarning,
 			Priority:   5,
@@ -27,7 +45,7 @@ func registerAndroidResourceRtlRules() {
 		r := &RtlSymmetryResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "RtlSymmetryResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "RtlSymmetry",
-			Brief:      "Asymmetric padding or margin (Left without Right or vice versa)",
+			Brief:      "Asymmetric padding or margin (Left without Right or vice versa), unless the including app sets supportsRtl=false or targets below API 17",
 			Category:   ALCI18N,
 			ALSeverity: ALSWarning,
 			Priority:   4,
@@ -43,7 +61,7 @@ func registerAndroidResourceRtlRules() {
 		r := &RtlSuperscriptResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "RtlSuperscriptResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "RtlSuperscript",
-			Brief:      "Superscript/subscript may break in RTL",
+			Brief:      "Superscript/subscript may break in RTL (unless the including app sets supportsRtl=false or targets below API 17)",
 			Category:   ALCI18N,
 			ALSeverity: ALSWarning,
 			Priority:   3,
@@ -77,7 +95,7 @@ func registerAndroidResourceRtlRules() {
 			IssueID:    "NotSibling",
 			Brief:      "RelativeLayout Invalid Constraints",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   6,
 			Origin:     "AOSP Android Lint",
 		}}

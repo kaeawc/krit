@@ -1,8 +1,11 @@
 package style
 
-fun example() {
-    val nullable: String? = "hello"
-    nullable?.let { it }
-    val x = "world"
-    x.let { it.toString() }
+class Widget {
+    fun render(): Int = 1
+}
+
+fun example(nullable: Widget?, widget: Widget) {
+    nullable?.let { println("checked") }
+    widget.let { it.render() }
+    val copy = widget.let { it }
 }

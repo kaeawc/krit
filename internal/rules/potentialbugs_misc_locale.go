@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -275,3 +276,210 @@ type HardcodedNumberFormatRule struct {
 }
 
 func (r *HardcodedNumberFormatRule) Confidence() float64 { return api.ConfidenceHigh }
+
+// hardcodedDateFormatHasLocaleChained reports whether the call is already followed by .withLocale(...) or .localizedBy(...).
+func hardcodedDateFormatHasLocaleChained(file *scanner.File, call uint32) bool {
+	nav, ok := file.FlatParent(call)
+	if !ok || file.FlatType(nav) != "navigation_expression" || file.FlatNamedChild(nav, 0) != call {
+		return false
+	}
+	switch flatNavigationExpressionLastIdentifier(file, nav) {
+	case "withLocale", "localizedBy":
+		return true
+	}
+	return false
+}
+
+// hardcodedDateFormatPatternLiteral returns the text of a plain (non-interpolated) string literal or const pattern.
+func hardcodedDateFormatPatternLiteral(file *scanner.File, arg uint32) (string, bool) {
+	if arg == 0 {
+		return "", false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(flatValueArgumentExpression(file, arg)))
+	if !strings.HasPrefix(text, "\"") {
+		return implicitDefaultLocaleConstFormatString(file, arg)
+	}
+	if strings.Contains(text, "$") {
+		return "", false
+	}
+	return strings.Trim(text, "\""), true
+}
+
+// datePatternFields classifies the letters of a date pattern: names are display text in the formatter
+// locale, weekFields change value with the locale's week rules, and zone letters mark a timestamp.
+type datePatternFields struct {
+	names      bool
+	weekFields bool
+	zone       bool
+	quoted     bool
+	weekYear   bool // 'Y' present
+	weekOfYear bool // 'w' present
+}
+
+func parseDatePatternFields(pattern string) datePatternFields {
+	var f datePatternFields
+	s := strings.Trim(pattern, "\"")
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '\'' {
+			// Quoted text is literal; '' is an escaped quote.
+			j := i + 1
+			for j < len(s) && s[j] != '\'' {
+				j++
+			}
+			if j > i+1 {
+				f.quoted = true
+			}
+			i = j + 1
+			continue
+		}
+		run := 1
+		for i+run < len(s) && s[i+run] == c {
+			run++
+		}
+		switch c {
+		case 'M', 'L':
+			if run >= 3 {
+				f.names = true
+			}
+		case 'E', 'a', 'G', 'B':
+			f.names = true
+		case 'Q', 'q':
+			if run >= 3 {
+				f.names = true
+			}
+		case 'w', 'W', 'Y', 'e', 'c':
+			f.weekFields = true
+			f.weekYear = f.weekYear || c == 'Y'
+			f.weekOfYear = f.weekOfYear || c == 'w'
+		case 'z', 'O', 'v':
+			f.names, f.zone = true, true
+		case 'Z', 'X', 'x', 'V':
+			f.zone = true
+		}
+		i += run
+	}
+	return f
+}
+
+// datePatternIsLocaleSensitive reports whether a date pattern has letters whose output depends on the locale.
+func datePatternIsLocaleSensitive(pattern string) bool {
+	f := parseDatePatternFields(pattern)
+	return f.names || f.weekFields
+}
+
+var machineConsumedNamePattern = regexp.MustCompile(`(?i)(file|filename|key|id|iso|stamp|serial|cache|log|slug|path|backup|export|header|token|sort|parse)`)
+
+// datePatternIsMachineConsumed reports a pattern whose output is stored or exchanged rather than shown: week
+// fields (their value changes with the locale), literal markers beside a timestamp zone, or a declaration named
+// like a file name or key. Month, day and AM/PM names in a display pattern follow the user's locale on purpose.
+func datePatternIsMachineConsumed(file *scanner.File, call uint32, pattern string) bool {
+	f := parseDatePatternFields(pattern)
+	if f.weekFields {
+		return true
+	}
+	if !f.names {
+		return false
+	}
+	if f.quoted && f.zone {
+		return true
+	}
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "property_declaration":
+			if varDecl, found := file.FlatFindChild(p, "variable_declaration"); found {
+				return machineConsumedNamePattern.MatchString(file.FlatNodeText(varDecl))
+			}
+			return false
+		case "function_declaration":
+			return machineConsumedNamePattern.MatchString(flatFunctionName(file, p))
+		case "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+var hasPlatformTypeScopeFunctions = map[string]bool{"with": true, "apply": true, "also": true, "let": true, "run": true}
+
+// hasPlatformTypeCodeText returns the expression-body text with string literals blanked out, or "" when the
+// body is a literal, a scope-function call, or a constructor call of a class declared in this file.
+func hasPlatformTypeCodeText(file *scanner.File, body uint32) string {
+	var expr uint32
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			expr = child
+		}
+	}
+	if expr == 0 {
+		return ""
+	}
+	switch file.FlatType(expr) {
+	case "string_literal", "line_string_literal", "multi_line_string_literal",
+		"integer_literal", "real_literal", "boolean_literal", "character_literal":
+		return ""
+	case "call_expression":
+		name := flatCallExpressionName(file, expr)
+		if hasPlatformTypeScopeFunctions[name] {
+			return ""
+		}
+		if navExpr, _ := flatCallExpressionParts(file, expr); navExpr == 0 && name != "" && name[0] >= 'A' && name[0] <= 'Z' {
+			if regexp.MustCompile(`\b(class|object)\s+` + regexp.QuoteMeta(name) + `\b`).Match(file.Content) {
+				return ""
+			}
+		}
+	}
+	start, end := int(file.FlatStartByte(expr)), int(file.FlatEndByte(expr))
+	masked := append([]byte(nil), file.Content[start:end]...)
+	file.FlatWalkAllNodes(expr, func(n uint32) {
+		switch file.FlatType(n) {
+		case "string_literal", "line_string_literal", "multi_line_string_literal":
+			for i := int(file.FlatStartByte(n)) - start; i < int(file.FlatEndByte(n))-start; i++ {
+				if i >= 0 && i < len(masked) {
+					masked[i] = ' '
+				}
+			}
+		}
+	})
+	return strings.TrimSpace(string(masked))
+}
+
+// datePatternHasWeekYearWithoutWeek reports 'Y' (week-based year) with no 'w' (week of year). It gives the
+// wrong year for the last and first days of a year, so it is almost always a typo for 'y'.
+func datePatternHasWeekYearWithoutWeek(pattern string) bool {
+	f := parseDatePatternFields(pattern)
+	return f.weekYear && !f.weekOfYear
+}
+
+var dateFormatUICalleeNames = map[string]bool{"setText": true, "Text": true, "getString": true}
+
+// hardcodedDateFormatFlowsToUI reports a formatter whose `.format(...)` result is passed to setText, Text or
+// getString, either chained on the ofPattern call or through the property or local that holds it.
+func hardcodedDateFormatFlowsToUI(file *scanner.File, call uint32) bool {
+	holder := ""
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		t := file.FlatType(p)
+		if t == "property_declaration" {
+			holder = extractIdentifierFlat(file, p)
+			break
+		}
+		if t == "function_declaration" || t == "source_file" {
+			break
+		}
+	}
+	flows := false
+	file.FlatWalkNodes(0, "call_expression", func(ui uint32) {
+		if flows || !dateFormatUICalleeNames[flatCallExpressionName(file, ui)] {
+			return
+		}
+		text := strings.Join(strings.Fields(file.FlatNodeText(ui)), "")
+		if holder != "" && (strings.Contains(text, holder+".format(") || strings.Contains(text, ".format("+holder+")")) {
+			flows = true
+			return
+		}
+		if flatNodeHasAncestor(file, call, ui) {
+			flows = true
+		}
+	})
+	return flows
+}

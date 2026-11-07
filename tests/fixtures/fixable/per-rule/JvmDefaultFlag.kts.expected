@@ -1,0 +1,11 @@
+plugins {
+    id("org.jetbrains.kotlin.jvm") version "2.2.20"
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll("-jvm-default=no-compatibility", "-opt-in=kotlin.RequiresOptIn")
+        freeCompilerArgs.add('-jvm-default=enable')
+        freeCompilerArgs.add("-jvm-default=disable")
+    }
+}

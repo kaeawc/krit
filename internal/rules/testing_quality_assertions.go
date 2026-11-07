@@ -4,6 +4,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
+	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -95,14 +97,30 @@ var nullableAssertionCallNames = map[string]bool{
 	"shouldNotThrow":      true,
 }
 
-func testingQualityIsNullableAssertionCall(name string) bool {
-	if name == "" || name == "expectError" {
+// testingQualityIsNullableAssertionCall reports whether the call is an assertion-library function that
+// accepts the `!!` operand. Project helpers that merely start with "assert" are not: their parameter types are
+// unknown, and `assertNotNull` cannot be applied to what they check. A function declared in the file with a
+// library name shadows the library.
+func testingQualityIsNullableAssertionCall(ctx *api.Context, idx uint32, name string) bool {
+	// assertNotNull and assertNull take the nullable value itself, so `!!` there is not fixed by assertNotNull.
+	if name == "" || name == "assertNotNull" || name == "assertNull" || !nullableAssertionCallNames[name] {
 		return false
 	}
-	if nullableAssertionCallNames[name] {
-		return true
+	if fileDeclaresFunctionNamed(ctx.File, name) {
+		return false
 	}
-	return strings.HasPrefix(name, "assert") || testingQualityNameContainsTokenFold(name, "expect")
+	if resolver, ok := ctx.Resolver.(*oracle.CompositeResolver); ok && resolver.Oracle() != nil {
+		if target := oracleLookupCallTargetFlat(resolver.Oracle(), ctx.File, idx); target != "" {
+			for _, prefix := range ignoredReturnValueTestLibraryPrefixes {
+				if strings.HasPrefix(target, prefix) {
+					return true
+				}
+			}
+			// Resolved to a project function that reuses a library name.
+			return false
+		}
+	}
+	return true
 }
 
 func testingQualityInsideNestedExecutableArgument(file *scanner.File, idx, root uint32) bool {
@@ -125,10 +143,28 @@ func testingQualityIsAssertionOrVerify(name string) bool {
 		strings.HasPrefix(name, "validate")
 }
 
+// testingQualityWaitHelpersNeedingEvidence are waits that only count with framework evidence (handled
+// separately) or that synchronize without checking anything.
+var testingQualityWaitHelpersNeedingEvidence = map[string]bool{
+	"waitForIdle": true, "waitForIdleSync": true, "waitUntilAtLeastOneExists": true, "waitUntilExactlyOneExists": true,
+	"waitUntilDoesNotExist": true, "waitFor": true,
+}
+
+// testingQualityIsWaitOrEnsureHelper matches helpers such as waitForRow or ensureNoEvents, which fail the test
+// on timeout or a violated condition. The prefix must end at a word boundary, so `waiter` does not match.
+// A function declared in the same file counts only through its own body (see testingQualityAssertionHelperNames).
+func testingQualityIsWaitOrEnsureHelper(name string) bool {
+	if testingQualityWaitHelpersNeedingEvidence[name] {
+		return false
+	}
+	return testingQualityHasLowerPrefixWord(name, "ensure") ||
+		testingQualityHasLowerPrefixWord(name, "waitFor") ||
+		testingQualityHasLowerPrefixWord(name, "waitUntil")
+}
+
 var verifyCallNames = map[string]bool{
 	"verify": true, "coVerify": true,
-	"confirmVerified": true, "every": true,
-	"coEvery":                  true,
+	"confirmVerified":          true,
 	"verifyNoInteractions":     true,
 	"verifyNoMoreInteractions": true,
 	"verifyBlocking":           true,
@@ -242,6 +278,7 @@ func testingQualityBodyHasAssertionOrVerificationWithHelpersAndPatterns(file *sc
 			found = testingQualityIsAssertionOrVerify(name) ||
 				helpers[name] ||
 				testingQualityConfiguredAssertionPatternMatches(name, patterns) ||
+				(testingQualityIsWaitOrEnsureHelper(name) && !ignoredReturnValueFileDeclaresFunction(file, name)) ||
 				testingQualityIsHarnessVerificationCall(file, n, name) ||
 				testingQualityIsTurbineAssertionCall(file, name) ||
 				testingQualityIsComposeUIAssertionCall(file, n, name) ||
@@ -309,4 +346,124 @@ func testingQualityTextHasVerifyCall(text string) bool {
 		}
 	}
 	return false
+}
+
+// testingQualityBodyIsEmpty reports a function body that is `= Unit` or a block with no statements.
+func testingQualityBodyIsEmpty(file *scanner.File, body uint32) bool {
+	text := strings.TrimSpace(file.FlatNodeText(body))
+	if strings.TrimSpace(strings.TrimPrefix(text, "=")) == "Unit" && strings.HasPrefix(text, "=") {
+		return true
+	}
+	if !strings.HasPrefix(text, "{") {
+		return false
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "statements" && swallowedHasNamedStatement(file, child) {
+			return false
+		}
+	}
+	return true
+}
+
+// testingQualityBangIsAssertionSubject reports a `!!` that sits in the assertion's own argument, possibly as the
+// receiver of a member chain. A `!!` inside a nested call's arguments (a constructor or a lookup) is not the subject.
+func testingQualityBangIsAssertionSubject(file *scanner.File, bang, args uint32) bool {
+	for current, ok := file.FlatParent(bang); ok && current != args; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "value_arguments", "call_suffix":
+			return false
+		}
+	}
+	return true
+}
+
+// testingQualityBangIsMemberReceiver reports a `x!!` that is the receiver of a member access, as in `x!!.ts`.
+func testingQualityBangIsMemberReceiver(file *scanner.File, postfix uint32) bool {
+	parent, ok := file.FlatParent(postfix)
+	return ok && file.FlatType(parent) == "navigation_expression" && file.FlatNamedChild(parent, 0) == postfix
+}
+
+// testingQualityOperandDeclaredNullable reports a `!!` operand whose type is declared nullable. A Java platform
+// type (`getText()` of a view) is not nullable in Kotlin, so asserting it non-null is not a nullable assertion.
+// Without a resolver there is no type evidence, so the operand is kept.
+func testingQualityOperandDeclaredNullable(ctx *api.Context, bang uint32) bool {
+	if ctx.Resolver == nil {
+		return true
+	}
+	operand := flatFirstNamedChild(ctx.File, bang)
+	if operand == 0 {
+		return false
+	}
+	resolved := ctx.Resolver.ResolveFlatNode(operand, ctx.File)
+	return resolved != nil && resolved.IsNullable()
+}
+
+// oracleHasDiagnosticAtNode reports a compiler diagnostic with one of the factory names anchored at idx.
+func oracleHasDiagnosticAtNode(ctx *api.Context, idx uint32, factoryNames ...string) bool {
+	if ctx == nil || ctx.File == nil || ctx.Resolver == nil {
+		return false
+	}
+	resolver, ok := ctx.Resolver.(*oracle.CompositeResolver)
+	if !ok || resolver.Oracle() == nil {
+		return false
+	}
+	for _, d := range oracleLookupDiagnosticsForFlatRange(resolver.Oracle(), ctx.File, idx) {
+		if diagnosticProjectionMatchesFactory(factoryNames, d.FactoryName) && diagnosticAnchoredAtNode(ctx.File, idx, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// testingQualityNameDocumentsNoOp reports a test named for a deliberate no-op ("is no-op", "noop"), where
+// calling the subject without an error is the whole check.
+func testingQualityNameDocumentsNoOp(file *scanner.File, idx uint32) bool {
+	name := strings.ToLower(strings.Trim(testingQualityFunctionName(file, idx), "`"))
+	for _, sep := range []string{"_", "-", " "} {
+		name = strings.ReplaceAll(name, sep, "")
+	}
+	return strings.Contains(name, "noop")
+}
+
+// testingQualityIsConstructionDoesNotThrowTest reports a test whose body is one constructor or factory call
+// while a sibling test in the class expects the same kind of call to throw. Reaching the end is the check.
+func testingQualityIsConstructionDoesNotThrowTest(file *scanner.File, idx, body uint32) bool {
+	class := flatEnclosingClassLike(file, idx)
+	if class == 0 {
+		return false
+	}
+	classText := file.FlatNodeText(class)
+	if !strings.Contains(classText, "assertFailsWith") && !strings.Contains(classText, "assertThrows") &&
+		!strings.Contains(classText, "assertFails(") {
+		return false
+	}
+	var statements uint32
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "statements" {
+			statements = child
+		}
+	}
+	if statements == 0 {
+		return false
+	}
+	var only uint32
+	for child := file.FlatFirstChild(statements); child != 0; child = file.FlatNextSib(child) {
+		if isFlatCommentNode(file, child) || !file.FlatIsNamed(child) {
+			continue
+		}
+		if only != 0 {
+			return false
+		}
+		only = child
+	}
+	if only == 0 || file.FlatType(only) != "call_expression" {
+		return false
+	}
+	name := flatCallExpressionName(file, only)
+	if name == "" {
+		return false
+	}
+	first := name[0]
+	return (first >= 'A' && first <= 'Z') || strings.HasPrefix(name, "create") || strings.HasPrefix(name, "from") ||
+		strings.HasPrefix(name, "parse") || name == "of" || name == "valueOf"
 }

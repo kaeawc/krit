@@ -40,6 +40,38 @@ internal class FileOffsetTable(private val content: String) {
         return charToByte[clamped]
     }
 
+    /** True iff chars [from, to) are only whitespace and closing parentheses, as between `(a.b)` and `?.`. */
+    fun onlyClosingBetween(from: Int, to: Int): Boolean {
+        if (from < 0 || to > content.length || from > to) return false
+        for (i in from until to) {
+            val c = content[i]
+            if (!c.isWhitespace() && c != ')') return false
+        }
+        return true
+    }
+
+    /** True iff chars [from, to) are only whitespace, semicolons and comments, as between two statements. */
+    fun onlyStatementGapBetween(from: Int, to: Int): Boolean {
+        if (from < 0 || to > content.length || from > to) return false
+        var i = from
+        while (i < to) {
+            val c = content[i]
+            when {
+                c.isWhitespace() || c == ';' -> i++
+                c == '/' && i + 1 < to && content[i + 1] == '/' -> {
+                    while (i < to && content[i] != '\n') i++
+                }
+                c == '/' && i + 1 < to && content[i + 1] == '*' -> {
+                    val close = content.indexOf("*/", i + 2)
+                    if (close < 0 || close + 2 > to) return false
+                    i = close + 2
+                }
+                else -> return false
+            }
+        }
+        return true
+    }
+
     /**
      * Char offset of the first character on [lineIndex] (0-based).
      * Returns the file's end offset when [lineIndex] is past the last

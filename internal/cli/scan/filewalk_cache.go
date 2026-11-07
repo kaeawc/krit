@@ -200,7 +200,7 @@ func CollectFilesCachedWithIndex(roots []string, filters FilewalkFilters, cacheD
 						continue
 					}
 					full := filepath.Join(root, rel)
-					if filters.isExcluded(full) {
+					if filters.isExcluded(full) || fileignore.DocSamplePath(full) {
 						continue
 					}
 					out = append(out, full)
@@ -291,7 +291,7 @@ func filewalkReplayEntry(dir string, entry filewalkDirEntry, filters FilewalkFil
 			if !fileignore.DefaultPrunedDir(c.Name) && !matcher.Ignored(full, true) {
 				filewalkDir(full, filters, cached, fresh, matcher, out)
 			}
-		} else if filters.Match(c.Name) && !matcher.Ignored(full, false) && !filters.isExcluded(full) {
+		} else if filters.Match(c.Name) && !matcher.Ignored(full, false) && !filters.isExcluded(full) && !fileignore.DocSamplePath(full) {
 			*out = append(*out, full)
 		}
 	}
@@ -321,7 +321,7 @@ func filewalkReadDir(dir string, info os.FileInfo, filters FilewalkFilters, cach
 			if !fileignore.DefaultPrunedDir(e.Name()) && !matcher.Ignored(full, true) {
 				filewalkDir(full, filters, cached, fresh, matcher, out)
 			}
-		} else if filters.Match(e.Name()) && !matcher.Ignored(full, false) && !filters.isExcluded(full) {
+		} else if filters.Match(e.Name()) && !matcher.Ignored(full, false) && !filters.isExcluded(full) && !fileignore.DocSamplePath(full) {
 			*out = append(*out, full)
 		}
 	}

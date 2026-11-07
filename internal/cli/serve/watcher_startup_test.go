@@ -28,24 +28,34 @@ func TestFileWatcher_StartupIsFastWithDeepTree(t *testing.T) {
 	}
 	ws := pipeline.NewWorkspaceState(root)
 
-	start := time.Now()
-	w, err := startFileWatcher(context.Background(), root, ws, nil)
-	if err != nil {
-		t.Fatalf("startFileWatcher: %v", err)
+	// Take the fastest of several starts so a load spike during one start
+	// cannot fail the test; a sync walk would be slow on every attempt.
+	const attempts = 5
+	best := time.Duration(1<<63 - 1)
+	var last <-chan struct{}
+	for i := 0; i < attempts; i++ {
+		start := time.Now()
+		w, err := startFileWatcher(context.Background(), root, ws, nil)
+		if err != nil {
+			t.Fatalf("startFileWatcher: %v", err)
+		}
+		if d := time.Since(start); d < best {
+			best = d
+		}
+		last = w.Ready()
+		defer w.Stop()
 	}
-	defer w.Stop()
-	startup := time.Since(start)
 
 	// 100ms is generous on any developer/CI machine; if startup ever
-	// regresses to a sync walk it'll blow well past this.
-	if startup > 100*time.Millisecond {
-		t.Errorf("startFileWatcher took %v; expected <100ms with async populate", startup)
+	// regresses to a sync walk it'll blow well past this on every attempt.
+	if best > 100*time.Millisecond {
+		t.Errorf("startFileWatcher best of %d took %v; expected <100ms with async populate", attempts, best)
 	}
 
 	// Ready should fire within a reasonable window once the walk
 	// completes — bounded loosely so a slow CI runner doesn't flake.
 	select {
-	case <-w.Ready():
+	case <-last:
 	case <-time.After(2 * time.Second):
 		t.Fatal("watcher Ready() did not fire within 2s")
 	}

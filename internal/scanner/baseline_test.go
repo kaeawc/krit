@@ -2,9 +2,11 @@ package scanner
 
 import (
 	"encoding/xml"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -597,5 +599,84 @@ func TestBaselineEntries(t *testing.T) {
 	}
 	if entries[1].Rule != "MagicNumber" || entries[1].Path != "src/Foo.kt" || entries[1].Signature != "fun foo()" {
 		t.Fatalf("unexpected parsed ManuallySuppressed entry: %+v", entries[1])
+	}
+}
+
+const detektStyleBaseline = `<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues>
+    <ID>MagicNumber:Config.kt$Config$42</ID>
+  </ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ComplexMethod:Parser.kt$Parser$fun parse(input: String): Int</ID>
+    <ID>LongMethod:Parser.kt$Parser$fun run()</ID>
+    <ID>LongMethod:Parser.kt$Parser$fun walk()</ID>
+  </CurrentIssues>
+</SmellBaseline>
+`
+
+func TestParseDetektBaselineID(t *testing.T) {
+	cases := []struct {
+		id         string
+		rule, file string
+		ok         bool
+	}{
+		{"LongMethod:Parser.kt$Parser$fun run(a: Int): Unit", "LongMethod", "Parser.kt", true},
+		{"MagicNumber:Config.kt$Config$42", "MagicNumber", "Config.kt", true},
+		{"MagicNumber:Config.kt:$MagicNumber$too magic", "", "", false}, // krit format
+		{"NoSignature", "", "", false},
+		{"Rule:plain text", "", "", false},
+	}
+	for _, c := range cases {
+		rule, file, ok := parseDetektBaselineID(c.id)
+		if rule != c.rule || file != c.file || ok != c.ok {
+			t.Errorf("parseDetektBaselineID(%q) = %q, %q, %v", c.id, rule, file, ok)
+		}
+	}
+}
+
+func TestFilterColumnsByBaseline_DetektEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.xml")
+	if err := os.WriteFile(path, []byte(detektStyleBaseline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadBaseline(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := CollectFindings([]Finding{
+		{File: "/p/src/Parser.kt", Rule: "LongMethod", Line: 1, Message: "m"},
+		{File: "/p/src/Parser.kt", Rule: "LongMethod", Line: 40, Message: "m"},
+		{File: "/p/src/Parser.kt", Rule: "LongMethod", Line: 90, Message: "m"}, // new: both entries used
+		{File: "/p/other/Parser.kt", Rule: "CyclomaticComplexMethod", Line: 5, Message: "m"},
+		{File: "/p/src/Config.kt", Rule: "MagicNumber", Line: 3, Message: "m"},
+		{File: "/p/src/Config.kt", Rule: "MagicNumber", Line: 8, Message: "m"}, // new
+		{File: "/p/src/Other.kt", Rule: "LongMethod", Line: 1, Message: "m"},   // other file
+	})
+	got := FilterColumnsByBaseline(&columns, b, "/p")
+	var left []string
+	for _, f := range got.Findings() {
+		left = append(left, fmt.Sprintf("%s@%s:%d", f.Rule, filepath.Base(f.File), f.Line))
+	}
+	want := []string{"LongMethod@Parser.kt:90", "MagicNumber@Config.kt:8", "LongMethod@Other.kt:1"}
+	if strings.Join(left, ",") != strings.Join(want, ",") {
+		t.Errorf("remaining = %v, want %v", left, want)
+	}
+}
+
+func TestFilterColumnsByBaseline_DetektBudgetIsPerCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.xml")
+	if err := os.WriteFile(path, []byte(detektStyleBaseline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadBaseline(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := CollectFindings([]Finding{{File: "/p/Config.kt", Rule: "MagicNumber", Line: 1, Message: "m"}})
+	for i := 0; i < 2; i++ {
+		if got := FilterColumnsByBaseline(&columns, b, ""); got.Len() != 0 {
+			t.Fatalf("call %d: finding should stay suppressed, got %d", i, got.Len())
+		}
 	}
 }

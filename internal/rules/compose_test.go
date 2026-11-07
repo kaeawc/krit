@@ -8,12 +8,34 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
+
+// runRuleWithKotlin runs a rule with project facts that declare the given Kotlin
+// language version; an empty version leaves the Kotlin version unknown.
+func runRuleWithKotlin(t *testing.T, ruleName, version, code string) []scanner.Finding {
+	t.Helper()
+	var profile librarymodel.ProjectProfile
+	if version != "" {
+		profile.Kotlin.LanguageVersion = librarymodel.KnownVersion(version)
+	}
+	file := parseInline(t, code)
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			d := rules.NewDispatcher([]*api.Rule{r}, nil)
+			d.SetLibraryFacts(librarymodel.FactsForProfile(profile))
+			cols := d.Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
 
 func TestComposeColumnRowInScrollable_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ComposeColumnRowInScrollable", `
@@ -90,8 +112,8 @@ import androidx.compose.runtime.*
 
 @Composable
 fun Example() {
-    val count by remember { mutableStateOf(0) }
-    val isPositive by remember { derivedStateOf { count > 0 } }
+    val enabled by remember { mutableStateOf(true) }
+    val isEnabled by remember { derivedStateOf { enabled == true } }
 }
 `)
 	if len(findings) != 1 {
@@ -115,8 +137,82 @@ fun Example() {
 	}
 }
 
+func TestComposeDerivedStateMisuse_NegativeNumericStateReducedToBoolean(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDerivedStateMisuse", `
+package test
+import androidx.compose.runtime.*
+
+@Composable
+fun Example() {
+    val count by remember { mutableStateOf(0) }
+    val showButton by remember { derivedStateOf { count > 5 } }
+}
+
+@Composable
+fun Scrolled(scrollOffset: State<Float>) {
+    val atTop by remember { derivedStateOf { scrollOffset.value == 0f } }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeDerivedStateMisuse_NegativeComparisonsReduceValue(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDerivedStateMisuse", `
+package test
+import androidx.compose.runtime.*
+
+enum class Phase { LOADING, SUCCESS }
+
+@Composable
+fun Example(progress: State<Float>, limit: Int, itemState: State<Phase>, selected: String) {
+    val active by remember { mutableStateOf("a") }
+    val moving by remember { derivedStateOf { progress.value != 0f } }
+    val over by remember { derivedStateOf { progress.value > limit } }
+    val done by remember { derivedStateOf { itemState.value == Phase.SUCCESS } }
+    val differs by remember { derivedStateOf { active != selected } }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeDerivedStateMisuse_PositiveNumericStateKeyedRemember(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDerivedStateMisuse", `
+package test
+import androidx.compose.runtime.*
+
+@Composable
+fun Example() {
+    val count by remember { mutableStateOf(0) }
+    val isPositive = remember(count) { derivedStateOf { count > 0 } }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeDerivedStateMisuse_PositiveNonNumericState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDerivedStateMisuse", `
+package test
+import androidx.compose.runtime.*
+
+@Composable
+fun Example() {
+    val selected by remember { mutableStateOf("none") }
+    val hasSelection = remember(selected) { derivedStateOf { selected == "all" } }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeLambdaCapturesUnstableState_Positive(t *testing.T) {
-	findings := runRuleByName(t, "ComposeLambdaCapturesUnstableState", `
+	findings := runRuleWithKotlin(t, "ComposeLambdaCapturesUnstableState", "1.9", `
 package test
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -135,6 +231,61 @@ fun Example(vm: Vm, users: List<User>) {
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+const composeLazyItemClickSource = `
+package test
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Example(vm: Vm, users: List<User>) {
+    LazyColumn {
+        items(users) { user ->
+            Button(onClick = { vm.select(user) }) { Text(user.name) }
+        }
+    }
+}
+`
+
+func TestComposeLambdaCapturesUnstableState_MessageNamesCapturedItem(t *testing.T) {
+	findings := runRuleWithKotlin(t, "ComposeLambdaCapturesUnstableState", "1.9", composeLazyItemClickSource)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "user") {
+		t.Fatalf("expected 1 finding naming the captured item, got %v", findings)
+	}
+}
+
+func TestComposeLambdaCapturesUnstableState_Negative_StrongSkipping(t *testing.T) {
+	for _, version := range []string{"2.0", "2.2", ""} {
+		if findings := runRuleWithKotlin(t, "ComposeLambdaCapturesUnstableState", version, composeLazyItemClickSource); len(findings) != 0 {
+			t.Fatalf("Kotlin %q: expected no findings with strong skipping, got %v", version, findings)
+		}
+	}
+}
+
+func TestComposeLambdaCapturesUnstableState_Negative_ShadowedLambdaParameter(t *testing.T) {
+	findings := runRuleWithKotlin(t, "ComposeLambdaCapturesUnstableState", "1.9", `
+package test
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Example(users: List<User>) {
+    LazyColumn {
+        items(users) { user ->
+            Button(onClick = { user -> println(user) }) { }
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a shadowing parameter, got %v", findings)
 	}
 }
 
@@ -393,7 +544,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun Example() {
-    Box(Modifier.clickable { }.padding(16.dp))
+    Box(Modifier.padding(16.dp).clickable { })
 }
 `)
 	if len(findings) != 1 {
@@ -401,7 +552,7 @@ fun Example() {
 	}
 }
 
-func TestComposeModifierClickableBeforePadding_Negative_CorrectOrder(t *testing.T) {
+func TestComposeModifierClickableBeforePadding_Negative_ClickableFirst(t *testing.T) {
 	findings := runRuleByName(t, "ComposeModifierClickableBeforePadding", `
 package test
 import androidx.compose.foundation.clickable
@@ -412,7 +563,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun Example() {
-    Box(Modifier.padding(16.dp).clickable { })
+    Box(Modifier.clickable { }.padding(16.dp))
 }
 `)
 	if len(findings) != 0 {
@@ -625,6 +776,141 @@ fun Chart(dataset: List<Int>) {
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeKeyRules_SkipPreviewHelpersAndTestingFakes(t *testing.T) {
+	src := `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.annotation.VisibleForTesting
+
+@Composable
+private fun PreviewHelper(dataset: List<Int> = emptyList()) {
+    val series = remember { buildSeries(dataset) }
+    LaunchedEffect(Unit) { load(dataset) }
+}
+
+@Preview
+@Composable
+fun ChartPreview() {
+    PreviewHelper()
+}
+
+@VisibleForTesting
+@Composable
+fun TestingChart(dataset: List<Int>) {
+    val series = remember { buildSeries(dataset) }
+}
+
+@Composable
+private fun SharedHelper(dataset: List<Int>) {
+    val series = remember { buildSeries(dataset) }
+}
+
+@Preview
+@Composable
+fun SharedPreview() {
+    SharedHelper(emptyList())
+}
+
+@Composable
+fun Screen() {
+    SharedHelper(emptyList())
+}
+`
+	if f := runRuleByName(t, "ComposeRememberWithoutKey", src); len(f) != 1 {
+		t.Fatalf("only the helper that production code also calls should report, got %d: %v", len(f), f)
+	}
+	if f := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", src); len(f) != 0 {
+		t.Fatalf("preview helper effect should be skipped, got %d: %v", len(f), f)
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_DocumentedFirstCaptureAndFactory(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(target: Target?, presenterFactory: PresenterFactory) {
+    // Captured on the first composition only; later targets must not move the list.
+    val start = remember { target?.takeUnless { it.isEmpty } }
+    val presenter = remember { presenterFactory.create() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_StateSeeding(t *testing.T) {
+	for _, factory := range []string{"mutableStateOf(dataset)", "dataset.toMutableStateList()", "mutableIntStateOf(dataset.size)"} {
+		findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>) {
+    val series = remember { `+factory+` }
+}
+`)
+		if len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %v", factory, findings)
+		}
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_InitialParameterName(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(initialDataset: List<Int>, defaultScale: Int) {
+    val series = remember { buildSeries(initialDataset, defaultScale) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_ResyncsFromParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>) {
+    val series = remember { buildSeries(dataset) }
+    LaunchedEffect(dataset) { series.reset(dataset) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_NonComposableFunctionParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.remember
+
+fun build(dataset: List<Int>) {
+    val series = remember { buildSeries(dataset) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
 	}
 }
 
@@ -865,6 +1151,111 @@ fun Example(userId: String) {
 	}
 }
 
+func TestComposeLaunchedEffectWithoutKeys_Negative_CallbacksAndSinks(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(onReady: () -> Unit, eventSink: (Event) -> Unit, handler: Handler) {
+    LaunchedEffect(Unit) {
+        onReady()
+        eventSink(Event.Started)
+        handler.run()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Negative_OnceOnlySideEffects(t *testing.T) {
+	for name, body := range map[string]string{
+		"analytics": "trackScreenView(userId)",
+		"guarded":   "if (shouldOpen) { open(userId) }",
+		"toast":     "showToast(userId)",
+	} {
+		findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(userId: String, shouldOpen: Boolean) {
+    LaunchedEffect(Unit) {
+        `+body+`
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %v", name, findings)
+		}
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Negative_HostStateAndDocumentedOneShot(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(message: String, host: Host, target: String) {
+    LaunchedEffect(Unit) {
+        host.showSnackbar(message)
+    }
+    // Runs once when the screen opens.
+    LaunchedEffect(Unit) {
+        scrollTo(target)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Positive_MessageListsAllParameters(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(userId: String, mode: Int) {
+    LaunchedEffect(Unit) {
+        fetch(userId, mode)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+	if msg := findings[0].Message; !strings.Contains(msg, "userId, mode") {
+		t.Fatalf("message should list every parameter: %q", msg)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Negative_MethodReceiverOnly(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(controller: Controller) {
+    LaunchedEffect(Unit) {
+        controller.start()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeLaunchedEffectWithoutKeys_Negative_KeyedCorrectly(t *testing.T) {
 	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
 package test
@@ -976,10 +1367,48 @@ package test
 import androidx.compose.runtime.Composable
 
 @Composable
+fun Pane(state: ScrollState = ScrollState(0)) { }
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeStatefulDefaultParameter_Positive_FileLocalRememberFactory(t *testing.T) {
+	findings := runRuleByName(t, "ComposeStatefulDefaultParameter", `
+package test
+import androidx.compose.runtime.Composable
+
+class CounterState
+@Composable
+fun rememberCounterState(): CounterState = CounterState()
+
+@Composable
 fun Counter(state: CounterState = CounterState()) { }
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeStatefulDefaultParameter_Negative_ValueTypes(t *testing.T) {
+	findings := runRuleByName(t, "ComposeStatefulDefaultParameter", `
+package test
+import androidx.compose.runtime.Composable
+
+@Immutable
+data class HeaderStyle(val bold: Boolean = false)
+
+@Composable
+fun Card(
+    padding: PaddingValues = PaddingValues(),
+    shape: Shape = RoundedCornerShape(4.dp),
+    insets: WindowInsets = WindowInsets(0),
+    style: HeaderStyle = HeaderStyle(),
+) { }
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for value types, got %d: %v", len(findings), findings)
 	}
 }
 
@@ -1269,24 +1698,60 @@ fun Screen(vm: VM) {
 	}
 }
 
+func TestComposeSideEffectInComposition_Negative_DocumentedIdempotentAssignment(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    // Idempotent: the same value is written on every recomposition.
+    vm.tracker.value = true
+    Content(vm.state)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_MessageNamesStateWrite(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    LocalHolder.current.value = vm.id
+    Content(vm.state)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Message, "state write through a CompositionLocal") {
+		t.Fatalf("unexpected message: %q", findings[0].Message)
+	}
+}
+
 func TestComposeSideEffectInComposition_Negative_UpdateMutableStateValue(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 
-class CompletedCheckboxColors {
-    fun baseColor(enabled: Boolean): Int = 0
-    fun pressedColor(enabled: Boolean): Int = 1
+class SwitchPalette {
+    fun trackColor(checked: Boolean): Int = 0
+    fun knobColor(checked: Boolean): Int = 1
 }
 
-private val baseColor: MutableState<Int> = state()
-private val pressedColor: MutableState<Int> = state()
+private val track: MutableState<Int> = state()
+private val knob: MutableState<Int> = state()
 
 @Composable
-fun UpdateColors(colors: CompletedCheckboxColors, enabled: Boolean) {
-    baseColor.value = colors.baseColor(enabled)
-    pressedColor.value = colors.pressedColor(enabled)
+fun UpdatePalette(palette: SwitchPalette, checked: Boolean) {
+    track.value = palette.trackColor(checked)
+    knob.value = palette.knobColor(checked)
 }
 `)
 	if len(findings) != 0 {
@@ -1586,24 +2051,106 @@ package test
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 
-class RecordDetailStateProducer {
-    private var lastRecordIdentifier: RecordIdentifier? = null
-    private var lastEntryPoint: RecordViewEntryPoint? = null
-    private val recordDetailState: State<RecordDetailState> = state()
+class PlaylistStateProducer {
+    private var lastPlaylistId: PlaylistId? = null
+    private var lastSource: PlaylistSource? = null
+    private val playlistState: State<PlaylistState> = state()
 
     @Composable
-    fun produceState(
-        recordIdentifier: RecordIdentifier,
-        entryPoint: RecordViewEntryPoint,
-    ): State<RecordDetailState> {
-        lastRecordIdentifier = recordIdentifier
-        lastEntryPoint = entryPoint
-        return recordDetailState
+    fun produce(
+        playlistId: PlaylistId,
+        source: PlaylistSource,
+    ): State<PlaylistState> {
+        lastPlaylistId = playlistId
+        lastSource = source
+        return playlistState
     }
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for state-producer last* parameter capture, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_FreshRememberedStateWrite(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Screen(initial: Int) {
+    val count = remember { mutableStateOf(0) }
+    count.value = initial
+    Content(count.value)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a write before any read, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_RememberedStateWriteAfterRead(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Screen(initial: Int) {
+    val count = remember { mutableStateOf(0) }
+    Content(count.value)
+    count.value = initial
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected a write after a read of the same state to be reported")
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_TestAndFakeSources(t *testing.T) {
+	const body = `
+package test
+import androidx.compose.runtime.Composable
+
+class %s {
+    var selected = false
+
+    @Composable
+    fun Screen(selected: Boolean) {
+        this.selected = selected
+    }
+}
+`
+	if findings := runRuleByName(t, "ComposeSideEffectInComposition", strings.Replace(body, "%s", "FakePresenter", 1)); len(findings) != 0 {
+		t.Fatalf("expected no findings in a Fake class, got %v", findings)
+	}
+	file := parseInline(t, strings.Replace(body, "%s", "Presenter", 1))
+	file.Path = "/repo/features/chat/src/test/kotlin/com/example/Presenter.kt"
+	if findings := runRuleByNameOnFile(t, "ComposeSideEffectInComposition", file); len(findings) != 0 {
+		t.Fatalf("expected no findings in test sources, got %v", findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_MutableTransitionTargetStateSpacing(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Menu(expanded: Boolean) {
+    val state = remember(expanded) {
+        MutableTransitionState(false)
+    }
+    state.targetState = expanded
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
 	}
 }
 
@@ -1652,15 +2199,15 @@ func TestComposeSideEffectInComposition_Negative_AnimateStateAssignment(t *testi
 package test
 import androidx.compose.runtime.Composable
 
-class Presenter {
-    private var rippleScale: Float = 0f
+class TileHolder {
+    private var glow: Float = 0f
 
     @Composable
-    fun Screen(transition: Transition<Boolean>) {
-        rippleScale = transition.animateFloat(label = "ripple") { pressed ->
-            if (pressed) 1f else 0f
+    fun Tile(transition: Transition<Boolean>) {
+        glow = transition.animateFloat(label = "glow") { hovered ->
+            if (hovered) 0.8f else 0.1f
         }
-        Content(rippleScale)
+        Content(glow)
     }
 }
 `)
@@ -1722,10 +2269,10 @@ import androidx.compose.ui.Modifier
 
 @Composable
 fun Screen() {
-    var sectionRevealed = false
+    var panelOpen = false
     Content(
         modifier = Modifier.clickable {
-            sectionRevealed = !sectionRevealed
+            panelOpen = !panelOpen
         }
     )
 }
@@ -1741,21 +2288,21 @@ package test
 import androidx.compose.runtime.Composable
 
 sealed interface UiState
-object NoTasksAssigned : UiState
-object TasksAssigned : UiState
+object EmptyCart : UiState
+object FilledCart : UiState
 
 @Composable
 fun Screen(state: UiState) {
-    val title: TextResource
-    val message: TextResource
+    val title: Label
+    val message: Label
     when (state) {
-        NoTasksAssigned -> {
-            title = TextResource.string("No tasks")
-            message = TextResource.string("Done")
+        EmptyCart -> {
+            title = Label.of("Cart")
+            message = Label.of("Nothing here")
         }
-        TasksAssigned -> {
-            title = TextResource.string("Tasks")
-            message = TextResource.string("Open")
+        FilledCart -> {
+            title = Label.of("Your items")
+            message = Label.of("Ready to check out")
         }
     }
     Content(title, message)
@@ -2040,12 +2587,55 @@ fun Screen(vm: VM) {
 }
 
 func TestComposeUnstableParameter_Positive(t *testing.T) {
-	findings := runRuleByName(t, "ComposeUnstableParameter", `
+	findings := runRuleWithKotlin(t, "ComposeUnstableParameter", "1.9", `
 package test
 import androidx.compose.runtime.Composable
 
 @Composable
 fun UserList(users: List<User>) { }
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeUnstableParameter_Negative_StrongSkipping(t *testing.T) {
+	const src = `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun UserList(users: List<User>) { }
+`
+	for _, version := range []string{"2.0", "2.2", ""} {
+		if findings := runRuleWithKotlin(t, "ComposeUnstableParameter", version, src); len(findings) != 0 {
+			t.Fatalf("Kotlin %q: expected no findings with strong skipping, got %v", version, findings)
+		}
+	}
+}
+
+func TestComposeUnstableParameter_Negative_NotSkippableRestartable(t *testing.T) {
+	for name, decl := range map[string]string{
+		"returns a value":   "@Composable\nfun rememberTotal(users: List<User>): Int = users.size",
+		"read only":         "@Composable\n@ReadOnlyComposable\nfun Total(users: List<User>) { }",
+		"inline":            "@Composable\ninline fun Total(users: List<User>) { }",
+		"remember factory":  "@Composable\nfun rememberTotal(users: List<User>) { }",
+		"untyped expr body": "@Composable\nfun Total(users: List<User>) = users.size",
+	} {
+		findings := runRuleWithKotlin(t, "ComposeUnstableParameter", "1.9", "package test\nimport androidx.compose.runtime.Composable\n"+decl+"\n")
+		if len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %v", name, findings)
+		}
+	}
+}
+
+func TestComposeUnstableParameter_Positive_ExplicitUnitReturn(t *testing.T) {
+	findings := runRuleWithKotlin(t, "ComposeUnstableParameter", "1.9", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun UserList(users: List<User>): Unit { }
 `)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
@@ -2106,7 +2696,7 @@ fun FakeUserList(users: List<User>) { }
 }
 
 func TestComposeUnstableParameter_Positive_FakeNamedProductionFunction(t *testing.T) {
-	findings := runRuleByName(t, "ComposeUnstableParameter", `
+	findings := runRuleWithKotlin(t, "ComposeUnstableParameter", "1.9", `
 package test
 import androidx.compose.runtime.Composable
 
@@ -2198,5 +2788,626 @@ fun Example() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+const composePainterLoopSource = `
+package test
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun Example(rows: List<Row>) {
+    LazyColumn {
+        items(rows) { row ->
+            Icon(painterResource(%s), null)
+        }
+    }
+}
+`
+
+func TestComposePainterResourceInLoop_DependsOnItemIsClean(t *testing.T) {
+	findings := runRuleByName(t, "ComposePainterResourceInLoop", strings.Replace(composePainterLoopSource, "%s", "row.iconRes", 1))
+	if len(findings) != 0 {
+		t.Fatalf("a resource that depends on the item cannot be hoisted, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposePainterResourceInLoop_LoopInvariantResourceIsFlagged(t *testing.T) {
+	findings := runRuleByName(t, "ComposePainterResourceInLoop", strings.Replace(composePainterLoopSource, "%s", "R.drawable.marker", 1))
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for a hoistable resource, got %d: %v", len(findings), findings)
+	}
+}
+
+const composeRememberListSource = `
+package test
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.item
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Example(rows: List<Row>) {
+    LazyColumn {
+        %s
+    }
+}
+`
+
+func TestComposeRememberInList_ReadsItem(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberInList", strings.Replace(composeRememberListSource, "%s",
+		"items(rows) { row -> val label = remember { build(row) } }", 1))
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberInList_NotReadingItemOrOutsideItemsIsClean(t *testing.T) {
+	for name, body := range map[string]string{
+		"independent":  "items(rows) { row -> val label = remember { \"row\" } }",
+		"singularItem": "item { val label = remember { build(1) } }",
+		"keyed":        "items(rows) { row -> val label = remember(row) { build(row) } }",
+	} {
+		findings := runRuleByName(t, "ComposeRememberInList", strings.Replace(composeRememberListSource, "%s", body, 1))
+		if len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %d: %v", name, len(findings), findings)
+		}
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_TrackedReadsInDerivedState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(onClick: () -> Int, listState: LazyListState, count: State<Int>) {
+    val a = remember { derivedStateOf { onClick() } }
+    val b = remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val c = remember { derivedStateOf { count.value + 1 } }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Positive_ParameterReadOutsideTrackingBlock(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(onClick: () -> Int, other: Int) {
+    val a = remember { derivedStateOf { onClick() } + other }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for the plain parameter, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeDerivedStateMisuse_Negative_ThresholdsOnSameState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDerivedStateMisuse", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Header(offset: State<Float>) {
+    val moved = remember { derivedStateOf { offset.value != 0f } }
+    val past = remember { derivedStateOf { offset.value > 0.5f } }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_TransitionParamAndRememberedMap(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Panel(state: MutableTransitionState<Boolean>, flag: Boolean) {
+    state.targetState = flag
+    val cache = remember { mutableStateMapOf<Int, String>() }
+    cache[1] = "x"
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Negative_DocumentedOneShot(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Screen(name: String, other: String) {
+    // One-shot: records the screen the first time it is shown.
+    LaunchedEffect(Unit) { screenOpened(name) }
+    LaunchedEffect(Unit) { screenOpened(other) }
+}
+fun screenOpened(s: String) {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the undocumented effect, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Positive_MessageNamesStateMapWrite(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(vm: VM) {
+    vm.options[vm.key] = vm.id
+    Content(vm.state)
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "state map write") {
+		t.Fatalf("expected one state map write finding, got %v", findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_Negative_RetainedMutableTransitionTargetState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Sheet(visible: Boolean) {
+    val animationState = rememberRetained { MutableTransitionState(visible) }
+    animationState.targetState = visible
+    Content(animationState.isIdle)
+}
+
+@Composable
+fun Plain(visible: Boolean) {
+    val state = MutableTransitionState(visible)
+    state.targetState = visible
+    Content(state.isIdle)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for MutableTransitionState built by a remember-family call, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Positive_MessageListsReceiverParameters(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(items: List<String>, window: Window, state: Holder) {
+    LaunchedEffect(Unit) {
+        window.loadMore(items)
+        state.version.toString()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+	if msg := findings[0].Message; !strings.Contains(msg, "window, items, state") || !strings.Contains(msg, "LaunchedEffect(window, items, state)") {
+		t.Fatalf("message should list receiver and property-access parameters in source order: %q", msg)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_Negative_ReceiverParameterWithDocumentedOneShot(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Example(items: List<String>, window: Window) {
+    // One-shot: runs once on first composition.
+    LaunchedEffect(Unit) {
+        window.loadMore(items)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Exemptions_KeyBlockFallbackWrapperNavigator(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+
+interface Navigator
+
+fun use(x: Any?) {}
+
+@Composable
+fun KeyedByBlock(id: Int) {
+    key(id) {
+        val v = remember { id + 1 }
+        use(v)
+    }
+}
+
+@Composable
+fun FallbackArm(token: String?) {
+    val v = if (token != null) remember(token) { token.length } else remember { token.hashCode() }
+    use(v)
+}
+
+@Composable
+fun MovableWrapper(content: @Composable () -> Unit) {
+    val movable = remember { movableContentOf { content() } }
+    use(movable)
+}
+
+@Composable
+fun UpdatedWrapper(callback: () -> Unit) {
+    val state = remember { rememberUpdatedState(callback) }
+    use(state)
+}
+
+@Composable
+fun NavigatorCapture(navigator: Navigator) {
+    val v = remember { navigator.toString() }
+    use(v)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_StillReportsUncoveredParam(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
+
+fun use(x: Any?) {}
+
+@Composable
+fun PartlyKeyed(id: Int, label: String) {
+    key(id) {
+        val v = remember { id + label.length }
+        use(v)
+    }
+}
+
+@Composable
+fun MovableAndData(content: @Composable () -> Unit, size: Int) {
+    val movable = remember { movableContentOf { content() }.also { use(size) } }
+    use(movable)
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Message, "content") || strings.Contains(f.Message, "id") && !strings.Contains(f.Message, "label") {
+			t.Fatalf("message should not suggest covered or wrapped params: %s", f.Message)
+		}
+	}
+}
+
+func TestComposeRememberWithoutKey_Negative_InvokeOnlyFactoryLambda(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(create: () -> Holder, build: (Int) -> Holder, nullable: (() -> Holder)?) {
+    val a = remember { Holder(create()) }
+    val b = remember { build(1) }
+    val c = remember { create.invoke() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("an invoke-only factory lambda is a one-shot initializer, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_Positive_FactoryLambdaWithDataOrEagerUse(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(create: () -> Holder, items: List<Int>, other: () -> Int, nav: Nav) {
+    val a = remember { Holder(create(), items) }
+    val b = remember { register(other) }
+    val c = remember { Holder(getter = { nav.toolbar }) }
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("data parameters, escaping lambdas and deferred reads of data stay reported, got %d: %v", len(findings), findings)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Message, "create") {
+			t.Fatalf("the invoke-only lambda must not appear in the key list: %q", f.Message)
+		}
+	}
+}
+
+func TestComposeRememberWithoutKey_NamesLocalsDerivedFromParameters(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>, scale: Int) {
+    val total = dataset.size
+    val series = remember { buildSeries(total, scale) }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+	if msg := findings[0].Message; !strings.Contains(msg, "total, scale") || !strings.Contains(msg, "remember(total, scale)") {
+		t.Fatalf("message should name the derived local and the parameter, got %q", msg)
+	}
+}
+
+func TestComposeRememberWithoutKey_FlagsLocalDerivedFromParameterAlone(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>) {
+    val first = dataset.first()
+    val doubled = first * 2
+    val series = remember { buildSeries(doubled) }
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "doubled") {
+		t.Fatalf("expected 1 finding naming doubled, got %v", findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_IgnoresLocalsHoldingRememberedState(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>) {
+    val holder = remember(dataset) { mutableStateOf(dataset) }
+    val view = remember { holder.value }
+    val plain = 5
+    val other = remember { plain }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_SiblingRemembersAreBothFlagged(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Chart(dataset: List<Int>, scale: Int) {
+    val a = remember { buildSeries(dataset) }
+    val b = remember { buildAxis(scale) }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_RememberedHolderReadOnlyInCallbacks(t *testing.T) {
+	skipped := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+
+@Composable
+fun Screen(input: Int) {
+    val holder = remember { mutableStateOf(0) }
+    Button(onClick = { println(holder.value) })
+    holder.value = input
+}
+`)
+	if len(skipped) != 0 {
+		t.Fatalf("expected no findings when the holder is only read in a callback, got %d: %v", len(skipped), skipped)
+	}
+	reported := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+
+@Composable
+fun Screen(input: Int) {
+    val holder = remember { mutableStateOf(0) }
+    Text("${holder.value}")
+    Label(holder.value)
+    holder.value = input
+}
+`)
+	if len(reported) != 1 {
+		t.Fatalf("expected 1 finding when the holder is read during composition, got %d: %v", len(reported), reported)
+	}
+}
+
+func TestComposeSideEffectInComposition_PlainLocalWritesAreNotSideEffects(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(items: List<Int>) {
+    var count = 0
+    count = 1
+    val cache = mutableMapOf<String, Int>()
+    cache["a"] = 1
+    Text("$count")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeSideEffectInComposition_PropertyWriteStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "ComposeSideEffectInComposition", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen(holder: Holder) {
+    val count = 0
+    holder.count = count
+    Text("$count")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeLaunchedEffectWithoutKeys_LocalShadowsParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeLaunchedEffectWithoutKeys", `
+package test
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+
+@Composable
+fun Screen(key: Int, items: List<Int>) {
+    LaunchedEffect(Unit) {
+        val key = 1
+        println(key)
+    }
+    LaunchedEffect(Unit) {
+        items.size
+        items.forEach { key -> println(key) }
+    }
+}
+`)
+	// Only the second effect reads a real parameter (items.size).
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_LambdaParameterShadowsParameter(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Screen(name: String) {
+    val upper = remember { listOf("a").map { name -> name.uppercase() } }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeDisposableEffectMissingDispose_ReturnLabeledOnDispose(t *testing.T) {
+	findings := runRuleByName(t, "ComposeDisposableEffectMissingDispose", `
+package test
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+@Composable
+fun Screen() {
+    DisposableEffect(Unit) {
+        val x = 1
+        return@DisposableEffect onDispose { }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeModifierBackgroundAfterClip_BackgroundWithShapeNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "ComposeModifierBackgroundAfterClip", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen() {
+    Box(Modifier.background(Color.Red, CircleShape).clip(CircleShape))
+    Box(Modifier.background(Color.Red).clip(CircleShape))
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeMutableStateInComposition_CallbackAndFactoryVariants(t *testing.T) {
+	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen() {
+    Button(onClick = { val a = mutableStateOf(1) }) {}
+    LaunchedEffect(Unit) { val b = mutableStateOf(2) }
+    val c = mutableIntStateOf(0)
+    val d = mutableStateListOf<Int>()
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (c, d), got %d: %v", len(findings), findings)
 	}
 }

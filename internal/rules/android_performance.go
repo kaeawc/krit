@@ -4,6 +4,7 @@ package rules
 // Origin: https://android.googlesource.com/platform/tools/base/+/refs/heads/main/lint/libs/lint-checks/
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -58,7 +59,9 @@ func (r *DrawAllocationRule) check(ctx *api.Context) {
 		return
 	}
 	name := flatFunctionName(file, fn)
-	if name != "onDraw" && name != "draw" {
+	switch name {
+	case "onDraw", "draw", "dispatchDraw", "onMeasure", "onLayout":
+	default:
 		return
 	}
 	if !file.FlatHasModifier(fn, "override") {
@@ -69,11 +72,11 @@ func (r *DrawAllocationRule) check(ctx *api.Context) {
 		return
 	}
 	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
-		if !drawAllocationIsAllocCall(file, call) {
+		if !drawAllocationIsAllocCall(file, call) || drawAllocationNotPerDraw(file, call, body) {
 			return
 		}
 		ctx.EmitAt(file.FlatRow(call)+1, file.FlatCol(call)+1,
-			"Allocation in drawing code. Move allocations out of onDraw() for better performance.")
+			"Avoid object allocations during draw/layout operations (preallocate and reuse instead)")
 	})
 }
 
@@ -81,6 +84,39 @@ func (r *DrawAllocationRule) check(ctx *api.Context) {
 // unqualified constructor-style call whose callee name appears in the
 // graphics allow-list. Qualified calls (receiver.Foo()) and calls whose
 // callee is not a simple identifier are ignored.
+// drawAllocationDeferredCallNames run their lambda later, not during the draw pass.
+var drawAllocationDeferredCallNames = map[string]bool{
+	"post": true, "postDelayed": true, "postOnAnimation": true, "postOnAnimationDelayed": true, "runOnUiThread": true,
+}
+
+// drawAllocationNotPerDraw reports allocations that do not run on every draw pass: lazy
+// `x ?: Paint()` and `if (x == null) x = Paint()` initialization, nested class bodies and
+// lambdas handed to post-style calls.
+func drawAllocationNotPerDraw(file *scanner.File, call, body uint32) bool {
+	child := call
+	for cur, ok := file.FlatParent(call); ok && cur != body; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_body", "object_literal", "class_declaration", "object_declaration":
+			return true
+		case "elvis_expression":
+			if file.FlatNamedChild(cur, 0) != child {
+				return true
+			}
+		case "if_expression":
+			cond := file.FlatNamedChild(cur, 0)
+			if cond != 0 && cond != child && strings.Contains(file.FlatNodeText(cond), "null") {
+				return true
+			}
+		case "lambda_literal":
+			if outer, ok := flatEnclosingAncestor(file, cur, "call_expression"); ok && drawAllocationDeferredCallNames[flatCallExpressionName(file, outer)] {
+				return true
+			}
+		}
+		child = cur
+	}
+	return false
+}
+
 func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
 	if file == nil || file.FlatType(call) != "call_expression" {
 		return false
@@ -108,91 +144,130 @@ func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
 	return drawAllocationAllocTypes[calleeName]
 }
 
-// FieldGetterRule detects using getter instead of direct field access in loops.
+// FieldGetterRule detects calls on self to a trivial getter, which are slower than reading the field.
 type FieldGetterRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
 
 func (r *FieldGetterRule) NodeTypes() []string {
-	return []string{"call_expression"}
+	return []string{"call_expression", "method_invocation"}
 }
 
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence: the getter and field are matched in the
+// same file by name and shape, without type resolution.
 func (r *FieldGetterRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// fieldGetterBodyRe matches a getter body that only returns a field, as a block or an expression body.
+var fieldGetterBodyRe = regexp.MustCompile(`^(?:\{\s*return\s+(?:this\.)?([A-Za-z_]\w*)\s*;?\s*\}|=\s*(?:this\.)?([A-Za-z_]\w*))$`)
+
 func (r *FieldGetterRule) check(ctx *api.Context) {
-	file := ctx.File
-	callIdx := ctx.Idx
-	if file.FlatType(callIdx) != "call_expression" {
+	file, call := ctx.File, ctx.Idx
+	name, ok := fieldGetterSelfCallName(file, call)
+	if !ok {
 		return
 	}
-
-	// Check if this call is inside a for or while loop
-	if !isCallInLoop(file, callIdx) {
+	cls, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration")
+	if !ok {
 		return
 	}
-
-	navExpr, args := flatCallExpressionParts(file, callIdx)
-	if navExpr == 0 {
+	field := fieldGetterTrivialGetterField(file, cls, name)
+	if field == "" || !fieldGetterClassDeclares(file, cls, field) {
 		return
 	}
-
-	methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
-	if methodName == "" || !isFieldGetterName(methodName) || nonFieldGetters[methodName] {
-		return
-	}
-
-	// Check that there are no arguments
-	if !hasZeroArguments(file, args) {
-		return
-	}
-
-	ctx.EmitAt(file.FlatRow(callIdx)+1, file.FlatCol(callIdx)+1,
-		"Getter call inside loop. Use direct field access for better performance.")
+	ctx.EmitAt(file.FlatRow(call)+1, file.FlatCol(call)+1,
+		"Calling getter method `"+name+"()` on self is slower than field access (`"+field+"`).")
 }
 
-// isCallInLoop checks if a call_expression node is within a for_statement or while_statement
-func isCallInLoop(file *scanner.File, callIdx uint32) bool {
-	if file == nil || callIdx == 0 {
-		return false
-	}
-	// Walk up the tree to find if we're inside a loop
-	for current, ok := file.FlatParent(callIdx); ok; current, ok = file.FlatParent(current) {
-		parentType := file.FlatType(current)
-		if parentType == "for_statement" || parentType == "while_statement" || parentType == "do_while_statement" {
-			return true
+// fieldGetterSelfCallName returns the name of a zero-argument get/is call that is unqualified or on this.
+func fieldGetterSelfCallName(file *scanner.File, call uint32) (string, bool) {
+	var name string
+	switch file.FlatType(call) {
+	case "call_expression":
+		name = flatCallExpressionName(file, call)
+		navExpr, args := flatCallExpressionParts(file, call)
+		if navExpr != 0 && strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(navExpr, 0))) != "this" {
+			return "", false
 		}
+		if !hasZeroArguments(file, args) {
+			return "", false
+		}
+	case "method_invocation":
+		name = wrongViewCastCallName(file, call)
+		if recv := javaMethodReceiverText(file, call); recv != "" && recv != "this" {
+			return "", false
+		}
+		if len(javaArgumentExpressions(file, call)) != 0 {
+			return "", false
+		}
+	default:
+		return "", false
 	}
-	return false
+	if !isFieldGetterName(name) && !fieldGetterIsPredicateName(name) {
+		return "", false
+	}
+	return name, true
 }
 
-// Non-field-getter methods that start with "get" but should be filtered out.
-var nonFieldGetters = map[string]bool{
-	"getOrDefault": true,
-	"getOrNull":    true,
-	"getOrElse":    true,
-	"getOrPut":     true,
-	"getValue":     true,
-	"getKey":       true,
+func fieldGetterIsPredicateName(name string) bool {
+	return len(name) > 2 && strings.HasPrefix(name, "is") && name[2] >= 'A' && name[2] <= 'Z'
 }
 
-// isFieldGetterName checks if a method name matches get[A-Z] pattern
-func isFieldGetterName(methodName string) bool {
-	if len(methodName) < 4 {
-		return false
+// fieldGetterTrivialGetterField returns the field returned by the zero-parameter method name declared
+// directly in cls, or "" when there is no such method or it does more than return a field.
+func fieldGetterTrivialGetterField(file *scanner.File, cls uint32, name string) string {
+	body, ok := file.FlatFindChild(cls, "class_body")
+	if !ok {
+		return ""
 	}
-	if !strings.HasPrefix(methodName, "get") {
-		return false
+	for member := file.FlatFirstChild(body); member != 0; member = file.FlatNextSib(member) {
+		switch file.FlatType(member) {
+		case "function_declaration", "method_declaration":
+		default:
+			continue
+		}
+		if extractIdentifierFlat(file, member) != name {
+			continue
+		}
+		var fnBody uint32
+		params := 0
+		for c := file.FlatFirstChild(member); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "function_value_parameters", "formal_parameters":
+				params = file.FlatNamedChildCount(c)
+			case "function_body", "block":
+				fnBody = c
+			}
+		}
+		if params != 0 || fnBody == 0 {
+			return ""
+		}
+		text := strings.TrimSpace(file.FlatNodeText(fnBody))
+		m := fieldGetterBodyRe.FindStringSubmatch(text)
+		if m == nil {
+			return ""
+		}
+		if m[1] != "" {
+			return m[1]
+		}
+		return m[2]
 	}
-	secondChar := methodName[3]
-	// Must be followed by uppercase letter
-	return secondChar >= 'A' && secondChar <= 'Z'
+	return ""
+}
+
+// fieldGetterClassDeclares reports whether cls declares a field or property named field.
+func fieldGetterClassDeclares(file *scanner.File, cls uint32, field string) bool {
+	found := false
+	file.FlatWalkAllNodes(cls, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "variable_declarator", "property_declaration", "class_parameter":
+			found = extractIdentifierFlat(file, n) == field
+		}
+	})
+	return found
 }
 
 // hasZeroArguments checks if the value_arguments is empty
@@ -211,6 +286,14 @@ func hasZeroArguments(file *scanner.File, args uint32) bool {
 		}
 	}
 	return namedCount == 0
+}
+
+// isFieldGetterName checks if a method name matches get[A-Z] pattern
+func isFieldGetterName(methodName string) bool {
+	if len(methodName) < 4 || !strings.HasPrefix(methodName, "get") {
+		return false
+	}
+	return methodName[3] >= 'A' && methodName[3] <= 'Z'
 }
 
 // FloatMathRule detects deprecated FloatMath usage via AST dispatch.
@@ -259,8 +342,13 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 			if handlerClassHasLooperSuperConstructor(file, idx) {
 				return
 			}
-			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"This Handler class should be static or leaks might occur. Use a WeakReference to the outer class."))
+			// Java reports the class name like Lint; Kotlin keeps the declaration start the FIR twin reports.
+			at := idx
+			if file.Language == scanner.LangJava {
+				at = handlerClassNameNode(file, idx)
+			}
+			ctx.Emit(r.Finding(file, file.FlatRow(at)+1, file.FlatCol(at)+1,
+				"This `Handler` class should be static or leaks might occur ("+handlerClassQualifiedName(file, idx)+")"))
 		}
 		return
 	}
@@ -269,8 +357,9 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 		for i := 0; i < file.FlatChildCount(idx); i++ {
 			child := file.FlatChild(idx, i)
 			if handlerSupertypeIsHandler(ctx, file, child) {
+				// Lint skips a Handler built on an explicit Looper; the Kotlin FIR twin does not model that yet.
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
+					handlerAnonymousMessage))
 				return
 			}
 		}
@@ -281,9 +370,43 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 		if !handlerJavaObjectCreationIsAnonymousHandler(ctx, file, idx) {
 			return
 		}
-		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-			"Anonymous Handler may leak the enclosing class. Use a static inner class with a WeakReference."))
+		if args, ok := file.FlatFindChild(idx, "argument_list"); ok && strings.Contains(strings.ToLower(file.FlatNodeText(args)), "looper") {
+			return
+		}
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, handlerAnonymousMessage))
 	}
+}
+
+const handlerAnonymousMessage = "This `Handler` class should be static or leaks might occur (anonymous android.os.Handler)"
+
+// handlerClassNameNode returns the identifier naming a class declaration, or the declaration itself.
+func handlerClassNameNode(file *scanner.File, cls uint32) uint32 {
+	for _, kind := range []string{"identifier", "type_identifier", "simple_identifier"} {
+		if name, ok := file.FlatFindChild(cls, kind); ok {
+			return name
+		}
+	}
+	return cls
+}
+
+// handlerClassQualifiedName builds the dotted package and nesting name of a class.
+func handlerClassQualifiedName(file *scanner.File, cls uint32) string {
+	var parts []string
+	for cur := cls; cur != 0; {
+		if file.FlatType(cur) == "class_declaration" {
+			parts = append([]string{file.FlatNodeText(handlerClassNameNode(file, cur))}, parts...)
+		}
+		parent, ok := file.FlatParent(cur)
+		if !ok {
+			break
+		}
+		cur = parent
+	}
+	// Java names carry the package like Lint; the Kotlin FIR twin cannot, so Kotlin names stop at the nesting.
+	if file.Language != scanner.LangJava {
+		return strings.Join(parts, ".")
+	}
+	return qualifySourceName(sourcePackageName(file), strings.Join(parts, "."))
 }
 
 func handlerClassMayCaptureOuterInstance(file *scanner.File, idx uint32) bool {
@@ -582,8 +705,12 @@ func floatMathReceiverIsFloatMath(file *scanner.File, navExprIdx uint32) bool {
 		return false
 	}
 	// Check if it's a simple_identifier with text "FloatMath"
-	if file.FlatType(first) == "simple_identifier" {
-		return file.FlatNodeText(first) == "FloatMath"
+	switch file.FlatType(first) {
+	case "simple_identifier":
+		// A bare name only means android.util.FloatMath when the file imports it.
+		return file.FlatNodeText(first) == "FloatMath" && sourceImportsOrMentions(file, "android.util.FloatMath")
+	case "navigation_expression":
+		return strings.TrimSpace(file.FlatNodeText(first)) == "android.util.FloatMath"
 	}
 	return false
 }
@@ -616,6 +743,9 @@ func (r *RecycleRule) check(ctx *api.Context) {
 	// Extract property type and check if it's recyclable
 	typeStr := extractPropertyTypeFlat(file, idx)
 	if typeStr == "" {
+		typeStr = recycleResolvedInitializerType(ctx)
+	}
+	if typeStr == "" {
 		return
 	}
 
@@ -623,6 +753,7 @@ func (r *RecycleRule) check(ctx *api.Context) {
 	typeStr = strings.TrimSpace(typeStr)
 	typeStr = strings.TrimPrefix(typeStr, ":")
 	typeStr = strings.TrimSpace(typeStr)
+	typeStr = strings.TrimSuffix(typeStr, "?")
 
 	// Check if it's one of the recyclable types (avoid matching generics like Flow<TypedArray>)
 	var recycleType string
@@ -642,11 +773,77 @@ func (r *RecycleRule) check(ctx *api.Context) {
 		return
 	}
 
+	// Only a local acquired from a call owns the resource; class members and aliases do not.
+	if parent, ok := file.FlatParent(idx); !ok || file.FlatType(parent) == "class_body" || file.FlatType(parent) == "source_file" {
+		return
+	}
+	init := propertyInitializerExpression(file, idx)
+	if init == 0 || file.FlatType(init) == "simple_identifier" || !recycleInitializerHasCall(file, init) {
+		return
+	}
+	// Returning or passing the resource hands ownership to the caller.
+	if recycleVariableEscapesFlat(file, idx, varName) {
+		return
+	}
+
 	// Check if cleanup exists in the same scope
 	if !recycleVariableHasCleanupFlat(file, idx, varName) {
-		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
-			recycleType+" acquired but no cleanup found. Ensure recycle()/close()/.use {} is called in the same scope."))
+		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+			recycleMessage(recycleType)))
 	}
+}
+
+// recycleResolvedInitializerFQNs maps the resolved type of an inferred local to its recycle type.
+var recycleResolvedInitializerFQNs = map[string]string{
+	"android.content.res.TypedArray": "TypedArray",
+	"android.database.Cursor":        "Cursor",
+	"android.view.VelocityTracker":   "VelocityTracker",
+	"android.os.Parcel":              "Parcel",
+}
+
+// recycleResolvedInitializerType returns the recycle type of `val x = call()` when the resolver knows the call's type.
+func recycleResolvedInitializerType(ctx *api.Context) string {
+	if ctx.Resolver == nil {
+		return ""
+	}
+	init := propertyInitializerExpression(ctx.File, ctx.Idx)
+	if init == 0 || ctx.File.FlatType(init) == "simple_identifier" {
+		return ""
+	}
+	resolved := ctx.Resolver.ResolveFlatNode(init, ctx.File)
+	if resolved == nil {
+		return ""
+	}
+	return recycleResolvedInitializerFQNs[strings.TrimSuffix(resolved.FQN, "?")]
+}
+
+func recycleInitializerHasCall(file *scanner.File, init uint32) bool {
+	if file.FlatType(init) == "call_expression" {
+		return true
+	}
+	found := false
+	file.FlatWalkNodes(init, "call_expression", func(uint32) { found = true })
+	return found
+}
+
+// recycleVariableEscapesFlat reports whether the variable is used after its declaration other than as the receiver of a call.
+func recycleVariableEscapesFlat(file *scanner.File, idx uint32, varName string) bool {
+	scope, ok := file.FlatParent(idx)
+	if !ok {
+		return false
+	}
+	end := file.FlatEndByte(idx)
+	escapes := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		if escapes || file.FlatStartByte(n) <= end || file.FlatType(n) != "simple_identifier" || !file.FlatNodeTextEquals(n, varName) {
+			return
+		}
+		if p, ok := file.FlatParent(n); ok && file.FlatType(p) == "navigation_expression" && file.FlatNamedChild(p, 0) == n {
+			return
+		}
+		escapes = true
+	})
+	return escapes
 }
 
 func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
@@ -666,6 +863,11 @@ func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
 				colonSeen = true
 				continue
 			}
+			if childType == "ERROR" {
+				if declared := recoveredFieldPropertyType(file.FlatNodeText(typeChild)); declared != "" {
+					return declared
+				}
+			}
 			if colonSeen {
 				// Return the first type-like node after colon
 				if childType == "user_type" || childType == "simple_identifier" ||
@@ -677,6 +879,19 @@ func extractPropertyTypeFlat(file *scanner.File, idx uint32) string {
 		}
 	}
 	return ""
+}
+
+// recoveredFieldPropertyType reads the property type out of the ERROR node the
+// grammar recovers for `val s: T field: F = ...`, where the node holds `T field`
+// (or `: T field`) because the grammar predates explicit backing fields.
+func recoveredFieldPropertyType(errText string) string {
+	text := strings.TrimSpace(errText)
+	text = strings.TrimSpace(strings.TrimSuffix(text, ":"))
+	text, ok := strings.CutSuffix(text, "field")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":"))
 }
 
 // recycleCleanupMethodNames is the set of callees that finalize a recyclable
@@ -707,4 +922,16 @@ func recycleVariableHasCleanupFlat(file *scanner.File, idx uint32, varName strin
 	}
 
 	return false
+}
+
+// recycleMessage is CleanupDetector's wording: cursors and similar resources are freed with close(), the rest
+// are recycled.
+func recycleMessage(resourceType string) string {
+	switch resourceType {
+	case "Cursor":
+		return "This `Cursor` should be freed up after use with `#close()`"
+	case "TypedArray", "VelocityTracker", "Parcel", "Message", "MotionEvent", "Bitmap":
+		return "This `" + resourceType + "` should be recycled after use with `#recycle()`"
+	}
+	return "This `" + resourceType + "` should be recycled after use with `#recycle()`"
 }

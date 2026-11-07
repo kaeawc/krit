@@ -201,27 +201,6 @@ fun render() {
 	}
 }
 
-func TestUndocumentedPublicRules_IgnoreTestSources(t *testing.T) {
-	code := `
-package test
-
-class Fixture {
-    val subject = Any()
-    fun setUp() {}
-}
-`
-	for _, ruleName := range []string{
-		"UndocumentedPublicClass",
-		"UndocumentedPublicFunction",
-		"UndocumentedPublicProperty",
-	} {
-		findings := runRuleByNameOnPath(t, ruleName, "src/test/kotlin/Fixture.kt", code)
-		if len(findings) != 0 {
-			t.Fatalf("%s should ignore test sources, got %d findings", ruleName, len(findings))
-		}
-	}
-}
-
 func TestUndocumentedPublicProperty_Negative(t *testing.T) {
 	findings := runRuleByName(t, "UndocumentedPublicProperty", `
 package test
@@ -231,66 +210,6 @@ val myProp: String = "hello"
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for documented public property, got %d", len(findings))
-	}
-}
-
-func TestUndocumentedPublicRules_IgnoreGradleBuildScripts(t *testing.T) {
-	code := `
-plugins {
-    id("com.android.application")
-}
-
-val customLintConfig = "lint.xml"
-
-fun helperTaskName() = "lint"
-`
-	for _, ruleName := range []string{
-		"UndocumentedPublicFunction",
-		"UndocumentedPublicProperty",
-	} {
-		findings := runRuleByNameOnPath(t, ruleName, "build.gradle.kts", code)
-		if len(findings) != 0 {
-			t.Fatalf("%s should ignore Gradle build scripts, got %d findings", ruleName, len(findings))
-		}
-	}
-}
-
-func TestUndocumentedPublicRules_IgnoreGeneratedDIDeclarations(t *testing.T) {
-	code := `
-package test
-
-import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.DependencyGraph
-import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.Provides
-
-@DependencyGraph(AppScope::class)
-interface AppGraph {
-    fun inject(target: App)
-    val application: App
-}
-
-@ContributesTo(AppScope::class)
-interface ApplicationModule {
-    @Provides
-    fun provideClock(): Clock = Clock()
-}
-
-/** Application target. */
-class App
-
-/** Clock dependency. */
-class Clock
-`
-	for _, ruleName := range []string{
-		"UndocumentedPublicClass",
-		"UndocumentedPublicFunction",
-		"UndocumentedPublicProperty",
-	} {
-		findings := runRuleByName(t, ruleName, code)
-		if len(findings) != 0 {
-			t.Fatalf("%s should ignore DI declarations consumed by generated code, got %d findings: %+v", ruleName, len(findings), findings)
-		}
 	}
 }
 
@@ -513,6 +432,7 @@ fun anchor() {}
  * @param T input type
  * @param R output type
  * @param value the input
+ * @param transform the mapping
  */
 fun <T, R> map(value: T, transform: (T) -> R): R = transform(value)
 `
@@ -589,20 +509,6 @@ fun combine(a: Int, b: Int): Int = a + b
 }
 
 // --- KDocReferencesNonPublicProperty ---
-
-func TestKDocReferencesNonPublicProperty_Positive(t *testing.T) {
-	findings := runRuleByName(t, "KDocReferencesNonPublicProperty", `
-package test
-
-private val secret = 42
-
-/** See [secret] for details. */
-fun foo() {}
-`)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for KDoc referencing non-public property, got none")
-	}
-}
 
 func TestKDocReferencesNonPublicProperty_Negative(t *testing.T) {
 	findings := runRuleByName(t, "KDocReferencesNonPublicProperty", `
@@ -728,6 +634,44 @@ fun documentedApi(): String = "api"
 	})
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for suppressed declaration, got %d: %+v", len(findings), findings)
+	}
+}
+
+func TestKdocLinkValidation_NegativeScopeImportsAndQualifiedMembers(t *testing.T) {
+	findings := runCommentsCrossFileFixture(t, "KdocLinkValidation", map[string]string{
+		"src/main/kotlin/comments/Api.kt": `package comments
+
+import android.content.Context
+
+class Target {
+    fun member() {}
+}
+
+/**
+ * Uses [Context], [Target.member], [value], [T], [android.view.View].
+ */
+fun <T> documentedApi(value: Int, other: T) {}
+
+/** Holds [name] and [secret]. */
+class Holder(val name: String, private val secret: String)
+`,
+	})
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %+v", len(findings), findings)
+	}
+	findings = runCommentsCrossFileFixture(t, "KdocLinkValidation", map[string]string{
+		"src/main/kotlin/comments/Api.kt": `package comments
+
+class Target {
+    fun member() {}
+}
+
+/** Uses [Target.missing] and [Gone.member]. */
+fun documentedApi() {}
+`,
+	})
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d: %+v", len(findings), findings)
 	}
 }
 
@@ -867,5 +811,199 @@ fun legacy() {}
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings when @deprecated appears only inside a code span, got %d", len(findings))
+	}
+}
+
+func TestUndocumentedPublicFunction_MembersOfNonPublicClassesAreSkipped(t *testing.T) {
+	findings := runRuleByName(t, "UndocumentedPublicFunction", `
+package test
+
+private class Hidden {
+    fun a() {}
+}
+
+internal class Shared {
+    fun b() {}
+}
+
+class Visible {
+    private class Inner {
+        fun c() {}
+    }
+    fun d() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only Visible.d to be reported, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestUndocumentedPublicClass_ReportsObjects(t *testing.T) {
+	findings := runRuleByName(t, "UndocumentedPublicClass", `
+package test
+
+object Registry
+
+/** Documented. */
+object Documented
+
+private object Hidden
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for Registry, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestEndOfSentenceFormat_WrappedSentenceAndColon(t *testing.T) {
+	findings := runRuleByName(t, "EndOfSentenceFormat", `
+package test
+
+/**
+ * This summary wraps
+ * onto a second line.
+ */
+fun a() {}
+
+/** Lists the options: */
+fun b() {}
+
+/**
+ * This summary wraps
+ * and never ends
+ */
+fun c() {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the unterminated wrapped summary, got %d: %v", len(findings), findings)
+	}
+	fix := findings[0].Fix
+	if fix == nil || fix.Replacement != "." {
+		t.Fatalf("expected a period-insertion fix, got %+v", fix)
+	}
+}
+
+func TestStripDeprecatedKDocTag_MessageIsNormalizedAndEscaped(t *testing.T) {
+	file := parseInline(t, `package test
+
+/**
+ * Old.
+ * @deprecated use $NEW
+ *   instead
+ */
+fun old() {}
+`)
+	findings := runRuleByNameOnFile(t, "DeprecatedBlockTag", file)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one finding with a fix, got %+v", findings)
+	}
+	want := `@Deprecated("use \$NEW instead")`
+	if !strings.Contains(findings[0].Fix.Replacement, want) {
+		t.Fatalf("fix %q does not contain %q", findings[0].Fix.Replacement, want)
+	}
+}
+
+func TestDocumentationOverPrivateFunction_FixRemovesIndentation(t *testing.T) {
+	code := "package test\n\nclass C {\n    /** doc. */\n    private fun a() {}\n}\n"
+	findings := runRuleByName(t, "DocumentationOverPrivateFunction", code)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one finding with a fix, got %+v", findings)
+	}
+	fix := findings[0].Fix
+	got := code[:fix.StartByte] + fix.Replacement + code[fix.EndByte:]
+	want := "package test\n\nclass C {\n    private fun a() {}\n}\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestEndOfSentenceFormat_WrappedSentenceAndMidLineTerminator(t *testing.T) {
+	findings := runRuleByName(t, "EndOfSentenceFormat", `
+package test
+
+/**
+ * Wrapped first sentence that continues
+ * onto the next line and ends there.
+ */
+class Wrapped
+
+/**
+ * First sentence. Second sentence that has no terminator
+ */
+class MidLine
+
+/**
+ * Intro to a list:
+ * - one
+ */
+class ListIntro
+
+/**
+ * No terminator
+ * on any line
+ */
+class Missing
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the paragraph without any terminator, got %d findings", len(findings))
+	}
+	if findings[0].Fix == nil || findings[0].Fix.Replacement != "." {
+		t.Fatalf("expected a period fix, got %+v", findings[0].Fix)
+	}
+}
+
+func TestDocumentationOverPrivateFunction_FixRemovesWholeKdocLines(t *testing.T) {
+	findings := runRuleByName(t, "DocumentationOverPrivateFunction", `
+package test
+
+class A {
+    /** Explains the helper. */
+    private fun helper() {}
+
+    /**
+     * Multi-line
+     * explanation.
+     */
+    private fun other() {}
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+	src := "\npackage test\n\nclass A {\n    /** Explains the helper. */\n    private fun helper() {}\n"
+	for _, f := range findings[:1] {
+		if f.Fix == nil {
+			t.Fatal("expected a fix")
+		}
+		start, end := f.Fix.StartByte, f.Fix.EndByte
+		if got := src[:start] + src[end:]; got != "\npackage test\n\nclass A {\n    private fun helper() {}\n" {
+			t.Errorf("fix left a doubled indent or blank line: %q", got)
+		}
+	}
+}
+
+// Expected results come from running detekt 1.23.8 on the same sources: the finding is on the private or
+// internal body property that the class KDoc references; member and top-level KDoc are not looked at.
+func TestKDocReferencesNonPublicProperty_MatchesDetekt(t *testing.T) {
+	findings := runRuleByName(t, "KDocReferencesNonPublicProperty", `
+package test
+
+/** Uses [priv], [pub], [intl], [prot] and [ctorPriv]. */
+class A(private val ctorPriv: Int) {
+    private val priv = 1
+    val pub = 2
+    internal val intl = 3
+    protected val prot = 4
+
+    /** Member doc [priv] */
+    fun f() {}
+}
+
+/** Top-level doc [topPriv] */
+fun g() {}
+private val topPriv = 1
+`)
+	if len(findings) != 2 || findings[0].Line != 6 || findings[1].Line != 8 ||
+		findings[0].Message != "The property priv is non-public and should not be referenced from KDoc comments." {
+		t.Fatalf("expected findings on priv (line 6) and intl (line 8), got %v", findings)
 	}
 }

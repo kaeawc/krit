@@ -1,5 +1,0 @@
-package fixtures.positive.emptyblocks;
-
-class EmptyFunctionBlockFixture {
-    void doNothing() { }
-}

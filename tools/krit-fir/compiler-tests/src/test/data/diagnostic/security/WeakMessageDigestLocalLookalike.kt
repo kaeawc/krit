@@ -12,7 +12,7 @@ class MessageDigest {
 }
 
 class Crypto {
-    fun hash() {
+    fun digest() {
         MessageDigest.getInstance("MD5")
         MessageDigest.getInstance("SHA-1")
         <!WeakMessageDigest!>java.security.MessageDigest.getInstance("MD5")<!>

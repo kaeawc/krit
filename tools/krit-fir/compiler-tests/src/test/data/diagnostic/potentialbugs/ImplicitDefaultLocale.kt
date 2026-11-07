@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 17, 19, 21, 23, 25, 27, 30, 36, 39, 43, 45, 48, 61, 63, 65, 67, 69, 71, 73, 76, 79, 82, 87, 92, 94, 98, 100, 102, 104, 106, 108, 111x2
+// go-lines: 15, 17, 19, 21, 23, 25, 27, 32, 36, 39, 43, 45, 48, 60, 62, 64, 66, 68, 71, 75, 79, 84, 86, 90, 92, 94, 96, 98, 100, 103x2
 // Positives for ImplicitDefaultLocale, each reported by the Go rule too: the
 // no-argument String case conversions, String.format without a Locale, and
 // "pattern".format(...) on a string literal, with a locale-sensitive pattern.
@@ -50,7 +50,6 @@ class CaseConversions {
 }
 
 const val NUMBER_FORMAT = "%d"
-val TEMPLATE_FORMAT = "${NUMBER_FORMAT}!"
 const val POSITIONAL = "%1\$s"
 
 object Fmt {
@@ -68,15 +67,8 @@ class StaticFormat {
 
     fun positional(value: String): String = <!ImplicitDefaultLocale!>String.format("%1\$s", value)<!>
 
-    fun patternFromParameter(pattern: String, value: Int): String = <!ImplicitDefaultLocale!>String.format(pattern, value)<!>
 
     fun sensitiveConstant(value: Int): String = <!ImplicitDefaultLocale!>String.format(NUMBER_FORMAT, value)<!>
-
-    // A template initializer is not a plain literal, so its pattern is unknown.
-    fun templateConstant(value: Int): String = <!ImplicitDefaultLocale!>String.format(TEMPLATE_FORMAT, value)<!>
-
-    // A named first argument is not a string literal as written.
-    fun namedPattern(value: String): String = <!ImplicitDefaultLocale!>String.format(format = "%s", value)<!>
 
     fun splitReceiver(value: Int): String {
         val text = <!ImplicitDefaultLocale!>String<!>

@@ -163,6 +163,26 @@ fun load() = JavaSerializer.from(input)
 	}
 }
 
+func TestHasPlatformType_NegativeStringsScopeFunctionsAndKotlinConstructors(t *testing.T) {
+	cases := []string{
+		`package test
+fun label(name: String) = "java.util.$name"`,
+		`package test
+fun describe(id: Int) = buildString { append("android.") ; append(id) }`,
+		`package test
+fun configure(target: Target) = target.apply { java.run() }`,
+		`package test
+class JavaLikeConfig(val name: String)
+fun defaults() = JavaLikeConfig("x")`,
+	}
+	for i, src := range cases {
+		findings := runRuleByName(t, "HasPlatformType", src)
+		if len(findings) != 0 {
+			t.Errorf("case %d: expected no findings, got %d", i, len(findings))
+		}
+	}
+}
+
 // --- IgnoredReturnValue ---
 
 func TestIgnoredReturnValue_Positive(t *testing.T) {
@@ -239,7 +259,6 @@ func TestIgnoredReturnValue_OracleReturnTypes(t *testing.T) {
 		{"flow", "flow().map { it + 1 }", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}},
 		{"stateFlow", "stateFlow().map { it + 1 }", &typeinfer.ResolvedType{Name: "StateFlow", FQN: "kotlinx.coroutines.flow.StateFlow", Kind: typeinfer.TypeClass}},
 		{"stream", "stream().map { it + 1 }", &typeinfer.ResolvedType{Name: "Stream", FQN: "java.util.stream.Stream", Kind: typeinfer.TypeClass}},
-		{"function", "factory()", &typeinfer.ResolvedType{Name: "Function1", FQN: "kotlin.Function1", Kind: typeinfer.TypeFunction}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -253,6 +272,84 @@ fun f() {
 				t.Fatalf("expected one finding for %s, got %d", tc.callText, len(findings))
 			}
 		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsFunctionValueInvoke(t *testing.T) {
+	fnType := &typeinfer.ResolvedType{Name: "Function1", FQN: "kotlin.Function1", Kind: typeinfer.TypeFunction}
+	cases := []struct {
+		name     string
+		code     string
+		callText string
+	}{
+		{"constructor property", `package test
+class Presenter(private val eventSink: (Int) -> Unit) {
+    fun go() {
+        eventSink(1)
+    }
+}
+`, "eventSink(1)"},
+		{"parameter", `package test
+fun go(eventSink: (Int) -> Unit) {
+    eventSink(1)
+}
+`, "eventSink(1)"},
+		{"member property", `package test
+class Presenter {
+    var handler: suspend (Int) -> Unit = {}
+    suspend fun go() {
+        handler(1)
+    }
+}
+`, "handler(1)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runIgnoredReturnValueWithOracle(t, tc.code, tc.callText, fnType, nil)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings for invoking a function value, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsLambdaReturningFromEnclosingFunction(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		rt   *typeinfer.ResolvedType
+	}{
+		{"let with return", `package test
+fun f(x: String?): Int {
+    x?.let { return it.length }
+    return 0
+}
+`, &typeinfer.ResolvedType{Name: "Nothing?", FQN: "kotlin.Nothing?", Kind: typeinfer.TypeClass}},
+		{"sequence map with return", `package test
+fun f(x: List<Int>?): Int {
+    x?.asSequence()?.map { return it }
+    return 0
+}
+`, &typeinfer.ResolvedType{Name: "Sequence", FQN: "kotlin.sequences.Sequence", Kind: typeinfer.TypeClass}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runIgnoredReturnValueWithOracle(t, tc.code, "x?.", tc.rt, nil)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleStillFlagsLocalLabeledReturn(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun f(x: List<Int>) {
+    x.asSequence().map { return@map it + 1 }
+}
+`, "x.asSequence().map", &typeinfer.ResolvedType{Name: "Sequence", FQN: "kotlin.sequences.Sequence", Kind: typeinfer.TypeClass}, nil)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for a local labeled return, got %d", len(findings))
 	}
 }
 
@@ -326,13 +423,13 @@ func TestIgnoredReturnValue_OracleSkipsMockitoVerifyContext(t *testing.T) {
 import org.mockito.kotlin.verify
 
 class Dao {
-    fun selectConversationById(id: Long): Flow<String> = TODO()
+    fun selectOrderByKey(id: Long): Flow<String> = TODO()
 }
 
 fun f(dao: Dao) {
-    verify(dao).selectConversationById(1)
+    verify(dao).selectOrderByKey(1)
 }
-`, "selectConversationById(1)", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+`, "selectOrderByKey(1)", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
 	if len(findings) != 0 {
 		t.Fatalf("expected Mockito verify context to be ignored, got %d: %#v", len(findings), findings)
 	}
@@ -442,19 +539,19 @@ fun f(result: Result<String>, logger: Logger) {
 
 func TestIgnoredReturnValue_OracleSkipsSideEffectResultOnSuccess(t *testing.T) {
 	findings := runIgnoredReturnValueWithOracle(t, `package test
-sealed class CreatedThread {
-    object ExistingThread : CreatedThread()
-    object NewThread : CreatedThread()
+sealed class SyncOutcome {
+    object Merged : SyncOutcome()
+    object Fresh : SyncOutcome()
 }
 
-fun subscribeToThread(thread: CreatedThread): Unit = Unit
-fun updateListItemProperties(thread: CreatedThread): Unit = Unit
+fun recordOutcome(outcome: SyncOutcome): Unit = Unit
+fun refreshRow(outcome: SyncOutcome): Unit = Unit
 
-fun f(result: Result<CreatedThread>) {
-    result.onSuccess { createdThread ->
-        when (createdThread) {
-            is CreatedThread.ExistingThread -> subscribeToThread(createdThread)
-            is CreatedThread.NewThread -> updateListItemProperties(createdThread)
+fun f(result: Result<SyncOutcome>) {
+    result.onSuccess { outcome ->
+        when (outcome) {
+            is SyncOutcome.Merged -> recordOutcome(outcome)
+            is SyncOutcome.Fresh -> refreshRow(outcome)
         }
     }
 }
@@ -562,7 +659,7 @@ fun f(result: Result<String>): Flow<String> {
 }
 
 func TestIgnoredReturnValue_OracleFlagsFlowReturningResultHandlerOutsideFlowBuilder(t *testing.T) {
-	findings := runIgnoredReturnValueWithOracle(t, `package test
+	findings := runIgnoredReturnValueWithOracleEvidence(t, `package test
 class Result<T>
 
 fun f(result: Result<String>) {
@@ -570,14 +667,14 @@ fun f(result: Result<String>) {
         println(value)
     }
 }
-`, "result.onSuccess", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+`, oracleCallEvidence{CallText: "result.onSuccess", CallTarget: "kotlin.Result.onSuccess", ReturnType: &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}})
 	if len(findings) == 0 {
 		t.Fatal("expected Flow-returning Result handler outside a Flow builder to remain flagged")
 	}
 }
 
 func TestIgnoredReturnValue_OracleFlagsPureFlowBuilderResultHandler(t *testing.T) {
-	findings := runIgnoredReturnValueWithOracle(t, `package test
+	findings := runIgnoredReturnValueWithOracleEvidence(t, `package test
 class Flow<T>
 class FlowCollector<T> {
     fun emit(value: T): Unit = Unit
@@ -593,7 +690,7 @@ fun f(result: Result<String>): Flow<String> {
         emit("done")
     }
 }
-`, "result.onSuccess", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+`, oracleCallEvidence{CallText: "result.onSuccess", CallTarget: "kotlin.Result.onSuccess", ReturnType: &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}})
 	if len(findings) == 0 {
 		t.Fatal("expected pure Flow-builder Result handler to remain flagged")
 	}
@@ -622,25 +719,25 @@ fun f(result: Result<String>, logger: Logger) {
 func TestIgnoredReturnValue_OracleSkipsSystemUnderTestSetupCallWithAssertion(t *testing.T) {
 	findings := runIgnoredReturnValueWithOracle(t, `package test
 annotation class Test
-class SearchPresenter {
-    fun search(query: String): SearchHandle = SearchHandle()
+class InvoiceManager {
+    fun render(customer: String): Draft = Draft()
 }
-class SearchHandle
+class Draft
 fun assertThat(value: Any): Subject = Subject()
 class Subject {
     fun isNotNull(): Unit = Unit
 }
-class SearchPresenterTest {
-    private val searchPresenter = SearchPresenter()
+class InvoiceManagerTest {
+    private val invoiceManager = InvoiceManager()
 
     @Test
-    fun searchUpdatesState() {
-        searchPresenter.search("test")
-        assertThat(searchPresenter).isNotNull()
+    fun renderUpdatesTotals() {
+        invoiceManager.render("acme")
+        assertThat(invoiceManager).isNotNull()
     }
 }
-`, `searchPresenter.search("test")`,
-		&typeinfer.ResolvedType{Name: "SearchHandle", FQN: "test.SearchHandle", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
+`, `invoiceManager.render("acme")`,
+		&typeinfer.ResolvedType{Name: "Draft", FQN: "test.Draft", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
 	if len(findings) != 0 {
 		t.Fatalf("expected setup call on system under test to be ignored when the test asserts elsewhere, got %d: %#v", len(findings), findings)
 	}
@@ -650,25 +747,25 @@ func TestIgnoredReturnValue_OracleSkipsHelperSetupCallWithAssertion(t *testing.T
 	t.Run("factory", func(t *testing.T) {
 		findings := runIgnoredReturnValueWithOracle(t, `package test
 annotation class Test
-class OfflineFeaturesFactory {
-    fun create(): OfflineFeatures = OfflineFeatures()
+class ThemeSettingsFactory {
+    fun create(): ThemeSettings = ThemeSettings()
 }
-class OfflineFeatures
+class ThemeSettings
 fun assertThat(value: Any): Subject = Subject()
 class Subject {
     fun isNotNull(): Unit = Unit
 }
-class OfflineFeaturesTest {
-    private val offlineFeaturesFactory = OfflineFeaturesFactory()
+class ThemeSettingsTest {
+    private val themeSettingsFactory = ThemeSettingsFactory()
 
     @Test
-    fun recreatesStoreAfterDelete() {
-        offlineFeaturesFactory.create()
-        assertThat(offlineFeaturesFactory).isNotNull()
+    fun recreatesAfterDelete() {
+        themeSettingsFactory.create()
+        assertThat(themeSettingsFactory).isNotNull()
     }
 }
-`, `offlineFeaturesFactory.create()`,
-			&typeinfer.ResolvedType{Name: "OfflineFeatures", FQN: "test.OfflineFeatures", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
+`, `themeSettingsFactory.create()`,
+			&typeinfer.ResolvedType{Name: "ThemeSettings", FQN: "test.ThemeSettings", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
 		if len(findings) != 0 {
 			t.Fatalf("expected factory setup call with later assertion to be ignored, got %d: %#v", len(findings), findings)
 		}
@@ -676,25 +773,25 @@ class OfflineFeaturesTest {
 	t.Run("helper", func(t *testing.T) {
 		findings := runIgnoredReturnValueWithOracle(t, `package test
 annotation class Test
-class SearchHelper {
-    fun load(): SearchHandle = SearchHandle()
+class LedgerHelper {
+    fun load(): Draft = Draft()
 }
-class SearchHandle
+class Draft
 fun assertThat(value: Any): Subject = Subject()
 class Subject {
     fun isNotNull(): Unit = Unit
 }
-class SearchHelperTest {
-    private val searchHelper = SearchHelper()
+class LedgerHelperTest {
+    private val ledgerHelper = LedgerHelper()
 
     @Test
-    fun loadsBeforeAssertion() {
-        searchHelper.load()
-        assertThat(searchHelper).isNotNull()
+    fun loadsBeforeCheck() {
+        ledgerHelper.load()
+        assertThat(ledgerHelper).isNotNull()
     }
 }
-`, `searchHelper.load()`,
-			&typeinfer.ResolvedType{Name: "SearchHandle", FQN: "test.SearchHandle", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
+`, `ledgerHelper.load()`,
+			&typeinfer.ResolvedType{Name: "Draft", FQN: "test.Draft", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
 		if len(findings) != 0 {
 			t.Fatalf("expected helper setup call with later assertion to be ignored, got %d: %#v", len(findings), findings)
 		}
@@ -704,20 +801,20 @@ class SearchHelperTest {
 func TestIgnoredReturnValue_OracleFlagsSystemUnderTestSetupCallWithoutAssertion(t *testing.T) {
 	findings := runIgnoredReturnValueWithOracle(t, `package test
 annotation class Test
-class SearchPresenter {
-    fun search(query: String): SearchHandle = SearchHandle()
+class InvoiceManager {
+    fun render(customer: String): Draft = Draft()
 }
-class SearchHandle
-class SearchPresenterTest {
-    private val searchPresenter = SearchPresenter()
+class Draft
+class InvoiceManagerTest {
+    private val invoiceManager = InvoiceManager()
 
     @Test
-    fun searchUpdatesState() {
-        searchPresenter.search("test")
+    fun renderUpdatesTotals() {
+        invoiceManager.render("acme")
     }
 }
-`, `searchPresenter.search("test")`,
-		&typeinfer.ResolvedType{Name: "SearchHandle", FQN: "test.SearchHandle", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
+`, `invoiceManager.render("acme")`,
+		&typeinfer.ResolvedType{Name: "Draft", FQN: "test.Draft", Kind: typeinfer.TypeClass}, []string{"CheckReturnValue"})
 	if len(findings) == 0 {
 		t.Fatal("expected setup-looking call without any assertion to remain flagged")
 	}
@@ -730,7 +827,7 @@ fun assertThat(value: Any): Subject = Subject()
 class Subject {
     fun isNotNull(): Unit = Unit
 }
-class SearchPresenterTest {
+class InvoiceManagerTest {
     @Test
     fun mapsButDropsResult() {
         val values = listOf(1, 2, 3)
@@ -799,7 +896,7 @@ fun f() {
 }
 
 func TestIgnoredReturnValue_OracleFlagsNonBuilderCallbackLookalike(t *testing.T) {
-	findings := runIgnoredReturnValueWithOracle(t, `package test
+	findings := runIgnoredReturnValueWithOracleEvidence(t, `package test
 class Result {
     fun onSuccess(block: () -> Unit): Result = this
 }
@@ -809,7 +906,7 @@ fun f(result: Result) {
         println("done")
     }
 }
-`, "result.onSuccess", &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}, nil)
+`, oracleCallEvidence{CallText: "result.onSuccess", CallTarget: "kotlin.Result.onSuccess", ReturnType: &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}})
 	if len(findings) == 0 {
 		t.Fatal("expected non-builder onSuccess lookalike to remain flagged")
 	}
@@ -1045,6 +1142,20 @@ fun main(count: Int, name: String) {
 	}
 }
 
+func TestImplicitDefaultLocale_FormatNonLiteralFormatString(t *testing.T) {
+	findings := runRuleByName(t, "ImplicitDefaultLocale", `
+package test
+fun show(count: Int, template: String) {
+    String.format(getString(R.string.items_count), count)
+    String.format(stringResource(R.string.items_count), count)
+    String.format(template, count)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for resource or parameter format strings, got %d", len(findings))
+	}
+}
+
 func TestImplicitDefaultLocale_FormatPositiveSpecifiers(t *testing.T) {
 	findings := runRuleByName(t, "ImplicitDefaultLocale", `
 package test
@@ -1207,4 +1318,467 @@ fun main() {
     String.format(Locale.ROOT, "%s", s)
 }
 `)
+}
+
+// --- HardcodedDateFormat ---
+
+func TestHardcodedDateFormat_FlagsLocaleSensitivePatterns(t *testing.T) {
+	for _, pattern := range []string{"yyyy-MM-dd'T'HH:mm z", "w", "YYYY-'W'ww", "e"} {
+		t.Run(pattern, func(t *testing.T) {
+			findings := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+val formatter = DateTimeFormatter.ofPattern("`+pattern+`")
+`)
+			if len(findings) != 1 {
+				t.Fatalf("expected 1 finding for %q, got %d", pattern, len(findings))
+			}
+		})
+	}
+}
+
+func TestHardcodedDateFormat_SuggestsDefaultLocaleForUI(t *testing.T) {
+	ui := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+class Row(private val label: TextView) {
+    private val formatter = DateTimeFormatter.ofPattern("'Week' w")
+    fun bind(d: LocalDate) { label.setText(formatter.format(d)) }
+}
+`)
+	if len(ui) != 1 || !strings.Contains(ui[0].Message, "Locale.getDefault()") || strings.Contains(ui[0].Message, "Locale.ROOT") {
+		t.Fatalf("expected a UI-oriented message, got %v", ui)
+	}
+	machine := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+class Row {
+    private val fileNameFormatter = DateTimeFormatter.ofPattern("EEE-MMM-d")
+}
+`)
+	if len(machine) != 1 || !strings.Contains(machine[0].Message, "Locale.ROOT") {
+		t.Fatalf("expected the machine-readable message, got %v", machine)
+	}
+}
+
+func TestHardcodedDateFormat_WeekYearWithoutWeek(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+val a = DateTimeFormatter.ofPattern("YYYY-MM-dd")
+val b = DateTimeFormatter.ofPattern("YYYY-'W'ww")
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+	if !strings.Contains(findings[0].Message, "week-based year") {
+		t.Errorf("first finding should mention the week-year problem: %s", findings[0].Message)
+	}
+	if strings.Contains(findings[1].Message, "week-based year") {
+		t.Errorf("YYYY with ww is a valid week-year pattern: %s", findings[1].Message)
+	}
+}
+
+func TestHardcodedDateFormat_IgnoresNumericPatterns(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+val a = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+val b = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+val c = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssX")
+val d = DateTimeFormatter.ofPattern("d/M/yy")
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for numeric patterns, got %d", len(findings))
+	}
+}
+
+func TestHardcodedDateFormat_IgnoresExplicitLocaleChain(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedDateFormat", `
+package test
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+val a = DateTimeFormatter.ofPattern("MMM d").withLocale(Locale.US)
+val b = DateTimeFormatter.ofPattern("EEEE").localizedBy(Locale.US)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when a locale is chained, got %d", len(findings))
+	}
+}
+
+func TestHardcodedNumberFormat_SkipsDisplayFormatting(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedNumberFormat", `
+package test
+
+import java.text.DecimalFormat
+import java.text.NumberFormat
+
+class Labels {
+    fun priceLabel(value: Double): String = NumberFormat.getInstance().format(value)
+
+    fun percentLabel(value: Double): String = DecimalFormat("#.#").format(value)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for display formatting, got %d", len(findings))
+	}
+}
+
+func TestHardcodedNumberFormat_FlagsFormatterFeedingCacheKey(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedNumberFormat", `
+package test
+
+import java.text.NumberFormat
+
+class Cache {
+    fun cacheKey(value: Double): String = "price-" + NumberFormat.getInstance().format(value)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestHardcodedNumberFormat_FollowsFormattedValueToSinks(t *testing.T) {
+	cases := map[string]string{
+		"local alias used as url argument": `
+    fun build(value: Double): URL {
+        val text = NumberFormat.getInstance().format(value)
+        return URL("https://example.test/items/" + text)
+    }`,
+		"formatter variable result parsed back": `
+    fun roundTrip(value: Double): Double {
+        val nf = NumberFormat.getInstance()
+        return nf.format(value).toDouble()
+    }`,
+		"assigned to a file name variable": `
+    fun target(value: Double): File {
+        val reportFileName = "report-${NumberFormat.getInstance().format(value)}.txt"
+        return File(reportFileName)
+    }`,
+		"string passed to a query parameter": `
+    fun uri(value: Double, builder: Uri.Builder) {
+        builder.appendQueryParameter("amount", NumberFormat.getInstance().format(value))
+    }`,
+	}
+	for name, body := range cases {
+		findings := runRuleByName(t, "HardcodedNumberFormat", "package test\n\nimport java.text.NumberFormat\n\nclass Subject {"+body+"\n}\n")
+		if len(findings) != 1 {
+			t.Errorf("%s: expected 1 finding, got %d", name, len(findings))
+		}
+	}
+}
+
+func TestHardcodedNumberFormat_SilentWhenResultOnlyDisplayed(t *testing.T) {
+	cases := map[string]string{
+		"assigned to a label then shown": `
+    fun show(value: Double, view: TextView) {
+        val label = NumberFormat.getInstance().format(value)
+        view.setText(label)
+    }`,
+		"function name mentions a key but value is not returned": `
+    fun keyLabel(value: Double, view: TextView) {
+        view.setText(NumberFormat.getInstance().format(value))
+    }`,
+		"result is discarded": `
+    fun warm(value: Double) {
+        NumberFormat.getInstance().format(value)
+    }`,
+		"formatter never formats": `
+    fun create(): NumberFormat = NumberFormat.getInstance()`,
+	}
+	for name, body := range cases {
+		findings := runRuleByName(t, "HardcodedNumberFormat", "package test\n\nimport java.text.NumberFormat\n\nclass Subject {"+body+"\n}\n")
+		if len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %d", name, len(findings))
+		}
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsDetachedReturnOperand(t *testing.T) {
+	flowType := &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun f(src: Source) = src.switchMap { ev ->
+    if (ev == null) return@switchMap emptyFlow()
+    known(ev)
+}
+`, "emptyFlow()", flowType, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a returned operand, got %v", findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsFunctionValueInvokeWithReceiver(t *testing.T) {
+	fnType := &typeinfer.ResolvedType{Name: "Function1", FQN: "kotlin.Function1", Kind: typeinfer.TypeFunction}
+	for name, call := range map[string]string{
+		"safe invoke":   "callback?.invoke(1)",
+		"state handler": "state.eventSink(1)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := runIgnoredReturnValueWithOracle(t, "package test\nfun f() {\n    "+call+"\n}\n", call, fnType, nil)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsHelperWhoseResultIsUsedElsewhere(t *testing.T) {
+	flowType := &typeinfer.ResolvedType{Name: "MutableStateFlow", FQN: "kotlinx.coroutines.flow.MutableStateFlow", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+private fun setup(id: Int): MutableStateFlow<Int> = MutableStateFlow(id)
+fun a() {
+    setup(1)
+}
+fun b() {
+    val flow = setup(2)
+}
+`, "setup(1)", flowType, nil)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsSubscribeWith(t *testing.T) {
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun f(obs: Observable<Int>, observer: Observer) {
+    obs.subscribeWith(observer)
+}
+`, "subscribeWith(observer)", nil, []string{"io.reactivex.annotations.CheckReturnValue"})
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsBranchTailFollowedByComment(t *testing.T) {
+	seq := &typeinfer.ResolvedType{Name: "Sequence", FQN: "kotlin.sequences.Sequence", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun pick(items: List<Int>?): Sequence<Int> {
+  return if (items == null) {
+    emptySequence()
+  } else {
+    items.asSequence().flatMap { sequenceOf(it) }
+    // stop once we have one
+  }
+}`, "items.asSequence()", seq, nil)
+	if len(findings) != 0 {
+		t.Fatalf("a branch tail followed by a comment is used as the result, got %d", len(findings))
+	}
+}
+
+func TestIgnoredReturnValue_OracleStillFlagsDiscardedSequenceBeforeComment(t *testing.T) {
+	seq := &typeinfer.ResolvedType{Name: "Sequence", FQN: "kotlin.sequences.Sequence", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracle(t, `package test
+fun pick(items: List<Int>) {
+  items.asSequence().flatMap { sequenceOf(it) }
+  // dropped on purpose?
+  println("done")
+}`, "items.asSequence()", seq, nil)
+	if len(findings) == 0 {
+		t.Fatalf("expected a discarded sequence statement to still be reported")
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsScopeFunctionWithSideEffectTail(t *testing.T) {
+	flow := &typeinfer.ResolvedType{Name: "MutableStateFlow", FQN: "kotlinx.coroutines.flow.MutableStateFlow", Kind: typeinfer.TypeClass}
+	for _, fn := range []string{"let", "run", "with"} {
+		code := `package test
+class FakeRepo {
+  private val items = mutableMapOf<Int, MutableStateFlow<Int>>()
+  fun add(id: Int, item: Int) {
+    items.` + fn + ` { entry ->
+      entry.compute(id) { _, value -> value?.also { it.value = item } ?: MutableStateFlow(item) }
+    }
+  }
+}`
+		findings := runIgnoredReturnValueWithOracle(t, code, "items."+fn, flow, nil)
+		if len(findings) != 0 {
+			t.Fatalf("%s: a scope function used for side effects is not an ignored result, got %d", fn, len(findings))
+		}
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsTestAssertionLibraries(t *testing.T) {
+	fnType := &typeinfer.ResolvedType{Name: "Function0", FQN: "kotlin.Function0", Kind: typeinfer.TypeFunction}
+	flowType := &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}
+	cases := []struct {
+		name   string
+		call   string
+		target string
+		rt     *typeinfer.ResolvedType
+	}{
+		{"kotlin.test generic result is a function", "assertNotNull(callback)", "kotlin.test.assertNotNull", fnType},
+		{"kotlin.test generic result is a flow", "assertNotNull(spans)", "kotlin.test.assertNotNull", flowType},
+		{"junit", "assertNotNull(spans)", "org.junit.Assert.assertNotNull", flowType},
+		{"truth", "assertThat(spans)", "com.google.common.truth.Truth.assertThat", flowType},
+		{"unresolved target", "assertNotNull(spans)", "", flowType},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code := fmt.Sprintf("package test\nfun f() {\n    %s\n}\n", tc.call)
+			findings := runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{CallText: tc.call, ReturnType: tc.rt, CallTarget: tc.target})
+			if len(findings) != 0 {
+				t.Fatalf("assertion call must not be reported, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsInvokeAfterAssertOnNextLine(t *testing.T) {
+	code := `package test
+fun go(state: Any) {
+    assert(state is String)
+    (state as Holder)
+        .eventSink
+        .invoke(Event.Clicked)
+}
+`
+	flow := &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{
+		CallText: "invoke", ReturnType: flow, CallTarget: "kotlin.Function1.invoke",
+	})
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsCallThatIsAssignmentQualifier(t *testing.T) {
+	flowType := &typeinfer.ResolvedType{Name: "MutableStateFlow", FQN: "kotlinx.coroutines.flow.MutableStateFlow", Kind: typeinfer.TypeClass}
+	cases := []struct {
+		name string
+		code string
+	}{
+		{"valueInLambda", `package test
+fun f(holders: Map<String, Holder>) {
+    run {
+        holders.getValue("a").current = null
+        println()
+    }
+}
+`},
+		{"valueInFunction", `package test
+fun f(holders: Map<String, Holder>) {
+    holders.getValue("a").current = null
+}
+`},
+		{"indexedAssignment", `package test
+fun f(holders: Map<String, Holder>) {
+    holders.getValue("a")[0] = null
+}
+`},
+		{"augmentedAssignment", `package test
+fun f(holders: Map<String, Holder>) {
+    holders.getValue("a").count += 1
+}
+`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runIgnoredReturnValueWithOracleEvidence(t, tc.code, oracleCallEvidence{CallText: `getValue("a")`, ReturnType: flowType, CallTarget: "kotlin.collections.getValue"})
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %s", len(findings), findings[0].Message)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_OracleStillFlagsStatementCall(t *testing.T) {
+	flowType := &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}
+	findings := runIgnoredReturnValueWithOracleEvidence(t, `package test
+fun f(holders: Map<String, Holder>) {
+    holders.getValue("a")
+}
+`, oracleCallEvidence{CallText: `getValue("a")`, ReturnType: flowType, CallTarget: "kotlin.collections.getValue"})
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %d", len(findings))
+	}
+}
+
+func TestIgnoredReturnValue_HonoursCheckResultSuppression(t *testing.T) {
+	flowType := &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass}
+	cases := map[string]struct {
+		code string
+		want int
+	}{
+		"unsuppressed":          {"package test\nfun f(s: Source) {\n    s.items()\n}\n", 1},
+		"unrelatedSuppress":     {"package test\n@Suppress(\"Other\")\nfun f(s: Source) {\n    s.items()\n}\n", 1},
+		"suppressLintFunction":  {"package test\n@SuppressLint(\"CheckResult\")\nfun f(s: Source) {\n    s.items()\n}\n", 0},
+		"suppressWarningsClass": {"package test\n@SuppressWarnings(\"CheckResult\")\nclass C {\n    fun f(s: Source) {\n        s.items()\n    }\n}\n", 0},
+		"suppressFunction":      {"package test\n@Suppress(\"CheckResult\")\nfun f(s: Source) {\n    s.items()\n}\n", 0},
+		"suppressFile":          {"@file:Suppress(\"CheckResult\")\npackage test\nfun f(s: Source) {\n    s.items()\n}\n", 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			file := parseInline(t, tc.code)
+			fake := oracle.NewFakeOracle()
+			fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+			fake.CallTargets[file.Path] = map[string]string{}
+			file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+				key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+				fake.Expressions[file.Path][key] = flowType
+				fake.CallTargets[file.Path][key] = "kotlin.sequences.map"
+			})
+			resolver := oracle.NewCompositeResolver(fake, typeinfer.NewFakeResolver())
+			got := 0
+			for _, r := range api.Registry {
+				if r.ID != "IgnoredReturnValue" {
+					continue
+				}
+				filter := scanner.BuildSuppressionFilter(file, nil, nil, "").WithRuleAliases(rules.AllSuppressionAliases())
+				cols := rules.NewDispatcher([]*api.Rule{r}, resolver).Run(file)
+				for _, f := range cols.Findings() {
+					if !filter.IsSuppressed(f.Rule, f.RuleSet, f.Line) {
+						got++
+					}
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("got %d findings, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIgnoredReturnValue_SubscribeOverloadFollowsResolvedSymbol(t *testing.T) {
+	code := `package test
+fun f(source: Observable<String>, sink: Sink<String>) {
+    source.subscribe(sink)
+}
+`
+	// A Consumer-typed argument selects the Disposable overload, which carries the must-use annotation.
+	consumer := runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{
+		CallText:    "source.subscribe(sink)",
+		ReturnType:  &typeinfer.ResolvedType{Name: "Disposable", FQN: "io.reactivex.rxjava3.disposables.Disposable", Kind: typeinfer.TypeClass},
+		CallTarget:  "io.reactivex.rxjava3.core.Observable.subscribe",
+		Annotations: []string{"io.reactivex.rxjava3.annotations.CheckReturnValue"},
+	})
+	if len(consumer) != 1 {
+		t.Fatalf("expected the Consumer overload to be reported, got %d", len(consumer))
+	}
+	// An Observer-typed argument selects the void overload, which has no result to drop.
+	observer := runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{
+		CallText:   "source.subscribe(sink)",
+		ReturnType: &typeinfer.ResolvedType{Name: "Unit", FQN: "kotlin.Unit", Kind: typeinfer.TypeClass},
+		CallTarget: "io.reactivex.rxjava3.core.Observable.subscribe",
+	})
+	if len(observer) != 0 {
+		t.Fatalf("expected the Observer overload to be skipped, got %d", len(observer))
+	}
+}
+
+func TestIgnoredReturnValue_OracleSkipsFunctionPropertyInvokeOnOtherObject(t *testing.T) {
+	code := `package test
+class FakeRepo { var latest: (String) -> kotlinx.coroutines.flow.Flow<Boolean> = { error("unset") } }
+fun f(repo: FakeRepo) {
+    repo.latest("a")
+}
+`
+	findings := runIgnoredReturnValueWithOracleEvidence(t, code, oracleCallEvidence{
+		CallText:   `repo.latest("a")`,
+		ReturnType: &typeinfer.ResolvedType{Name: "Flow", FQN: "kotlinx.coroutines.flow.Flow", Kind: typeinfer.TypeClass},
+		CallTarget: "kotlin.Function1.invoke",
+	})
+	if len(findings) != 0 {
+		t.Fatalf("invoking a function-typed property must not be reported as a pure stdlib call, got %v", findings)
+	}
 }

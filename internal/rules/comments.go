@@ -1,8 +1,12 @@
 package rules
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -12,22 +16,49 @@ func flatIsKDoc(file *scanner.File, idx uint32) bool {
 	return strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), "/**")
 }
 
-func flatKdocText(file *scanner.File, idx uint32) string {
-	text := file.FlatNodeText(idx)
-	text = strings.TrimPrefix(strings.TrimSpace(text), "/**")
-	text = strings.TrimSuffix(text, "*/")
-	var lines []string
-	for _, line := range strings.Split(text, "\n") {
-		trimmed := strings.TrimSpace(line)
-		trimmed = strings.TrimPrefix(trimmed, "*")
-		trimmed = strings.TrimSpace(trimmed)
-		if trimmed != "" {
-			lines = append(lines, trimmed)
-		}
+// kdocRemovalRange returns the byte range that deletes a KDoc. When the comment owns its lines the
+// range covers the whole lines, so the declaration keeps its indent; otherwise only the comment goes.
+func kdocRemovalRange(file *scanner.File, kdoc uint32) (int, int) {
+	content := file.Content
+	start, end := int(file.FlatStartByte(kdoc)), int(file.FlatEndByte(kdoc))
+	lineStart := start
+	for lineStart > 0 && (content[lineStart-1] == ' ' || content[lineStart-1] == '\t') {
+		lineStart--
 	}
-	return strings.Join(lines, "\n")
+	lineEnd := end
+	for lineEnd < len(content) && (content[lineEnd] == ' ' || content[lineEnd] == '\t') {
+		lineEnd++
+	}
+	if lineEnd < len(content) && content[lineEnd] == '\r' {
+		lineEnd++
+	}
+	atLineStart := lineStart == 0 || content[lineStart-1] == '\n'
+	atLineEnd := lineEnd < len(content) && content[lineEnd] == '\n'
+	if atLineStart && atLineEnd {
+		return lineStart, lineEnd + 1
+	}
+	return start, end
 }
 
+// kdocFirstParagraph returns the KDoc lines of the first paragraph: the first content line up to a
+// blank line or a block tag. Each item holds the line text without the comment decoration.
+func kdocFirstParagraph(raw string) []string {
+	raw = strings.TrimPrefix(strings.TrimSpace(raw), "/**")
+	raw = strings.TrimSuffix(raw, "*/")
+	var out []string
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "*"))
+		if strings.HasPrefix(trimmed, "@") || strings.HasPrefix(trimmed, "- ") || (trimmed == "" && len(out) > 0) {
+			break
+		}
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// endOfSentenceInsertOffsetFlat returns the byte offset after the last line of the first KDoc paragraph.
 func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 	startByte := int(file.FlatStartByte(idx))
 	endByte := int(file.FlatEndByte(idx))
@@ -36,6 +67,7 @@ func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 	}
 	raw := file.Content[startByte:endByte]
 	pos := 0
+	result := -1
 	for pos < len(raw) {
 		nl := pos
 		for nl < len(raw) && raw[nl] != '\n' {
@@ -45,17 +77,18 @@ func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 		stripped := strings.TrimSpace(string(line))
 		stripped = strings.TrimPrefix(stripped, "/**")
 		stripped = strings.TrimSpace(stripped)
-		stripped = strings.TrimPrefix(stripped, "*")
 		stripped = strings.TrimSuffix(stripped, "*/")
-		stripped = strings.TrimSpace(stripped)
-		if stripped == "" || strings.HasPrefix(stripped, "@") {
+		stripped = strings.TrimSpace(strings.TrimPrefix(stripped, "*"))
+		if stripped == "" || strings.HasPrefix(stripped, "@") || strings.HasPrefix(stripped, "- ") {
+			if result >= 0 || stripped != "" {
+				break
+			}
 			pos = nl + 1
 			continue
 		}
-		// Compute insertion offset within `line`: skip trailing whitespace,
-		// then strip a trailing `*/` and any whitespace before it.
+		// Insert after trailing whitespace and a closing `*/` on the line.
 		e := len(line)
-		for e > 0 && (line[e-1] == ' ' || line[e-1] == '\t') {
+		for e > 0 && (line[e-1] == ' ' || line[e-1] == '\t' || line[e-1] == '\r') {
 			e--
 		}
 		if e >= 2 && line[e-2] == '*' && line[e-1] == '/' {
@@ -64,9 +97,10 @@ func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 				e--
 			}
 		}
-		return startByte + pos + e
+		result = startByte + pos + e
+		pos = nl + 1
 	}
-	return -1
+	return result
 }
 
 type kdocLinkToken struct {
@@ -182,7 +216,12 @@ func isPublicDeclarationFlat(file *scanner.File, idx uint32) bool {
 		switch file.FlatType(parent) {
 		case "function_body", "statements", "lambda_literal", "control_structure_body":
 			return false
-		case "class_body", "source_file":
+		case "class_declaration", "object_declaration", "companion_object":
+			// A member of a non-public container is not public API.
+			if file.FlatHasModifier(parent, "private") || file.FlatHasModifier(parent, "internal") || file.FlatHasModifier(parent, "protected") {
+				return false
+			}
+		case "source_file":
 			return true
 		}
 	}
@@ -198,8 +237,11 @@ type AbsentOrWrongFileLicenseRule struct {
 	LineBase
 	BaseRule
 	LicenseTemplate string
-	IsRegex         bool
-	compiledRegex   *regexp.Regexp // cached compiled regex when IsRegex=true
+	// LicenseTemplateFile names a file whose trimmed text replaces LicenseTemplate when it can be read.
+	LicenseTemplateFile string
+	IsRegex             bool
+	compiledRegex       *regexp.Regexp // cached compiled regex when IsRegex=true
+	templateOnce        sync.Once
 }
 
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
@@ -209,6 +251,14 @@ func (r *AbsentOrWrongFileLicenseRule) Confidence() float64 { return api.Confide
 
 func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 	file := ctx.File
+	r.templateOnce.Do(func() {
+		if r.LicenseTemplateFile == "" {
+			return
+		}
+		if data, err := os.ReadFile(r.LicenseTemplateFile); err == nil {
+			r.LicenseTemplate = strings.TrimSpace(string(data))
+		}
+	})
 	// Only active if a license template is configured; skip by default
 	if r.LicenseTemplate == "" {
 		return
@@ -216,29 +266,42 @@ func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 	// Find the first comment node
 	var firstComment uint32
 	hasFirstComment := false
+	// A script's `#!` line stays first: the header follows it.
+	headerStart := 0
 	for i := 0; i < file.FlatChildCount(0); i++ {
 		child := file.FlatChild(0, i)
 		t := file.FlatType(child)
+		if t == "shebang_line" {
+			headerStart = scriptLineEnd(file.Content, int(file.FlatEndByte(child)))
+			continue
+		}
 		if t == "multiline_comment" || t == "line_comment" {
 			firstComment = child
 			hasFirstComment = true
 			break
 		}
-		// Skip package_header, but if we hit a real declaration first, no comment
-		if t != "package_header" && t != "import_header" {
-			break
-		}
+		// The header must come first: a comment after the package line is documentation, not a license.
+		break
 	}
 	if !hasFirstComment {
-		f := r.Finding(file, 1, 1, "File does not have a valid license header.")
+		f := r.Finding(file, 1, 1, "Expected license not found or incorrect in the file: "+filepath.Base(file.Path))
 		// Auto-fix only when LicenseTemplate is a literal header — a regex
 		// pattern is not safe to inline as Kotlin source.
-		if !r.IsRegex {
+		if !r.IsRegex && !strings.Contains(r.LicenseTemplate, "*/") {
+			// Insert after a leading BOM, and with the file's own line ending.
+			insertAt := headerStart
+			if insertAt == 0 && bytes.HasPrefix(file.Content, []byte("\xef\xbb\xbf")) {
+				insertAt = 3
+			}
+			eol := "\n"
+			if i := bytes.IndexByte(file.Content, '\n'); i > 0 && file.Content[i-1] == '\r' {
+				eol = "\r\n"
+			}
 			f.Fix = &scanner.Fix{
 				ByteMode:    true,
-				StartByte:   0,
-				EndByte:     0,
-				Replacement: "/* " + r.LicenseTemplate + " */\n",
+				StartByte:   insertAt,
+				EndByte:     insertAt,
+				Replacement: "/* " + r.LicenseTemplate + " */" + eol,
 			}
 		}
 		ctx.Emit(f)
@@ -261,8 +324,8 @@ func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 			return
 		}
 	}
-	f := r.Finding(file, 1, 1, "File does not have a valid license header.")
-	if !r.IsRegex {
+	f := r.Finding(file, 1, 1, "Expected license not found or incorrect in the file: "+filepath.Base(file.Path))
+	if !r.IsRegex && !strings.Contains(r.LicenseTemplate, "*/") {
 		f.Fix = &scanner.Fix{
 			ByteMode:    true,
 			StartByte:   int(file.FlatStartByte(firstComment)),
@@ -271,6 +334,18 @@ func (r *AbsentOrWrongFileLicenseRule) check(ctx *api.Context) {
 		}
 	}
 	ctx.Emit(f)
+}
+
+// scriptLineEnd returns the offset just past the line break that ends the line holding offset, or
+// len(content) when that line is the last one.
+func scriptLineEnd(content []byte, offset int) int {
+	if offset >= len(content) {
+		return len(content)
+	}
+	if i := bytes.IndexByte(content[offset:], '\n'); i >= 0 {
+		return offset + i + 1
+	}
+	return len(content)
 }
 
 // DeprecatedBlockTagRule detects @deprecated in KDoc comments.
@@ -317,22 +392,33 @@ func buildDeprecatedBlockTagFix(file *scanner.File, kdocIdx uint32, kdocText str
 // the KDoc is documenting. Skips intervening line comments and whitespace
 // siblings.
 func flatDeclarationAfter(file *scanner.File, idx uint32) (uint32, bool) {
-	for sib, ok := file.FlatNextSibling(idx); ok; sib, ok = file.FlatNextSibling(sib) {
-		switch file.FlatType(sib) {
-		case "line_comment", "multiline_comment":
-			continue
-		case "class_declaration",
-			"object_declaration",
-			"function_declaration",
-			"property_declaration",
-			"type_alias",
-			"secondary_constructor":
-			return sib, true
-		default:
+	// A KDoc before the first declaration can sit at the end of the package or import header, so climb out
+	// of such a header and continue with its siblings.
+	for cur := idx; ; {
+		for sib, ok := file.FlatNextSibling(cur); ok; sib, ok = file.FlatNextSibling(sib) {
+			switch file.FlatType(sib) {
+			case "line_comment", "multiline_comment":
+				continue
+			case "class_declaration",
+				"object_declaration",
+				"function_declaration",
+				"property_declaration",
+				"type_alias",
+				"secondary_constructor":
+				return sib, true
+			default:
+				return 0, false
+			}
+		}
+		parent, ok := file.FlatParent(cur)
+		if !ok {
 			return 0, false
 		}
+		if t := file.FlatType(parent); t != "package_header" && t != "import_list" && t != "import_header" {
+			return 0, false
+		}
+		cur = parent
 	}
-	return 0, false
 }
 
 // stripDeprecatedKDocTag removes the `@deprecated` line (and continuation
@@ -370,7 +456,7 @@ func stripDeprecatedKDocTag(text string) (message, cleaned string, ok bool) {
 				inTag = false
 				// Fall through so this line is preserved.
 			} else {
-				if body != "" {
+				if body = strings.TrimSpace(body); body != "" {
 					msgParts = append(msgParts, body)
 				}
 				continue
@@ -391,6 +477,8 @@ func stripDeprecatedKDocTag(text string) (message, cleaned string, ok bool) {
 func buildDeprecatedAnnotation(message string) string {
 	escaped := strings.ReplaceAll(message, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	// A bare `$` would start a string template.
+	escaped = strings.ReplaceAll(escaped, `$`, `\$`)
 	return `@Deprecated("` + escaped + `")`
 }
 
@@ -421,11 +509,14 @@ type DocumentationOverPrivatePropertyRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *DocumentationOverPrivatePropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
+// endOfSentenceDefaultPattern finds a sentence terminator followed by a break, or ending the paragraph.
+const endOfSentenceDefaultPattern = `([.?!][ \t\n\r\f<])|([.?!:]$)`
+
 // EndOfSentenceFormatRule checks KDoc first sentence ends with proper punctuation.
 type EndOfSentenceFormatRule struct {
 	FlatDispatchBase
 	BaseRule
-	// Pattern is the regex applied to the first line of a KDoc to verify
+	// Pattern is the regex applied to the first paragraph of a KDoc to verify
 	// it ends with proper punctuation. Configurable via the
 	// `endOfSentenceFormat` YAML option.
 	Pattern *regexp.Regexp
@@ -455,6 +546,8 @@ type OutdatedDocumentationRule struct {
 	BaseRule
 	MatchDeclarationsOrder bool
 	MatchTypeParameters    bool
+	// AllowParamOnConstructorProperties counts @param tags of val/var constructor parameters as documented.
+	AllowParamOnConstructorProperties bool
 }
 
 var paramTagRe = regexp.MustCompile(`@param\s+([A-Za-z_][A-Za-z0-9_]*)`)
@@ -530,3 +623,50 @@ type UndocumentedPublicPropertyRule struct {
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
 func (r *UndocumentedPublicPropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }
+
+// kdocSectionStart returns where detekt reports a KDoc: right after `/**` when text follows on that line,
+// otherwise the first non-blank character of the next line.
+func kdocSectionStart(file *scanner.File, idx uint32) (row, col int) {
+	row, col = file.FlatRow(idx)+1, file.FlatCol(idx)+1
+	text := file.FlatNodeText(idx)
+	firstLine, rest, hasMore := strings.Cut(text, "\n")
+	body := strings.TrimPrefix(firstLine, "/**")
+	if strings.TrimSpace(strings.TrimSuffix(body, "*/")) != "" || !hasMore {
+		return row, col + 3
+	}
+	line, _, _ := strings.Cut(rest, "\n")
+	return row + 1, len(line) - len(strings.TrimLeft(line, " \t")) + 1
+}
+
+// outdatedDocMatches reports that the documented @param names equal the declared ones, as a sequence when
+// order matters and as a set otherwise.
+func outdatedDocMatches(tags, expected []string, ordered bool) bool {
+	if len(tags) != len(expected) {
+		return false
+	}
+	if ordered {
+		for i := range tags {
+			if tags[i] != expected[i] {
+				return false
+			}
+		}
+		return true
+	}
+	seen := make(map[string]int, len(expected))
+	for _, n := range expected {
+		seen[n]++
+	}
+	for _, n := range tags {
+		if seen[n] == 0 {
+			return false
+		}
+		seen[n]--
+	}
+	return true
+}
+
+// kdocHasTag reports a `@tag name` block tag in the KDoc text.
+func kdocHasTag(kdoc, tag, name string) bool {
+	re := regexp.MustCompile(`@` + regexp.QuoteMeta(tag) + `\s+` + regexp.QuoteMeta(name) + `\b`)
+	return re.MatchString(kdoc)
+}

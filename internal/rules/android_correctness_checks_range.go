@@ -304,7 +304,10 @@ func rangeSpecsForCall(ctx *api.Context, call uint32, callName string, args uint
 		if specs := rangeFrameworkSpecsForTarget(target, callName); len(specs) > 0 {
 			return specs
 		}
-		return nil
+		// A resolved call to a function declared in this file still carries its own annotated ranges.
+		if !strings.HasSuffix(target, "."+callName) {
+			return nil
+		}
 	}
 	if summary == nil {
 		return nil

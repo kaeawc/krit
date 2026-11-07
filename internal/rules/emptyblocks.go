@@ -17,9 +17,7 @@ func nodeLineRange(content []byte, startByte, endByte int) (int, int) {
 		s--
 	}
 	e := endByte
-	if e < len(content) && content[e] == '\n' {
-		e++
-	}
+	e = lineBreakEnd(content, e)
 	return s, e
 }
 
@@ -54,6 +52,44 @@ func stripComments(s string) string {
 	return s
 }
 
+// directBraceBody returns the source between the first direct `{` child of idx and the next direct
+// `}` child, so braces inside parameter defaults or a `when` subject are not mistaken for the body.
+// ok is false when idx has no braced body of its own.
+func directBraceBody(file *scanner.File, idx uint32) (body string, ok bool) {
+	open := -1
+	for i := 0; i < file.FlatChildCount(idx); i++ {
+		child := file.FlatChild(idx, i)
+		switch file.FlatType(child) {
+		case "{":
+			if open < 0 {
+				open = int(file.FlatEndByte(child))
+			}
+		case "}":
+			if open >= 0 {
+				return string(file.Content[open:file.FlatStartByte(child)]), true
+			}
+		}
+	}
+	return "", false
+}
+
+// braceNode returns the first direct `{` child of idx, which is where detekt reports an empty block, or idx.
+func braceNode(file *scanner.File, idx uint32) uint32 {
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "{" {
+			return c
+		}
+	}
+	return idx
+}
+
+// directBraceBodyIsEmpty reports a braced body that holds only whitespace; any comment makes it
+// non-empty because it documents an intentional no-op.
+func directBraceBodyIsEmpty(file *scanner.File, idx uint32) bool {
+	body, ok := directBraceBody(file, idx)
+	return ok && strings.TrimSpace(body) == ""
+}
+
 func isBlockEmptyFlat(file *scanner.File, idx uint32) bool {
 	text := file.FlatNodeText(idx)
 	start := strings.Index(text, "{")
@@ -64,6 +100,77 @@ func isBlockEmptyFlat(file *scanner.File, idx uint32) bool {
 	body := strings.TrimSpace(text[start+1 : end])
 	cleaned := stripComments(body)
 	return strings.TrimSpace(cleaned) == ""
+}
+
+// isWhileBodyEmpty reports whether a while statement's body does nothing. A brace-less body such as
+// `while (cond) x = next()` is a statement, so it is not empty.
+func isWhileBodyEmpty(text string) bool {
+	open := strings.Index(text, "(")
+	if open < 0 {
+		return true
+	}
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				if whileConditionHasSideEffectCall(text[open+1:i]) || whileBodyHasComment(text[i+1:]) {
+					return false
+				}
+				body := strings.TrimSpace(stripComments(text[i+1:]))
+				if body == ";" {
+					return true
+				}
+				if !strings.HasPrefix(body, "{") {
+					return body == ""
+				}
+				end := strings.LastIndex(body, "}")
+				return end > 0 && strings.TrimSpace(body[1:end]) == ""
+			}
+		}
+	}
+	return true
+}
+
+var whileConditionCallRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+
+// whileConditionHasSideEffectCall reports a call in the condition whose name is not a plain query, as
+// in `while (awaitItem() != null) {}`, where the condition does the work.
+func whileConditionHasSideEffectCall(cond string) bool {
+	for _, m := range whileConditionCallRe.FindAllStringSubmatch(cond, -1) {
+		name := m[1]
+		if strings.HasPrefix(name, "is") || strings.HasPrefix(name, "has") || name == "contains" || name == "get" {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// whileBodyHasComment reports a comment in the loop body, which documents an intentional spin.
+func whileBodyHasComment(body string) bool {
+	return strings.Contains(body, "//") || strings.Contains(body, "/*")
+}
+
+// kotlinBracedBodyIsEmpty reports whether a control_structure_body is `{ }` holding no statement and no comment.
+func kotlinBracedBodyIsEmpty(file *scanner.File, body uint32) bool {
+	return controlBodyHasBraces(file, body) && bracedBodyTextIsEmpty(file, body) && !blockHasCommentFlat(file, body)
+}
+
+// bracedBodyTextIsEmpty reports whether the source between a body's outer braces is only whitespace
+// and comments. The check reads text, not child nodes: a soft keyword used as an identifier, such as
+// `{ internal }`, parses as a modifier with no `statements` node but is still code.
+func bracedBodyTextIsEmpty(file *scanner.File, body uint32) bool {
+	text := file.FlatNodeText(body)
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start < 0 || end <= start {
+		return false
+	}
+	return strings.TrimSpace(stripComments(text[start+1:end])) == ""
 }
 
 func blockHasCommentFlat(file *scanner.File, idx uint32) bool {
@@ -229,15 +336,16 @@ func (r *EmptyKotlinFileRule) Confidence() float64 { return api.ConfidenceVeryHi
 
 func (r *EmptyKotlinFileRule) check(ctx *api.Context) {
 	file := ctx.File
+	if file == nil || file.FlatTree == nil {
+		return
+	}
 	// Skip Spotless / format-tool template files (e.g. spotless/copyright.kt
 	// spotless/copyright.kts). These are copyright-header templates with a
 	// .kt/.kts extension for syntax highlighting, not real Kotlin source.
 	if isSpotlessTemplateFile(file.Path) {
 		return
 	}
-	if file == nil || file.FlatTree == nil {
-		return
-	}
+	explained := false
 	for i := 0; i < file.FlatChildCount(0); i++ {
 		child := file.FlatChild(0, i)
 		t := file.FlatType(child)
@@ -249,8 +357,21 @@ func (r *EmptyKotlinFileRule) check(ctx *api.Context) {
 		// Any other node means the file has content
 		return
 	}
+	// A comment saying the file is a deliberate placeholder is the file's content. The grammar may
+	// nest a comment inside the package header, so every comment in the file counts.
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if t := file.FlatType(n); (t == "line_comment" || t == "multiline_comment") &&
+			emptyFilePlaceholderCommentRe.MatchString(file.FlatNodeText(n)) {
+			explained = true
+		}
+	})
+	if explained {
+		return
+	}
 	ctx.Emit(r.Finding(file, 1, 1, "Empty Kotlin file detected."))
 }
+
+var emptyFilePlaceholderCommentRe = regexp.MustCompile(`(?i)placeholder|intentionally|do not (delete|remove)|keep this file|this file (exists|is kept|is here)|deliberately`)
 
 // isSpotlessTemplateFile reports whether the path looks like a Spotless
 // copyright/license template — these files have a .kt or .kts extension

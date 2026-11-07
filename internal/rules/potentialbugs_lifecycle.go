@@ -3,13 +3,12 @@ package rules
 import (
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
-	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,7 +55,10 @@ func exitOutsideMainCallMatches(file *scanner.File, idx uint32) bool {
 		if name == "exitProcess" {
 			return true
 		}
-		return name == "exit" && exitOutsideMainKotlinSystemReceiver(file, idx)
+		if name == "exit" && exitOutsideMainKotlinSystemReceiver(file, idx) {
+			return true
+		}
+		return (name == "exit" || name == "halt") && exitOutsideMainKotlinRuntimeReceiver(file, idx)
 	case "method_invocation":
 		if javaMethodInvocationName(file, idx) != "exit" || javaMethodReceiverText(file, idx) != "System" {
 			return false
@@ -77,14 +79,68 @@ func exitOutsideMainKotlinSystemReceiver(file *scanner.File, idx uint32) bool {
 	return len(path) == 3 && path[0] == "java" && path[1] == "lang" && path[2] == "System"
 }
 
+// exitOutsideMainKotlinRuntimeReceiver matches `Runtime.getRuntime().exit(..)` and its qualified spelling.
+func exitOutsideMainKotlinRuntimeReceiver(file *scanner.File, idx uint32) bool {
+	nav, _ := flatCallExpressionParts(file, idx)
+	receiver := flatNavigationReceiver(file, nav)
+	if receiver == 0 {
+		return false
+	}
+	text := strings.Join(strings.Fields(file.FlatNodeText(receiver)), "")
+	return text == "Runtime.getRuntime()" || text == "java.lang.Runtime.getRuntime()"
+}
+
 func exitOutsideMainInsideMain(file *scanner.File, idx uint32) bool {
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) != "function_declaration" && file.FlatType(parent) != "method_declaration" {
-			continue
+		switch file.FlatType(parent) {
+		case "method_declaration":
+			return extractIdentifierFlat(file, parent) == "main"
+		case "function_declaration":
+			return kotlinIsMainFunction(file, parent)
 		}
-		return extractIdentifierFlat(file, parent) == "main"
 	}
 	return false
+}
+
+// kotlinIsMainFunction follows detekt: a public, non-override `main` whose parameters are none, `Array<String>` or
+// `vararg String`, declared at the top level or as a `@JvmStatic` member of an object.
+func kotlinIsMainFunction(file *scanner.File, fn uint32) bool {
+	if strings.Trim(extractIdentifierFlat(file, fn), "`") != "main" {
+		return false
+	}
+	for _, mod := range []string{"private", "protected", "internal", "override"} {
+		if file.FlatHasModifier(fn, mod) {
+			return false
+		}
+	}
+	types, hasReceiver := functionParameterTypeTexts(file, fn)
+	if hasReceiver || len(types) > 1 {
+		return false
+	}
+	if len(types) == 1 {
+		params, _ := file.FlatFindChild(fn, "function_value_parameters")
+		mods, _ := file.FlatFindChild(params, "parameter_modifiers")
+		vararg := mods != 0 && strings.Contains(file.FlatNodeText(mods), "vararg")
+		if (types[0] != "Array<String>" || vararg) && (!vararg || types[0] != "String") {
+			return false
+		}
+	}
+	parent, ok := file.FlatParent(fn)
+	if !ok {
+		return false
+	}
+	if file.FlatType(parent) == "source_file" {
+		return true
+	}
+	body, ok := file.FlatParent(fn)
+	if !ok || file.FlatType(body) != "class_body" {
+		return false
+	}
+	owner, ok := file.FlatParent(body)
+	if !ok || (file.FlatType(owner) != "object_declaration" && file.FlatType(owner) != "companion_object") {
+		return false
+	}
+	return hasAnnotationNamed(file, fn, "JvmStatic") || hasAnnotationNamed(file, fn, "kotlin.jvm.JvmStatic")
 }
 
 // ---------------------------------------------------------------------------
@@ -131,105 +187,107 @@ func (r *IteratorNotThrowingNoSuchElementExceptionRule) Confidence() float64 {
 // enclosingImplementsIterator returns true if the node's enclosing class
 // has a delegation specifier naming Iterator / MutableIterator / ListIterator
 // (with or without a qualifier).
-func enclosingImplementsIteratorFlat(ctx *api.Context, idx uint32) bool {
-	if ctx.File == nil {
-		return false
-	}
-	file := ctx.File
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		pt := file.FlatType(p)
-		if pt != "class_declaration" && pt != "object_declaration" {
+// directSuperNames returns the simple names of the direct supertypes, like detekt's getSuperNames.
+func directSuperNames(file *scanner.File, decl uint32) []string {
+	var names []string
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "delegation_specifier" {
 			continue
 		}
-		found := false
-		file.FlatWalkNodes(p, "delegation_specifier", func(c uint32) {
-			if found {
-				return
+		var walk func(n uint32) bool
+		walk = func(n uint32) bool {
+			if file.FlatType(n) == "user_type" {
+				last := ""
+				for t := file.FlatFirstChild(n); t != 0; t = file.FlatNextSib(t) {
+					if file.FlatType(t) == "type_identifier" {
+						last = file.FlatNodeText(t)
+					}
+				}
+				if last != "" {
+					names = append(names, last)
+				}
+				return true
 			}
-			if iteratorSupertypeConfirmed(ctx, c) {
-				found = true
+			for t := file.FlatFirstChild(n); t != 0; t = file.FlatNextSib(t) {
+				if walk(t) {
+					return true
+				}
 			}
-		})
-		return found
+			return false
+		}
+		walk(c)
+	}
+	return names
+}
+
+// memberFunctionNamed returns the first function declared directly in the class body.
+func memberFunctionNamed(file *scanner.File, decl uint32, name string) uint32 {
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); t != "class_body" && t != "enum_class_body" {
+			continue
+		}
+		for m := file.FlatFirstChild(c); m != 0; m = file.FlatNextSib(m) {
+			if file.FlatType(m) == "function_declaration" && extractIdentifierFlat(file, m) == name {
+				return m
+			}
+		}
+	}
+	return 0
+}
+
+// emitAtClassName reports on the class name, or the declaration start for an object literal.
+func emitAtClassName(ctx *api.Context, decl uint32, msg string) {
+	file := ctx.File
+	at := decl
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); t == "type_identifier" || t == "simple_identifier" {
+			at = c
+			break
+		}
+	}
+	ctx.EmitAt(file.FlatRow(at)+1, file.FlatCol(at)+1, msg)
+}
+
+func hasSuperNamed(file *scanner.File, decl uint32, name string) bool {
+	for _, n := range directSuperNames(file, decl) {
+		if n == name {
+			return true
+		}
 	}
 	return false
 }
 
-func iteratorSupertypeConfirmed(ctx *api.Context, idx uint32) bool {
-	if ctx.File == nil || idx == 0 {
-		return false
-	}
-	file := ctx.File
-	if ctx.Resolver != nil {
-		if typ := ctx.Resolver.ResolveFlatNode(idx, file); iteratorTypeMatches(typ) {
-			return true
-		}
-	}
+// hasNextCallsNext matches detekt: any call whose callee text is `next` inside hasNext.
+func hasNextCallsNext(file *scanner.File, fn uint32) bool {
 	found := false
-	file.FlatWalkAllNodes(idx, func(n uint32) {
-		if found {
-			return
-		}
-		switch file.FlatType(n) {
-		case "user_type", "navigation_expression", "simple_identifier", "type_identifier":
-			name := semantics.ReferenceName(file, n)
-			if name == "" {
-				name = extractIdentifierFlat(file, n)
-			}
-			if name == "" {
-				return
-			}
-			if iteratorSimpleName(name) {
-				if ctx.Resolver != nil {
-					if fqn := ctx.Resolver.ResolveImport(name, file); fqn != "" {
-						found = iteratorFQN(fqn)
-						return
-					}
-				}
-				if !sameFileDeclarationNamed(file, name) {
-					found = true
-				}
-			}
-			segments := flatNavigationChainIdentifiers(file, n)
-			if len(segments) > 0 && iteratorFQN(strings.Join(segments, ".")) {
-				found = true
-			}
+	file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+		if flatCallExpressionName(file, call) == "next" {
+			found = true
 		}
 	})
 	return found
 }
 
-func iteratorTypeMatches(typ *typeinfer.ResolvedType) bool {
-	if typ == nil || typ.Kind == typeinfer.TypeUnknown {
-		return false
-	}
-	if iteratorFQN(typ.FQN) || iteratorSimpleName(typ.Name) {
-		return true
-	}
-	for _, st := range typ.Supertypes {
-		if iteratorFQN(st) || iteratorSimpleName(st) {
-			return true
+// throwsNoSuchElement matches detekt: a `throw NoSuchElementException(...)` anywhere in next.
+func throwsNoSuchElement(file *scanner.File, fn uint32) bool {
+	found := false
+	file.FlatWalkNodes(fn, "jump_expression", func(jmp uint32) {
+		first := file.FlatFirstChild(jmp)
+		if first == 0 || file.FlatType(first) != "throw" {
+			return
 		}
-	}
-	return false
-}
-
-func iteratorSimpleName(name string) bool {
-	switch name {
-	case "Iterator", "MutableIterator", "ListIterator":
-		return true
-	default:
-		return false
-	}
-}
-
-func iteratorFQN(name string) bool {
-	switch name {
-	case "kotlin.collections.Iterator", "kotlin.collections.MutableIterator", "kotlin.collections.ListIterator", "java.util.Iterator":
-		return true
-	default:
-		return false
-	}
+		for c := file.FlatNextSib(first); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) != "call_expression" {
+				continue
+			}
+			// Only a bare call counts; `java.util.NoSuchElementException()` is a qualified expression.
+			if callee := file.FlatFirstChild(c); callee != 0 && file.FlatType(callee) == "simple_identifier" &&
+				file.FlatNodeText(callee) == "NoSuchElementException" {
+				found = true
+			}
+		}
+	})
+	return found
 }
 
 func sameFileDeclarationNamed(file *scanner.File, name string) bool {
@@ -247,39 +305,6 @@ func sameFileDeclarationNamed(file *scanner.File, name string) bool {
 				found = true
 			}
 		}
-	})
-	return found
-}
-
-func functionThrowsNoSuchElementExceptionFlat(ctx *api.Context, body uint32) bool {
-	if ctx.File == nil || body == 0 {
-		return false
-	}
-	file := ctx.File
-	found := false
-	file.FlatWalkNodes(body, "jump_expression", func(jmp uint32) {
-		if found {
-			return
-		}
-		first := file.FlatFirstChild(jmp)
-		if first == 0 || !file.FlatNodeTextEquals(first, "throw") {
-			return
-		}
-		file.FlatWalkNodes(jmp, "call_expression", func(call uint32) {
-			if found || flatCallExpressionName(file, call) != "NoSuchElementException" {
-				return
-			}
-			if ctx.Resolver != nil {
-				if target, ok := semantics.ResolveCallTarget(ctx, call); ok && target.Resolved {
-					found = strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "kotlin.NoSuchElementException.") ||
-						strings.HasPrefix(strings.ReplaceAll(target.QualifiedName, "#", "."), "java.util.NoSuchElementException.")
-					return
-				}
-			}
-			if !sameFileDeclarationNamed(file, "NoSuchElementException") {
-				found = true
-			}
-		})
 	})
 	return found
 }
@@ -378,4 +403,38 @@ func derivePackageFix(file *scanner.File) *scanner.Fix {
 		EndByte:     0,
 		Replacement: "package " + pkg + "\n\n",
 	}
+}
+
+// intLiteralValue returns the value of a decimal, hex, long or unsigned integer literal node.
+func intLiteralValue(file *scanner.File, idx uint32) (int64, bool) {
+	switch file.FlatType(idx) {
+	case "integer_literal", "hex_literal", "long_literal", "unsigned_literal":
+	default:
+		return 0, false
+	}
+	text := strings.ReplaceAll(file.FlatNodeText(idx), "_", "")
+	text = strings.TrimRight(text, "LlUu")
+	value, err := strconv.ParseInt(text, 0, 64)
+	if err != nil || strings.HasPrefix(text, "0") && len(text) > 1 && text[1] != 'x' && text[1] != 'X' {
+		return 0, false
+	}
+	return value, true
+}
+
+// leadingCommentStart returns the first of the comments that sit directly above a declaration, with no blank
+// line between them. The Kotlin parser binds those comments into the declaration, so its text range, and the
+// line detekt reports, start there. It returns idx when there is no such comment.
+func leadingCommentStart(file *scanner.File, idx uint32) uint32 {
+	start := idx
+	for prev, ok := file.FlatPrevSibling(start); ok; prev, ok = file.FlatPrevSibling(prev) {
+		if !isCommentNodeType(file.FlatType(prev)) {
+			break
+		}
+		gap := file.Content[file.FlatEndByte(prev):file.FlatStartByte(start)]
+		if strings.Count(string(gap), "\n") > 1 {
+			break
+		}
+		start = prev
+	}
+	return start
 }

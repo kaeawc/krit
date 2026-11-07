@@ -1,8 +1,10 @@
 package rules
 
 import (
+	"bytes"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -15,9 +17,16 @@ func registerAndroidSourceExtraRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			Needs: api.NeedsResources, Languages: []scanner.Language{scanner.LangKotlin},
+			AndroidDeps: uint32(AndroidDepLayout),
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if file.FlatHasModifier(idx, "abstract") {
+				// Without a layout index we cannot tell whether XML inflates the view, so stay silent.
+				if ctx.ResourceIndex == nil || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "private") || scanner.IsTestFile(file.Path) {
+					return
+				}
+				if androidHasAnnotationFlat(file, idx, "SuppressLint") &&
+					strings.Contains(declarationHeaderText(file, idx), "\"ViewConstructor\"") {
 					return
 				}
 				isView := false
@@ -27,6 +36,9 @@ func registerAndroidSourceExtraRules() {
 					}
 					typeName := viewConstructorSupertypeNameFlat(file, child)
 					if typeName == "" {
+						continue
+					}
+					if !viewConstructorSupertypeIsAndroidView(file, idx, child, typeName) {
 						continue
 					}
 					for _, base := range viewSuperclasses {
@@ -40,6 +52,14 @@ func registerAndroidSourceExtraRules() {
 					}
 				}
 				if !isView {
+					return
+				}
+				// Only XML inflation needs the (Context, AttributeSet) constructor, so skip a view the file builds in code.
+				if viewConstructedInFile(file, extractIdentifierFlat(file, idx)) {
+					return
+				}
+				// Only a class named in layout XML is inflated, and XML cannot supply extra required arguments.
+				if !viewClassReferencedInLayouts(ctx.ResourceIndex, viewConstructorClassFQN(file, idx)) || viewConstructorNeedsExtraArguments(file, idx) {
 					return
 				}
 				hasContextCtor, hasAttrSetCtor := false, false
@@ -61,12 +81,12 @@ func registerAndroidSourceExtraRules() {
 					}
 				}
 				if !hasContextCtor {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Custom View subclass is missing (Context) and (Context, AttributeSet) constructors.")
 					return
 				}
 				if !hasAttrSetCtor {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Custom View subclass is missing (Context, AttributeSet) constructor needed for XML inflation.")
 				}
 			},
@@ -91,7 +111,7 @@ func registerAndroidSourceExtraRules() {
 		})
 	}
 	{
-		r := &ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object may leak", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		r := &ViewTagRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ViewTag", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ViewTag", Brief: "Tagged object leaks (setTag with view, holder or cursor below API 14)", Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"},
@@ -99,17 +119,40 @@ func registerAndroidSourceExtraRules() {
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleSupertypes,
 			Confidence: r.Confidence(), Implementation: r,
-			Oracle: &api.OracleFilter{Identifiers: []string{"setTag"}},
-			Check:  r.check,
+			NeedsLibraryFacts: true,
+			Oracle:            &api.OracleFilter{Identifiers: []string{"setTag"}},
+			Check:             r.check,
 		})
 	}
 	{
-		r := &TrulyRandomRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "TrulyRandom", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "TrulyRandom", Brief: "Hardcoded seed defeats SecureRandom", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}
+		r := &CutPasteIDRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "CutPasteId", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "CutPasteId", Brief: "Likely cut & paste mistakes", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			NodeTypes:  []string{"function_declaration", "method_declaration", "constructor_declaration"},
+			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &HardcodedRandomSeedRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "HardcodedRandomSeed", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "", Brief: "Hardcoded seed defeats SecureRandom", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes:  []string{"call_expression", "object_creation_expression"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Aliases:    []string{"TrulyRandom"},
 			Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &TrulyRandomRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "TrulyRandom", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "TrulyRandom", Brief: "Weak RNG", Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 9, Origin: "AOSP Android Lint"}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs:             api.NeedsParsedFiles,
+			NeedsLibraryFacts: true,
+			Languages:         []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Confidence:        r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -137,7 +180,7 @@ func registerAndroidSourceExtraRules() {
 		})
 	}
 	{
-		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
+		r := &InstantiatableRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Instantiatable", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Instantiatable", Brief: "Registered class not instantiatable", Category: ALCCorrectness, ALSeverity: ALSFatal, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceHigher, Implementation: r,
@@ -145,7 +188,7 @@ func registerAndroidSourceExtraRules() {
 				idx, file := ctx.Idx, ctx.File
 				isComponent := false
 				for _, base := range componentSuperclasses {
-					if classHasSupertypeNamed(file, idx, base) {
+					if classExtendsAndroidClass(file, idx, base) {
 						isComponent = true
 						break
 					}
@@ -155,7 +198,7 @@ func registerAndroidSourceExtraRules() {
 				}
 				// The class itself carries `private` when the class is private.
 				if file.FlatHasModifier(idx, "private") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
 					return
 				}
@@ -163,7 +206,7 @@ func registerAndroidSourceExtraRules() {
 				// `class Foo private constructor(...)`).
 				if pc, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
 					if file.FlatHasModifier(pc, "private") {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 							"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
 					}
 				}
@@ -174,12 +217,23 @@ func registerAndroidSourceExtraRules() {
 		r := &RtlAwareRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "RtlAware", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "RtlAware", Brief: "Using non-RTL-aware View methods", Category: ALCRTL, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
+			NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, Confidence: api.ConfidenceHigher, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if repl, ok := rtlAwareMethods[name]; ok {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					// With an oracle, only View's own getters count; Rect.getLeft() and app classes do not.
+					if cr, isComposite := ctx.Resolver.(*oracle.CompositeResolver); isComposite && cr.Oracle() != nil {
+						if !strings.HasPrefix(oracleLookupCallTargetFlat(cr.Oracle(), file, idx), "android.view.View.") {
+							return
+						}
+					}
+					if repl == "" {
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+							name+" returns a physical left/right position and is not RTL-aware. Check View.getLayoutDirection() or use start/end based values.")
+						return
+					}
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						"Use RTL-aware "+repl+" instead of "+name+" for bidirectional layout support.")
 				}
 			},
@@ -198,7 +252,7 @@ func registerAndroidSourceExtraRules() {
 				content := stringLiteralContent(file, idx)
 				for _, field := range rtlFieldNames {
 					if content == field {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1,
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 							"Direct access to View."+field+" via reflection is not RTL-aware. Use the corresponding getter method instead.")
 						return
 					}
@@ -213,7 +267,10 @@ func registerAndroidSourceExtraRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if flatCallExpressionName(file, idx) != "GridLayout" {
+				if flatCallExpressionName(file, idx) != "GridLayout" || !gridLayoutIsPlatformClass(file) {
+					return
+				}
+				if gridLayoutConfiguredInPlace(file, idx) {
 					return
 				}
 				var container uint32
@@ -230,12 +287,12 @@ func registerAndroidSourceExtraRules() {
 						return
 					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "GridLayout should specify a columnCount. Without it, all children will be in a single row.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "GridLayout should specify a columnCount. Without it, all children will be in a single row.")
 			},
 		})
 	}
 	{
-		r := &MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 3, Origin: "AOSP Android Lint"}}
+		r := &MangledCRLFRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "MangledCRLF", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "MangledCRLF", Brief: "Mixed line endings in file", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 3, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			Needs: api.NeedsLinePass, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -243,7 +300,7 @@ func registerAndroidSourceExtraRules() {
 		})
 	}
 	{
-		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
+		r := &ResourceNameRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "ResourceName", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "ResourceName", Brief: "Resource name not in snake_case", Category: ALCCorrectness, ALSeverity: ALSFatal, Priority: 4, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
@@ -258,29 +315,22 @@ func registerAndroidSourceExtraRules() {
 				if len(segments) != 3 || segments[0] != "R" {
 					return
 				}
-				if !androidResourceTypes[segments[1]] {
+				// Style names are conventionally CamelCase with dots (Theme.MyApp becomes R.style.Theme_MyApp).
+				if !androidResourceTypes[segments[1]] || segments[1] == "style" {
 					return
 				}
 				if !snakeCaseRe.MatchString(segments[2]) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Resource name `R."+segments[1]+"."+segments[2]+"` should use snake_case.")
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Resource name `R."+segments[1]+"."+segments[2]+"` should use snake_case.")
 				}
 			},
 		})
 	}
 	{
-		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 4, Origin: "AOSP Android Lint"}}
+		r := &ProguardRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "Proguard", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "Proguard", Brief: "Obsolete proguard.cfg reference", Category: ALCCorrectness, ALSeverity: ALSFatal, Priority: 4, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: api.ConfidenceHigher, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatContainsStringInterpolation(file, idx) {
-					return
-				}
-				if strings.Contains(stringLiteralContent(file, idx), "proguard.cfg") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Reference to obsolete `proguard.cfg`. Use `proguard-rules.pro` instead.")
-				}
-			},
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
@@ -292,57 +342,69 @@ func registerAndroidSourceExtraRules() {
 		})
 	}
 	{
-		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
+		r := &NfcTechWhitespaceRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "NfcTechWhitespace", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "NfcTechWhitespace", Brief: "Whitespace in NFC tech-list", Category: ALCCorrectness, ALSeverity: ALSFatal, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: api.ConfidenceHigher, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatContainsStringInterpolation(file, idx) {
-					return
-				}
-				content := stringLiteralContent(file, idx)
-				if strings.Contains(content, "<tech>") && nfcTechRe.MatchString(content) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Whitespace in <tech> element value. NFC tech names must not have leading/trailing whitespace.")
-				}
-			},
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
-		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		r := &InvalidUsesTagAttributeRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "InvalidUsesTagAttribute", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "InvalidUsesTagAttribute", Brief: "Invalid name attribute for uses element", Category: ALCCorrectness, ALSeverity: ALSError, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"string_literal"}, Confidence: api.ConfidenceHigher, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatContainsStringInterpolation(file, idx) {
-					return
-				}
-				content := stringLiteralContent(file, idx)
-				if hardcodedNsRe.MatchString(content) && !strings.Contains(content, "apk/res-auto") && !strings.Contains(content, "apk/res/android") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use `http://schemas.android.com/apk/res-auto` instead of a hardcoded package namespace. Hardcoded namespaces don't work in library projects.")
-				}
-			},
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
-		r := &UnknownIDInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to unknown @id in layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 6, Origin: "AOSP Android Lint"}}
+		r := &LibraryCustomViewRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "LibraryCustomView", RuleSetName: androidRuleSet, Sev: "error"}, IssueID: "LibraryCustomView", Brief: "Custom view using hardcoded namespace", Category: ALCCorrectness, ALSeverity: ALSFatal, Priority: 6, Origin: "AOSP Android Lint"}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				segments := flatNavigationChainIdentifiers(file, idx)
-				if len(segments) != 3 || segments[0] != "R" || segments[1] != "id" {
-					return
-				}
-				name := segments[2]
-				if strings.Contains(name, "__") || strings.HasPrefix(name, "_") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious ID reference `R.id."+name+"`. Verify this ID exists in your layout resources.")
-				}
-			},
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
 		})
 	}
+	{
+		r := &UnknownIDInLayoutRule{AndroidRule: AndroidRule{BaseRule: BaseRule{RuleName: "UnknownIdInLayout", RuleSetName: androidRuleSet, Sev: "warning"}, IssueID: "UnknownIdInLayout", Brief: "Reference to an id that is not in the current layout", Category: ALCCorrectness, ALSeverity: ALSWarning, Priority: 5, Origin: "AOSP Android Lint"}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+}
+
+// gridLayoutIsPlatformClass reports whether the file imports a GridLayout view (platform or AndroidX).
+func gridLayoutIsPlatformClass(file *scanner.File) bool {
+	for _, marker := range []string{
+		"android.widget.GridLayout", "androidx.gridlayout.widget.GridLayout",
+		"android.widget.*", "androidx.gridlayout.widget.*",
+	} {
+		if bytes.Contains(file.Content, []byte(marker)) {
+			return true
+		}
+	}
+	return false
+}
+
+// gridLayoutConfiguredInPlace reports whether the constructed GridLayout is configured by a scope
+// function such as `GridLayout(c).apply { columnCount = 2 }`.
+func gridLayoutConfiguredInPlace(file *scanner.File, call uint32) bool {
+	parent, ok := file.FlatParent(call)
+	if !ok || file.FlatType(parent) != "navigation_expression" {
+		return false
+	}
+	outer, ok := file.FlatParent(parent)
+	if !ok || file.FlatType(outer) != "call_expression" {
+		return false
+	}
+	switch flatCallExpressionName(file, outer) {
+	case "apply", "also", "run", "let":
+		text := file.FlatNodeText(outer)
+		return strings.Contains(text, "columnCount") || strings.Contains(text, "ColumnCount")
+	}
+	return false
 }
 
 func gridLayoutColumnCountAssignedAfter(file *scanner.File, container, call uint32, receiver string) bool {
@@ -351,6 +413,14 @@ func gridLayoutColumnCountAssignedAfter(file *scanner.File, container, call uint
 	}
 	callStart := file.FlatStartByte(call)
 	found := false
+	file.FlatWalkNodes(container, "call_expression", func(setter uint32) {
+		if found || file.FlatStartByte(setter) <= callStart {
+			return
+		}
+		if flatCallExpressionName(file, setter) == "setColumnCount" && flatReceiverNameFromCall(file, setter) == receiver {
+			found = true
+		}
+	})
 	file.FlatWalkNodes(container, "assignment", func(assign uint32) {
 		if found || file.FlatStartByte(assign) <= callStart {
 			return
@@ -421,4 +491,36 @@ func firstNamedChild(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+// viewConstructorSupertypeIsAndroidView rejects interfaces and non-Android types that share a View class name.
+func viewConstructorSupertypeIsAndroidView(file *scanner.File, classDecl, deleg uint32, typeName string) bool {
+	// A class supertype is constructed, so a bare `: View` with a primary constructor is an interface.
+	_, invoked := file.FlatFindChild(deleg, "constructor_invocation")
+	if !invoked {
+		if _, hasPrimary := file.FlatFindChild(classDecl, "primary_constructor"); hasPrimary {
+			return false
+		}
+		hasSecondary := false
+		if body, ok := file.FlatFindChild(classDecl, "class_body"); ok {
+			file.FlatWalkNodes(body, "secondary_constructor", func(uint32) { hasSecondary = true })
+		}
+		if !hasSecondary {
+			return false
+		}
+	}
+	// Qualified names such as `Contract.View` refer to a nested type, not the Android class.
+	text := strings.TrimSpace(file.FlatNodeText(deleg))
+	if i := strings.IndexAny(text, "(<"); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimSpace(text)
+	if strings.Contains(text, ".") && !strings.HasPrefix(text, "android.") && !strings.HasPrefix(text, "com.google.android.") {
+		return false
+	}
+	// An explicit non-Android import of the same simple name is a different type.
+	if imp, ok := handlerFileImportForSimple(file, typeName); ok {
+		return strings.HasPrefix(imp, "android.") || strings.HasPrefix(imp, "com.google.android.")
+	}
+	return true
 }

@@ -7,7 +7,6 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // ---------------------------------------------------------------------------
@@ -40,21 +39,6 @@ func printStackTraceReceiverIsThrowable(ctx *api.Context, call uint32) bool {
 	return false
 }
 
-// asyncBoundarySimpleToFQN maps unqualified supertype names to their canonical FQN.
-// A "" FQN means the type is always available without an import (java.lang.*).
-var asyncBoundarySimpleToFQN = map[string]string{
-	"Job":               "kotlinx.coroutines.Job",
-	"AbstractCoroutine": "kotlinx.coroutines.AbstractCoroutine",
-	"Worker":            "androidx.work.Worker",
-	"CoroutineWorker":   "androidx.work.CoroutineWorker",
-	"ListenableWorker":  "androidx.work.ListenableWorker",
-	"Callable":          "java.util.concurrent.Callable",
-	"Runnable":          "java.lang.Runnable",
-	"Thread":            "java.lang.Thread",
-	"AsyncTask":         "android.os.AsyncTask",
-	"TimerTask":         "java.util.TimerTask",
-}
-
 // TooGenericExceptionCaughtRule detects catching Exception/Throwable.
 // ---------------------------------------------------------------------------
 type TooGenericExceptionCaughtRule struct {
@@ -82,90 +66,31 @@ func (r *TooGenericExceptionCaughtRule) exceptionNameSet() map[string]bool {
 	return m
 }
 
+// checkNode ports detekt 1.23.8 TooGenericExceptionCaught: the text of the caught type must be in the
+// configured names. Nothing else about the catch body matters.
 func (r *TooGenericExceptionCaughtRule) checkNode(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	// Dedup with EmptyCatchBlock: if the catch body is literally empty,
-	// EmptyCatchBlock already flags it and offers a fix.
-	catchText := file.FlatNodeText(idx)
-	if braceIdx := strings.Index(catchText, "{"); braceIdx >= 0 {
-		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(catchText[braceIdx+1:]), "}"))
-		if inner == "" {
-			return
+	var param uint32
+	typeText := ""
+	sawColon := false
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		switch {
+		case file.FlatType(c) == "simple_identifier" && param == 0:
+			param = c
+		case file.FlatType(c) == ":":
+			sawColon = true
+		case sawColon && file.FlatIsNamed(c):
+			typeText = file.FlatNodeText(c)
+			sawColon = false
 		}
 	}
-	// Check allowed exception variable name regex
-	caughtVar := extractCaughtVarNameFlat(file, idx)
-	if r.AllowedExceptionNameRegex != nil {
-		if caughtVar != "" && r.AllowedExceptionNameRegex.MatchString(caughtVar) {
-			return
-		}
-	}
-	if caughtVar != "" && catchBodyRethrowsCaughtException(file, idx, caughtVar) {
+	if param == 0 || typeText == "" || !r.exceptionNameSet()[typeText] {
 		return
 	}
-	if caughtVar != "" && catchBodyCallsOnCaughtVar(file, idx, caughtVar, "printStackTrace") {
+	if r.AllowedExceptionNameRegex != nil && r.AllowedExceptionNameRegex.MatchString(file.FlatNodeText(param)) {
 		return
 	}
-	// Skip catches inside Job/Worker/Runnable classes — these are async
-	// execution boundaries where catching generic Exception is a best practice
-	// to prevent uncaught exception crashes.
-	if isInsideAsyncBoundaryFlat(file, idx) {
-		return
-	}
-	// Skip when the caught variable is passed as an argument to any function
-	// call in the catch body. This covers:
-	//   catch (e: Exception) { Log.w(TAG, "msg", e) }  — logs with exception
-	//   catch (e: Throwable) { Result.Failure(e) }     — wraps into result
-	//   catch (e: Exception) { throw Foo(e) }          — rewraps
-	// The exception is NOT being swallowed; information is preserved.
-	if caughtVar != "" && catchBodyPassesVarAsArgFlat(file, idx, caughtVar) {
-		return
-	}
-	// Skip catches inside try expressions (return value is semantic fallback).
-	if isCatchPartOfTryExpressionFlat(file, idx) {
-		return
-	}
-	caughtType := extractCaughtTypeNameFlat(file, idx)
-	exNames := r.ExceptionNames
-	if len(exNames) == 0 {
-		exNames = genericCaughtTypes
-	}
-	if caughtType == "" {
-		// Fallback: scan node text for generic types — name-only heuristic.
-		text := file.FlatNodeText(idx)
-		for _, t := range exNames {
-			if strings.Contains(text, ": "+t) || strings.Contains(text, ":"+t) {
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Caught too-generic exception type '%s'.", t))
-				f.Confidence = 0.8
-				ctx.Emit(f)
-				return
-			}
-		}
-		return
-	}
-
-	// Direct match against the configured list — AST name match, no type resolution.
-	exSet := r.exceptionNameSet()
-	if exSet[caughtType] {
-		f := r.Finding(file, file.FlatRow(idx)+1, 1,
-			fmt.Sprintf("Caught too-generic exception type '%s'.", caughtType))
-		f.Confidence = 0.8
-		ctx.Emit(f)
-		return
-	}
-
-	// Use the built-in subtype table for known exception names. Project-specific
-	// inheritance is intentionally out of scope for this AST/import-only rule.
-	for _, generic := range exNames {
-		if typeinfer.IsSubtypeOfException(generic, caughtType) {
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Caught too-generic exception type '%s' (catches subtypes like '%s').", caughtType, generic))
-			f.Confidence = 0.8
-			ctx.Emit(f)
-			return
-		}
-	}
+	ctx.EmitAtNode(param, "The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled.")
 }
 
 func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
@@ -197,34 +122,6 @@ func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
 	return ""
 }
 
-// catchBodyPassesVarAsArgFlat returns true if varName appears as a value_argument
-// anywhere inside the catch_block, or as the subject of a throw_expression.
-// This avoids regexp.MustCompile in the hot dispatch path.
-func catchBodyPassesVarAsArgFlat(file *scanner.File, catchNode uint32, varName string) bool {
-	found := false
-	file.FlatWalkAllNodes(catchNode, func(idx uint32) {
-		if found {
-			return
-		}
-		switch file.FlatType(idx) {
-		case "value_argument":
-			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-				if file.FlatType(child) == "simple_identifier" && file.FlatNodeString(child, nil) == varName {
-					found = true
-					return
-				}
-			}
-		case "throw_expression":
-			file.FlatWalkAllNodes(idx, func(inner uint32) {
-				if !found && file.FlatType(inner) == "simple_identifier" && file.FlatNodeString(inner, nil) == varName {
-					found = true
-				}
-			})
-		}
-	})
-	return found
-}
-
 func catchBodyRethrowsCaughtException(file *scanner.File, catchNode uint32, varName string) bool {
 	found := false
 	file.FlatWalkNodes(catchNode, "jump_expression", func(idx uint32) {
@@ -233,18 +130,6 @@ func catchBodyRethrowsCaughtException(file *scanner.File, catchNode uint32, varN
 		}
 		text := strings.TrimSpace(file.FlatNodeText(idx))
 		found = text == "throw "+varName
-	})
-	return found
-}
-
-func catchBodyCallsOnCaughtVar(file *scanner.File, catchNode uint32, varName string, callee string) bool {
-	found := false
-	file.FlatWalkNodes(catchNode, "call_expression", func(idx uint32) {
-		if found || flatCallNameAny(file, idx) != callee {
-			return
-		}
-		text := strings.TrimSpace(file.FlatNodeText(idx))
-		found = strings.HasPrefix(text, varName+".")
 	})
 	return found
 }
@@ -296,131 +181,6 @@ func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
 	return last
 }
 
-func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "lambda_literal" {
-			call := p
-			for {
-				next, ok := file.FlatParent(call)
-				if !ok {
-					call = 0
-					break
-				}
-				call = next
-				if file.FlatType(call) == "call_expression" {
-					break
-				}
-				if file.FlatType(call) == "function_declaration" {
-					call = 0
-					break
-				}
-			}
-			if call != 0 && file.FlatType(call) == "call_expression" {
-				switch flatCallExpressionName(file, call) {
-				case "execute", "submit", "invokeLater", "post", "postDelayed",
-					"runOnUiThread", "Thread", "thread", "launch", "async",
-					"runInTransaction", "schedule":
-					return true
-				}
-			}
-		}
-		if file.FlatType(p) != "class_declaration" {
-			continue
-		}
-		for i := 0; i < file.FlatChildCount(p); i++ {
-			child := file.FlatChild(p, i)
-			if file.FlatType(child) != "delegation_specifier" {
-				continue
-			}
-			typeName := viewConstructorSupertypeNameFlat(file, child)
-			if typeName == "" {
-				continue
-			}
-			// Match simple name AND verify the file imports the corresponding
-			// package. java.lang.* types need no import.
-			fqn, known := asyncBoundarySimpleToFQN[typeName]
-			if !known {
-				continue
-			}
-			if fqn == "java.lang.Runnable" || fqn == "java.lang.Thread" {
-				// java.lang is always available; no import required.
-				return true
-			}
-			if asyncBoundaryHasImport(file, fqn) {
-				return true
-			}
-		}
-		return false
-	}
-	return false
-}
-
-// asyncBoundaryHasImport reports whether the file contains an import for fqn.
-func asyncBoundaryHasImport(file *scanner.File, fqn string) bool {
-	found := false
-	file.FlatWalkNodes(0, "import_header", func(node uint32) {
-		if found {
-			return
-		}
-		var parts []string
-		file.FlatWalkAllNodes(node, func(child uint32) {
-			switch file.FlatType(child) {
-			case "simple_identifier", "type_identifier":
-				parts = append(parts, file.FlatNodeString(child, nil))
-			}
-		})
-		path := strings.Join(parts, ".")
-		found = path == fqn
-	})
-	return found
-}
-
-func isCatchPartOfTryExpressionFlat(file *scanner.File, catchNode uint32) bool {
-	tryExpr, ok := file.FlatParent(catchNode)
-	if !ok || file.FlatType(tryExpr) != "try_expression" {
-		return false
-	}
-	crossedStatements := false
-	child := tryExpr
-	for cur, ok := file.FlatParent(tryExpr); ok; {
-		advance := true
-		switch file.FlatType(cur) {
-		case "property_declaration", "variable_declaration",
-			"assignment", "augmented_assignment",
-			"value_argument", "value_arguments",
-			"return_expression", "jump_expression",
-			"binary_expression", "elvis_expression",
-			"parenthesized_expression":
-			return true
-		case "function_body":
-			if file.FlatChildCount(cur) == 0 || file.FlatType(file.FlatChild(cur, 0)) != "=" {
-				return false
-			}
-			return !crossedStatements
-		case "statements":
-			if cc := file.FlatChildCount(cur); cc > 0 && file.FlatChild(cur, cc-1) != child {
-				crossedStatements = true
-			}
-		case "control_structure_body", "if_expression", "when_entry",
-			"when_expression", "lambda_literal":
-			advance = true
-		case "function_declaration", "class_body", "source_file":
-			return false
-		}
-		if !advance {
-			continue
-		}
-		next, nextOK := file.FlatParent(cur)
-		if !nextOK {
-			break
-		}
-		child = cur
-		cur = next
-		ok = nextOK
-	}
-	return false
-}
-
 // ---------------------------------------------------------------------------
 // TooGenericExceptionThrownRule detects throwing Exception/Throwable.
 // ---------------------------------------------------------------------------
@@ -444,14 +204,58 @@ var genericThrownFQNs = map[string]bool{
 	"java.lang.Throwable":        true,
 }
 
-func (r *TooGenericExceptionThrownRule) check(ctx *api.Context) {
+// checkKotlinThrow ports detekt 1.23.8 TooGenericExceptionThrown: the callee or name of the thrown
+// expression must be in the configured names. Qualified names such as java.lang.Exception(...) are skipped,
+// as in detekt.
+func (r *TooGenericExceptionThrownRule) checkKotlinThrow(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if scanner.IsTestFile(file.Path) {
+	first := file.FlatFirstChild(idx)
+	if first == 0 || file.FlatType(first) != "throw" {
 		return
 	}
-	// Skip Gradle build scripts — they legitimately throw RuntimeException
-	// for build errors where the user's primary observability is stderr.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
+	var thrown uint32
+	for c := file.FlatNextSib(first); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) {
+			thrown = c
+			break
+		}
+	}
+	if thrown == 0 {
+		return
+	}
+	name := ""
+	switch file.FlatType(thrown) {
+	case "simple_identifier":
+		name = file.FlatNodeText(thrown)
+	case "call_expression":
+		cur := thrown
+		for file.FlatType(file.FlatFirstChild(cur)) == "call_expression" {
+			cur = file.FlatFirstChild(cur)
+		}
+		if callee := file.FlatFirstChild(cur); file.FlatType(callee) == "simple_identifier" {
+			name = file.FlatNodeText(callee)
+		}
+	}
+	names := r.ExceptionNames
+	if len(names) == 0 {
+		names = defaultGenericThrownNames
+	}
+	for _, n := range names {
+		if n == name {
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				name+" is a too generic Exception. Prefer throwing specific exceptions that indicate a specific error case.")
+			return
+		}
+	}
+}
+
+func (r *TooGenericExceptionThrownRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	if file.FlatType(idx) == "jump_expression" {
+		r.checkKotlinThrow(ctx)
+		return
+	}
+	if scanner.IsTestFile(file.Path) {
 		return
 	}
 	names := r.ExceptionNames
@@ -466,36 +270,36 @@ func (r *TooGenericExceptionThrownRule) check(ctx *api.Context) {
 	if thrownType == "" || call == 0 {
 		return
 	}
+	// Fakes throw generic exceptions on purpose to simulate failures.
+	if enclosedInTestDouble(file, idx) {
+		return
+	}
 	if thrownConstructorWrapsCaughtException(file, call, idx) {
 		return
 	}
 	if !thrownGenericExceptionMatches(ctx, thrownType, nameSet) {
 		return
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Too-generic exception type '%s' thrown.", thrownType)))
+	// Point at the constructor call, which can sit on a later line than the `throw`.
+	ctx.EmitAtNode(call, fmt.Sprintf("Too-generic exception type '%s' thrown.", thrownType))
 }
 
 func thrownExceptionConstructorNameFlat(file *scanner.File, throwNode uint32) (string, uint32) {
 	if file == nil || throwNode == 0 {
 		return "", 0
 	}
-	var call uint32
-	file.FlatWalkNodes(throwNode, "call_expression", func(candidate uint32) {
-		if call == 0 {
-			call = candidate
-		}
-	})
-	if call != 0 {
-		return flatCallExpressionName(file, call), call
+	// jump_expression also covers return/break/continue; only a throw counts.
+	if file.FlatType(throwNode) == "jump_expression" && !strings.HasPrefix(file.FlatNodeText(throwNode), "throw") {
+		return "", 0
 	}
-	file.FlatWalkNodes(throwNode, "object_creation_expression", func(candidate uint32) {
-		if call == 0 {
-			call = candidate
+	// Only the constructor call directly under the throw is the thrown type.
+	for child := file.FlatFirstChild(throwNode); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "call_expression":
+			return flatCallExpressionName(file, child), child
+		case "object_creation_expression":
+			return flatLastIdentifierInNode(file, child), child
 		}
-	})
-	if call != 0 {
-		return flatLastIdentifierInNode(file, call), call
 	}
 	return "", 0
 }

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"strings"
+	"unicode"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
@@ -65,7 +66,7 @@ func registerAccessibilityRules() {
 				if !hasExplicitSize || minDp >= 48 {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAtNode(calleeNameAnchor(file, idx),
 					"clickable Compose modifier has a touch target below 48.dp; use at least 48.dp or add minimumInteractiveComponentSize().")
 			},
 		})
@@ -103,7 +104,7 @@ func registerAccessibilityRules() {
 				if !subtreeHasCalleeIn(file, idx, composeInteractionModifiers) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Interactive image with `contentDescription = null` is hidden from TalkBack; add a meaningful description or remove the interaction.")
 			},
 		})
@@ -155,24 +156,24 @@ func registerAccessibilityRules() {
 					// the Icon child inside its content lambda carries it. Fire
 					// only when NO descendant call_expression anywhere in the
 					// IconButton's subtree uses a contentDescription arg.
-					if callSubtreeHasNamedArgument(file, idx, "contentDescription") {
+					if composeSubtreeSetsContentDescription(file, idx) {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						"IconButton's Icon is missing `contentDescription`. Set a description for accessibility.")
 					return
 				}
 				if args == 0 {
 					return
 				}
-				cdArg := flatNamedValueArgument(file, args, "contentDescription")
-				if cdArg != 0 {
+				// The second positional argument of Icon/Image/AsyncImage is contentDescription.
+				if composeCallSetsContentDescription(file, idx) {
 					return
 				}
 				if subtreeHasCalleeIn(file, idx, composeSemanticsEscapeHatches) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					name+" is missing `contentDescription`. Set a description for accessibility or mark as decorative.")
 			},
 		})
@@ -191,32 +192,44 @@ func registerAccessibilityRules() {
 				if name != "Text" {
 					return
 				}
-				if composeRawTextLiteralNonProductionFile(file.Path) {
+				if composeRawTextLiteralNonProductionFile(file.Path, r.NonProductionPathMarkers) {
 					return
 				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args == 0 {
 					return
 				}
-				firstArg := flatPositionalValueArgument(file, args, 0)
-				if firstArg == 0 {
+				textArg := flatNamedValueArgument(file, args, "text")
+				if textArg == 0 {
+					textArg = flatPositionalValueArgument(file, args, 0)
+				}
+				if textArg == 0 {
 					return
 				}
-				expr := flatValueArgumentExpression(file, firstArg)
+				expr := flatValueArgumentExpression(file, textArg)
 				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
 				}
-				if stringLiteralContent(file, expr) == "" {
+				// Strings without a letter (spaces, bullets, separators) have nothing to translate.
+				// A pure template such as `"$x"` has no literal text either.
+				if !strings.ContainsFunc(composeRawTextLiteralText(file, expr), unicode.IsLetter) {
 					return
 				}
-				_, ok := flatEnclosingFunction(file, idx)
+				if !composeTextCallMayBeCompose(file) {
+					return
+				}
+				fn, ok := flatEnclosingFunction(file, idx)
 				if !ok {
 					return
 				}
-				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
+				if composePrivateFunctionOnlyCalledFromPreviews(file, fn) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) ||
+					composeInsideInspectionModeBranch(file, idx) {
+					return
+				}
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Text() uses a hardcoded string literal. Use `stringResource()` for internationalization and accessibility.")
 			},
 		})
@@ -239,7 +252,14 @@ func registerAccessibilityRules() {
 				if !composeInteractionModifiers[name] {
 					return
 				}
+				// Test composables don't ship to users.
+				if composeIsTestSourceOrFakeAt(file, idx) {
+					return
+				}
 				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
+					return
+				}
+				if fn, ok := flatEnclosingFunction(file, idx); ok && composePrivateFunctionOnlyCalledFromPreviews(file, fn) {
 					return
 				}
 				_, rootedAtModifier := composeModifierCallChainFlat(file, composeModifierChainReceiverFlat(file, navExpr))
@@ -249,7 +269,10 @@ func registerAccessibilityRules() {
 				if args != 0 && flatNamedBooleanArgumentIsFalse(file, args, "enabled") {
 					return
 				}
-				if args != 0 && flatNamedValueArgument(file, args, "role") != 0 {
+				if args != 0 && (flatNamedValueArgument(file, args, "role") != 0 || composePassesPositionalRole(file, args)) {
+					return
+				}
+				if args != 0 && composeIndicationIsNullFlat(file, args) {
 					return
 				}
 				outerCall := findOutermostModifierChainCall(file, idx)
@@ -258,8 +281,13 @@ func registerAccessibilityRules() {
 					if strings.Contains(fullText, "semantics") && strings.Contains(fullText, "role") {
 						return
 					}
+					// Scrims hide from accessibility or click without a visible indication.
+					if strings.Contains(fullText, "hideFromAccessibility") || strings.Contains(fullText, "invisibleToUser") ||
+						strings.Contains(fullText, "clearAndSetSemantics") {
+						return
+					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAtNode(calleeNameAnchor(file, idx),
 					"Modifier."+name+" without an explicit `role`. Add `role = Role.X` or a `Modifier.semantics { role = ... }` for screen readers.")
 			},
 		})
@@ -277,6 +305,12 @@ func registerAccessibilityRules() {
 				if !composeTextFieldCalls[name] {
 					return
 				}
+				if !composeTextFieldCallResolvesToMaterial(file, idx, name) {
+					return
+				}
+				if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(true, nil)) {
+					return
+				}
 				_, args := flatCallExpressionParts(file, idx)
 				if args == 0 {
 					return
@@ -287,11 +321,29 @@ func registerAccessibilityRules() {
 				if flatNamedValueArgument(file, args, "placeholder") != 0 {
 					return
 				}
+				// A read-only field is display text, and debug tooling screens are not user-facing.
+				if readOnly := flatNamedValueArgument(file, args, "readOnly"); readOnly != 0 && !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(readOnly)), "false") {
+					return
+				}
+				if composeDebugToolingPath(file.Path, r.NonProductionPathMarkers) {
+					return
+				}
 				parent, ok := file.FlatParent(idx)
 				if ok && hasSiblingTextCall(file, parent, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				if composeTextFieldIsDescribedGridCell(file, idx, args) {
+					return
+				}
+				if composeTextFieldIsSingleCharBox(file, idx) {
+					if m := flatNamedValueArgument(file, args, "modifier"); m != 0 && strings.Contains(file.FlatNodeText(m), "contentDescription") {
+						return
+					}
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+						name+" is a single-character code box without a description. A `label` would not fit; add `Modifier.semantics { contentDescription = ... }` for accessibility.")
+					return
+				}
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					name+" is missing a `label` parameter. Add a label for accessibility.")
 			},
 		})
@@ -314,7 +366,10 @@ func registerAccessibilityRules() {
 					return
 				}
 				receiver := file.FlatNamedChild(navExpr, 0)
-				if receiver == 0 || !file.FlatNodeTextEquals(receiver, "Toast") {
+				if receiver == 0 {
+					return
+				}
+				if recvText := strings.TrimSpace(file.FlatNodeText(receiver)); recvText != "Toast" && recvText != "android.widget.Toast" {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -332,7 +387,7 @@ func registerAccessibilityRules() {
 				if !isA11yContext {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Toast used in an accessibility context. Use `View.announceForAccessibility()` or `AccessibilityManager` instead.")
 			},
 		})

@@ -408,3 +408,33 @@ class Tracker(
 		}
 	})
 }
+
+func TestAnalyticsEventWithPiiParamName_MatchesWholeWords(t *testing.T) {
+	findings := runRuleByName(t, "AnalyticsEventWithPiiParamName", `
+package test
+
+fun bundleOf(vararg pairs: Any): Any = pairs
+
+class FirebaseAnalytics {
+    fun logEvent(name: String, payload: Any) {}
+}
+
+class Tracker(private val firebaseAnalytics: FirebaseAnalytics) {
+    fun track(v: String) {
+        firebaseAnalytics.logEvent(
+            "screen",
+            bundleOf(
+                "smartphone_model" to v,
+                "flat_view" to v,
+                "dialog_template" to v,
+                "userEmail" to v,
+                "latitude" to v,
+            ),
+        )
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected userEmail and latitude only, got %d: %v", len(findings), findings)
+	}
+}

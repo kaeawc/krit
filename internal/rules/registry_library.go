@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func registerLibraryRules() {
@@ -17,14 +18,14 @@ func registerLibraryRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !file.FlatHasModifier(idx, "data") {
+				if !file.FlatHasModifier(idx, "data") || scanner.IsTestFile(file.Path) {
 					return
 				}
-				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") || file.FlatHasModifier(idx, "protected") {
+				if !libraryEffectivelyPublic(file, idx) {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Public data class '%s' exposes its properties as part of the API. Consider using a regular class.", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Public data class '%s' exposes its properties as part of the API. Consider using a regular class.", name))
 			},
 		})
 	}
@@ -36,7 +37,7 @@ func registerLibraryRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || file.FlatType(parent) != "source_file" {
+				if !ok || file.FlatType(parent) != "source_file" || scanner.IsTestFile(file.Path) {
 					return
 				}
 				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") || file.FlatHasModifier(idx, "protected") {
@@ -47,7 +48,7 @@ func registerLibraryRules() {
 				}
 				name := extractIdentifierFlat(file, idx)
 				kind := strings.TrimSuffix(file.FlatType(idx), "_declaration")
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Public %s '%s' could be made internal in library code.", kind, name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Public %s '%s' could be made internal in library code.", kind, name))
 			},
 		})
 	}
@@ -59,19 +60,54 @@ func registerLibraryRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				parent, ok := file.FlatParent(idx)
-				if !ok || file.FlatType(parent) != "source_file" {
+				if !ok || scanner.IsTestFile(file.Path) {
 					return
 				}
-				if file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "internal") || file.FlatHasModifier(idx, "protected") {
+				// Top-level declarations and members of classes; locals have other parents.
+				if t := file.FlatType(parent); t != "source_file" && t != "class_body" {
+					return
+				}
+				if !libraryEffectivelyPublic(file, idx) || file.FlatHasModifier(idx, "override") {
 					return
 				}
 				if hasExplicitTypeFlat(file, idx) {
 					return
 				}
+				// A block body with no declared type returns Unit, which explicit API mode accepts.
+				if file.FlatType(idx) == "function_declaration" && functionHasBlockBody(file, idx) {
+					return
+				}
 				name := extractIdentifierFlat(file, idx)
 				kind := strings.TrimSuffix(file.FlatType(idx), "_declaration")
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Public %s '%s' has no explicit return type. Add an explicit type to the public API.", kind, name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Public %s '%s' has no explicit return type. Add an explicit type to the public API.", kind, name))
 			},
 		})
 	}
+}
+
+// libraryEffectivelyPublic reports a declaration that is not private, internal or protected itself
+// and sits in no enclosing class or object that is.
+func libraryEffectivelyPublic(file *scanner.File, idx uint32) bool {
+	hidden := func(n uint32) bool {
+		return file.FlatHasModifier(n, "private") || file.FlatHasModifier(n, "internal") || file.FlatHasModifier(n, "protected")
+	}
+	if hidden(idx) {
+		return false
+	}
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_declaration", "object_declaration", "companion_object":
+			if hidden(p) {
+				return false
+			}
+		case "function_body", "lambda_literal", "statements":
+			return false
+		}
+	}
+	return true
+}
+
+func functionHasBlockBody(file *scanner.File, fn uint32) bool {
+	body, ok := file.FlatFindChild(fn, "function_body")
+	return ok && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(body)), "{")
 }

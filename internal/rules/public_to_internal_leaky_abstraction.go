@@ -83,8 +83,8 @@ func (r *PublicToInternalLeakyAbstractionRule) check(ctx *api.Context) {
 
 	ctx.Emit(scanner.Finding{
 		File:     file.Path,
-		Line:     file.FlatRow(classIdx) + 1,
-		Col:      1,
+		Line:     declLine(file, classIdx),
+		Col:      declCol(file, classIdx),
 		RuleSet:  r.RuleSetName,
 		Rule:     r.RuleName,
 		Severity: r.Sev,

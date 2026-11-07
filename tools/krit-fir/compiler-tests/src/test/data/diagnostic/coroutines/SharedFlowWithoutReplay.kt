@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17, 19, 21, 23, 28, 32, 34, 36, 38, 54, 61, 62, 67, 68, 72, 76, 80, 86, 97
+// go-lines: 14, 17, 19, 21, 23, 29, 32, 34, 36, 38, 54, 61, 62, 67, 68, 72, 76, 80, 86, 97
 // Positive: a val/var declaration that creates MutableSharedFlow with no
 // arguments, reported once per declaration on its first line (modifier list,
 // else val/var), the line the Go rule reports.

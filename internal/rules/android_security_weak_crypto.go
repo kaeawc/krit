@@ -41,6 +41,7 @@ var weakMessageDigestAlgorithms = map[string]bool{
 	"MD5":   true,
 	"SHA-1": true,
 	"SHA1":  true,
+	"SHA":   true, // JCA alias for SHA-1
 }
 
 func (r *WeakMessageDigestRule) check(ctx *api.Context) {
@@ -55,10 +56,160 @@ func (r *WeakMessageDigestRule) check(ctx *api.Context) {
 	if !ok || !weakMessageDigestAlgorithms[strings.ToUpper(strings.TrimSpace(algo))] {
 		return
 	}
+	if weakMessageDigestIsNonSecurityUse(file, ctx.Idx) {
+		return
+	}
 	f := r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
 		"MessageDigest.getInstance uses a weak digest algorithm. Use SHA-256, SHA-384, SHA-512, or SHA-3 for security-sensitive hashing.")
 	f.Confidence = r.Confidence()
 	ctx.Emit(f)
+}
+
+var weakDigestSecurityHints = []string{"password", "passwd", "token", "signature", "secret", "credential", "hmac", "salt", "auth"}
+
+var weakDigestBenignHints = []string{"checksum", "hash", "gravatar", "avatar", "etag", "cachekey", "fingerprint", "diagnostic"}
+
+// weakMessageDigestIsNonSecurityUse reports whether names around the call say the digest is a checksum, cache key, or id.
+func weakMessageDigestIsNonSecurityUse(file *scanner.File, call uint32) bool {
+	var names []string
+	if fn, ok := flatEnclosingCallable(file, call); ok {
+		if file.FlatType(fn) == "method_declaration" {
+			if id, found := file.FlatFindChild(fn, "identifier"); found {
+				names = append(names, file.FlatNodeText(id))
+			}
+		} else {
+			names = append(names, flatFunctionName(file, fn))
+		}
+	}
+	if cls, ok := flatEnclosingAncestor(file, call, "class_declaration"); ok {
+		names = append(names, extractIdentifierFlat(file, cls))
+	}
+	names = append(names, initializerAssignedName(file, call))
+	joined := strings.ToLower(strings.Join(names, " "))
+	words := map[string]bool{}
+	for _, name := range names {
+		for _, w := range splitIdentifierWords(name) {
+			words[w] = true
+		}
+	}
+	// A result stored under a checksum-like name is not a security digest, whatever the caller is called.
+	if flow := weakDigestResultNames(file, call); len(flow) > 0 {
+		flowJoined := strings.ToLower(strings.Join(flow, " "))
+		if !weakDigestHasSecurityHint(flowJoined, flow) && weakDigestHasBenignHint(flowJoined) {
+			return true
+		}
+	}
+	for _, hint := range weakDigestSecurityHints {
+		if strings.Contains(joined, hint) {
+			return false
+		}
+	}
+	if words["sign"] {
+		return false
+	}
+	for _, hint := range weakDigestBenignHints {
+		if strings.Contains(joined, hint) {
+			return true
+		}
+	}
+	return words["id"]
+}
+
+func weakDigestHasSecurityHint(joined string, names []string) bool {
+	for _, hint := range weakDigestSecurityHints {
+		if strings.Contains(joined, hint) {
+			return true
+		}
+	}
+	for _, name := range names {
+		for _, w := range splitIdentifierWords(name) {
+			if w == "sign" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func weakDigestHasBenignHint(joined string) bool {
+	for _, hint := range weakDigestBenignHints {
+		if strings.Contains(joined, hint) {
+			return true
+		}
+	}
+	return false
+}
+
+// weakDigestResultNames returns the names that receive the output of digest() on the getInstance result:
+// a property, an assignment target or a named argument.
+func weakDigestResultNames(file *scanner.File, call uint32) []string {
+	if file.FlatType(call) != "call_expression" {
+		return nil
+	}
+	fn, ok := flatEnclosingCallable(file, call)
+	if !ok {
+		return nil
+	}
+	digestVar := initializerAssignedName(file, call)
+	var names []string
+	file.FlatWalkNodes(fn, "call_expression", func(d uint32) {
+		if flatCallExpressionName(file, d) != "digest" {
+			return
+		}
+		navExpr, _ := flatCallExpressionParts(file, d)
+		if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+			return
+		}
+		receiver := file.FlatNamedChild(navExpr, 0)
+		if receiver != call && (digestVar == "" || strings.TrimSpace(file.FlatNodeText(receiver)) != digestVar) {
+			return
+		}
+		if name := initializerAssignedName(file, d); name != "" {
+			names = append(names, name)
+		}
+		parent, ok := file.FlatParent(d)
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "assignment":
+			if lhs, _, found := composeAssignmentTextParts(file, parent); found {
+				names = append(names, lhs[strings.LastIndex(lhs, ".")+1:])
+			}
+		case "value_argument":
+			if file.FlatNamedChildCount(parent) >= 2 {
+				if label := file.FlatNamedChild(parent, 0); file.FlatType(label) == "simple_identifier" {
+					names = append(names, file.FlatNodeText(label))
+				}
+			}
+		}
+	})
+	return names
+}
+
+// splitIdentifierWords splits a camelCase or snake_case identifier into lowercase words.
+func splitIdentifierWords(name string) []string {
+	var words []string
+	var cur []rune
+	flush := func() {
+		if len(cur) > 0 {
+			words = append(words, strings.ToLower(string(cur)))
+			cur = cur[:0]
+		}
+	}
+	for _, r := range name {
+		switch {
+		case r == '_' || r == '-' || r == ' ' || r == '`':
+			flush()
+		case r >= 'A' && r <= 'Z':
+			flush()
+			cur = append(cur, r)
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return words
 }
 
 var weakMacAlgorithms = map[string]bool{

@@ -61,7 +61,8 @@ func (r *NegativeMarginResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "NegativeMarginResource",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[NegativeMarginResourceRule]{
 				Name:        "allowedNegativeMargins",

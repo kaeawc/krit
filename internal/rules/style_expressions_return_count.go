@@ -40,7 +40,7 @@ var (
 )
 
 func isNestedCallableBodyFlat(t string) bool {
-	return t == "function_declaration" || t == "lambda_literal" || t == "anonymous_function"
+	return t == "function_declaration" || t == "anonymous_function"
 }
 
 func getJumpMetricsFlat(idx uint32, file *scanner.File) jumpMetrics {

@@ -78,6 +78,8 @@ func runScanCLI(t *testing.T, argv []string) []byte {
 		os.Stdout = savedStdout
 		os.Stderr = savedStderr
 		BaselineAuditVerb = savedBaselineVerb
+		// A scan applies its config to the global rule registry; later tests expect the defaults.
+		rules.ApplyConfig(config.NewConfig())
 	})
 
 	hasFIRChoice := false

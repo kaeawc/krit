@@ -439,3 +439,15 @@ func TestApplyConfigActiveOnly(t *testing.T) {
 		_ = ApplyConfigActiveOnly(descDefault(true), fcs)
 	})
 }
+
+func TestAnchoredPattern_AlternationStaysInsideAnchors(t *testing.T) {
+	re := regexp.MustCompile(anchoredPattern("foo|bar"))
+	for in, want := range map[string]bool{"foo": true, "bar": true, "foobar": false, "xbar": false, "foox": false} {
+		if got := re.MatchString(in); got != want {
+			t.Errorf("anchored foo|bar on %q = %v, want %v", in, got, want)
+		}
+	}
+	if got := anchoredPattern(`a\$`); got != `^a\$$` {
+		t.Errorf("escaped trailing dollar must still get an end anchor, got %q", got)
+	}
+}

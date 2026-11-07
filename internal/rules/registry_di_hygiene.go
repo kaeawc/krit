@@ -53,7 +53,7 @@ func registerDiHygieneRules() {
 					if name == "" {
 						name = "binding"
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@ContributesBinding(%s::class) on '%s' binds '%s', which is only contributed to %s::class.", bindingScope, name, iface, ifaceScope))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@ContributesBinding(%s::class) on '%s' binds '%s', which is only contributed to %s::class.", bindingScope, name, iface, ifaceScope))
 					return
 				}
 			},
@@ -66,7 +66,10 @@ func registerDiHygieneRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Binds") {
+				// Exact names: "@Binds" must not match @BindsOptionalOf or @BindsInstance.
+				isBinds := flatHasAnnotationNamed(file, idx, "Binds")
+				isOptionalOf := flatHasAnnotationNamed(file, idx, "BindsOptionalOf")
+				if !isBinds && !isOptionalOf {
 					return
 				}
 				paramCount := 0
@@ -75,11 +78,21 @@ func registerDiHygieneRules() {
 						paramCount++
 					})
 				}
+				// An extension receiver is the function's first JVM parameter.
+				if file.FlatHasChildOfType(idx, ".") {
+					paramCount++
+				}
+				name := extractIdentifierFlat(file, idx)
+				if isOptionalOf {
+					if paramCount != 0 {
+						ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@BindsOptionalOf function '%s' must not declare parameters; found %d.", name, paramCount))
+					}
+					return
+				}
 				if paramCount == 1 {
 					return
 				}
-				name := extractIdentifierFlat(file, idx)
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Binds function '%s' must declare exactly one parameter; found %d.", name, paramCount))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Binds function '%s' must declare exactly one parameter; found %d.", name, paramCount))
 			},
 		})
 	}
@@ -113,10 +126,7 @@ func registerDiHygieneRules() {
 				if !ok || body == 0 {
 					return
 				}
-				for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-					if file.FlatType(child) != "function_declaration" {
-						continue
-					}
+				for _, child := range hiltModuleFunctions(file, body) {
 					if !hasAnnotationFlat(file, child, "Provides") {
 						continue
 					}
@@ -131,7 +141,7 @@ func registerDiHygieneRules() {
 						if providerName == "" {
 							providerName = "provider"
 						}
-						ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("@Provides function '%s' is annotated @%s but the module is installed in %s; the scope does not match.", providerName, scope, component))
+						ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1, fmt.Sprintf("@Provides function '%s' is annotated @%s but the module is installed in %s; the scope does not match.", providerName, scope, component))
 						break
 					}
 				}
@@ -159,7 +169,7 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "class"
 				}
-				ctx.EmitAt(file.FlatRow(ctor)+1, 1, fmt.Sprintf("@Inject primary constructor on abstract class '%s'; Dagger cannot instantiate it, so the binding is unreachable.", name))
+				ctx.EmitAt(file.FlatRow(ctor)+1, file.FlatCol(ctor)+1, fmt.Sprintf("@Inject primary constructor on abstract class '%s'; Dagger cannot instantiate it, so the binding is unreachable.", name))
 			},
 		})
 	}
@@ -174,16 +184,26 @@ func registerDiHygieneRules() {
 				if scope == "" {
 					return
 				}
+				// An interface declares no state; its implementations carry the scope.
+				if file.FlatHasChildOfType(idx, "interface") {
+					return
+				}
 				body, ok := file.FlatFindChild(idx, "class_body")
 				if !ok || body == 0 {
 					return
 				}
+				if singletonClassIsThreadConfined(file, idx) {
+					return
+				}
+				// One finding per class, anchored on the first qualifying property in declaration order.
+				var first uint32
+				var described []string
 				for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
 					if file.FlatType(child) != "property_declaration" {
 						continue
 					}
 					propName := extractIdentifierFlat(file, child)
-					if propName == "" {
+					if propName == "" || file.FlatHasModifier(child, "abstract") {
 						continue
 					}
 					reason := ""
@@ -197,12 +217,28 @@ func registerDiHygieneRules() {
 					if reason == "" {
 						continue
 					}
-					className := extractIdentifierFlat(file, idx)
-					if className == "" {
-						className = "class"
+					if reason == "var property" && (singletonVarIsProtected(file, idx, child, propName) ||
+						singletonVarOnlyTouchedByThreadAnnotatedMembers(file, idx, child, propName)) {
+						continue
 					}
-					ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("@%s class '%s' holds unprotected mutable state in '%s' (%s); singleton-scoped state should be thread-safe.", scope, className, propName, reason))
+					// A lateinit var that the class never assigns is set once from outside, so it accumulates no state.
+					if reason == "var property" && file.FlatHasModifier(child, "lateinit") &&
+						!singletonClassAssignsProperty(file, idx, propName) {
+						continue
+					}
+					if first == 0 {
+						first = child
+					}
+					described = append(described, fmt.Sprintf("'%s' (%s)", propName, reason))
 				}
+				if first == 0 {
+					return
+				}
+				className := extractIdentifierFlat(file, idx)
+				if className == "" {
+					className = "class"
+				}
+				ctx.EmitAt(file.FlatRow(first)+1, file.FlatCol(first)+1, fmt.Sprintf("@%s class '%s' holds unprotected mutable state in %s; singleton-scoped state should be thread-safe.", scope, className, strings.Join(described, ", ")))
 			},
 		})
 	}
@@ -226,7 +262,7 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "graph factory"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Metro factory '%s' must be an interface or a non-sealed abstract class so Metro can generate its implementation.", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Metro factory '%s' must be an interface or a non-sealed abstract class so Metro can generate its implementation.", name))
 			},
 		})
 	}
@@ -248,12 +284,13 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "class"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@%s on generic class '%s' shares one instance across all type arguments because the type parameter is erased at runtime.", scope, name))
+				// Anchored on the first modifier, as the FIR port reports it.
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@%s on generic class '%s' shares one instance across all type arguments because the type parameter is erased at runtime.", scope, name))
 			},
 		})
 	}
 	{
-		r := &MissingJvmSuppressWildcardsRule{BaseRule: BaseRule{RuleName: "MissingJvmSuppressWildcards", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @Provides/@Binds returning Set<T> or Map<K,V> without @JvmSuppressWildcards on the value type."}}
+		r := &MissingJvmSuppressWildcardsRule{BaseRule: BaseRule{RuleName: "MissingJvmSuppressWildcards", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects @Provides/@Binds parameters of type Set<T> or Map<K,V> without @JvmSuppressWildcards on the value type."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
@@ -262,19 +299,27 @@ func registerDiHygieneRules() {
 				if !hasAnnotationFlat(file, idx, "Provides") && !hasAnnotationFlat(file, idx, "Binds") {
 					return
 				}
-				retText := extractFunctionReturnTypeNameFlat(file, idx)
-				if retText == "" {
+				// Metro generates factories without JVM wildcards, so the annotation has no effect there.
+				if fileImportsMetro(file) {
 					return
 				}
-				wrapper, ok := multibindingReturnNeedsJvmSuppress(retText)
-				if !ok {
+				// Only parameter types get wildcards from Kotlin; return types are emitted as written.
+				wrapper := ""
+				finalTypes := fileFinalClassNames(file)
+				for _, paramType := range functionValueParameterTypeTexts(file, idx) {
+					if w, ok := multibindingReturnNeedsJvmSuppress(paramType, finalTypes); ok {
+						wrapper = w
+						break
+					}
+				}
+				if wrapper == "" {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
 				if name == "" {
 					name = "binding"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Provides/@Binds function '%s' returning %s lacks @JvmSuppressWildcards on the value type; Kotlin emits ? extends T in JVM signatures, breaking Dagger multibinding resolution.", name, wrapper))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Provides/@Binds function '%s' takes a %s parameter lacking @JvmSuppressWildcards on the value type; Kotlin emits ? extends T in JVM signatures, breaking Dagger multibinding resolution.", name, wrapper))
 			},
 		})
 	}
@@ -320,7 +365,7 @@ func registerDiHygieneRules() {
 				if providesName == "" {
 					providesName = "provider"
 				}
-				ctx.EmitAt(file.FlatRow(providesIdx)+1, 1, fmt.Sprintf("@Module abstract class '%s' mixes @Binds with a top-level @Provides function '%s'; move '%s' into a companion object so Dagger can call it statically.", name, providesName, providesName))
+				ctx.EmitAt(file.FlatRow(providesIdx)+1, file.FlatCol(providesIdx)+1, fmt.Sprintf("@Module abstract class '%s' mixes @Binds with a top-level @Provides function '%s'; move '%s' into a companion object so Dagger can call it statically.", name, providesName, providesName))
 			},
 		})
 	}
@@ -344,7 +389,8 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "binding"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@IntoMap function '%s' is missing a @*Key annotation; Dagger requires a key annotation on every map contribution.", name))
+				// Anchored on the first modifier, as the FIR port reports it.
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@IntoMap function '%s' is missing a @*Key annotation; Dagger requires a key annotation on every map contribution.", name))
 			},
 		})
 	}
@@ -373,7 +419,8 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "binding"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@IntoSet function '%s' returns '%s', a collection wrapper; the DI framework collects it by return type, so the contribution will be a Set<%s> entry rather than the intended elements.", name, retText, wrapper))
+				// Anchored on the first modifier, as the FIR port reports it.
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@IntoSet function '%s' returns '%s', a collection wrapper; the DI framework collects it by return type, so the contribution will be a Set<%s> entry rather than the intended elements.", name, retText, wrapper))
 			},
 		})
 	}
@@ -404,8 +451,13 @@ func registerDiHygieneRules() {
 				if paramCount != 1 {
 					return
 				}
-				paramName, _ := firstFunctionParameterNameAndType(file, idx)
+				paramName, paramType := firstFunctionParameterNameAndType(file, idx)
 				if paramName == "" {
+					return
+				}
+				// kotlin-inject has no @Binds, and @Binds does not carry nullability.
+				if strings.HasSuffix(paramType, "?") || strings.HasSuffix(extractFunctionReturnTypeNameFlat(file, idx), "?") ||
+					fileImportsFQN(file, "me.tatarka.inject.annotations.Provides") {
 					return
 				}
 				if expressionBodyReturnsIdentifier(file, idx) != paramName {
@@ -415,7 +467,20 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Provides function '%s' returns its single parameter '%s' unchanged; replace with @Binds for a cheaper abstract binding.", name, paramName))
+				// @Binds needs an abstract class or interface module. In an object or
+				// concrete class module the swap would force a restructure, so stay quiet.
+				if bindsInsteadOfProvidesHostIsConcrete(file, idx) {
+					return
+				}
+				// A qualifier or scope on the provider changes what the binding means.
+				if bindsInsteadOfProvidesChangesQualifierOrScope(file, idx) {
+					return
+				}
+				if bindsInsteadOfProvidesInCompanion(file, idx) {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Provides function '%s' returns its single parameter '%s' unchanged; a companion object cannot hold @Binds, so move it to an abstract @Binds member of the enclosing module.", name, paramName))
+					return
+				}
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Provides function '%s' returns its single parameter '%s' unchanged; replace with @Binds for a cheaper abstract binding.", name, paramName))
 			},
 		})
 	}
@@ -450,7 +515,8 @@ func registerDiHygieneRules() {
 				if name == "" {
 					name = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Binds function '%s' has matching parameter and return type '%s'; the binding is a no-op.", name, paramType))
+				// Anchored on the first modifier, as the FIR port reports it.
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@Binds function '%s' has matching parameter and return type '%s'; the binding is a no-op.", name, paramType))
 			},
 		})
 	}
@@ -501,7 +567,7 @@ func registerDiHygieneRules() {
 					if count != 1 {
 						continue
 					}
-					ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("Provider<...> parameter '%s' is dereferenced with a single .get(); inject Lazy<...> instead — it matches the same intent at lower cost.", name))
+					ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1, fmt.Sprintf("Provider<...> parameter '%s' is dereferenced with a single .get(); inject Lazy<...> instead — it matches the same intent at lower cost.", name))
 				}
 			},
 		})
@@ -529,7 +595,7 @@ func registerDiHygieneRules() {
 					if !atInit {
 						continue
 					}
-					ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("Lazy<...> parameter '%s' is dereferenced eagerly at class-init; inject the underlying type directly instead.", name))
+					ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1, fmt.Sprintf("Lazy<...> parameter '%s' is dereferenced eagerly at class-init; inject the underlying type directly instead.", name))
 				}
 			},
 		})
@@ -557,7 +623,7 @@ func registerDiHygieneRules() {
 					if className == "" {
 						className = "class"
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Singleton class '%s' depends on '%s', which has a narrower (Activity/Fragment/View) scope; the singleton will outlive its dependency.", className, pt))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Singleton class '%s' depends on '%s', which has a narrower (Activity/Fragment/View) scope; the singleton will outlive its dependency.", className, pt))
 					return
 				}
 			},
@@ -570,14 +636,14 @@ func registerDiHygieneRules() {
 			NodeTypes: []string{"class_declaration", "object_declaration", "prefix_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				kind, name, line, ok := hiltEntryPointDeclarationFlat(file, idx)
+				kind, name, at, ok := hiltEntryPointDeclarationFlat(file, idx)
 				if !ok || kind == "interface" {
 					return
 				}
 				if name == "" {
 					name = "entry point"
 				}
-				ctx.EmitAt(line, 1, fmt.Sprintf("@EntryPoint '%s' must be declared as an interface, not a %s.", name, kind))
+				ctx.EmitAtNode(at, fmt.Sprintf("@EntryPoint '%s' must be declared as an interface, not a %s.", name, kind))
 			},
 		})
 	}

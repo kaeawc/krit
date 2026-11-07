@@ -15,13 +15,13 @@ func (r *BracesOnIfStatementsRule) Meta() api.RuleDescriptor {
 			api.StringOption(api.StringOptionSpec[BracesOnIfStatementsRule]{
 				Name:        "multiLine",
 				Default:     "",
-				Description: "Brace policy for multi-line if: never/always/necessary/consistent.",
+				Description: "Brace policy for multi-line if: never/always/necessary/consistent (empty means always).",
 				Apply:       func(r *BracesOnIfStatementsRule, v string) { r.MultiLine = v },
 			}),
 			api.StringOption(api.StringOptionSpec[BracesOnIfStatementsRule]{
 				Name:        "singleLine",
 				Default:     "",
-				Description: "Brace policy for single-line if: never/always/necessary/consistent.",
+				Description: "Brace policy for single-line if: never/always/necessary/consistent (empty means never).",
 				Apply:       func(r *BracesOnIfStatementsRule, v string) { r.SingleLine = v },
 			}),
 		},
@@ -39,13 +39,13 @@ func (r *BracesOnWhenStatementsRule) Meta() api.RuleDescriptor {
 			api.StringOption(api.StringOptionSpec[BracesOnWhenStatementsRule]{
 				Name:        "multiLine",
 				Default:     "",
-				Description: "Brace policy for multi-line when branches.",
+				Description: "Brace policy for multi-line when branches: never/always/necessary/consistent (empty means always).",
 				Apply:       func(r *BracesOnWhenStatementsRule, v string) { r.MultiLine = v },
 			}),
 			api.StringOption(api.StringOptionSpec[BracesOnWhenStatementsRule]{
 				Name:        "singleLine",
 				Default:     "",
-				Description: "Brace policy for single-line when branches.",
+				Description: "Brace policy for single-line when branches: never/always/necessary/consistent (empty means never).",
 				Apply:       func(r *BracesOnWhenStatementsRule, v string) { r.SingleLine = v },
 			}),
 		},

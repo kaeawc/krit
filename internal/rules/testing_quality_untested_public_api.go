@@ -9,8 +9,6 @@ package rules
 // time it had a single consumer (this rule) and lives here.
 
 import (
-	"strings"
-
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -45,10 +43,11 @@ func (r *UntestedPublicAPIRule) check(ctx *api.Context) {
 		if kind == "function" {
 			kind = "top-level function"
 		}
+		line, col := symbolAnchor(file, sym)
 		ctx.Emit(scanner.Finding{
 			File:       sym.File,
-			Line:       sym.Line,
-			Col:        1,
+			Line:       line,
+			Col:        col,
 			RuleSet:    r.RuleSetName,
 			Rule:       r.RuleName,
 			Severity:   r.Sev,
@@ -108,35 +107,35 @@ func untestedPublicAPIReferenceNames(sym scanner.Symbol) []string {
 	return []string{sym.Name, sym.FQN}
 }
 
+// untestedPublicAPISuppressed reports a declaration annotated as test-visible or generated. Only the annotations on
+// the declaration itself count; an annotation on one of its members says nothing about the declaration.
 func untestedPublicAPISuppressed(sym scanner.Symbol, file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	text := untestedPublicAPIDeclarationContext(sym, file)
-	return strings.Contains(text, "@VisibleForTesting") ||
-		strings.Contains(text, "@Generated") ||
-		strings.Contains(text, `@Suppress("UntestedPublicApi")`) ||
-		strings.Contains(text, `@Suppress("all")`)
+	if decl, ok := untestedPublicAPITopLevelDeclaration(file, sym.StartByte); ok {
+		for _, name := range []string{"VisibleForTesting", "Generated"} {
+			if flatHasAnnotationNamed(file, decl, name) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
-func untestedPublicAPIDeclarationContext(sym scanner.Symbol, file *scanner.File) string {
-	var b strings.Builder
-	if sym.Line > 0 && len(file.Lines) > 0 {
-		start := sym.Line - 4
-		if start < 0 {
-			start = 0
-		}
-		end := sym.Line + 1
-		if end > len(file.Lines) {
-			end = len(file.Lines)
-		}
-		for _, line := range file.Lines[start:end] {
-			b.WriteString(line)
-			b.WriteByte('\n')
+// untestedPublicAPITopLevelDeclaration returns the top-level declaration node that contains the byte offset.
+func untestedPublicAPITopLevelDeclaration(file *scanner.File, offset int) (uint32, bool) {
+	if file.FlatTree == nil {
+		return 0, false
+	}
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		if int(file.FlatStartByte(child)) <= offset && offset < int(file.FlatEndByte(child)) {
+			switch file.FlatType(child) {
+			case "class_declaration", "function_declaration", "object_declaration":
+				return child, true
+			}
 		}
 	}
-	if sym.StartByte >= 0 && sym.EndByte > sym.StartByte && sym.EndByte <= len(file.Content) {
-		b.Write(file.Content[sym.StartByte:sym.EndByte])
-	}
-	return b.String()
+	return 0, false
 }

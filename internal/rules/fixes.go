@@ -33,7 +33,6 @@ func (r *ExplicitItLambdaParameterRule) IsFixable() bool             { return tr
 func (r *RangeUntilInsteadOfRangeToRule) IsFixable() bool            { return true }
 func (r *UseEmptyCounterpartRule) IsFixable() bool                   { return true }
 func (r *UselessCallOnNotNullRule) IsFixable() bool                  { return true }
-func (r *UnnecessaryApplyRule) IsFixable() bool                      { return true }
 func (r *UseIsNullOrEmptyRule) IsFixable() bool                      { return true }
 func (r *UseOrEmptyRule) IsFixable() bool                            { return true }
 func (r *UseAnyOrNoneInsteadOfFindRule) IsFixable() bool             { return true }
@@ -55,7 +54,7 @@ func (r *CommentedOutImportRule) IsFixable() bool               { return true }
 func (r *CommentedOutCodeBlockRule) IsFixable() bool            { return true }
 func (r *ApplyPluginTwiceRule) IsFixable() bool                 { return true }
 func (r *TestNameContainsUnderscoreRule) IsFixable() bool       { return true }
-func (r *ElseCaseInsteadOfExhaustiveWhenRule) IsFixable() bool  { return true }
+func (r *ElseCaseInsteadOfExhaustiveWhenRule) IsFixable() bool  { return false }
 
 // Empty-blocks rules
 func (r *EmptyDefaultConstructorRule) IsFixable() bool   { return true }
@@ -257,8 +256,7 @@ func (r *NestedClassesVisibilityRule) IsFixable() bool    { return true }
 func (r *DataClassContainsFunctionsRule) IsFixable() bool { return true }
 
 // Comments quality (new fixable)
-func (r *EndOfSentenceFormatRule) IsFixable() bool   { return true }
-func (r *OutdatedDocumentationRule) IsFixable() bool { return true }
+func (r *EndOfSentenceFormatRule) IsFixable() bool { return true }
 
 // Potential-bugs (new fixable)
 func (r *UnusedUnaryOperatorRule) IsFixable() bool   { return true }
@@ -271,3 +269,15 @@ func (r *StringShouldBeRawStringRule) IsFixable() bool    { return false } // to
 func (r *MultilineLambdaItParameterRule) IsFixable() bool { return false } // too complex: it-reference disambiguation
 func (r *ObjectLiteralToLambdaRule) IsFixable() bool      { return false } // too complex: multi-method objects
 func (r *SafeCastRule) IsFixable() bool                   { return false } // too complex: control flow rewriting
+
+// lineBreakEnd returns the offset after the line break ("\n" or "\r\n") that starts at end, or end when none does.
+// Line-deleting fixes use it so CRLF files lose the whole line instead of keeping an empty one.
+func lineBreakEnd(content []byte, end int) int {
+	switch {
+	case end < len(content) && content[end] == '\n':
+		return end + 1
+	case end+1 < len(content) && content[end] == '\r' && content[end+1] == '\n':
+		return end + 2
+	}
+	return end
+}

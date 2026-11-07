@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 34, 40, 48, 56, 69, 91, 92
+// go-lines: 19, 34, 48, 69, 91, 92
 // Go findings FIR drops. Go takes any function named checkServerTrusted or
 // checkClientTrusted whose nearest enclosing class declaration or object
 // expression mentions the word TrustManager anywhere in its text, and treats

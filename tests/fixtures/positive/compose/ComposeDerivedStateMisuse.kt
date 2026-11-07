@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 @Composable
 fun ComposeDerivedStateMisusePositive() {
     val count by remember { mutableStateOf(0) }
-    val isPositive by remember { derivedStateOf { count > 0 } }
+    val isPositive = remember(count) { derivedStateOf { count > 0 } }
+    println(count)
     println(isPositive)
 }

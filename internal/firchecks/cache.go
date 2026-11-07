@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -333,11 +334,13 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 		byPath[f.Path] = append(byPath[f.Path], f)
 	}
 
-	written := 0
-	for _, p := range files {
+	// Each file hashes once and writes its own entry directory, so the workers share nothing but the
+	// response, which they only read.
+	var written atomic.Int64
+	forEachParallel(files, func(p string) {
 		hash, err := ContentHash(p)
 		if err != nil {
-			continue
+			return
 		}
 		// Poison marker for crashed files.
 		if crashMsg, crashed := resp.Crashed[p]; crashed {
@@ -351,9 +354,9 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 				Rules:              resp.Rules,
 			}
 			if WriteCacheEntry(cacheDir, entry) == nil {
-				written++
+				written.Add(1)
 			}
-			continue
+			return
 		}
 		findings := byPath[p] // nil → empty slice, still a valid cache entry
 		entry := &FirCacheEntry{
@@ -367,10 +370,37 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 			RuleErrors:         ruleErrorsForFile(resp.RuleErrors, p),
 		}
 		if WriteCacheEntry(cacheDir, entry) == nil {
-			written++
+			written.Add(1)
 		}
+	})
+	return int(written.Load())
+}
+
+// forEachParallel runs fn for every item on a bounded pool of workers and waits for all of them.
+func forEachParallel(items []string, fn func(string)) {
+	workers := min(runtime.GOMAXPROCS(0), len(items))
+	if workers <= 1 {
+		for _, item := range items {
+			fn(item)
+		}
+		return
 	}
-	return written
+	var wg sync.WaitGroup
+	next := make(chan string)
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range next {
+				fn(item)
+			}
+		}()
+	}
+	for _, item := range items {
+		next <- item
+	}
+	close(next)
+	wg.Wait()
 }
 
 // ruleErrorsForFile returns rule ID -> checker exception for path, or nil.

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -45,8 +46,8 @@ func (r *MissingPrefixResourceRule) Confidence() float64 { return api.Confidence
 
 func (r *MissingPrefixResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"MissingPrefix"}, func(v *android.View) {
 			for attrName := range v.Attributes {
 				// Skip attributes that are legitimately unprefixed
 				if attrName == "style" || strings.HasPrefix(attrName, "xmlns") ||
@@ -59,7 +60,7 @@ func (r *MissingPrefixResourceRule) check(ctx *api.Context) {
 				}
 				// Check if this is a known android attribute missing its prefix
 				if knownAndroidAttrs[attrName] {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attrName, r.BaseRule,
 						fmt.Sprintf("Attribute `%s` missing `android:` prefix. Use `android:%s` instead.",
 							attrName, attrName)))
 				}
@@ -115,29 +116,29 @@ func (r *NamespaceTypoResourceRule) Confidence() float64 { return api.Confidence
 
 func (r *NamespaceTypoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		if layout.RootView == nil {
-			continue
-		}
-		for attrName, attrVal := range layout.RootView.Attributes {
-			if !strings.HasPrefix(attrName, "xmlns:") {
-				continue
-			}
-			if attrVal == correctAndroidNS {
-				continue
-			}
-			// Check if the namespace looks like a typo of the Android NS
-			if strings.Contains(attrVal, "schemas.android.com") ||
-				strings.Contains(attrVal, "schema.android.com") ||
-				strings.Contains(attrVal, "shemas.android.com") {
-				dist := levenshtein(attrVal, correctAndroidNS)
-				if dist > 0 && dist <= 5 {
-					ctx.Emit(baseFinding(layout.FilePath, layout.RootView.Line, r.BaseRule,
-						fmt.Sprintf("Possible typo in namespace URI `%s`. Did you mean `%s`?",
-							attrVal, correctAndroidNS)))
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"NamespaceTypo"}, func(v *android.View) {
+			for attrName, attrVal := range v.Attributes {
+				if !strings.HasPrefix(attrName, "xmlns:") || attrVal == correctAndroidNS {
+					continue
+				}
+				// A package namespace such as apk/res/com.example.app is a different, valid namespace (see ResAuto).
+				if pkg, ok := strings.CutPrefix(attrVal, resPackagePrefix); ok && strings.Contains(pkg, ".") {
+					continue
+				}
+				// Check if the namespace looks like a typo of the Android NS
+				if strings.Contains(attrVal, "schemas.android.com") ||
+					strings.Contains(attrVal, "schema.android.com") ||
+					strings.Contains(attrVal, "shemas.android.com") {
+					dist := levenshtein(attrVal, correctAndroidNS)
+					if dist > 0 && dist <= 5 {
+						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attrName, r.BaseRule,
+							fmt.Sprintf("Possible typo in namespace URI `%s`. Did you mean `%s`?",
+								attrVal, correctAndroidNS)))
+					}
 				}
 			}
-		}
+		})
 	}
 }
 
@@ -162,14 +163,14 @@ func (r *ResAutoResourceRule) Confidence() float64 { return api.ConfidenceMedium
 
 func (r *ResAutoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"ResAuto"}, func(v *android.View) {
 			for attr, val := range v.Attributes {
 				// Check xmlns declarations that use a hardcoded package
 				if strings.HasPrefix(attr, "xmlns:") && strings.HasPrefix(val, resPackagePrefix) {
 					suffix := val[len(resPackagePrefix):]
 					if suffix != "" && suffix != "android" {
-						ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
 							fmt.Sprintf("Namespace declaration `%s=\"%s\"` uses a hardcoded package name. "+
 								"Use `http://schemas.android.com/apk/res-auto` instead.",
 								attr, val)))
@@ -198,9 +199,9 @@ func (r *UnusedNamespaceResourceRule) Confidence() float64 { return api.Confiden
 
 func (r *UnusedNamespaceResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		root := layout.RootView
-		if root == nil {
+		if root == nil || resourceToolsIgnoreMatches(root, "UnusedNamespace") {
 			continue
 		}
 		// Collect xmlns declarations from root
@@ -235,11 +236,14 @@ func (r *UnusedNamespaceResourceRule) check(ctx *api.Context) {
 				continue
 			}
 			prefix := strings.TrimPrefix(attr, "xmlns:")
+			// Lint only tracks custom-attribute namespaces (apk/res/<package>), not app, tools or other URIs.
+			uri := root.Attributes[attr]
+			if !strings.HasPrefix(uri, "http://schemas.android.com/apk/res/") || uri == "http://schemas.android.com/apk/res/android" {
+				continue
+			}
 			if !used[prefix] {
-				ctx.Emit(baseFinding(layout.FilePath, root.Line, r.BaseRule,
-					fmt.Sprintf("Unused namespace declaration `xmlns:%s`. "+
-						"No attributes in the layout use the `%s:` prefix.",
-						prefix, prefix)))
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, root, attr, r.BaseRule,
+					fmt.Sprintf("Unused namespace `%s`", prefix)))
 			}
 		}
 	}
@@ -249,8 +253,10 @@ func (r *UnusedNamespaceResourceRule) check(ctx *api.Context) {
 // AppCompatResource
 // ---------------------------------------------------------------------------
 
-// AppCompatResourceRule detects menu items using android:showAsAction instead
-// of app:showAsAction. When using AppCompat, the app: namespace is required.
+// AppCompatResourceRule mirrors Lint's AppCompatResourceDetector: menu
+// showAsAction, actionViewClass and actionProviderClass belong in the app:
+// namespace when the module uses appcompat, and in the android: namespace
+// when it does not. It stays silent when the dependency graph is unknown.
 type AppCompatResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -261,13 +267,41 @@ type AppCompatResourceRule struct {
 // per roadmap/17.
 func (r *AppCompatResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+var appCompatMenuAttrs = []string{"showAsAction", "actionViewClass", "actionProviderClass"}
+
+// appCompatCoordinates lists artifacts that bring appcompat onto the classpath.
+var appCompatCoordinates = []librarymodel.Coordinate{
+	{Group: "androidx.appcompat", Name: "appcompat"},
+	{Group: "com.android.support", Name: "appcompat-v7"},
+	{Group: "com.google.android.material", Name: "material"},
+}
+
 func (r *AppCompatResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Attributes["android:showAsAction"] != "" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`%s` uses `android:showAsAction` instead of `app:showAsAction`. Use `app:showAsAction` for AppCompat compatibility.", v.Type)))
+	profile := librarymodel.EnsureFacts(ctx.LibraryFacts).Profile
+	usesAppCompat := profile.HasAnyDependency(appCompatCoordinates...)
+	// Lint treats a project without Gradle information as not using appcompat.
+	knownAbsent := !profile.HasGradle || profile.ProvesDependencyAbsent(appCompatCoordinates...)
+	if !usesAppCompat && !knownAbsent {
+		return
+	}
+	for _, menu := range idx.AllMenus() {
+		folderVersion := iconFolderVersion(menu.FilePath)
+		walkViewsUnlessIgnored(menu.RootView, []string{"AppCompatResource"}, func(v *android.View) {
+			for _, name := range appCompatMenuAttrs {
+				if usesAppCompat && folderVersion < 14 && v.Attributes["android:"+name] != "" {
+					ctx.Emit(baseFindingAtAttr(menu.FilePath, v, "android:"+name, r.BaseRule,
+						fmt.Sprintf("Should use `app:%s` with the appcompat library with `xmlns:app=\"http://schemas.android.com/apk/res-auto\"`", name)))
+				}
+				if !usesAppCompat {
+					for attr := range v.Attributes {
+						prefix, local, ok := strings.Cut(attr, ":")
+						if ok && local == name && prefix != "android" && prefix != "tools" && prefix != "xmlns" {
+							ctx.Emit(baseFindingAtAttr(menu.FilePath, v, attr, r.BaseRule,
+								fmt.Sprintf("Should use `android:%s` when not using the appcompat library", name)))
+						}
+					}
+				}
 			}
 		})
 	}

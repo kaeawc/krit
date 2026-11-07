@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -38,6 +39,9 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "abstract") {
+				return
+			}
+			if abstractClassIsInjectionOrTestFixture(file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
 				return
 			}
 			for i := 0; i < file.FlatChildCount(idx); i++ {
@@ -97,36 +101,22 @@ func registerStyleAbstractClassCanBeConcreteClass() {
 							}
 						}
 					})
-					allResolved := true
-					for _, st := range info.Supertypes {
-						parts := strings.Split(st, ".")
-						stName := parts[len(parts)-1]
-						stInfo := ctx.Resolver.ClassHierarchy(stName)
-						if stInfo == nil {
-							stInfo = ctx.Resolver.ClassHierarchy(st)
+					// `override val x` constructor parameters implement abstract properties.
+					file.FlatWalkNodes(idx, "class_parameter", func(param uint32) {
+						if memberName := extractIdentifierFlat(file, param); memberName != "" {
+							implemented[memberName] = true
 						}
-						if stInfo == nil {
-							allResolved = false
-							break
-						}
-						for _, m := range stInfo.Members {
-							if m.IsAbstract && !implemented[m.Name] {
-								hasAbstractMember = true
-								break
-							}
-						}
-						if hasAbstractMember {
-							break
-						}
-					}
+					})
+					found, allResolved := abstractClassInheritsAbstractMember(ctx.Resolver, info.Supertypes, implemented, map[string]bool{})
 					if !allResolved {
 						return
 					}
+					hasAbstractMember = found
 				}
 			}
 			if !hasAbstractMember {
 				name := extractIdentifierFlat(file, idx)
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+				f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("Abstract class '%s' has no abstract members. Make it concrete.", name))
 				ctx.Emit(f)
 			}
@@ -139,12 +129,15 @@ func registerStyleAbstractClassCanBeInterface() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
+		Needs: api.NeedsResolver,
+		// Required: still runs without a resolver, it only needs one to find subclasses.
+		TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if !file.FlatHasModifier(idx, "abstract") {
 				return
 			}
-			if abstractClassCanBeInterfaceHasFrameworkClassAnnotation(file, idx) {
+			if abstractClassIsInjectionOrTestFixture(file, idx) || abstractClassHasClassOnlyConstruct(file, idx) || abstractClassHasSubtypes(ctx.Resolver, file, idx) {
 				return
 			}
 			if abstractClassCanBeInterfaceHasDaggerBindMethods(file, idx) {
@@ -176,18 +169,29 @@ func registerStyleAbstractClassCanBeInterface() {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
+			f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 				fmt.Sprintf("Abstract class '%s' has no state and could be an interface.", name))
 			ctx.Emit(f)
 		},
 	})
 }
 
+// dataClassMutableMessage is detekt's message for a mutable property of a data class.
+func dataClassMutableMessage(file *scanner.File, class, prop uint32) string {
+	name := ""
+	if file.FlatType(prop) == "class_parameter" {
+		name = extractIdentifierFlat(file, prop)
+	} else {
+		name = propertyDeclarationNameFlat(file, prop)
+	}
+	return "The data class " + extractIdentifierFlat(file, class) + " contains a mutable property. The offending property is called " + name
+}
+
 func registerStyleDataClassShouldBeImmutable() {
-	r := &DataClassShouldBeImmutableRule{BaseRule: BaseRule{RuleName: "DataClassShouldBeImmutable", RuleSetName: "style", Sev: "warning", Desc: "Detects data class properties declared as var instead of val."}}
+	r := &DataClassShouldBeImmutableRule{BaseRule: BaseRule{RuleName: "DataClassShouldBeImmutable", RuleSetName: "style", Sev: "warning", Desc: "Detects data class properties declared as var instead of val."}, ReportMutableCollections: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
@@ -200,23 +204,26 @@ func registerStyleDataClassShouldBeImmutable() {
 			}
 			file.FlatWalkNodes(ctor, "class_parameter", func(child uint32) {
 				if varKeyword := dataClassBindingKeyword(file, child, "var"); varKeyword != 0 {
-					f := r.Finding(file, file.FlatRow(child)+1, 1,
-						"Data class property should be immutable. Use 'val' instead of 'var'.")
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(varKeyword)),
-						EndByte:     int(file.FlatEndByte(varKeyword)),
-						Replacement: "val",
+					f := r.Finding(file, file.FlatRow(child)+1, file.FlatCol(child)+1,
+						dataClassMutableMessage(file, idx, child))
+					// An override of a mutable property cannot become a val.
+					if !file.FlatHasModifier(child, "override") {
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(varKeyword)),
+							EndByte:     int(file.FlatEndByte(varKeyword)),
+							Replacement: "val",
+						}
 					}
 					ctx.Emit(f)
 				}
-				if ctx.Resolver != nil && dataClassBindingKeyword(file, child, "val") != 0 {
+				if r.ReportMutableCollections && ctx.Resolver != nil && dataClassBindingKeyword(file, child, "val") != 0 {
 					for i := 0; i < file.FlatChildCount(child); i++ {
 						typeChild := file.FlatChild(child, i)
 						if t := file.FlatType(typeChild); t == "user_type" || t == "nullable_type" {
 							resolved := ctx.Resolver.ResolveFlatNode(typeChild, file)
 							if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && mutableCollectionTypes[resolved.Name] {
-								ctx.EmitAt(file.FlatRow(child)+1, 1,
+								ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
 									fmt.Sprintf("Data class property uses mutable type '%s'. Use an immutable collection type for true immutability.", resolved.Name))
 							}
 							break
@@ -233,13 +240,16 @@ func registerStyleDataClassShouldBeImmutable() {
 					if varKeyword == 0 {
 						return
 					}
-					f := r.Finding(file, file.FlatRow(prop)+1, 1,
-						"Data class property should be immutable. Use 'val' instead of 'var'.")
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(varKeyword)),
-						EndByte:     int(file.FlatEndByte(varKeyword)),
-						Replacement: "val",
+					f := r.Finding(file, file.FlatRow(prop)+1, file.FlatCol(prop)+1,
+						dataClassMutableMessage(file, idx, prop))
+					// A val cannot have a setter, and an override of a mutable property cannot become a val.
+					if !dataClassPropertyHasSetter(file, prop) && !file.FlatHasModifier(prop, "override") {
+						f.Fix = &scanner.Fix{
+							ByteMode:    true,
+							StartByte:   int(file.FlatStartByte(varKeyword)),
+							EndByte:     int(file.FlatEndByte(varKeyword)),
+							Replacement: "val",
+						}
 					}
 					ctx.Emit(f)
 				})
@@ -262,11 +272,12 @@ func registerStyleDataClassContainsFunctions() {
 			if body == 0 {
 				return
 			}
-			if dataClassHasNonConversionFunctionFlat(file, body, r.ConversionFunctionPrefix) {
-				name := extractIdentifierFlat(file, idx)
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					fmt.Sprintf("Data class '%s' contains functions. Consider using a regular class.", name))
-				if modNode := file.FlatFindModifierNode(idx, "data"); modNode != 0 {
+			name := extractIdentifierFlat(file, idx)
+			for i, fn := range dataClassOffendingFunctionsFlat(file, body, r.ConversionFunctionPrefix, r.AllowOperators) {
+				f := r.Finding(file, declLine(file, fn), declCol(file, fn),
+					fmt.Sprintf("The data class %s contains functions which are not registered conversion functions. The offending method is called %s", name, extractIdentifierFlat(file, fn)))
+				// One fix per class: every finding in a class drops the same modifier.
+				if modNode := file.FlatFindModifierNode(idx, "data"); i == 0 && modNode != 0 {
 					startByte := int(file.FlatStartByte(modNode))
 					endByte := int(file.FlatEndByte(modNode))
 					for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
@@ -289,11 +300,15 @@ func registerStyleProtectedMemberInFinalClass() {
 	r := &ProtectedMemberInFinalClassRule{BaseRule: BaseRule{RuleName: "ProtectedMemberInFinalClass", RuleSetName: "style", Sev: "warning", Desc: "Detects protected members in final classes where they should be private."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Needs: api.NeedsResolver,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "sealed") {
+				return
+			}
+			// Shadow classes (Robolectric @Implements) expose protected members by contract.
+			if flatHasAnnotationNamed(file, idx, "Implements") {
 				return
 			}
 			body, _ := file.FlatFindChild(idx, "class_body")
@@ -302,7 +317,7 @@ func registerStyleProtectedMemberInFinalClass() {
 			}
 			hasProtectedMember := false
 			forEachDirectClassMemberFlat(file, body, func(member uint32) {
-				if member != 0 && file.FlatHasModifier(member, "protected") {
+				if member != 0 && file.FlatHasModifier(member, "protected") && !protectedMemberHasFixedVisibility(file, member) {
 					hasProtectedMember = true
 				}
 			})
@@ -319,10 +334,10 @@ func registerStyleProtectedMemberInFinalClass() {
 				}
 			}
 			forEachDirectClassMemberFlat(file, body, func(member uint32) {
-				if member == 0 || !file.FlatHasModifier(member, "protected") {
+				if member == 0 || !file.FlatHasModifier(member, "protected") || protectedMemberHasFixedVisibility(file, member) {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(member)+1, 1,
+				f := r.Finding(file, file.FlatRow(member)+1, file.FlatCol(member)+1,
 					"Protected member in final class should be private.")
 				protectedNode := file.FlatFindModifierNode(member, "protected")
 				if protectedNode != 0 {
@@ -384,7 +399,7 @@ func registerStyleNestedClassesVisibility() {
 					continue
 				}
 				name := extractIdentifierFlat(file, child)
-				f := r.Finding(file, file.FlatRow(child)+1, 1,
+				f := r.Finding(file, file.FlatRow(child)+1, file.FlatCol(child)+1,
 					fmt.Sprintf("The nested class '%s' has an explicit public modifier. Within an internal class this is misleading, as the nested class is still internal.", name))
 				if modNode := file.FlatFindModifierNode(child, "public"); modNode != 0 {
 					startByte := int(file.FlatStartByte(modNode))
@@ -409,18 +424,18 @@ func registerStyleUtilityClassWithPublicConstructor() {
 	r := &UtilityClassWithPublicConstructorRule{BaseRule: BaseRule{RuleName: "UtilityClassWithPublicConstructor", RuleSetName: "style", Sev: "warning", Desc: "Detects utility classes that have a public constructor instead of a private one."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			nodeText := file.FlatNodeText(idx)
-			prefix := strings.TrimSpace(nodeText)
-			if len(prefix) > 200 {
-				prefix = prefix[:200]
+			if file.FlatHasChildOfType(idx, "interface") {
+				return
 			}
-			if strings.Contains(prefix, "interface ") ||
-				strings.Contains(prefix, "sealed ") ||
-				strings.Contains(prefix, "data ") ||
-				strings.Contains(prefix, "enum ") {
+			for _, mod := range []string{"sealed", "data", "enum", "open", "annotation", "inner", "value", "inline"} {
+				if file.FlatHasModifier(idx, mod) {
+					return
+				}
+			}
+			if file.FlatHasModifier(idx, "abstract") || utilityClassHasFrameworkAnnotation(file, idx) {
 				return
 			}
 			body, _ := file.FlatFindChild(idx, "class_body")
@@ -429,21 +444,30 @@ func registerStyleUtilityClassWithPublicConstructor() {
 			}
 			hasFunctions := false
 			hasNonStaticMember := false
+			hasNamespaceMember := false
 			for i := 0; i < file.FlatChildCount(body); i++ {
 				child := file.FlatChild(body, i)
 				switch file.FlatType(child) {
 				case "companion_object":
-					hasFunctions = true
-				case "function_declaration", "property_declaration":
+					// An empty companion adds no static member.
+					if companion, ok := file.FlatFindChild(child, "class_body"); ok &&
+						(file.FlatHasChildOfType(companion, "function_declaration") || file.FlatHasChildOfType(companion, "property_declaration")) {
+						hasFunctions = true
+					}
+				case "function_declaration", "property_declaration", "anonymous_initializer", "secondary_constructor":
 					hasNonStaticMember = true
+				case "class_declaration", "object_declaration":
+					// A class that nests types is a namespace holder, not a utility class.
+					hasNamespaceMember = true
 				}
 			}
-			if !hasFunctions || hasNonStaticMember {
+			if !hasFunctions || hasNonStaticMember || hasNamespaceMember {
 				return
 			}
 			ctor, _ := file.FlatFindChild(idx, "primary_constructor")
 			if ctor != 0 {
-				if file.FlatHasModifier(ctor, "private") {
+				if file.FlatHasModifier(ctor, "private") || file.FlatHasModifier(ctor, "internal") || file.FlatHasModifier(ctor, "protected") ||
+					utilityClassHasFrameworkAnnotation(file, ctor) {
 					return
 				}
 				ctorText := file.FlatNodeText(ctor)
@@ -457,7 +481,7 @@ func registerStyleUtilityClassWithPublicConstructor() {
 				}
 			}
 			name := extractIdentifierFlat(file, idx)
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
+			f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 				fmt.Sprintf("Utility class '%s' should have a private constructor.", name))
 			if ctor != 0 {
 				for _, vis := range []string{"public", "protected", "internal"} {
@@ -497,9 +521,22 @@ func registerStyleOptionalAbstractKeyword() {
 	r := &OptionalAbstractKeywordRule{BaseRule: BaseRule{RuleName: "OptionalAbstractKeyword", RuleSetName: "style", Sev: "warning", Desc: "Detects redundant abstract modifier on interface members where it is implied."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
+		// The grammar parses `fun interface X { ... }` as an ERROR header followed by a lambda_literal body.
+		NodeTypes: []string{"class_declaration", "lambda_literal", "class_body"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			switch file.FlatType(idx) {
+			case "lambda_literal":
+				if members, ok := funInterfaceMisparsedMembers(file, idx); ok {
+					r.checkInterfaceMembers(ctx, members, false)
+				}
+				return
+			case "class_body":
+				if members := funInterfaceNestedMembers(file, idx); len(members) > 0 {
+					r.checkInterfaceMembers(ctx, members, false)
+				}
+				return
+			}
 			if !file.FlatHasChildOfType(idx, "interface") {
 				return
 			}
@@ -507,97 +544,232 @@ func registerStyleOptionalAbstractKeyword() {
 			if body == 0 {
 				return
 			}
-			baseColumn := -1
+			// An ERROR before the body means the header or braces misparsed, and this body may belong to a
+			// nested class (for example one with an annotated supertype).
+			for child := file.FlatFirstChild(idx); child != 0 && child != body; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "ERROR" {
+					return
+				}
+			}
+			var members []uint32
 			for i := 0; i < file.FlatNamedChildCount(body); i++ {
 				member := file.FlatNamedChild(body, i)
 				if member == 0 {
 					continue
 				}
-				if col := file.FlatCol(member); baseColumn == -1 || col < baseColumn {
-					baseColumn = col
-				}
+				members = append(members, member)
 			}
-			for i := 0; i < file.FlatNamedChildCount(body); i++ {
-				member := file.FlatNamedChild(body, i)
-				if member == 0 {
-					continue
-				}
-				switch file.FlatType(member) {
-				case "function_declaration", "property_declaration":
-				default:
-					continue
-				}
-				if baseColumn >= 0 && file.FlatCol(member) > baseColumn {
-					continue
-				}
-				memberText := strings.TrimSpace(file.FlatNodeText(member))
-				if strings.HasPrefix(memberText, "abstract class ") ||
-					strings.HasPrefix(memberText, "class ") ||
-					strings.HasPrefix(memberText, "abstract interface ") ||
-					strings.HasPrefix(memberText, "interface ") {
-					continue
-				}
-				mods, _ := file.FlatFindChild(member, "modifiers")
-				if mods == 0 || !file.FlatHasModifier(member, "abstract") {
-					continue
-				}
-				modsText := file.FlatNodeText(mods)
-				f := r.Finding(file, file.FlatRow(mods)+1, 1,
-					"'abstract' modifier is redundant on interface members.")
-				newMods := strings.Replace(modsText, "abstract ", "", 1)
-				if newMods == modsText {
-					newMods = strings.Replace(modsText, "abstract", "", 1)
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(mods)),
-					EndByte:     int(file.FlatEndByte(mods)),
-					Replacement: newMods,
-				}
-				ctx.Emit(f)
-			}
+			r.checkInterfaceMembers(ctx, members, true)
 		},
 	})
+}
+
+// funInterfaceMisparsedMembers returns the members of a `fun interface` body that the grammar
+// parsed as a lambda_literal directly after an ERROR node holding the `fun interface Name` header.
+func funInterfaceMisparsedMembers(file *scanner.File, lambda uint32) ([]uint32, bool) {
+	prev, ok := file.FlatPrevSibling(lambda)
+	if !ok || file.FlatType(prev) != "ERROR" || !funInterfaceHeaderRe.MatchString(file.FlatNodeText(prev)) {
+		return nil, false
+	}
+	statements, ok := file.FlatFindChild(lambda, "statements")
+	if !ok {
+		return nil, false
+	}
+	var members []uint32
+	for member := file.FlatFirstChild(statements); member != 0; member = file.FlatNextSib(member) {
+		if file.FlatIsNamed(member) {
+			members = append(members, member)
+		}
+	}
+	return members, true
+}
+
+// funInterfaceNestedMembers returns the members that follow a misparsed nested `fun interface X {`
+// header in a class body. The closing brace ends the class body early, so the rest belong to the interface.
+func funInterfaceNestedMembers(file *scanner.File, body uint32) []uint32 {
+	var members []uint32
+	inInterface := false
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		if file.FlatType(child) == "ERROR" {
+			inInterface = funInterfaceHeaderRe.MatchString(file.FlatNodeText(child))
+			continue
+		}
+		if inInterface {
+			members = append(members, child)
+		}
+	}
+	return members
+}
+
+var funInterfaceHeaderRe = regexp.MustCompile(`^\s*(?:[\w@()."]+\s+)*fun\s+interface\s+\w+`)
+
+// checkInterfaceMembers reports redundant `abstract` on interface function and property members.
+func (r *OptionalAbstractKeywordRule) checkInterfaceMembers(ctx *api.Context, members []uint32, alignedOnly bool) {
+	file := ctx.File
+	baseColumn := -1
+	if alignedOnly {
+		for _, member := range members {
+			if col := file.FlatCol(member); baseColumn == -1 || col < baseColumn {
+				baseColumn = col
+			}
+		}
+	}
+	for _, member := range members {
+		switch file.FlatType(member) {
+		case "function_declaration", "property_declaration":
+		default:
+			continue
+		}
+		if baseColumn >= 0 && file.FlatCol(member) > baseColumn {
+			continue
+		}
+		memberText := strings.TrimSpace(file.FlatNodeText(member))
+		if strings.HasPrefix(memberText, "abstract class ") ||
+			strings.HasPrefix(memberText, "class ") ||
+			strings.HasPrefix(memberText, "abstract interface ") ||
+			strings.HasPrefix(memberText, "interface ") {
+			continue
+		}
+		mods, _ := file.FlatFindChild(member, "modifiers")
+		if mods == 0 || !file.FlatHasModifier(member, "abstract") {
+			continue
+		}
+		modsText := file.FlatNodeText(mods)
+		f := r.Finding(file, file.FlatRow(mods)+1, file.FlatCol(mods)+1,
+			"'abstract' modifier is redundant on interface members.")
+		newMods := strings.Replace(modsText, "abstract ", "", 1)
+		if newMods == modsText {
+			newMods = strings.Replace(modsText, "abstract", "", 1)
+		}
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(mods)),
+			EndByte:     int(file.FlatEndByte(mods)),
+			Replacement: newMods,
+		}
+		ctx.Emit(f)
+	}
+}
+
+// classOrderingSection returns the detekt section priority of a class member, or -1 when the member is not ordered.
+func classOrderingSection(file *scanner.File, member uint32) int {
+	switch file.FlatType(member) {
+	case "property_declaration", "anonymous_initializer":
+		return 0
+	case "secondary_constructor":
+		return 1
+	case "function_declaration":
+		return 2
+	case "companion_object":
+		return 3
+	}
+	return -1
+}
+
+var classOrderingSectionNames = [...]string{
+	"property declarations and initializer blocks",
+	"secondary constructors",
+	"method declarations",
+	"companion object",
+}
+
+func classOrderingDescription(file *scanner.File, member uint32) string {
+	switch file.FlatType(member) {
+	case "property_declaration":
+		return "property `" + extractIdentifierFlat(file, member) + "`"
+	case "anonymous_initializer":
+		return "initializer blocks"
+	case "secondary_constructor":
+		return "secondary constructor"
+	case "function_declaration":
+		return "method `" + extractIdentifierFlat(file, member) + "()`"
+	}
+	return "companion object"
+}
+
+// classOrderingViolators mirrors detekt: keep a longest non-decreasing run of sections (the first one
+// found) and report the members outside it.
+func classOrderingViolators(sections []int) (violators []int, kept map[int]bool) {
+	n := len(sections)
+	if n == 0 {
+		return nil, nil
+	}
+	lengths := make([]int, n)
+	prev := make([]int, n)
+	for i := range lengths {
+		lengths[i], prev[i] = 1, i
+	}
+	for i := 0; i < n; i++ {
+		for j := 0; j < i; j++ {
+			if sections[i] >= sections[j] && lengths[i] < lengths[j]+1 {
+				lengths[i] = lengths[j] + 1
+				prev[i] = j
+			}
+		}
+	}
+	best := 0
+	for i := 1; i < n; i++ {
+		if lengths[best] < lengths[i] {
+			best = i
+		}
+	}
+	kept = map[int]bool{}
+	for i := best; ; i = prev[i] {
+		kept[i] = true
+		if prev[i] == i {
+			break
+		}
+	}
+	for i := 0; i < n; i++ {
+		if !kept[i] {
+			violators = append(violators, i)
+		}
+	}
+	return violators, kept
 }
 
 func registerStyleClassOrdering() {
 	r := &ClassOrderingRule{BaseRule: BaseRule{RuleName: "ClassOrdering", RuleSetName: "style", Sev: "warning", Desc: "Detects class members that are not in the conventional ordering of properties, init blocks, constructors, functions, and companion objects."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_body"}, Confidence: api.ConfidenceMedium, Implementation: r,
+		NodeTypes: []string{"class_body", "enum_class_body"}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			const (
-				orderProperty    = 1
-				orderInit        = 2
-				orderConstructor = 3
-				orderFunction    = 4
-				orderCompanion   = 5
-			)
-			lastOrder := 0
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				child := file.FlatChild(idx, i)
-				var currentOrder int
-				switch file.FlatType(child) {
-				case "property_declaration":
-					currentOrder = orderProperty
-				case "anonymous_initializer":
-					currentOrder = orderInit
-				case "secondary_constructor":
-					currentOrder = orderConstructor
-				case "function_declaration":
-					currentOrder = orderFunction
-				case "companion_object":
-					currentOrder = orderCompanion
-				default:
+			var members []uint32
+			var sections []int
+			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+				if sec := classOrderingSection(file, child); sec >= 0 {
+					members = append(members, child)
+					sections = append(sections, sec)
+				}
+			}
+			violators, kept := classOrderingViolators(sections)
+			for _, v := range violators {
+				// A kept member before the violator with a later section wins; otherwise the last kept
+				// member of an earlier section, wherever it sits.
+				ref, direction := -1, ""
+				for i := 0; i < v; i++ {
+					if kept[i] && sections[i] > sections[v] {
+						ref, direction = i, "before"
+						break
+					}
+				}
+				if ref < 0 {
+					for i := len(sections) - 1; i >= 0; i-- {
+						if kept[i] && sections[i] < sections[v] {
+							ref, direction = i, "after"
+							break
+						}
+					}
+				}
+				if ref < 0 {
 					continue
 				}
-				if currentOrder < lastOrder {
-					ctx.EmitAt(file.FlatRow(child)+1, 1,
-						"Class members should be ordered: properties, init blocks, constructors, functions, companion object.")
-					return
-				}
-				lastOrder = currentOrder
+				ctx.EmitAt(declLine(file, members[v]), declCol(file, members[v]),
+					classOrderingDescription(file, members[v])+" should be declared "+direction+" "+classOrderingSectionNames[sections[ref]]+".")
 			}
 		},
 	})
@@ -650,10 +822,18 @@ func registerStyleObjectLiteralToLambda() {
 			if funBody != 0 && objectBodyContainsBareThisFlat(file, funBody) {
 				return
 			}
-			if supertypeName != "" && !isSAMConvertible(supertypeName, file, ctx.Resolver) {
+			// A generic method cannot be a lambda, and a call to the method's own name recurses into the object, not the outer scope.
+			if file.FlatHasChildOfType(singleFun, "type_parameters") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1,
+			if funBody != 0 && objectBodyCallsFunctionFlat(file, funBody, extractIdentifierFlat(file, singleFun)) {
+				return
+			}
+			// Without a resolvable supertype name the interface may not be a SAM, so skip.
+			if supertypeName == "" || !isSAMConvertible(supertypeName, file, ctx.Resolver) {
+				return
+			}
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				"Object literal with single method can be converted to a lambda.")
 		},
 	})
@@ -663,49 +843,42 @@ func registerStyleSerialVersionUIDInSerializableClass() {
 	r := &SerialVersionUIDInSerializableClassRule{BaseRule: BaseRule{RuleName: "SerialVersionUIDInSerializableClass", RuleSetName: "style", Sev: "warning", Desc: "Detects Serializable classes that are missing a serialVersionUID field."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
-		Needs: api.NeedsResolver,
+		NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if file.FlatHasChildOfType(idx, "enum") {
-				return
-			}
-			// Exact AST lookup: does the class (or its companion object)
-			// declare a property named serialVersionUID? No text
-			// scanning — a string literal or comment mentioning the
-			// name no longer suppresses the warning by accident.
-			if classDeclaresStaticProperty(file, idx, "serialVersionUID") {
+			// An interface cannot hold the field, and an enum is serialized by name, so a serialVersionUID there is moot
+			// (detekt reports an enum; krit does not).
+			if file.FlatHasChildOfType(idx, "interface") || file.FlatHasChildOfType(idx, "enum") {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
+			// detekt compares each declared supertype entry's text to `Serializable`; it ignores `java.io.Serializable`,
+			// `Externalizable`, and supertypes that are Serializable only through a parent class.
 			implementsSerializable := false
 			for i := 0; i < file.FlatChildCount(idx); i++ {
 				child := file.FlatChild(idx, i)
-				if file.FlatType(child) != "delegation_specifier" {
-					continue
-				}
-				supertypeName := viewConstructorSupertypeNameFlat(file, child)
-				if supertypeName == "" {
-					continue
-				}
-				if supertypeName == "Serializable" || supertypeName == "Externalizable" {
+				if file.FlatType(child) == "delegation_specifier" && strings.TrimSpace(file.FlatNodeText(child)) == "Serializable" {
 					implementsSerializable = true
 					break
-				}
-				if ctx.Resolver != nil {
-					if info := ctx.Resolver.ClassHierarchy(supertypeName); info != nil {
-						if checksSerializable(ctx.Resolver, info) {
-							implementsSerializable = true
-							break
-						}
-					}
 				}
 			}
 			if !implementsSerializable {
 				return
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Serializable class '%s' is missing serialVersionUID.", name))
+			// Like detekt, only a property in the companion object (or the object itself) counts, and it must be
+			// `private const val serialVersionUID: Long`.
+			if prop := serialVersionUIDProperty(file, idx); prop != 0 {
+				if !serialVersionUIDSignatureIsCorrect(file, prop) {
+					ctx.EmitAt(declLine(file, prop), declCol(file, prop), serialVersionUIDSignatureMessage)
+				}
+				return
+			}
+			kind := "class"
+			if file.FlatType(idx) == "object_declaration" {
+				kind = "object"
+			}
+			f := r.Finding(file, declLine(file, idx), declCol(file, idx),
+				fmt.Sprintf("The %s %s implements the `Serializable` interface and should thus define a `serialVersionUID`.", kind, name))
 			f.Fix = buildSerialVersionUIDFix(file, idx)
 			ctx.Emit(f)
 		},
@@ -782,4 +955,101 @@ func buildSerialVersionUIDFix(file *scanner.File, idx uint32) *scanner.Fix {
 		EndByte:     insertAt,
 		Replacement: replacement,
 	}
+}
+
+// utilityClassHasFrameworkAnnotation reports annotations that need the class or its
+// constructor to stay visible for DI or reflective construction.
+func utilityClassHasFrameworkAnnotation(file *scanner.File, idx uint32) bool {
+	for _, name := range []string{"Module", "Implements", "Component", "Inject", "AssistedInject"} {
+		if flatHasAnnotationNamed(file, idx, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// dataClassPropertyHasSetter reports a property followed by an explicit accessor block with a setter; the grammar
+// places getters and setters as siblings after the declaration.
+func dataClassPropertyHasSetter(file *scanner.File, prop uint32) bool {
+	if _, ok := file.FlatFindChild(prop, "setter"); ok {
+		return true
+	}
+	for sib, ok := file.FlatNextSibling(prop); ok; sib, ok = file.FlatNextSibling(sib) {
+		switch file.FlatType(sib) {
+		case "setter":
+			return true
+		case "getter":
+			continue
+		}
+		return false
+	}
+	return false
+}
+
+// objectBodyCallsFunctionFlat reports whether body contains an unqualified call to name.
+func objectBodyCallsFunctionFlat(file *scanner.File, body uint32, name string) bool {
+	if name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
+		if callee := file.FlatFirstChild(call); callee != 0 && file.FlatType(callee) == "simple_identifier" && file.FlatNodeTextEquals(callee, name) {
+			found = true
+		}
+	})
+	return found
+}
+
+const serialVersionUIDSignatureMessage = "The property `serialVersionUID` signature is not correct. `serialVersionUID` should be `private` and `constant` and its type should be `Long`"
+
+// serialVersionUIDProperty returns the serialVersionUID property declared in the companion object of a class, or in
+// the body of an object, or 0.
+func serialVersionUIDProperty(file *scanner.File, class uint32) uint32 {
+	body, _ := file.FlatFindChild(class, "class_body")
+	if body == 0 {
+		return 0
+	}
+	find := func(scope uint32) uint32 {
+		for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "property_declaration" && propertyDeclarationName(file, child) == "serialVersionUID" {
+				return child
+			}
+		}
+		return 0
+	}
+	if file.FlatType(class) == "object_declaration" {
+		return find(body)
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "companion_object" {
+			if inner, _ := file.FlatFindChild(child, "class_body"); inner != 0 {
+				if prop := find(inner); prop != 0 {
+					return prop
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// serialVersionUIDSignatureIsCorrect reports `private const val ...: Long`.
+func serialVersionUIDSignatureIsCorrect(file *scanner.File, prop uint32) bool {
+	if !file.FlatHasModifier(prop, "private") || !file.FlatHasModifier(prop, "const") {
+		return false
+	}
+	if typeNode, ok := file.FlatFindChild(prop, "user_type"); ok && typeNode != 0 {
+		return file.FlatNodeTextEquals(typeNode, "Long")
+	}
+	if v, ok := file.FlatFindChild(prop, "variable_declaration"); ok && v != 0 {
+		if typeNode, ok := file.FlatFindChild(v, "user_type"); ok && typeNode != 0 {
+			return file.FlatNodeTextEquals(typeNode, "Long")
+		}
+	}
+	// Without a stated type the initializer decides: only a long literal is a Long.
+	text := strings.TrimSpace(file.FlatNodeText(prop))
+	if eq := strings.Index(text, "="); eq >= 0 {
+		init := strings.TrimSpace(text[eq+1:])
+		return strings.HasSuffix(init, "L") || strings.HasSuffix(init, "l")
+	}
+	return false
 }

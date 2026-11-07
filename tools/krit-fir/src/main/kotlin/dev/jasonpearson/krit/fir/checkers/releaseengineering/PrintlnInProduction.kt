@@ -4,6 +4,8 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.insideLoggingSink
+import dev.jasonpearson.krit.fir.support.isPrintToolingPath
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -91,7 +93,8 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
         if (callee.name !in PRINT_NAMES) return
         if (!isConsolePrint(expression, callee.callableId)) return
         if (isInTestFile()) return
-        if (isNonProductionPath(containingScanPath())) return
+        if (isNonProductionPath(containingScanPath()) || isPrintToolingPath(containingScanPath())) return
+        if (insideLoggingSink()) return
         if (isExemptEnclosingFunction()) return
         report(expression.source, MESSAGE)
     }

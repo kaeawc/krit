@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 38
 // Go misses every finding below: it matches the annotation text `@IntoSet` /
 // `@Provides` and the last dotted segment of the declared type's text, so it
 // does not see a collection behind a type alias or parentheses, nor an

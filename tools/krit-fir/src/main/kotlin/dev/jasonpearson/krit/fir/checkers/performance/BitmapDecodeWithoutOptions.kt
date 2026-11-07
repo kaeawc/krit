@@ -2,14 +2,20 @@ package dev.jasonpearson.krit.fir.checkers.performance
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -26,6 +32,9 @@ import org.jetbrains.kotlin.name.Name
 // Like the Go rule, the finding sits on the first line of the call
 // expression (the receiver's line for a qualified call) and names the called
 // method.
+//
+// Decodes inside a file, class or function named for Thumb, Tiny, Icon or Avatar, and decodeByteArray of
+// a header-plus-tail concatenation, are small images and are not reported.
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Recall (Go misses these true positives): Go counts one value argument, so
@@ -48,6 +57,7 @@ internal object BitmapDecodeWithoutOptions : FirFunctionCallChecker(MppCheckerKi
 
     private val bitmapFactory = ClassId(FqName("android.graphics"), Name.identifier("BitmapFactory"))
     private val options = ClassId(FqName("android.graphics"), FqName("BitmapFactory.Options"), false)
+    private val smallImageNames = listOf("Thumb", "Tiny", "Icon", "Avatar")
     private val decodeMethods = setOf(
         "decodeFile",
         "decodeResource",
@@ -64,11 +74,39 @@ internal object BitmapDecodeWithoutOptions : FirFunctionCallChecker(MppCheckerKi
         val method = callableId.callableName.asString()
         if (method !in decodeMethods) return
         if (callee.valueParameterSymbols.any { isOptions(it.resolvedReturnType) }) return
+        if (inSmallImageContext() || (method == "decodeByteArray" && isConcatenatedBytes(expression.argumentList.arguments.firstOrNull()))) return
         report(
             expression.source,
             "BitmapFactory.$method without BitmapFactory.Options may decode a full-size bitmap. " +
                 "Pass BitmapFactory.Options to control memory usage.",
         )
+    }
+
+    // A thumbnail, tiny or avatar decoder (by file, class or function name) handles small images.
+    context(context: CheckerContext)
+    private fun inSmallImageContext(): Boolean {
+        val names = buildList {
+            context.containingFile?.name?.let(::add)
+            for (symbol in context.containingDeclarations) {
+                when (symbol) {
+                    is FirNamedFunctionSymbol -> add(symbol.name.asString())
+                    is FirClassLikeSymbol<*> -> add(symbol.name.asString())
+                    else -> Unit
+                }
+            }
+        }
+        return names.any { name -> smallImageNames.any { name.contains(it, ignoreCase = true) } }
+    }
+
+    // A fixed header joined to a short tail, such as an image prefix plus a payload, is a small decode.
+    context(context: CheckerContext)
+    private fun isConcatenatedBytes(argument: FirExpression?): Boolean {
+        val value = when (argument) {
+            is FirPropertyAccessExpression -> (argument.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol)?.initializerInCheckedFile()
+            else -> argument
+        }
+        val call = value as? FirFunctionCall ?: return false
+        return call.calleeReference.toResolvedCallableSymbol()?.callableId?.callableName?.asString() == "plus"
     }
 
     private fun isOptions(type: ConeKotlinType): Boolean =

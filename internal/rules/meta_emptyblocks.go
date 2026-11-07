@@ -19,7 +19,7 @@ func (r *EmptyCatchBlockRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[EmptyCatchBlockRule]{
 				Name:        "allowedExceptionNameRegex",
-				Default:     "^(_|ignore|expected)$",
+				Default:     "_|(ignore|expected).*",
 				Description: "Regex for exception names that allow empty catch.",
 				Apply:       func(r *EmptyCatchBlockRule, v *regexp.Regexp) { r.AllowedExceptionNameRegex = v },
 			}),
@@ -90,8 +90,8 @@ func (r *EmptyFunctionBlockRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[EmptyFunctionBlockRule]{
 				Name:        "ignoreOverridden",
-				Default:     true,
-				Description: "Ignore overridden functions with an empty body (intentional framework/interface no-ops). Set to false to also flag empty overrides.",
+				Default:     false,
+				Description: "Ignore overridden functions with an empty body. detekt reports them by default.",
 				Apply:       func(r *EmptyFunctionBlockRule, v bool) { r.IgnoreOverridden = v },
 			}),
 		},

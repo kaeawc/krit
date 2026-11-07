@@ -2,7 +2,9 @@ package librarymodel
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
 )
@@ -94,7 +96,55 @@ func ProfileFromGradlePaths(paths []string) ProjectProfile {
 		}
 		profile.Merge(ProfileFromGradleContentWithCatalog(path, string(content), catalog))
 	}
+	applyFoundrySdkProperties(&profile, paths)
 	return profile
+}
+
+// applyFoundrySdkProperties fills SDK levels that no build file declared from the Foundry Gradle plugin's
+// gradle.properties keys (foundry.android.{min,target,compile}SdkVersion) in the nearest directory above the
+// build files that sets them.
+func applyFoundrySdkProperties(profile *ProjectProfile, paths []string) {
+	seen := map[string]bool{}
+	for _, path := range paths {
+		for dir := filepath.Dir(path); !seen[dir]; dir = filepath.Dir(dir) {
+			seen[dir] = true
+			if data, err := os.ReadFile(filepath.Join(dir, "gradle.properties")); err == nil {
+				for _, line := range strings.Split(string(data), "\n") {
+					key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+					if !ok {
+						continue
+					}
+					key = strings.TrimSpace(key)
+					if level := parsePositiveInt(strings.TrimPrefix(strings.TrimSpace(value), "android-"), 0); level > 0 {
+						applyIfUnset(profile, key, level)
+					}
+				}
+			}
+			if parent := filepath.Dir(dir); parent == dir {
+				break
+			}
+		}
+	}
+}
+
+func applyIfUnset(profile *ProjectProfile, key string, level int) {
+	switch key {
+	case "foundry.android.minSdkVersion":
+		if profile.MinSdkVersion == 0 {
+			profile.MinSdkVersion = level
+			profile.Android.MinSDK = KnownVersion(strconv.Itoa(level))
+		}
+	case "foundry.android.targetSdkVersion":
+		if profile.TargetSdkVersion == 0 {
+			profile.TargetSdkVersion = level
+			profile.Android.TargetSDK = KnownVersion(strconv.Itoa(level))
+		}
+	case "foundry.android.compileSdkVersion":
+		if profile.CompileSdkVersion == 0 {
+			profile.CompileSdkVersion = level
+			profile.Android.CompileSDK = KnownVersion(strconv.Itoa(level))
+		}
+	}
 }
 
 // ProfileFromGradleContent parses one Gradle file into a profile fragment.

@@ -42,6 +42,8 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         for (argument in expression.argumentList.arguments) {
             for (dispatcher in hardcodedDispatchers(unwrapArgument(argument))) {
                 if (dispatcher.name == "Main") continue
+                // Unconfined is a deliberate choice (e.g. with UNDISPATCHED), not a swappable default.
+                if (dispatcher.name == "Unconfined") continue
                 report(dispatcher.source, "Hardcoded Dispatchers.${dispatcher.name}. Inject dispatchers for better testability.")
             }
         }

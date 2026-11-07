@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirExpressionChecker
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
@@ -47,7 +48,7 @@ import org.jetbrains.kotlin.name.Name
 /**
  * Port of the Go TooGenericExceptionThrown rule: a `throw` of a newly
  * constructed `Exception`, `RuntimeException`, `Error`, or `Throwable`
- * (`exceptionNames`), reported on the `throw` line with Go's message.
+ * (`exceptionNames`), reported on the constructor call with Go's message.
  *
  * The thrown value counts when it, or a value it can evaluate to (an
  * `if`/`when` branch, either side of an elvis, a `try` or `catch` block, a cast
@@ -107,6 +108,10 @@ internal object TooGenericExceptionThrown :
         override val throwExpressionCheckers = setOf(TooGenericExceptionThrown)
     }
 
+    private fun isTestDoubleName(name: String): Boolean =
+        listOf("Fake", "Stub", "Test").any { prefix -> name.length > prefix.length && name.startsWith(prefix) && name[prefix.length].isUpperCase() } ||
+            name.endsWith("Fake") || name.endsWith("Test")
+
     private val defaultNames = listOf("Exception", "Throwable", "Error", "RuntimeException")
 
     private val javaLang = FqName("java.lang")
@@ -126,6 +131,8 @@ internal object TooGenericExceptionThrown :
         if (source.kind !is KtRealSourceElementKind) return
         if (isInTestFile()) return
         if (containingScanPath()?.endsWith(".gradle.kts") == true) return
+        // Fakes throw generic exceptions on purpose to simulate failures, as in Go.
+        if (context.containingElements.any { it is FirRegularClass && isTestDoubleName(it.name.asString()) }) return
 
         val names = exceptionNames()
         val caught = (context.containingElements.lastOrNull { it is FirCatch } as? FirCatch)?.parameter?.symbol
@@ -137,7 +144,8 @@ internal object TooGenericExceptionThrown :
             val name = genericClassName(call, names) ?: continue
             val nearestCatch = candidate.caught
             if (nearestCatch != null && passesCaught(call, nearestCatch)) continue
-            report(throwKeyword(source), "Too-generic exception type '$name' thrown.")
+            // Report the constructor call, which can sit on a later line than the `throw`.
+            report(call.source?.takeIf { it.kind is KtRealSourceElementKind } ?: throwKeyword(source), "$name is a too generic Exception. Prefer throwing specific exceptions that indicate a specific error case.")
             return
         }
     }
@@ -237,7 +245,7 @@ internal object TooGenericExceptionThrown :
             access.explicitReceiver == null && access.calleeReference.toResolvedVariableSymbol() == caught
         }
 
-    // Go reports at the throw node's start: the `throw` keyword.
+    // Fallback anchor when the constructor call has no real source: the `throw` keyword.
     private fun throwKeyword(source: KtSourceElement): KtSourceElement {
         val keyword = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.THROW_KEYWORD }
             ?: return source

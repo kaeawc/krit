@@ -355,7 +355,10 @@ type ListedRule struct {
 	Precision     string `json:"precision,omitempty"`
 	Maturity      string `json:"maturity,omitempty"`
 	Description   string `json:"description,omitempty"`
-	Plugin        bool   `json:"plugin,omitempty"`
+	// Scripts is where the rule runs among Kotlin script (.kts) files: all,
+	// standalone, gradle or none. See docs/kotlin-scripts.md.
+	Scripts string `json:"scripts,omitempty"`
+	Plugin  bool   `json:"plugin,omitempty"`
 }
 
 // ListedRules is the `krit --list-rules --format json` document.
@@ -418,7 +421,7 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 			markers += "F"
 			fixable++
 			if verboseFlag {
-				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (fix: %s, precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), r.Maturity)
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (fix: %s, precision: %s, maturity: %s%s)\n", markers, r.ID, r.Category, string(r.Sev), fixLvl, rules.V2RulePrecision(r), r.Maturity, scriptsSuffix(r))
 				if r.Description != "" {
 					fmt.Fprintf(w, "    %s\n", r.Description)
 				}
@@ -428,7 +431,7 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 		} else {
 			markers += " "
 			if verboseFlag {
-				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (precision: %s, maturity: %s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), r.Maturity)
+				fmt.Fprintf(w, "  %s %-40s [%-15s] %s (precision: %s, maturity: %s%s)\n", markers, r.ID, r.Category, string(r.Sev), rules.V2RulePrecision(r), r.Maturity, scriptsSuffix(r))
 				if r.Description != "" {
 					fmt.Fprintf(w, "    %s\n", r.Description)
 				}
@@ -457,6 +460,15 @@ func PrintListRules(stdoutW, stderrW io.Writer, verboseFlag bool, maturityFilter
 	}
 	fmt.Fprintln(w, "A=active by default, F=fixable. Use -v for fix levels, --all-rules to enable all, --maturity to filter by lifecycle.")
 	return 0, true
+}
+
+// scriptsSuffix is the verbose listing note for a rule that skips some Kotlin
+// script (.kts) files; rules that run on every script add nothing.
+func scriptsSuffix(r *api.Rule) string {
+	if scope := rules.DescribeScriptScope(r); scope != "all" {
+		return ", scripts: " + scope
+	}
+	return ""
 }
 
 // parseListMaturity parses the --maturity filter: nil when unset, and
@@ -513,6 +525,7 @@ func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.
 			Precision:     rules.V2RulePrecision(r).String(),
 			Maturity:      r.Maturity.String(),
 			Description:   r.Description,
+			Scripts:       rules.DescribeScriptScope(r),
 		}
 		if lvl, ok := rules.GetV2FixLevel(r); ok {
 			entry.Fixable = true

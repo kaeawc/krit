@@ -544,13 +544,16 @@ func TestRunOracleProcess_HardTimeoutProducesDiagnostic(t *testing.T) {
 	// otherwise killing sh would leave an orphan sleep holding the stderr
 	// pipe open and cmd.Wait() would block until it exited naturally.
 	script := `echo "starting analysis" >&2; exec sleep 10`
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	// The deadline must leave room for the shell to start and echo even on a
+	// loaded machine, but stay well under the 10s sleep.
+	const hardTimeout = 3 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), hardTimeout)
 	defer cancel()
 
 	start := time.Now()
 	_, err := runOracleProcess(ctx, sh,
 		[]string{"-c", script},
-		outputPath, 300*time.Millisecond, 10*time.Second)
+		outputPath, hardTimeout, 10*time.Second)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
@@ -561,7 +564,7 @@ func TestRunOracleProcess_HardTimeoutProducesDiagnostic(t *testing.T) {
 	if !strings.Contains(err.Error(), "starting analysis") {
 		t.Errorf("expected stderr tail to include 'starting analysis', got %q", err)
 	}
-	if elapsed > 2*time.Second {
+	if elapsed > 8*time.Second {
 		t.Errorf("expected timeout to fire well under the 10s sleep, took %s", elapsed)
 	}
 }

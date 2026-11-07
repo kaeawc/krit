@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/rules/base"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -21,6 +21,22 @@ func baseFinding(path string, line int, rule BaseRule, msg string) scanner.Findi
 		Severity: rule.Sev,
 		Message:  msg,
 	}
+}
+
+// baseFindingAt is baseFinding with an explicit 1-based column.
+func baseFindingAt(path string, line, col int, rule BaseRule, msg string) scanner.Finding {
+	f := baseFinding(path, line, rule, msg)
+	if col > 0 {
+		f.Col = col
+	}
+	return f
+}
+
+// baseFindingAtAttr anchors the finding at the named attribute of v, or at
+// the element start when the attribute is absent.
+func baseFindingAtAttr(path string, v *android.View, attr string, rule BaseRule, msg string) scanner.Finding {
+	line, col := v.PosOf(attr)
+	return baseFindingAt(path, line, col, rule, msg)
 }
 
 // Rules that do not declare NeedsOracle are never fed to the oracle's
@@ -84,12 +100,18 @@ func GetAllRuleExcludes() map[string][]string {
 
 // IsFileExcluded checks whether a file path matches any of the rule's exclude patterns.
 func IsFileExcluded(filePath string, excludes []string) bool {
+	hasInclude, included := false, false
 	for _, pattern := range excludes {
+		if strings.HasPrefix(pattern, scanner.IncludePatternPrefix) {
+			hasInclude = true
+			included = included || matchExcludePattern(filePath, pattern[len(scanner.IncludePatternPrefix):])
+			continue
+		}
 		if matchExcludePattern(filePath, pattern) {
 			return true
 		}
 	}
-	return false
+	return hasInclude && !included
 }
 
 // matchExcludePattern matches a file path against a config-compatible glob pattern.
@@ -99,29 +121,7 @@ func IsFileExcluded(filePath string, excludes []string) bool {
 //   - **/*Spec.kt   -> path ends with Spec.kt
 //   - *.kt          -> filename matches *.kt
 func matchExcludePattern(filePath, pattern string) bool {
-	// Normalize separators
-	filePath = filepath.ToSlash(filePath)
-	pattern = filepath.ToSlash(pattern)
-
-	// Handle ** prefix patterns
-	if strings.HasPrefix(pattern, "**/") {
-		suffix := pattern[3:]
-		if strings.Contains(suffix, "/**") {
-			// e.g., **/test/** — check if path contains /test/
-			inner := strings.TrimSuffix(suffix, "/**")
-			return strings.Contains(filePath, "/"+inner+"/")
-		}
-		if strings.HasPrefix(suffix, "*") {
-			// e.g., **/*Test.kt — check if path ends with the suffix after *
-			return strings.HasSuffix(filePath, suffix[1:])
-		}
-		// e.g., **/Foo.kt — match exact filename anywhere in path
-		return strings.HasSuffix(filePath, "/"+suffix) || filePath == suffix
-	}
-
-	// Plain glob against the basename
-	matched, _ := filepath.Match(pattern, filepath.Base(filePath))
-	return matched
+	return scanner.MatchExcludePattern(filePath, pattern)
 }
 
 type FlatDispatchBase = base.FlatDispatchBase

@@ -22,6 +22,13 @@ type FakeOracle struct {
 	CallTargetSuspend     map[string]map[string]bool                    // file → ("line:col" → suspend status for resolved call target)
 	CallTargetAnnotations map[string]map[string][]string                // file → ("line:col" → annotation FQNs on symbol)
 	Diagnostics           map[string][]Diagnostic                       // file → diagnostics
+	AnalyzedFiles         map[string]bool                               // files the fake compiler analyzed
+}
+
+// HasFileFacts reports whether the file was marked analyzed or has diagnostics.
+func (f *FakeOracle) HasFileFacts(path string) bool {
+	_, hasDiagnostics := f.Diagnostics[path]
+	return f.AnalyzedFiles[path] || hasDiagnostics
 }
 
 // NewFakeOracle creates a FakeOracle with all maps initialized.
@@ -39,6 +46,7 @@ func NewFakeOracle() *FakeOracle {
 		CallTargetSuspend:     make(map[string]map[string]bool),
 		CallTargetAnnotations: make(map[string]map[string][]string),
 		Diagnostics:           make(map[string][]Diagnostic),
+		AnalyzedFiles:         make(map[string]bool),
 	}
 }
 

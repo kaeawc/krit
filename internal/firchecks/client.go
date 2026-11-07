@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -325,6 +326,24 @@ func firAOTCacheArg(args []string) string {
 	return ""
 }
 
+// firHeapFlag returns the FIR daemon's heap cap. KRIT_FIR_XMX (for example "8g") sets it
+// explicitly. Otherwise the cap is a quarter of physical memory: a 1g cap ran out of heap on a
+// large repository and gated every file, and the JVM only grows as far as it needs.
+func firHeapFlag(getenv func(string) string) string {
+	if v := strings.TrimSpace(getenv("KRIT_FIR_XMX")); firHeapSizePattern.MatchString(v) {
+		return "-Xmx" + v
+	}
+	return "-XX:MaxRAMPercentage=25"
+}
+
+// firExtraJVMArgs returns extra daemon JVM flags from KRIT_FIR_JVM_ARGS, such as
+// "-XX:+HeapDumpOnOutOfMemoryError" when diagnosing an out-of-memory failure.
+func firExtraJVMArgs(getenv func(string) string) []string {
+	return strings.Fields(getenv("KRIT_FIR_JVM_ARGS"))
+}
+
+var firHeapSizePattern = regexp.MustCompile(`^[0-9]+[kKmMgG]$`)
+
 func buildFirJVMArgs(jarPath, javaPath string, jdkMajor int) []string {
 	return buildFirJVMArgsWithAOTMode(jarPath, javaPath, jdkMajor, false, firAOTFull)
 }
@@ -334,8 +353,12 @@ func buildFirJVMArgsWithAOTMode(jarPath, javaPath string, jdkMajor int, verbose 
 		"-XX:+UseG1GC",
 		"-XX:+UseStringDeduplication",
 		"-Xms512m",
-		"-Xmx1g",
+		firHeapFlag(os.Getenv),
+		// Return soft references quickly and reserve code cache for big compilations.
+		"-XX:SoftRefLRUPolicyMSPerMB=1",
+		"-XX:ReservedCodeCacheSize=256m",
 	}
+	args = append(args, firExtraJVMArgs(os.Getenv)...)
 	switch mode {
 	case firAOTFull:
 		args, _ = jvmaot.AppendArgs(args, javaPath, oracle.AbsolutePath(jarPath), "fir", jdkMajor, verbose, reporter().Verbosef)

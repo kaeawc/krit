@@ -86,3 +86,21 @@ fun main(): Int {
 		t.Fatalf("expected no findings when use precedes reassignment, got %d", len(findings))
 	}
 }
+
+func TestSmartCastInvalidated_NonNullReassignmentKeepsSmartCast(t *testing.T) {
+	keep := map[string]string{
+		"literal":    "var x: String? = \"a\"\n    if (x != null) {\n        x = \"b\"\n        println(x.length)\n    }",
+		"elvis jump": "var x: String? = \"a\"\n    if (x != null) {\n        x = bar() ?: return\n        println(x.length)\n    }",
+		"bang bang":  "var x: String? = \"a\"\n    if (x != null) {\n        x = bar()!!\n        println(x.length)\n    }",
+	}
+	for name, body := range keep {
+		src := "package test\nfun bar(): String? = null\nfun f() {\n    " + body + "\n}\n"
+		if got := runRuleByName(t, "SmartCastInvalidated", src); len(got) != 0 {
+			t.Errorf("%s: reassigning a non-null value keeps the smart cast, got %v", name, got)
+		}
+	}
+	src := "package test\nfun bar(): String? = null\nfun f() {\n    var x: String? = \"a\"\n    if (x != null) {\n        x = bar()\n        println(x.length)\n    }\n}\n"
+	if got := runRuleByName(t, "SmartCastInvalidated", src); len(got) != 1 {
+		t.Errorf("a nullable reassignment must still be reported, got %d", len(got))
+	}
+}

@@ -582,3 +582,157 @@ func TestSuppressionFilter_IsSuppressedAtUsesFindingByte(t *testing.T) {
 		t.Error("a negative offset checks the line start only")
 	}
 }
+
+func TestSuppressionFilter_IsSuppressedAtColumn(t *testing.T) {
+	src := "class X {\n    @Suppress(\"LongParameterList\")\n    fun f() = 1\n    fun g(@Suppress(\"Naming\") _a: Int) = 2\n    fun h() = 3\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	if !sf.IsSuppressedAtColumn("LongParameterList", "complexity", 2, 1) {
+		t.Error("indented annotated declaration must be suppressed at column 1")
+	}
+	if sf.IsSuppressedAtColumn("LongParameterList", "complexity", 5, 1) {
+		t.Error("a later declaration is not suppressed")
+	}
+	col := strings.Index("    fun g(@Suppress(\"Naming\") _a: Int) = 2", "_a") + 1
+	if !sf.IsSuppressedAtColumn("Naming", "naming", 4, col) {
+		t.Error("annotation on a parameter must suppress a finding at that parameter")
+	}
+	if sf.IsSuppressedAtColumn("Naming", "naming", 4, 1) {
+		t.Error("the enclosing function line start is outside the parameter annotation")
+	}
+}
+
+func TestSuppressionFilter_CatchParameterAnnotation(t *testing.T) {
+	src := "fun f() {\n    try {\n        g()\n    } catch (@Suppress(\"TooGenericExceptionCaught\") e: Exception) {\n        h()\n    }\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	col := strings.Index(strings.Split(src, "\n")[3], "catch") + 1
+	if !sf.IsSuppressedAtColumn("TooGenericExceptionCaught", "exceptions", 4, col) {
+		t.Error("annotation on catch parameter should suppress a finding anchored at the catch clause")
+	}
+	if sf.IsSuppressedAtColumn("OtherRule", "exceptions", 4, col) {
+		t.Error("catch parameter suppression must stay rule specific")
+	}
+}
+
+func TestSuppressionFilter_ExpressionAnnotations(t *testing.T) {
+	src := "fun f(x: Int) {\n    @Suppress(\"MagicNumber\")\n    if (x > 42) {\n        g()\n    }\n    @Suppress(\"MagicNumber\")\n    when (x) {\n        7 -> g()\n    }\n    @Suppress(\"MagicNumber\")\n    g(99)\n    val y = 5\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	for _, line := range []int{3, 8, 11} {
+		if !sf.IsSuppressedAtColumn("MagicNumber", "style", line, 1) {
+			t.Errorf("expression-level @Suppress should cover line %d", line)
+		}
+	}
+	if sf.IsSuppressedAtColumn("MagicNumber", "style", 12, 1) {
+		t.Error("expression-level @Suppress must not cover the next statement")
+	}
+}
+
+func TestSuppressionFilter_ClassSuppressCoversNestedFunctionViaDetektAlias(t *testing.T) {
+	src := "@Suppress(\"FunctionName\")\nclass A {\n    class B {\n        fun Bad_name() {}\n    }\n}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	if !sf.IsSuppressedAtColumn("FunctionNaming", "naming", 4, 1) {
+		t.Error("class-level FunctionName should cover nested functions")
+	}
+}
+
+func TestSuppressionFilter_AnnotationInsideNestedExpressions(t *testing.T) {
+	src := "fun f(list: List<Int>) {\n" +
+		"    for (i in list) {\n" +
+		"        @Suppress(\"MagicNumber\")\n" +
+		"        g(523)\n" +
+		"    }\n" +
+		"    foo(1, bar {\n" +
+		"        @Suppress(\"MagicNumber\")\n" +
+		"        g(611)\n" +
+		"    })\n" +
+		"    val x = y ?: run {\n" +
+		"        @Suppress(\"MagicNumber\")\n" +
+		"        g(937)\n" +
+		"    }\n" +
+		"    g(1)\n" +
+		"}\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+	for _, line := range []int{4, 8, 12} {
+		if !sf.IsSuppressedAtColumn("MagicNumber", "style", line, 1) {
+			t.Errorf("annotation in nested expression should cover line %d", line)
+		}
+	}
+	if sf.IsSuppressedAtColumn("MagicNumber", "style", 14, 1) {
+		t.Error("nested annotation must not cover unrelated statements")
+	}
+}
+
+func TestSuppressionFilter_DetektNamesMapToKritRules(t *testing.T) {
+	cases := map[string][]string{
+		"FunctionName":             {"FunctionNaming"},
+		"ComplexMethod":            {"CyclomaticComplexMethod"},
+		"UnnecessaryAbstractClass": {"AbstractClassCanBeConcreteClass", "AbstractClassCanBeInterface"},
+		"UnusedPrivateMember":      {"UnusedPrivateFunction", "UnusedPrivateProperty"},
+	}
+	for detekt, rules := range cases {
+		src := "@Suppress(\"" + detekt + "\")\nclass A {\n    fun f() {}\n}\n"
+		f := parsedFileForFilter(t, "X.kt", src)
+		sf := BuildSuppressionFilter(f, nil, nil, "")
+		for _, rule := range rules {
+			if !sf.IsSuppressedAtColumn(rule, "style", 3, 1) {
+				t.Errorf("@Suppress(%q) should suppress %s", detekt, rule)
+			}
+		}
+		if sf.IsSuppressedAtColumn("SomethingElse", "style", 3, 1) {
+			t.Errorf("@Suppress(%q) must not suppress unrelated rules", detekt)
+		}
+	}
+}
+
+func TestSimpleAnnotationName(t *testing.T) {
+	cases := map[string]string{
+		"Composable":                "Composable",
+		"@Composable":               "Composable",
+		"@androidx.compose.Preview": "Preview",
+		"@Named(\"x\")":             "Named",
+		"  @Foo  ":                  "Foo",
+		"":                          "",
+	}
+	for in, want := range cases {
+		if got := simpleAnnotationName(in); got != want {
+			t.Errorf("simpleAnnotationName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestMatchAnyExcludePatternIncludes(t *testing.T) {
+	patterns := []string{"**/generated/**", IncludePatternPrefix + "**/main/**"}
+	cases := map[string]bool{
+		"/p/src/main/A.kt":           false,
+		"/p/src/main/generated/A.kt": true,
+		"/p/src/test/A.kt":           true,
+	}
+	for path, want := range cases {
+		if got := matchAnyExcludePattern(path, patterns); got != want {
+			t.Errorf("excluded(%s) = %v, want %v", path, got, want)
+		}
+	}
+	if matchAnyExcludePattern("/p/src/test/A.kt", []string{"**/generated/**"}) {
+		t.Error("excludes without includes must not skip unrelated files")
+	}
+}
+
+func TestSuppressionFilter_SuppressLintAnnotation(t *testing.T) {
+	src := "@SuppressLint(\"SdCardPath\", \"Other\")\nval a = \"/sdcard\"\n\nval b = \"/sdcard\"\n"
+	f := parsedFileForFilter(t, "X.kt", src)
+	sf := BuildSuppressionFilter(f, nil, nil, "")
+
+	if !sf.IsSuppressed("SdCardPath", "android-lint", 2) {
+		t.Error("@SuppressLint should suppress the named lint id on the annotated declaration")
+	}
+	if sf.IsSuppressed("SdCardPath", "android-lint", 4) {
+		t.Error("@SuppressLint must not suppress the next declaration")
+	}
+	if sf.IsSuppressed("Unrelated", "android-lint", 2) {
+		t.Error("@SuppressLint must not suppress other ids")
+	}
+}

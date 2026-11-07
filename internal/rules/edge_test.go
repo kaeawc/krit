@@ -138,6 +138,9 @@ func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []sc
 	t.Helper()
 	for _, r := range api.Registry {
 		if r.ID == ruleName {
+			if ruleName == "TestWithoutAssertion" {
+				return runCrossFileRuleOnFiles(r, file)
+			}
 			d := rules.NewDispatcher([]*api.Rule{r}, nil)
 			cols := d.Run(file)
 			return cols.Findings()
@@ -145,6 +148,32 @@ func runRuleByNameOnFile(t *testing.T, ruleName string, file *scanner.File) []sc
 	}
 	t.Fatalf("rule %q not found in registry", ruleName)
 	return nil
+}
+
+// runCrossFileRuleOnFiles runs an index-backed rule over the given parsed files.
+func runCrossFileRuleOnFiles(r *api.Rule, files ...*scanner.File) []scanner.Finding {
+	collector := scanner.NewFindingCollector(0)
+	r.Check(&api.Context{
+		CodeIndex:   scanner.BuildIndex(files, 1),
+		ParsedFiles: files,
+		Collector:   collector,
+		Rule:        r,
+	})
+	var out []scanner.Finding
+	for _, f := range collector.Columns().Findings() {
+		suppressed := false
+		for _, file := range files {
+			if file.Path != f.File {
+				continue
+			}
+			filter := scanner.BuildSuppressionFilter(file, nil, nil, "")
+			suppressed = filter.IsSuppressedAtColumn(f.Rule, f.RuleSet, f.Line, f.Col)
+		}
+		if !suppressed {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // --- MagicNumber edge cases ---
@@ -188,7 +217,7 @@ fun example() {
 }`)
 	found := false
 	for _, f := range findings {
-		if f.Rule == "MagicNumber" && strings.Contains(f.Message, "5000") {
+		if f.Rule == "MagicNumber" && f.Line == 4 {
 			found = true
 		}
 	}
@@ -235,6 +264,24 @@ fun example() {
 		if f.Rule == "MagicNumber" {
 			t.Errorf("MagicNumber should ignore named arguments, got: %s", f.Message)
 		}
+	}
+}
+
+func TestMagicNumber_PositionalArgumentContainingEqualsIsFlagged(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+fun example(x: Int) {
+    call(x == 5001)
+    call(x.also { it.y = 5002 })
+}`)
+	got := 0
+	for _, f := range findings {
+		if f.Rule == "MagicNumber" {
+			got++
+		}
+	}
+	if got != 2 {
+		t.Errorf("expected 2 MagicNumber findings for positional arguments, got %d", got)
 	}
 }
 
@@ -342,7 +389,7 @@ fun makeList(): List<Int> = List(200) { it }
 `)
 	found := false
 	for _, f := range findings {
-		if f.Rule == "MagicNumber" && strings.Contains(f.Message, "'200'") {
+		if f.Rule == "MagicNumber" && f.Line == 4 {
 			found = true
 		}
 	}
@@ -404,7 +451,7 @@ fun example() {
 `)
 	found := false
 	for _, f := range findings {
-		if f.Rule == "MagicNumber" && strings.Contains(f.Message, "'5'") {
+		if f.Rule == "MagicNumber" && f.Line == 9 {
 			found = true
 		}
 	}
@@ -1239,20 +1286,203 @@ func TestElseCaseInsteadOfExhaustiveWhen_NegativeOpenSubjectWithSealedSubtypeBra
 	findings := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", `
 package test
 
-interface ThreadItem
-sealed class KnownThreadItem : ThreadItem
-class HeaderItem : KnownThreadItem()
-class MessageItem : KnownThreadItem()
-class UnknownItem : ThreadItem
+interface Widget
+sealed class KnownWidget : Widget
+class Gauge : KnownWidget()
+class Dial : KnownWidget()
+class Custom : Widget
 
-fun areItemsTheSame(oldItem: ThreadItem): Boolean {
-    return when (oldItem) {
-        is HeaderItem -> true
-        is MessageItem -> true
+fun isStatic(widget: Widget): Boolean {
+    return when (widget) {
+        is Gauge -> true
+        is Dial -> true
         else -> false
     }
 }`)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for open subject even when branch types cover a sealed subtype, got %d", len(findings))
+	}
+}
+
+// detekt ignores private classes, so the interface is the single declaration and the file name is checked.
+func TestMatchingDeclarationName_InterfacePlusPrivateImplIsReported(t *testing.T) {
+	findings := runMatchingDeclarationName(t, "Other.kt", `
+interface Store
+private class StoreImpl : Store
+`)
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestMatchingDeclarationName_InterfacePlusInternalImplSkipped(t *testing.T) {
+	findings := runMatchingDeclarationName(t, "Other.kt", `
+interface Store
+internal class StoreImpl : Store
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected 0 findings for multiple top-level classes, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestMagicNumber_SkipsPreviewMetaAnnotation(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+@PreviewLightDark
+@Composable
+fun ScreenPreview() {
+    Box(Modifier.size(317.dp))
+}
+
+@PreviewLightDark
+@Composable
+fun Screen() {
+    val width = 317
+    Box(Modifier.size(width.dp))
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings in @Preview* annotated functions, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_HonoursExpressionLevelSuppress(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+fun check(x: Int) {
+    @Suppress("MagicNumber")
+    if (x > 317) {
+        println(x)
+    }
+    @Suppress("MagicNumber")
+    when (x) {
+        419 -> println(x)
+    }
+    @Suppress("MagicNumber")
+    println(523)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected expression-level @Suppress to silence MagicNumber, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_ExpressionSuppressDoesNotLeakToNextStatement(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+fun check(x: Int) {
+    @Suppress("MagicNumber")
+    if (x > 317) {
+        println(x)
+    }
+    if (x > 419) {
+        println(x)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly 1 finding for the unsuppressed if, got %d", len(findings))
+	}
+}
+
+func TestMagicNumber_HonoursSuppressInsideLoopAndArgumentLambdas(t *testing.T) {
+	findings := runRuleByName(t, "MagicNumber", `
+package test
+fun check(x: Int, list: List<Int>) {
+    for (i in list) {
+        @Suppress("MagicNumber")
+        println(523)
+    }
+    foo(x, bar {
+        @Suppress("MagicNumber")
+        println(611)
+    })
+    println(733)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the unsuppressed literal to be flagged, got %d", len(findings))
+	}
+}
+
+func TestElseCaseInsteadOfExhaustiveWhen_NegativePlainInterfaceOrAbstractClass(t *testing.T) {
+	for name, header := range map[string]string{
+		"interface":      "interface Shape",
+		"abstract class": "abstract class Shape",
+	} {
+		sup := "Shape"
+		if name == "abstract class" {
+			sup = "Shape()"
+		}
+		findings := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", `
+package test
+
+`+header+`
+class Circle : `+sup+`
+class Square : `+sup+`
+
+fun describe(shape: Shape): String {
+    return when (shape) {
+        is Circle -> "circle"
+        is Square -> "square"
+        else -> "unknown"
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("%s: expected no findings for a non-sealed supertype, got %d", name, len(findings))
+		}
+	}
+}
+
+func TestElseCaseInsteadOfExhaustiveWhen_NullableSubjectNeedsNullBranch(t *testing.T) {
+	const decl = `
+package test
+
+sealed class Shape
+class Circle : Shape()
+class Square : Shape()
+
+`
+	without := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", decl+`
+fun describe(shape: Shape?): String {
+    return when (shape) {
+        is Circle -> "circle"
+        is Square -> "square"
+        else -> "none"
+    }
+}`)
+	if len(without) != 0 {
+		t.Fatalf("expected no findings: else covers the null case, got %d", len(without))
+	}
+	with := runRuleByNameWithResolver(t, "ElseCaseInsteadOfExhaustiveWhen", decl+`
+fun describe(shape: Shape?): String {
+    return when (shape) {
+        null -> "none"
+        is Circle -> "circle"
+        is Square -> "square"
+        else -> "unknown"
+    }
+}`)
+	if len(with) != 1 {
+		t.Fatalf("expected 1 finding when null is handled explicitly, got %d", len(with))
+	}
+}
+
+func TestMatchingDeclarationName_MultiDeclarationFiles(t *testing.T) {
+	cases := []struct {
+		name, file, src string
+		want            int
+	}{
+		{"private helpers beside the matching class", "Foo.kt", "class Foo\nprivate class Helper\nprivate fun helper() {}\n", 0},
+		{"sealed hierarchy declared in the matching file", "Shape.kt", "sealed class Shape\nclass Circle : Shape()\nclass Square : Shape()\n", 0},
+		{"top-level functions only", "Anything.kt", "fun one() {}\nfun two() {}\n", 0},
+		{"private helper class does not make the file multi-declaration", "Wrong.kt", "class Foo\nprivate class Helper\n", 1},
+		{"single public class with a wrong file name and top-level helpers", "Wrong.kt", "class Foo\nprivate fun helper() {}\n", 1},
+	}
+	for _, tc := range cases {
+		findings := runMatchingDeclarationName(t, tc.file, tc.src)
+		if len(findings) != tc.want {
+			t.Errorf("%s: expected %d findings, got %d: %v", tc.name, tc.want, len(findings), findings)
+		}
 	}
 }

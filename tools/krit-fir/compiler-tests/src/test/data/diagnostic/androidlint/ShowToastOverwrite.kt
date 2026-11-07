@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 21, 27, 28, 35, 37, 45, 54, 63, 71, 78, 86, 90, 100, 107
+// go-lines: none
 // A toast stored in a variable counts as shown only through a read its value
 // can reach: after the store, not in an exclusive `if`/`when` branch, not
 // across another write, a jump, or the end of an enclosing loop iteration or

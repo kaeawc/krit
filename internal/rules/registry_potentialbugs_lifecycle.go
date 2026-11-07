@@ -15,7 +15,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &ExitOutsideMainRule{BaseRule: BaseRule{RuleName: "ExitOutsideMain", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects exitProcess() or System.exit() calls outside of the main function."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !exitOutsideMainCallMatches(file, idx) {
@@ -24,29 +24,35 @@ func registerPotentialbugsLifecycleRules() {
 				if exitOutsideMainInsideMain(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 					"Do not call exitProcess() or System.exit() outside of the main function.")
 			},
 		})
 	}
 	{
-		r := &ExplicitGarbageCollectionCallRule{BaseRule: BaseRule{RuleName: "ExplicitGarbageCollectionCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects explicit calls to System.gc() or Runtime.getRuntime().gc() which rarely improve performance."}}
+		r := &ExplicitGarbageCollectionCallRule{BaseRule: BaseRule{RuleName: "ExplicitGarbageCollectionCall", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects explicit garbage collection or finalization calls such as System.gc() and Runtime.getRuntime().gc(), which rarely improve performance."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := file.FlatNodeText(idx)
-				if text != "System.gc()" && text != "Runtime.getRuntime().gc()" {
+				text := strings.TrimPrefix(strings.Join(strings.Fields(file.FlatNodeText(idx)), ""), "java.lang.")
+				switch text {
+				case "System.gc()", "Runtime.getRuntime().gc()", "System.runFinalization()", "Runtime.getRuntime().runFinalization()":
+				default:
+					return
+				}
+				// Tests call gc() to force finalization or measure leaks.
+				if scanner.IsTestFile(file.Path) {
 					return
 				}
 				if file.Language == scanner.LangJava {
 					switch text {
-					case "System.gc()":
+					case "System.gc()", "System.runFinalization()":
 						if !javaSourceResolvesSimpleType(file, "System", "java.lang.System") {
 							return
 						}
-					case "Runtime.getRuntime().gc()":
+					case "Runtime.getRuntime().gc()", "Runtime.getRuntime().runFinalization()":
 						if !javaSourceResolvesSimpleType(file, "Runtime", "java.lang.Runtime") {
 							return
 						}
@@ -98,10 +104,10 @@ func registerPotentialbugsLifecycleRules() {
 		})
 	}
 	{
-		r := &InvalidRangeRule{BaseRule: BaseRule{RuleName: "InvalidRange", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects backwards ranges like 10..1 that produce empty ranges instead of using downTo."}}
+		r := &InvalidRangeRule{BaseRule: BaseRule{RuleName: "InvalidRange", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects empty ranges made from literals, such as 10..1, 1 downTo 10 or 5 until 1."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"range_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"range_expression", "infix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if file.FlatChildCount(idx) < 3 {
@@ -112,22 +118,48 @@ func registerPotentialbugsLifecycleRules() {
 				if left == 0 || right == 0 {
 					return
 				}
-				if file.FlatType(left) != "integer_literal" || file.FlatType(right) != "integer_literal" {
+				lower, okLower := intLiteralValue(file, left)
+				upper, okUpper := intLiteralValue(file, right)
+				if !okLower || !okUpper {
 					return
 				}
 				startText := file.FlatNodeText(left)
 				endText := file.FlatNodeText(right)
-				if len(startText) > len(endText) || (len(startText) == len(endText) && startText > endText) {
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						fmt.Sprintf("Invalid range: %s..%s. The range is empty. Use 'downTo' for descending ranges.", startText, endText))
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(idx)),
-						EndByte:     int(file.FlatEndByte(idx)),
-						Replacement: startText + " downTo " + endText,
+				if file.FlatType(idx) == "infix_expression" {
+					// Only the infix forms `a downTo b` and `a until b` build a range.
+					op := file.FlatNodeText(file.FlatChild(idx, 1))
+					switch {
+					case op == "downTo" && lower < upper:
+						ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							fmt.Sprintf("Invalid range: %s downTo %s. The range is empty. Use '..' for ascending ranges.", startText, endText)))
+					case op == "until" && lower >= upper:
+						// detekt flags `a until a` too: the range is empty.
+						ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							fmt.Sprintf("Invalid range: %s until %s. The range is empty. Use 'downTo' for descending ranges.", startText, endText)))
 					}
-					ctx.Emit(f)
+					return
 				}
+				if strings.Contains(file.FlatNodeText(idx), "..<") {
+					// `a..<a` is empty as well, so only a strictly ascending bound is clean.
+					if lower < upper {
+						return
+					}
+					ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("Invalid range: %s..<%s. The range is empty. Use 'downTo' for descending ranges.", startText, endText)))
+					return
+				}
+				if lower <= upper {
+					return
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					fmt.Sprintf("Invalid range: %s..%s. The range is empty. Use 'downTo' for descending ranges.", startText, endText))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   int(file.FlatStartByte(idx)),
+					EndByte:     int(file.FlatEndByte(idx)),
+					Replacement: startText + " downTo " + endText,
+				}
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -135,32 +167,14 @@ func registerPotentialbugsLifecycleRules() {
 		r := &IteratorHasNextCallsNextMethodRule{BaseRule: BaseRule{RuleName: "IteratorHasNextCallsNextMethod", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects hasNext() implementations that call next(), which modifies iterator state."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Needs: api.NeedsResolver, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "object_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := extractIdentifierFlat(file, idx)
-				if name != "hasNext" {
+				if !hasSuperNamed(file, idx, "Iterator") {
 					return
 				}
-				if !enclosingImplementsIteratorFlat(ctx, idx) {
-					return
-				}
-				body, _ := file.FlatFindChild(idx, "function_body")
-				if body == 0 {
-					return
-				}
-				found := false
-				file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
-					if found {
-						return
-					}
-					if flatCallExpressionName(file, callIdx) == "next" {
-						found = true
-					}
-				})
-				if found {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"hasNext() should not call next(). This modifies the iterator state.")
+				if fn := memberFunctionNamed(file, idx, "hasNext"); fn != 0 && hasNextCallsNext(file, fn) {
+					emitAtClassName(ctx, idx, "Calling hasNext() on an Iterator should have no side-effects. Calling next() is a side effect.")
 				}
 			},
 		})
@@ -169,23 +183,14 @@ func registerPotentialbugsLifecycleRules() {
 		r := &IteratorNotThrowingNoSuchElementExceptionRule{BaseRule: BaseRule{RuleName: "IteratorNotThrowingNoSuchElementException", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Iterator.next() implementations that do not throw NoSuchElementException when exhausted."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Needs: api.NeedsResolver, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "object_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := extractIdentifierFlat(file, idx)
-				if name != "next" {
+				if !hasSuperNamed(file, idx, "Iterator") {
 					return
 				}
-				if !enclosingImplementsIteratorFlat(ctx, idx) {
-					return
-				}
-				body, _ := file.FlatFindChild(idx, "function_body")
-				if body == 0 {
-					return
-				}
-				if !functionThrowsNoSuchElementExceptionFlat(ctx, body) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						"Iterator's next() method should throw NoSuchElementException when there are no more elements.")
+				if fn := memberFunctionNamed(file, idx, "next"); fn != 0 && !throwsNoSuchElement(file, fn) {
+					emitAtClassName(ctx, idx, "This implementation of Iterator does not correctly implement the next() method as it doesn't throw a NoSuchElementException when no elements remain in the Iterator.")
 				}
 			},
 		})
@@ -218,7 +223,9 @@ func registerPotentialbugsLifecycleRules() {
 						}
 					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				// detekt reports the declaration node, which starts at the comment directly above it.
+				at := leadingCommentStart(file, idx)
+				ctx.EmitAt(file.FlatRow(at)+1, file.FlatCol(at)+1,
 					"'lateinit' usage detected. Consider using lazy initialization or nullable types instead.")
 			},
 		})
@@ -227,7 +234,7 @@ func registerPotentialbugsLifecycleRules() {
 		r := &MissingPackageDeclarationRule{BaseRule: BaseRule{RuleName: "MissingPackageDeclaration", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects Kotlin or Java source files that are missing a package declaration."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"source_file", "program"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"source_file", "program"}, Languages: []scanner.Language{scanner.LangKotlin}, Fix: api.FixCosmetic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -241,7 +248,7 @@ func registerPotentialbugsLifecycleRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "override") {
@@ -278,7 +285,7 @@ func registerPotentialbugsLifecycleRules() {
 					!missingSuperCallParentMethodHasAnnotation(file, idx, name, r.MustInvokeSuperAnnotations) {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+				f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("Override function '%s' does not call super.%s().", name, name))
 				bodyText := file.FlatNodeText(body)
 				if strings.HasPrefix(strings.TrimSpace(bodyText), "{") {

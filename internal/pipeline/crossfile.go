@@ -523,7 +523,7 @@ func applySuppressionColumns(cols *scanner.FindingColumns, files []*scanner.File
 		if !ok || file.Suppression == nil {
 			return true
 		}
-		return !file.Suppression.IsSuppressed(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row))
+		return !file.Suppression.IsSuppressedAtColumn(cols.RuleAt(row), cols.RuleSetAt(row), cols.LineAt(row), cols.ColumnAt(row))
 	})
 }
 

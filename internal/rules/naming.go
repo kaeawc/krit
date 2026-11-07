@@ -38,62 +38,6 @@ type FunctionNamingRule struct {
 // Classified per roadmap/17.
 func (r *FunctionNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-func functionDeclarationHasExplicitReturnTypeFlat(file *scanner.File, idx uint32) bool {
-	seenParams := false
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		c := file.FlatChild(idx, i)
-		t := file.FlatType(c)
-		if t == "function_value_parameters" {
-			seenParams = true
-			continue
-		}
-		if !seenParams {
-			continue
-		}
-		switch t {
-		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_reference", "dynamic_type":
-			return true
-		case "function_body", "=", "{":
-			return false
-		}
-	}
-	text := file.FlatNodeText(idx)
-	funIdx := strings.Index(text, "fun ")
-	if funIdx < 0 {
-		return false
-	}
-	rest := text[funIdx:]
-	paren := strings.Index(rest, ")")
-	if paren < 0 {
-		return false
-	}
-	after := strings.TrimLeft(rest[paren+1:], " \t\n\r")
-	return strings.HasPrefix(after, ":")
-}
-
-func isTopLevelFunctionFlat(file *scanner.File, idx uint32) bool {
-	p, ok := file.FlatParent(idx)
-	return ok && file.FlatType(p) == "source_file"
-}
-
-func functionHasExpressionBodyReturningCallFlat(file *scanner.File, idx uint32) bool {
-	body, _ := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return false
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if !strings.HasPrefix(bodyText, "=") {
-		return false
-	}
-	for i := 0; i < file.FlatNamedChildCount(body); i++ {
-		c := file.FlatNamedChild(body, i)
-		if file.FlatType(c) == "call_expression" {
-			return true
-		}
-	}
-	return false
-}
-
 // VariableNamingRule checks local variable names.
 type VariableNamingRule struct {
 	FlatDispatchBase
@@ -101,6 +45,7 @@ type VariableNamingRule struct {
 	Pattern                *regexp.Regexp
 	PrivateVariablePattern *regexp.Regexp
 	ExcludeClassPattern    *regexp.Regexp
+	IgnoreOverridden       bool
 }
 
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
@@ -108,16 +53,22 @@ type VariableNamingRule struct {
 // Classified per roadmap/17.
 func (r *VariableNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
+// variableNamingIsFunctionLocalPropertyFlat reports a property detekt's VariableNaming checks: a local
+// variable or a member of a class. Top-level properties and everything inside an object, however deeply
+// nested, are left to TopLevelPropertyNaming and ObjectPropertyNaming. In a script the top level is the body of
+// the script, so its properties are local variables too.
 func variableNamingIsFunctionLocalPropertyFlat(file *scanner.File, idx uint32) bool {
+	checked := false
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
-		case "function_body":
-			return true
-		case "class_body", "class_declaration", "object_declaration", "companion_object":
+		case "object_declaration", "companion_object", "object_literal":
 			return false
+		case "function_body", "lambda_literal", "anonymous_initializer", "secondary_constructor", "getter", "setter",
+			"class_body", "enum_class_body":
+			checked = true
 		}
 	}
-	return false
+	return checked || file.IsScript()
 }
 
 // PackageNamingRule checks package names.
@@ -181,6 +132,20 @@ func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
 	if eq := strings.Index(text, "="); eq >= 0 {
 		initializer := strings.TrimSpace(text[eq+1:])
 		return initializer == "true" || initializer == "false"
+	}
+	return false
+}
+
+// namingWireAnnotations map a field to an external schema name, so a snake_case Kotlin name mirrors the wire format.
+var namingWireAnnotations = []string{"SerialName", "SerializedName", "Json", "JsonProperty", "Element", "Attribute"}
+
+// namingParameterHasWireName reports a parameter carrying a serialization name annotation.
+func namingParameterHasWireName(file *scanner.File, param uint32) bool {
+	text := file.FlatNodeText(param)
+	for _, name := range namingWireAnnotations {
+		if strings.Contains(text, "@"+name) || strings.Contains(text, ":"+name+"(") || strings.Contains(text, "field:"+name) {
+			return true
+		}
 	}
 	return false
 }
@@ -402,35 +367,6 @@ func containsIdentifierStart(text, prefix string) bool {
 			return false
 		}
 	}
-}
-
-func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {
-	if file == nil || file.FlatType(idx) != "function_declaration" {
-		return false
-	}
-	var sawUserType bool
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		c := file.FlatChild(idx, i)
-		switch file.FlatType(c) {
-		case "user_type":
-			sawUserType = true
-		case "simple_identifier":
-			if sawUserType {
-				return true
-			}
-			return false
-		}
-	}
-	text := strings.TrimSpace(file.FlatNodeText(idx))
-	if !strings.HasPrefix(text, "fun ") {
-		return false
-	}
-	rest := strings.TrimPrefix(text, "fun ")
-	if parenIdx := strings.Index(rest, "("); parenIdx > 0 {
-		head := rest[:parenIdx]
-		return strings.Contains(head, ".")
-	}
-	return false
 }
 
 // NonBooleanPropertyPrefixedWithIsRule flags non-Boolean properties that start with "is".

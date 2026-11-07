@@ -11,7 +11,7 @@ import (
 )
 
 // TimberTreeNotPlantedRule flags projects that use Timber.d/i/w/e but have
-// no Timber.plant() call reachable from Application.onCreate.
+// no Timber.plant() call in an Application subclass or startup Initializer.
 type TimberTreeNotPlantedRule struct {
 	BaseRule
 }
@@ -59,7 +59,7 @@ func (r *TimberTreeNotPlantedRule) check(ctx *api.Context) {
 		RuleSet:    r.RuleSetName,
 		Rule:       r.RuleName,
 		Severity:   r.Sev,
-		Message:    "Timber is used but Timber.plant() is not called from Application.onCreate; logs will be silently dropped.",
+		Message:    "Timber is used but no Timber.plant() call was found in an Application subclass or startup Initializer; logs will be silently dropped.",
 		Confidence: firstUsage.confidence,
 	})
 }
@@ -229,16 +229,15 @@ func timberReceiverMatches(receiver string, imports timberImportInfo) bool {
 	return false
 }
 
+// timberPlantInApplicationOnCreate reports a plant call made from app startup code: any member of an
+// Application subclass (onCreate, attachBaseContext, helper methods, init blocks) or an androidx.startup Initializer.
 func timberPlantInApplicationOnCreate(ctx *api.Context, file *scanner.File, call uint32) bool {
-	fn, ok := timberEnclosingAncestor(file, call, "function_declaration")
-	if !ok || semantics.DeclarationName(file, fn) != "onCreate" || !file.FlatHasModifier(fn, "override") {
-		return false
+	for cls, ok := timberEnclosingAncestor(file, call, "class_declaration", "object_declaration"); ok; cls, ok = timberEnclosingAncestor(file, cls, "class_declaration", "object_declaration") {
+		if timberClassExtendsApplication(file, cls, ctx.Resolver, make(map[uint32]bool)) || classHasSupertypeNamed(file, cls, "Initializer") {
+			return true
+		}
 	}
-	cls, ok := timberEnclosingAncestor(file, fn, "class_declaration", "object_declaration")
-	if !ok {
-		return false
-	}
-	return timberClassExtendsApplication(file, cls, ctx.Resolver, make(map[uint32]bool))
+	return false
 }
 
 func timberClassExtendsApplication(file *scanner.File, classNode uint32, resolver typeinfer.TypeResolver, seen map[uint32]bool) bool {

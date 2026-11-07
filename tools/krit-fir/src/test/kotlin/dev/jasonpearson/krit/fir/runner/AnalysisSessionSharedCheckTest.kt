@@ -19,7 +19,10 @@ import kotlin.test.assertTrue
  * side must get exactly what its own compile would have given it.
  */
 class AnalysisSessionSharedCheckTest {
-    @TempDir lateinit var tmp: Path
+    @TempDir lateinit var tempRoot: Path
+
+    // Canonical, because the compiler reports real paths (/tmp and /var are symlinks on macOS).
+    private val tmp: Path get() = tempRoot.toRealPath()
 
     private val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
 
@@ -86,10 +89,11 @@ class AnalysisSessionSharedCheckTest {
         val outside = write("loose/Loose.kt", "package q\nfun loose() {}\n").path
         val session = AnalysisSession(listOf(root), listOf(stdlib))
 
-        // The check compiles a file the oracle's compilation does not have.
+        // A file only the check names joins the one shared compile instead of forcing a second one.
         val (outcome, checked) = session.analyzeWithCheck(paths, request(paths + outside))
-        assertNull(checked)
-        assertEquals(OracleResponse.buildOneShot(session.analyzeFull(paths).result), OracleResponse.buildOneShot(outcome.result))
+        assertNotNull(checked, "the check's extra file should join the shared compile")
+        assertTrue(outside !in checked.errorFiles && checked.crashed.isEmpty(), checked.toString())
+        assertEquals(OracleResponse.buildOneShot(session.analyzeFull(paths + outside).result), OracleResponse.buildOneShot(outcome.result))
 
         // The request names another compile context.
         val other = request(paths).copy(classpath = listOf(stdlib, outside))

@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -50,10 +49,10 @@ func registerPotentialbugsPropertiesRules() {
 				collectIdentifiers = func(n uint32) []string {
 					var ids []string
 					switch file.FlatType(n) {
-					case "function_declaration", "lambda_literal":
+					case "function_declaration", "lambda_literal", "getter", "setter":
 						return nil
 					}
-					if file.FlatType(n) == "simple_identifier" {
+					if file.FlatType(n) == "simple_identifier" && propertyRefCouldBeClassProperty(file, n) {
 						ids = append(ids, file.FlatNodeText(n))
 					}
 					for i := 0; i < file.FlatChildCount(n); i++ {
@@ -73,13 +72,14 @@ func registerPotentialbugsPropertiesRules() {
 							continue
 						}
 						refs := collectIdentifiers(child)
+						locals := localDeclaredNames(file, child)
 						for _, ref := range refs {
-							if ref == propName {
+							if ref == propName || locals[ref] {
 								continue
 							}
 							declIdx, ok := propByName[ref]
 							if ok && declIdx > i {
-								ctx.EmitAt(file.FlatRow(child)+1, 1,
+								ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
 									fmt.Sprintf("Property '%s' uses '%s' which is declared later.", propName, ref))
 								break // one finding per property
 							}
@@ -87,10 +87,14 @@ func registerPotentialbugsPropertiesRules() {
 					case "anonymous_initializer":
 						// init {} blocks execute eagerly in declaration order.
 						refs := collectIdentifiers(child)
+						locals := localDeclaredNames(file, child)
 						for _, ref := range refs {
+							if locals[ref] {
+								continue
+							}
 							declIdx, ok := propByName[ref]
 							if ok && declIdx > i {
-								ctx.EmitAt(file.FlatRow(child)+1, 1,
+								ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
 									fmt.Sprintf("Init block uses '%s' which is declared later.", ref))
 								break
 							}
@@ -101,43 +105,15 @@ func registerPotentialbugsPropertiesRules() {
 		})
 	}
 	{
-		r := &UnconditionalJumpStatementInLoopRule{BaseRule: BaseRule{RuleName: "UnconditionalJumpStatementInLoop", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects loops containing an unconditional return, break, or throw that causes the loop to execute only once."}}
+		r := &UnconditionalJumpStatementInLoopRule{BaseRule: BaseRule{RuleName: "UnconditionalJumpStatementInLoop", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects loops whose body has an unconditional return, break, or throw statement, so the loop executes at most once."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"for_statement", "while_statement", "do_while_statement"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				body, _ := file.FlatFindChild(idx, "statements")
-				if body == 0 {
-					for i := 0; i < file.FlatChildCount(idx); i++ {
-						child := file.FlatChild(idx, i)
-						if file.FlatType(child) == "control_structure_body" {
-							body = child
-							break
-						}
-					}
-				}
-				if body == 0 {
-					return
-				}
-				text := file.FlatNodeText(body)
-				trimmed := strings.TrimSpace(text)
-				if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
-					trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
-				}
-				lines := strings.Split(trimmed, "\n")
-				for _, l := range lines {
-					lt := strings.TrimSpace(l)
-					if lt == "" {
-						continue
-					}
-					if strings.HasPrefix(lt, "return") || strings.HasPrefix(lt, "break") || strings.HasPrefix(lt, "continue") || strings.HasPrefix(lt, "throw") {
-						if !strings.Contains(trimmed, "if ") && !strings.Contains(trimmed, "if(") && !strings.Contains(trimmed, "when") {
-							ctx.EmitAt(file.FlatRow(idx)+1, 1,
-								"Unconditional jump statement in loop. The loop will only execute once.")
-						}
-					}
-					break // Only check the first non-empty statement
+				if loopHasUnconditionalJump(file, idx) {
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						"This loop contains an unconditional jump expression which essentially renders it useless as it will exit the loop during the first iteration.")
 				}
 			},
 		})
@@ -174,7 +150,7 @@ func registerPotentialbugsPropertiesRules() {
 					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						"Function call with a single unnamed parameter. Consider using a named parameter for clarity.")
 					return
 				}
@@ -184,74 +160,24 @@ func registerPotentialbugsPropertiesRules() {
 				if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Function call with many unnamed parameters. Consider using named parameters for clarity.")
 			},
 		})
 	}
 	{
-		r := &UnusedUnaryOperatorRule{BaseRule: BaseRule{RuleName: "UnusedUnaryOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects standalone unary +x or -x expressions whose result is never used."}}
+		r := &UnusedUnaryOperatorRule{BaseRule: BaseRule{RuleName: "UnusedUnaryOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects a unary + or - that starts a line and whose result is never used, such as the broken continuation `+ 3` below a statement."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"prefix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if file.FlatChildCount(idx) < 2 {
-					return
-				}
-				op := file.FlatNodeText(file.FlatChild(idx, 0))
-				if op != "+" && op != "-" {
-					return
-				}
-
-				topExpr := idx
-				for {
-					parent, ok := file.FlatParent(topExpr)
-					if !ok || file.FlatType(parent) != "binary_expression" {
-						break
-					}
-					topExpr = parent
-				}
-
-				stmts, ok := file.FlatParent(topExpr)
-				if !ok {
-					return
-				}
-
-				if file.FlatType(stmts) != "statements" {
-					return
-				}
-
-				if flatIsLastNamedChildOf(file, topExpr, stmts) && flatIsExpressionBlock(file, stmts) {
-					return
-				}
-
-				text := file.FlatNodeText(idx)
-				if file.FlatType(topExpr) == "binary_expression" {
-					text = file.FlatNodeText(topExpr)
-				}
-
-				row := file.FlatRow(idx) + 1
-				col := file.FlatCol(idx) + 1
-				f := r.Finding(file, row, col,
-					fmt.Sprintf("Unused unary operator. The result of '%s' is not used.", text))
-				lineStart, lineEnd := nodeLineRange(file.Content,
-					int(file.FlatStartByte(topExpr)), int(file.FlatEndByte(topExpr)))
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   lineStart,
-					EndByte:     lineEnd,
-					Replacement: "",
-				}
-				ctx.Emit(f)
-			},
+			Check: func(ctx *api.Context) { checkUnusedUnaryOperator(ctx, r) },
 		})
 	}
 	{
-		r := &UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement in return statements where the operation has no effect."}}
+		r := &UselessPostfixExpressionRule{BaseRule: BaseRule{RuleName: "UselessPostfixExpression", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects postfix increment or decrement whose effect is lost: returning a local variable's postfix expression, or assigning x++ back to x."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"jump_expression"}, Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"jump_expression", "assignment"}, Confidence: r.Confidence(), Fix: api.FixIdiomatic, Implementation: r,
 			Check: r.checkUselessPostfixFlat,
 		})
 	}

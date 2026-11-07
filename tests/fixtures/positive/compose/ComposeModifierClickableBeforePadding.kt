@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 fun ComposeModifierClickableBeforePadding(onTap: () -> Unit) {
 	Box(
 		modifier = Modifier
-			.clickable { onTap() }
-			.padding(16.dp),
+			.padding(16.dp)
+			.clickable { onTap() },
 	)
 }

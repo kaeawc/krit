@@ -56,6 +56,7 @@ type ForbiddenCommentRule struct {
 	FlatDispatchBase
 	BaseRule
 	Comments        []string       // forbidden comment markers
+	Values          []string       // deprecated detekt option: markers matched case-insensitively
 	AllowedPatterns *regexp.Regexp // regex; comments matching this are allowed
 }
 
@@ -81,6 +82,9 @@ type ForbiddenVoidRule struct {
 	BaseRule
 	IgnoreOverridden      bool
 	IgnoreUsageInGenerics bool
+	// IgnoreIdioms skips Void in the parameters of overriding functions and in type arguments of well-known Java
+	// interop generics. krit extension; detekt reports them, so detekt's defaults set this to false.
+	IgnoreIdioms bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Style/forbidden rule. Detection flags configured forbidden
@@ -92,19 +96,23 @@ func (r *ForbiddenVoidRule) Confidence() float64 { return api.ConfidenceMedium }
 // javaInteropGenericTypes are Java generic types where Void is the canonical
 // way to say "no result" and Unit is not substitutable.
 var javaInteropGenericTypes = map[string]bool{
-	"AsyncTask":         true,
-	"Callable":          true,
-	"CompletableFuture": true,
-	"Future":            true,
-	"ListenableFuture":  true,
-	"Supplier":          true,
-	"Function":          true,
-	"BiFunction":        true,
-	"Single":            true, // RxJava
-	"Maybe":             true,
-	"Observable":        true,
-	"Flowable":          true,
-	"Completable":       true,
+	"AsyncTask":          true,
+	"Callable":           true,
+	"CompletableFuture":  true,
+	"Future":             true,
+	"ListenableFuture":   true,
+	"Supplier":           true,
+	"Function":           true,
+	"BiFunction":         true,
+	"Single":             true, // RxJava
+	"Maybe":              true,
+	"Observable":         true,
+	"Flowable":           true,
+	"Completable":        true,
+	"OutcomeReceiver":    true, // android.os
+	"Task":               true, // Play services
+	"OnSuccessListener":  true,
+	"OnCompleteListener": true,
 }
 
 // ForbiddenImportRule detects banned import patterns.
@@ -114,6 +122,42 @@ type ForbiddenImportRule struct {
 	Patterns         []string // kept for backward compat; same as ForbiddenImports
 	ForbiddenImports []string
 	AllowedImports   []string
+	// Imports holds detekt-style glob patterns (`*` wildcard) matched against the whole import path.
+	Imports []string
+	// ForbiddenPatterns holds detekt-style regexes searched in the import path.
+	ForbiddenPatterns []*regexp.Regexp
+}
+
+// importGlobMatches reports whether the whole import path matches a detekt `imports` glob.
+func importGlobMatches(pattern, imp string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	var sb strings.Builder
+	sb.WriteString("^")
+	for _, part := range strings.Split(pattern, "*") {
+		sb.WriteString(regexp.QuoteMeta(part))
+		sb.WriteString(".*")
+	}
+	expr := strings.TrimSuffix(sb.String(), ".*") + "$"
+	re, err := regexp.Compile(expr)
+	return err == nil && re.MatchString(imp)
+}
+
+// importMatchesLegacyPattern matches a forbiddenImports entry at a package boundary.
+func importMatchesLegacyPattern(imp, pattern string) bool {
+	for from := 0; ; {
+		i := strings.Index(imp[from:], pattern)
+		if i < 0 {
+			return false
+		}
+		i += from
+		if i == 0 || imp[i-1] == '.' {
+			return true
+		}
+		from = i + 1
+	}
 }
 
 var defaultForbiddenImports = []string{
@@ -162,19 +206,19 @@ func forbiddenMethodCallMatch(ctx *api.Context, call uint32, methods []string) (
 			continue
 		}
 		if target.Resolved && forbiddenMethodResolvedTargetMatches(spec, target.QualifiedName, name) {
-			return name, true
+			return spec, true
 		}
 		if !target.Resolved && forbiddenMethodImplicitKotlinStdlibMatch(ctx, call, name) {
-			return name, true
+			return spec, true
 		}
 		if !target.Resolved && forbiddenMethodSameFileDeclarationMatch(ctx, call, name) {
 			if forbiddenMethodImplicitKotlinStdlibName(name) {
 				continue
 			}
-			return name, true
+			return spec, true
 		}
 		if !target.Resolved && forbiddenMethodQualifiedReferenceMatches(ctx.File, call, spec, name) {
-			return name, true
+			return spec, true
 		}
 	}
 	return "", false
@@ -324,6 +368,9 @@ func isInsidePreviewOrSampleFunctionFlatWithConfig(file *scanner.File, idx uint3
 			if nodeType != "source_file" && previewOrSampleFunctionLikeTextWithConfig(file.FlatNodeText(p), cfg) {
 				return true
 			}
+			if misparsedFunctionHasPrecedingCustomPreview(file, p, cfg) {
+				return true
+			}
 			continue
 		}
 		name := extractIdentifierFlat(file, p)
@@ -339,11 +386,49 @@ func isInsidePreviewOrSampleFunctionFlatWithConfig(file *scanner.File, idx uint3
 		mods, _ := file.FlatFindChild(p, "modifiers")
 		if mods != 0 {
 			modText := file.FlatNodeText(mods)
-			if textHasCustomPreviewAnnotation(modText, cfg) {
+			if textHasCustomPreviewAnnotation(modText, cfg) || composeModifierTextHasMultipreviewAnnotation(file, modText) {
 				return true
 			}
 		}
 		return false
+	}
+	return false
+}
+
+// composeModifierTextHasMultipreviewAnnotation reports whether the modifiers use an annotation class declared in
+// this file that is itself annotated with a preview annotation (a multipreview such as `@Themes`).
+func composeModifierTextHasMultipreviewAnnotation(file *scanner.File, modText string) bool {
+	if !strings.Contains(modText, "@") {
+		return false
+	}
+	var found bool
+	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
+		if found || !file.FlatHasModifier(decl, "annotation") {
+			return
+		}
+		mods, ok := file.FlatFindChild(decl, "modifiers")
+		if !ok || !composeModifierTextHasPreviewAnnotation(file.FlatNodeText(mods)) {
+			return
+		}
+		name := extractIdentifierFlat(file, decl)
+		found = name != "" && textUsesAnnotationNamed(modText, name)
+	})
+	return found
+}
+
+// textUsesAnnotationNamed reports whether text applies `@name` (optionally qualified or with a use-site target).
+func textUsesAnnotationNamed(text, name string) bool {
+	for i := 0; i < len(text); i++ {
+		if text[i] != '@' {
+			continue
+		}
+		end := i + 1
+		for end < len(text) && (isIdentByte(text[end]) || text[end] == '.' || text[end] == ':') {
+			end++
+		}
+		if flatAnnotationSimpleName(text[i+1:end]) == name {
+			return true
+		}
 	}
 	return false
 }

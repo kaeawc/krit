@@ -1,42 +1,59 @@
 package fixtures.negative.style
 
-data class Config(var name: String = "", var version: String = "")
+class Settings {
+    var name: String = ""
+    var retries: Int = 0
 
-fun setup(): Config {
-    val config = Config()
-    config.apply { name = "foo" }
-    return config
+    fun reset() {}
 }
 
-fun multipleMembers(): Config {
-    val config = Config()
-    config.apply {
-        name = "foo"
-        version = "1.0"
-    }
-    return config
-}
+fun topLevel() {}
 
-fun explicitThis(): Config {
-    val config = Config()
-    config.apply { this.name = "bar" }
-    return config
-}
-
-class Transition {
-    fun setEvaluator(e: Any) {}
-    fun setDuration(d: Long) {}
-}
-
-fun bareFunctionCallInApply(): Transition {
-    return Transition().apply {
-        setEvaluator(object {})
-        setDuration(300)
+fun multipleStatements(settings: Settings) {
+    settings.apply {
+        this.name = "primary"
+        this.retries = 3
     }
 }
 
-fun singleBareFunctionCallInApply(): Transition {
-    return Transition().apply {
-        setEvaluator(object {})
+fun valueIsUsed(settings: Settings): Settings {
+    val copy = settings.apply { this.reset() }
+    println(copy)
+    return settings.apply { this.reset() }
+}
+
+fun valueIsChained(settings: Settings) {
+    settings.apply { this.reset() }.reset()
+}
+
+fun expressionBody(settings: Settings) = settings.apply { this.reset() }
+
+fun resultOfLambda(settings: Settings) = run { settings.apply { this.reset() } }
+
+fun noReceiverReference(settings: Settings) {
+    settings.apply { topLevel() }
+    settings.apply { println("done") }
+}
+
+fun otherReceiver(settings: Settings, other: Settings) {
+    settings.apply { other.reset() }
+}
+
+fun emptyBlock(settings: Settings) {
+    settings.apply { }
+}
+
+fun notAReferenceOrAssignment(settings: Settings) {
+    settings.apply { this.retries + 1 }
+    settings.apply { this?.reset() }
+}
+
+fun twoReceiverReferences(settings: Settings) {
+    settings.apply { this.reset(); this.reset() }
+}
+
+fun implicitReceiverInScope(settings: Settings) {
+    with(settings) {
+        apply { this.reset() }
     }
 }

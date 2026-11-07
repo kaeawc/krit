@@ -1,10 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 47
+// go-lines: 25, 29, 46
 // Deliberate improvements: each verify below is a HostnameVerifier's verify
 // that always returns true, so each is a real finding. Go misses them because
-// it only visits class declarations (not object, companion object, or
-// anonymous object declarations), matches the verifier by the text
-// HostnameVerifier in the class header, reports one verify per class, and
+// it does not visit object or companion object declarations, matches the
+// verifier by the text HostnameVerifier in the class header, reports one verify per class, and
 // compares the body text with `return true` or `true`; it counts the
 // parameters by the commas in the text, so a trailing comma makes three.
 package test

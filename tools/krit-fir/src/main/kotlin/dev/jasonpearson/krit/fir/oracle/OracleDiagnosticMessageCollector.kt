@@ -45,16 +45,15 @@ internal class OracleDiagnosticMessageCollector(
         }
         val callerPath = pathByCanonical[canonicalPath] ?: location.path
         val offsets = collector.offsetsFor(callerPath)
-        val startByte: Int
-        val endByte: Int
+        var startChar = -1
+        var endChar = -1
+        var startByte = 0
+        var endByte = 0
         if (offsets != null && location.lineEnd > 0 && location.columnEnd > 0) {
-            val startCharOffset = offsets.charOffsetFor(location.line, location.column)
-            val endCharOffset = offsets.charOffsetFor(location.lineEnd, location.columnEnd)
-            startByte = offsets.byteOffsetAt(startCharOffset)
-            endByte = offsets.byteOffsetAt(endCharOffset)
-        } else {
-            startByte = 0
-            endByte = 0
+            startChar = offsets.charOffsetFor(location.line, location.column)
+            endChar = offsets.charOffsetFor(location.lineEnd, location.columnEnd)
+            startByte = offsets.byteOffsetAt(startChar)
+            endByte = offsets.byteOffsetAt(endChar)
         }
 
         collector.addDiagnostic(
@@ -68,6 +67,8 @@ internal class OracleDiagnosticMessageCollector(
                 startByte = startByte,
                 endByte = endByte,
             ),
+            startChar,
+            endChar,
         )
     }
 
@@ -94,7 +95,7 @@ internal class OracleDiagnosticMessageCollector(
             CompilerMessageSeverity.STRONG_WARNING,
         )
 
-        // FirErrorsDefaultMessages templates as of Kotlin 2.4.20. The
+        // FirErrorsDefaultMessages templates as of Kotlin 2.4.21. The
         // entries below match the literal message-text prefixes K2 emits
         // through the CLI MessageCollector — see the message templates in
         // `org.jetbrains.kotlin.fir.analysis.diagnostics.FirErrorsDefaultMessages`.

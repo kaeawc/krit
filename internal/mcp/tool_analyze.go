@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -187,13 +188,15 @@ func (s *Server) analyzeProject(args analyzeArgs) ToolResult {
 	return jsonResult(summary)
 }
 
-func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, manifestPaths []string) {
+func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.FindingCollector, manifestPaths []string, sourceRoot string) {
+	preferenceFacts := lazyPreferenceActivityFacts(sourceRoot)
 	for _, manifestPath := range manifestPaths {
 		parsed, err := android.ParseManifest(manifestPath)
 		if err != nil {
 			continue
 		}
 		rManifest := pipeline.ConvertManifestForRules(android.ConvertManifest(parsed, manifestPath))
+		rManifest.ActivityExtendsPreferenceActivity = preferenceFacts()
 		file := &scanner.File{
 			Path:     manifestPath,
 			Language: scanner.LangXML,
@@ -201,6 +204,31 @@ func collectManifestFindings(dispatcher *rules.Dispatcher, collector *scanner.Fi
 		}
 		cols, _ := dispatcher.RunManifest(file, rManifest)
 		collector.AppendColumns(&cols)
+	}
+}
+
+// lazyPreferenceActivityFacts parses the project's Kotlin and Java sources once, on first use, so the
+// ExportedPreferenceActivity rule sees real superclass chains instead of falling back to the class name.
+func lazyPreferenceActivityFacts(sourceRoot string) func() map[string]bool {
+	var once sync.Once
+	var facts map[string]bool
+	return func() map[string]bool {
+		once.Do(func() {
+			if sourceRoot == "" {
+				return
+			}
+			var files []*scanner.File
+			if paths, err := scanner.CollectKotlinFiles([]string{sourceRoot}, nil); err == nil {
+				parsed, _ := scanner.ScanFiles(context.Background(), paths, 4)
+				files = append(files, parsed...)
+			}
+			if paths, err := scanner.CollectJavaFiles([]string{sourceRoot}, nil); err == nil {
+				parsed, _ := scanner.ScanJavaFiles(context.Background(), paths, 4)
+				files = append(files, parsed...)
+			}
+			facts = rules.ComputeActivityPreferenceFacts(files)
+		})
+		return facts
 	}
 }
 
@@ -288,7 +316,7 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 	dispatcher.SetLibraryFacts(libraryFacts)
 
 	if scope == "manifest" || scope == "all" {
-		collectManifestFindings(dispatcher, collector, proj.ManifestPaths)
+		collectManifestFindings(dispatcher, collector, proj.ManifestPaths, args.ProjectPath)
 	}
 	if scope == "resources" || scope == "all" {
 		collectResourceFindings(dispatcher, collector, proj.ResDirs)

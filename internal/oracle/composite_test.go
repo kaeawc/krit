@@ -1,6 +1,9 @@
 package oracle
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -93,5 +96,96 @@ func TestCompositeResolver_ResolveByNameFlat_BothNilReturnsNil(t *testing.T) {
 	c := NewCompositeResolver(stub, fallback)
 	if got := c.ResolveByNameFlat("missing", 0, nil); got != nil {
 		t.Fatalf("expected nil when neither source nor oracle resolve; got %#v", got)
+	}
+}
+
+func TestSmartCastCrossesModules(t *testing.T) {
+	modules := map[string]string{
+		"/repo/app/src/main/kotlin/Use.kt":     ":app",
+		"/repo/app/src/test/kotlin/UseTest.kt": ":app",
+		"/repo/lib/src/main/kotlin/Model.kt":   ":lib",
+	}
+	moduleOf := func(path string) string { return modules[path] }
+	diag := func(decls ...string) Diagnostic {
+		return Diagnostic{FactoryName: "UNNECESSARY_SAFE_CALL", SmartCastDecls: decls}
+	}
+	c := NewCompositeResolver(NewFakeOracle(), typeinfer.NewResolver())
+	if c.SmartCastCrossesModules("/repo/app/src/main/kotlin/Use.kt", diag("/repo/lib/src/main/kotlin/Model.kt")) {
+		t.Fatal("without a module map every verdict must stand")
+	}
+	c.SetModuleOf(moduleOf)
+	cases := []struct {
+		name string
+		file string
+		d    Diagnostic
+		want bool
+	}{
+		{"another module", "/repo/app/src/main/kotlin/Use.kt", diag("/repo/lib/src/main/kotlin/Model.kt"), true},
+		{"friend source set", "/repo/app/src/test/kotlin/UseTest.kt", diag("/repo/app/src/main/kotlin/Use.kt"), false},
+		{"any link of the chain", "/repo/app/src/test/kotlin/UseTest.kt", diag("/repo/app/src/main/kotlin/Use.kt", "/repo/lib/src/main/kotlin/Model.kt"), true},
+		{"no smart cast", "/repo/app/src/main/kotlin/Use.kt", diag(), false},
+		{"unknown declaring module", "/repo/app/src/main/kotlin/Use.kt", diag("/elsewhere/Gen.kt"), true},
+		{"undeterminable declaration", "/repo/app/src/main/kotlin/Use.kt", diag(UnknownSmartCastDeclaration), true},
+		{"unknown beside same module", "/repo/app/src/main/kotlin/Use.kt", diag("/repo/app/src/main/kotlin/Use.kt", UnknownSmartCastDeclaration), true},
+		{"unknown file module", "/elsewhere/Use.kt", diag("/repo/lib/src/main/kotlin/Model.kt"), false},
+	}
+	for _, tc := range cases {
+		if got := c.SmartCastCrossesModules(tc.file, tc.d); got != tc.want {
+			t.Errorf("%s: SmartCastCrossesModules = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	c.SetModuleOf(nil)
+	if c.SmartCastCrossesModules("/repo/app/src/main/kotlin/Use.kt", diag("/repo/lib/src/main/kotlin/Model.kt")) {
+		t.Fatal("a cleared module map must keep every verdict")
+	}
+}
+
+func TestCompositeResolverIgnoresCrossModuleSmartCastTypes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app", "Use.kt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("fun f(a: Account) = a.profile\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseKotlinFileCached(context.Background(), path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nav uint32
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) { nav = idx })
+	if nav == 0 {
+		t.Fatal("expected a navigation expression")
+	}
+	decl := filepath.Join(dir, "lib", "Account.kt")
+	o, err := LoadFromData(&Data{
+		Version: 1, KotlinVersion: "2.1.0",
+		Files: map[string]*File{path: {Expressions: map[string]*ExpressionType{
+			"1:21": {
+				Type: "com.example.Profile", StartByte: int(file.FlatStartByte(nav)), EndByte: int(file.FlatEndByte(nav)),
+				SmartCastDecls: []string{decl},
+			},
+		}}},
+		Dependencies: map[string]*Class{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewCompositeResolver(o, typeinfer.NewResolver())
+	if got := c.OracleExpressionFlat(file, nav); got == nil || got.FQN != "com.example.Profile" {
+		t.Fatalf("without a module map the smart-cast type must stand, got %#v", got)
+	}
+	modules := map[string]string{path: ":app", decl: ":lib"}
+	c.SetModuleOf(func(p string) string { return modules[p] })
+	if got := c.OracleExpressionFlat(file, nav); got != nil {
+		t.Fatalf("a smart cast of another module's property must not be authoritative, got %#v", got)
+	}
+	if got := c.ResolveFlatNode(nav, file); got != nil && got.FQN == "com.example.Profile" && !got.IsNullable() {
+		t.Fatalf("ResolveFlatNode must not return the cross-module smart-cast type, got %#v", got)
+	}
+	modules[decl] = ":app"
+	if got := c.OracleExpressionFlat(file, nav); got == nil || got.FQN != "com.example.Profile" {
+		t.Fatalf("a smart cast within one module must stand, got %#v", got)
 	}
 }

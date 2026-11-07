@@ -50,11 +50,11 @@ func ParseSingle(ctx context.Context, path string, content []byte) (*scanner.Fil
 	}
 	parser := scanner.GetKotlinParser()
 	defer scanner.PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	file, err := scanner.ParseKotlinFile(ctx, parser, path, content)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return scanner.NewParsedFile(path, content, tree), nil
+	return file, nil
 }
 
 // SingleFileAnalyzer wraps the active rule set and a pre-built

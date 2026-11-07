@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 26, 27, 28, 29, 30, 31, 35, 36, 37, 38, 39, 41, 42, 43, 44, 46
+// go-lines: 26, 27, 28, 29, 30, 31, 35, 36, 37, 38, 39, 41, 42, 43, 45, 46
 // Positives and negatives that match Go: an android.util.Log level call whose
 // tag, a literal or a property initialized with a literal, is longer than 23
 // characters. The finding sits on the call's first line.

@@ -119,7 +119,13 @@ func recordOracleDir(cacheDir string) {
 // v16: entries no longer carry call-filter or declaration-profile
 // fingerprints, and a lookup no longer gates on them or on the
 // "no-diagnostics" profile scope (krit-fir never honored those narrowings).
-const CacheVersion = 16
+// v17: krit-fir records a call that starts where another call of its chain
+// starts under "line:col@endByte"; entries written before it hold only one
+// call per start, so suspend and call-target lookups miss the other.
+// v18: smart-cast expression facts name the files declaring the properties
+// they rely on (smartCastDecls); older entries would keep a cross-module
+// smart-cast type authoritative.
+const CacheVersion = 18
 
 // legacyDeclLedgerFile is the declared-name ledger the removed krit-types
 // backend kept at the cache root. Listed so cache resets still remove it.
@@ -1111,6 +1117,13 @@ func oracleVersionHash(backend Backend, scanPaths []string) [16]byte {
 	var out [16]byte
 	copy(out[:], h[:])
 	return out
+}
+
+// CacheIdentity names the oracle protocol, fact schema and installed krit-fir
+// jar contents. Callers mix it into persisted-cache keys so a jar or schema
+// change never serves data produced by an older oracle.
+func CacheIdentity(scanPaths []string) string {
+	return fmt.Sprintf("oracle-v%d|facts-v%d|%s", CacheVersion, FactSchemaVersion, oracleJarTokens(scanPaths))
 }
 
 func oracleJarTokens(scanPaths []string) string {

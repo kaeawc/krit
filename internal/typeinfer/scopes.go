@@ -53,8 +53,9 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 		r.buildScopesFlat(child, file, scope, it)
 	})
 
-	parent, ok := file.FlatParent(idx)
-	if !ok || parent == 0 {
+	// Smart casts are collected once for the whole tree. Running them after a top-level child
+	// marks calls in later, not yet scoped declarations on the root scope, where they leak everywhere.
+	if idx == 0 {
 		r.buildFlatSmartCastScopes(file, scope)
 	}
 }
@@ -74,6 +75,7 @@ func (r *defaultResolver) buildSourceFileScopesFlat(file *scanner.File, scope *S
 		}
 		switch file.FlatType(child) {
 		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration", "class_body",
+			"companion_object", "object_literal", "enum_class_body", "enum_entry",
 			"getter",
 			"if_expression", "when_expression", "for_statement",
 			"property_declaration", "call_expression", "elvis_expression",
@@ -88,7 +90,14 @@ func (r *defaultResolver) buildSourceFileScopesFlat(file *scanner.File, scope *S
 }
 
 func (r *defaultResolver) buildFunctionDeclScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
-	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	span := flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)}
+	// Context parameters live in an outer scope so a local of the same name
+	// shadows them.
+	if ctxParams := flatFindNamedChildOfType(file, idx, scanner.ContextParametersNodeType); ctxParams != 0 {
+		scope = scope.NewScopeForNode(span)
+		r.declareParamsFlat(ctxParams, file, scope, it)
+	}
+	childScope := scope.NewScopeForNode(span)
 	r.indexFunctionParamsFlat(idx, file, childScope, it)
 	if bodyIdx := flatFindNamedChildOfType(file, idx, "function_body"); bodyIdx != 0 {
 		flatForEachRelevantScopeChild(file, bodyIdx, func(child uint32) {
@@ -730,6 +739,11 @@ func (r *defaultResolver) indexFunctionParamsFlat(funcIdx uint32, file *scanner.
 	if params == 0 {
 		return false
 	}
+	r.declareParamsFlat(params, file, scope, it)
+	return true
+}
+
+func (r *defaultResolver) declareParamsFlat(params uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	for i := 0; i < file.FlatNamedChildCount(params); i++ {
 		param := file.FlatNamedChild(params, i)
 		if param == 0 || file.FlatType(param) != "parameter" {
@@ -745,7 +759,6 @@ func (r *defaultResolver) indexFunctionParamsFlat(funcIdx uint32, file *scanner.
 		}
 		scope.Declare(name, r.resolveParamTypeFlat(param, file, it))
 	}
-	return true
 }
 
 func (r *defaultResolver) indexLambdaParamsFlat(paramsIdx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) bool {
@@ -854,6 +867,7 @@ func flatForEachRelevantScopeChild(file *scanner.File, idx uint32, fn func(child
 		}
 		switch file.FlatType(child) {
 		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration", "class_body",
+			"companion_object", "object_literal", "enum_class_body", "enum_entry",
 			"getter", "setter", "anonymous_initializer",
 			"if_expression", "when_expression", "for_statement",
 			"property_declaration", "call_expression", "elvis_expression",

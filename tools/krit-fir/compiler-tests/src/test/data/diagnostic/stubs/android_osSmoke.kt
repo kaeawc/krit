@@ -50,7 +50,7 @@ fun implicitLooperHandler(callback: Handler.Callback): Handler {
 
 class SmokeHandler(looper: Looper) : Handler(looper) {
     override fun handleMessage(msg: Message) {
-        <!PrintlnInProduction!>println<!>(msg.obj)
+        println(msg.obj)
     }
 }
 

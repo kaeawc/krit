@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example">
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+</manifest>

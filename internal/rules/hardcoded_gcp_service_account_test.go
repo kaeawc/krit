@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
-	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -27,16 +25,7 @@ func runRuleByNameOnPath(t *testing.T, ruleName, filename, code string) []scanne
 		t.Fatal(err)
 	}
 
-	for _, r := range api.Registry {
-		if r.ID == ruleName {
-			d := rules.NewDispatcher([]*api.Rule{r}, nil)
-			cols := d.Run(file)
-			return cols.Findings()
-		}
-	}
-
-	t.Fatalf("rule %q not found in registry", ruleName)
-	return nil
+	return runRuleByNameOnFile(t, ruleName, file)
 }
 
 func TestHardcodedGcpServiceAccount_PositiveServiceAccountJSON(t *testing.T) {
@@ -58,7 +47,8 @@ package test
 
 val privateKey = """
     -----BEGIN PRIVATE KEY-----
-    abc123
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj
+    MzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu
     -----END PRIVATE KEY-----
 """.trimIndent()
 `)
@@ -134,4 +124,16 @@ class Credentials {
 			}
 		}
 	})
+}
+
+func TestHardcodedGcpServiceAccount_IgnoresDelimiterConstantsAndProse(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedGcpServiceAccount", `
+package test
+
+const val PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
+val doc = "the file has \"type\": \"service_account\" in it"
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
 }

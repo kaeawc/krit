@@ -26,7 +26,10 @@ import kotlin.test.assertTrue
  * into [AnalysisSession.incrementalState], and the guarantee that recording changes no verdict.
  */
 class IncrementalRecordingTest {
-    @TempDir lateinit var tmp: Path
+    @TempDir lateinit var tempRoot: Path
+
+    // Canonical, because the compiler reports real paths (/tmp and /var are symlinks on macOS).
+    private val tmp: Path get() = tempRoot.toRealPath()
 
     private val stdlib = File(Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
 

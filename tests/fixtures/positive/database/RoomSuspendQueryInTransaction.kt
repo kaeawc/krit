@@ -17,8 +17,7 @@ interface UserDao {
     suspend fun getPosts(id: Long): List<Post>
 
     @Transaction
-    suspend fun load(id: Long): UserWithPosts {
-        val user = getUser(id)
-        return UserWithPosts(user, getPosts(id))
+    suspend fun load(id: Long): User {
+        return getUser(id)
     }
 }

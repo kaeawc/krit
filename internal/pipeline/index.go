@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/modshard"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/perf"
@@ -115,7 +118,7 @@ type IndexInput struct {
 	ResolverCache ResolverCache
 	// ResolverFingerprintCache, when non-nil, short-circuits the
 	// resolverFingerprint compute (which hashes every Kotlin file's
-	// content — ~135 ms on an 18 k-file corpus) when no source-path
+	// content — significant on a large repo) when no source-path
 	// watcher event has fired since the last successful compute. The
 	// callback returns either the cached fingerprint or the result
 	// of build. nil disables the optimization and the fingerprint is
@@ -128,7 +131,7 @@ type IndexInput struct {
 	// TypeIndexCacheDir, when non-empty, enables the per-file
 	// FileTypeInfo cache (typeinfer.IndexFilesParallelCachedWithTracker).
 	// Unchanged files are read from disk instead of re-extracted, which
-	// is the dominant cost (~336 ms / 19k files in the planning-doc
+	// is the dominant cost (measured in the planning-doc
 	// measurement) on warm + 1-edit runs. Empty disables the cache.
 	TypeIndexCacheDir string
 	// ResidentFileTypeInfo is the daemon's in-memory FileTypeInfo
@@ -369,6 +372,11 @@ type IndexInput struct {
 	// any active rule declares module-awareness. When false, IndexPhase
 	// only runs moduleDiscovery (matches pre-refactor behaviour).
 	ModuleHasAwareRule bool
+	// GradleModelDir, when non-empty, is the exported Gradle model the oracle
+	// maps files to projects with; empty discovers .krit/gradle-model above
+	// the scan root unless NoGradleModel is set.
+	GradleModelDir string
+	NoGradleModel  bool
 }
 
 // logf forwards verbose progress lines to Reporter when set.
@@ -496,7 +504,7 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 		if child != nil {
 			child.End()
 		}
-		in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+		in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
 		return
 	}
 	if indexer, ok := in.PrebuiltResolver.(interface {
@@ -506,7 +514,7 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 			indexer.IndexFilesParallel(in.KotlinFiles, workers)
 			return nil
 		})
-		in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+		in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
 	}
 }
 
@@ -569,7 +577,7 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 				indexer.IndexFilesParallel(in.KotlinFiles, workers)
 				return nil
 			})
-			in.logf("verbose: Indexed %d Kotlin files for type resolution", len(in.KotlinFiles))
+			in.logf("verbose: Indexed %d Kotlin files for type resolution\n", len(in.KotlinFiles))
 		}
 		return r
 	}
@@ -684,6 +692,30 @@ func androidProjectFingerprint(paths []string) string {
 	return hashutil.HashHex([]byte(strings.Join(abs, "\x00")))
 }
 
+// cacheIdentityPaths are the scan paths used to locate the krit-fir jar for
+// cache keys; they match the daemon's args.Paths.
+func (in IndexInput) cacheIdentityPaths() []string {
+	if in.CacheScanPaths != nil {
+		return in.CacheScanPaths
+	}
+	return in.Paths
+}
+
+// indexAnalysisRuleHash adds the project-level facts the index run resolved to a rule hash.
+func indexAnalysisRuleHash(ruleHash string, in IndexInput, result *IndexResult) string {
+	project, facts := result.AndroidProject, result.LibraryFacts
+	if project == nil {
+		project = in.PrebuiltAndroidProject
+	}
+	if facts == nil {
+		facts = in.PrebuiltLibraryFacts
+	}
+	if project == nil {
+		return ruleHash
+	}
+	return withProjectFacts(ruleHash, project, facts.Fingerprint())
+}
+
 // computeRuleHash ensures result.RuleHash is set, deriving it from the
 // active rule IDs and config when the cache load did not already populate it.
 func (IndexPhase) computeRuleHash(in IndexInput, result *IndexResult) {
@@ -699,7 +731,7 @@ func (IndexPhase) computeRuleHash(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	result.RuleHash = cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
+	result.RuleHash = indexAnalysisRuleHash(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in, result)
 }
 
 // beginIndexPhaseSpan buckets every IndexPhase-internal perf span under
@@ -816,7 +848,123 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		p.computeRuleHash(in, &result)
 	})
 
+	attachOracleModules(result.Resolver, result.Graph, p.gradleProjectIndex(in), in)
+
 	return result, nil
+}
+
+// gradleProjectIndex returns a lazy loader for the exported Gradle model's
+// file-to-project index, or nil when no model is configured or discovered.
+func (p IndexPhase) gradleProjectIndex(in IndexInput) func() *gradlemodel.ProjectIndex {
+	dir := in.GradleModelDir
+	if dir == "" {
+		if in.NoGradleModel {
+			return nil
+		}
+		scanRoot := p.ScanRoot
+		if scanRoot == "" {
+			scanRoot = in.ModuleScanRoot
+		}
+		if scanRoot == "" {
+			scanRoot = "."
+			if len(in.Paths) > 0 {
+				scanRoot = in.Paths[0]
+			}
+		}
+		dir = gradlemodel.Discover(scanRoot)
+	}
+	if dir == "" {
+		return nil
+	}
+	return sync.OnceValue(func() *gradlemodel.ProjectIndex {
+		model, _, err := gradlemodel.Load(dir)
+		if err != nil {
+			in.logf("verbose: oracle modules: gradle model %s: %v\n", dir, err)
+			return nil
+		}
+		return model.ProjectIndex()
+	})
+}
+
+// attachOracleModules gives the oracle resolver the Gradle module of each file, so a compiler verdict that rests
+// on a smart cast of another module's property can be dropped. A project's source sets share its module path,
+// which matches the compiler: a test source set sees its main source set as a friend. The exported Gradle model
+// knows every project even when settings include them through plugins, so it is asked first; settings discovery
+// covers files the model does not.
+func attachOracleModules(resolver typeinfer.TypeResolver, graph *module.Graph, model func() *gradlemodel.ProjectIndex, in IndexInput) {
+	cr, ok := resolver.(*oracle.CompositeResolver)
+	if !ok {
+		return
+	}
+	hasGraph := graph != nil && len(graph.Modules) > 0
+	// A reused resolver must not keep an earlier run's modules.
+	if !hasGraph && model == nil {
+		cr.SetModuleOf(nil)
+		cr.SetModuleLog(nil)
+		in.logf("verbose: oracle modules: no Gradle model or settings modules; cross-module smart casts are not filtered\n")
+		return
+	}
+	moduleOf := func(path string) (string, string) {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		if model != nil {
+			if m := model().ProjectOf(path); m != "" {
+				return m, "gradle model"
+			}
+		}
+		if hasGraph {
+			if m := graph.FileToModule(path); m != "" {
+				return m, "settings"
+			}
+		}
+		return "", ""
+	}
+	cr.SetModuleOf(func(path string) string {
+		m, _ := moduleOf(path)
+		return m
+	})
+	if in.Reporter == nil || in.Reporter.Verbose == nil {
+		cr.SetModuleLog(nil)
+		return
+	}
+	cr.SetModuleLog(func(format string, args ...any) { in.logf(format, args...) })
+	if len(in.KotlinFiles) == 0 {
+		return
+	}
+	counts := map[string]int{}
+	var unmapped []string
+	for _, f := range in.KotlinFiles {
+		_, source := moduleOf(f.Path)
+		counts[source]++
+		if source == "" {
+			unmapped = append(unmapped, f.Path)
+		}
+	}
+	in.logf("verbose: oracle modules: %d Kotlin files mapped by the gradle model, %d by settings, %d unmapped\n",
+		counts["gradle model"], counts["settings"], counts[""])
+	logUnmappedOracleModules(unmapped, in.logf)
+}
+
+// maxLoggedUnmappedFiles bounds the unmapped-file listing so a large repository keeps the log readable.
+const maxLoggedUnmappedFiles = 20
+
+// logUnmappedOracleModules lists files no module owns, so a smart-cast verdict that is not filtered for them
+// can be traced to its cause.
+func logUnmappedOracleModules(unmapped []string, logf func(format string, args ...any)) {
+	if len(unmapped) == 0 {
+		return
+	}
+	logf("verbose: oracle modules: unmapped files lie outside every Gradle project directory and source root; " +
+		"common causes are a directory missing from settings, an included build or buildSrc the model did not export, " +
+		"and sample or generated code beside the project\n")
+	for i, path := range unmapped {
+		if i == maxLoggedUnmappedFiles {
+			logf("verbose: oracle modules: unmapped: ... and %d more\n", len(unmapped)-maxLoggedUnmappedFiles)
+			return
+		}
+		logf("verbose: oracle modules: unmapped: %s\n", path)
+	}
 }
 
 // runCacheLoad is a verbatim port of the pre-refactor cache load/lookup
@@ -837,7 +985,7 @@ func (p IndexPhase) runCacheLoad(in IndexInput, result *IndexResult) {
 			}
 		}
 	}
-	ruleHash := cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled)
+	ruleHash := indexAnalysisRuleHash(withOracleIdentity(cache.ComputeCacheKeyHash(ruleNames, in.CacheConfig, in.CacheEditorConfigEnabled), in.cacheIdentityPaths()), in, result)
 
 	var loadStart time.Time
 	var analysisCache *cache.Cache
@@ -1288,12 +1436,6 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		"jar":     filepath.Base(jarPath),
 	})
 	perf.AddEntryDetails(jvmTracker, "oracleKotlinSettings", 0, nil, kotlinSettingsAttrs(in.OracleKotlin))
-	for _, note := range in.OracleKotlin.Notes {
-		in.logf("verbose: kotlin compiler settings: %s\n", note)
-	}
-	for _, rejected := range in.OracleKotlin.Rejected {
-		in.logf("verbose: kotlin compiler settings: not applied: %s\n", rejected)
-	}
 	perf.AddEntryDetails(jvmTracker, "sourceDirsFound", 0, map[string]int64{"sourceDirs": int64(len(sourceDirs))}, nil)
 	var cacheDest string
 	jvmTracker.TrackVoid("resolveOracleCachePath", func() {
@@ -1305,6 +1447,9 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		} else {
 			cacheDest = filepath.Join(os.TempDir(), "krit-oracle.json")
 		}
+	}
+	if path := p.runModuleShards(in, scanPaths, sourceDirs, jarPath, cacheDest, jvmTracker); path != "" {
+		return path
 	}
 	if in.Verbose {
 		in.logf("verbose: Running krit-fir (%d source dirs)...\n", len(sourceDirs))
@@ -1804,4 +1949,93 @@ func recordOracleRuleNeedProfile(activeRules []*api.Rule, tracker perf.Tracker) 
 		"oracleAllFilesRules": oracleAllFiles,
 		"oracleFilteredRules": oracleFiltered,
 	}, nil)
+}
+
+// runModuleShards produces the oracle by analyzing modules independently on worker JVMs, when the
+// KRIT_MODULE_SHARDS environment variable asks for it (its value is the worker count, or "auto")
+// and the repository has the Gradle build outputs that needs. It returns the oracle path, or ""
+// to let the caller run the whole-repository compile.
+func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []string, jarPath, outputPath string, tracker perf.Tracker) string {
+	setting := os.Getenv("KRIT_MODULE_SHARDS")
+	if setting == "" || setting == "0" {
+		return ""
+	}
+	workers, _ := strconv.Atoi(setting)
+	javaPath, err := oracle.JavaPath()
+	if err != nil {
+		return ""
+	}
+	repoDir := oracle.FindRepoDir(scanPaths)
+	if repoDir == "" {
+		return ""
+	}
+	// The FIR check rides on the module analyses the way it rides on the whole-repo compile.
+	var checkRequest []byte
+	var deliverCheck func([]byte)
+	if in.FIRCheckRider != nil {
+		if rider := in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget()); rider != nil && rider.Prepare != nil {
+			checkRequest, deliverCheck = rider.Prepare()
+		}
+	}
+	var result modshard.Result
+	var runErr error
+	tracker.TrackVoid("moduleShards", func() {
+		// The scan already collected its Kotlin files; walking the tree again only repeats that.
+		required := underSourceDirs(in.KotlinFilePaths, sourceDirs)
+		if len(required) == 0 {
+			required, _ = oracle.CollectKtFiles(sourceDirs)
+		}
+		result, runErr = modshard.Run(context.Background(), modshard.Input{
+			ScanPaths:    scanPaths,
+			JarPath:      jarPath,
+			JavaPath:     javaPath,
+			Workers:      workers,
+			CacheDir:     filepath.Join(repoDir, ".krit", "module-facts"),
+			OutputPath:   outputPath,
+			Required:     required,
+			CheckRequest: checkRequest,
+			Logf:         in.logf,
+		})
+	})
+	switch {
+	case runErr != nil:
+		in.logf("verbose: module oracle failed (%v); using the whole-repository compile\n", runErr)
+		return ""
+	case !result.Applied:
+		in.logf("verbose: module oracle not used (%s); using the whole-repository compile\n", result.Reason)
+		return ""
+	}
+	if deliverCheck != nil && len(result.Check) > 0 {
+		deliverCheck(result.Check)
+	}
+	in.logf("verbose: module oracle: %d modules, %d analyzed on %d workers, %d cached, %d failed, %d files covered (%d without facts)\n",
+		result.Units, result.AnalyzedUnits, result.Workers, result.CachedUnits, result.FailedUnits, result.Covered, result.Uncovered)
+	return outputPath
+}
+
+// underSourceDirs keeps the files that lie under one of dirs and are not in a directory the oracle
+// never compiles (test data). Build scripts and other Kotlin outside the source sets are dropped:
+// the oracle has no module for them.
+func underSourceDirs(files, dirs []string) []string {
+	roots := make(map[string]bool, len(dirs))
+	for _, d := range dirs {
+		roots[filepath.Clean(oracle.AbsolutePath(d))] = true
+	}
+	var out []string
+	for _, f := range files {
+		abs := filepath.Clean(oracle.AbsolutePath(f))
+		if strings.Contains(abs, "/testData/") || strings.Contains(abs, "/test-resources/") {
+			continue
+		}
+		for dir := filepath.Dir(abs); ; dir = filepath.Dir(dir) {
+			if roots[dir] {
+				out = append(out, f)
+				break
+			}
+			if parent := filepath.Dir(dir); parent == dir {
+				break
+			}
+		}
+	}
+	return out
 }

@@ -49,8 +49,10 @@ func (r *AnvilMergeComponentEmptyScopeRule) check(ctx *api.Context) {
 			if scope := anvilAnnotationScopeFlat(file, idx, "ContributesTo"); scope != "" {
 				contributedScopes[scope] = struct{}{}
 			}
-			if scope := anvilAnnotationScopeFlat(file, idx, "ContributesBinding"); scope != "" {
-				contributedScopes[scope] = struct{}{}
+			for _, ann := range []string{"ContributesBinding", "ContributesMultibinding", "ContributesSubcomponent"} {
+				if scope := anvilAnnotationScopeFlat(file, idx, ann); scope != "" {
+					contributedScopes[scope] = struct{}{}
+				}
 			}
 			if scope := anvilAnnotationScopeFlat(file, idx, "MergeComponent"); scope != "" {
 				mergeComponents = append(mergeComponents, mergeComponentCandidate{
@@ -74,8 +76,8 @@ func (r *AnvilMergeComponentEmptyScopeRule) check(ctx *api.Context) {
 
 		ctx.Emit(r.Finding(
 			candidate.file,
-			candidate.file.FlatRow(candidate.idx)+1,
-			1,
+			declLine(candidate.file, candidate.idx),
+			declCol(candidate.file, candidate.idx),
 			fmt.Sprintf("@MergeComponent(%s::class) on '%s' has no matching @ContributesTo or @ContributesBinding scope in the project, so the merged component will be empty.", candidate.scope, name),
 		))
 	}

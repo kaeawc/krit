@@ -19,7 +19,7 @@ func registerPotentialbugsTypesRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"equality_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
@@ -40,6 +40,10 @@ func registerPotentialbugsTypesRules() {
 				}
 				// `this === other` inside equals() is idiomatic identity shortcut.
 				if file.FlatType(left) == "this_expression" && isInsideEqualsMethodFlatType(file, idx) {
+					return
+				}
+				// Same-instance short circuits (`x === this`, `x === original`, `f(x) === x`) check for "unchanged".
+				if looksLikeSameInstanceShortCircuit(file, left, right) {
 					return
 				}
 				// Under a boolean expression that already calls an equals-family
@@ -138,7 +142,7 @@ func registerPotentialbugsTypesRules() {
 		r := &DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if scanner.IsTestFile(file.Path) {
@@ -152,12 +156,15 @@ func registerPotentialbugsTypesRules() {
 				if varDecl == 0 {
 					return
 				}
+				if !doubleMutabilityVarIsCandidate(file, idx, varDecl) {
+					return
+				}
 				if !doubleMutabilityHasExplicitMutableType(file, varDecl, mutableTypes) {
 					if !doubleMutabilityInitializerLooksLikeMutableFactory(file, idx) {
 						return
 					}
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 					"Variable with mutable collection type creates double mutability. Use val with a mutable collection or var with an immutable collection.")
 				var varKeyword uint32
 				file.FlatForEachChild(idx, func(ch uint32) {
@@ -184,11 +191,7 @@ func registerPotentialbugsTypesRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				name := extractIdentifierFlat(file, idx)
-				if name != "equals" {
-					return
-				}
-				if !file.FlatHasModifier(idx, "override") {
+				if !isDetektEqualsOverride(file, idx) {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")
@@ -198,7 +201,7 @@ func registerPotentialbugsTypesRules() {
 				bodyText := file.FlatNodeText(body)
 				trimmed := strings.TrimSpace(bodyText)
 				if trimmed == "= true" || trimmed == "= false" {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"equals() always returns the same value. This is likely a bug.")
 					return
 				}
@@ -220,7 +223,7 @@ func registerPotentialbugsTypesRules() {
 					}
 				})
 				if returnCount > 0 && (allTrue || allFalse) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"equals() always returns the same value. This is likely a bug.")
 				}
 			},
@@ -230,9 +233,13 @@ func registerPotentialbugsTypesRules() {
 		r := &EqualsWithHashCodeExistRule{BaseRule: BaseRule{RuleName: "EqualsWithHashCodeExist", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects classes that override equals() without hashCode() or vice versa."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// The compiler generates both members for these, so overriding one is complete.
+				if file.FlatHasModifier(idx, "data") || file.FlatHasModifier(idx, "value") || file.FlatHasModifier(idx, "inline") {
+					return
+				}
 				body, _ := file.FlatFindChild(idx, "class_body")
 				if body == 0 {
 					return
@@ -246,25 +253,18 @@ func registerPotentialbugsTypesRules() {
 					if file.FlatType(child) != "function_declaration" {
 						return
 					}
-					if !file.FlatHasModifier(child, "override") {
-						return
-					}
-					name := extractIdentifierFlat(file, child)
-					if name == "" {
-						return
-					}
-					switch name {
-					case "equals":
+					if isDetektEqualsOverride(file, child) {
 						hasEquals = true
-					case "hashCode":
+					}
+					if isDetektHashCodeOverride(file, child) {
 						hasHashCode = true
 					}
 				})
 				if hasEquals && !hasHashCode {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Class overrides equals() but not hashCode().")
 				} else if !hasEquals && hasHashCode {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"Class overrides hashCode() but not equals().")
 				}
 			},
@@ -274,7 +274,7 @@ func registerPotentialbugsTypesRules() {
 		r := &WrongEqualsTypeParameterRule{BaseRule: BaseRule{RuleName: "WrongEqualsTypeParameter", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects equals() with a parameter type other than Any?, which does not properly override the contract."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceHigh, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceHigh, Fix: api.FixSemantic, Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -291,61 +291,57 @@ func registerPotentialbugsTypesRules() {
 		r := &DontDowncastCollectionTypesRule{BaseRule: BaseRule{RuleName: "DontDowncastCollectionTypes", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects downcasting read-only collection types to mutable variants like 'as MutableList'."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"as_expression", "check_expression"}, Fix: api.FixSemantic, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: r.check,
 		})
 	}
 	{
-		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects block-body functions that implicitly return Unit without an explicit return type."}}
+		r := &ImplicitUnitReturnTypeRule{BaseRule: BaseRule{RuleName: "ImplicitUnitReturnType", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects expression-body functions without a declared return type whose body evaluates to Unit, so changing the callee changes the function's return type."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || file.FlatHasModifier(idx, "override") {
+				if scanner.IsTestFile(file.Path) || file.FlatHasModifier(idx, "override") || ctx.Resolver == nil {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")
-				if body == 0 {
+				if body == 0 || !flatFunctionHasExpressionBody(file, idx) {
 					return
 				}
-				if file.FlatChildCount(body) == 0 || file.FlatType(file.FlatChild(body, 0)) != "statements" {
-					bodyText := file.FlatNodeText(body)
-					if !strings.HasPrefix(strings.TrimSpace(bodyText), "{") {
+				params, ok := file.FlatFindChild(idx, "function_value_parameters")
+				if !ok {
+					return
+				}
+				// A declared return type sits between the parameter list and the body.
+				for c := file.FlatNextSib(params); c != 0 && c != body; c = file.FlatNextSib(c) {
+					switch file.FlatType(c) {
+					case "user_type", "nullable_type", "type_identifier", ":", "function_type", "parenthesized_type":
 						return
 					}
 				}
-				hasReturnType := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					ct := file.FlatType(child)
-					if ct == "user_type" || ct == "nullable_type" || ct == "type_identifier" {
-						hasReturnType = true
-						break
-					}
-					if file.FlatNodeTextEquals(child, ":") {
-						hasReturnType = true
-						break
+				var expr uint32
+				for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatIsNamed(c) {
+						expr = c
 					}
 				}
-				if hasReturnType {
+				if expr == 0 || (file.FlatType(expr) == "simple_identifier" && file.FlatNodeText(expr) == "Unit") {
 					return
 				}
-				funcName := extractIdentifierFlat(file, idx)
-				if funcName == "" {
+				if !implicitUnitExpression(ctx, expr) {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Function without explicit return type. Consider adding ': Unit' or the appropriate return type.")
-				if body != 0 {
-					insertAt := int(file.FlatStartByte(body))
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   insertAt,
-						EndByte:     insertAt,
-						Replacement: ": Unit ",
-					}
+				f := r.Finding(file, declLine(file, idx), declCol(file, idx),
+					"Function with an expression body has an implicit Unit return type. Declare ': Unit' so a change to the callee does not change this function's type.")
+				insertAt := int(file.FlatEndByte(params))
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   insertAt,
+					EndByte:     insertAt,
+					Replacement: ": Unit",
 				}
 				ctx.Emit(f)
 			},
@@ -429,10 +425,10 @@ func registerPotentialbugsTypesRules() {
 		})
 	}
 	{
-		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes or enums that use an else branch instead of exhaustive matching."}}
+		r := &ElseCaseInsteadOfExhaustiveWhenRule{BaseRule: BaseRule{RuleName: "ElseCaseInsteadOfExhaustiveWhen", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects when expressions on sealed classes, enums or Booleans that use an else branch although every case is already covered."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"when_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+			NodeTypes: []string{"when_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Needs: api.NeedsResolver,
 			Tags:  []string{"precompile"},
 			Check: func(ctx *api.Context) {
@@ -449,31 +445,47 @@ func registerPotentialbugsTypesRules() {
 				if ctx.Resolver == nil {
 					return
 				}
-				subjectTypeName, variants := whenSubjectExhaustiveVariantsFlat(file, idx, ctx.Resolver)
-				if len(variants) == 0 {
+				kind, subjectTypeName, variants := whenSubjectExhaustiveKindFlat(file, idx, ctx.Resolver)
+				if whenSubjectIsIgnored(file, idx, ctx.Resolver, r.IgnoredSubjectTypes) {
 					return
 				}
-				coveredTypes := make(map[string]bool)
-				file.FlatForEachChild(idx, func(entry uint32) {
-					if file.FlatType(entry) != "when_entry" {
+				var subjectKind string
+				switch {
+				case kind == "sealed" && len(variants) > 0 && whenSubjectTypeIsSealed(ctx.Resolver, subjectTypeName):
+					// Only a declared sealed type is closed; the resolver also lists subtypes of plain interfaces and open classes.
+					subjectKind = "sealed class"
+				case kind == "enum" && len(variants) > 0:
+					subjectKind = "enum class"
+				case kind == "" && whenSubjectResolvesToBoolean(file, idx, ctx.Resolver):
+					subjectKind = "boolean"
+				default:
+					return
+				}
+				// A nullable subject needs `else` unless a `null ->` branch exists.
+				if whenSubjectIsNullableFlat(file, idx, ctx.Resolver) && !whenHasNullBranchFlat(file, idx) {
+					return
+				}
+				switch subjectKind {
+				case "sealed class":
+					coveredTypes := whenUnguardedTypeTests(file, idx)
+					whenAddUnguardedObjectBranches(file, idx, ctx.Resolver, coveredTypes)
+					if len(coveredTypes) == 0 || !whenSealedFullyCovered(file, ctx.Resolver, subjectTypeName, variants, coveredTypes, 0) {
 						return
 					}
-					file.FlatForEachChild(entry, func(cond uint32) {
-						if file.FlatType(cond) != "when_condition" {
-							return
-						}
-						if typeName := whenConditionTypeTestName(file, cond); typeName != "" {
-							coveredTypes[typeName] = true
-						}
-					})
-				})
-				if len(coveredTypes) == 0 || !whenVariantsCoveredFlat(coveredTypes, variants) {
-					return
+				case "enum class":
+					_, entryNames := collectWhenCoveredVariants(file, idx)
+					if len(missingEnumEntries(entryNames, variants)) != 0 {
+						return
+					}
+				case "boolean":
+					hasTrue, hasFalse := collectBooleanCoveredLiterals(file, idx)
+					if !hasTrue || !hasFalse {
+						return
+					}
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("When expression on sealed type '%s' uses 'else' but all variants are covered. Remove the else branch.", subjectTypeName))
-				f.Fix = whenElseBranchDeletionFix(file, idx)
-				ctx.Emit(f)
+				// No auto-fix: dropping `else` leaves the when open to new subtypes, which the author may want.
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"When expression with "+subjectKind+" subject should not contain an `else` case."))
 			},
 		})
 	}

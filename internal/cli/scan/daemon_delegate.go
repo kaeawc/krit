@@ -96,7 +96,8 @@ func resolveDepthForDelegation(f *scanFlags, fs *flag.FlagSet, args []string) {
 	if cfgPath == "" {
 		cfgPath = detectConfigForScanArgs(args)
 	}
-	cfg, _ := config.LoadAndMergeDefaults(cfgPath, args...)
+	cfg, _ := config.LoadAndMergeDefaultsWith(detektLoadOptions(f), cfgPath, args...)
+	applyDetektBaseline(f, cfg)
 	applyDepthPreset(resolveDepthPreset(*f.Depth, cfg, io.Discard), f, fs)
 }
 
@@ -651,6 +652,10 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 // An explicit --config naming any other file must run in-process, or the
 // daemon would silently apply the wrong config.
 func configServedByDaemon(f *scanFlags, repoDir string) bool {
+	// The wire carries no detekt options either, so they force in-process.
+	if (f.DetektConfig != nil && *f.DetektConfig != "") || (f.NoDetektConfig != nil && *f.NoDetektConfig) {
+		return false
+	}
 	if f.Config == nil || *f.Config == "" {
 		return true
 	}
@@ -759,6 +764,7 @@ func buildDaemonAnalyzeArgs(f *scanFlags, paths []string) daemon.AnalyzeProjectA
 		CPUProfilePath:            absoluteProfilePath(*f.CPUProfile),
 		MemProfilePath:            absoluteProfilePath(*f.MemProfile),
 		BasePath:                  resolveBasePath(*f.BasePath, paths),
+		AbsolutePaths:             *f.AbsolutePaths,
 		CreateBaseline:            *f.CreateBaseline != "",
 		DryRun:                    *f.DryRun,
 		FixLevel:                  *f.FixLevel,

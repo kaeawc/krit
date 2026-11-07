@@ -7,7 +7,16 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/scanner"
 )
+
+// locatePlurals records a position for every plural so rules can report it.
+func locatePlurals(idx *android.ResourceIndex) {
+	idx.PluralsLocation = map[string]android.StringLocation{}
+	for name := range idx.Plurals {
+		idx.PluralsLocation[name] = android.StringLocation{FilePath: "res/values/plurals.xml", Line: 3}
+	}
+}
 
 func TestMissingQuantityResource(t *testing.T) {
 	r := findResourceRule(t, "MissingQuantityResource")
@@ -17,6 +26,7 @@ func TestMissingQuantityResource(t *testing.T) {
 		idx.Plurals["apples"] = map[string]string{
 			"one": "%d apple",
 		}
+		locatePlurals(idx)
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -53,44 +63,100 @@ func TestMissingQuantityResource(t *testing.T) {
 
 func TestUnusedQuantityResource(t *testing.T) {
 	r := findResourceRule(t, "UnusedQuantityResource")
-
-	t.Run("unused zero triggers", func(t *testing.T) {
+	run := func(defs ...android.PluralDefinition) []scanner.Finding {
 		idx := emptyIndex()
-		idx.Plurals["apples"] = map[string]string{
-			"zero":  "no apples",
-			"one":   "%d apple",
-			"other": "%d apples",
+		idx.PluralDefinitions = defs
+		return runResourceRule(r, idx)
+	}
+	def := func(folder string, qs ...string) android.PluralDefinition {
+		m := map[string]string{}
+		for _, q := range qs {
+			m[q] = "x"
 		}
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		return android.PluralDefinition{Name: "items", FilePath: "res/" + folder + "/strings.xml", Line: 3, Quantities: m}
+	}
+
+	t.Run("default folder is not judged", func(t *testing.T) {
+		if got := run(def("values", "zero", "one", "two", "other"), def("values-night", "zero", "other")); len(got) != 0 {
+			t.Fatalf("folders without a language are skipped, got %v", got)
 		}
 	})
 
-	t.Run("unused two few many triggers", func(t *testing.T) {
-		idx := emptyIndex()
-		idx.Plurals["items"] = map[string]string{
-			"one":   "%d item",
-			"two":   "%d items",
-			"few":   "%d items",
-			"many":  "%d items",
-			"other": "%d items",
-		}
-		findings := runResourceRule(r, idx)
-		if len(findings) != 3 {
-			t.Fatalf("expected 3 findings, got %d", len(findings))
+	t.Run("one is unused for ja ko zh", func(t *testing.T) {
+		for _, folder := range []string{"values-ja", "values-ko-rKR", "values-zh-rCN", "values-b+zh+Hans"} {
+			got := run(def(folder, "one", "other"))
+			if len(got) != 1 {
+				t.Fatalf("%s: expected 1 finding, got %v", folder, got)
+			}
 		}
 	})
 
-	t.Run("only one and other is clean", func(t *testing.T) {
-		idx := emptyIndex()
-		idx.Plurals["apples"] = map[string]string{
-			"one":   "%d apple",
-			"other": "%d apples",
+	t.Run("message follows Lint", func(t *testing.T) {
+		got := run(def("values-ja-rJP", "one", "other"))
+		want := "For language \"ja\" (Japanese) the following quantities are not relevant: `one`"
+		if len(got) != 1 || got[0].Message != want || got[0].Line != 3 {
+			t.Fatalf("got %v, want message %q", got, want)
 		}
-		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	})
+
+	t.Run("one finding per plurals element lists every unused quantity", func(t *testing.T) {
+		got := run(def("values-de", "zero", "one", "two", "few", "many", "other"))
+		want := "For language \"de\" (German) the following quantities are not relevant: `few`, `many`, `two`, `zero`"
+		if len(got) != 1 || got[0].Message != want {
+			t.Fatalf("got %v, want message %q", got, want)
+		}
+	})
+
+	t.Run("relevant quantities are clean", func(t *testing.T) {
+		clean := []android.PluralDefinition{
+			def("values-ja", "other"),
+			def("values-en", "one", "other"),
+			def("values-fr", "one", "many", "other"),
+			def("values-ru", "one", "few", "many", "other"),
+			def("values-ar", "zero", "one", "two", "few", "many", "other"),
+		}
+		for _, d := range clean {
+			if got := run(d); len(got) != 0 {
+				t.Errorf("%s: expected 0 findings, got %v", d.FilePath, got)
+			}
+		}
+	})
+
+	t.Run("unknown language is skipped", func(t *testing.T) {
+		if got := run(def("values-zz", "zero", "one", "other")); len(got) != 0 {
+			t.Fatalf("expected 0 findings, got %v", got)
+		}
+	})
+
+	t.Run("non-translatable plurals are still judged", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.PluralDefinitions = []android.PluralDefinition{def("values-ja", "one", "other")}
+		idx.PluralsNonTranslate = map[string]bool{"items": true}
+		if got := runResourceRule(r, idx); len(got) != 1 {
+			t.Fatalf("Lint ignores translatable=false here, expected 1 finding, got %v", got)
+		}
+	})
+
+	t.Run("lowercase region qualifiers keep the language", func(t *testing.T) {
+		for _, folder := range []string{"values-ko-rkr", "values-ja-rjp", "values-zh-rcn", "values-zh-rtw", "values-JA", "values-ja-r001"} {
+			if got := run(def(folder, "one", "other")); len(got) != 1 {
+				t.Errorf("%s: expected 1 finding, got %v", folder, got)
+			}
+		}
+	})
+
+	t.Run("language qualifier must follow Android qualifier order", func(t *testing.T) {
+		valid := []string{"values-mcc310-ja", "values-mnc004-ja", "values-ja-ldrtl", "values-ja-sw600dp", "values-ja-land-night", "values-ja-night-hdpi", "values-ja-1080x1920-v21", "values-ja-rJP-v21", "values-b+ja-v21"}
+		for _, folder := range valid {
+			if got := run(def(folder, "one", "other")); len(got) != 1 {
+				t.Errorf("%s: expected 1 finding, got %v", folder, got)
+			}
+		}
+		invalid := []string{"values-land-ja", "values-night-ja", "values-v21-ja", "values-ldrtl-ja", "values-sw600dp-ja", "values-ja-v21-night", "values-ja-night-land", "values-ja-ko", "values-ja-rJP-rUS", "values-ja-rJPN", "values-ja-r", "values-ja-foo", "values-mcc1-ja", "values-mcc310-land-ja"}
+		for _, folder := range invalid {
+			if got := run(def(folder, "one", "other")); len(got) != 0 {
+				t.Errorf("%s: not a valid configuration, expected 0 findings, got %v", folder, got)
+			}
 		}
 	})
 }
@@ -102,15 +168,56 @@ func TestUnusedQuantityResource(t *testing.T) {
 func TestImpliedQuantityResource(t *testing.T) {
 	r := findResourceRule(t, "ImpliedQuantityResource")
 
+	t.Run("reports the recorded plurals location", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Plurals["items"] = map[string]string{"one": "One item", "other": "%d items"}
+		idx.PluralSources = map[string]string{"items": "values-fr"}
+		idx.PluralsLocation = map[string]android.StringLocation{"items": {FilePath: "res/values/arrays_plurals.xml", Line: 9}}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].File != "res/values/arrays_plurals.xml" || findings[0].Line != 9 {
+			t.Fatalf("expected 1 finding at res/values/arrays_plurals.xml:9, got %v", findings)
+		}
+	})
+
 	t.Run("one without %d triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Plurals["apples"] = map[string]string{
 			"one":   "One apple",
 			"other": "%d apples",
 		}
+		idx.PluralSources = map[string]string{"apples": "values-ru"}
+		locatePlurals(idx)
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("default and exact-one locales are skipped", func(t *testing.T) {
+		for _, dir := range []string{"", "values", "values-v21", "values-en-rGB", "values-de", "values-es", "values-ja"} {
+			idx := emptyIndex()
+			idx.Plurals["apples"] = map[string]string{"one": "One apple", "other": "%d apples"}
+			if dir != "" {
+				idx.PluralSources = map[string]string{"apples": dir}
+			}
+			locatePlurals(idx)
+			if findings := runResourceRule(r, idx); len(findings) != 0 {
+				t.Errorf("%q: one means exactly 1, expected 0 findings, got %d", dir, len(findings))
+			}
+		}
+	})
+
+	t.Run("language without a one category is skipped", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Plurals["apples"] = map[string]string{"one": "苹果", "other": "%d 个苹果"}
+		idx.PluralSources = map[string]string{"apples": "values-zh-rTW"}
+		locatePlurals(idx)
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings for a zh plural, got %d", len(findings))
+		}
+		idx.PluralSources = map[string]string{"apples": "values-fr"}
+		if findings := runResourceRule(r, idx); len(findings) != 1 {
+			t.Fatalf("expected 1 finding for a fr plural, got %d", len(findings))
 		}
 	})
 
@@ -151,6 +258,52 @@ func TestStringFormatTrivialResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("button and label strings are template wrappers and are skipped", func(t *testing.T) {
+		for _, name := range []string{"edit_button_template", "Row_Label", "label_fmt"} {
+			idx := emptyIndex()
+			idx.Strings[name] = "%1$s"
+			if findings := runResourceRule(r, idx); len(findings) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d", name, len(findings))
+			}
+		}
+	})
+
+	t.Run("strings with a translator note are skipped", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		valuesDir := filepath.Join(resDir, "values")
+		if err := os.MkdirAll(valuesDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s): %v", valuesDir, err)
+		}
+		xml := "<resources>\n" +
+			"    <!-- Wraps a localized name -->\n    <string name=\"commented\">%1$s</string>\n" +
+			"    <string name=\"attributed\" note=\"pass-through\">%1$s</string>\n" +
+			"    <string name=\"plain\">%1$s</string>\n" +
+			"</resources>\n"
+		if err := os.WriteFile(filepath.Join(valuesDir, "strings.xml"), []byte(xml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		idx, err := android.ScanResourceDir(resDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "`plain`") {
+			t.Fatalf("expected only the plain string to be flagged, got %v", findings)
+		}
+	})
+
+	t.Run("translation of a placeholder string is skipped", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greeting"] = "%s"
+		idx.StringsLocation["greeting"] = android.StringLocation{FilePath: "res/values-de/strings.xml", Line: 3}
+		idx.StringSources = map[string]android.StringSource{
+			"other": {Value: "unrelated", FilePath: "res/values/strings.xml", Line: 1},
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -302,6 +455,54 @@ func TestStringNotLocalizableResource(t *testing.T) {
 		}
 	})
 
+	t.Run("capitalized button labels are translatable", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["ok"] = "OK"
+		idx.Strings["cancel"] = "CANCEL"
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings for plain capitalized words, got %d", len(findings))
+		}
+		idx.Strings["constant"] = "API_KEY"
+		if findings := runResourceRule(r, idx); len(findings) != 1 {
+			t.Fatalf("expected 1 finding for a constant-style value, got %d", len(findings))
+		}
+	})
+
+	t.Run("translation override of the same name is ignored", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["site"] = "Visit us"
+		idx.StringsLocation["site"] = android.StringLocation{FilePath: "res/values-zh-rTW/strings.xml", Line: 3}
+		idx.StringSources = map[string]android.StringSource{
+			"site": {Value: "Visit us", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("translation-only string is ignored", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["badge"] = "VIP"
+		idx.StringsLocation["badge"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 2}
+		idx.StringSources = map[string]android.StringSource{}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("default definition still triggers when a translation overrides it", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["site"] = "Visit us"
+		idx.StringsLocation["site"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 3}
+		idx.StringSources = map[string]android.StringSource{
+			"site": {Value: "https://example.com", FilePath: "res/values/strings.xml", Line: 4},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].File != "res/values/strings.xml" {
+			t.Fatalf("expected 1 finding in default values, got %+v", findings)
+		}
+	})
+
 	t.Run("http URL triggers", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["api"] = "http://api.example.com/v1"
@@ -373,9 +574,9 @@ func TestStringNotLocalizableResource(t *testing.T) {
 func TestWrongCaseResource(t *testing.T) {
 	r := findResourceRule(t, "WrongCaseResource")
 
-	t.Run("Textview triggers", func(t *testing.T) {
+	t.Run("Include triggers with Lint's message", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type:       "Textview",
+			Type:       "Include",
 			Line:       5,
 			Attributes: map[string]string{},
 		})
@@ -383,23 +584,23 @@ func TestWrongCaseResource(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "TextView") {
-			t.Fatalf("expected suggestion for TextView, got %q", findings[0].Message)
+		if want := "Invalid tag `<Include>`; should be `<include>`"; findings[0].Message != want {
+			t.Fatalf("got %q, want %q", findings[0].Message, want)
 		}
 	})
 
-	t.Run("linearlayout triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
-			Type:       "linearlayout",
-			Line:       1,
-			Attributes: map[string]string{},
-		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+	t.Run("only the four lowercase-first tags are checked", func(t *testing.T) {
+		for _, tag := range []string{"Merge", "Fragment", "RequestFocus"} {
+			idx := indexWithLayout("main", "res/layout/main.xml", &android.View{Type: tag, Line: 1, Attributes: map[string]string{}})
+			if got := runResourceRule(r, idx); len(got) != 1 {
+				t.Errorf("%s: expected a finding, got %d", tag, len(got))
+			}
 		}
-		if !strings.Contains(findings[0].Message, "LinearLayout") {
-			t.Fatalf("expected suggestion for LinearLayout, got %q", findings[0].Message)
+		for _, tag := range []string{"linearlayout", "Textview", "INCLUDE", "viewstub", "include", "merge"} {
+			idx := indexWithLayout("main", "res/layout/main.xml", &android.View{Type: tag, Line: 1, Attributes: map[string]string{}})
+			if got := runResourceRule(r, idx); len(got) != 0 {
+				t.Errorf("%s: Lint does not report it, got %d", tag, len(got))
+			}
 		}
 	})
 
@@ -538,6 +739,32 @@ func TestStringResourceMissingPositional(t *testing.T) {
 		}
 	})
 
+	t.Run("translation identical to the default is reported on the default only", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%s meets %s"
+		idx.StringsLocation["greet"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 9}
+		idx.StringSources = map[string]android.StringSource{
+			"greet": {Value: "%s meets %s", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].File != "res/values/strings.xml" || findings[0].Line != 3 {
+			t.Fatalf("expected one finding on the default, got %v", findings)
+		}
+	})
+
+	t.Run("translation with its own bare arguments is reported on the translation", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["greet"] = "%s rencontre %s"
+		idx.StringsLocation["greet"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 9}
+		idx.StringSources = map[string]android.StringSource{
+			"greet": {Value: "%1$s meets %2$s", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].File != "res/values-fr/strings.xml" {
+			t.Fatalf("expected one finding on the translation, got %v", findings)
+		}
+	})
+
 	t.Run("mixed specifiers trigger", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["mix"] = "Hello %s, you are %d"
@@ -631,24 +858,48 @@ func TestStringResourceMissingPositional(t *testing.T) {
 
 func TestExtraTextResource(t *testing.T) {
 	r := findResourceRule(t, "ExtraTextResource")
+	root := func(texts ...android.XMLTextNode) *android.View {
+		return &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, TextNodes: texts}
+	}
 
-	t.Run("stray text in values file triggers", func(t *testing.T) {
-		idx := emptyIndex()
-		idx.ExtraTexts = []android.ExtraTextEntry{
-			{FilePath: "res/values/strings.xml", Line: 3, Text: "some stray text"},
-		}
+	t.Run("first stray text of a layout is reported with Lint wording", func(t *testing.T) {
+		idx := indexWithLayout("main", "app/src/main/res/layout-land/main.xml", root(
+			android.XMLTextNode{Text: "second", Line: 6, Col: 3}, android.XMLTextNode{Text: "stray   text\nhere", Line: 3, Col: 3}))
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "Extraneous text") {
-			t.Fatalf("expected message about extraneous text, got %q", findings[0].Message)
+		if findings[0].Message != `Unexpected text found in layout file: "stray text here"` || findings[0].Line != 3 {
+			t.Fatalf("unexpected finding %+v", findings[0])
+		}
+	})
+
+	t.Run("menu text is reported", func(t *testing.T) {
+		idx := indexWithMenu("m", "res/menu/m.xml", root(android.XMLTextNode{Text: "oops", Line: 2, Col: 1}))
+		if findings := runResourceRule(r, idx); len(findings) != 1 || findings[0].Message != `Unexpected text found in menu file: "oops"` {
+			t.Fatalf("unexpected findings %+v", findings)
+		}
+	})
+
+	t.Run("aapt:attr contents are skipped", func(t *testing.T) {
+		attr := &android.View{Type: "aapt:attr", Line: 2, Attributes: map[string]string{}, TextNodes: []android.XMLTextNode{{Text: "x", Line: 2, Col: 1}}}
+		r0 := root()
+		r0.Children = []*android.View{attr}
+		if findings := runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", r0)); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("values files are not checked", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.ExtraTexts = []android.ExtraTextEntry{{FilePath: "res/values/strings.xml", Line: 3, Text: "some stray text"}}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
 	t.Run("no extra text is clean", func(t *testing.T) {
-		findings := runResourceRule(r, emptyIndex())
-		if len(findings) != 0 {
+		if findings := runResourceRule(r, emptyIndex()); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
@@ -661,18 +912,34 @@ func TestExtraTextResource(t *testing.T) {
 func TestWrongRegionResource(t *testing.T) {
 	r := findResourceRule(t, "WrongRegionResource")
 
-	t.Run("suspicious en-rBR triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/values-en-rBR/main.xml", &android.View{
+	t.Run("de-rUS pairs German with a region Lint does not list", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/values-de-rUS/main.xml", &android.View{
 			Type:       "LinearLayout",
 			Line:       1,
 			Attributes: map[string]string{},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		want := "Suspicious language and region combination de (German) with US (United States): language de is usually paired with: " +
+			"DE (Germany), AT (Austria), BE (Belgium), CH (Switzerland), IT (Italy), LI (Liechtenstein), LU (Luxembourg)"
+		if len(findings) != 1 || findings[0].Message != want {
+			t.Fatalf("got %+v", findings)
 		}
-		if !strings.Contains(findings[0].Message, "en") {
-			t.Errorf("expected message to mention 'en', got %q", findings[0].Message)
+	})
+
+	t.Run("regions Lint does not know for a language are not judged", func(t *testing.T) {
+		for _, folder := range []string{"values-en-rUK", "values-es-rUS", "values-en-rEN", "values-xx-rYY"} {
+			idx := indexWithLayout("main", "res/"+folder+"/main.xml", &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}})
+			if findings := runResourceRule(r, idx); len(findings) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d", folder, len(findings))
+			}
+		}
+	})
+
+	t.Run("string translation folders are checked", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.StringsLocation["greet"] = android.StringLocation{FilePath: "app/src/main/res/values-de-rUS/strings.xml", Line: 3}
+		if findings := runResourceRule(r, idx); len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
@@ -715,27 +982,58 @@ func TestWrongRegionResource(t *testing.T) {
 func TestStringFormatInvalidResource(t *testing.T) {
 	r := findResourceRule(t, "StringFormatInvalidResource")
 
-	t.Run("bare percent at end triggers", func(t *testing.T) {
+	t.Run("space flag before a letter is probably a literal percent", func(t *testing.T) {
 		idx := emptyIndex()
-		idx.Strings["greeting"] = "Hello %"
+		idx.Strings["quoted"] = "100% sure"
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "bare") {
-			t.Fatalf("expected message about bare %%, got: %s", findings[0].Message)
+		if want := "Incorrect formatting string `quoted`; missing conversion character in '`% s`'?"; findings[0].Message != want {
+			t.Fatalf("message = %q, want %q", findings[0].Message, want)
 		}
 	})
 
-	t.Run("invalid conversion char triggers", func(t *testing.T) {
+	t.Run("Lint ignores a bare percent, unknown conversions and % n or % o", func(t *testing.T) {
 		idx := emptyIndex()
-		idx.Strings["bad"] = "Value is %z"
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		idx.Strings["bare"] = "Hello %s, 50%"
+		idx.Strings["badconv"] = "Value is %z"
+		idx.Strings["discount"] = "Save 50% now"
+		idx.Strings["discount2"] = "Save 50% of it"
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findings)
 		}
-		if !strings.Contains(findings[0].Message, "invalid conversion") {
-			t.Fatalf("expected message about invalid conversion, got: %s", findings[0].Message)
+	})
+
+	t.Run("a space-flag percent copied from the default is reported once per location", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["progress"] = "100% sure"
+		idx.StringsLocation["progress"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 2}
+		idx.StringSources = map[string]android.StringSource{
+			"progress": {Value: "100% sure", FilePath: "res/values/strings.xml", Line: 2},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].File != "res/values/strings.xml" {
+			t.Fatalf("expected one finding on the default, got %v", findings)
+		}
+	})
+
+	t.Run("comma flag is a valid specifier", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["count"] = "Total %1$,d and %2$(,.2f"
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("translatable=false and formatted=false are skipped", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.StringsNonTranslate = map[string]bool{"a": true}
+		idx.StringsNonFormatted = map[string]bool{"b": true}
+		idx.Strings["a"] = "Value %z"
+		idx.Strings["b"] = "Value %z"
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -776,18 +1074,57 @@ func TestStringFormatInvalidResource(t *testing.T) {
 func TestStringFormatCountResource(t *testing.T) {
 	r := findResourceRule(t, "StringFormatCountResource")
 
-	t.Run("gap in positional args triggers", func(t *testing.T) {
+	t.Run("skipped positional index is reported like Lint does", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Strings["msg"] = "%1$s and %3$s"
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "gap") {
-			t.Fatalf("expected message about gap, got: %s", findings[0].Message)
+		if want := "Formatting string '`msg`' is not referencing numbered arguments [2]"; findings[0].Message != want {
+			t.Fatalf("message = %q, want %q", findings[0].Message, want)
 		}
-		if !strings.Contains(findings[0].Message, "%2$") {
-			t.Fatalf("expected message to mention %%2$, got: %s", findings[0].Message)
+	})
+
+	t.Run("translation with a different argument count triggers", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["msg"] = "%1$s"
+		idx.StringsLocation["msg"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 4}
+		idx.StringSources = map[string]android.StringSource{
+			"msg": {Value: "%1$s and %2$s", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		if findings[0].File != "res/values-fr/strings.xml" || findings[0].Line != 4 {
+			t.Fatalf("expected translation location, got %s:%d", findings[0].File, findings[0].Line)
+		}
+	})
+
+	t.Run("translation with the same argument count is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["msg"] = "%2$s then %1$s"
+		idx.StringsLocation["msg"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 4}
+		idx.StringSources = map[string]android.StringSource{
+			"msg": {Value: "%1$s and %2$s", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("translatable=false does not exempt a variant", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Strings["msg"] = "%1$s"
+		idx.StringsNonTranslate = map[string]bool{"msg": true}
+		idx.StringsLocation["msg"] = android.StringLocation{FilePath: "res/values-fr/strings.xml", Line: 4}
+		idx.StringSources = map[string]android.StringSource{
+			"msg": {Value: "%1$s and %2$s", FilePath: "res/values/strings.xml", Line: 3},
+		}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Message != "Inconsistent number of arguments in formatting string `msg`; found both 1 here and 2 in values/strings.xml" {
+			t.Fatalf("unexpected findings: %v", findings)
 		}
 	})
 
@@ -839,6 +1176,7 @@ func TestStringFormatMatchesResource(t *testing.T) {
 			"one":   "%d item",
 			"other": "%s items",
 		}
+		locatePlurals(idx)
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -848,18 +1186,36 @@ func TestStringFormatMatchesResource(t *testing.T) {
 		}
 	})
 
-	t.Run("different arg counts triggers", func(t *testing.T) {
+	t.Run("quantity using a subset of the args is clean", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.Plurals["items"] = map[string]string{
 			"one":   "%d item",
 			"other": "%d of %d items",
 		}
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "format args") {
-			t.Fatalf("expected message about format arg count, got: %s", findings[0].Message)
+	})
+
+	t.Run("quantity omitting the number is clean", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Plurals["items"] = map[string]string{
+			"one":   "Only %s",
+			"other": "%d of %s",
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("mismatch reports the recorded plurals location", func(t *testing.T) {
+		idx := emptyIndex()
+		idx.Plurals["items"] = map[string]string{"one": "%d item", "other": "%s items"}
+		idx.PluralsLocation = map[string]android.StringLocation{"items": {FilePath: "res/values/plurals.xml", Line: 7}}
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Line != 7 {
+			t.Fatalf("expected 1 finding at line 7, got %v", findings)
 		}
 	})
 
@@ -971,6 +1327,21 @@ func TestLocaleConfigStale(t *testing.T) {
 		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("non-language qualifier folders are clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"), "<resources><string name=\"app_name\">App</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "strings.xml"), "<resources><string name=\"app_name\">Appli</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-car", "dimens.xml"), "<resources><dimen name=\"pad\">8dp</dimen></resources>\n")
+		write(t, filepath.Join(resDir, "xml", "locales_config.xml"), `<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="fr" />
+</locale-config>
+`)
+		if findings := runResourceRule(r, scan(t, resDir)); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
 		}
 	})
 
@@ -1127,6 +1498,32 @@ func TestStringSpanInContentDescription(t *testing.T) {
 		}
 	})
 
+	t.Run("styled string parsed from markup elements triggers", func(t *testing.T) {
+		layout := &android.Layout{
+			Name:     "main",
+			FilePath: "res/layout/main.xml",
+			RootView: &android.View{Type: "ImageView", ContentDescription: "@string/img_desc", Line: 5, Attributes: map[string]string{}},
+		}
+		idx := &android.ResourceIndex{
+			Layouts:           map[string]*android.Layout{"main": layout},
+			LayoutConfigs:     map[string]map[string]*android.Layout{"main": {"": layout}},
+			Strings:           map[string]string{"img_desc": "Bold image description"},
+			StringsWithMarkup: map[string]bool{"img_desc": true},
+			StringsLocation:   map[string]android.StringLocation{"img_desc": {FilePath: "res/values/strings.xml", Line: 3}},
+			Colors:            make(map[string]string),
+			Dimensions:        make(map[string]string),
+			Styles:            make(map[string]*android.Style),
+			StringArrays:      make(map[string][]string),
+			Plurals:           make(map[string]map[string]string),
+			Integers:          make(map[string]string),
+			Booleans:          make(map[string]string),
+			IDs:               make(map[string]bool),
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
 	t.Run("plain string in contentDescription is clean", func(t *testing.T) {
 		layout := &android.Layout{
 			Name:     "main",
@@ -1270,7 +1667,7 @@ func TestPluralsMissingZero(t *testing.T) {
 		}
 	})
 
-	t.Run("ru plurals without zero triggers", func(t *testing.T) {
+	t.Run("ru plurals without zero is clean", func(t *testing.T) {
 		resDir := filepath.Join(t.TempDir(), "res")
 		write(t, filepath.Join(resDir, "values", "strings.xml"),
 			"<resources><string name=\"app_name\">App</string></resources>\n")
@@ -1285,8 +1682,8 @@ func TestPluralsMissingZero(t *testing.T) {
 </resources>
 `)
 		findings := runResourceRule(r, scan(t, resDir))
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 }
@@ -1362,9 +1759,84 @@ func TestTranslatableMarkupMismatch(t *testing.T) {
 			"<resources><string name=\"emphasis\">This is &lt;b&gt;bold&lt;/b&gt;</string></resources>\n")
 		write(t, filepath.Join(resDir, "values-es", "strings.xml"),
 			"<resources><string name=\"emphasis\">Esto es negrita</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "strings.xml"),
+			"<resources><string name=\"emphasis\">Ceci est &lt;b&gt;gras&lt;/b&gt;</string></resources>\n")
 		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("many locales dropping the markup report once per key", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"emphasis\">This is &lt;b&gt;bold&lt;/b&gt;</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-de", "strings.xml"),
+			"<resources><string name=\"emphasis\">Das ist fett</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-es", "strings.xml"),
+			"<resources><string name=\"emphasis\">Esto es negrita</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "strings.xml"),
+			"<resources><string name=\"emphasis\">Ceci est **gras**</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-it", "strings.xml"),
+			"<resources><string name=\"emphasis\">Questo e &lt;b&gt;grassetto&lt;/b&gt;</string></resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for the key, got %d: %v", len(findings), findings)
+		}
+		if !strings.Contains(findings[0].Message, "values-de/") || !strings.Contains(findings[0].Message, "2 other locales differ too") {
+			t.Fatalf("unexpected message: %q", findings[0].Message)
+		}
+	})
+
+	t.Run("plain default with html in a translation is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"hello\">Hello world</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-de", "strings.xml"),
+			"<resources><string name=\"hello\">Hallo <b>Welt</b></string></resources>\n")
+		if findings := runResourceRule(r, scan(t, resDir)); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("cdata markup is judged like escaped and element markup", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"title\"><![CDATA[<b>No matches</b>]]></string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "strings.xml"),
+			"<resources><string name=\"title\">&lt;b&gt;Aucun&lt;/b&gt;</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-it", "strings.xml"),
+			"<resources><string name=\"title\"><![CDATA[<b>Nessuno</b>]]></string></resources>\n")
+		write(t, filepath.Join(resDir, "values-es", "strings.xml"),
+			"<resources><string name=\"title\"><![CDATA[Ninguno]]></string></resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "values-es/") {
+			t.Fatalf("expected only the translation that lost the markup, got %v", findings)
+		}
+	})
+
+	t.Run("markup stripped from every translation is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"emphasis\">This is &lt;b&gt;bold&lt;/b&gt;</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-es", "strings.xml"),
+			"<resources><string name=\"emphasis\">Esto es negrita</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-de", "strings.xml"),
+			"<resources><string name=\"emphasis\">Das ist fett</string></resources>\n")
+		if findings := runResourceRule(r, scan(t, resDir)); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("message names the real values directory", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"hello\">Hello world</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-de-rDE", "strings.xml"),
+			"<resources><string name=\"hello\">Hallo **Welt**</string></resources>\n")
+		findings := runResourceRule(r, scan(t, resDir))
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "`values-de-rDE/`") {
+			t.Fatalf("expected the values-de-rDE directory in the message, got %v", findings)
 		}
 	})
 
@@ -1376,6 +1848,17 @@ func TestTranslatableMarkupMismatch(t *testing.T) {
 			"<resources><string name=\"sku\" translatable=\"false\">SKU</string></resources>\n")
 		findings := runResourceRule(r, scan(t, resDir))
 		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("formatted false is clean", func(t *testing.T) {
+		resDir := filepath.Join(t.TempDir(), "res")
+		write(t, filepath.Join(resDir, "values", "strings.xml"),
+			"<resources><string name=\"tmpl\" formatted=\"false\">Hello **%{name}**</string></resources>\n")
+		write(t, filepath.Join(resDir, "values-fr", "strings.xml"),
+			"<resources><string name=\"tmpl\" formatted=\"false\">Bonjour %{name}</string></resources>\n")
+		if findings := runResourceRule(r, scan(t, resDir)); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 		}
 	})
@@ -1401,4 +1884,124 @@ func TestTranslatableMarkupMismatch(t *testing.T) {
 			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 		}
 	})
+}
+
+func TestImpliedQuantityResourceNumberPlaceholders(t *testing.T) {
+	r := findResourceRule(t, "ImpliedQuantityResource")
+	run := func(one string, mutate func(*android.ResourceIndex)) int {
+		idx := emptyIndex()
+		idx.Plurals["rows"] = map[string]string{"one": one, "other": "%d rows"}
+		idx.PluralSources = map[string]string{"rows": "values-fr"}
+		locatePlurals(idx)
+		idx.PluralsNonTranslate = map[string]bool{}
+		if mutate != nil {
+			mutate(idx)
+		}
+		return len(runResourceRule(r, idx))
+	}
+	for _, one := range []string{"%d row", "%1$d row", "%2$,d row", "%1$s of %2$d rows", "%1$s row", "%s row", "^1 row"} {
+		if n := run(one, nil); n != 0 {
+			t.Errorf("%q has a number placeholder, got %d findings", one, n)
+		}
+	}
+	if n := run("one row", nil); n != 1 {
+		t.Errorf("literal one should report, got %d", n)
+	}
+	for _, one := range []string{"100%% done", "%n row"} {
+		if n := run(one, nil); n != 1 {
+			t.Errorf("%q has no format argument, got %d findings", one, n)
+		}
+	}
+	if n := run("one row", func(idx *android.ResourceIndex) { idx.PluralsNonTranslate["rows"] = true }); n != 1 {
+		t.Errorf("Lint still reports a translatable=false plural, got %d", n)
+	}
+}
+
+func TestPluralRulesSkipUnlocatedEntries(t *testing.T) {
+	idx := emptyIndex()
+	idx.Plurals["rows"] = map[string]string{"one": "one row"}
+	for _, id := range []string{"ImpliedQuantityResource", "MissingQuantityResource"} {
+		if f := runResourceRule(findResourceRule(t, id), idx); len(f) != 0 {
+			t.Errorf("%s: an entry without a recorded position must not be reported at a made-up path, got %v", id, f)
+		}
+	}
+}
+
+func TestStringNotLocalizableResourceSkipsPerLocaleValues(t *testing.T) {
+	r := findResourceRule(t, "StringNotLocalizableResource")
+	idx := emptyIndex()
+	idx.Strings["home_url"] = "https://example.com/en"
+	idx.TranslatedTokens = map[string][]string{"home_url": {"https://example.com/de"}, "help_url": {"https://example.com/help"}}
+	idx.Strings["help_url"] = "https://example.com/help"
+	findings := runResourceRule(r, idx)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "help_url") {
+		t.Fatalf("expected only the identical-in-all-locales URL to report, got %v", findings)
+	}
+}
+
+func TestStringFormatCountResourceCountsChildElementText(t *testing.T) {
+	r := findResourceRule(t, "StringFormatCountResource")
+	idx := emptyIndex()
+	idx.Strings["greet"] = "Hallo %1$s"
+	idx.StringsLocation["greet"] = android.StringLocation{FilePath: "res/values-de/strings.xml", Line: 2}
+	idx.StringSources = map[string]android.StringSource{"greet": {Value: "Hello %1$s", FilePath: "res/values/strings.xml", Line: 2}}
+	if f := runResourceRule(r, idx); len(f) != 0 {
+		t.Fatalf("matching counts must be clean, got %v", f)
+	}
+}
+
+func TestStringFormatCountResourceReportsEachVariant(t *testing.T) {
+	r := findResourceRule(t, "StringFormatCountResource")
+	idx := emptyIndex()
+	idx.StringSources = map[string]android.StringSource{
+		"msg": {Value: "Managed by %1$s", FilePath: "res/values/strings.xml", Line: 3},
+	}
+	idx.Strings["msg"] = "Verwaltet von"
+	idx.StringsLocation["msg"] = android.StringLocation{FilePath: "res/values-de/strings.xml", Line: 4}
+	idx.StringTranslations = map[string][]android.StringSource{"msg": {
+		{FilePath: "res/values-de/strings.xml", Line: 4, Value: "Verwaltet von"},
+		{FilePath: "res/values-fr/strings.xml", Line: 5, Value: "Gere par"},
+		{FilePath: "res/values-it/strings.xml", Line: 6, Value: "Gestito da"},
+		{FilePath: "res/values-es/strings.xml", Line: 7, Value: "Gestionado por %1$s"},
+	}}
+	got := runResourceRule(r, idx)
+	if len(got) != 3 {
+		t.Fatalf("Lint reports each variant with a different count, got %v", got)
+	}
+	if got[0].File != "res/values-de/strings.xml" || got[1].File != "res/values-fr/strings.xml" || got[2].File != "res/values-it/strings.xml" {
+		t.Fatalf("unexpected locations: %v", got)
+	}
+}
+
+func TestImpliedQuantityResource_PerLocaleDefinitions(t *testing.T) {
+	r := findResourceRule(t, "ImpliedQuantityResource")
+	idx := emptyIndex()
+	idx.PluralDefinitions = []android.PluralDefinition{
+		{Name: "a", FilePath: "res/values/p.xml", Line: 2, Quantities: map[string]string{"one": "One", "other": "%d"}},
+		{Name: "a", FilePath: "res/values-fr/p.xml", Line: 2, Quantities: map[string]string{"one": "Une", "other": "%d"},
+			QuantityPos: map[string]android.XMLPos{"one": {Line: 3, Col: 21}}},
+		{Name: "a", FilePath: "res/values-lv/p.xml", Line: 2, Quantities: map[string]string{"zero": "Nulle", "one": "%d", "other": "%d"}},
+		{Name: "a", FilePath: "res/values-de/p.xml", Line: 2, Quantities: map[string]string{"one": "Eine", "other": "%d"}},
+	}
+	got := runResourceRule(r, idx)
+	if len(got) != 2 {
+		t.Fatalf("expected the fr and lv definitions to report, got %+v", got)
+	}
+	var fr, lv string
+	for _, f := range got {
+		if strings.Contains(f.File, "values-fr") {
+			fr = f.Message
+			if f.Line != 3 || f.Col != 21 {
+				t.Errorf("fr finding must sit on the item, got %d:%d", f.Line, f.Col)
+			}
+		} else {
+			lv = f.Message
+		}
+	}
+	if !strings.HasPrefix(fr, "The quantity `'one'` matches more than one specific number in this locale (0, 1), but the message did not include a formatting argument (such as `%d`).") {
+		t.Errorf("unexpected fr message %q", fr)
+	}
+	if !strings.Contains(lv, "`'zero'`") || !strings.Contains(lv, "(0, 10~20, 30,") {
+		t.Errorf("unexpected lv message %q", lv)
+	}
 }

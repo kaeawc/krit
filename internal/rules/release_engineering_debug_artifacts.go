@@ -45,7 +45,7 @@ func (r *CommentedOutImportRule) checkNode(ctx *api.Context) {
 		return
 	}
 	row := file.FlatRow(ctx.Idx)
-	f := r.Finding(file, row+1, 1,
+	f := r.Finding(file, row+1, file.FlatCol(ctx.Idx)+1,
 		"Commented-out import; remove it or restore it as a live import.")
 	f.Fix = deleteLineFix(file, row)
 	ctx.Emit(f)
@@ -118,7 +118,7 @@ func (r *MergeConflictMarkerLeftoverRule) check(ctx *api.Context) {
 		// comments.
 		isStart := strings.HasPrefix(line, "<<<<<<<")
 		isEnd := strings.HasPrefix(line, ">>>>>>>")
-		isSep := strings.TrimRight(line, " \t") == "======="
+		isSep := strings.TrimRight(line, " \t\r") == "======="
 		if !isStart && !isEnd && !isSep {
 			continue
 		}
@@ -292,7 +292,7 @@ func markPrintShadow(facts *printBuiltinShadowFacts, name string) {
 }
 
 func printlnNonProductionPath(path string) bool {
-	if scanner.IsTestFile(path) || isGradleBuildScript(path) || strings.HasSuffix(filepath.Base(path), ".kts") {
+	if scanner.IsTestFile(path) || isGradleBuildScript(path) || printCallInToolingPath(path) {
 		return true
 	}
 	lower := strings.ToLower(path)
@@ -300,6 +300,71 @@ func printlnNonProductionPath(path string) bool {
 		strings.Contains(lower, "/sample/") ||
 		strings.Contains(lower, "/demos/") ||
 		strings.Contains(lower, "/demo/")
+}
+
+// printCallInToolingPath reports CLI tooling, script and test-support sources, where console output is the intended interface.
+func printCallInToolingPath(path string) bool {
+	slash := "/" + strings.TrimPrefix(filepath.ToSlash(path), "/")
+	return strings.Contains(slash, "/tooling/") ||
+		strings.Contains(slash, "/bazel/") || strings.Contains(slash, "/scripts/") ||
+		strings.Contains(slash, "/test-fixtures/") || strings.Contains(slash, "/test-support/") ||
+		strings.Contains(slash, "/test-utils/")
+}
+
+// printCallInsideLoggingSink reports calls inside a log() override or a logging Tree/Handler/Appender subclass.
+func printCallInsideLoggingSink(file *scanner.File, idx uint32) bool {
+	if fn, ok := flatEnclosingFunction(file, idx); ok && flatFunctionName(file, fn) == "log" && file.FlatHasModifier(fn, "override") {
+		return true
+	}
+	if fn, ok := flatEnclosingFunction(file, idx); ok && (printFunctionDocumentedAsStdout(file, fn) || printFunctionNamedForPrinting(file, fn)) {
+		return true
+	}
+	for cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration"); ok; cls, ok = flatEnclosingAncestor(file, cls, "class_declaration", "object_declaration") {
+		if strings.HasSuffix(extractIdentifierFlat(file, cls), "Logger") {
+			return true
+		}
+		for _, name := range []string{"Tree", "DebugTree", "Handler", "Appender"} {
+			if classHasSupertypeNamed(file, cls, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// printFunctionDocumentedAsStdout reports a function whose KDoc says it writes to stdout or the console.
+func printFunctionDocumentedAsStdout(file *scanner.File, fn uint32) bool {
+	doc, ok := flatPrecedingKDoc(file, fn)
+	if !ok {
+		return false
+	}
+	text := strings.ToLower(file.FlatNodeText(doc))
+	for _, word := range printStdoutWords {
+		if strings.Contains(text, word) {
+			return true
+		}
+	}
+	return false
+}
+
+// printStdoutWords are the KDoc phrases that mark a function as console output on purpose.
+var printStdoutWords = []string{"stdout", "console", "standard output", "system.out", "system.err", "prints to"}
+
+// printFunctionNamedForPrinting reports a `print` / `printXxx` function, whose purpose is console output.
+func printFunctionNamedForPrinting(file *scanner.File, fn uint32) bool {
+	name := flatFunctionName(file, fn)
+	if !strings.HasPrefix(name, "print") {
+		return false
+	}
+	rest := name[len("print"):]
+	return rest == "" || (rest[0] >= 'A' && rest[0] <= 'Z')
+}
+
+// printStackTraceTargetsStream reports printStackTrace(PrintWriter/PrintStream), which writes to a caller-chosen sink.
+func printStackTraceTargetsStream(file *scanner.File, call uint32) bool {
+	_, args := flatCallExpressionParts(file, call)
+	_, count := flatValueArgumentStats(file, args)
+	return count > 0
 }
 
 func printlnInsideGradleTaskAction(file *scanner.File, idx uint32) bool {
@@ -399,6 +464,9 @@ func (r *HardcodedLocalhostURLRule) check(ctx *api.Context) {
 		return
 	}
 	idx := ctx.Idx
+	if annotationSuppressesRule(file, idx, r.RuleName) {
+		return
+	}
 	if flatContainsStringInterpolation(file, idx) {
 		return // interpolated content — cannot confirm runtime value.
 	}
@@ -460,6 +528,13 @@ func (r *TestOnlyImportInProductionRule) check(ctx *api.Context) {
 		return
 	}
 	fqn := file.FlatNodeText(ident)
+	// Idling resources ship in production builds so UI tests can wait on them.
+	if strings.HasPrefix(fqn, "androidx.test.espresso.idling.") {
+		return
+	}
+	if isTestFixtureModulePath(file.Path) {
+		return
+	}
 	for _, prefix := range testOnlyImportPrefixes {
 		if strings.HasPrefix(fqn, prefix) {
 			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -538,4 +613,30 @@ func flatOwnerDeclarationName(file *scanner.File, idx uint32) string {
 		}
 	}
 	return ""
+}
+
+// annotationSuppressesRule reports a @Suppress("rule") on idx, a preceding annotation sibling, or any ancestor.
+// This covers companion objects and annotated expressions that the generic suppression index can miss.
+func annotationSuppressesRule(file *scanner.File, idx uint32, rule string) bool {
+	quoted := `"` + rule + `"`
+	mentions := func(node uint32) bool {
+		text := file.FlatNodeText(node)
+		return strings.Contains(text, "Suppress") && strings.Contains(text, quoted)
+	}
+	for cur := idx; cur != 0; {
+		for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
+			if t := file.FlatType(child); (t == "modifiers" || t == "annotation") && mentions(child) {
+				return true
+			}
+		}
+		if prev, ok := file.FlatPrevSibling(cur); ok && file.FlatType(prev) == "annotation" && mentions(prev) {
+			return true
+		}
+		parent, ok := file.FlatParent(cur)
+		if !ok {
+			break
+		}
+		cur = parent
+	}
+	return false
 }

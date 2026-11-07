@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -100,5 +101,38 @@ func TestTypeIndexCacheRejectsPreAnnotationOffsetVersion(t *testing.T) {
 	}
 	if _, ok := unpackFileTypeInfo(old); ok {
 		t.Fatal("accepted version 4 type index with declaration offsets predating annotation normalization")
+	}
+}
+
+func TestTypeIndexCacheMissesAcrossBuilds(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := TypeIndexCacheDir(dir)
+	aPath := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(aPath, []byte("package demo\nclass A { val name: String = \"a\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := func() (int, int) {
+		return NewResolver().IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+	}
+
+	buildid.OverrideTokenForTest(t, "rev:build-a")
+	if hits, misses := index(); hits != 0 || misses != 1 {
+		t.Fatalf("cold scan = hits %d misses %d, want 0/1", hits, misses)
+	}
+	if hits, misses := index(); hits != 1 || misses != 0 {
+		t.Fatalf("same build rescan = hits %d misses %d, want 1/0", hits, misses)
+	}
+
+	// Type inference code differs between builds, so another build must not reuse the entry.
+	buildid.OverrideTokenForTest(t, "rev:build-b")
+	if hits, misses := index(); hits != 0 || misses != 1 {
+		t.Fatalf("different build = hits %d misses %d, want 0/1", hits, misses)
+	}
+	if hits, misses := index(); hits != 1 || misses != 0 {
+		t.Fatalf("different build rescan = hits %d misses %d, want 1/0", hits, misses)
 	}
 }

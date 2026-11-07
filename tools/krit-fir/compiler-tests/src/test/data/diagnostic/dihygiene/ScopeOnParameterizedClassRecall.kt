@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 44
+// go-lines: 20
 // Scoped generic types Go misses because it matches only the unqualified
 // names in its scope list: each is a DI scope on a generic class, so the
 // message is true of it.

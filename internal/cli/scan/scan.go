@@ -267,6 +267,7 @@ func Run() int {
 	defer r.close()
 
 	exitCode, _ := r.run(ctx)
+	savePersistedHashes(r.cacheFilePath)
 	return exitCode
 }
 

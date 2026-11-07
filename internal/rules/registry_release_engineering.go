@@ -26,7 +26,7 @@ func registerReleaseEngineeringRules() {
 				if !isAndroidLibrarySourceFile(file.Path) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "BuildConfig.DEBUG in an Android library module is false in consumer release builds; this guard may silently drop its body.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "BuildConfig.DEBUG in an Android library module is false in consumer release builds; this guard may silently drop its body.")
 			},
 		})
 	}
@@ -49,7 +49,7 @@ func registerReleaseEngineeringRules() {
 		})
 	}
 	{
-		r := &AllProjectsBlockRule{BaseRule: BaseRule{RuleName: "AllProjectsBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects deprecated allprojects {} blocks in Gradle build scripts."}}
+		r := &AllProjectsBlockRule{BaseRule: BaseRule{RuleName: "AllProjectsBlock", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects allprojects {} blocks in Gradle build scripts; cross-project configuration is discouraged and incompatible with Isolated Projects."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -61,7 +61,7 @@ func registerReleaseEngineeringRules() {
 				if flatCallExpressionName(file, idx) != "allprojects" {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "`allprojects {}` is deprecated in Gradle 8.x; move shared configuration to settings-level repositories or convention plugins.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "`allprojects {}` configures other projects from this one, which Gradle discourages and which blocks Isolated Projects; move shared configuration to settings-level repositories or convention plugins.")
 			},
 		})
 	}
@@ -72,6 +72,10 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Test fixtures routinely pass literal environment names.
+				if scanner.IsTestFile(file.Path) || isDebugSourceFile(file.Path) {
+					return
+				}
 				funcName := flatCallExpressionName(file, idx)
 				if !isEnvironmentConfigCallName(funcName) {
 					return
@@ -129,7 +133,7 @@ func registerReleaseEngineeringRules() {
 					if argCount == 2 {
 						text := strings.TrimSpace(file.FlatNodeText(arg))
 						if debugToastPrefixRe.MatchString(text) {
-							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Toast message starts with a debug prefix; remove or guard behind BuildConfig.DEBUG.")
+							ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Toast message starts with a debug prefix; remove or guard behind BuildConfig.DEBUG.")
 						}
 						break
 					}
@@ -152,7 +156,7 @@ func registerReleaseEngineeringRules() {
 				if !isProductionPrintCallFlat(file, idx, name, receiver) {
 					return
 				}
-				if printlnInsideGradleTaskAction(file, idx) {
+				if printlnInsideGradleTaskAction(file, idx) || printCallInsideLoggingSink(file, idx) {
 					return
 				}
 				// Exclude if inside a top-level fun main()
@@ -166,7 +170,7 @@ func registerReleaseEngineeringRules() {
 						}
 					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "println/print in production code; use a logging framework instead.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "println/print in production code; use a logging framework instead.")
 			},
 		})
 	}
@@ -177,17 +181,17 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(file.Path) || printCallInToolingPath(file.Path) {
 					return
 				}
 				name := flatCallExpressionName(file, idx)
-				if name != "printStackTrace" {
+				if name != "printStackTrace" || printStackTraceTargetsStream(file, idx) || printCallInsideLoggingSink(file, idx) {
 					return
 				}
 				if !hasLoggingImport(file) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "printStackTrace() in code with a logging framework; use the logger to record the exception.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "printStackTrace() in code with a logging framework; use the logger to record the exception.")
 			},
 		})
 	}
@@ -214,7 +218,7 @@ func registerReleaseEngineeringRules() {
 				}
 				for _, ch := range name {
 					if ch > 127 && !unicode.IsControl(ch) {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 							fmt.Sprintf("Non-ASCII character in identifier %q; this may cause issues in non-UTF-8 build environments.", name))
 						return
 					}
@@ -254,7 +258,7 @@ func registerReleaseEngineeringRules() {
 					}
 					className := flatEnclosingClassName(file, idx)
 					if className != "" && unquoted == className {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 							fmt.Sprintf("Log tag %q matches enclosing class name; hoist to a companion `TAG` constant.", unquoted))
 					}
 					return
@@ -330,7 +334,7 @@ func registerReleaseEngineeringRules() {
 		r := &VisibleForTestingCallerInNonTestRule{BaseRule: BaseRule{RuleName: "VisibleForTestingCallerInNonTest", RuleSetName: releaseEngineeringRuleSet, Sev: "warning", Desc: "Detects calls to @VisibleForTesting-annotated functions from non-test source files."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsCrossFile, Confidence: r.Confidence(), Implementation: r,
+			Needs: api.NeedsCrossFile | api.NeedsResolver, Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

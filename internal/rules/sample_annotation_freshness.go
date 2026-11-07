@@ -3,7 +3,6 @@ package rules
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -49,11 +48,11 @@ func (r *SampleAnnotationFreshnessRule) check(ctx *api.Context) {
 				if sampleAnnotationFunctionExists(ctx.CodeIndex, fqn) {
 					continue
 				}
-				line := file.FlatRow(idx) + 1 + strings.Count(text[:match[0]], "\n")
+				line, col := commentOffsetPosition(file, idx, match[2])
 				ctx.Emit(scanner.Finding{
 					File:    file.Path,
 					Line:    line,
-					Col:     1,
+					Col:     col,
 					Message: fmt.Sprintf("KDoc @sample target %q does not resolve to a function in analysed sources.", fqn),
 				})
 			}
@@ -67,6 +66,14 @@ func sampleAnnotationFunctionExists(index *scanner.CodeIndex, fqn string) bool {
 }
 
 func kdocDocumentedDeclarationLine(file *scanner.File, kdoc uint32) int {
+	if best := kdocDocumentedDeclaration(file, kdoc); best != 0 {
+		return file.FlatRow(best) + 1
+	}
+	return 0
+}
+
+// kdocDocumentedDeclaration returns the first declaration that starts after the KDoc ends, or 0.
+func kdocDocumentedDeclaration(file *scanner.File, kdoc uint32) uint32 {
 	if file == nil || kdoc == 0 {
 		return 0
 	}
@@ -82,8 +89,5 @@ func kdocDocumentedDeclarationLine(file *scanner.File, kdoc uint32) int {
 			}
 		})
 	}
-	if best != 0 {
-		return file.FlatRow(best) + 1
-	}
-	return 0
+	return best
 }

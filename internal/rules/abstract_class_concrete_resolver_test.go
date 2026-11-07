@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -81,6 +82,113 @@ abstract class Impl : Named {
 	composite := &oracleShellComposite{compositeStub: compositeStub{fallback: source}}
 	cols := NewDispatcher([]*api.Rule{abstractClassConcreteRule(t)}, composite).Run(file)
 	if n := cols.Len(); n != 1 {
+		t.Fatalf("got %d finding(s), want 1", n)
+	}
+}
+
+func runAbstractClassConcreteWithSourceResolver(t *testing.T, code string) int {
+	t.Helper()
+	file := writeKotlinFile(t, code, "Prefs.kt")
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	cols := NewDispatcher([]*api.Rule{abstractClassConcreteRule(t)}, resolver).Run(file)
+	return cols.Len()
+}
+
+// An interface member without a body is abstract, so an abstract class that leaves it unimplemented stays abstract.
+func TestAbstractClassCanBeConcreteClassKeepsClassWithUnimplementedInterfaceMember(t *testing.T) {
+	n := runAbstractClassConcreteWithSourceResolver(t, `package p
+
+interface Prefs {
+    val storage: String
+    fun reset()
+}
+
+abstract class BasePrefs(override val storage: String) : Prefs
+`)
+	if n != 0 {
+		t.Fatalf("got %d finding(s) while reset() is unimplemented, want none", n)
+	}
+}
+
+func TestAbstractClassCanBeConcreteClassReportsWhenInterfaceMembersAreImplemented(t *testing.T) {
+	n := runAbstractClassConcreteWithSourceResolver(t, `package p
+
+interface Prefs {
+    val storage: String
+    fun reset()
+}
+
+abstract class BasePrefs(override val storage: String) : Prefs {
+    override fun reset() {}
+}
+`)
+	if n != 1 {
+		t.Fatalf("got %d finding(s), want 1", n)
+	}
+}
+
+func runAbstractRuleAcrossFiles(t *testing.T, ruleID, target string, sources map[string]string) int {
+	t.Helper()
+	var files []*scanner.File
+	var targetFile *scanner.File
+	for name, code := range sources {
+		f := writeKotlinFile(t, code, name)
+		files = append(files, f)
+		if name == target {
+			targetFile = f
+		}
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel(files, 1)
+	for _, r := range api.Registry {
+		if r.ID == ruleID {
+			cols := NewDispatcher([]*api.Rule{r}, resolver).Run(targetFile)
+			return cols.Len()
+		}
+	}
+	t.Fatalf("%s is not registered", ruleID)
+	return 0
+}
+
+func TestAbstractClassRulesSkipClassWithSubclassInAnotherFile(t *testing.T) {
+	sources := map[string]string{
+		"Base.kt":    "package p\n\nabstract class Base {\n    fun shared() = 1\n}\n",
+		"Derived.kt": "package p\n\nclass Derived : Base()\n",
+	}
+	for _, id := range []string{"AbstractClassCanBeConcreteClass", "AbstractClassCanBeInterface"} {
+		if n := runAbstractRuleAcrossFiles(t, id, "Base.kt", sources); n != 0 {
+			t.Errorf("%s: got %d finding(s) for a base class that has a subclass, want none", id, n)
+		}
+	}
+}
+
+func TestAbstractClassCanBeConcreteClassStillFiresWithoutSubclass(t *testing.T) {
+	sources := map[string]string{"Base.kt": "package p\n\nabstract class Base {\n    fun shared() = 1\n}\n"}
+	if n := runAbstractRuleAcrossFiles(t, "AbstractClassCanBeConcreteClass", "Base.kt", sources); n != 1 {
+		t.Fatalf("got %d finding(s), want 1", n)
+	}
+}
+
+// An abstract member declared two levels up, through a sealed class in another file, keeps the class abstract.
+func TestAbstractClassCanBeConcreteClassCountsAbstractMemberFromGrandparent(t *testing.T) {
+	sources := map[string]string{
+		"Renderable.kt": "package p.model\n\ninterface Renderable {\n    fun draw()\n}\n",
+		"Mid.kt":        "package p.model\n\nsealed class MidElement : Renderable {\n    val tag = \"x\"\n}\n",
+		"Leaf.kt":       "package p.ui\n\nimport p.model.MidElement\n\nabstract class LeafElement : MidElement() {\n    fun extra() = 1\n}\n",
+	}
+	if n := runAbstractRuleAcrossFiles(t, "AbstractClassCanBeConcreteClass", "Leaf.kt", sources); n != 0 {
+		t.Fatalf("got %d finding(s) while draw() is inherited unimplemented, want none", n)
+	}
+}
+
+func TestAbstractClassCanBeConcreteClassReportsWhenGrandparentMemberIsImplemented(t *testing.T) {
+	sources := map[string]string{
+		"Renderable.kt": "package p.model\n\ninterface Renderable {\n    fun draw()\n}\n",
+		"Mid.kt":        "package p.model\n\nsealed class MidElement : Renderable {\n    val tag = \"x\"\n}\n",
+		"Leaf.kt":       "package p.ui\n\nimport p.model.MidElement\n\nabstract class LeafElement : MidElement() {\n    override fun draw() {}\n}\n",
+	}
+	if n := runAbstractRuleAcrossFiles(t, "AbstractClassCanBeConcreteClass", "Leaf.kt", sources); n != 1 {
 		t.Fatalf("got %d finding(s), want 1", n)
 	}
 }

@@ -87,31 +87,6 @@ func matchTypeBytes(text []byte, names []string) bool {
 	return false
 }
 
-func classHasMemberFunctionFlat(file *scanner.File, class uint32, name string) bool {
-	body, _ := file.FlatFindChild(class, "class_body")
-	if body == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(body, "function_declaration", func(fn uint32) {
-		if found {
-			return
-		}
-		if extractIdentifierFlat(file, fn) == name {
-			found = true
-		}
-	})
-	file.FlatWalkNodes(body, "method_declaration", func(fn uint32) {
-		if found {
-			return
-		}
-		if extractIdentifierFlat(file, fn) == name {
-			found = true
-		}
-	})
-	return found
-}
-
 func classHasNestedViewHolderFlat(file *scanner.File, class uint32) bool {
 	body, _ := file.FlatFindChild(class, "class_body")
 	if body == 0 {
@@ -255,4 +230,23 @@ func classHasAdapterLikeSupertypeFlat(file *scanner.File, class uint32) bool {
 		})
 	}
 	return found
+}
+
+// classIsRecyclerViewAdapterFlat reports a class that derives from RecyclerView.Adapter, not BaseAdapter or another Adapter type.
+func classIsRecyclerViewAdapterFlat(file *scanner.File, class uint32) bool {
+	if classExtendsAnyFlat(file, class, "androidx.recyclerview.widget.RecyclerView.Adapter",
+		"android.support.v7.widget.RecyclerView.Adapter", "RecyclerView.Adapter") {
+		return true
+	}
+	for child := file.FlatFirstChild(class); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier", "superclass", "super_interfaces":
+			if strings.Contains(file.FlatNodeText(child), "BaseAdapter") {
+				return false
+			}
+		}
+	}
+	return fileImportsFQN(file, "androidx.recyclerview.widget.RecyclerView") ||
+		fileImportsFQN(file, "android.support.v7.widget.RecyclerView") ||
+		fileImportsFQN(file, "androidx.recyclerview.widget.RecyclerView.Adapter")
 }

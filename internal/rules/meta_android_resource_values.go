@@ -100,7 +100,8 @@ func (r *StringFormatTrivialResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "StringFormatTrivialResource",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 
@@ -187,5 +188,29 @@ func (r *WrongRegionResourceRule) Meta() api.RuleDescriptor {
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
+func (r *WebViewLayoutResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "WebViewLayoutResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *TextViewEditsResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "TextViewEditsResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *InsecureBaseConfigurationResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "InsecureBaseConfigurationResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
 	}
 }

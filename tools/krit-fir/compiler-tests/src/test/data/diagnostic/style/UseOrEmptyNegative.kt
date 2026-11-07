@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 17
+// go-lines: 17
 // Cases where `.orEmpty()` is invalid or changes the fallback's collection kind.
 package test
 

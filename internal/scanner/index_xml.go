@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -115,10 +116,14 @@ func loadXMLFilesForCache(ktFiles []*File) []*XMLCacheFile {
 		wg  sync.WaitGroup
 		out []*XMLCacheFile
 	)
+	// At most a few walks per CPU run at once: a goroutine per module root (possibly thousands) made them fight over the disk and the scheduler for no extra throughput.
+	slots := make(chan struct{}, 2*runtime.GOMAXPROCS(0))
 	for r := range roots {
 		wg.Add(1)
+		slots <- struct{}{}
 		go func(root string) {
 			defer wg.Done()
+			defer func() { <-slots }()
 			local := walkXMLFilesInRoot(root)
 			if len(local) > 0 {
 				mu.Lock()

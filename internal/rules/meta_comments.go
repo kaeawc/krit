@@ -24,6 +24,12 @@ func (r *AbsentOrWrongFileLicenseRule) Meta() api.RuleDescriptor {
 				Description: "License header text (or regex) that every file must contain.",
 				Apply:       func(r *AbsentOrWrongFileLicenseRule, v string) { r.LicenseTemplate = v },
 			}),
+			api.StringOption(api.StringOptionSpec[AbsentOrWrongFileLicenseRule]{
+				Name:        "licenseTemplateFile",
+				Default:     "",
+				Description: "File whose text is the license template, as in detekt. When it exists it replaces licenseTemplate.",
+				Apply:       func(r *AbsentOrWrongFileLicenseRule, v string) { r.LicenseTemplateFile = v },
+			}),
 			api.BoolOption(api.BoolOptionSpec[AbsentOrWrongFileLicenseRule]{
 				Name:        "licenseTemplateIsRegex",
 				Default:     false,
@@ -72,8 +78,9 @@ func (r *EndOfSentenceFormatRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[EndOfSentenceFormatRule]{
 				Name:        "endOfSentenceFormat",
-				Default:     `([.?!][ \t\n\r])|([.?!]$)`,
-				Description: "Regex pattern matched against the first KDoc sentence's terminator.",
+				Default:     endOfSentenceDefaultPattern,
+				Unanchored:  true,
+				Description: "Regex searched for in the first KDoc paragraph; a match means the first sentence ends properly.",
 				Apply:       func(r *EndOfSentenceFormatRule, v *regexp.Regexp) { r.Pattern = v },
 			}),
 		},
@@ -116,13 +123,19 @@ func (r *OutdatedDocumentationRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.BoolOption(api.BoolOptionSpec[OutdatedDocumentationRule]{
 				Name:        "matchDeclarationsOrder",
-				Default:     false,
+				Default:     true,
 				Description: "Check that @param order matches declaration order.",
 				Apply:       func(r *OutdatedDocumentationRule, v bool) { r.MatchDeclarationsOrder = v },
 			}),
 			api.BoolOption(api.BoolOptionSpec[OutdatedDocumentationRule]{
-				Name:        "matchTypeParameters",
+				Name:        "allowParamOnConstructorProperties",
 				Default:     false,
+				Description: "Allow @param tags for constructor properties.",
+				Apply:       func(r *OutdatedDocumentationRule, v bool) { r.AllowParamOnConstructorProperties = v },
+			}),
+			api.BoolOption(api.BoolOptionSpec[OutdatedDocumentationRule]{
+				Name:        "matchTypeParameters",
+				Default:     true,
 				Description: "Also check @param for type parameters.",
 				Apply:       func(r *OutdatedDocumentationRule, v bool) { r.MatchTypeParameters = v },
 			}),

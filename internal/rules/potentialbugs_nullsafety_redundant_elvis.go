@@ -48,6 +48,10 @@ func (r *UselessElvisOnNonNullRule) check(ctx *api.Context) {
 	}) {
 		return
 	}
+	// The compiler analyzed this file and reported nothing, so the name-based guess would only add false positives.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
 	if ctx.Resolver == nil {
 		return
 	}

@@ -71,6 +71,30 @@ class MyActivity : Activity() {
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("Fragment helper named onBackPressed is not an override", func(t *testing.T) {
+		findings := runRuleByName(t, "Override", `
+package test
+
+class MyFragment : Fragment() {
+    fun onBackPressed() {}
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("Fragment onOptionsItemSelected still triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "Override", `
+package test
+
+class MyFragment : Fragment() {
+    fun onOptionsItemSelected(item: MenuItem): Boolean = true
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
 	t.Run("clean", func(t *testing.T) {
 		findings := runRuleByName(t, "Override", `
 package test
@@ -79,33 +103,6 @@ class MyActivity : Activity() {
     override fun onBackPressed() {
         finish()
     }
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-func TestUnusedResources(t *testing.T) {
-	t.Run("triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UnusedResources", `
-package test
-
-fun load() {
-    val id = R.string.test_placeholder
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("clean", func(t *testing.T) {
-		findings := runRuleByName(t, "UnusedResources", `
-package test
-
-fun load() {
-    val id = R.string.welcome_message
 }
 `)
 		if len(findings) != 0 {

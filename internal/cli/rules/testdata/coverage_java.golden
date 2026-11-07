@@ -1,13 +1,13 @@
 RULE                                            CATEGORY             JAVA STATUS     REASON/EVIDENCE
 AaptCrash                                       android-lint         partial         Many Android lint compatibility checks are XML/manifest/resource-only, but source-backed checks still need Java parity classification.
 AbsentOrWrongFileLicense                        comments             pending         Source comment and documentation rules need Java-specific syntax review.
-AbstractClassCanBeConcreteClass                 style                partial         Java comment/import style rules, line-based formatting checks, and decimal numeric literal readability are supported; most remaining style rules encode Kotlin syntax and require explicit per-rule review.
+AbstractClassCanBeConcreteClass                 style                partial         detekt-ported style rules are Kotlin-only because detekt does not analyze Java; the remaining style rules encode Kotlin syntax or ktlint behavior and require explicit per-rule review.
 ...
 
-Total: 789 rule(s)
-  supported: 119
-  partial: 453
-  pending: 146
+Total: 859 rule(s)
+  supported: 103
+  partial: 500
+  pending: 153
   needs-design: 0
-  not-applicable: 50
+  not-applicable: 82
   (unclassified): 21

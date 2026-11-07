@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 39x2, 40, 42x2, 43, 48, 56x3, 57x2, 72x3, 73x3, 74x3, 75x3, 77x3, 79, 92, 93, 135, 152x2, 153x2, 155x3, 168x2
+// go-lines: 48, 56, 73x2, 74x2, 77x2, 79, 93, 135, 152, 153, 154, 155, 168x2
 // Where FIR resolution and the Go rule's call-text match disagree. Go reports
 // an unqualified call whose name is on its fixed list of suspend functions and
 // coroutine builders; FIR reports every call that resolves to a suspend

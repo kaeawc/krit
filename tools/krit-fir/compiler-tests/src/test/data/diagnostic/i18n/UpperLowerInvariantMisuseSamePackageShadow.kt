@@ -8,7 +8,9 @@ fun String.uppercase(): String = this + "!"
 
 // Go reports this because the call is spelled `.uppercase()`; it resolves to
 // the project extension above, which takes no Locale.
-fun shadowed(userName: String): String = userName.uppercase()
+fun shadowed(userName: String): String = Text(userName.uppercase())
 
 // The unshadowed lowercase() is still the stdlib conversion.
-fun unshadowed(email: String): String = <!UpperLowerInvariantMisuse!>email.lowercase()<!>
+fun unshadowed(email: String): String = Text(<!UpperLowerInvariantMisuse!>email.lowercase()<!>)
+
+fun Text(text: String?): String = text.orEmpty()

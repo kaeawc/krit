@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -50,6 +51,79 @@ func isWebSettingsReceiver(file *scanner.File, receiverChain string) bool {
 	switch root {
 	case "settings", "webSettings", "ws", "mSettings", "mWebSettings":
 		return true
+	}
+	return false
+}
+
+// isWebSettingsReceiverAt extends isWebSettingsReceiver with scope-aware
+// proofs for the node at idx: a bare identifier declared as WebSettings (or
+// initialised from `.settings` / `getSettings()`), `it` inside also/let on a
+// settings receiver, and an empty receiver inside apply/run/with on one.
+func isWebSettingsReceiverAt(file *scanner.File, idx uint32, chain string) bool {
+	if isWebSettingsReceiver(file, chain) {
+		return true
+	}
+	if file == nil ||
+		(!sourceImportsOrMentions(file, "android.webkit.WebSettings") &&
+			!sourceImportsOrMentions(file, "android.webkit.WebView")) {
+		return false
+	}
+	chain = strings.TrimSpace(chain)
+	if chain == "" {
+		return implicitWebSettingsScope(file, idx, false)
+	}
+	if strings.ContainsAny(chain, ".()") {
+		return false
+	}
+	if chain == "it" && implicitWebSettingsScope(file, idx, true) {
+		return true
+	}
+	return webSettingsDeclaredAs(file, chain)
+}
+
+// webSettingsDeclaredAs reports whether the file declares name as a WebSettings
+// variable, either by type or by an initialiser reading the WebView settings.
+func webSettingsDeclaredAs(file *scanner.File, name string) bool {
+	quoted := regexp.QuoteMeta(name)
+	re := regexp.MustCompile(`(?m)(?:\b` + quoted + `\s*:\s*(?:android\.webkit\.)?WebSettings\b)|(?:\bWebSettings\s+` + quoted + `\b)|(?:\b(?:val|var)\s+` + quoted + `\s*(?::[^=\n]*)?=\s*[^\n]*(?:\.settings|getSettings\(\))\s*$)`)
+	return re.Match(file.Content)
+}
+
+// implicitWebSettingsScope walks the enclosing scope functions of idx looking
+// for one whose receiver is a WebSettings. explicitIt selects also/let (the
+// receiver is `it`); otherwise apply/run/with (the receiver is `this`).
+func implicitWebSettingsScope(file *scanner.File, idx uint32, explicitIt bool) bool {
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_declaration", "class_declaration", "source_file":
+			return false
+		case "call_expression":
+			if flatCallTrailingLambda(file, parent) == 0 {
+				continue
+			}
+			name := flatCallExpressionName(file, parent)
+			callee := parent
+			if name == "" {
+				// `with(x) { ... }` parses as a call whose callee is the inner `with(x)` call.
+				if inner, found := file.FlatFindChild(parent, "call_expression"); found {
+					name, callee = flatCallExpressionName(file, inner), inner
+				}
+			}
+			var receiver string
+			switch {
+			case !explicitIt && (name == "apply" || name == "run"), explicitIt && (name == "also" || name == "let"):
+				receiver = kotlinCallReceiverChain(file, parent)
+			case !explicitIt && name == "with":
+				_, args := flatCallExpressionParts(file, callee)
+				if args != 0 && file.FlatNamedChildCount(args) > 0 {
+					receiver = strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(args, 0)))
+				}
+			default:
+				continue
+			}
+			// The first enclosing matching scope function decides.
+			return receiver != "" && isWebSettingsReceiverAt(file, parent, receiver)
+		}
 	}
 	return false
 }
@@ -149,9 +223,7 @@ func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec
 	file := ctx.File
 
 	emit := func() {
-		line := file.FlatRow(ctx.Idx) + 1
-		col := file.FlatCol(ctx.Idx) + 1
-		emitWebSettingsBoolFinding(ctx, line, col, spec.RuleSet, spec.Rule, spec.Severity, spec.Message, spec.Conf)
+		emitWebSettingsBoolFinding(ctx, ctx.Idx, spec.RuleSet, spec.Rule, spec.Severity, spec.Message, spec.Conf)
 	}
 
 	switch file.FlatType(ctx.Idx) {
@@ -162,7 +234,7 @@ func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec
 		if !callBoolArgIsTrue(file, ctx.Idx) {
 			return
 		}
-		if !isWebSettingsReceiver(file, kotlinCallReceiverChain(file, ctx.Idx)) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, kotlinCallReceiverChain(file, ctx.Idx)) {
 			return
 		}
 		emit()
@@ -174,7 +246,7 @@ func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec
 		if !callBoolArgIsTrue(file, ctx.Idx) {
 			return
 		}
-		if !isWebSettingsReceiver(file, javaMethodReceiverText(file, ctx.Idx)) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, javaMethodReceiverText(file, ctx.Idx)) {
 			return
 		}
 		emit()
@@ -184,7 +256,7 @@ func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec
 		if tail != spec.Property {
 			return
 		}
-		if !isWebSettingsReceiver(file, head) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, head) {
 			return
 		}
 		valueIdx := findKotlinAssignmentValue(file, ctx.Idx)
@@ -195,12 +267,14 @@ func checkWebSettingsBoolToggle(ctx *api.Context, spec webSettingsBoolToggleSpec
 	}
 }
 
-// emitWebSettingsBoolFinding helps WebSettings rules emit a uniform finding.
-func emitWebSettingsBoolFinding(ctx *api.Context, line, col int, ruleSet, rule, severity, message string, confidence float64) {
+// emitWebSettingsBoolFinding emits a finding spanning the whole setter call or assignment node.
+func emitWebSettingsBoolFinding(ctx *api.Context, node uint32, ruleSet, rule, severity, message string, confidence float64) {
 	ctx.Emit(scanner.Finding{
 		File:       ctx.File.Path,
-		Line:       line,
-		Col:        col,
+		Line:       ctx.File.FlatRow(node) + 1,
+		Col:        ctx.File.FlatCol(node) + 1,
+		StartByte:  int(ctx.File.FlatStartByte(node)),
+		EndByte:    int(ctx.File.FlatEndByte(node)),
 		RuleSet:    ruleSet,
 		Rule:       rule,
 		Severity:   severity,

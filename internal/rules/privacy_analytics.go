@@ -9,7 +9,20 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-var piiKeyPattern = regexp.MustCompile(`(?i)(email|phone|ssn|dob|birth|address|lat[^a-z]|lng[^a-z]|location)`)
+// piiKeyPattern matches whole snake_case words. Keys are split into words
+// first (see piiKeyMatches), so `smartphone` and `flat_view` do not match.
+var piiKeyPattern = regexp.MustCompile(`(?i)(^|_)(e_?mail|phone|ssn|dob|birth|birthday|birthdate|address|lat|lng|latitude|longitude|location)(_|$)`)
+
+// piiKeyMatches reports whether a key names PII, splitting camelCase, dots and
+// dashes into words before matching.
+func piiKeyMatches(key string) bool {
+	if piiKeyPattern.MatchString(key) {
+		return true
+	}
+	snake := logPiiCamelBoundary.ReplaceAllString(key, "${1}${3}_${2}${4}")
+	snake = strings.NewReplacer(".", "_", "-", "_", " ", "_").Replace(snake)
+	return piiKeyPattern.MatchString(snake)
+}
 
 var piiPropertyNames = map[string]bool{
 	"email":       true,

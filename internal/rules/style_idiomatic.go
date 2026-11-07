@@ -2,10 +2,12 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argText string, lambdaText string, ok bool) {
@@ -71,46 +73,234 @@ func flatNavigationReceiver(file *scanner.File, nav uint32) uint32 {
 	return file.FlatNamedChild(nav, 0)
 }
 
-func flatThrowPattern(ctx *api.Context, nodeType, nodeText string, exceptionType, replacement string, base BaseRule) {
-	idx, file := ctx.Idx, ctx.File
-	if file == nil || nodeType != "if_expression" {
-		return
+var causeArgumentRe = regexp.MustCompile(`^(cause\s*=|[\w.]*(Exception|Error|Throwable)\s*\()`)
+
+// flatThrowIfFix returns the autofix that turns `if (cond) throw X("m")` into `check(!cond) { "m" }` (or require),
+// or nil when the if is not that exact shape.
+func flatThrowIfFix(file *scanner.File, idx uint32, exceptionType, replacement string) *scanner.Fix {
+	if file == nil || file.FlatType(idx) != "if_expression" || file.FlatHasChildOfType(idx, "else") {
+		return nil
 	}
-	if strings.Contains(nodeText, "else") && file.FlatHasChildOfType(idx, "else") {
-		return
+	// An else-if cannot be replaced by a standalone check()/require() call.
+	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "control_structure_body" {
+		if gp, ok := file.FlatParent(p); ok && file.FlatType(gp) == "if_expression" {
+			return nil
+		}
 	}
 	condNode, bodyNode := flatThrowExtractCondAndBody(file, idx)
 	if condNode == 0 || bodyNode == 0 {
-		return
-	}
-	innerCondNode := flatThrowUnwrapNegatedCond(file, condNode)
-	if innerCondNode == 0 {
-		return
+		return nil
 	}
 	throwNode := flatThrowLocateThrowNode(file, bodyNode)
 	if throwNode == 0 {
-		return
+		return nil
 	}
 	callNode := flatThrowFindCallNode(file, throwNode)
-	if callNode == 0 {
-		return
+	if callNode == 0 || flatCallExpressionName(file, callNode) != exceptionType {
+		return nil
 	}
-	if flatCallExpressionName(file, callNode) != exceptionType {
-		return
-	}
-	innerCond := strings.TrimSpace(file.FlatNodeText(innerCondNode))
-	f := base.Finding(file, file.FlatRow(idx)+1, 1, fmt.Sprintf("Use '%s()' instead of 'if (...) throw %s'.", replacement, exceptionType))
 	_, argsNode := flatCallExpressionParts(file, callNode)
-	if argsNode != 0 && file.FlatNamedChildCount(argsNode) > 0 {
-		firstArg := file.FlatNamedChild(argsNode, 0)
-		if firstArg != 0 {
-			argText := strings.TrimSpace(file.FlatNodeText(firstArg))
-			if strings.HasPrefix(argText, "\"") && strings.HasSuffix(argText, "\"") {
-				f.Fix = &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s) { %s }", replacement, innerCond, argText)}
+	argCount := 0
+	if argsNode != 0 {
+		argCount = file.FlatNamedChildCount(argsNode)
+	}
+	if argCount > 1 {
+		return nil
+	}
+	// The guard passes the negation of the throw condition to check()/require().
+	var innerCond string
+	if innerCondNode := flatThrowUnwrapNegatedCond(file, condNode); innerCondNode != 0 {
+		innerCond = strings.TrimSpace(file.FlatNodeText(innerCondNode))
+	} else {
+		innerCond = flatThrowNegatedCondText(file, condNode)
+	}
+	if argCount == 0 {
+		return &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s)", replacement, innerCond)}
+	}
+	firstArg := file.FlatNamedChild(argsNode, 0)
+	if firstArg == 0 {
+		return nil
+	}
+	argText := strings.TrimSpace(file.FlatNodeText(firstArg))
+	if !strings.HasPrefix(argText, "\"") || !strings.HasSuffix(argText, "\"") {
+		return nil
+	}
+	return &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s) { %s }", replacement, innerCond, argText)}
+}
+
+// firstCallExpression returns the first call_expression at or below node in source order, or 0.
+func firstCallExpression(file *scanner.File, node uint32) uint32 {
+	found := uint32(0)
+	file.FlatWalkNodes(node, "call_expression", func(n uint32) {
+		if found == 0 {
+			found = n
+		}
+	})
+	return found
+}
+
+// throwCalleeName returns the simple name of the exception constructor a throw calls, qualified or not.
+func throwCalleeName(file *scanner.File, call uint32) string {
+	callee := file.FlatFirstChild(call)
+	if callee == 0 {
+		return ""
+	}
+	if file.FlatType(callee) == "navigation_expression" {
+		if suffix, ok := file.FlatFindChild(callee, "navigation_suffix"); ok {
+			return strings.TrimLeft(strings.TrimSpace(file.FlatNodeText(suffix)), ".?")
+		}
+	}
+	return strings.TrimSpace(file.FlatNodeText(callee))
+}
+
+// throwArgumentsAreEmptyOrString mirrors detekt: no arguments, or one that is a string.
+func throwArgumentsAreEmptyOrString(ctx *api.Context, call uint32) bool {
+	file := ctx.File
+	_, argsNode := flatCallExpressionParts(file, call)
+	if argsNode == 0 {
+		return true
+	}
+	var args []uint32
+	for c := file.FlatFirstChild(argsNode); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "value_argument" {
+			args = append(args, c)
+		}
+	}
+	switch len(args) {
+	case 0:
+		return true
+	case 1:
+	default:
+		return false
+	}
+	expr := flatValueArgumentExpression(file, args[0])
+	if expr == 0 {
+		return false
+	}
+	if file.FlatType(expr) == "string_literal" {
+		return true
+	}
+	if ctx.Resolver != nil {
+		if t := ctx.Resolver.ResolveFlatNode(expr, file); t != nil && t.Kind != typeinfer.TypeUnknown {
+			return t.Name == "String" || t.FQN == "kotlin.String"
+		}
+	}
+	// Without a type, anything that does not look like an exception is taken for a message.
+	return !causeArgumentRe.MatchString(strings.TrimSpace(file.FlatNodeText(args[0])))
+}
+
+// throwIsDirectControlBody reports whether a throw is the body of an if, else, loop or the only statement of its braces;
+// when braced is set, a block with other statements does not count.
+func throwIsDirectControlBody(file *scanner.File, throw uint32) bool {
+	p, ok := file.FlatParent(throw)
+	if !ok {
+		return false
+	}
+	body := p
+	if file.FlatType(p) == "statements" {
+		namedCount := 0
+		for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) && !isFlatCommentNode(file, c) {
+				namedCount++
 			}
+		}
+		if namedCount > 1 {
+			return false
+		}
+		if body, ok = file.FlatParent(p); !ok {
+			return false
+		}
+	}
+	if file.FlatType(body) != "control_structure_body" {
+		return false
+	}
+	owner, ok := file.FlatParent(body)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(owner) {
+	case "if_expression", "for_statement", "while_statement", "do_while_statement":
+		return true
+	}
+	return false
+}
+
+// throwIsOnlyStatementInLambda reports `{ throw X }`, which check()/require() cannot replace.
+func throwIsOnlyStatementInLambda(file *scanner.File, throw uint32) bool {
+	p, ok := file.FlatParent(throw)
+	if !ok || file.FlatType(p) != "statements" {
+		return false
+	}
+	gp, ok := file.FlatParent(p)
+	if !ok || file.FlatType(gp) != "lambda_literal" {
+		return false
+	}
+	count := 0
+	for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) && !isFlatCommentNode(file, c) {
+			count++
+		}
+	}
+	return count == 1
+}
+
+// flatThrowPattern reports a throw of exceptionType that check()/require() can replace, like detekt's
+// UseCheckOrError (any such throw) and UseRequire (only a throw that is the body of a conditional).
+func flatThrowPattern(ctx *api.Context, base BaseRule, exceptionType, replacement, message string, conditionalOnly bool) {
+	idx, file := ctx.Idx, ctx.File
+	if file == nil || !flatThrowIsThrowJump(file, idx) {
+		return
+	}
+	call := firstCallExpression(file, idx)
+	if call == 0 || throwCalleeName(file, call) != exceptionType {
+		return
+	}
+	if conditionalOnly {
+		if !throwIsDirectControlBody(file, idx) {
+			return
+		}
+	} else if throwIsOnlyStatementInLambda(file, idx) {
+		return
+	}
+	if !throwArgumentsAreEmptyOrString(ctx, call) {
+		return
+	}
+	f := base.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, message)
+	// The fix rewrites the whole `if`, so it is attached only when the throw is that if's whole body.
+	if p, ok := file.FlatParent(idx); ok {
+		if file.FlatType(p) == "statements" {
+			p, _ = file.FlatParent(p)
+		}
+		if owner, ok := file.FlatParent(p); ok && file.FlatType(p) == "control_structure_body" && file.FlatType(owner) == "if_expression" {
+			f.Fix = flatThrowIfFix(file, owner, exceptionType, replacement)
 		}
 	}
 	ctx.Emit(f)
+}
+
+// flatThrowNegatedCondText returns the source of the negation of cond, flipping
+// ==/!= and is/!is and wrapping everything else in !(...).
+func flatThrowNegatedCondText(file *scanner.File, cond uint32) string {
+	for file.FlatType(cond) == "parenthesized_expression" && file.FlatNamedChildCount(cond) == 1 {
+		cond = file.FlatNamedChild(cond, 0)
+	}
+	text := strings.TrimSpace(file.FlatNodeText(cond))
+	switch file.FlatType(cond) {
+	case "equality_expression":
+		if file.FlatChildCount(cond) == 3 {
+			lhs := strings.TrimSpace(file.FlatNodeText(file.FlatChild(cond, 0)))
+			rhs := strings.TrimSpace(file.FlatNodeText(file.FlatChild(cond, 2)))
+			switch strings.TrimSpace(file.FlatNodeText(file.FlatChild(cond, 1))) {
+			case "==":
+				return lhs + " != " + rhs
+			case "!=":
+				return lhs + " == " + rhs
+			}
+		}
+	case "simple_identifier", "navigation_expression", "call_expression", "boolean_literal":
+		return "!" + text
+	}
+	return "!(" + text + ")"
 }
 
 func flatThrowExtractCondAndBody(file *scanner.File, idx uint32) (condNode, bodyNode uint32) {
@@ -163,6 +353,12 @@ func flatThrowLocateThrowNode(file *scanner.File, bodyNode uint32) uint32 {
 	if file.FlatType(bodyNode) == "control_structure_body" {
 		if inner := file.FlatNamedChild(bodyNode, 0); inner != 0 {
 			actualBody = inner
+		}
+		// `{ throw X }` is a statements node between the braces; comments would be lost by the rewrite.
+		if file.FlatType(actualBody) == "statements" && file.FlatNamedChildCount(bodyNode) == 1 && file.FlatNamedChildCount(actualBody) == 1 {
+			if child := file.FlatNamedChild(actualBody, 0); flatThrowIsThrowJump(file, child) {
+				return child
+			}
 		}
 	}
 	switch file.FlatType(actualBody) {
@@ -366,3 +562,75 @@ var emptyCounterparts = map[string]string{
 // replacement is actually clearer is context-dependent. Classified per
 // roadmap/17.
 func (r *UseEmptyCounterpartRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// declaredTypeNameOfIdentifier finds the explicitly declared type of a parameter or local/member
+// property named name in the callable or class enclosing node, returning its base type name
+// without nullability or type arguments.
+func declaredTypeNameOfIdentifier(file *scanner.File, node uint32, name string) (string, bool) {
+	// Search the enclosing function first, then the class or file, so a same-named parameter elsewhere is ignored.
+	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "secondary_constructor", "anonymous_function", "class_declaration", "object_declaration", "source_file":
+			if text, found := declaredTypeNameInScope(file, p, name); found {
+				return text, true
+			}
+		}
+	}
+	return "", false
+}
+
+func declaredTypeNameInScope(file *scanner.File, scope uint32, name string) (string, bool) {
+	result, found := "", false
+	for _, nodeType := range []string{"parameter", "class_parameter", "property_declaration"} {
+		file.FlatWalkNodes(scope, nodeType, func(decl uint32) {
+			if found || extractIdentifierFlat(file, decl) != name {
+				return
+			}
+			holder := decl
+			if nodeType == "property_declaration" {
+				if v, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+					holder = v
+				}
+			}
+			for c := file.FlatFirstChild(holder); c != 0; c = file.FlatNextSib(c) {
+				t := c
+				if file.FlatType(c) == "nullable_type" {
+					t, _ = file.FlatFindChild(c, "user_type")
+				}
+				if t != 0 && file.FlatType(t) == "user_type" {
+					text := strings.TrimSpace(file.FlatNodeText(t))
+					if lt := strings.IndexByte(text, '<'); lt >= 0 {
+						text = text[:lt]
+					}
+					if dot := strings.LastIndexByte(text, '.'); dot >= 0 {
+						text = text[dot+1:]
+					}
+					result, found = text, true
+					return
+				}
+			}
+		})
+		if found {
+			break
+		}
+	}
+	return result, found
+}
+
+// orEmptyReceiverMatches reports whether a receiver of the declared type has an orEmpty() whose
+// result type equals the empty value written on the right of the elvis.
+func orEmptyReceiverMatches(typeName, rhs string) bool {
+	switch {
+	case strings.HasPrefix(rhs, `""`):
+		return typeName == "String"
+	case strings.HasPrefix(rhs, "emptyList(") || strings.HasPrefix(rhs, "listOf("):
+		return typeName == "List" || typeName == "Collection"
+	case strings.HasPrefix(rhs, "emptySet(") || strings.HasPrefix(rhs, "setOf("):
+		return typeName == "Set"
+	case strings.HasPrefix(rhs, "emptyMap(") || strings.HasPrefix(rhs, "mapOf("):
+		return typeName == "Map"
+	case strings.HasPrefix(rhs, "emptySequence(") || strings.HasPrefix(rhs, "sequenceOf("):
+		return typeName == "Sequence"
+	}
+	return true
+}

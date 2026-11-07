@@ -41,15 +41,17 @@ func (r *TextDirectionLiteralInStringRule) check(ctx *api.Context) {
 // a raw codepoint or as a Kotlin `\uXXXX` escape. Interpolated segments
 // are skipped — only fragments of literal text are scanned.
 func stringLiteralHasBidiControl(file *scanner.File, idx uint32) bool {
+	// Raw strings do not process escapes, so `\u200E` is plain text there.
+	raw := strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(idx)), `"""`)
 	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "string_content", "string_fragment":
 			text := file.FlatNodeText(child)
-			if containsBidiControl(text) || containsBidiEscape(text) {
+			if containsBidiControl(text) || (!raw && containsBidiEscape(text)) {
 				return true
 			}
 		case "character_escape_seq":
-			if containsBidiEscape(file.FlatNodeText(child)) {
+			if !raw && containsBidiEscape(file.FlatNodeText(child)) {
 				return true
 			}
 		}

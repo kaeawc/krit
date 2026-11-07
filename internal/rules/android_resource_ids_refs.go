@@ -2,6 +2,8 @@ package rules
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -26,7 +28,7 @@ func (r *IllegalResourceRefResourceRule) Confidence() float64 { return api.Confi
 
 func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		walkViews(layout.RootView, func(v *android.View) {
 			for attr, val := range v.Attributes {
 				if !strings.HasPrefix(val, "@") {
@@ -36,8 +38,8 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 				if strings.HasPrefix(attr, "tools:") {
 					continue
 				}
-				// Skip @null
-				if val == "@null" {
+				// Skip @null and data binding expressions (`@{...}`, `@={...}`).
+				if val == "@null" || strings.HasPrefix(val, "@{") || strings.HasPrefix(val, "@={") {
 					continue
 				}
 				// Strip leading @[+]
@@ -45,7 +47,7 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 				ref = strings.TrimPrefix(ref, "+")
 				// Must contain a / separating type from name
 				if !strings.Contains(ref, "/") {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Expected format `@[type]/name`.",
 							val, attr)))
@@ -57,14 +59,14 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 				// Type part (possibly prefixed with "android:")
 				resType = strings.TrimPrefix(resType, "android:")
 				if resType == "" {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource type before `/`.",
 							val, attr)))
 					continue
 				}
 				if resName == "" {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
 						fmt.Sprintf("Malformed resource reference `%s` in attribute `%s`. "+
 							"Missing resource name after `/`.",
 							val, attr)))
@@ -78,75 +80,27 @@ func (r *IllegalResourceRefResourceRule) check(ctx *api.Context) {
 // WrongCaseResource
 // ---------------------------------------------------------------------------
 
-// WrongCaseResourceRule detects view tags with incorrect capitalization.
-// Common mistakes include "Textview" instead of "TextView", "linearlayout"
-// instead of "LinearLayout", etc.
+// WrongCaseResourceRule mirrors Lint's WrongCaseDetector: the layout tags that must start with a
+// lowercase letter (fragment, requestFocus, include, merge) written with a capital.
 type WrongCaseResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-// wrongCaseFixes maps lowercase view names to their correct casing.
-var wrongCaseFixes = map[string]string{
-	"textview":                  "TextView",
-	"imageview":                 "ImageView",
-	"linearlayout":              "LinearLayout",
-	"relativelayout":            "RelativeLayout",
-	"framelayout":               "FrameLayout",
-	"scrollview":                "ScrollView",
-	"listview":                  "ListView",
-	"gridview":                  "GridView",
-	"webview":                   "WebView",
-	"edittext":                  "EditText",
-	"imagebutton":               "ImageButton",
-	"checkbox":                  "CheckBox",
-	"radiobutton":               "RadioButton",
-	"radiogroup":                "RadioGroup",
-	"switch":                    "Switch",
-	"togglebutton":              "ToggleButton",
-	"progressbar":               "ProgressBar",
-	"seekbar":                   "SeekBar",
-	"ratingbar":                 "RatingBar",
-	"videoview":                 "VideoView",
-	"viewflipper":               "ViewFlipper",
-	"viewswitcher":              "ViewSwitcher",
-	"horizontalscrollview":      "HorizontalScrollView",
-	"tablelayout":               "TableLayout",
-	"tablerow":                  "TableRow",
-	"viewstub":                  "ViewStub",
-	"surfaceview":               "SurfaceView",
-	"textureview":               "TextureView",
-	"constraintlayout":          "ConstraintLayout",
-	"coordinatorlayout":         "CoordinatorLayout",
-	"recyclerview":              "RecyclerView",
-	"cardview":                  "CardView",
-	"nestedscrollview":          "NestedScrollView",
-	"autocompletetextview":      "AutoCompleteTextView",
-	"multiautocompletetextview": "MultiAutoCompleteTextView",
+// wrongCaseTags maps the capitalized spelling Lint looks for to the correct tag.
+var wrongCaseTags = map[string]string{
+	"Fragment": "fragment", "RequestFocus": "requestFocus", "Include": "include", "Merge": "merge",
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
-// and naming conventions via structural checks on resources. Classified
-// per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *WrongCaseResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongCaseResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			// Skip fully-qualified names (contain a dot)
-			if strings.Contains(v.Type, ".") {
-				return
-			}
-			lower := strings.ToLower(v.Type)
-			correct, ok := wrongCaseFixes[lower]
-			if !ok {
-				return
-			}
-			if v.Type != correct {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("View tag `%s` has wrong capitalization. Use `%s` instead.",
-						v.Type, correct)))
+	for _, layout := range ctx.ResourceIndex.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"WrongCase"}, func(v *android.View) {
+			if correct, ok := wrongCaseTags[v.Type]; ok {
+				ctx.Emit(baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule,
+					fmt.Sprintf("Invalid tag `<%s>`; should be `<%s>`", v.Type, correct)))
 			}
 		})
 	}
@@ -156,44 +110,27 @@ func (r *WrongCaseResourceRule) check(ctx *api.Context) {
 // WrongFolderResource
 // ---------------------------------------------------------------------------
 
-// WrongFolderResourceRule detects resources that reference drawables not found
-// in any drawable or mipmap directory.
+// WrongFolderResourceRule mirrors Lint's WrongLocationDetector: a layout folder file whose root element
+// is <resources> belongs in a values folder.
 type WrongFolderResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
-// and naming conventions via structural checks on resources. Classified
-// per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *WrongFolderResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongFolderResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	if len(idx.Drawables) == 0 {
-		return
-	}
-	drawableSet := make(map[string]bool, len(idx.Drawables))
-	for _, d := range idx.Drawables {
-		drawableSet[d] = true
-	}
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			for attr, val := range v.Attributes {
-				if !strings.HasPrefix(val, "@drawable/") {
-					continue
-				}
-				name := strings.TrimPrefix(val, "@drawable/")
-				if name == "" {
-					continue
-				}
-				if !drawableSet[name] {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-						fmt.Sprintf("Resource reference `%s` in attribute `%s` not found in any drawable or mipmap directory.",
-							val, attr)))
-				}
-			}
-		})
+	for _, layout := range ctx.ResourceIndex.AllLayouts() {
+		root := layout.RootView
+		if root == nil || root.Type != "resources" || !strings.HasPrefix(filepath.Base(filepath.Dir(layout.FilePath)), "layout") {
+			continue
+		}
+		if resourceToolsIgnoreMatches(root, "WrongFolder") {
+			continue
+		}
+		ctx.Emit(baseFindingAt(layout.FilePath, root.Line, root.Col, r.BaseRule,
+			"This file should be placed in a `values`/ folder, not a `layout`/ folder"))
 	}
 }
 
@@ -212,7 +149,7 @@ type InvalidResourceFolderResourceRule struct {
 // validResFolderPrefixes lists the valid Android resource folder name prefixes.
 var validResFolderPrefixes = []string{
 	"layout", "drawable", "mipmap", "values", "raw", "xml",
-	"anim", "animator", "color", "menu", "font", "navigation", "transition",
+	"anim", "animator", "color", "menu", "font", "navigation", "transition", "interpolator",
 }
 
 func isValidResFolderName(folder string) bool {
@@ -231,7 +168,18 @@ func (r *InvalidResourceFolderResourceRule) Confidence() float64 { return api.Co
 
 func (r *InvalidResourceFolderResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	reported := make(map[string]bool)
+	report := func(path, folder string) {
+		if reported[path] || isValidResFolderName(folder) {
+			return
+		}
+		reported[path] = true
+		ctx.Emit(baseFinding(path, 1, r.BaseRule,
+			fmt.Sprintf("Invalid resource folder name `%s`. "+
+				"Expected one of: layout, drawable, mipmap, values, raw, xml, anim, animator, color, menu, font, navigation, transition, interpolator.",
+				folder)))
+	}
+	for _, layout := range idx.AllLayouts() {
 		path := layout.FilePath
 		// Extract the folder name from the path: look for res/<folder>/file.xml
 		resIdx := strings.Index(path, "res/")
@@ -247,11 +195,18 @@ func (r *InvalidResourceFolderResourceRule) check(ctx *api.Context) {
 			continue
 		}
 		folder := afterRes[:slashIdx]
-		if !isValidResFolderName(folder) {
-			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
-				fmt.Sprintf("Invalid resource folder name `%s`. "+
-					"Expected one of: layout, drawable, mipmap, values, raw, xml, anim, animator, color, menu, font, navigation, transition.",
-					folder)))
+		report(layout.FilePath, folder)
+	}
+	// Folders with an unknown type are never scanned for layouts, so check the directory names too.
+	for _, resRoot := range resourceRootsFromIndex(idx) {
+		entries, err := os.ReadDir(resRoot)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+				report(filepath.Join(resRoot, e.Name()), e.Name())
+			}
 		}
 	}
 }

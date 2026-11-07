@@ -40,6 +40,12 @@ class BundleStoreHostileDirTest {
     }
 
     private fun old(path: File) {
+        if (Files.isSymbolicLink(path.toPath())) {
+            // The JDK cannot set a link's own times on macOS (Bad file descriptor); touch -h can.
+            val touch = ProcessBuilder("touch", "-h", "-t", "197101010000", path.path).redirectErrorStream(true).start()
+            check(touch.waitFor() == 0) { "touch -h failed: " + touch.inputStream.readBytes().decodeToString() }
+            return
+        }
         Files.getFileAttributeView(path.toPath(), BasicFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS)
             .setTimes(FileTime.fromMillis(1000), null, null)
     }

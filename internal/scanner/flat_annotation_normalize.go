@@ -15,48 +15,26 @@ type annotationTreeNode struct {
 }
 
 func normalizeTopLevelAnnotations(t *FlatTree) *FlatTree {
-	if t == nil || len(t.Types) == 0 || nodeTypeName(t.Types[0]) != "source_file" {
-		return t
-	}
-	potential := false
-	for c := t.FirstChildren[0]; c != 0; c = t.NextSibs[c] {
-		if nodeTypeName(t.Types[c]) == "prefix_expression" {
-			potential = true
-			break
-		}
-	}
-	if !potential {
+	if t == nil || len(t.Types) == 0 || nodeTypeName(t.Types[0]) != "source_file" || !hasTopLevelAnnotationCandidate(t) {
 		return t
 	}
 	root := copyAnnotationTree(t, 0)
 	changed := false
-	for i := 0; i < len(root.children); i++ {
-		prefix := root.children[i]
-		if prefix.typ != "prefix_expression" {
-			continue
+	// Walk backward so a run of annotation expressions attaches from the
+	// declaration outward.
+	for i := len(root.children) - 1; i >= 0; i-- {
+		switch root.children[i].typ {
+		case "annotation":
+			// The grammar can leave the first annotation of a run outside the
+			// declaration it belongs to.
+			if attachBareTopLevelAnnotation(root, i) {
+				changed = true
+			}
+		case "prefix_expression":
+			if attachChainedTopLevelAnnotations(root, i) {
+				changed = true
+			}
 		}
-		annotations, decl, splitParen := chainedTopLevelAnnotations(prefix)
-		decl, end := topLevelAnnotationTarget(root.children, i, decl)
-		if decl == nil {
-			continue
-		}
-		if len(annotations) == 0 {
-			continue
-		}
-		if splitParen != nil {
-			last := annotations[len(annotations)-1]
-			last.children = append(last.children, splitParen)
-		}
-		for _, ann := range annotations {
-			repairSplitAnnotation(ann)
-		}
-		var comments []*annotationTreeNode
-		if end > i+1 {
-			comments = root.children[i+1 : end-1]
-		}
-		attachTopLevelAnnotations(decl, annotations, comments)
-		root.children = append(root.children[:i], append([]*annotationTreeNode{decl}, root.children[end:]...)...)
-		changed = true
 	}
 	if !changed {
 		return t
@@ -65,6 +43,56 @@ func normalizeTopLevelAnnotations(t *FlatTree) *FlatTree {
 	appendAnnotationTree(out, root, 0, false)
 	out.buildNodesByType()
 	return out
+}
+
+// hasTopLevelAnnotationCandidate reports whether the source file has a top-level node that may hold a detached annotation.
+func hasTopLevelAnnotationCandidate(t *FlatTree) bool {
+	for c := t.FirstChildren[0]; c != 0; c = t.NextSibs[c] {
+		if typ := nodeTypeName(t.Types[c]); typ == "prefix_expression" || typ == "annotation" {
+			return true
+		}
+	}
+	return false
+}
+
+// attachBareTopLevelAnnotation moves the annotation at root.children[i] onto the declaration after it.
+func attachBareTopLevelAnnotation(root *annotationTreeNode, i int) bool {
+	decl, end := topLevelAnnotationTarget(root.children, i, nil)
+	if decl == nil {
+		return false
+	}
+	attachAndSpliceTopLevel(root, i, end, decl, []*annotationTreeNode{root.children[i]})
+	return true
+}
+
+// attachChainedTopLevelAnnotations moves the annotations chained in the prefix_expression at
+// root.children[i] onto the declaration they belong to.
+func attachChainedTopLevelAnnotations(root *annotationTreeNode, i int) bool {
+	annotations, decl, splitParen := chainedTopLevelAnnotations(root.children[i])
+	decl, end := topLevelAnnotationTarget(root.children, i, decl)
+	if decl == nil || len(annotations) == 0 {
+		return false
+	}
+	if splitParen != nil {
+		last := annotations[len(annotations)-1]
+		last.children = append(last.children, splitParen)
+	}
+	for _, ann := range annotations {
+		repairSplitAnnotation(ann)
+	}
+	attachAndSpliceTopLevel(root, i, end, decl, annotations)
+	return true
+}
+
+// attachAndSpliceTopLevel attaches annotations and the comments between them and decl to decl,
+// then replaces root.children[i:end] with decl.
+func attachAndSpliceTopLevel(root *annotationTreeNode, i, end int, decl *annotationTreeNode, annotations []*annotationTreeNode) {
+	var comments []*annotationTreeNode
+	if end > i+1 {
+		comments = root.children[i+1 : end-1]
+	}
+	attachTopLevelAnnotations(decl, annotations, comments)
+	root.children = append(root.children[:i], append([]*annotationTreeNode{decl}, root.children[end:]...)...)
 }
 
 func topLevelAnnotationTarget(children []*annotationTreeNode, prefixIdx int, nested *annotationTreeNode) (*annotationTreeNode, int) {

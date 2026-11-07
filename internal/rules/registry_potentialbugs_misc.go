@@ -142,11 +142,15 @@ func registerPotentialbugsMiscRules() {
 					return
 				}
 
-				line := file.FlatRow(idx) + 1
+				exprText = hasPlatformTypeCodeText(file, body)
+				if exprText == "" {
+					return
+				}
+
+				line, col := declLine(file, idx), declCol(file, idx)
 				for _, prefix := range []string{"java.", "javax.", "android.", "Java", "Javax"} {
 					if containsIdentifierStart(exprText, prefix) {
-						ctx.EmitAt(line, 1,
-							"Public function with expression body should have an explicit return type to avoid platform types.")
+						ctx.EmitAt(line, col, extractIdentifierFlat(file, idx)+" has implicit platform type. Type must be declared explicitly.")
 						return
 					}
 				}
@@ -183,6 +187,10 @@ func registerPotentialbugsMiscRules() {
 				if stringListContains(r.IgnoreFunctionCall, funcName) {
 					return
 				}
+				// Assertion helpers return their argument for chaining; dropping it is the normal use.
+				if ignoredReturnValueIsTestAssertion(oracleLookup, file, idx, funcName) {
+					return
+				}
 
 				// Check if this call's result is discarded (not used as expression)
 				if flatIsUsedAsExpression(file, idx) {
@@ -197,6 +205,14 @@ func registerPotentialbugsMiscRules() {
 				if ignoredReturnValueCallIsValueAssignmentReceiver(file, idx) {
 					return
 				}
+				// Android lint's id for this check is CheckResult.
+				if callSuppressedByLintID(file, idx, "CheckResult") {
+					return
+				}
+				// A call that is the receiver of a larger expression (member read, indexed or property assignment) is used.
+				if ignoredReturnValueCallIsQualifier(file, idx) {
+					return
+				}
 				if ignoredReturnValueIsBuilderCallbackCall(file, idx, funcName) {
 					return
 				}
@@ -206,10 +222,33 @@ func registerPotentialbugsMiscRules() {
 				if ignoredReturnValueIsSideEffectFoldDispatch(file, idx, funcName) {
 					return
 				}
+				// Invoking a function-typed value yields its return value; the call's own type is not the function.
+				if ignoredReturnValueIsFunctionValueInvoke(file, idx) {
+					return
+				}
+				// The parser joins a statement with a following line that starts with `(`; the type then belongs to the first call.
+				if ignoredReturnValueChainJoinsAcrossLines(file, idx) {
+					return
+				}
+				// Invoking a function-typed value is not a must-use call, whatever type the oracle reports for it.
+				if funcName == "invoke" && ignoredReturnValueTargetIsFunctionInvoke(oracleLookup, file, idx) {
+					return
+				}
+				if ignoredReturnValueLambdaReturnsFromEnclosingFunction(file, idx) {
+					return
+				}
+				// subscribeWith returns its argument, which the caller already holds.
+				if funcName == "subscribeWith" && ignoredReturnValueHasPlainArgument(file, idx) {
+					return
+				}
+				if ignoredReturnValueHelperResultUsedElsewhere(file, idx, funcName) {
+					return
+				}
 
 				var oracleReturnType *typeinfer.ResolvedType
 				if oracleLookup != nil {
-					oracleReturnType = oracleLookup.LookupExpression(file.Path, line, col)
+					// The call's own byte range, not its start position, which a receiver can share.
+					oracleReturnType = oracleLookupExpressionFlat(oracleLookup, file, idx)
 					if oracleReturnType != nil && oracleReturnType.Kind != typeinfer.TypeUnknown &&
 						ignoredReturnValueTypeIsUnitOrNothing(oracleReturnType) {
 						return
@@ -228,15 +267,24 @@ func registerPotentialbugsMiscRules() {
 					if hasIgnore {
 						return
 					}
+					if hasCheck && ignoredReturnValueTestFileDisposableCall(file, funcName) {
+						return
+					}
 					if hasCheck {
-						ctx.EmitAt(line, col,
-							fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @CheckReturnValue.", funcName))
+						ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
+							ignoredReturnValueAnnotatedMessage(funcName, annotations, r.ReturnValueAnnotations))
+						return
+					}
+					// A scope function yields its lambda's value, so its tail call is what may be ignored.
+					if ignoredReturnValueScopeFunctionCalls[funcName] {
 						return
 					}
 					if oracleReturnType != nil && oracleReturnType.Kind != typeinfer.TypeUnknown {
-						if ignoredReturnValueTypeMatches(oracleReturnType, r.ReturnValueTypes, r.RestrictToConfig) {
-							ctx.EmitAt(line, col,
-								fmt.Sprintf("Return value of '%s' is ignored. The call returns %s.", funcName, ignoredReturnValueTypeName(oracleReturnType)))
+						if ignoredReturnValueTypeMatches(oracleReturnType, r.ReturnValueTypes, r.RestrictToConfig) &&
+							!ignoredReturnValueFunctionTypeFromInvoke(file, idx, funcName, oracleReturnType) &&
+							ignoredReturnValueCalleeIsKnownPure(oracleLookup, file, idx, funcName) {
+							ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
+								fmt.Sprintf("Return value of '%s' is ignored. '%s' is a pure stdlib function that returns %s.", funcName, funcName, ignoredReturnValueTypeName(oracleReturnType)))
 							return
 						}
 						return
@@ -244,6 +292,9 @@ func registerPotentialbugsMiscRules() {
 				}
 
 				if ctx.Resolver != nil {
+					if ignoredReturnValueScopeFunctionCalls[funcName] {
+						return
+					}
 					rt := ctx.Resolver.ResolveFlatNode(idx, file)
 					if ignoredReturnValueIsSideEffectResultHandler(file, idx, funcName, rt) {
 						return
@@ -254,9 +305,11 @@ func registerPotentialbugsMiscRules() {
 					if ignoredReturnValueIsRxJavaSubscribeDisposable(file, idx, funcName, rt) {
 						return
 					}
-					if ignoredReturnValueTypeMatches(rt, r.ReturnValueTypes, r.RestrictToConfig) {
-						ctx.EmitAt(line, col,
-							fmt.Sprintf("Return value of '%s' is ignored. The call returns %s.", funcName, ignoredReturnValueTypeName(rt)))
+					if ignoredReturnValueTypeMatches(rt, r.ReturnValueTypes, r.RestrictToConfig) &&
+						!ignoredReturnValueFunctionTypeFromInvoke(file, idx, funcName, rt) &&
+						ignoredReturnValueCalleeIsKnownPure(oracleLookup, file, idx, funcName) {
+						ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
+							fmt.Sprintf("Return value of '%s' is ignored. '%s' is a pure stdlib function that returns %s.", funcName, funcName, ignoredReturnValueTypeName(rt)))
 						return
 					}
 					if oracleLookup != nil && ignoredReturnValueTypeKnown(rt) {
@@ -273,7 +326,7 @@ func registerPotentialbugsMiscRules() {
 					// tree-sitter-only heuristic for no-oracle runs, but require
 					// structural receiver evidence so local side-effect APIs named
 					// map/filter/etc. do not get flagged solely by callee name.
-					ctx.EmitAt(line, col,
+					ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 						"Return value of functional operation is ignored. If this is intentional, assign to a variable or use 'also' instead.")
 				}
 			},
@@ -287,9 +340,6 @@ func registerPotentialbugsMiscRules() {
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if strings.HasSuffix(file.Path, ".gradle.kts") {
-					return
-				}
 				if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
 					strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
 					return
@@ -320,7 +370,7 @@ func registerPotentialbugsMiscRules() {
 							return
 						}
 					}
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					f := r.Finding(file, callLine(file, idx), callCol(file, idx),
 						fmt.Sprintf("'%s()' called without explicit Locale. Use '%s(Locale.ROOT)' or '%s(Locale.getDefault())' to be explicit.", methodName, methodName, methodName))
 					if args != 0 && implicitLocaleAcceptsLocaleArg[methodName] && implicitLocaleFileHasLocaleImport(file) {
 						argsEnd := int(file.FlatEndByte(args))
@@ -379,18 +429,22 @@ func registerPotentialbugsMiscRules() {
 						return
 					}
 					if isStringCompanion && firstArg != 0 {
-						if formatText, ok := implicitDefaultLocaleConstFormatString(file, firstArg); ok && isLocaleInsensitiveFormat(formatText) {
+						formatText, isConst := implicitDefaultLocaleConstFormatString(file, firstArg)
+						if isConst && isLocaleInsensitiveFormat(formatText) {
 							return
 						}
 						argText := file.FlatNodeText(firstArg)
-						if strings.HasPrefix(strings.TrimSpace(argText), "\"") {
-							if isLocaleInsensitiveFormat(argText) {
-								return
-							}
+						isLiteral := strings.HasPrefix(strings.TrimSpace(argText), "\"")
+						if isLiteral && isLocaleInsensitiveFormat(argText) {
+							return
+						}
+						// Resource strings and parameters are display text, where the default locale is correct.
+						if !isConst && !isLiteral {
+							return
 						}
 					}
 
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						fmt.Sprintf("'%s' uses implicit default locale for string formatting. Pass Locale explicitly, e.g. Locale.ROOT or Locale.US.", receiverText+".format(...)"))
 				}
 			},
@@ -436,7 +490,7 @@ func registerPotentialbugsMiscRules() {
 					return
 				}
 
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					fmt.Sprintf("Class '%s' derives currency from Locale.getDefault(); use order or transaction currency data instead.", className))
 			},
 		})
@@ -472,9 +526,25 @@ func registerPotentialbugsMiscRules() {
 				if receiverText == "DateTimeFormatter" && !sourceImportsOrMentions(file, "java.time.format.DateTimeFormatter") {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"DateTimeFormatter.ofPattern(pattern) without explicit Locale. Pass Locale.ROOT for machine-readable formats or Locale.getDefault() to be explicit.")
-				if implicitLocaleFileHasLocaleImport(file) {
+				if hardcodedDateFormatHasLocaleChained(file, idx) {
+					return
+				}
+				// Numeric-only or unknown patterns do not vary by locale, and names shown to the user should.
+				firstArg, _ := flatValueArgumentStats(file, args)
+				pattern, ok := hardcodedDateFormatPatternLiteral(file, firstArg)
+				if !ok || !datePatternIsLocaleSensitive(pattern) || !datePatternIsMachineConsumed(file, idx, pattern) {
+					return
+				}
+				message := "DateTimeFormatter.ofPattern(pattern) without explicit Locale. Pass Locale.ROOT for machine-readable formats or Locale.getDefault() to be explicit."
+				if hardcodedDateFormatFlowsToUI(file, idx) {
+					message = "DateTimeFormatter.ofPattern(pattern) without explicit Locale, and the result is shown in the UI. Pass Locale.getDefault() so the output follows the user's locale on purpose."
+				}
+				weekYear := datePatternHasWeekYearWithoutWeek(pattern)
+				if weekYear {
+					message += " The pattern also uses week-based year 'Y' without a week field 'w', which gives the wrong year around New Year; use 'y' unless week-based years are intended."
+				}
+				f := r.Finding(file, calleeLine(file, idx), calleeCol(file, idx), message)
+				if !weekYear && implicitLocaleFileHasLocaleImport(file) {
 					argsEnd := int(file.FlatEndByte(args))
 					if argsEnd > 0 && argsEnd <= len(file.Content) && file.Content[argsEnd-1] == ')' {
 						f.Fix = &scanner.Fix{
@@ -516,10 +586,10 @@ func registerPotentialbugsMiscRules() {
 					if receiverText == "NumberFormat" && !sourceImportsOrMentions(file, "java.text.NumberFormat") {
 						return
 					}
-					if argCount != 0 {
+					if argCount != 0 || !numberFormatResultFlowsToSink(file, idx) {
 						return
 					}
-					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					f := r.Finding(file, calleeLine(file, idx), calleeCol(file, idx),
 						"NumberFormat.getInstance() without explicit Locale. Pass a Locale to produce stable, locale-aware formatting.")
 					if args != 0 && implicitLocaleFileHasLocaleImport(file) {
 						argsEnd := int(file.FlatEndByte(args))
@@ -542,7 +612,7 @@ func registerPotentialbugsMiscRules() {
 				if !sourceImportsOrMentions(file, "java.text.DecimalFormat") {
 					return
 				}
-				if argCount >= 2 {
+				if argCount >= 2 || !numberFormatResultFlowsToSink(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

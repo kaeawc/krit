@@ -96,6 +96,10 @@ func isAndroidProjectRelPath(path string) bool {
 	return base == "AndroidManifest.xml" ||
 		base == "build.gradle" ||
 		base == "build.gradle.kts" ||
+		base == "settings.gradle" ||
+		base == "settings.gradle.kts" ||
+		base == "init.gradle" ||
+		base == "init.gradle.kts" ||
 		srcMainResDir(path) != ""
 }
 
@@ -117,7 +121,7 @@ func detectSingleFile(path string, proj *Project, seen map[string]bool) {
 			seen[path] = true
 			proj.ManifestPaths = append(proj.ManifestPaths, path)
 		}
-	case "build.gradle", "build.gradle.kts":
+	case "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "init.gradle", "init.gradle.kts":
 		if !seen[path] {
 			seen[path] = true
 			proj.GradlePaths = append(proj.GradlePaths, path)
@@ -166,7 +170,7 @@ func detectWalkFile(path string, d os.DirEntry, proj *Project, seen map[string]b
 			seen[abs] = true
 			proj.ManifestPaths = append(proj.ManifestPaths, abs)
 		}
-	case "build.gradle", "build.gradle.kts":
+	case "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "init.gradle", "init.gradle.kts":
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			abs = path

@@ -1,8 +1,12 @@
 package rules
 
 import (
+	"bytes"
+	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -11,6 +15,9 @@ import (
 func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
+	}
+	if ignoredReturnValueFollowsDetachedReturn(file, idx) {
+		return true
 	}
 	parent, ok := file.FlatParent(idx)
 	if !ok {
@@ -35,7 +42,7 @@ func flatIsUsedAsExpression(file *scanner.File, idx uint32) bool {
 		for i := 0; i < file.FlatNamedChildCount(parent); i++ {
 			child := file.FlatNamedChild(parent, i)
 			if file.FlatType(child) == "statements" {
-				return flatLastNamedChild(file, child) == idx
+				return flatLastCodeNamedChild(file, child) == idx
 			}
 		}
 		return false
@@ -66,18 +73,18 @@ func flatIsUsedAsExpressionInStatements(file *scanner.File, idx, parent uint32) 
 	}
 	gpType := file.FlatType(gp)
 	if gpType == "control_structure_body" || gpType == "lambda_literal" {
-		if flatLastNamedChild(file, parent) == idx {
+		if flatLastCodeNamedChild(file, parent) == idx {
 			return flatIsUsedAsExpression(file, gp)
 		}
 	}
 	if gpType == "catch_block" || gpType == "finally_block" {
-		if flatLastNamedChild(file, parent) == idx {
+		if flatLastCodeNamedChild(file, parent) == idx {
 			if ggp, ok := file.FlatParent(gp); ok && file.FlatType(ggp) == "try_expression" {
 				return flatIsUsedAsExpression(file, ggp)
 			}
 		}
 	}
-	if gpType == "try_expression" && flatLastNamedChild(file, parent) == idx {
+	if gpType == "try_expression" && flatLastCodeNamedChild(file, parent) == idx {
 		return flatIsUsedAsExpression(file, gp)
 	}
 	return false
@@ -143,6 +150,27 @@ func hasIgnoreReturnAnnotation(annotations []string, configPatterns []string) bo
 		}
 	}
 	return false
+}
+
+// ignoredReturnValueAnnotatedMessage names the must-use annotation the resolved callee carries. An Rx processor's
+// offer returns whether the item was accepted, so the message also points at onNext for callers that do not care.
+func ignoredReturnValueAnnotatedMessage(funcName string, annotations, configPatterns []string) string {
+	found := ""
+	for _, ann := range annotations {
+		if hasCheckReturnAnnotation([]string{ann}, configPatterns) {
+			found = ann
+			break
+		}
+	}
+	simple := found
+	if i := strings.LastIndex(found, "."); i >= 0 {
+		simple = found[i+1:]
+	}
+	msg := fmt.Sprintf("Return value of '%s' is ignored. The function is annotated with @%s (%s).", funcName, simple, found)
+	if funcName == "offer" && strings.HasPrefix(found, "io.reactivex.") {
+		msg += " Check the result, or call onNext() when delivery does not need to be confirmed."
+	}
+	return msg
 }
 
 func ignoredReturnValueAnnotationEvidence(annotations []string, checkPatterns, ignorePatterns []string) (check bool, ignored bool) {
@@ -273,6 +301,10 @@ func ignoredReturnValueTypeKnown(rt *typeinfer.ResolvedType) bool {
 func ignoredReturnValueTypeIsUnitOrNothing(rt *typeinfer.ResolvedType) bool {
 	if rt == nil {
 		return false
+	}
+	// `x?.let { return }` has type Nothing?, which carries no value either.
+	if strings.TrimSuffix(rt.FQN, "?") == "kotlin.Nothing" || strings.TrimSuffix(rt.Name, "?") == "Nothing" {
+		return true
 	}
 	return rt.Kind == typeinfer.TypeUnit || rt.Kind == typeinfer.TypeNothing ||
 		rt.FQN == "kotlin.Unit" || rt.FQN == "kotlin.Nothing" ||
@@ -473,4 +505,318 @@ func stringListContains(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// ignoredReturnValueIsFunctionValueInvoke reports a bare call to a function-typed parameter or property, such as
+// `eventSink(x)`. The call yields the function's return value, not the function value itself.
+func ignoredReturnValueIsFunctionValueInvoke(file *scanner.File, idx uint32) bool {
+	first := file.FlatFirstChild(idx)
+	if first == 0 || file.FlatType(first) != "simple_identifier" {
+		return false
+	}
+	name := file.FlatNodeText(first)
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "class_declaration", "object_declaration":
+			// Cheap necessary check on the whole scope before walking its declarations.
+			if !textDeclaresFunctionTyped(file.FlatNodeBytes(p), name, false) {
+				continue
+			}
+			found := false
+			for _, declType := range []string{"parameter", "class_parameter", "property_declaration"} {
+				file.FlatWalkNodes(p, declType, func(decl uint32) {
+					if !found && textDeclaresFunctionTyped(file.FlatNodeBytes(decl), name, true) {
+						found = true
+					}
+				})
+			}
+			if found {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// textDeclaresFunctionTyped reports whether text holds `name : ... ->` with no `=` before the arrow, the
+// shape of a function-typed parameter or property. Equivalent to matching
+// `(?:^|[\s(,])name\s*:\s*[^=]*->` without compiling a regexp per call. With boundary false the leading
+// `^|[\s(,]` check is skipped, which makes the result a superset usable as a prefilter.
+func textDeclaresFunctionTyped(text []byte, name string, boundary bool) bool {
+	if name == "" {
+		return false
+	}
+	for off := 0; off < len(text); {
+		i := bytes.Index(text[off:], []byte(name))
+		if i < 0 {
+			return false
+		}
+		i += off
+		off = i + 1
+		if boundary && i > 0 && !isFunctionTypeBoundary(text[i-1]) {
+			continue
+		}
+		j := i + len(name)
+		for j < len(text) && isRegexpSpace(text[j]) {
+			j++
+		}
+		if j >= len(text) || text[j] != ':' {
+			continue
+		}
+		j++
+		arrow := bytes.Index(text[j:], []byte("->"))
+		if arrow < 0 {
+			return false
+		}
+		if eq := bytes.IndexByte(text[j:j+arrow], '='); eq < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// isRegexpSpace matches RE2's \s class.
+func isRegexpSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+}
+
+func isFunctionTypeBoundary(c byte) bool { return isRegexpSpace(c) || c == '(' || c == ',' }
+
+// ignoredReturnValueLambdaReturnsFromEnclosingFunction reports a call whose lambda contains a non-local `return`,
+// as in `x?.let { return it }`. The call then never completes normally, so there is no ignored result.
+func ignoredReturnValueLambdaReturnsFromEnclosingFunction(file *scanner.File, idx uint32) bool {
+	enclosing := ""
+	if fn, ok := flatEnclosingFunction(file, idx); ok {
+		enclosing = flatFunctionName(file, fn)
+	}
+	found := false
+	file.FlatWalkNodes(idx, "jump_expression", func(n uint32) {
+		if found || !file.FlatHasAncestorOfType(n, "lambda_literal") {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(n))
+		if !strings.HasPrefix(text, "return") {
+			return
+		}
+		rest := strings.TrimPrefix(text, "return")
+		if strings.HasPrefix(rest, "@") {
+			label := strings.TrimPrefix(rest, "@")
+			end := strings.IndexFunc(label, func(r rune) bool {
+				return r != '_' && (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z')
+			})
+			if end >= 0 {
+				label = label[:end]
+			}
+			found = enclosing != "" && label == enclosing
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+var ignoredReturnValueDetachedReturnPattern = regexp.MustCompile(`(?:^|[^\w@.])return(?:@\w+)?[ \t]+$`)
+
+// ignoredReturnValueFollowsDetachedReturn reports a call that is the operand of a `return` or
+// `return@label` on the same line. The parser detaches it from the jump inside `if` and `?:`.
+func ignoredReturnValueFollowsDetachedReturn(file *scanner.File, idx uint32) bool {
+	start := int(file.FlatStartByte(idx))
+	if start <= 0 || start > len(file.Content) {
+		return false
+	}
+	lineStart := start
+	for lineStart > 0 && file.Content[lineStart-1] != '\n' {
+		lineStart--
+	}
+	return ignoredReturnValueDetachedReturnPattern.Match(file.Content[lineStart:start])
+}
+
+// ignoredReturnValueHasPlainArgument reports whether the call passes at least one argument.
+func ignoredReturnValueHasPlainArgument(file *scanner.File, call uint32) bool {
+	args := flatCallKeyArguments(file, call)
+	if args == 0 {
+		return false
+	}
+	_, count := flatValueArgumentStats(file, args)
+	return count > 0
+}
+
+// ignoredReturnValueHelperResultUsedElsewhere reports a function declared in this file whose result
+// another call site of the same name uses, so ignoring it at one site is an intentional choice.
+func ignoredReturnValueHelperResultUsedElsewhere(file *scanner.File, idx uint32, name string) bool {
+	if file == nil || name == "" || !ignoredReturnValueFileDeclaresFunction(file, name) {
+		return false
+	}
+	used := false
+	file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+		if used || call == idx || flatCallExpressionName(file, call) != name {
+			return
+		}
+		used = flatIsUsedAsExpression(file, call)
+	})
+	return used
+}
+
+func ignoredReturnValueFileDeclaresFunction(file *scanner.File, name string) bool {
+	names := filefacts.FileFact(fileFactsCache(), file, slotDeclaredFunctionNames, func() map[string]struct{} {
+		out := map[string]struct{}{}
+		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+			out[flatFunctionName(file, fn)] = struct{}{}
+		})
+		return out
+	})
+	_, found := names[name]
+	return found
+}
+
+// ignoredReturnValueTestFileDisposableCall reports Rx/processor calls whose result tests drop on purpose.
+func ignoredReturnValueTestFileDisposableCall(file *scanner.File, funcName string) bool {
+	if !scanner.IsTestFile(file.Path) {
+		return false
+	}
+	switch funcName {
+	case "test", "offer", "subscribe":
+		return true
+	}
+	return false
+}
+
+// ignoredReturnValueFunctionTypeFromInvoke reports a function-typed result that comes from invoking a function value.
+// The expression type of `callback?.invoke(x)` or `state.eventSink(x)` is the callee's type, not a returned function.
+func ignoredReturnValueFunctionTypeFromInvoke(file *scanner.File, call uint32, funcName string, rt *typeinfer.ResolvedType) bool {
+	if rt == nil || rt.Kind != typeinfer.TypeFunction && !strings.HasPrefix(rt.FQN, "kotlin.Function") &&
+		!strings.HasPrefix(rt.Name, "Function") {
+		return false
+	}
+	if funcName == "invoke" {
+		return true
+	}
+	navExpr, _ := flatCallExpressionParts(file, call)
+	return navExpr != 0 && !ignoredReturnValueFunctionReturnsFunctionalType(file, funcName)
+}
+
+// flatLastCodeNamedChild returns the last named child that is not a comment, since a trailing
+// comment after the final expression does not make that expression discarded.
+func flatLastCodeNamedChild(file *scanner.File, idx uint32) uint32 {
+	if file == nil || idx == 0 {
+		return 0
+	}
+	for i := file.FlatNamedChildCount(idx) - 1; i >= 0; i-- {
+		child := file.FlatNamedChild(idx, i)
+		switch file.FlatType(child) {
+		case "line_comment", "multiline_comment":
+			continue
+		}
+		return child
+	}
+	return 0
+}
+
+// ignoredReturnValuePureCalls are stdlib and coroutines calls that build a new Flow, Sequence or Stream
+// without side effects, so discarding the result is a bug.
+var ignoredReturnValuePureCalls = map[string]bool{
+	"onEach": true, "onStart": true, "onCompletion": true, "onEmpty": true, "catch": true, "flowOn": true,
+	"buffer": true, "conflate": true, "distinctUntilChanged": true, "debounce": true, "sample": true,
+	"takeWhile": true, "dropWhile": true, "transform": true, "mapNotNull": true, "mapIndexed": true,
+	"flatMapLatest": true, "flatMapConcat": true, "flatMapMerge": true, "combine": true, "merge": true,
+	"scan": true, "runningFold": true, "runningReduce": true, "retry": true, "retryWhen": true, "withIndex": true,
+	"cancellable": true, "asStateFlow": true, "asSharedFlow": true, "shareIn": true, "stateIn": true,
+	"flowOf": true, "emptyFlow": true, "flow": true, "channelFlow": true, "callbackFlow": true,
+	"MutableStateFlow": true, "MutableSharedFlow": true,
+	"sequenceOf": true, "emptySequence": true, "sequence": true, "generateSequence": true, "windowed": true,
+	"chunked": true, "zipWithNext": true, "stream": true, "parallelStream": true,
+}
+
+// ignoredReturnValueCollectionMutators are stdlib collection and queue mutators whose result is routinely
+// ignored; they are never reported on type evidence alone.
+var ignoredReturnValueCollectionMutators = map[string]bool{
+	"remove": true, "removeAt": true, "removeFirst": true, "removeLast": true, "removeAll": true, "removeIf": true,
+	"retainAll": true, "emit": true, "send": true, "add": true, "addAll": true, "addFirst": true, "addLast": true, "put": true, "putAll": true,
+	"putIfAbsent": true, "set": true, "clear": true, "offer": true, "offerFirst": true, "offerLast": true,
+	"poll": true, "pollFirst": true, "pollLast": true, "pop": true, "push": true, "getOrPut": true,
+	"compute": true, "computeIfAbsent": true, "computeIfPresent": true, "replace": true,
+	"replaceAll": true, "trySend": true, "tryEmit": true, "tryReceive": true,
+}
+
+// ignoredReturnValueCalleeIsKnownPure reports whether a call whose type matched a must-use type is a
+// known side-effect-free builder. A project function that returns a Flow can register state eagerly
+// (a cache entry, a collector), so only stdlib targets, or known names when the target is unresolved, count.
+// ignoredReturnValueTestLibraryPrefixes are call-target prefixes of assertion libraries.
+var ignoredReturnValueTestLibraryPrefixes = []string{
+	"kotlin.test.", "org.junit.", "junit.framework.", "com.google.common.truth.", "org.assertj.",
+	"org.hamcrest.", "app.cash.turbine.",
+}
+
+// ignoredReturnValueIsTestAssertion reports whether the call is an assertion-library function. The resolved
+// target decides when known; otherwise the name does.
+func ignoredReturnValueIsTestAssertion(oracleLookup oracle.Lookup, file *scanner.File, idx uint32, funcName string) bool {
+	if oracleLookup != nil {
+		if target := oracleLookupCallTargetFlat(oracleLookup, file, idx); target != "" {
+			for _, prefix := range ignoredReturnValueTestLibraryPrefixes {
+				if strings.HasPrefix(target, prefix) {
+					return true
+				}
+			}
+		}
+	}
+	return strings.HasPrefix(funcName, "assert") && len(funcName) > len("assert") && funcName[len("assert")] >= 'A' && funcName[len("assert")] <= 'Z'
+}
+
+func ignoredReturnValueCalleeIsKnownPure(oracleLookup oracle.Lookup, file *scanner.File, idx uint32, funcName string) bool {
+	// A collection mutator returns the previous element or a success flag, and its call is the point of the statement.
+	if ignoredReturnValueCollectionMutators[funcName] {
+		return false
+	}
+	target := ""
+	if oracleLookup != nil {
+		target = oracleLookupCallTargetFlat(oracleLookup, file, idx)
+	}
+	if target != "" {
+		// Invoking a function-typed property is a call on the user's own value, not a stdlib function.
+		if strings.HasPrefix(target, "kotlin.Function") || strings.HasPrefix(target, "kotlin.coroutines.SuspendFunction") {
+			return false
+		}
+		for _, prefix := range []string{"kotlin.", "kotlinx.coroutines.", "java.util."} {
+			if strings.HasPrefix(target, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	return functionalOps[funcName] || ignoredReturnValuePureCalls[funcName]
+}
+
+// ignoredReturnValueChainJoinsAcrossLines reports a call chain whose receiver is a call followed by a call
+// suffix on a later line. Kotlin ends the statement at that newline, so the parser tree does not match the code.
+func ignoredReturnValueChainJoinsAcrossLines(file *scanner.File, idx uint32) bool {
+	for node := idx; node != 0; node = file.FlatFirstChild(node) {
+		switch file.FlatType(node) {
+		case "call_expression":
+			first := file.FlatFirstChild(node)
+			if first == 0 {
+				return false
+			}
+			if file.FlatType(first) == "call_expression" {
+				for sib := file.FlatNextSib(first); sib != 0; sib = file.FlatNextSib(sib) {
+					if file.FlatType(sib) == "call_suffix" &&
+						bytes.IndexByte(file.Content[file.FlatEndByte(first):file.FlatStartByte(sib)], '\n') >= 0 {
+						return true
+					}
+				}
+			}
+		case "navigation_expression":
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// ignoredReturnValueTargetIsFunctionInvoke reports an `invoke` call the oracle resolved to a function type.
+func ignoredReturnValueTargetIsFunctionInvoke(oracleLookup oracle.Lookup, file *scanner.File, idx uint32) bool {
+	if oracleLookup == nil {
+		return false
+	}
+	target := oracleLookupCallTargetFlat(oracleLookup, file, idx)
+	return strings.HasPrefix(target, "kotlin.Function") || strings.HasPrefix(target, "kotlin.coroutines.SuspendFunction")
 }

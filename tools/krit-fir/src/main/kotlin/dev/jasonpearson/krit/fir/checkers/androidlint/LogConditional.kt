@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
+import org.jetbrains.kotlin.contracts.description.LogicOperationKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -16,6 +17,7 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirFile
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.expressions.FirBooleanOperatorExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
@@ -41,8 +43,9 @@ import org.jetbrains.kotlin.name.Name
  * the nearest named function, lambda or anonymous function, or named class or
  * object (an anonymous object is passed through, as Go passes `object_literal`)
  * either
- * - has the bare condition `BuildConfig.DEBUG` (parentheses allowed, not
- *   negated, not combined with `&&`/`||`), checked on the `if` whose branch
+ * - has the condition `BuildConfig.DEBUG` (parentheses allowed, not negated,
+ *   not combined with `||`; a top-level `&&` conjunct counts, since the branch
+ *   only runs when DEBUG is true), checked on the `if` whose branch
  *   holds the call and on every earlier `if` of an `else if` chain. Any DEBUG
  *   written through a receiver spelled BuildConfig counts, whatever it
  *   resolves to (a companion, a typealias, an inherited member, a local
@@ -142,7 +145,12 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
     // DEBUG read through an instance, a `with` receiver, or `this` is not the
     // static flag, and Go does not match its text either.
     private fun isBuildConfigDebug(condition: FirExpression): Boolean {
-        val access = condition.unwrapSmartcastExpression() as? FirQualifiedAccessExpression ?: return false
+        val unwrapped = condition.unwrapSmartcastExpression()
+        if (unwrapped is FirBooleanOperatorExpression) {
+            return unwrapped.kind == LogicOperationKind.AND &&
+                (isBuildConfigDebug(unwrapped.leftOperand) || isBuildConfigDebug(unwrapped.rightOperand))
+        }
+        val access = unwrapped as? FirQualifiedAccessExpression ?: return false
         if (access is FirFunctionCall) return false
         val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return false
         if (symbol.name != debugName) return false

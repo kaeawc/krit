@@ -226,6 +226,10 @@ func canonicalExpression(fact *ExpressionType) []byte {
 	writeBlobBool(out.Write, fact.CallTargetResolved)
 	writeBlobBool(out.Write, fact.CallTargetSuspend)
 	writeBlobStrings(out.Write, fact.Annotations, true)
+	// Only when present, so the hash of every other expression is unchanged.
+	if len(fact.SmartCastDecls) > 0 {
+		writeBlobStrings(out.Write, fact.SmartCastDecls, true)
+	}
 	return out.Bytes()
 }
 
@@ -239,5 +243,9 @@ func canonicalDiagnostic(diagnostic *Diagnostic) []byte {
 	writeBlobToken(out.Write, diagnostic.Message)
 	writeBlobInt(out.Write, diagnostic.Line)
 	writeBlobInt(out.Write, diagnostic.Col)
+	// Only when present, so the hash of every other diagnostic is unchanged.
+	if len(diagnostic.SmartCastDecls) > 0 {
+		writeBlobStrings(out.Write, diagnostic.SmartCastDecls, true)
+	}
 	return out.Bytes()
 }

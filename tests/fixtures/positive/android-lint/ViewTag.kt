@@ -1,24 +1,17 @@
 package test
 
-import android.app.Activity
-import android.graphics.drawable.Drawable
+import android.database.Cursor
 import android.view.View
 
-class LeakyTagActivity {
-    fun bindActivity(view: View, activity: Activity) {
-        view.setTag(activity)
+class LeakyTagBinder {
+    fun bindView(view: View, other: View) {
+        view.setTag(1, other)
     }
 
-    fun bindDrawable(view: View, drawable: Drawable) {
+    fun bindCursor(view: View, cursor: Cursor) {
         view.setTag(
-            drawable
+            2,
+            cursor
         )
     }
-
-    fun bindHolder(view: View) {
-        val holder = ViewHolder()
-        view.setTag(holder)
-    }
-
-    data class ViewHolder(val title: String = "")
 }

@@ -17,13 +17,13 @@ fun Tag.lowercase(): String = "tag"
 
 // Go reports these because it matches `.uppercase()` / `.lowercase()` by name;
 // the receiver is a project class, not a String or Char.
-fun members(casing: Casing, tag: Tag): String = casing.uppercase() + casing.lowercase() + tag.lowercase()
+fun members(casing: Casing, tag: Tag): String = Text(casing.uppercase()) + Text(casing.lowercase()) + Text(tag.lowercase())
 
 fun String.shout(): String = this + "!"
 
 // Go reports this because the call is spelled `.uppercase()`; the import
 // alias makes it the project's String.shout(), not the stdlib conversion.
-fun aliased(userName: String): String = userName.uppercase()
+fun aliased(userName: String): String = Text(userName.uppercase())
 
 // A receiver-less call of a project function: neither Go nor FIR reports it.
 class Local {
@@ -31,3 +31,5 @@ class Local {
 
     fun useLocal(): String = lowercase()
 }
+
+fun Text(text: String?): String = text.orEmpty()

@@ -12,3 +12,11 @@ fun ComposeDerivedStateMisuseNegative() {
     val bucket by remember { derivedStateOf { count / 10 } }
     println(bucket)
 }
+
+// A fast-changing number reduced to a Boolean is the intended use of derivedStateOf.
+@Composable
+fun ComposeDerivedStateMisuseNumericNegative() {
+    val offset by remember { mutableStateOf(0) }
+    val showButton by remember { derivedStateOf { offset > 5 } }
+    println(showButton)
+}

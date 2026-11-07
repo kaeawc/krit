@@ -26,7 +26,7 @@ fun qualified(e: Exception): Nothing = kotlin.error(e)
 // kotlin.error.
 class Logger {
     fun error(t: Throwable) {
-        <!PrintlnInProduction!>println<!>(t)
+        println(t)
     }
 
     fun log(t: Throwable) {

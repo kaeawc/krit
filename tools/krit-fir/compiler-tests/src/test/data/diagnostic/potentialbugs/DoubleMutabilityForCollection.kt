@@ -1,74 +1,73 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 32, 34, 36, 38, 40, 42, 44, 46, 50, 55, 58, 60, 62, 66, 71, 75, 76, 80, 83, 85, 95, 99, 103, 106, 109, 114, 121, 130
-// Positive: `var` properties whose type is a mutable collection. Each is
+// go-lines: 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 31, 33, 35, 37, 39, 41, 43, 45, 49, 55, 57, 59, 61, 65, 70, 74, 75, 79, 83, 84, 90, 93, 96, 101, 110, 119
+// Positive: private (or local) `var` properties whose type is a mutable
+// collection and that are never written after their declaration. Each is
 // reported on the property's first line (modifier list, else `var`), the line
 // the Go rule reports. Every case here is also a Go finding.
 package test
 
 class Holder {
-    <!DoubleMutabilityForCollection!>var<!> list: MutableList<String> = mutableListOf()
+    <!DoubleMutabilityForCollection!>private<!> var list: MutableList<String> = mutableListOf()
 
-    <!DoubleMutabilityForCollection!>var<!> set: MutableSet<String> = mutableSetOf()
+    <!DoubleMutabilityForCollection!>private<!> var set: MutableSet<String> = mutableSetOf()
 
-    <!DoubleMutabilityForCollection!>var<!> map: MutableMap<String, Int> = mutableMapOf()
+    <!DoubleMutabilityForCollection!>private<!> var map: MutableMap<String, Int> = mutableMapOf()
 
-    <!DoubleMutabilityForCollection!>var<!> nullable: MutableList<String>? = null
+    <!DoubleMutabilityForCollection!>private<!> var arrayList: ArrayList<String> = ArrayList()
 
-    <!DoubleMutabilityForCollection!>var<!> arrayList: ArrayList<String> = ArrayList()
+    <!DoubleMutabilityForCollection!>private<!> var hashMap: HashMap<String, Int> = HashMap()
 
-    <!DoubleMutabilityForCollection!>var<!> hashMap: HashMap<String, Int> = HashMap()
+    <!DoubleMutabilityForCollection!>private<!> var hashSet: HashSet<String> = HashSet()
 
-    <!DoubleMutabilityForCollection!>var<!> hashSet: HashSet<String> = HashSet()
+    <!DoubleMutabilityForCollection!>private<!> var linkedMap: LinkedHashMap<String, Int> = LinkedHashMap()
 
-    <!DoubleMutabilityForCollection!>var<!> linkedMap: LinkedHashMap<String, Int> = LinkedHashMap()
+    <!DoubleMutabilityForCollection!>private<!> var linkedSet: LinkedHashSet<String> = LinkedHashSet()
 
-    <!DoubleMutabilityForCollection!>var<!> linkedSet: LinkedHashSet<String> = LinkedHashSet()
+    <!DoubleMutabilityForCollection!>private<!> var qualified: kotlin.collections.MutableList<String> = mutableListOf()
 
-    <!DoubleMutabilityForCollection!>var<!> qualified: kotlin.collections.MutableList<String> = mutableListOf()
-
-    <!DoubleMutabilityForCollection!>var<!> javaQualified: java.util.ArrayList<String> = java.util.ArrayList()
+    <!DoubleMutabilityForCollection!>private<!> var javaQualified: java.util.ArrayList<String> = java.util.ArrayList()
 
     // Inferred from a factory Go lists.
-    <!DoubleMutabilityForCollection!>var<!> inferredList = mutableListOf<String>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredList = mutableListOf<String>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredMap = hashMapOf<String, Int>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredMap = hashMapOf<String, Int>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredArrayList = arrayListOf<String>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredArrayList = arrayListOf<String>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredLinkedMap = linkedMapOf<String, Int>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredLinkedMap = linkedMapOf<String, Int>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredLinkedSet = linkedSetOf<String>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredLinkedSet = linkedSetOf<String>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredHashSet = hashSetOf<String>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredHashSet = hashSetOf<String>()
 
-    <!DoubleMutabilityForCollection!>var<!> inferredConstructor = ArrayList<String>()
+    <!DoubleMutabilityForCollection!>private<!> var inferredConstructor = ArrayList<String>()
 
-    <!DoubleMutabilityForCollection!>var<!> fullyQualifiedFactory = kotlin.collections.mutableSetOf<String>()
+    <!DoubleMutabilityForCollection!>private<!> var fullyQualifiedFactory = kotlin.collections.mutableSetOf<String>()
 
     // MutableCollection is not in the default mutableTypes, but the
     // initializer is a factory and the type is still a mutable collection.
-    <!DoubleMutabilityForCollection!>var<!> collection: MutableCollection<String> = mutableListOf()
+    <!DoubleMutabilityForCollection!>private<!> var collection: MutableCollection<String> = mutableListOf()
 
     /**
      * KDoc is not part of the reported line.
      */
     <!DoubleMutabilityForCollection!>@Volatile<!>
-    var annotated: MutableList<String> = mutableListOf()
+    private var annotated: MutableList<String> = mutableListOf()
 
     <!DoubleMutabilityForCollection!>private<!> var private: MutableList<String> = mutableListOf()
 
-    <!DoubleMutabilityForCollection!>lateinit<!> var late: MutableList<String>
+    <!DoubleMutabilityForCollection!>private<!> lateinit var late: MutableList<String>
 
-    <!DoubleMutabilityForCollection!>var<!> getterBacked: MutableList<String>
+    <!DoubleMutabilityForCollection!>private<!> var getterBacked: MutableList<String>
         get() = mutableListOf()
         set(value) {}
 
-    <!DoubleMutabilityForCollection!>var<!> String.extension: MutableList<String>
+    <!DoubleMutabilityForCollection!>private<!> var String.extension: MutableList<String>
         get() = mutableListOf(this)
         set(value) {}
 
     companion object {
-        <!DoubleMutabilityForCollection!>var<!> shared: MutableMap<String, String> = mutableMapOf()
+        <!DoubleMutabilityForCollection!>private<!> var shared: MutableMap<String, String> = mutableMapOf()
     }
 
     fun local(): Int {
@@ -83,42 +82,32 @@ class Holder {
         <!DoubleMutabilityForCollection!>@Suppress("CanBeVal")<!>
         var annotatedLocal = mutableListOf<String>()
         <!DoubleMutabilityForCollection!>lateinit<!> var lateLocal: MutableList<String>
-        annotatedLocal = mutableListOf()
-        lateLocal = annotatedLocal
-        localList = lateLocal
-        localExplicit = mutableSetOf()
-        return lambda()
+        return lambda() + annotatedLocal.size + lateLocal.size
     }
 }
 
-interface Api {
-    <!DoubleMutabilityForCollection!>var<!> abstractList: MutableList<String>
-}
-
-class Impl : Api {
-    <!DoubleMutabilityForCollection!>override<!> var abstractList: MutableList<String> = mutableListOf()
-}
-
 object Registry {
-    <!DoubleMutabilityForCollection!>var<!> entries: MutableMap<String, Int> = mutableMapOf()
+    <!DoubleMutabilityForCollection!>private<!> var entries: MutableMap<String, Int> = mutableMapOf()
 }
 
-<!DoubleMutabilityForCollection!>var<!> topLevel: MutableList<String> = mutableListOf()
+<!DoubleMutabilityForCollection!>private<!> var topLevel: MutableList<String> = mutableListOf()
 
 fun anonymous(): Any = object {
-    <!DoubleMutabilityForCollection!>var<!> member: MutableList<String> = mutableListOf()
+    <!DoubleMutabilityForCollection!>private<!> var member: MutableList<String> = mutableListOf()
 }
 
 fun localClass(): Int {
     class Local {
-        <!DoubleMutabilityForCollection!>var<!> member = mutableListOf<String>()
+        <!DoubleMutabilityForCollection!>private<!> var member = mutableListOf<String>()
+
+        fun size(): Int = member.size
     }
-    return Local().member.size
+    return Local().size()
 }
 
 enum class Kind {
     A {
-        <!DoubleMutabilityForCollection!>var<!> member = mutableListOf<String>()
+        <!DoubleMutabilityForCollection!>private<!> var member = mutableListOf<String>()
     },
 }
 
@@ -128,6 +117,5 @@ enum class Kind {
 fun anonymousSubclass(): Int {
     fun hashSetOf() = object : java.util.HashSet<String>() {}
     <!DoubleMutabilityForCollection!>var<!> s = hashSetOf()
-    s = hashSetOf()
     return s.size
 }

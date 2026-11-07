@@ -760,23 +760,6 @@ func assertKotlin24Structure(t *testing.T, data *oracle.Data, structure kotlin24
 			t.Errorf("class %s is in the source but not in the oracle output", fqn)
 			continue
 		}
-		if fqn == kotlin24Ctx {
-			// KNOWN LIMITATION of the pinned grammar (docs/kotlin-syntax-support.md,
-			// kotlin24_syntax_test.go): two or more members with a named context
-			// parameter in one class break the class body. The class keeps no
-			// members and every one of them is left at the top level of the file,
-			// where class-scoped rules cannot attribute it. The oracle sees the
-			// full class. Only the names survive, as file-level declarations.
-			if len(s.members) != 0 {
-				t.Errorf("the structural parser now keeps %d members in %s; the grammar limitation is fixed, so assert the members like any other class and update the docs", len(s.members), fqn)
-			}
-			for name := range got {
-				if !structure.topLevel[s.file][name] {
-					t.Errorf("member %s of %s is not even a file-level declaration in the structural view", name, fqn)
-				}
-			}
-			continue
-		}
 		if !reflect.DeepEqual(got, s.members) {
 			t.Errorf("%s members differ from the structural parser's\noracle:     %v\nstructural: %v", fqn, got, s.members)
 		}

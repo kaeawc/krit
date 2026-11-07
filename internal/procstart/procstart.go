@@ -33,7 +33,8 @@ func Of(pid int) string {
 	default:
 		// Other Unixes (darwin, the BSDs) expose no /proc; ps reports the
 		// start time with one-second resolution.
-		cmd := exec.CommandContext(context.Background(), "ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+		// Absolute path so a caller's PATH (empty or sandboxed) cannot hide ps.
+		cmd := exec.CommandContext(context.Background(), psPath(), "-o", "lstart=", "-p", strconv.Itoa(pid))
 		cmd.Env = append(os.Environ(), "LC_ALL=C")
 		out, err := cmd.Output()
 		if err != nil {
@@ -41,6 +42,15 @@ func Of(pid int) string {
 		}
 		return strings.Join(strings.Fields(string(out)), " ")
 	}
+}
+
+// psPath prefers the standard location so a missing PATH cannot make live
+// processes look unprovable; it falls back to a PATH lookup elsewhere.
+func psPath() string {
+	if _, err := os.Stat("/bin/ps"); err == nil {
+		return "/bin/ps"
+	}
+	return "ps"
 }
 
 // procStatStartTime reads field 22 (starttime, in clock ticks since boot) of

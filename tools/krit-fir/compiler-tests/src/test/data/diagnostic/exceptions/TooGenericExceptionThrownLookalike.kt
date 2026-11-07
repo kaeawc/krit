@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 13, 20
 // Project classes named like the generic exceptions are not generic: neither
 // Go (which skips a name the file declares a class for) nor FIR reports them.
 package test

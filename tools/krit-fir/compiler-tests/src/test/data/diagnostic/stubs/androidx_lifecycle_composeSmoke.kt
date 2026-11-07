@@ -12,12 +12,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 class CounterViewModel : ViewModel() {
-    private val _count = MutableStateFlow(0)
-    val count: StateFlow<Int> = _count.asStateFlow()
+    val count: StateFlow<Int> = MutableStateFlow(0)
     val events: Flow<String> = flowOf("a")
 }
 

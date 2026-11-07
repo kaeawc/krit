@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 13, 15, 20, 23, 26, 29, 31, 37, 39, 41, 43, 45, 48, 52, 56, 58, 62, 68, 73, 77
+// go-lines: 13, 15, 21, 24, 26, 31, 37, 39, 43, 48, 52, 56, 58, 62, 72, 76
 // Positive: public, non-override properties whose type exposes MutableStateFlow.
 // Each is reported on the property's first line (modifier list, else val/var),
 // the line the Go rule reports.
@@ -62,10 +62,9 @@ object Store {
     <!StateFlowMutableLeak!>val<!> state = MutableStateFlow(12)
 }
 
-// Go checks only the property's own modifiers, so a public property of a
-// private class is still reported.
+// A public property of a private class has private effective visibility.
 private class HiddenHolder {
-    <!StateFlowMutableLeak!>val<!> state = MutableStateFlow(13)
+    val state = MutableStateFlow(13)
 }
 
 // The mutable contract is reported; the override that implements it is not.

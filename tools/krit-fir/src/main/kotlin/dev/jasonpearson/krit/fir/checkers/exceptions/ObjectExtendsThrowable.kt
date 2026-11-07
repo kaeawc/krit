@@ -86,8 +86,10 @@ internal object ObjectExtendsThrowable :
         // (annotations included) starts.
         report(
             source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1) ?: source,
-            "Object '${declaration.name.asString()}' extends '$superclass'. " +
-                "Objects that extend Throwable are singletons and lose stack trace information.",
+            "An `object` should not extend and type of Throwable. Throwables are stateful and should be " +
+                "instantiated only when needed for when a specific error occurs. An `object`, being a singleton, " +
+                "that extends any type of Throwable consequently introduces a global singleton exception whose " +
+                "instance may be inadvertently reused from multiple places, thus introducing shared mutable state.",
         )
     }
 

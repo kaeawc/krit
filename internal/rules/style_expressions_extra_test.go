@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // --- MultilineLambdaItParameter ---
@@ -98,12 +99,61 @@ package test
 fun main() {
     val s = """
         hello
-        world
+      world
+        """.trimIndent()
+    val untrimmed = """
+      hello
     """
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for multiline raw string without trimIndent/trimMargin")
+	if len(findings) != 2 || findings[0].Line != 6 || findings[1].Line != 7 {
+		t.Fatalf("expected the misaligned line and closing quotes of the trimmed string only, got %v", findings)
+	}
+}
+
+func TestMultilineRawStringIndentation_AlignedStringsAreCompliant(t *testing.T) {
+	findings := runRuleByName(t, "MultilineRawStringIndentation", `
+package test
+fun main() {
+    val a = """
+        hello
+
+        world
+    """.trimIndent()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestMultilineRawStringIndentation_RequiresBreaksAroundTheContent(t *testing.T) {
+	findings := runRuleByName(t, "MultilineRawStringIndentation", `
+package test
+fun main() {
+    val b = """
+        |hello
+        |world""".trimMargin()
+}
+`)
+	if len(findings) != 1 || findings[0].Message != "A multiline raw string should start with a break line and should end with another" {
+		t.Fatalf("expected one missing-break finding, got %v", findings)
+	}
+}
+
+func TestMultilineRawStringIndentation_DeeperContentIsReportedOnceAtItsFirstLine(t *testing.T) {
+	findings := runRuleByName(t, "MultilineRawStringIndentation", `
+package test
+fun main() {
+    val a = """
+            first
+              nested
+            last
+    """.trimIndent()
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 5 || findings[0].Message != "The indentation should be 8 but it is 12." {
+		t.Fatalf("expected one finding on the first content line, got %v", findings)
 	}
 }
 
@@ -254,7 +304,7 @@ func TestCanBeNonNullable_PositiveVarAssignedElvisWithNonNullFallback(t *testing
 	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
 package test
 class Example {
-    var prop: String? = ""
+    private var prop: String? = ""
     fun update(candidate: String?, fallback: String) {
         prop = candidate ?: fallback
     }
@@ -483,32 +533,56 @@ fun main(list: List<String>) {
 // --- NullableBooleanCheck ---
 
 func TestNullableBooleanCheck_Positive(t *testing.T) {
-	findings := runRuleByName(t, "NullableBooleanCheck", `
+	findings := runRuleByNameWithResolver(t, "NullableBooleanCheck", `
 package test
-fun main() {
-    val flag: Boolean? = true
-    if (flag == true) {
+fun main(flag: Boolean?) {
+    if (flag ?: false) {
         println("yes")
     }
+    val enabled = flag ?: true
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for nullable boolean check")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for elvis boolean checks, got %d", len(findings))
+	}
+	if got := findings[0].Fix.Replacement; got != "flag == true" {
+		t.Errorf("`?: false` fix = %q, want `flag == true`", got)
+	}
+	if got := findings[1].Fix.Replacement; got != "flag != false" {
+		t.Errorf("`?: true` fix = %q, want `flag != false`", got)
 	}
 }
 
 func TestNullableBooleanCheck_Negative(t *testing.T) {
 	findings := runRuleByName(t, "NullableBooleanCheck", `
 package test
-fun main() {
-    val flag = true
-    if (flag) {
+fun main(flag: Boolean?, other: Int?) {
+    if (flag == true) {
         println("yes")
     }
+    if (flag != false) {
+        println("no")
+    }
+    val n = other ?: 0
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestNullableBooleanCheck_FixParenthesizesElvisChainOperand(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "NullableBooleanCheck", `
+package test
+fun main(a: Boolean?, b: Boolean?) {
+    val x = a ?: b ?: false
+}
+`)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one finding with a fix, got %v", findings)
+	}
+	if got := findings[0].Fix.Replacement; got != "(a ?: b) == true" {
+		t.Errorf("the elvis chain operand must be parenthesized, got %q", got)
 	}
 }
 
@@ -565,5 +639,194 @@ fun main() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestDestructuringDeclarationWithTooManyEntries_ForLoopAndLambdaPositive(t *testing.T) {
+	findings := runRuleByName(t, "DestructuringDeclarationWithTooManyEntries", `
+package test
+fun main(items: List<Quad>) {
+    for ((a, b, c, d) in items) {}
+    items.forEach { (a, b, c, d) -> println(a) }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+}
+
+func TestDestructuringDeclarationWithTooManyEntries_SecondaryConstructorNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "DestructuringDeclarationWithTooManyEntries", `
+package test
+class Widget(a: Int) {
+    constructor(a: Int, b: Int, c: Int, d: Int) : this(a)
+    @JvmOverloads constructor(a: Int, b: Int, c: Int, d: Int, e: Int = 0) : this(a)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestDestructuringDeclarationWithTooManyEntries_ParameterListsAndWithinLimitNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "DestructuringDeclarationWithTooManyEntries", `
+package test
+class Widget(val a: Int, val b: Int, val c: Int, val d: Int) {
+    constructor(a: Int, b: Int, c: Int, d: Int, e: Int) : this(a, b, c, d)
+    fun place(left: Int, top: Int, right: Int, bottom: Int) {}
+}
+fun main(pair: Pair<Int, Int>, triple: Triple<Int, Int, Int>) {
+    val (a, b) = pair
+    val (x, y, z) = triple
+    for ((k, v) in mapOf(1 to 2)) {}
+    listOf(pair).forEach { (first, second) -> println(first + second) }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestNullableBooleanCheck_ElvisOnNullableBoolean(t *testing.T) {
+	src := `package test
+fun main(plain: Boolean, maybe: Boolean?, s: String?, other: Boolean) {
+    if (plain == true) {}
+    if (maybe ?: false) {}
+    if (maybe ?: true) {}
+    if (s?.isEmpty() ?: false) {}
+    if (maybe == true) {}
+    val x = other == maybe ?: false
+}
+`
+	findings := runRuleByNameWithResolver(t, "NullableBooleanCheck", src)
+	if len(findings) != 4 {
+		t.Fatalf("expected the four elvis comparisons on nullable Booleans, got %d: %v", len(findings), findings)
+	}
+	apply := func(f scanner.Finding) string { return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:] }
+	for i, want := range []string{
+		"if (maybe == true) {}",
+		"if (maybe != false) {}",
+		"if (s?.isEmpty() == true) {}",
+		"val x = other == (maybe == true)",
+	} {
+		if got := apply(findings[i]); !strings.Contains(got, want) {
+			t.Errorf("fix %d: want %q in %s", i, want, got)
+		}
+	}
+}
+
+func TestTrimMultilineRawString_ArgumentsConstAndAnnotations(t *testing.T) {
+	findings := runRuleByName(t, "TrimMultilineRawString", `
+package test
+const val CONST_SQL = """
+    select 1
+"""
+@Doc("""
+    text
+""")
+fun a() {}
+fun b() = """
+    text
+""".trimMargin("|")
+fun c() = """
+    text
+""".trimIndent()
+fun d() = """
+    text
+"""
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the untrimmed raw string in d(), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestMultilineLambdaItParameter_UsesAstNotTextHeuristics(t *testing.T) {
+	findings := runRuleByName(t, "MultilineLambdaItParameter", `
+package test
+fun f(l: List<Int>) {
+    l.forEach {
+        when (it) {
+            1 -> println()
+            else -> println()
+        }
+    }
+    l.forEach {
+        println("it is a word in a string")
+        println()
+    }
+    l.forEach {
+        l.map { println() }
+        println()
+    }
+    l.forEach { x ->
+        println(it)
+        println(x)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the first lambda (when inside it), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestCanBeNonNullable_PublicMembersNullDefaultsAndActuals(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "CanBeNonNullable", `
+package test
+class A {
+    var pub: String? = ""
+    private var priv: String? = ""
+    open var opened: String? = ""
+}
+fun withDefault(p: String? = null) { println(p!!) }
+actual fun act(p: String?) { println(p!!) }
+fun plain(p: String?) { println(p!!) }
+`)
+	lines := map[int]bool{}
+	for _, f := range findings {
+		lines[f.Line] = true
+	}
+	if len(findings) != 2 || !lines[5] || !lines[10] {
+		t.Fatalf("expected only the private property and the plain parameter, got %v", findings)
+	}
+}
+
+// detekt reports any negating operator or negatively named call inside the lambda, not only a whole-body negation.
+func TestDoubleNegativeLambda_ReportsAnyNegationInsideTheLambda(t *testing.T) {
+	findings := runRuleByName(t, "DoubleNegativeLambda", `
+package test
+fun f(l: List<String>) {
+    l.none { !it.isEmpty() }
+    l.none { !it.isEmpty() || it.isBlank() }
+    l.filterNot { !it.isEmpty() && true }
+    l.none { it.isNotEmpty() }
+    l.none { it.isEmpty() }
+}
+`)
+	if len(findings) != 4 {
+		t.Fatalf("expected 4 findings, got %v", findings)
+	}
+	want := "Double negative through using `isNotEmpty()` inside a `none` lambda. Use `all` instead."
+	if findings[3].Message != want {
+		t.Errorf("message = %q, want %q", findings[3].Message, want)
+	}
+}
+
+func TestUntilInsteadOfRangeTo_ReportsRangeAndRangeToWithMinusOne(t *testing.T) {
+	findings := runRuleByName(t, "UntilInsteadOfRangeTo", `package test
+fun f(n: Int) {
+    val a = 0..n - 1
+    val b = 0.rangeTo(n - 1)
+    val c = 0..n
+    val d = 0..n - 2
+    val e = 0..(n - 1)
+    val g = 0..<n
+}
+`)
+	messages := map[int]string{}
+	for _, f := range findings {
+		messages[f.Line] = f.Message
+	}
+	if len(findings) != 2 || messages[3] != "'..' call can be replaced with 'until'" || messages[4] != "'rangeTo' call can be replaced with 'until'" {
+		t.Fatalf("expected the '..' on line 3 and the rangeTo on line 4, got %v", messages)
 	}
 }

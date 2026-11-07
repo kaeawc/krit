@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -33,6 +32,10 @@ func registerResourceCostRules() {
 				if receiverContainsCallName(file, idx, "buffered", "BufferedInputStream") {
 					return
 				}
+				// Reads into a buffer of 8 KiB or more are already efficient.
+				if bufferedReadFillsLargeBuffer(file, idx) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "FileInputStream.read() without BufferedInputStream; wrap in .buffered() for efficient reads.")
 			},
 		})
@@ -59,27 +62,33 @@ func registerResourceCostRules() {
 				if body == 0 {
 					return
 				}
-				found := false
+				var foundNode uint32
+				foundName := ""
+				loopLocals := cursorLoopLocalNames(file, body)
 				file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
-					if found {
+					if foundNode != 0 {
 						return
 					}
-					if flatCallExpressionName(file, callIdx) == "getColumnIndex" || flatCallExpressionName(file, callIdx) == "getColumnIndexOrThrow" {
-						found = true
+					if name := flatCallExpressionName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, loopLocals) {
+						foundNode, foundName = callIdx, name
 					}
 				})
 				file.FlatWalkNodes(body, "method_invocation", func(callIdx uint32) {
-					if found {
+					if foundNode != 0 {
 						return
 					}
-					if name := databaseCallName(file, callIdx); name == "getColumnIndex" || name == "getColumnIndexOrThrow" {
-						found = true
+					if name := databaseCallName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, loopLocals) {
+						foundNode, foundName = callIdx, name
 					}
 				})
-				if !found {
+				if foundNode == 0 {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "cursor.getColumnIndex() inside while loop; hoist column index lookup before the loop.")
+				receiver := "cursor"
+				if node := cursorCallReceiverNode(file, foundNode); node != 0 {
+					receiver = strings.TrimSpace(file.FlatNodeText(node))
+				}
+				ctx.EmitAt(callLine(file, foundNode), callCol(file, foundNode), receiver+"."+foundName+"() inside while loop; hoist column index lookup before the loop.")
 			},
 		})
 	}
@@ -90,7 +99,7 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if scanner.IsTestFile(file.Path) || okHTTPClientToolingPath(file.Path) {
 					return
 				}
 				name := databaseCallName(file, idx)
@@ -118,10 +127,13 @@ func registerResourceCostRules() {
 				if !ok {
 					return
 				}
-				if hasAnnotationFlat(file, fn, "Provides") || hasAnnotationFlat(file, fn, "Singleton") {
+				if hasExactAnnotationFlat(file, fn, "Provides") || hasExactAnnotationFlat(file, fn, "Singleton") {
 					return
 				}
 				if okHTTPClientCreationAssignedToStaticField(file, idx) {
+					return
+				}
+				if okHTTPClientFeedsOneShotInitializer(file, idx, fn) {
 					return
 				}
 				prop, hasProp := flatEnclosingAncestor(file, idx, "property_declaration")
@@ -164,7 +176,10 @@ func registerResourceCostRules() {
 				if databaseQueryInsideBackgroundBoundary(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Synchronous OkHttp Call.execute() in a suspend function has no IO dispatcher evidence; wrap the call in withContext(Dispatchers.IO) or use an async OkHttp/Retrofit adapter.")
+				if okHTTPExecuteIsCancellableBridge(file, idx) || functionKdocRequiresIODispatcher(file, fn) {
+					return
+				}
+				ctx.EmitAtNode(calleeNameAnchor(file, idx), "Synchronous OkHttp Call.execute() in a suspend function has no IO dispatcher evidence; wrap the call in withContext(Dispatchers.IO) or use an async OkHttp/Retrofit adapter.")
 			},
 		})
 	}
@@ -196,7 +211,7 @@ func registerResourceCostRules() {
 				if !ok {
 					return
 				}
-				if hasAnnotationFlat(file, fn, "Provides") || hasAnnotationFlat(file, fn, "Singleton") {
+				if hasExactAnnotationFlat(file, fn, "Provides") || hasExactAnnotationFlat(file, fn, "Singleton") {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Retrofit.Builder().build().create() in function body; build and create the service once in a singleton or @Provides.")
@@ -210,6 +225,9 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if scanner.IsTestFile(file.Path) || okHTTPClientToolingPath(file.Path) {
+					return
+				}
 				name := databaseCallName(file, idx)
 				if name != "newHttpClient" && name != "newBuilder" {
 					return
@@ -227,10 +245,10 @@ func registerResourceCostRules() {
 				if !ok {
 					return
 				}
-				if hasAnnotationFlat(file, fn, "Provides") || hasAnnotationFlat(file, fn, "Singleton") {
+				if hasExactAnnotationFlat(file, fn, "Provides") || hasExactAnnotationFlat(file, fn, "Singleton") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "HttpClient.newHttpClient() in function body; reuse a singleton instance.")
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "HttpClient.newHttpClient() in function body; reuse a singleton instance.")
 			},
 		})
 	}
@@ -262,13 +280,21 @@ func registerResourceCostRules() {
 			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !isRecyclerAdapterClassFlat(ctx, idx) {
+				if scanner.IsTestFile(file.Path) || !isRecyclerAdapterClassFlat(ctx, idx) {
 					return
 				}
 				if classExtendsAnyFlat(file, idx, "androidx.recyclerview.widget.ListAdapter", "ListAdapter") {
 					return
 				}
+				// android.widget.BaseAdapter feeds ListView, which DiffUtil does not support.
+				if !classIsRecyclerViewAdapterFlat(file, idx) {
+					return
+				}
 				if !subtreeHasCallName(file, idx, "notifyDataSetChanged") {
+					return
+				}
+				call := firstUnsuppressedCall(file, idx, "notifyDataSetChanged", "NotifyDataSetChanged")
+				if call == 0 {
 					return
 				}
 				if subtreeHasReferenceName(file, idx, "DiffUtil", "ListAdapter") {
@@ -278,7 +304,7 @@ func registerResourceCostRules() {
 				if name == "" {
 					name = "Adapter"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("'%s' uses notifyDataSetChanged() without DiffUtil; use ListAdapter or DiffUtil.calculateDiff() for efficient updates.", name))
+				ctx.EmitAtNode(calleeIdentifierNode(file, call), fmt.Sprintf("'%s' uses notifyDataSetChanged() without DiffUtil; use ListAdapter or DiffUtil.calculateDiff() for efficient updates.", name))
 			},
 		})
 	}
@@ -305,7 +331,7 @@ func registerResourceCostRules() {
 				if name == "" {
 					name = "Adapter"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("'%s' extends RecyclerView.Adapter without setHasStableIds(true); enable stable IDs for better animation and rebinding.", name))
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("'%s' extends RecyclerView.Adapter without setHasStableIds(true); enable stable IDs for better animation and rebinding.", name))
 			},
 		})
 	}
@@ -321,20 +347,30 @@ func registerResourceCostRules() {
 					return
 				}
 				isVertical := name == "Column"
+				scrollCall, lazyCall := "horizontalScroll", "LazyRow"
+				boundNames := []string{"width", "size", "widthIn", "requiredWidth", "requiredSize"}
 				if isVertical {
-					if !subtreeHasCallName(file, idx, "verticalScroll") {
+					scrollCall, lazyCall = "verticalScroll", "LazyColumn"
+					boundNames = []string{"height", "size", "heightIn", "requiredHeight", "requiredSize", "fillParentMaxHeight", "aspectRatio"}
+				}
+				// The scroll modifier must be applied to this container, not to a nested one.
+				ownArgs := flatCallKeyArguments(file, idx)
+				if ownArgs == 0 || !subtreeHasCallName(file, ownArgs, scrollCall) {
+					return
+				}
+				unbounded := false
+				file.FlatWalkNodes(idx, "call_expression", func(lazy uint32) {
+					if unbounded || flatCallNameAny(file, lazy) != lazyCall {
 						return
 					}
-					if !subtreeHasCallName(file, idx, "LazyColumn") {
+					// A fixed-size lazy list gets finite constraints and is allowed inside a scrolling parent.
+					if lazyArgs := flatCallKeyArguments(file, lazy); lazyArgs != 0 && subtreeHasCallName(file, lazyArgs, boundNames...) {
 						return
 					}
-				} else {
-					if !subtreeHasCallName(file, idx, "horizontalScroll") {
-						return
-					}
-					if !subtreeHasCallName(file, idx, "LazyRow") {
-						return
-					}
+					unbounded = true
+				})
+				if !unbounded {
+					return
 				}
 				scrollDir := "verticalScroll"
 				lazyChild := "LazyColumn"
@@ -342,7 +378,7 @@ func registerResourceCostRules() {
 					scrollDir = "horizontalScroll"
 					lazyChild = "LazyRow"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("%s with %s contains %s; nested scroll containers cause measurement issues. Remove %s or replace %s with a regular list.", name, scrollDir, lazyChild, scrollDir, lazyChild))
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), fmt.Sprintf("%s with %s contains %s; nested scroll containers cause measurement issues. Remove %s or replace %s with a regular list.", name, scrollDir, lazyChild, scrollDir, lazyChild))
 			},
 		})
 	}
@@ -373,7 +409,7 @@ func registerResourceCostRules() {
 						return
 					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "RecyclerView inside LazyColumn/LazyRow causes nested scrolling conflicts; use Compose lazy list items instead.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "RecyclerView inside LazyColumn/LazyRow causes nested scrolling conflicts; use Compose lazy list items instead.")
 			},
 		})
 	}
@@ -432,11 +468,11 @@ func registerResourceCostRules() {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
 				if name == "skipMemoryCache" && callHasBooleanArgument(file, idx, true) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "skipMemoryCache(true) disables the memory cache; this causes repeated decoding and GC pressure.")
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx), "skipMemoryCache(true) disables the memory cache; this causes repeated decoding and GC pressure.")
 					return
 				}
 				if name == "memoryCachePolicy" && callHasReferenceArgument(file, idx, "DISABLED") {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "memoryCachePolicy(DISABLED) disables the memory cache; this causes repeated decoding and GC pressure.")
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx), "memoryCachePolicy(DISABLED) disables the memory cache; this causes repeated decoding and GC pressure.")
 					return
 				}
 			},
@@ -453,12 +489,34 @@ func registerResourceCostRules() {
 				if name != "painterResource" {
 					return
 				}
+				// A resource that depends on the iteration variable cannot be hoisted out of the loop.
+				bound, enclosed := resourceCostLoopBoundNames(file, idx, resourceCostLoopCallNames, true)
+				if !enclosed {
+					return
+				}
+				args := flatCallKeyArguments(file, idx)
+				if args == 0 || resourceCostSubtreeUsesName(file, args, bound) {
+					return
+				}
+				// A branch inside the loop paints only some items, so hoisting is not free.
+				if resourceCostGuardedInsideLoop(file, idx) {
+					return
+				}
+				// A slot lambda (an icon or content parameter) is composed on its own schedule, not once per iteration.
+				kind := resourceCostDirectLoopKind(file, idx)
+				if kind == "" {
+					return
+				}
+				// A plain inline loop over a few children is not worth hoisting out of.
+				if resourceCostInlineLoopCallNames[kind] && !resourceCostInsideLazyItemsLambda(file, idx) {
+					return
+				}
 				if resourceCostInsideLoopLambda(file, idx) {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "painterResource() inside list/loop lambda creates a fresh painter per iteration; hoist it outside the lambda.")
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx), "painterResource() inside list/loop lambda creates a fresh painter per iteration; hoist it outside the lambda.")
 					return
 				}
 				if _, ok := flatEnclosingAncestor(file, idx, "for_statement"); ok {
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "painterResource() inside for loop creates a fresh painter per iteration; hoist it outside the loop.")
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx), "painterResource() inside for loop creates a fresh painter per iteration; hoist it outside the loop.")
 					return
 				}
 			},
@@ -475,7 +533,12 @@ func registerResourceCostRules() {
 				if name != "remember" {
 					return
 				}
-				if !resourceCostInsideLazyListLambda(file, idx) {
+				// Only the content lambda of items/itemsIndexed re-runs per item; item { } runs once.
+				bound, enclosed := resourceCostLoopBoundNames(file, idx, rememberInListCallNames, false)
+				if !enclosed {
+					return
+				}
+				if body := rememberInListBody(file, idx); body == 0 || !resourceCostSubtreeUsesName(file, body, bound) {
 					return
 				}
 				args := flatCallKeyArguments(file, idx)
@@ -490,7 +553,7 @@ func registerResourceCostRules() {
 						return
 					}
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "remember {} inside items {} without a key causes recomputation on reorder; pass a key argument like remember(item) {}.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "remember {} inside items {} without a key causes recomputation on reorder; pass a key argument like remember(item) {}.")
 			},
 		})
 	}
@@ -509,31 +572,11 @@ func registerResourceCostRules() {
 				if args == 0 {
 					return
 				}
-				intervalArg := flatPositionalValueArgument(file, args, 0)
-				if intervalArg == 0 {
+				millis, ok := workManagerIntervalMillis(file, args)
+				if !ok || millis >= workManagerMinPeriodicMillis {
 					return
 				}
-				argExpr := flatValueArgumentExpression(file, intervalArg)
-				argText := ""
-				if argExpr != 0 {
-					argText = strings.TrimSpace(file.FlatNodeText(argExpr))
-				}
-				unitArg := flatPositionalValueArgument(file, args, 1)
-				if unitArg == 0 {
-					unitArg = flatNamedValueArgument(file, args, "repeatIntervalTimeUnit")
-				}
-				if callArgHasReference(file, unitArg, "MINUTES") {
-					if val, err := strconv.Atoi(argText); err == nil && val < 15 {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("PeriodicWorkRequest interval %d minutes is below the 15-minute minimum; WorkManager will coerce it to 15 minutes.", val))
-						return
-					}
-				}
-				if callArgHasReference(file, unitArg, "SECONDS") {
-					if val, err := strconv.Atoi(argText); err == nil && val < 900 {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("PeriodicWorkRequest interval %d seconds is below the 15-minute (900s) minimum; WorkManager will coerce it to 15 minutes.", val))
-						return
-					}
-				}
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), fmt.Sprintf("PeriodicWorkRequest interval %s is below the 15-minute minimum; WorkManager will coerce it to 15 minutes.", workManagerIntervalLabel(millis)))
 			},
 		})
 	}
@@ -558,7 +601,7 @@ func registerResourceCostRules() {
 				if receiverContainsCallName(file, idx, "setBackoffCriteria") {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "OneTimeWorkRequest without setBackoffCriteria; add a backoff policy for retry-able work.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "OneTimeWorkRequest without setBackoffCriteria; add a backoff policy for retry-able work.")
 			},
 		})
 	}
@@ -578,7 +621,7 @@ func registerResourceCostRules() {
 				}
 				if fn, ok := flatEnclosingFunction(file, idx); ok {
 					if subtreeHasCallName(file, fn, "cancelUniqueWork", "cancelAllWork") {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "enqueueUniqueWork with KEEP policy followed by cancel logic; REPLACE may be intended to restart the work.")
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx), "enqueueUniqueWork with KEEP policy followed by cancel logic; REPLACE may be intended to restart the work.")
 					}
 				}
 			},

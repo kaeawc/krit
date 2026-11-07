@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 60, 64, 70, 72, 73
+// go-lines: 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 39, 40, 41, 46, 47, 48, 49, 50, 54, 60, 61, 66, 70, 76, 78, 79
 // Positive: SecretKeySpec built from hardcoded key bytes, in every shape the Go
 // rule reports.
 package test
@@ -53,6 +53,12 @@ class Crypto(private val runtime: ByteArray) {
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("c2VjcmV0" + "MTIzNDU2Nzg="), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode("c2VjcmV0-MTIzNDU2Nzg=".replace("-", "")), "AES")
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(if (debug) "ZGVidWc=" else "c2VjcmV0MTIzNDU2Nzg="), "AES")
+    }
+
+    // The URL-safe and MIME decoders read the same hardcoded bytes.
+    fun otherDecoders() {
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getUrlDecoder().decode("c2VjcmV0MTIzNDU2Nzg="), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getMimeDecoder().decode("c2VjcmV0MTIzNDU2Nzg="), "AES")
     }
 
     // Reported on the line where the constructor call starts.

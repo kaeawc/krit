@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 22, 26, 29, 33, 37, 41, 48, 53, 61, 68, 74, 82, 86, 92, 98
+// go-lines: 22, 26, 29, 33, 37, 41, 48, 53, 61, 68, 74, 92, 98
 // Dagger map contributions without a map key, the shapes Go reports: a
 // function with @IntoMap and @Provides/@Binds, wherever it is declared. The
 // finding sits on the declaration's first line (its first annotation), like

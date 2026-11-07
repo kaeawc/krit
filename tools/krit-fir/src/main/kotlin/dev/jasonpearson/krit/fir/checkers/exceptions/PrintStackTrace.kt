@@ -2,7 +2,10 @@ package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.insideLoggingSink
+import dev.jasonpearson.krit.fir.support.isPrintToolingPath
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -76,7 +79,7 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
         override val functionCallCheckers = setOf(PrintStackTrace)
     }
 
-    private const val MESSAGE = "Use a logger instead of printStackTrace()."
+    private const val MESSAGE = "Do not print a stack trace. These debug statements should be removed or replaced with a logger."
     private val PRINT_STACK_TRACE = Name.identifier("printStackTrace")
     private val STDLIB_PRINT_STACK_TRACE = CallableId(StandardClassIds.BASE_KOTLIN_PACKAGE, PRINT_STACK_TRACE)
     private val nullableThrowable = StandardClassIds.Throwable.constructClassLikeType(emptyArray(), isMarkedNullable = true)
@@ -93,6 +96,8 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
         val takesArguments = (callee as? FirFunctionSymbol<*>)?.valueParameterSymbols?.isNotEmpty() == true
         if (takesArguments && !isCaughtException(expression.explicitReceiver)) return
         if (containingScanPath()?.endsWith(".gradle.kts") == true) return
+        // Test sources, tooling paths and logging sinks print to the console on purpose, as in Go.
+        if (isInTestFile() || isPrintToolingPath(containingScanPath()) || insideLoggingSink()) return
         report(expression.source, MESSAGE)
     }
 

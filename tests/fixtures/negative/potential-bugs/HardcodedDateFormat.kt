@@ -9,6 +9,23 @@ class HardcodedDateFormat {
         println(modern)
     }
 
+    fun numericPattern() {
+        // Numeric-only patterns do not vary by locale.
+        val iso = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        println(iso)
+    }
+
+    fun displayNames() {
+        // Month and day names shown to the user follow the device locale on purpose.
+        val label = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy")
+        println(label)
+    }
+
+    fun localeChained() {
+        val chained = DateTimeFormatter.ofPattern("EEE, MMM d").withLocale(Locale.US)
+        println(chained)
+    }
+
     fun localLookalike() {
         // Local symbol named DateTimeFormatter.ofPattern must not trigger
         // because java.time.format.DateTimeFormatter is not imported.

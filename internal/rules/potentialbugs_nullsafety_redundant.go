@@ -79,6 +79,10 @@ func isExplicitNullableDeclaration(file *scanner.File, name string) bool {
 
 func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
+	if file.FlatType(idx) == "call_expression" {
+		r.checkPreconditionOnNonNull(ctx)
+		return
+	}
 	if ctx.Resolver == nil {
 		return
 	}
@@ -121,6 +125,10 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 		return
 	}
 
+	// The compiler analyzed this file and reported nothing, so the name-based guess would only add false positives.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
 	operand = flatUnwrapParenExpr(file, operand)
 	resolved, ok := flatResolvedNullCheckOperandType(file, ctx.Resolver, operand)
 	if !ok || resolved.IsNullable() {
@@ -132,7 +140,7 @@ func (r *UnnecessaryNotNullCheckRule) check(ctx *api.Context) {
 		replacement = "false"
 	}
 	operandText := strings.TrimSpace(file.FlatNodeText(operand))
-	f := r.Finding(file, file.FlatRow(idx)+1, 1,
+	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		fmt.Sprintf("Unnecessary null check on non-nullable '%s'.", operandText))
 	f.Fix = &scanner.Fix{
 		ByteMode:    true,
@@ -558,4 +566,125 @@ func flatSemanticOwner(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+// sameFileNameDeclaredNullable reports whether name resolves to a same-file declaration with an explicit nullable type.
+func sameFileNameDeclaredNullable(file *scanner.File, ref uint32, name string) bool {
+	if file == nil || ref == 0 || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found || file.FlatStartByte(decl) > file.FlatStartByte(ref) {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "property_declaration", "parameter", "class_parameter":
+		default:
+			return
+		}
+		if extractIdentifierFlat(file, decl) != name || !declarationVisibleFromReference(file, decl, ref) {
+			return
+		}
+		found = declarationHasNullableTypeFlat(file, decl)
+	})
+	return found
+}
+
+// provenNonNullMessage words a redundant null operator finding the compiler proved. A receiver whose declaration
+// is nullable, or a member access whose declaration is not visible here, may be non-null only through a smart
+// cast, so "non-nullable" would contradict the declaration.
+func provenNonNullMessage(file *scanner.File, ref uint32, op, recv, kind string) string {
+	if !isSimpleIdentifierText(recv) {
+		return fmt.Sprintf("Unnecessary %s (%s): '%s' is already non-null here (non-null type or smart cast).", kind, op, recv)
+	}
+	if sameFileNameDeclaredNullable(file, ref, recv) {
+		return fmt.Sprintf("Unnecessary %s (%s): '%s' is smart-cast to non-null here.", kind, op, recv)
+	}
+	return fmt.Sprintf("Unnecessary %s (%s) on non-nullable '%s'.", kind, op, recv)
+}
+
+// unnecessaryNotNullCheckPreconditions are the stdlib preconditions detekt's UnnecessaryNotNullCheck reports on a
+// non-null argument.
+var unnecessaryNotNullCheckPreconditions = map[string]bool{"requireNotNull": true, "checkNotNull": true}
+
+// checkPreconditionOnNonNull reports `requireNotNull(x)` and `checkNotNull(x)` where x is a parameter of the
+// enclosing function declared with a non-null type. detekt's rule of this name reads the argument's type from the
+// compiler; the declared type of a parameter is the one case the syntax proves, so a platform type or a smart cast
+// never produces a finding here.
+func (r *UnnecessaryNotNullCheckRule) checkPreconditionOnNonNull(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	name := flatCallExpressionName(file, idx)
+	if !unnecessaryNotNullCheckPreconditions[name] {
+		return
+	}
+	if first := file.FlatFirstChild(idx); first == 0 || file.FlatType(first) != "simple_identifier" {
+		return
+	}
+	args := directCallArgumentsFlat(file, idx)
+	if args == 0 || file.FlatNamedChildCount(args) < 1 {
+		return
+	}
+	arg := file.FlatNamedChild(args, 0)
+	if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) != 1 {
+		return
+	}
+	operand := flatUnwrapParenExpr(file, file.FlatNamedChild(arg, 0))
+	if file.FlatType(operand) != "simple_identifier" {
+		return
+	}
+	operandName := file.FlatNodeText(operand)
+	if !parameterDeclaredNonNull(file, idx, operandName) || hasNullableGenericParamBoundFlat(file, idx, operandName) {
+		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Using `%s` on non-null `%s` is unnecessary", name, operandName)))
+}
+
+// parameterDeclaredNonNull reports whether the nearest enclosing function declares a parameter called name with an
+// explicit non-null type, and nothing else in that function reuses the name.
+func parameterDeclaredNonNull(file *scanner.File, idx uint32, name string) bool {
+	fn, ok := flatEnclosingAncestor(file, idx, "function_declaration", "secondary_constructor")
+	if !ok {
+		return false
+	}
+	nonNullParam := false
+	reused := false
+	file.FlatWalkAllNodes(fn, func(n uint32) {
+		switch file.FlatType(n) {
+		case "parameter":
+			if parameterIdentifier(file, n) != name {
+				return
+			}
+			typed := false
+			nullable := false
+			for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+				switch file.FlatType(c) {
+				case "nullable_type":
+					nullable = true
+				case "user_type", "function_type", "parenthesized_type":
+					typed = true
+				}
+			}
+			if typed && !nullable {
+				nonNullParam = true
+			} else {
+				reused = true
+			}
+		case "property_declaration", "variable_declaration":
+			if extractIdentifierFlat(file, n) == name || propertyDeclarationNameFlat(file, n) == name {
+				reused = true
+			}
+		}
+	})
+	return nonNullParam && !reused
+}
+
+func parameterIdentifier(file *scanner.File, param uint32) string {
+	for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "simple_identifier" {
+			return file.FlatNodeText(c)
+		}
+	}
+	return ""
 }

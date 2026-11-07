@@ -10,10 +10,6 @@ fun predicateForms(list: List<Int>): Boolean =
 // filter followed by something that is not a terminal with a predicate overload.
 fun filterThenMap(list: List<Int>): List<Int> = list.filter { it > 0 }.map { it * 2 }
 
-fun filterThenSize(list: List<Int>): Int = list.filter { it > 0 }.size
-
-fun filterThenIsEmpty(list: List<Int>): Boolean = list.filter { it > 0 }.isEmpty()
-
 fun filterThenMax(list: List<Int>): Int = list.filter { it > 0 }.max()
 
 // A terminal with an argument.

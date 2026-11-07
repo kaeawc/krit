@@ -1,10 +1,11 @@
 package style
 
 fun example(flag: Boolean?) {
-    if (flag == true) {
+    if (flag ?: false) {
         println("true")
     }
-    if (flag != false) {
+    val isEnabled = flag ?: true
+    if (flag ?: true) {
         println("not false")
     }
 }

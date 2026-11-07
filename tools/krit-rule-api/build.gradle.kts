@@ -17,7 +17,7 @@ version = (findProperty("kritVersion") as String?)
 
 val isSnapshot = version.toString().endsWith("-SNAPSHOT")
 
-val kotlinVersion = "2.4.20"
+val kotlinVersion = "2.4.21"
 
 dependencies {
     // PSI types are surfaced on the rule API but provided at runtime

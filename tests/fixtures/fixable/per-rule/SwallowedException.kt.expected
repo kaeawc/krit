@@ -7,7 +7,7 @@ class Processor {
             doWork()
         } catch (e: Exception) {
             println("error occurred")
-                    throw e
+            throw e
         }
     }
 

@@ -1,10 +1,14 @@
 package rules_test
 
 import (
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 func TestNestedScrollingResource(t *testing.T) {
@@ -68,6 +72,21 @@ func TestTooManyViewsResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("the 80th element is reported once, like Lint", func(t *testing.T) {
+		root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}}
+		for i := 0; i < 79; i++ {
+			root.Children = append(root.Children, &android.View{Type: "View", Line: i + 2, Col: 3, Attributes: map[string]string{}})
+		}
+		findings := runResourceRule(r, indexWithLayout("huge", "res/layout/huge.xml", root))
+		if len(findings) != 1 || findings[0].Line != 80 {
+			t.Fatalf("expected one finding at line 80, got %+v", findings)
+		}
+		root.Children = root.Children[:78]
+		if findings := runResourceRule(r, indexWithLayout("huge", "res/layout/huge.xml", root)); len(findings) != 0 {
+			t.Fatalf("79 elements must not report, got %+v", findings)
 		}
 	})
 
@@ -165,7 +184,7 @@ func TestUselessParentResource(t *testing.T) {
 		}
 	})
 
-	t.Run("wrapper with background is clean", func(t *testing.T) {
+	t.Run("wrapper with background only one of the pair has asks to transfer it", func(t *testing.T) {
 		child := &android.View{
 			Type:       "LinearLayout",
 			Line:       3,
@@ -184,8 +203,8 @@ func TestUselessParentResource(t *testing.T) {
 		}
 		idx := indexWithLayout("main", "res/layout/main.xml", child)
 		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 
@@ -264,18 +283,58 @@ func TestObsoleteLayoutParamsResource(t *testing.T) {
 func TestMergeRootFrameResource(t *testing.T) {
 	r := findResourceRule(t, "MergeRootFrameResource")
 
-	t.Run("plain root FrameLayout triggers", func(t *testing.T) {
-		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+	frameRoot := func() *android.View {
+		return &android.View{
 			Type:       "FrameLayout",
 			Line:       1,
-			Attributes: map[string]string{},
+			Attributes: map[string]string{"android:layout_width": "match_parent", "android:layout_height": "match_parent"},
 			Children: []*android.View{
 				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
 			},
-		})
+		}
+	}
+	withHost := func(hostRoot *android.View) *android.ResourceIndex {
+		idx := indexWithLayout("main", "res/layout/main.xml", frameRoot())
+		host := &android.Layout{Name: "host", FilePath: "res/layout/host.xml", RootView: hostRoot}
+		idx.Layouts["host"] = host
+		idx.LayoutConfigs["host"] = map[string]*android.Layout{"": host}
+		return idx
+	}
+
+	t.Run("included plain root FrameLayout triggers", func(t *testing.T) {
+		idx := withHost(&android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+			{Type: "include", Line: 2, Attributes: map[string]string{"layout": "@layout/main"}},
+		}})
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("root FrameLayout never included is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", frameRoot())
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("root FrameLayout used by a ViewStub is clean", func(t *testing.T) {
+		idx := withHost(&android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+			{Type: "ViewStub", Line: 2, Attributes: map[string]string{"android:layout": "@layout/main"}},
+		}})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("fixed-size root FrameLayout is clean", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type:       "FrameLayout",
+			Line:       1,
+			Attributes: map[string]string{"android:layout_width": "200dp", "android:layout_height": "match_parent"},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -292,6 +351,55 @@ func TestMergeRootFrameResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("message and root conditions follow Lint", func(t *testing.T) {
+		include := func() *android.View {
+			return &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+				{Type: "include", Line: 2, Attributes: map[string]string{"layout": "@layout/main"}},
+			}}
+		}
+		run := func(attrs map[string]string) []scanner.Finding {
+			root := frameRoot()
+			root.Attributes = attrs
+			idx := withHost(include())
+			idx.Layouts["main"].RootView = root
+			return runResourceRule(r, idx)
+		}
+		fill := map[string]string{"android:layout_width": "match_parent", "android:layout_height": "match_parent"}
+		with := func(k, v string) map[string]string {
+			m := map[string]string{}
+			for a, b := range fill {
+				m[a] = b
+			}
+			m[k] = v
+			return m
+		}
+		got := run(fill)
+		if len(got) != 1 || got[0].Message != "This `<FrameLayout>` can be replaced with a `<merge>` tag" {
+			t.Fatalf("got %+v", got)
+		}
+		// Start and End padding do not stop Lint; a fixed size does not either without a layout_gravity.
+		if got := run(with("android:paddingStart", "4dp")); len(got) != 1 {
+			t.Errorf("paddingStart: expected 1 finding, got %d", len(got))
+		}
+		if got := run(map[string]string{"android:layout_width": "200dp", "android:layout_height": "wrap_content"}); len(got) != 1 {
+			t.Errorf("fixed size: expected 1 finding, got %d", len(got))
+		}
+		for _, attr := range []string{"android:padding", "android:paddingTop", "android:foreground"} {
+			if got := run(with(attr, "4dp")); len(got) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d", attr, len(got))
+			}
+		}
+		if got := run(with("android:fitsSystemWindows", "true")); len(got) != 0 {
+			t.Errorf("fitsSystemWindows: expected 0 findings, got %d", len(got))
+		}
+		if got := run(map[string]string{"android:layout_width": "wrap_content", "android:layout_height": "match_parent", "android:layout_gravity": "center"}); len(got) != 0 {
+			t.Errorf("layout_gravity without fill: expected 0 findings, got %d", len(got))
+		}
+		if got := run(with("android:layout_gravity", "center")); len(got) != 1 {
+			t.Errorf("layout_gravity with fill: expected 1 finding, got %d", len(got))
 		}
 	})
 
@@ -515,6 +623,61 @@ func TestScrollViewCountResource(t *testing.T) {
 		}
 	})
 
+	t.Run("message and severity follow Lint", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type:       "ScrollView",
+			Line:       1,
+			Attributes: map[string]string{},
+			Children: []*android.View{
+				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
+				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
+			},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Message != "A scroll view can have only one child" || findings[0].Severity != "warning" {
+			t.Fatalf("unexpected findings: %+v", findings)
+		}
+	})
+
+	t.Run("marker tags are not children and unqualified NestedScrollView is ignored", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type:       "ScrollView",
+			Line:       1,
+			Attributes: map[string]string{},
+			Children: []*android.View{
+				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
+				{Type: "requestFocus", Line: 4, Attributes: map[string]string{}},
+			},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+		idx = indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type:       "NestedScrollView",
+			Line:       1,
+			Attributes: map[string]string{},
+			Children: []*android.View{
+				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
+				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
+			},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+		idx = indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type:       "androidx.core.widget.NestedScrollView",
+			Line:       1,
+			Attributes: map[string]string{},
+			Children: []*android.View{
+				{Type: "TextView", Line: 3, Attributes: map[string]string{}},
+				{Type: "TextView", Line: 5, Attributes: map[string]string{}},
+			},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+
 	t.Run("ScrollView with 1 child is clean", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "ScrollView",
@@ -571,8 +734,30 @@ func TestAdapterViewChildrenResource(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "ListView") {
-			t.Fatalf("expected message to mention ListView, got: %s", findings[0].Message)
+		if findings[0].Message != "A list/grid should have no children declared in XML" {
+			t.Fatalf("unexpected message: %s", findings[0].Message)
+		}
+	})
+
+	t.Run("Spinner Gallery and ExpandableListView children are not reported", func(t *testing.T) {
+		for _, typ := range []string{"Spinner", "Gallery", "ExpandableListView"} {
+			idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+				Type: typ, Line: 3, Attributes: map[string]string{},
+				Children: []*android.View{{Type: "TextView", Line: 5, Attributes: map[string]string{}}},
+			})
+			if findings := runResourceRule(r, idx); len(findings) != 0 {
+				t.Fatalf("%s: expected 0 findings, got %d", typ, len(findings))
+			}
+		}
+	})
+
+	t.Run("marker tags are not children", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ListView", Line: 3, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "requestFocus", Line: 4, Attributes: map[string]string{}}},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -657,6 +842,35 @@ func TestIncludeLayoutParamResource(t *testing.T) {
 		}
 	})
 
+	t.Run("margin without width and height triggers once per parameter", func(t *testing.T) {
+		include := func(attrs map[string]string) *android.View {
+			return &android.View{
+				Type: "LinearLayout", Line: 1, Attributes: map[string]string{},
+				Children: []*android.View{{Type: "include", Line: 3, Attributes: attrs}},
+			}
+		}
+		idx := indexWithLayout("main", "res/layout/main.xml", include(map[string]string{
+			"layout":                   "@layout/toolbar",
+			"android:layout_marginTop": "4dp",
+			"android:layout_gravity":   "top",
+			"android:visibility":       "gone",
+		}))
+		if findings := runResourceRule(r, idx); len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+		idx = indexWithLayout("main", "res/layout/main.xml", include(map[string]string{
+			"layout":                    "@layout/toolbar",
+			"android:layout_width":      "match_parent",
+			"android:layout_height":     "wrap_content",
+			"android:layout_marginTop":  "4dp",
+			"app:layout_constraintTop":  "x",
+			"tools:layout_marginBottom": "1dp",
+		}))
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings with both dimensions, got %d", len(findings))
+		}
+	})
+
 	t.Run("include without layout params is clean", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "LinearLayout",
@@ -721,6 +935,10 @@ func TestOrientationResource(t *testing.T) {
 		findings := runResourceRule(r, idx)
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		want := "Wrong orientation? No orientation specified, and the default is horizontal, yet this layout has multiple children where at least one has `layout_width=\"match_parent\"`"
+		if findings[0].Message != want {
+			t.Errorf("message = %q", findings[0].Message)
 		}
 	})
 
@@ -1056,6 +1274,33 @@ func TestScrollViewSizeResource(t *testing.T) {
 		}
 	})
 
+	t.Run("message follows Lint, WebView grandchild and nested scroll views are skipped", func(t *testing.T) {
+		match := map[string]string{"android:layout_height": "match_parent"}
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ScrollView", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "LinearLayout", Line: 3, Attributes: match}},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Message != "This LinearLayout should use `android:layout_height=\"wrap_content\"`" {
+			t.Fatalf("unexpected findings: %+v", findings)
+		}
+		idx = indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "ScrollView", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "LinearLayout", Line: 3, Attributes: match,
+				Children: []*android.View{{Type: "WebView", Line: 4, Attributes: map[string]string{}}}}},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("WebView grandchild: expected 0 findings, got %d", len(findings))
+		}
+		idx = indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "androidx.core.widget.NestedScrollView", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "LinearLayout", Line: 3, Attributes: match}},
+		})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("NestedScrollView: expected 0 findings, got %d", len(findings))
+		}
+	})
+
 	t.Run("vertical ScrollView child with wrap_content height is clean", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "ScrollView",
@@ -1122,7 +1367,7 @@ func TestScrollViewSizeResource(t *testing.T) {
 		}
 	})
 
-	t.Run("NestedScrollView child with fill_parent height triggers", func(t *testing.T) {
+	t.Run("NestedScrollView child with fill_parent height is not checked (Lint visits only ScrollView and HorizontalScrollView)", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type:       "NestedScrollView",
 			Line:       1,
@@ -1139,8 +1384,8 @@ func TestScrollViewSizeResource(t *testing.T) {
 			},
 		})
 		findings := runResourceRule(r, idx)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 
@@ -1155,3 +1400,383 @@ func TestScrollViewSizeResource(t *testing.T) {
 // ---------------------------------------------------------------------------
 // WrongCaseResource
 // ---------------------------------------------------------------------------
+
+func TestNestedScrollingResource_OnlySameAxis(t *testing.T) {
+	r := findResourceRule(t, "NestedScrollingResource")
+	nest := func(outer, inner string) int {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: outer, Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: inner, Line: 2, Attributes: map[string]string{}}},
+		})
+		return len(runResourceRule(r, idx))
+	}
+	if n := nest("ScrollView", "HorizontalScrollView"); n != 0 {
+		t.Errorf("horizontal scroller in vertical one should be clean, got %d", n)
+	}
+	if n := nest("HorizontalScrollView", "ScrollView"); n != 0 {
+		t.Errorf("vertical scroller in horizontal one should be clean, got %d", n)
+	}
+	if n := nest("ScrollView", "ScrollView"); n != 1 {
+		t.Errorf("same-axis nesting should report, got %d", n)
+	}
+	if n := nest("ScrollView", "androidx.core.widget.NestedScrollView"); n != 0 {
+		t.Errorf("Lint does not know NestedScrollView, got %d", n)
+	}
+	if n := nest("ScrollView", "ListView"); n != 1 {
+		t.Errorf("ListView in ScrollView should report, got %d", n)
+	}
+	if n := nest("HorizontalScrollView", "Gallery"); n != 1 {
+		t.Errorf("Gallery in HorizontalScrollView should report, got %d", n)
+	}
+	idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+		Type: "ScrollView", Line: 1, Attributes: map[string]string{},
+		Children: []*android.View{{Type: "ListView", Line: 2, Attributes: map[string]string{}}},
+	})
+	got := runResourceRule(r, idx)
+	if want := "The vertically scrolling `ScrollView` should not contain another vertically scrolling widget (`ListView`)"; len(got) != 1 || got[0].Message != want {
+		t.Errorf("got %+v", got)
+	}
+}
+
+func TestNotSiblingResource_IncludedRootIDs(t *testing.T) {
+	r := findResourceRule(t, "NotSiblingResource")
+	build := func(withInclude bool, ref string) int {
+		children := []*android.View{
+			{Type: "TextView", ID: "@+id/a", Line: 2, Attributes: map[string]string{"android:layout_below": ref}},
+		}
+		if withInclude {
+			children = append(children, &android.View{Type: "include", Line: 3, Attributes: map[string]string{"layout": "@layout/row"}})
+		}
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "RelativeLayout", Line: 1, Attributes: map[string]string{}, Children: children})
+		idx.IDs["included_root"] = true
+		return len(runResourceRule(r, idx))
+	}
+	if n := build(true, "@id/included_root"); n != 1 {
+		t.Errorf("an include whose layout is unknown does not make the id a sibling, got %d", n)
+	}
+	if n := build(false, "@id/included_root"); n != 1 {
+		t.Errorf("unknown id without includes should report, got %d", n)
+	}
+}
+
+func TestObsoleteLayoutParams_OnlyKnownNonLinearParents(t *testing.T) {
+	r := findResourceRule(t, "ObsoleteLayoutParamsResource")
+	run := func(parent string) int {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: parent, Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "TextView", Line: 2, Attributes: map[string]string{"android:layout_weight": "1"}}},
+		})
+		return len(runResourceRule(r, idx))
+	}
+	for _, parent := range []string{"RadioGroup", "TableRow", "androidx.appcompat.widget.LinearLayoutCompat", "com.example.RowLayout", "com.google.android.material.button.MaterialButtonToggleGroup"} {
+		if n := run(parent); n != 0 {
+			t.Errorf("%s may be a LinearLayout, got %d findings", parent, n)
+		}
+	}
+	for _, parent := range []string{"FrameLayout", "RelativeLayout", "androidx.constraintlayout.widget.ConstraintLayout"} {
+		if n := run(parent); n != 1 {
+			t.Errorf("%s ignores layout_weight, got %d findings", parent, n)
+		}
+	}
+}
+
+func TestOnClickResource_SkipsDataBindingExpressions(t *testing.T) {
+	r := findResourceRule(t, "OnClickResource")
+	run := func(handler string) int {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "Button", Line: 1, Attributes: map[string]string{"android:onClick": handler}})
+		return len(runResourceRule(r, idx))
+	}
+	if n := run("@{() -> vm.save()}"); n != 0 {
+		t.Errorf("data-binding lambda should be clean, got %d", n)
+	}
+	if n := run("save"); n != 1 {
+		t.Errorf("reflective handler should report, got %d", n)
+	}
+}
+
+func TestReferenceType_DrawableAliasMayReferenceColor(t *testing.T) {
+	r := findResourceRule(t, "ReferenceType")
+	run := func(typ, value string) int {
+		idx := emptyIndex()
+		idx.AliasItems = []android.AliasItem{{Name: "x", Type: typ, Value: value, FilePath: "res/values/refs.xml", Line: 2}}
+		return len(runResourceRule(r, idx))
+	}
+	if n := run("drawable", "@color/primary"); n != 0 {
+		t.Errorf("drawable alias of a color is valid, got %d", n)
+	}
+	if n := run("string", "@color/primary"); n != 1 {
+		t.Errorf("string alias of a color is a mismatch, got %d", n)
+	}
+}
+
+func TestNestedWeightsReportsTheWeightedChild(t *testing.T) {
+	r := findResourceRule(t, "NestedWeightsResource")
+	inner := func(weight string) *android.View {
+		return &android.View{
+			Type: "LinearLayout", Line: 2,
+			Attributes: map[string]string{"android:layout_weight": weight},
+			Children: []*android.View{
+				{Type: "TextView", Line: 3, Attributes: map[string]string{"android:layout_weight": "1"}},
+			},
+		}
+	}
+	for weight, want := range map[string]int{"1": 1, "0": 1, "0.0": 1, "@dimen/w": 1} {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "LinearLayout", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{inner(weight)},
+		})
+		if got := len(runResourceRule(r, idx)); got != want {
+			t.Errorf("weight %q: expected %d findings, got %d", weight, want, got)
+		}
+	}
+}
+
+func TestNotSiblingIgnoresSuppressedAndFrameworkReferences(t *testing.T) {
+	r := findResourceRule(t, "NotSiblingResource")
+	child := func(attrs map[string]string) *android.View {
+		return &android.View{Type: "TextView", Line: 3, Attributes: attrs}
+	}
+	for name, tc := range map[string]struct {
+		attrs map[string]string
+		want  int
+	}{
+		"missing sibling":     {map[string]string{"android:layout_below": "@id/ghost"}, 1},
+		"framework id":        {map[string]string{"android:layout_below": "@android:id/title"}, 0},
+		"data binding":        {map[string]string{"android:layout_below": "@{ref}"}, 0},
+		"tools:ignore":        {map[string]string{"android:layout_below": "@id/ghost", "tools:ignore": "NotSibling"}, 0},
+		"ignored via lint id": {map[string]string{"android:layout_below": "@id/ghost", "tools:ignore": "all"}, 0},
+	} {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "RelativeLayout", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{child(tc.attrs)},
+		})
+		idx.IDs["ghost"] = true
+		if got := len(runResourceRule(r, idx)); got != tc.want {
+			t.Errorf("%s: expected %d findings, got %d", name, tc.want, got)
+		}
+	}
+}
+
+func TestRequiredSizeSkipsTableRow(t *testing.T) {
+	r := findResourceRule(t, "RequiredSizeResource")
+	idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+		Type: "TableLayout", Line: 1,
+		Attributes: map[string]string{"android:layout_width": "match_parent", "android:layout_height": "wrap_content"},
+		Children:   []*android.View{{Type: "TableRow", Line: 2, Attributes: map[string]string{}}},
+	})
+	if got := runResourceRule(r, idx); len(got) != 0 {
+		t.Fatalf("TableRow dimensions come from TableLayout, got %v", findingMessages(got))
+	}
+}
+
+func TestRequiredSizeLintWordingAndGridChildren(t *testing.T) {
+	r := findResourceRule(t, "RequiredSizeResource")
+	build := func(parent string, attrs map[string]string) []scanner.Finding {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: parent, Line: 1,
+			Attributes: map[string]string{"android:layout_width": "match_parent", "android:layout_height": "wrap_content"},
+			Children:   []*android.View{{Type: "TextView", Line: 2, Attributes: attrs}},
+		})
+		return runResourceRule(r, idx)
+	}
+	for name, tc := range map[string]struct {
+		attrs map[string]string
+		want  string
+	}{
+		"both":   {map[string]string{}, "The required `layout_width` and `layout_height` attributes are missing"},
+		"width":  {map[string]string{"android:layout_height": "wrap_content"}, "The required `layout_width` attribute is missing"},
+		"height": {map[string]string{"android:layout_width": "wrap_content"}, "The required `layout_height` attribute is missing"},
+	} {
+		got := build("LinearLayout", tc.attrs)
+		if len(got) != 1 || got[0].Message != tc.want {
+			t.Errorf("%s: got %+v", name, got)
+		}
+	}
+	if got := build("GridLayout", map[string]string{}); len(got) != 0 {
+		t.Errorf("GridLayout children need no size, got %v", findingMessages(got))
+	}
+}
+
+func TestTooDeepLayoutResource_AnchorsOnTenthLevelAndHonoursIgnore(t *testing.T) {
+	r := findResourceRule(t, "TooDeepLayoutResource")
+	build := func(attrs map[string]string) *android.View {
+		current := &android.View{Type: "TextView", Line: 14, Attributes: map[string]string{}}
+		for i := 12; i >= 3; i-- {
+			current = &android.View{Type: "LinearLayout", Line: i, Attributes: map[string]string{}, Children: []*android.View{current}}
+		}
+		return &android.View{Type: "FrameLayout", Line: 2, Col: 1, Attributes: attrs, Children: []*android.View{current}}
+	}
+	findings := runResourceRule(r, indexWithLayout("deep", "res/layout/deep.xml", build(map[string]string{})))
+	if len(findings) != 1 || findings[0].Line != 11 {
+		t.Fatalf("expected one finding on the tenth-level element at line 11, got %+v", findings)
+	}
+	ignored := build(map[string]string{"tools:ignore": "TooDeepLayout"})
+	if findings := runResourceRule(r, indexWithLayout("deep", "res/layout/deep.xml", ignored)); len(findings) != 0 {
+		t.Fatalf("expected tools:ignore to suppress, got %d findings", len(findings))
+	}
+}
+
+func TestStateListReachableResource_QualifiedFoldersAreSeparateLists(t *testing.T) {
+	r := findResourceRule(t, "StateListReachableResource")
+	idx := emptyIndex()
+	idx.DrawableSelectors = map[string][]android.SelectorItem{
+		"button": {
+			{FilePath: "res/drawable/button.xml", Line: 2, StateAttrs: map[string]string{"android:state_pressed": "true"}},
+			{FilePath: "res/drawable/button.xml", Line: 3, StateAttrs: map[string]string{}},
+			{FilePath: "res/drawable-v21/button.xml", Line: 2, StateAttrs: map[string]string{"android:state_enabled": "false"}},
+			{FilePath: "res/drawable-v21/button.xml", Line: 3, StateAttrs: map[string]string{}},
+		},
+	}
+	if findings := runResourceRule(r, idx); len(findings) != 0 {
+		t.Fatalf("each file is a well-ordered state list, got %d findings: %+v", len(findings), findings)
+	}
+}
+
+func TestIncludeLayoutParamResource_NamesWhatIsMissing(t *testing.T) {
+	r := findResourceRule(t, "IncludeLayoutParamResource")
+	run := func(attrs map[string]string) []string {
+		attrs["layout"] = "@layout/toolbar"
+		root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+			{Type: "include", Line: 3, Attributes: attrs},
+		}}
+		var msgs []string
+		for _, f := range runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root)) {
+			msgs = append(msgs, f.Message)
+		}
+		return msgs
+	}
+	const tail = " on `<include>` tag"
+	cases := []struct {
+		name  string
+		attrs map[string]string
+		want  []string
+	}{
+		{"width only", map[string]string{"android:layout_width": "match_parent"},
+			[]string{"Layout parameter `layout_width` ignored unless `layout_height` is also specified" + tail}},
+		{"height only", map[string]string{"android:layout_height": "match_parent"},
+			[]string{"Layout parameter `layout_height` ignored unless `layout_width` is also specified" + tail}},
+		{"width and another parameter names only the other one", map[string]string{"android:layout_width": "0dp", "android:layout_gravity": "top"},
+			[]string{"Layout parameter `layout_gravity` ignored unless `layout_height` is also specified" + tail}},
+		{"no size", map[string]string{"android:layout_margin": "1dp"},
+			[]string{"Layout parameter `layout_margin` ignored unless both `layout_width` and `layout_height` are also specified" + tail}},
+		{"both sizes", map[string]string{"android:layout_width": "0dp", "android:layout_height": "0dp", "android:layout_margin": "1dp"}, nil},
+		{"non-android layout attributes are not parameters", map[string]string{"app:layout_constraintTop_toTopOf": "parent"}, nil},
+		{"no layout attributes", map[string]string{"android:id": "@+id/x"}, nil},
+	}
+	for _, tc := range cases {
+		got := run(tc.attrs)
+		if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestGridLayoutResource(t *testing.T) {
+	r := findResourceRule(t, "GridLayoutResource")
+	child := func(attrs map[string]string) *android.View {
+		return &android.View{Type: "TextView", Line: 4, Col: 3, Attributes: attrs}
+	}
+	grid := func(typ string, attrs map[string]string, children ...*android.View) *android.ResourceIndex {
+		return indexWithLayout("main", "res/layout/main.xml", &android.View{Type: typ, Line: 2, Col: 1, Attributes: attrs, Children: children})
+	}
+	msgs := func(idx *android.ResourceIndex) []string {
+		var out []string
+		for _, f := range runResourceRule(r, idx) {
+			out = append(out, f.Message)
+		}
+		return out
+	}
+
+	got := msgs(grid("GridLayout", map[string]string{"android:columnCount": "2", "android:rowCount": "2"},
+		child(map[string]string{"android:layout_column": "1", "android:layout_row": "2"}),
+		child(map[string]string{"android:layout_column": "2", "android:layout_row": "3"})))
+	want := []string{"Column attribute (2) exceeds declared grid column count (2)", "Row attribute (3) exceeds declared grid row count (2)"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got := msgs(grid("GridLayout", map[string]string{}, child(map[string]string{"android:layout_column": "9"}))); len(got) != 0 {
+		t.Errorf("no declared counts must be clean, got %q", got)
+	}
+
+	v7 := grid("androidx.gridlayout.widget.GridLayout", map[string]string{"android:columnCount": "3"}, child(map[string]string{"android:layout_row": "0"}))
+	got = msgs(v7)
+	if len(got) != 2 || got[0] != "Wrong namespace; with v7 `GridLayout` you should use app:columnCount (and add `xmlns:app=\"http://schemas.android.com/apk/res-auto\"` to your root element)" {
+		t.Errorf("v7 namespace: got %q", got)
+	}
+	declared := grid("androidx.gridlayout.widget.GridLayout", map[string]string{"xmlns:a": "http://schemas.android.com/apk/res-auto", "android:columnCount": "3"})
+	if got := msgs(declared); len(got) != 1 || got[0] != "Wrong namespace; with v7 `GridLayout` you should use a:columnCount" {
+		t.Errorf("declared prefix: got %q", got)
+	}
+	if got := msgs(grid("GridLayout", map[string]string{"android:orientation": "vertical"})); len(got) != 0 {
+		t.Errorf("platform grid keeps android: attributes, got %q", got)
+	}
+}
+
+func TestDeprecatedResource(t *testing.T) {
+	r := findResourceRule(t, "DeprecatedResource")
+	root := &android.View{Type: "LinearLayout", Line: 1, Col: 1, Attributes: map[string]string{}, Children: []*android.View{
+		{Type: "TextView", Line: 2, Col: 3, Attributes: map[string]string{"android:autoText": "true", "android:editable": "true", "android:singleLine": "true"}},
+		{Type: "AbsoluteLayout", Line: 3, Col: 3, Attributes: map[string]string{}},
+		{Type: "Gallery", Line: 4, Col: 3, Attributes: map[string]string{}},
+	}}
+	var msgs []string
+	for _, f := range runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root)) {
+		msgs = append(msgs, f.Message)
+	}
+	want := []string{
+		"`AbsoluteLayout` is deprecated",
+		"`android:autoText` is deprecated: Use `inputType` instead",
+		"`android:editable` is deprecated: Use an `<EditText>` to make it editable",
+	}
+	sort.Strings(msgs)
+	sort.Strings(want)
+	if strings.Join(msgs, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q, want %q", msgs, want)
+	}
+}
+
+func TestChildInNonViewGroupResource(t *testing.T) {
+	r := findResourceRule(t, "ChildInNonViewGroupResource")
+	child := func(typ string) *android.View {
+		return &android.View{Type: typ, Line: 4, Col: 5, Attributes: map[string]string{}}
+	}
+	root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+		{Type: "TextView", Line: 2, Col: 3, Attributes: map[string]string{}, Children: []*android.View{child("Button")}},
+		{Type: "ImageView", Line: 3, Col: 3, Attributes: map[string]string{}, Children: []*android.View{child("requestFocus")}},
+		{Type: "com.example.Custom", Line: 5, Col: 3, Attributes: map[string]string{}, Children: []*android.View{child("Button")}},
+		{Type: "FrameLayout", Line: 6, Col: 3, Attributes: map[string]string{}, Children: []*android.View{child("Button")}},
+	}}
+	got := runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root))
+	if len(got) != 1 || got[0].Message != "A TextView should have no children declared in XML" || got[0].Line != 4 || got[0].Col != 6 {
+		t.Fatalf("unexpected findings %+v", got)
+	}
+}
+
+func TestEnforceUtf8Resource(t *testing.T) {
+	r := findResourceRule(t, "EnforceUtf8Resource")
+	res := filepath.Join(t.TempDir(), "res")
+	write := func(rel, content string) string {
+		p := filepath.Join(res, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	layout := write("layout/a.xml", `<?xml version="1.0" encoding="ISO-8859-1"?><LinearLayout/>`)
+	write("values/b.xml", `<?xml version="1.0" encoding="utf8"?><resources/>`)
+	write("values/c.xml", `<?xml version="1.0" encoding="UTF-8"?><resources/>`)
+	write("values/d.xml", `<resources/>`)
+	idx := indexWithLayout("a", layout, &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}})
+	got := runResourceRule(r, idx)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 findings, got %+v", got)
+	}
+	if got[0].Message != "ISO-8859-1: Not using UTF-8 as the file encoding. This can lead to subtle bugs with non-ascii characters" || got[0].Col != 31 {
+		t.Fatalf("unexpected finding %+v", got[0])
+	}
+}

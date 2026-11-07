@@ -36,6 +36,8 @@ type defaultResolver struct {
 	functions map[string]*ResolvedType // function name -> return type
 	// Extension functions from source
 	extensions []*ExtensionFuncInfo
+	// suspendFuncs holds names declared `suspend` in any indexed source file.
+	suspendFuncs map[string]bool
 	// javaTopLevelNames lazily memoizes the set of top-level type
 	// names declared in a Java file, keyed by file path. Populated on
 	// first ResolveImport that needs it. Java files are not indexed by
@@ -1006,6 +1008,26 @@ func (r *defaultResolver) ClassHierarchy(typeName string) *ClassInfo {
 		}
 	}
 	return nil
+}
+
+// HasKnownSubtypes reports whether an indexed source class lists typeName (simple or FQN) as a direct supertype.
+func (r *defaultResolver) HasKnownSubtypes(typeName string) bool {
+	return anyClassExtends(r.classFQN, typeName)
+}
+
+func anyClassExtends(classes map[string]*ClassInfo, typeName string) bool {
+	simple := simpleNameOf(typeName)
+	for _, info := range classes {
+		if info == nil {
+			continue
+		}
+		for _, st := range info.Supertypes {
+			if st == typeName || simpleNameOf(st) == simple {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func coalesceString(values ...string) string {

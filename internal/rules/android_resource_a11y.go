@@ -27,22 +27,31 @@ type HardcodedValuesResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *HardcodedValuesResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// hardcodedTextAttrs lists the android: attributes Lint's HardcodedValuesDetector reads.
+var hardcodedTextAttrs = []string{"text", "contentDescription", "hint", "label", "prompt", "textOn", "textOff", "title", "description"}
+
+// isHardcodedSampleText reports placeholder text that Android Studio's layout templates insert.
+func isHardcodedSampleText(value, tag string) bool {
+	switch value {
+	case "Hello World!", "Large Text", "Medium Text", "Small Text", "New Text":
+		return true
+	}
+	return value == "New "+tag
+}
+
 func (r *HardcodedValuesResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.HasHardcodedText() {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Hardcoded text `%s` in `%s`. Use a `@string/` resource reference instead for internationalization.",
-						truncate(v.Text, 40), v.Type)))
-			}
-			// Also check android:hint
-			if hint := v.Attributes["android:hint"]; hint != "" &&
-				!strings.HasPrefix(hint, "@string/") &&
-				!strings.HasPrefix(hint, "@android:string/") {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Hardcoded hint `%s` in `%s`. Use a `@string/` resource reference instead.",
-						truncate(hint, 40), v.Type)))
+	layouts := append(idx.AllLayouts(), idx.AllMenus()...)
+	for _, layout := range layouts {
+		walkViewsUnlessIgnored(layout.RootView, []string{"HardcodedText"}, func(v *android.View) {
+			for _, name := range hardcodedTextAttrs {
+				attr := "android:" + name
+				value, ok := v.Attributes[attr]
+				if !ok || value == "" || value[0] == '@' || value[0] == '?' || isHardcodedSampleText(value, v.Type) {
+					continue
+				}
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
+					fmt.Sprintf("Hardcoded string \"%s\", should use `@string` resource", value)))
 			}
 		})
 	}
@@ -60,9 +69,12 @@ type MissingContentDescriptionResourceRule struct {
 	AndroidRule
 }
 
-var imageViewTypes = map[string]bool{
+// contentDescriptionTags lists the tags Lint's AccessibilityDetector checks for a missing description.
+var contentDescriptionTags = map[string]bool{
 	"ImageView":   true,
 	"ImageButton": true,
+	"android.support.design.widget.FloatingActionButton":                    true,
+	"com.google.android.material.floatingactionbutton.FloatingActionButton": true,
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
@@ -72,23 +84,28 @@ func (r *MissingContentDescriptionResourceRule) Confidence() float64 { return ap
 
 func (r *MissingContentDescriptionResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if !imageViewTypes[v.Type] {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"ContentDescription"}, func(v *android.View) {
+			desc, hasDesc := v.Attributes["android:contentDescription"]
+			if hasDesc {
+				if _, hasHint := v.Attributes["android:hint"]; hasHint {
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:contentDescription", r.BaseRule,
+						"Do not set both `contentDescription` and `hint`: the `contentDescription` will mask the `hint`"))
+				}
+			}
+			if !contentDescriptionTags[v.Type] {
 				return
 			}
-			if v.HasContentDescription() {
-				return
+			switch {
+			case !hasDesc:
+				if v.Attributes["android:importantForAccessibility"] != "no" {
+					ctx.Emit(baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule,
+						"Missing `contentDescription` attribute on image"))
+				}
+			case desc == "" || desc == "TODO":
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, v, "android:contentDescription", r.BaseRule,
+					"Empty `contentDescription` attribute on image"))
 			}
-			// tools:ignore="ContentDescription" is acceptable
-			if v.Attributes["tools:ignore"] != "" &&
-				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
-				return
-			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-				fmt.Sprintf("`%s` missing `android:contentDescription` attribute. "+
-					"Set a description for accessibility or use `tools:ignore=\"ContentDescription\"`.",
-					v.Type)))
 		})
 	}
 }
@@ -112,58 +129,55 @@ func (r *LabelForResourceRule) Confidence() float64 { return api.ConfidenceMediu
 func (r *LabelForResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
-	for _, layout := range idx.Layouts {
-		checkLabelFor(layout.RootView, layout.FilePath, r.BaseRule, &findings)
+	for _, layout := range idx.AllLayouts() {
+		targets := make(map[string]bool)
+		walkViews(layout.RootView, func(v *android.View) {
+			if lf := v.Attributes["android:labelFor"]; lf != "" {
+				targets[strings.TrimPrefix(strings.TrimPrefix(lf, "@+id/"), "@id/")] = true
+			}
+		})
+		checkLabelFor(layout.RootView, nil, targets, layout.FilePath, r.BaseRule, &findings)
 	}
 	for _, f := range findings {
 		ctx.Emit(f)
 	}
 }
 
-func checkLabelFor(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
-	if v == nil {
+func checkLabelFor(v, parent *android.View, labelForTargets map[string]bool, path string, rule BaseRule, findings *[]scanner.Finding) {
+	if v == nil || resourceToolsIgnoreMatches(v, "LabelFor") {
 		return
 	}
-	// Collect labelFor targets from siblings (children of this view)
-	labelForTargets := make(map[string]bool)
-	for _, child := range v.Children {
-		if lf := child.Attributes["android:labelFor"]; lf != "" {
-			target := strings.TrimPrefix(lf, "@+id/")
-			target = strings.TrimPrefix(target, "@id/")
-			labelForTargets[target] = true
-		}
+	switch frameworkViewName(v.Type) {
+	case "EditText", "AppCompatEditText":
+		checkLabelForEditText(v, parent, labelForTargets, path, rule, findings)
 	}
-	// Check if any EditText child is missing a corresponding labelFor
 	for _, child := range v.Children {
-		if child.Type == "EditText" || child.Type == "AppCompatEditText" {
-			// Skip EditText with android:hint — the hint serves as the
-			// accessibility label (TalkBack announces it).
-			if child.Attributes["android:hint"] != "" {
-				continue
-			}
-			// Skip EditText with contentDescription — it's already labeled.
-			if child.Attributes["android:contentDescription"] != "" {
-				continue
-			}
-			if child.ID != "" {
-				id := strings.TrimPrefix(child.ID, "@+id/")
-				id = strings.TrimPrefix(id, "@id/")
-				if !labelForTargets[id] {
-					*findings = append(*findings, baseFinding(path, child.Line, rule,
-						fmt.Sprintf("No sibling has `android:labelFor` pointing to `%s`. "+
-							"Add a label for accessibility.", child.ID)))
-				}
-			} else {
-				// EditText without an ID can't be referenced by labelFor
-				*findings = append(*findings, baseFinding(path, child.Line, rule,
-					fmt.Sprintf("`%s` has no `android:id`, so no label can reference it via `labelFor`. "+
-						"Add an id and a corresponding label for accessibility.", child.Type)))
-			}
-		}
+		checkLabelFor(child, v, labelForTargets, path, rule, findings)
 	}
-	// Recurse into children
-	for _, child := range v.Children {
-		checkLabelFor(child, path, rule, findings)
+}
+
+// checkLabelForEditText reports an EditText that nothing labels. A label view may sit anywhere in the layout.
+func checkLabelForEditText(v, parent *android.View, labelForTargets map[string]bool, path string, rule BaseRule, findings *[]scanner.Finding) {
+	// A TextInputLayout parent supplies the label.
+	if parent != nil && frameworkViewName(parent.Type) == "TextInputLayout" {
+		return
+	}
+	// The hint serves as the accessibility label, and a hidden view needs none.
+	if v.Attributes["android:hint"] != "" || v.Attributes["android:contentDescription"] != "" ||
+		v.Attributes["android:importantForAccessibility"] == "no" {
+		return
+	}
+	if v.ID == "" {
+		*findings = append(*findings, baseFindingAt(path, v.Line, v.Col, rule,
+			fmt.Sprintf("`%s` has no `android:id`, so no label can reference it via `labelFor`. "+
+				"Add an id and a corresponding label for accessibility.", v.Type)))
+		return
+	}
+	id := strings.TrimPrefix(strings.TrimPrefix(v.ID, "@+id/"), "@id/")
+	if !labelForTargets[id] {
+		*findings = append(*findings, baseFindingAt(path, v.Line, v.Col, rule,
+			fmt.Sprintf("No view has `android:labelFor` pointing to `%s`. "+
+				"Add a label for accessibility.", v.ID)))
 	}
 }
 
@@ -179,35 +193,80 @@ type ClickableViewAccessibilityResourceRule struct {
 	AndroidRule
 }
 
-// containerViewTypes are view types where contentDescription is typically
-// not meaningful — the children of the container provide the accessible
-// content. Marking these clickable to intercept taps is a common pattern
-// and shouldn't require contentDescription.
-var containerViewTypes = map[string]bool{
-	"LinearLayout":         true,
-	"RelativeLayout":       true,
-	"FrameLayout":          true,
-	"ConstraintLayout":     true,
-	"CoordinatorLayout":    true,
-	"GridLayout":           true,
-	"TableLayout":          true,
-	"ScrollView":           true,
-	"HorizontalScrollView": true,
-	"NestedScrollView":     true,
-	"ViewPager":            true,
-	"ViewPager2":           true,
-	"RecyclerView":         true,
-	"CardView":             true,
-	"MaterialCardView":     true,
+// viewIDName strips the @id/@+id prefix from an android:id value.
+func viewIDName(id string) string {
+	id = strings.TrimPrefix(id, "@+id/")
+	return strings.TrimPrefix(id, "@id/")
 }
 
-func isContainerView(viewType string) bool {
-	// Strip fully-qualified prefixes to the simple name
-	simple := viewType
+// labelForTargets collects ids that another view labels through android:labelFor.
+func labelForTargets(root *android.View) map[string]bool {
+	targets := map[string]bool{}
+	walkViews(root, func(v *android.View) {
+		if t := v.Attributes["android:labelFor"]; t != "" {
+			targets[viewIDName(t)] = true
+		}
+	})
+	return targets
+}
+
+// hasAccessibleName reports whether the view exposes text or is hidden from accessibility.
+func hasAccessibleName(v *android.View) bool {
+	if v.Text != "" || v.Attributes["android:text"] != "" || v.Attributes["android:hint"] != "" {
+		return true
+	}
+	switch v.Attributes["android:importantForAccessibility"] {
+	case "no", "noHideDescendants":
+		return true
+	}
+	return false
+}
+
+// isIconOnlyClickable reports whether the view type has no text of its own to speak:
+// image views, image/floating action buttons, icon views, or a childless plain View.
+func isIconOnlyClickable(v *android.View) bool {
+	simple := v.Type
 	if idx := strings.LastIndex(simple, "."); idx >= 0 {
 		simple = simple[idx+1:]
 	}
-	return containerViewTypes[simple]
+	if len(v.Children) > 0 {
+		return false
+	}
+	if simple == "View" {
+		return true
+	}
+	for _, suffix := range []string{"ImageView", "ImageButton", "FloatingActionButton", "IconView", "Icon"} {
+		if strings.HasSuffix(simple, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isInputBlockingScrim reports whether a childless plain View is clickable only to swallow touches.
+func isInputBlockingScrim(v *android.View) bool {
+	if v.Type != "View" || len(v.Children) > 0 {
+		return false
+	}
+	if v.Attributes["android:focusable"] == "false" {
+		return true
+	}
+	if v.LayoutWidth == "match_parent" && v.LayoutHeight == "match_parent" {
+		return true
+	}
+	// A zero-sized or invisible plain View has nothing for a screen reader to announce.
+	if isZeroDimension(v.LayoutWidth) || isZeroDimension(v.LayoutHeight) {
+		return true
+	}
+	return v.Background == "" && v.Attributes["android:foreground"] == ""
+}
+
+func isZeroDimension(value string) bool {
+	switch value {
+	case "0dp", "0px", "0dip", "0sp", "0":
+		return true
+	}
+	return false
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
@@ -217,7 +276,8 @@ func (r *ClickableViewAccessibilityResourceRule) Confidence() float64 { return a
 
 func (r *ClickableViewAccessibilityResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
+		labelTargets := labelForTargets(layout.RootView)
 		walkViews(layout.RootView, func(v *android.View) {
 			if v.Attributes["android:clickable"] != "true" {
 				return
@@ -225,16 +285,26 @@ func (r *ClickableViewAccessibilityResourceRule) check(ctx *api.Context) {
 			if v.ContentDescription != "" {
 				return
 			}
-			// Container views provide accessibility via their children.
-			if isContainerView(v.Type) {
+			// Text, hint, a labelFor label, or a hidden view already settles the accessible name.
+			if hasAccessibleName(v) || labelTargets[viewIDName(v.ID)] {
+				return
+			}
+			// Only icon-only views lack a name of their own; text widgets and groups get one from text.
+			if !isIconOnlyClickable(v) {
+				return
+			}
+			if isInputBlockingScrim(v) {
+				return
+			}
+			// Source code sets the description at runtime (for example through an icon setter).
+			if v.ID != "" && ctx.DescribedViewNames[viewIDBindingName(viewIDName(v.ID))] {
 				return
 			}
 			// tools:ignore is acceptable
-			if v.Attributes["tools:ignore"] != "" &&
-				strings.Contains(v.Attributes["tools:ignore"], "ContentDescription") {
+			if resourceToolsIgnoreMatches(v, "ContentDescription") {
 				return
 			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
+			ctx.Emit(baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule,
 				fmt.Sprintf("`%s` is clickable but missing `android:contentDescription`. "+
 					"Add a description for accessibility.", v.Type)))
 		})
@@ -259,20 +329,8 @@ type BackButtonResourceRule struct {
 func (r *BackButtonResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *BackButtonResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Type != "Button" && v.Type != "AppCompatButton" &&
-				v.Type != "com.google.android.material.button.MaterialButton" {
-				return
-			}
-			text := v.Text
-			if strings.EqualFold(text, "back") || text == "@string/back" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Button with text `%s` detected. Avoid explicit back buttons; use the system navigation bar instead.",
-						text)))
-			}
-		})
+	for _, f := range runButtonDetector(ctx, buttonIssueBack, r.BaseRule) {
+		ctx.Emit(f)
 	}
 }
 
@@ -281,8 +339,8 @@ func (r *BackButtonResourceRule) check(ctx *api.Context) {
 // ---------------------------------------------------------------------------
 
 // ButtonCaseResourceRule detects OK/Cancel buttons with wrong capitalization.
-// On Android, button text should be "OK" (not "Ok"/"ok") and "CANCEL" (not
-// "Cancel"/"cancel") when using hardcoded text instead of string resources.
+// The standard capitalization is "OK" (not "Ok"/"ok") and "Cancel" (not
+// "CANCEL"/"cancel") when using hardcoded text instead of string resources.
 type ButtonCaseResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -294,26 +352,8 @@ type ButtonCaseResourceRule struct {
 func (r *ButtonCaseResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonCaseResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Type != "Button" && v.Type != "AppCompatButton" {
-				return
-			}
-			text := v.Attributes["android:text"]
-			if text == "" || strings.HasPrefix(text, "@string/") || strings.HasPrefix(text, "@android:string/") {
-				return
-			}
-			lower := strings.ToLower(text)
-			if lower == "ok" && text != "OK" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Button text `%s` should be `OK` (all caps).", text)))
-			}
-			if lower == "cancel" && text != "CANCEL" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("Button text `%s` should be `CANCEL` (all caps on Android).", text)))
-			}
-		})
+	for _, f := range runButtonDetector(ctx, buttonIssueCase, r.BaseRule) {
+		ctx.Emit(f)
 	}
 }
 
@@ -329,45 +369,14 @@ type ButtonOrderResourceRule struct {
 	AndroidRule
 }
 
-func isOKButton(v *android.View) bool {
-	t := strings.ToLower(v.Text)
-	return t == "ok" || t == "confirm" || t == "@string/ok" || t == "@string/confirm"
-}
-
-func isCancelButton(v *android.View) bool {
-	t := strings.ToLower(v.Text)
-	return t == "cancel" || t == "dismiss" || t == "@string/cancel" || t == "@string/dismiss"
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.
 func (r *ButtonOrderResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonOrderResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			// Look at children for button pairs
-			var okBtn, cancelBtn *android.View
-			for _, child := range v.Children {
-				if child.Type != "Button" && child.Type != "AppCompatButton" &&
-					child.Type != "com.google.android.material.button.MaterialButton" {
-					continue
-				}
-				if isOKButton(child) {
-					okBtn = child
-				}
-				if isCancelButton(child) {
-					cancelBtn = child
-				}
-			}
-			if okBtn != nil && cancelBtn != nil && cancelBtn.Line > okBtn.Line {
-				ctx.Emit(baseFinding(layout.FilePath, cancelBtn.Line, r.BaseRule,
-					fmt.Sprintf("Cancel button (line %d) appears after OK button (line %d). "+
-						"Android convention places Cancel before OK.", cancelBtn.Line, okBtn.Line)))
-			}
-		})
+	for _, f := range runButtonDetector(ctx, buttonIssueOrder, r.BaseRule) {
+		ctx.Emit(f)
 	}
 }
 
@@ -388,22 +397,8 @@ type ButtonStyleResourceRule struct {
 func (r *ButtonStyleResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ButtonStyleResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for name, layout := range idx.Layouts {
-		if !strings.HasPrefix(name, "dialog_") && !strings.HasPrefix(name, "alert_") {
-			continue
-		}
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Type != "Button" && v.Type != "AppCompatButton" {
-				return
-			}
-			style := v.Attributes["style"]
-			if style != "" && (strings.Contains(style, "Borderless") || strings.Contains(style, "borderless")) {
-				return
-			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-				fmt.Sprintf("Button in dialog layout `%s` should use a borderless style (e.g., `?android:attr/borderlessButtonStyle`).", name)))
-		})
+	for _, f := range runButtonDetector(ctx, buttonIssueStyle, r.BaseRule) {
+		ctx.Emit(f)
 	}
 }
 

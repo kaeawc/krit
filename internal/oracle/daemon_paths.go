@@ -154,8 +154,28 @@ func CallerKeys[V any](s PathSpelling, m map[string]V) map[string]V {
 
 // CallerData re-keys a daemon's oracle facts by the caller's spelling.
 func (s PathSpelling) CallerData(d *Data) {
-	if d != nil {
-		d.Files = CallerKeys(s, d.Files)
+	if d == nil {
+		return
+	}
+	d.Files = CallerKeys(s, d.Files)
+	if s.identity() {
+		return
+	}
+	// Module lookups compare a diagnostic's smart-cast declaration files with file keys, so both use one spelling.
+	for _, f := range d.Files {
+		if f == nil {
+			continue
+		}
+		for _, diag := range f.Diagnostics {
+			if diag != nil && len(diag.SmartCastDecls) > 0 {
+				diag.SmartCastDecls = s.CallerPaths(diag.SmartCastDecls)
+			}
+		}
+		for _, et := range f.Expressions {
+			if et != nil && len(et.SmartCastDecls) > 0 {
+				et.SmartCastDecls = s.CallerPaths(et.SmartCastDecls)
+			}
+		}
 	}
 }
 

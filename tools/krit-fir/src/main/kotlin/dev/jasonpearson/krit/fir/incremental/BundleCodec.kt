@@ -69,7 +69,8 @@ internal class BundleRejected(val reason: Reason, detail: String) : Exception(de
  *
  * ```
  * magic:int  version:int  compileKey  snapshotId  generation  verdictGeneration  bodyLength:int
- * body   = string table, state, verdicts, oracle facts (version 2)
+ * body   = string table, state, verdicts, oracle facts (version 2; smart-cast declarations on diagnostics, version 3;
+ *          calls sharing a start with another call, version 4; smart-cast declarations on expressions, version 5)
  * crc32:long  endMagic:int
  * ```
  * Every string of the body (paths, hashes, symbols, messages) is written once into the string table and referenced by
@@ -78,7 +79,7 @@ internal class BundleRejected(val reason: Reason, detail: String) : Exception(de
  * larger than the bytes left is rejected before anything is allocated for it.
  */
 internal object BundleCodec {
-    const val VERSION = 2
+    const val VERSION = 5
     private const val MAGIC = 0x4B464942 // "KFIB"
     private const val END_MAGIC = 0x4B454E44 // "KEND"
 
@@ -422,11 +423,13 @@ internal object BundleCodec {
             w.zigzag(e.startByte); w.zigzag(e.endByte)
             w.varint(s.id(e.callTarget))
             writeList(w, s, e.annotations)
+            writeList(w, s, e.smartCastDeclarations)
         }
         w.varint(p.diagnostics.size)
         for (d in p.diagnostics) {
             w.varint(s.id(d.factoryName)); w.varint(s.id(d.severity)); w.varint(s.id(d.message))
             w.zigzag(d.line); w.zigzag(d.col); w.zigzag(d.startByte); w.zigzag(d.endByte)
+            writeList(w, s, d.smartCastDeclarations)
         }
         w.varint(p.lambdaSuspendByLineCol.size)
         for ((key, suspend) in p.lambdaSuspendByLineCol) { w.varint(s.id(key)); w.varint(if (suspend) 1 else 0) }
@@ -445,7 +448,7 @@ internal object BundleCodec {
             expressions[key] = ExpressionPayload(
                 type = type, nullable = f and 1 != 0, startByte = r.zigzag(), endByte = r.zigzag(),
                 callTarget = r.strOrNull(strings), callTargetResolved = f and 2 != 0, callTargetSuspend = f and 4 != 0,
-                annotations = readList(r, strings),
+                annotations = readList(r, strings), smartCastDeclarations = readList(r, strings),
             )
         }
         val diagnostics = ArrayList<DiagnosticPayload>()
@@ -453,6 +456,7 @@ internal object BundleCodec {
             diagnostics += DiagnosticPayload(
                 factoryName = str(), severity = str(), message = str(),
                 line = r.zigzag(), col = r.zigzag(), startByte = r.zigzag(), endByte = r.zigzag(),
+                smartCastDeclarations = readList(r, strings),
             )
         }
         val lambdas = LinkedHashMap<String, Boolean>()

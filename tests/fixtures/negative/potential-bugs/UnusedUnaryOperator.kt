@@ -63,13 +63,4 @@ class UnusedUnaryOperator {
             0
         }
     }
-
-    fun inFinallyExpression(): Int {
-        val x: Int = try {
-            something()
-        } finally {
-            -1
-        }
-        return x
-    }
 }

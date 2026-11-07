@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -257,15 +258,9 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 			out.LayoutConfigs[name][qualifier] = cloneLayout(layout)
 		}
 	}
-	for k, v := range idx.Strings {
-		out.Strings[k] = v
-	}
-	for k, v := range idx.StringsNonTranslate {
-		out.StringsNonTranslate[k] = v
-	}
-	for k, v := range idx.StringsNonFormatted {
-		out.StringsNonFormatted[k] = v
-	}
+	maps.Copy(out.Strings, idx.Strings)
+	maps.Copy(out.StringsNonTranslate, idx.StringsNonTranslate)
+	maps.Copy(out.StringsNonFormatted, idx.StringsNonFormatted)
 	for k := range idx.StringsWithNote {
 		out.markStringNote(k)
 	}
@@ -275,27 +270,15 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		}
 		out.StringsWithMarkup[k] = true
 	}
-	for k, v := range idx.StringsTrailingWS {
-		out.StringsTrailingWS[k] = v
-	}
-	for k, v := range idx.StringsLocation {
-		out.StringsLocation[k] = v
-	}
-	for k, v := range idx.StringSources {
-		out.StringSources[k] = v
-	}
+	maps.Copy(out.StringsTrailingWS, idx.StringsTrailingWS)
+	maps.Copy(out.StringsLocation, idx.StringsLocation)
+	maps.Copy(out.StringSources, idx.StringSources)
 	for k, v := range idx.StringTranslations {
 		out.StringTranslations[k] = append([]StringSource(nil), v...)
 	}
-	for k, v := range idx.Colors {
-		out.Colors[k] = v
-	}
-	for k, v := range idx.Dimensions {
-		out.Dimensions[k] = v
-	}
-	for k, v := range idx.DimensionsLocation {
-		out.DimensionsLocation[k] = v
-	}
+	maps.Copy(out.Colors, idx.Colors)
+	maps.Copy(out.Dimensions, idx.Dimensions)
+	maps.Copy(out.DimensionsLocation, idx.DimensionsLocation)
 	for k, v := range idx.Styles {
 		out.Styles[k] = cloneStyle(v)
 	}
@@ -316,27 +299,15 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		out.PluralDefinitions = append(out.PluralDefinitions, PluralDefinition{Name: def.Name, FilePath: def.FilePath, Line: def.Line, Quantities: cloneStringMap(def.Quantities)})
 	}
 	out.StringDefinitions = append(out.StringDefinitions, idx.StringDefinitions...)
-	for k, v := range idx.PluralSources {
-		out.PluralSources[k] = v
-	}
-	for k, v := range idx.PluralsLocation {
-		out.PluralsLocation[k] = v
-	}
+	maps.Copy(out.PluralSources, idx.PluralSources)
+	maps.Copy(out.PluralsLocation, idx.PluralsLocation)
 	for k, v := range idx.TranslatedTokens {
 		out.TranslatedTokens[k] = append([]string(nil), v...)
 	}
-	for k, v := range idx.PluralsNonTranslate {
-		out.PluralsNonTranslate[k] = v
-	}
-	for k, v := range idx.Integers {
-		out.Integers[k] = v
-	}
-	for k, v := range idx.Booleans {
-		out.Booleans[k] = v
-	}
-	for k, v := range idx.IDs {
-		out.IDs[k] = v
-	}
+	maps.Copy(out.PluralsNonTranslate, idx.PluralsNonTranslate)
+	maps.Copy(out.Integers, idx.Integers)
+	maps.Copy(out.Booleans, idx.Booleans)
+	maps.Copy(out.IDs, idx.IDs)
 	out.ExtraTexts = append(out.ExtraTexts, idx.ExtraTexts...)
 	out.TypographyTexts = append(out.TypographyTexts, idx.TypographyTexts...)
 	out.VectorDrawables = append(out.VectorDrawables, idx.VectorDrawables...)

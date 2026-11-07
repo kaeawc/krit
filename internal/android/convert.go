@@ -159,8 +159,21 @@ func convertSDKVersions(m *Manifest, cm *ConvertedManifest) {
 }
 
 func convertPermissions(m *Manifest, cm *ConvertedManifest) {
-	// Typed permissions and manifest-level elements appear in the same document order.
-	var usesLines, permLines, featureLines []int
+	usesLines, permLines, featureLines := manifestPermissionLines(m)
+	convertUsesPermissions(m, cm, usesLines)
+	for i, perm := range m.Permissions {
+		if perm.Name == "" {
+			continue
+		}
+		recordFirstLine(&cm.PermissionLines, permLines, i, perm.Name)
+		cm.Permissions = append(cm.Permissions, perm.Name)
+	}
+	convertUsesFeatures(m, cm, featureLines)
+}
+
+// manifestPermissionLines returns the lines of manifest-level permission
+// elements; typed permissions and these elements share document order.
+func manifestPermissionLines(m *Manifest) (usesLines, permLines, featureLines []int) {
 	for _, elem := range m.Elements {
 		if elem.ParentTag != "manifest" {
 			continue
@@ -174,17 +187,23 @@ func convertPermissions(m *Manifest, cm *ConvertedManifest) {
 			featureLines = append(featureLines, elem.Line)
 		}
 	}
-	firstLine := func(dst *map[string]int, lines []int, i int, name string) {
-		if i >= len(lines) {
-			return
-		}
-		if *dst == nil {
-			*dst = make(map[string]int)
-		}
-		if _, ok := (*dst)[name]; !ok {
-			(*dst)[name] = lines[i]
-		}
+	return usesLines, permLines, featureLines
+}
+
+// recordFirstLine stores lines[i] under name unless name already has a line.
+func recordFirstLine(dst *map[string]int, lines []int, i int, name string) {
+	if i >= len(lines) {
+		return
 	}
+	if *dst == nil {
+		*dst = make(map[string]int)
+	}
+	if _, ok := (*dst)[name]; !ok {
+		(*dst)[name] = lines[i]
+	}
+}
+
+func convertUsesPermissions(m *Manifest, cm *ConvertedManifest, usesLines []int) {
 	for i, perm := range m.UsesPermissions {
 		if perm.Name == "" {
 			continue
@@ -196,29 +215,26 @@ func convertPermissions(m *Manifest, cm *ConvertedManifest) {
 			continue
 		}
 		cm.UsesPermissions = append(cm.UsesPermissions, perm.Name)
-		firstLine(&cm.UsesPermissionLines, usesLines, i, perm.Name)
+		recordFirstLine(&cm.UsesPermissionLines, usesLines, i, perm.Name)
 		entry := ConvertedUsesPermission{Name: perm.Name}
 		if i < len(usesLines) {
 			entry.Line = usesLines[i]
 		}
-		if maxSdk, err := strconv.Atoi(perm.MaxSdkVersion); err == nil {
+		maxSdk, err := strconv.Atoi(perm.MaxSdkVersion)
+		if err == nil {
 			entry.MaxSdk, entry.HasMaxSdk = maxSdk, true
 		}
 		cm.UsesPermissionEntries = append(cm.UsesPermissionEntries, entry)
-		if maxSdk, err := strconv.Atoi(perm.MaxSdkVersion); err == nil {
+		if err == nil {
 			if cm.UsesPermissionMaxSdk == nil {
 				cm.UsesPermissionMaxSdk = make(map[string]int)
 			}
 			cm.UsesPermissionMaxSdk[perm.Name] = maxSdk
 		}
 	}
-	for i, perm := range m.Permissions {
-		if perm.Name == "" {
-			continue
-		}
-		firstLine(&cm.PermissionLines, permLines, i, perm.Name)
-		cm.Permissions = append(cm.Permissions, perm.Name)
-	}
+}
+
+func convertUsesFeatures(m *Manifest, cm *ConvertedManifest, featureLines []int) {
 	for i, f := range m.UsesFeatures {
 		if f.Name == "" && f.GlEsVersion == "" {
 			continue
@@ -285,13 +301,7 @@ func convertElements(m *Manifest, cm *ConvertedManifest) {
 
 func convertApplication(m *Manifest, cm *ConvertedManifest) {
 	app := &m.Application
-	if app.Name == "" && app.ToolsNode == "" && len(app.Activities) == 0 && len(app.ActivityAliases) == 0 && len(app.Services) == 0 &&
-		len(app.Receivers) == 0 && len(app.Providers) == 0 && app.Debuggable == "" &&
-		app.AllowBackup == "" && app.LocaleConfig == "" &&
-		app.SupportsRtl == "" && app.ExtractNativeLibs == "" &&
-		app.Theme == "" && app.Icon == "" && app.Label == "" &&
-		app.UsesCleartextTraffic == "" && app.NetworkSecurityConfig == "" &&
-		app.FullBackupContent == "" && app.DataExtractionRules == "" && len(app.MetaData) == 0 {
+	if applicationIsEmpty(app) {
 		return
 	}
 	cm.HasApplication = true
@@ -311,6 +321,24 @@ func convertApplication(m *Manifest, cm *ConvertedManifest) {
 	cm.SupportsRtl = parseBoolPtr(app.SupportsRtl)
 	cm.ExtractNativeLibs = parseBoolPtr(app.ExtractNativeLibs)
 	convertActivityComponents(m, app, cm)
+	convertLauncherAliasTargets(app, cm)
+	convertServiceComponents(m, app, cm)
+	convertReceiverComponents(m, app, cm)
+	convertProviderComponents(m, app, cm)
+}
+
+// applicationIsEmpty reports whether the manifest has no <application> content worth converting.
+func applicationIsEmpty(app *Application) bool {
+	return app.Name == "" && app.ToolsNode == "" && len(app.Activities) == 0 && len(app.ActivityAliases) == 0 && len(app.Services) == 0 &&
+		len(app.Receivers) == 0 && len(app.Providers) == 0 && app.Debuggable == "" &&
+		app.AllowBackup == "" && app.LocaleConfig == "" &&
+		app.SupportsRtl == "" && app.ExtractNativeLibs == "" &&
+		app.Theme == "" && app.Icon == "" && app.Label == "" &&
+		app.UsesCleartextTraffic == "" && app.NetworkSecurityConfig == "" &&
+		app.FullBackupContent == "" && app.DataExtractionRules == "" && len(app.MetaData) == 0
+}
+
+func convertLauncherAliasTargets(app *Application, cm *ConvertedManifest) {
 	for _, alias := range app.ActivityAliases {
 		_, categories, _, _ := extractIntentFilterDetails(alias.IntentFilters)
 		for _, c := range categories {
@@ -320,9 +348,6 @@ func convertApplication(m *Manifest, cm *ConvertedManifest) {
 			}
 		}
 	}
-	convertServiceComponents(m, app, cm)
-	convertReceiverComponents(m, app, cm)
-	convertProviderComponents(m, app, cm)
 }
 
 func convertActivityComponents(m *Manifest, app *Application, cm *ConvertedManifest) {

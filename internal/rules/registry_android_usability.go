@@ -156,7 +156,7 @@ func registerAndroidUsabilityRules() {
 		})
 	}
 	{
-		r := &UnusedIdsRule{AndroidRule: AndroidRule{
+		r := &UnusedIDsRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "UnusedIds", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:  "UnusedIds", Brief: "Unused id",
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 1,

@@ -378,8 +378,8 @@ var unusedAttributeRtl = map[string]bool{
 	"layout_toEndOf": true, "layout_alignStart": true, "layout_alignEnd": true,
 }
 
-// targetApiLevel parses a tools:targetApi value, a number or a release name such as lollipop.
-func targetApiLevel(value string) int {
+// targetAPILevel parses a tools:targetApi value, a number or a release name such as lollipop.
+func targetAPILevel(value string) int {
 	value = strings.TrimSpace(value)
 	if n, err := strconv.Atoi(value); err == nil {
 		return n
@@ -419,7 +419,7 @@ func (r *UnusedAttributeResourceRule) check(ctx *api.Context) {
 			if v == nil || resourceToolsIgnoreMatches(v, "UnusedAttribute") {
 				return
 			}
-			if level := targetApiLevel(v.Attributes["tools:targetApi"]); level > localMin {
+			if level := targetAPILevel(v.Attributes["tools:targetApi"]); level > localMin {
 				localMin = level
 			}
 			for _, full := range rtlViewAttrsInOrder(v) {

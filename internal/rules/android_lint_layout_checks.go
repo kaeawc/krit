@@ -15,8 +15,8 @@ type BottomAppBarRule struct {
 	AndroidRule
 }
 
-// InvalidImeActionIdRule mirrors Lint's InvalidImeActionId: android:imeActionId that is not an integer.
-type InvalidImeActionIdRule struct {
+// InvalidImeActionIDRule mirrors Lint's InvalidImeActionId: android:imeActionId that is not an integer.
+type InvalidImeActionIDRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
@@ -31,7 +31,7 @@ type MenuTitleRule struct {
 func (r *BottomAppBarRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // Confidence reports a high base confidence: the checks read literal layout structure.
-func (r *InvalidImeActionIdRule) Confidence() float64 { return api.ConfidenceHigh }
+func (r *InvalidImeActionIDRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // Confidence reports a high base confidence: the checks read literal layout structure.
 func (r *MenuTitleRule) Confidence() float64 { return api.ConfidenceHigh }
@@ -68,7 +68,7 @@ func (r *BottomAppBarRule) check(ctx *api.Context) {
 // resourceURLRe matches the reference forms Lint's ResourceUrl.parse accepts: @[+][pkg:]type/name and ?[pkg:][type/]name.
 var resourceURLRe = regexp.MustCompile(`^(?:@\+?(?:[A-Za-z0-9_.]+:)?([a-z]+)/[A-Za-z0-9_.$]+|\?(?:[A-Za-z0-9_.]+:)?(?:(attr)/)?[A-Za-z0-9_.$]+)$`)
 
-func (r *InvalidImeActionIdRule) check(ctx *api.Context) {
+func (r *InvalidImeActionIDRule) check(ctx *api.Context) {
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {
 		walkViewsWithParentUnlessIgnored(layout.RootView, nil, []string{"InvalidImeActionId"}, func(v, _ *android.View) {
 			value, ok := v.Attributes["android:imeActionId"]

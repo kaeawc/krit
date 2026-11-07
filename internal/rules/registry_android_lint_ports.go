@@ -111,7 +111,7 @@ func registerSuspiciousImport() {
 }
 
 func registerPropertyFileRules() {
-	http := &UsingHttpRule{AndroidRule: lintAndroidRule("UsingHttp", "Using HTTP instead of HTTPS", ALCSecurity, ALSWarning, 6)}
+	http := &UsingHTTPRule{AndroidRule: lintAndroidRule("UsingHttp", "Using HTTP instead of HTTPS", ALCSecurity, ALSWarning, 6)}
 	api.Register(&api.Rule{
 		ID: http.RuleName, Category: http.RuleSetName, Description: http.Description(), Sev: api.Severity(http.Sev),
 		Needs: api.NeedsModuleIndex, Confidence: http.Confidence(), Implementation: http, Check: http.check,
@@ -186,7 +186,7 @@ func registerMiscLintChecks() {
 func registerLayoutLintChecks() {
 	bar := &BottomAppBarRule{AndroidRule: lintAndroidRule("BottomAppBar", "BottomAppBar Problems", ALCCorrectness, ALSError, 9)}
 	registerLintResourceRule(bar.AndroidRule, bar, bar.Confidence(), bar.check)
-	ime := &InvalidImeActionIdRule{AndroidRule: lintAndroidRule("InvalidImeActionId", "Invalid imeActionId declaration", ALCCorrectness, ALSError, 6)}
+	ime := &InvalidImeActionIDRule{AndroidRule: lintAndroidRule("InvalidImeActionId", "Invalid imeActionId declaration", ALCCorrectness, ALSError, 6)}
 	registerLintResourceRule(ime.AndroidRule, ime, ime.Confidence(), ime.check)
 	title := &MenuTitleRule{AndroidRule: lintAndroidRule("MenuTitle", "Missing menu title", ALCUsability, ALSError, 5)}
 	registerLintResourceRule(title.AndroidRule, title, title.Confidence(), title.check)
@@ -271,7 +271,7 @@ func registerSecurityCallChecks() {
 }
 
 func registerMissingInflatedId() {
-	r := &MissingInflatedIdRule{AndroidRule: lintAndroidRule("MissingInflatedId", "ID not found in inflated resource", ALCCorrectness, ALSError, 5)}
+	r := &MissingInflatedIDRule{AndroidRule: lintAndroidRule("MissingInflatedId", "ID not found in inflated resource", ALCCorrectness, ALSError, 5)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: lintCallNodeTypes[:2], Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},

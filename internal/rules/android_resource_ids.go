@@ -153,7 +153,7 @@ func (r *MissingIDResourceRule) check(ctx *api.Context) {
 // IdTypePrefixMismatchResource
 // ---------------------------------------------------------------------------
 
-// IdTypePrefixMismatchResourceRule detects likely copy-paste ID mistakes where a view's
+// IDTypePrefixMismatchResourceRule detects likely copy-paste ID mistakes where a view's
 // android:id name contains a prefix/hint that suggests a different view type.
 // For example, `@+id/textview_name` on a Button suggests copy-paste from a
 // TextView.
@@ -162,7 +162,7 @@ func (r *MissingIDResourceRule) check(ctx *api.Context) {
 // the layout-side name of Android Lint's CutPasteId; that check is about
 // repeated findViewById lookups in source (see CutPasteIDRule). The old id stays
 // a suppression and config alias.
-type IdTypePrefixMismatchResourceRule struct {
+type IDTypePrefixMismatchResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
@@ -262,9 +262,9 @@ func cutPasteContradicts(prefix string, v *android.View) bool {
 // Confidence reports a tier-2 (medium) base confidence. Android resource-id rule. Detection flags R.id/R.layout usage patterns
 // and naming conventions via structural checks on resources. Classified
 // per roadmap/17.
-func (r *IdTypePrefixMismatchResourceRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *IDTypePrefixMismatchResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *IdTypePrefixMismatchResourceRule) check(ctx *api.Context) {
+func (r *IDTypePrefixMismatchResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for _, layout := range idx.AllLayouts() {
 		walkViews(layout.RootView, func(v *android.View) {

@@ -49,7 +49,7 @@ func (r *UnusedResourcesRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *UnusedIdsRule) Meta() api.RuleDescriptor {
+func (r *UnusedIDsRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnusedIds",
 		RuleSet:       "android-lint",

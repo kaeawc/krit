@@ -10,14 +10,14 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// MissingInflatedIdRule mirrors Lint's MissingInflatedId: findViewById for an id the inflated layout never declares.
-type MissingInflatedIdRule struct {
+// MissingInflatedIDRule mirrors Lint's MissingInflatedId: findViewById for an id the inflated layout never declares.
+type MissingInflatedIDRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
 
 // Confidence reports a tier-2 (medium) base confidence: the inflated layout is found by syntax, not data flow.
-func (r *MissingInflatedIdRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *MissingInflatedIDRule) Confidence() float64 { return api.ConfidenceMedium }
 
 var layoutResourceRefRe = regexp.MustCompile(`(?:^|[^\w.]|\.)R\.(layout|id)\.(\w+)$`)
 
@@ -78,7 +78,7 @@ func collectLayoutIDs(idx *android.ResourceIndex, only string) map[string]*layou
 	return out
 }
 
-func (r *MissingInflatedIdRule) check(ctx *api.Context) {
+func (r *MissingInflatedIDRule) check(ctx *api.Context) {
 	file := ctx.File
 	call, ok := lintCallAt(file, ctx.Idx)
 	if !ok || (call.Name != "findViewById" && call.Name != "requireViewById") || len(call.Args) == 0 {

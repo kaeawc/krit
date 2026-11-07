@@ -40,7 +40,7 @@ func (r *SuspiciousImportRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "SuspiciousImport", RuleSet: "android-lint", DefaultActive: true}
 }
 
-func (r *UsingHttpRule) Meta() api.RuleDescriptor {
+func (r *UsingHTTPRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UsingHttp", RuleSet: "android-lint", DefaultActive: true}
 }
 
@@ -112,7 +112,7 @@ func (r *BottomAppBarRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "BottomAppBar", RuleSet: "android-lint", DefaultActive: true}
 }
 
-func (r *InvalidImeActionIdRule) Meta() api.RuleDescriptor {
+func (r *InvalidImeActionIDRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "InvalidImeActionId", RuleSet: "android-lint", DefaultActive: true}
 }
 
@@ -196,6 +196,6 @@ func (r *WebViewClientOnReceivedSslErrorRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "WebViewClientOnReceivedSslError", RuleSet: "android-lint", DefaultActive: true}
 }
 
-func (r *MissingInflatedIdRule) Meta() api.RuleDescriptor {
+func (r *MissingInflatedIDRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "MissingInflatedId", RuleSet: "android-lint", DefaultActive: true}
 }

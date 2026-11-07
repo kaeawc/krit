@@ -480,17 +480,17 @@ func (r *UnusedResourcesRule) check(ctx *api.Context) {
 	}
 }
 
-// UnusedIdsRule mirrors Lint's UnusedIds: an id declared with @+id/ or <item type="id"> that no code or
+// UnusedIDsRule mirrors Lint's UnusedIds: an id declared with @+id/ or <item type="id"> that no code or
 // resource refers to.
-type UnusedIdsRule struct {
+type UnusedIDsRule struct {
 	ValuesResourceBase
 	AndroidRule
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
-func (r *UnusedIdsRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *UnusedIDsRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *UnusedIdsRule) check(ctx *api.Context) {
+func (r *UnusedIDsRule) check(ctx *api.Context) {
 	if ctx.ResourceCodeRefs == nil {
 		return
 	}

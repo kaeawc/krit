@@ -35,8 +35,8 @@ var viewTagFrameworkHeavyTypes = []string{
 
 const viewTagLeakMessage = "View.setTag(int, Object) with a view, view holder or cursor can leak the context before Android 4.0 (API 14)."
 
-// viewTagFixedInApiLevel is the first API level where setTag(int, Object) stopped using a static map.
-const viewTagFixedInApiLevel = 14
+// viewTagFixedInAPILevel is the first API level where setTag(int, Object) stopped using a static map.
+const viewTagFixedInAPILevel = 14
 
 func (r *ViewTagRule) check(ctx *api.Context) {
 	if ctx.File.FlatType(ctx.Idx) != "call_expression" {
@@ -47,7 +47,7 @@ func (r *ViewTagRule) check(ctx *api.Context) {
 	if !ok || target.CalleeName != "setTag" || len(target.Arguments) != 2 {
 		return
 	}
-	if projectMinSdk(ctx) >= viewTagFixedInApiLevel {
+	if projectMinSdk(ctx) >= viewTagFixedInAPILevel {
 		return
 	}
 	if scanner.IsTestFile(ctx.File.Path) || viewTagInVerificationOrMock(ctx, target) {

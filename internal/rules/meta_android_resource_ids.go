@@ -13,7 +13,7 @@ func (r *AppCompatResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *IdTypePrefixMismatchResourceRule) Meta() api.RuleDescriptor {
+func (r *IDTypePrefixMismatchResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "IdTypePrefixMismatchResource",
 		RuleSet:       "android-lint",

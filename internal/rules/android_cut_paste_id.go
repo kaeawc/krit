@@ -20,7 +20,7 @@ import (
 // Lint decides reachability on UAST; this port approximates it with source order
 // plus the exclusive branches of if, when and switch, and ignores returns
 // between the two lookups. The layout rule that used this name is
-// IdTypePrefixMismatchResourceRule.
+// IDTypePrefixMismatchResourceRule.
 type CutPasteIDRule struct {
 	FlatDispatchBase
 	AndroidRule

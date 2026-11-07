@@ -9,8 +9,8 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// UsingHttpRule mirrors Lint's UsingHttp: an http distributionUrl in a Gradle properties file.
-type UsingHttpRule struct {
+// UsingHTTPRule mirrors Lint's UsingHttp: an http distributionUrl in a Gradle properties file.
+type UsingHTTPRule struct {
 	AndroidRule
 }
 
@@ -21,13 +21,13 @@ type ProxyPasswordRule struct {
 }
 
 // Confidence reports a high base confidence: the check is a literal property prefix.
-func (r *UsingHttpRule) Confidence() float64 { return api.ConfidenceHigh }
+func (r *UsingHTTPRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // Confidence reports a high base confidence: the check is a literal property prefix.
 func (r *ProxyPasswordRule) Confidence() float64 { return api.ConfidenceHigh }
 
 // ModuleAwareNeeds declares that the rule only reads the module list, not per-module symbol data.
-func (r *UsingHttpRule) ModuleAwareNeeds() ModuleAwareNeeds { return ModuleAwareNeeds{} }
+func (r *UsingHTTPRule) ModuleAwareNeeds() ModuleAwareNeeds { return ModuleAwareNeeds{} }
 
 // ModuleAwareNeeds declares that the rule only reads the module list, not per-module symbol data.
 func (r *ProxyPasswordRule) ModuleAwareNeeds() ModuleAwareNeeds { return ModuleAwareNeeds{} }
@@ -82,7 +82,7 @@ func lintPropertySuppressed(content string, line propertyLine, id string) bool {
 	return strings.HasPrefix(prev, "#") && i >= 0 && (strings.Contains(prev[i:], id) || strings.Contains(prev[i:], "all"))
 }
 
-func (r *UsingHttpRule) check(ctx *api.Context) {
+func (r *UsingHTTPRule) check(ctx *api.Context) {
 	for _, path := range lintPropertyFiles(ctx) {
 		data, err := os.ReadFile(path)
 		if err != nil {

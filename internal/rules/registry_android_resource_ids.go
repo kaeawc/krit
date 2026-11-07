@@ -72,7 +72,7 @@ func registerAndroidResourceIDsRules() {
 		})
 	}
 	{
-		r := &IdTypePrefixMismatchResourceRule{AndroidRule: AndroidRule{
+		r := &IDTypePrefixMismatchResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "IdTypePrefixMismatchResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			Brief:      "View id prefix suggests a different view type",
 			Category:   ALCCorrectness,

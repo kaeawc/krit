@@ -450,7 +450,26 @@ func callExpressionHasDurationUnitArg(file *scanner.File, callIdx uint32) bool {
 // ignoreIdioms: false turns the whole group off.
 func (r *MagicNumberRule) kritIdiom(file *scanner.File, idx uint32, text string) bool {
 	line := file.Lines[file.FlatRow(idx)]
-	trimmed := strings.TrimSpace(line)
+	if magicNumberLiteralKindIdiom(file, idx, text) {
+		return true
+	}
+
+	var ancestorCtx *magicNumberAncestorContext
+	if experiment.Enabled("magic-number-ancestor-scan") {
+		ancestorCtx = buildMagicNumberAncestorContext(file, idx)
+	}
+
+	if magicNumberPositionIdiom(file, idx, text, ancestorCtx) {
+		return true
+	}
+	if r.magicNumberCallContextIdiom(file, idx, ancestorCtx) {
+		return true
+	}
+	return r.magicNumberConfiguredIdiom(file, idx, text, line)
+}
+
+// magicNumberLiteralKindIdiom reports literals whose spelling or role marks them as self-documenting.
+func magicNumberLiteralKindIdiom(file *scanner.File, idx uint32, text string) bool {
 	// Numeric literals written with underscore separators
 	// (e.g., 25_000L, 1_000_000) have explicit author-intended grouping;
 	// these aren't magic numbers, the author already made the value legible.
@@ -466,15 +485,12 @@ func (r *MagicNumberRule) kritIdiom(file *scanner.File, idx uint32, text string)
 	if magicNumberIsAndroidAPILevelLiteral(file, idx) {
 		return true
 	}
-	if magicNumberIsHTTPStatusLiteral(file, idx) {
-		return true
-	}
+	return magicNumberIsHTTPStatusLiteral(file, idx)
+}
 
-	var ancestorCtx *magicNumberAncestorContext
-	if experiment.Enabled("magic-number-ancestor-scan") {
-		ancestorCtx = buildMagicNumberAncestorContext(file, idx)
-	}
-
+// magicNumberPositionIdiom reports literals whose syntactic position (when branch, index, cardinality
+// comparison, SDK check, constant declaration, migration, crypto call) explains them.
+func magicNumberPositionIdiom(file *scanner.File, idx uint32, text string, ancestorCtx *magicNumberAncestorContext) bool {
 	// Skip literals that are the direct value of a when branch mapping an
 	// enum/constant to discrete numeric values — this is a lookup-table
 	// idiom, not a magic number. Example: `SIZE.LARGE -> 0.8f`.
@@ -529,9 +545,12 @@ func (r *MagicNumberRule) kritIdiom(file *scanner.File, idx uint32, text string)
 	}
 	// Skip hex literals (0x...) — hex notation is already self-documenting
 	// as a color/mask/byte pattern.
-	if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
-		return true
-	}
+	return strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X")
+}
+
+// magicNumberCallContextIdiom reports literals passed to builder, DSL, geometry and similar calls whose API
+// documents the value.
+func (r *MagicNumberRule) magicNumberCallContextIdiom(file *scanner.File, idx uint32, ancestorCtx *magicNumberAncestorContext) bool {
 	// Skip Bitmap/collection/cache builder constructors.
 	if magicNumberInsideNamedMethodCall(file, idx, bitmapBuilderMethods, ancestorCtx) {
 		return true
@@ -602,10 +621,12 @@ func (r *MagicNumberRule) kritIdiom(file *scanner.File, idx uint32, text string)
 	// Skip literals that are the RHS of an assignment to a semantic UI /
 	// animation / layout property — the property name itself documents
 	// the value (`duration = 250`, `textSize = 14f`, `elevation = 4f`).
-	if isSemanticPropertyAssignment(file, idx) {
-		return true
-	}
+	return isSemanticPropertyAssignment(file, idx)
+}
 
+// magicNumberConfiguredIdiom reports color literals and Compose units when the matching options are on.
+func (r *MagicNumberRule) magicNumberConfiguredIdiom(file *scanner.File, idx uint32, text, line string) bool {
+	trimmed := strings.TrimSpace(line)
 	// Skip color literals: hex numbers inside Color() calls or in color-named properties
 	if r.IgnoreColorLiterals && strings.HasPrefix(text, "0x") {
 		if strings.Contains(line, "Color(") {

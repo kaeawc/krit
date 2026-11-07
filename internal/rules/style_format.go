@@ -117,44 +117,62 @@ func (r *SpacingAfterPackageAndImportsRule) checkKotlin(ctx *api.Context) {
 		return
 	}
 	content := string(file.Content)
-	fix := func(start, end int, rep string) *scanner.Fix {
-		return &scanner.Fix{ByteMode: true, StartByte: start, EndByte: end, Replacement: rep}
-	}
 
 	// detekt only checks files that declare a package.
+	if !preludeHasPackageBefore(file, list) {
+		return
+	}
+
+	r.checkPackageToImports(ctx, list, first, content)
+	r.checkImportsToDeclaration(ctx, list, content)
+}
+
+// preludeHasPackageBefore reports whether a package_header precedes the import list.
+func preludeHasPackageBefore(file *scanner.File, list uint32) bool {
 	prev, hasPrev := file.FlatPrevSibling(list)
 	if !hasPrev {
-		return
+		return false
 	}
-	hasPackage := false
 	for n, ok := prev, true; ok; n, ok = file.FlatPrevSibling(n) {
 		if file.FlatType(n) == "package_header" {
-			hasPackage = true
-			break
+			return true
 		}
 	}
-	if !hasPackage {
+	return false
+}
+
+// spacingBlankLineFix replaces start..end with one empty line.
+func spacingBlankLineFix(start, end int) *scanner.Fix {
+	return &scanner.Fix{ByteMode: true, StartByte: start, EndByte: end, Replacement: "\n\n"}
+}
+
+// checkPackageToImports requires one empty line between the package (or comment) and the first import.
+func (r *SpacingAfterPackageAndImportsRule) checkPackageToImports(ctx *api.Context, list, first uint32, content string) {
+	file := ctx.File
+	prev, ok := file.FlatPrevSibling(list)
+	if !ok {
 		return
 	}
-
-	// Package (or comment) to the first import.
-	if prev, ok := file.FlatPrevSibling(list); ok {
-		if t := file.FlatType(prev); t == "package_header" || t == "line_comment" || t == "multiline_comment" {
-			prevEnd, firstStart := int(preludeCodeEndByte(file, prev)), int(file.FlatStartByte(first))
-			if prevEnd < len(content) && content[prevEnd] == ';' {
-				prevEnd++
-			}
-			// A comment between the two is left alone.
-			if prevEnd <= firstStart && strings.TrimSpace(content[prevEnd:firstStart]) == "" && !exactlyOneBlankLine(content[prevEnd:firstStart]) {
-				row, col := spacingRowCol(file, prevEnd)
-				f := r.Finding(file, row, col, "There should be exactly one empty line in between the package declaration and the list of imports.")
-				f.Fix = fix(prevEnd, firstStart, "\n\n")
-				ctx.Emit(f)
-			}
-		}
+	if t := file.FlatType(prev); t != "package_header" && t != "line_comment" && t != "multiline_comment" {
+		return
 	}
+	prevEnd, firstStart := int(preludeCodeEndByte(file, prev)), int(file.FlatStartByte(first))
+	if prevEnd < len(content) && content[prevEnd] == ';' {
+		prevEnd++
+	}
+	// A comment between the two is left alone.
+	if prevEnd <= firstStart && strings.TrimSpace(content[prevEnd:firstStart]) == "" && !exactlyOneBlankLine(content[prevEnd:firstStart]) {
+		row, col := spacingRowCol(file, prevEnd)
+		f := r.Finding(file, row, col, "There should be exactly one empty line in between the package declaration and the list of imports.")
+		f.Fix = spacingBlankLineFix(prevEnd, firstStart)
+		ctx.Emit(f)
+	}
+}
 
-	// The last import to a following class or object.
+// checkImportsToDeclaration requires one empty line between the last import (ctx.Idx) and a following class or
+// object.
+func (r *SpacingAfterPackageAndImportsRule) checkImportsToDeclaration(ctx *api.Context, list uint32, content string) {
+	file, idx := ctx.File, ctx.Idx
 	var decl uint32
 	for n, ok := file.FlatNextSibling(list); ok; n, ok = file.FlatNextSibling(n) {
 		if isFlatCommentNode(file, n) {
@@ -184,7 +202,7 @@ func (r *SpacingAfterPackageAndImportsRule) checkKotlin(ctx *api.Context) {
 	}
 	row, col := spacingRowCol(file, importEnd)
 	f := r.Finding(file, row, col, "There should be exactly one empty line in between the list of imports and the declaration of "+name+".")
-	f.Fix = fix(importEnd, rest, "\n\n")
+	f.Fix = spacingBlankLineFix(importEnd, rest)
 	ctx.Emit(f)
 }
 

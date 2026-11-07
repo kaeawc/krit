@@ -542,11 +542,38 @@ func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 		mode = bracesPolicyOrDefault(r.MultiLine, true)
 	}
 
+	violators, message, ok := whenBraceViolators(file, entries, mode)
+	if !ok {
+		return
+	}
+
+	for _, e := range violators {
+		anchor := whenArrow(file, e)
+		if mode == "consistent" || anchor == 0 {
+			anchor = whenKeyword(file, idx)
+		}
+		f := r.Finding(file, file.FlatRow(anchor)+1, file.FlatCol(anchor)+1, message)
+		body := whenEntryBody(file, e)
+		switch mode {
+		case "always":
+			if isStatementPositionExpr(file, idx) {
+				f.Fix = buildBraceWrapFix(file, e, body)
+			}
+		case "never", "necessary":
+			if stmt := bracedBodyRemovableStatement(file, body); stmt != 0 {
+				f.Fix = bracedBodyUnwrapFix(file, body, stmt)
+			}
+		}
+		ctx.Emit(f)
+	}
+}
+
+// whenBraceViolators returns the when entries that break the brace policy mode and the message to report; ok is
+// false for an unknown mode.
+func whenBraceViolators(file *scanner.File, entries []uint32, mode string) (violators []uint32, message string, ok bool) {
 	hasBraces := func(e uint32) bool { return controlBodyHasBraces(file, whenEntryBody(file, e)) }
 	unnecessary := func(e uint32) bool { return whenBodyHasUnnecessaryBraces(file, whenEntryBody(file, e)) }
 
-	var violators []uint32
-	var message string
 	switch mode {
 	case "always":
 		message = "Missing braces on this branch, add them."
@@ -584,28 +611,9 @@ func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 			violators = entries[:1]
 		}
 	default:
-		return
+		return nil, "", false
 	}
-
-	for _, e := range violators {
-		anchor := whenArrow(file, e)
-		if mode == "consistent" || anchor == 0 {
-			anchor = whenKeyword(file, idx)
-		}
-		f := r.Finding(file, file.FlatRow(anchor)+1, file.FlatCol(anchor)+1, message)
-		body := whenEntryBody(file, e)
-		switch mode {
-		case "always":
-			if isStatementPositionExpr(file, idx) {
-				f.Fix = buildBraceWrapFix(file, e, body)
-			}
-		case "never", "necessary":
-			if stmt := bracedBodyRemovableStatement(file, body); stmt != 0 {
-				f.Fix = bracedBodyUnwrapFix(file, body, stmt)
-			}
-		}
-		ctx.Emit(f)
-	}
+	return violators, message, true
 }
 
 // MandatoryBracesLoopsRule requires braces in for/while/do-while loops.

@@ -325,118 +325,151 @@ func whenCyclomaticCountFlat(file *scanner.File, when uint32, ignoreSimpleWhenEn
 
 // detektCognitiveComplexity is detekt's CognitiveComplexity of fn.
 func detektCognitiveComplexity(file *scanner.File, fn uint32) int {
-	complexity, nesting := 0, 0
-	fnName := extractIdentifierFlat(file, fn)
-	paramCount := 0
+	w := &detektCognitiveWalker{
+		file:       file,
+		fn:         fn,
+		fnName:     extractIdentifierFlat(file, fn),
+		paramCount: detektParameterCount(file, fn),
+	}
+	w.walkChildren(fn)
+	return w.complexity
+}
+
+// detektParameterCount counts the value parameters fn declares.
+func detektParameterCount(file *scanner.File, fn uint32) int {
+	count := 0
 	if params, ok := file.FlatFindChild(fn, "function_value_parameters"); ok {
 		for c := file.FlatFirstChild(params); c != 0; c = file.FlatNextSib(c) {
 			if file.FlatType(c) == "parameter" {
-				paramCount++
+				count++
 			}
 		}
 	}
-	add := func() { complexity += 1 + nesting }
-	var walk func(n uint32)
-	walkChildren := func(n uint32) {
-		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
-			walk(c)
+	return count
+}
+
+// detektCognitiveWalker accumulates detekt's cognitive complexity while walking one function.
+type detektCognitiveWalker struct {
+	file       *scanner.File
+	fn         uint32
+	fnName     string
+	paramCount int
+	complexity int
+	nesting    int
+	inBinary   bool
+}
+
+// add scores a structure that increments by one plus the current nesting depth.
+func (w *detektCognitiveWalker) add() { w.complexity += 1 + w.nesting }
+
+func (w *detektCognitiveWalker) walkChildren(n uint32) {
+	for c := w.file.FlatFirstChild(n); c != 0; c = w.file.FlatNextSib(c) {
+		w.walk(c)
+	}
+}
+
+func (w *detektCognitiveWalker) nest(n uint32) {
+	w.nesting++
+	w.walkChildren(n)
+	w.nesting--
+}
+
+func (w *detektCognitiveWalker) walk(n uint32) {
+	file := w.file
+	if isPsiBinaryExpression(file, n) && !w.inBinary {
+		w.inBinary = true
+		w.complexity += detektLogicalOperatorScore(file, n)
+		w.walkChildren(n)
+		w.inBinary = false
+		return
+	}
+	switch file.FlatType(n) {
+	case "when_expression", "for_statement", "while_statement", "do_while_statement", "catch_block":
+		w.add()
+		w.nest(n)
+	case "control_structure_body":
+		w.controlStructureBody(n)
+	case "lambda_literal":
+		w.nest(n)
+	case "function_declaration", "anonymous_function":
+		if n == w.fn {
+			w.walkChildren(n)
+		} else {
+			w.nest(n)
+		}
+	case "jump_expression":
+		if first := file.FlatFirstChild(n); first != 0 && strings.HasSuffix(file.FlatType(first), "@") && file.FlatType(first) != "throw" {
+			w.complexity++
+		}
+		w.walkChildren(n)
+	case "call_expression":
+		if isRecursiveCall(file, n, w.fnName, w.paramCount) {
+			w.complexity++
+		}
+		w.walkChildren(n)
+	default:
+		w.walkChildren(n)
+	}
+}
+
+// controlStructureBody scores the then and else bodies of an if; an `else if` chain counts flat.
+func (w *detektCognitiveWalker) controlStructureBody(n uint32) {
+	file := w.file
+	switch ifBodyRole(file, n) {
+	case "then":
+		p, _ := file.FlatParent(n)
+		if ifIsElseIf(file, p) {
+			w.complexity++
+		} else {
+			w.add()
+		}
+		w.nest(n)
+	case "else":
+		if inner, ok := file.FlatFindChild(n, "if_expression"); ok && onlyNamedChild(file, n, inner) {
+			w.walkChildren(n)
+		} else {
+			w.complexity++
+			w.nest(n)
+		}
+	default:
+		w.walkChildren(n)
+	}
+}
+
+// detektLogicalOperatorScore scores the outermost binary expression n: every change of &&/|| across all its
+// descendants, plus every parenthesized sequence.
+func detektLogicalOperatorScore(file *scanner.File, n uint32) int {
+	var ops []uint32
+	var collect func(x uint32)
+	collect = func(x uint32) {
+		if t := file.FlatType(x); t == "conjunction_expression" || t == "disjunction_expression" {
+			ops = append(ops, x)
+		}
+		for c := file.FlatFirstChild(x); c != 0; c = file.FlatNextSib(c) {
+			collect(c)
 		}
 	}
-	nest := func(n uint32) {
-		nesting++
-		walkChildren(n)
-		nesting--
-	}
-	logical := func(n uint32) {
-		// The outermost binary expression scores every change of &&/|| across all its descendants.
-		var ops []uint32
-		var collect func(x uint32)
-		collect = func(x uint32) {
-			if t := file.FlatType(x); t == "conjunction_expression" || t == "disjunction_expression" {
-				ops = append(ops, x)
-			}
-			for c := file.FlatFirstChild(x); c != 0; c = file.FlatNextSib(c) {
-				collect(c)
-			}
-		}
-		collect(n)
-		// Stable order by start offset, parents before children on ties (the visit order).
-		for i := 1; i < len(ops); i++ {
-			for j := i; j > 0 && file.FlatStartByte(ops[j]) < file.FlatStartByte(ops[j-1]); j-- {
-				ops[j], ops[j-1] = ops[j-1], ops[j]
-			}
-		}
-		prev := ""
-		for i, op := range ops {
-			t := file.FlatType(op)
-			enclosed := false
-			if p, ok := file.FlatParent(op); ok && file.FlatType(p) == "parenthesized_expression" {
-				enclosed = true
-			}
-			if i == 0 || t != prev || enclosed {
-				complexity++
-			}
-			prev = t
+	collect(n)
+	// Stable order by start offset, parents before children on ties (the visit order).
+	for i := 1; i < len(ops); i++ {
+		for j := i; j > 0 && file.FlatStartByte(ops[j]) < file.FlatStartByte(ops[j-1]); j-- {
+			ops[j], ops[j-1] = ops[j-1], ops[j]
 		}
 	}
-	inBinary := false
-	walk = func(n uint32) {
-		t := file.FlatType(n)
-		if isPsiBinaryExpression(file, n) && !inBinary {
-			inBinary = true
-			logical(n)
-			walkChildren(n)
-			inBinary = false
-			return
+	score := 0
+	prev := ""
+	for i, op := range ops {
+		t := file.FlatType(op)
+		enclosed := false
+		if p, ok := file.FlatParent(op); ok && file.FlatType(p) == "parenthesized_expression" {
+			enclosed = true
 		}
-		switch t {
-		case "when_expression", "for_statement", "while_statement", "do_while_statement", "catch_block":
-			add()
-			nest(n)
-		case "control_structure_body":
-			switch ifBodyRole(file, n) {
-			case "then":
-				p, _ := file.FlatParent(n)
-				if ifIsElseIf(file, p) {
-					complexity++
-				} else {
-					add()
-				}
-				nest(n)
-			case "else":
-				if inner, ok := file.FlatFindChild(n, "if_expression"); ok && onlyNamedChild(file, n, inner) {
-					walkChildren(n)
-				} else {
-					complexity++
-					nest(n)
-				}
-			default:
-				walkChildren(n)
-			}
-		case "lambda_literal":
-			nest(n)
-		case "function_declaration", "anonymous_function":
-			if n == fn {
-				walkChildren(n)
-			} else {
-				nest(n)
-			}
-		case "jump_expression":
-			if first := file.FlatFirstChild(n); first != 0 && strings.HasSuffix(file.FlatType(first), "@") && file.FlatType(first) != "throw" {
-				complexity++
-			}
-			walkChildren(n)
-		case "call_expression":
-			if isRecursiveCall(file, n, fnName, paramCount) {
-				complexity++
-			}
-			walkChildren(n)
-		default:
-			walkChildren(n)
+		if i == 0 || t != prev || enclosed {
+			score++
 		}
+		prev = t
 	}
-	walkChildren(fn)
-	return complexity
+	return score
 }
 
 // onlyNamedChild reports that child is the only named node in parent, so the body is exactly that node.

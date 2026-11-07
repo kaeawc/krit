@@ -39,21 +39,6 @@ func printStackTraceReceiverIsThrowable(ctx *api.Context, call uint32) bool {
 	return false
 }
 
-// asyncBoundarySimpleToFQN maps unqualified supertype names to their canonical FQN.
-// A "" FQN means the type is always available without an import (java.lang.*).
-var asyncBoundarySimpleToFQN = map[string]string{
-	"Job":               "kotlinx.coroutines.Job",
-	"AbstractCoroutine": "kotlinx.coroutines.AbstractCoroutine",
-	"Worker":            "androidx.work.Worker",
-	"CoroutineWorker":   "androidx.work.CoroutineWorker",
-	"ListenableWorker":  "androidx.work.ListenableWorker",
-	"Callable":          "java.util.concurrent.Callable",
-	"Runnable":          "java.lang.Runnable",
-	"Thread":            "java.lang.Thread",
-	"AsyncTask":         "android.os.AsyncTask",
-	"TimerTask":         "java.util.TimerTask",
-}
-
 // TooGenericExceptionCaughtRule detects catching Exception/Throwable.
 // ---------------------------------------------------------------------------
 type TooGenericExceptionCaughtRule struct {
@@ -137,34 +122,6 @@ func extractCaughtVarNameFlat(file *scanner.File, catchNode uint32) string {
 	return ""
 }
 
-// catchBodyPassesVarAsArgFlat returns true if varName appears as a value_argument
-// anywhere inside the catch_block, or as the subject of a throw_expression.
-// This avoids regexp.MustCompile in the hot dispatch path.
-func catchBodyPassesVarAsArgFlat(file *scanner.File, catchNode uint32, varName string) bool {
-	found := false
-	file.FlatWalkAllNodes(catchNode, func(idx uint32) {
-		if found {
-			return
-		}
-		switch file.FlatType(idx) {
-		case "value_argument":
-			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-				if file.FlatType(child) == "simple_identifier" && file.FlatNodeString(child, nil) == varName {
-					found = true
-					return
-				}
-			}
-		case "throw_expression":
-			file.FlatWalkAllNodes(idx, func(inner uint32) {
-				if !found && file.FlatType(inner) == "simple_identifier" && file.FlatNodeString(inner, nil) == varName {
-					found = true
-				}
-			})
-		}
-	})
-	return found
-}
-
 func catchBodyRethrowsCaughtException(file *scanner.File, catchNode uint32, varName string) bool {
 	found := false
 	file.FlatWalkNodes(catchNode, "jump_expression", func(idx uint32) {
@@ -173,18 +130,6 @@ func catchBodyRethrowsCaughtException(file *scanner.File, catchNode uint32, varN
 		}
 		text := strings.TrimSpace(file.FlatNodeText(idx))
 		found = text == "throw "+varName
-	})
-	return found
-}
-
-func catchBodyCallsOnCaughtVar(file *scanner.File, catchNode uint32, varName string, callee string) bool {
-	found := false
-	file.FlatWalkNodes(catchNode, "call_expression", func(idx uint32) {
-		if found || flatCallNameAny(file, idx) != callee {
-			return
-		}
-		text := strings.TrimSpace(file.FlatNodeText(idx))
-		found = strings.HasPrefix(text, varName+".")
 	})
 	return found
 }
@@ -234,131 +179,6 @@ func flatTypeLastIdentifier(file *scanner.File, idx uint32) string {
 		}
 	})
 	return last
-}
-
-func isInsideAsyncBoundaryFlat(file *scanner.File, idx uint32) bool {
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "lambda_literal" {
-			call := p
-			for {
-				next, ok := file.FlatParent(call)
-				if !ok {
-					call = 0
-					break
-				}
-				call = next
-				if file.FlatType(call) == "call_expression" {
-					break
-				}
-				if file.FlatType(call) == "function_declaration" {
-					call = 0
-					break
-				}
-			}
-			if call != 0 && file.FlatType(call) == "call_expression" {
-				switch flatCallExpressionName(file, call) {
-				case "execute", "submit", "invokeLater", "post", "postDelayed",
-					"runOnUiThread", "Thread", "thread", "launch", "async",
-					"runInTransaction", "schedule":
-					return true
-				}
-			}
-		}
-		if file.FlatType(p) != "class_declaration" {
-			continue
-		}
-		for i := 0; i < file.FlatChildCount(p); i++ {
-			child := file.FlatChild(p, i)
-			if file.FlatType(child) != "delegation_specifier" {
-				continue
-			}
-			typeName := viewConstructorSupertypeNameFlat(file, child)
-			if typeName == "" {
-				continue
-			}
-			// Match simple name AND verify the file imports the corresponding
-			// package. java.lang.* types need no import.
-			fqn, known := asyncBoundarySimpleToFQN[typeName]
-			if !known {
-				continue
-			}
-			if fqn == "java.lang.Runnable" || fqn == "java.lang.Thread" {
-				// java.lang is always available; no import required.
-				return true
-			}
-			if asyncBoundaryHasImport(file, fqn) {
-				return true
-			}
-		}
-		return false
-	}
-	return false
-}
-
-// asyncBoundaryHasImport reports whether the file contains an import for fqn.
-func asyncBoundaryHasImport(file *scanner.File, fqn string) bool {
-	found := false
-	file.FlatWalkNodes(0, "import_header", func(node uint32) {
-		if found {
-			return
-		}
-		var parts []string
-		file.FlatWalkAllNodes(node, func(child uint32) {
-			switch file.FlatType(child) {
-			case "simple_identifier", "type_identifier":
-				parts = append(parts, file.FlatNodeString(child, nil))
-			}
-		})
-		path := strings.Join(parts, ".")
-		found = path == fqn
-	})
-	return found
-}
-
-func isCatchPartOfTryExpressionFlat(file *scanner.File, catchNode uint32) bool {
-	tryExpr, ok := file.FlatParent(catchNode)
-	if !ok || file.FlatType(tryExpr) != "try_expression" {
-		return false
-	}
-	crossedStatements := false
-	child := tryExpr
-	for cur, ok := file.FlatParent(tryExpr); ok; {
-		advance := true
-		switch file.FlatType(cur) {
-		case "property_declaration", "variable_declaration",
-			"assignment", "augmented_assignment",
-			"value_argument", "value_arguments",
-			"return_expression", "jump_expression",
-			"binary_expression", "elvis_expression",
-			"parenthesized_expression":
-			return true
-		case "function_body":
-			if file.FlatChildCount(cur) == 0 || file.FlatType(file.FlatChild(cur, 0)) != "=" {
-				return false
-			}
-			return !crossedStatements
-		case "statements":
-			if cc := file.FlatChildCount(cur); cc > 0 && file.FlatChild(cur, cc-1) != child {
-				crossedStatements = true
-			}
-		case "control_structure_body", "if_expression", "when_entry",
-			"when_expression", "lambda_literal":
-			advance = true
-		case "function_declaration", "class_body", "source_file":
-			return false
-		}
-		if !advance {
-			continue
-		}
-		next, nextOK := file.FlatParent(cur)
-		if !nextOK {
-			break
-		}
-		child = cur
-		cur = next
-		ok = nextOK
-	}
-	return false
 }
 
 // ---------------------------------------------------------------------------

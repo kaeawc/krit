@@ -338,16 +338,6 @@ func skipFormatChecks(idx *android.ResourceIndex, name string) bool {
 	return idx.StringsNonTranslate[name] || idx.StringsNonFormatted[name]
 }
 
-// isTranslationOverride reports whether the stored value for name came from a
-// translation file whose text differs from the default-locale value.
-func isTranslationOverride(idx *android.ResourceIndex, name, val string) (android.StringSource, bool) {
-	src, ok := idx.StringSources[name]
-	if !ok || src.Value == val {
-		return src, false
-	}
-	return src, android.IsTranslationValuesPath(idx.StringsLocation[name].FilePath)
-}
-
 // formatArgSlots returns the argument types by 1-based slot and whether every
 // specifier is positional. `<` reuses the previous slot; `%n` and `%%` take none.
 func formatArgSlots(s string) (slots map[int]byte, allPositional bool) {

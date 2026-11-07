@@ -1379,22 +1379,6 @@ func javaFunctionHasReceiverCallAfter(file *scanner.File, fn, target uint32, rec
 	return found
 }
 
-func javaEnclosingFunctionHasCallNamed(file *scanner.File, fn, except uint32, names map[string]bool) bool {
-	if file == nil || fn == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(fn, "method_invocation", func(call uint32) {
-		if found || call == except {
-			return
-		}
-		if names[javaMethodInvocationName(file, call)] {
-			found = true
-		}
-	})
-	return found
-}
-
 // javaVariableEscapes reports whether a local variable is returned, passed as an argument or stored,
 // in which case another scope may complete it.
 func javaVariableEscapes(file *scanner.File, fn uint32, name string) bool {

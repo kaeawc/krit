@@ -121,37 +121,6 @@ func annotationHasClassLiteralArgIn(file *scanner.File, annotation uint32, names
 	return false
 }
 
-// annotationHasStringArgIn returns true when the annotation has a
-// value_argument whose expression is a non-interpolated string_literal
-// with content in `names`. Used by rules like ForbiddenSuppress to
-// match on `@Suppress("RuleX")` arguments.
-func annotationHasStringArgIn(file *scanner.File, annotation uint32, names map[string]bool) bool {
-	ctor, ok := file.FlatFindChild(annotation, "constructor_invocation")
-	if !ok {
-		return false
-	}
-	args, _ := file.FlatFindChild(ctor, "value_arguments")
-	if args == 0 {
-		return false
-	}
-	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
-		if file.FlatType(arg) != "value_argument" {
-			continue
-		}
-		expr := flatValueArgumentExpression(file, arg)
-		if expr == 0 || file.FlatType(expr) != "string_literal" {
-			continue
-		}
-		if flatContainsStringInterpolation(file, expr) {
-			continue
-		}
-		if names[stringLiteralContent(file, expr)] {
-			return true
-		}
-	}
-	return false
-}
-
 // annotationConstructorName returns the final identifier of an annotation's
 // constructor_invocation. For `@foo.bar.IntDef(...)` this returns "IntDef".
 func annotationConstructorName(file *scanner.File, ctor uint32) string {

@@ -164,17 +164,3 @@ func catchKeywordNode(file *scanner.File, catch uint32) uint32 {
 	}
 	return catch
 }
-
-// catchTypeNode returns the caught type of a catch clause, or the clause when no type node is found.
-func catchTypeNode(file *scanner.File, catch uint32) uint32 {
-	found := uint32(0)
-	for c := file.FlatFirstChild(catch); c != 0 && found == 0; c = file.FlatNextSib(c) {
-		switch file.FlatType(c) {
-		case "block", "statements":
-			return anchorOr(found, catch)
-		case "user_type", "nullable_type", "type_identifier", "scoped_type_identifier", "catch_type", "catch_formal_parameter":
-			found = c
-		}
-	}
-	return anchorOr(found, catch)
-}

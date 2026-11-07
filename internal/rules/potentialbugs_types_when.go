@@ -112,39 +112,6 @@ func whenSubjectExhaustiveKindFlat(file *scanner.File, idx uint32, resolver type
 	return "", "", nil
 }
 
-func whenSubjectExhaustiveVariantsFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) (string, []string) {
-	if file == nil || idx == 0 || resolver == nil || file.FlatType(idx) != "when_expression" {
-		return "", nil
-	}
-	subject := whenSubjectExpressionFlat(file, idx)
-	if subject == 0 {
-		return "", nil
-	}
-	candidates := whenSubjectTypeCandidatesFlat(file, subject, resolver)
-	for _, name := range candidates {
-		if variants := resolver.SealedVariants(name); len(variants) > 0 {
-			return simpleTypeName(name), variants
-		}
-		if variants := resolver.EnumEntries(name); len(variants) > 0 {
-			return simpleTypeName(name), variants
-		}
-		if info := resolver.ClassHierarchy(name); info != nil {
-			for _, infoName := range []string{info.Name, info.FQN} {
-				if infoName == "" || infoName == name {
-					continue
-				}
-				if variants := resolver.SealedVariants(infoName); len(variants) > 0 {
-					return simpleTypeName(infoName), variants
-				}
-				if variants := resolver.EnumEntries(infoName); len(variants) > 0 {
-					return simpleTypeName(infoName), variants
-				}
-			}
-		}
-	}
-	return "", nil
-}
-
 func whenSubjectExpressionFlat(file *scanner.File, idx uint32) uint32 {
 	subject, ok := file.FlatFindChild(idx, "when_subject")
 	if !ok || subject == 0 {
@@ -196,19 +163,6 @@ func whenSubjectTypeCandidatesFlat(file *scanner.File, subject uint32, resolver 
 		}
 	}
 	return out
-}
-
-func whenVariantsCoveredFlat(coveredTypes map[string]bool, variants []string) bool {
-	for _, v := range variants {
-		if v == "" {
-			continue
-		}
-		if coveredTypes[v] || coveredTypes[simpleTypeName(v)] {
-			continue
-		}
-		return false
-	}
-	return len(variants) > 0
 }
 
 // whenUnguardedTypeTests returns the `is T` type names of entries that have no guard. A guarded
@@ -687,21 +641,6 @@ func whenHasNullBranchFlat(file *scanner.File, idx uint32) bool {
 		})
 	})
 	return found
-}
-
-// whenElseEntryNode returns the `else ->` when_entry of a when_expression, or idx when there is none.
-func whenElseEntryNode(file *scanner.File, idx uint32) uint32 {
-	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
-		if file.FlatType(entry) != "when_entry" {
-			continue
-		}
-		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "else" {
-				return entry
-			}
-		}
-	}
-	return idx
 }
 
 // whenSubjectIsIgnored reports whether the subject type is one of the configured ignoredSubjectTypes.

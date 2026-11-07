@@ -366,22 +366,6 @@ type NotSiblingResourceRule struct {
 	AndroidRule
 }
 
-var relativeConstraintAttrs = []string{
-	"android:layout_below",
-	"android:layout_above",
-	"android:layout_toLeftOf",
-	"android:layout_toRightOf",
-	"android:layout_toStartOf",
-	"android:layout_toEndOf",
-	"android:layout_alignBaseline",
-	"android:layout_alignLeft",
-	"android:layout_alignRight",
-	"android:layout_alignTop",
-	"android:layout_alignBottom",
-	"android:layout_alignStart",
-	"android:layout_alignEnd",
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android RTL resource rule. Detection flags start/end vs left/right
 // attribute usage and bidi markers via attribute presence checks.
 // Classified per roadmap/17.

@@ -355,14 +355,6 @@ func composeNounPlural(noun string, n int) string {
 	return noun + "s"
 }
 
-// composeParamNoun returns "parameter" or "parameters" for the count.
-func composeParamNoun(n int) string {
-	if n == 1 {
-		return "parameter"
-	}
-	return "parameters"
-}
-
 // composeLambdaHasOnceOnlyShape reports whether an effect body is a one-shot side effect:
 // guarded by a top-level if, or calling a tracking, registration or UI-notification function.
 func composeLambdaHasOnceOnlyShape(file *scanner.File, lambdaIdx uint32) bool {

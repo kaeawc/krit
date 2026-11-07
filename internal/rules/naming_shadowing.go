@@ -320,18 +320,6 @@ func skipShadowedDestructuringEntry(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-func isInsideDestructuringFlat(file *scanner.File, idx uint32) bool {
-	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
-		switch file.FlatType(p) {
-		case "multi_variable_declaration":
-			return true
-		case "function_declaration", "lambda_literal", "class_body", "function_body", "statements", "source_file":
-			return false
-		}
-	}
-	return false
-}
-
 func noNameShadowIsLambdaParameterFlat(file *scanner.File, idx uint32) bool {
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {

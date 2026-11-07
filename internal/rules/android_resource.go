@@ -80,17 +80,6 @@ func walkViews(v *android.View, fn func(*android.View)) {
 	}
 }
 
-// walkViewsWithParent calls fn for every view in the tree with its parent.
-func walkViewsWithParent(v *android.View, parent *android.View, fn func(v, parent *android.View)) {
-	if v == nil {
-		return
-	}
-	fn(v, parent)
-	for _, child := range v.Children {
-		walkViewsWithParent(child, v, fn)
-	}
-}
-
 // truncate shortens a string for display in messages.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {

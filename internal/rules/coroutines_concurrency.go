@@ -355,16 +355,6 @@ type VolatileMissingOnDclRule struct {
 
 func (r *VolatileMissingOnDclRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// countDclNullChecks counts `propName == null` (or `null == propName`)
-// equality expressions inside the class where the identifier resolves to the
-// class property — i.e. is not shadowed by a local declaration or parameter
-// in the enclosing function. This replaces a substring count that produced
-// false positives whenever a local variable happened to share the name.
-func countDclNullChecks(file *scanner.File, classDecl uint32, propName string) int {
-	outside, inside := countDclNullChecksSplit(file, classDecl, propName)
-	return outside + inside
-}
-
 // countDclNullChecksSplit counts `prop == null` checks outside and inside synchronized scopes.
 func countDclNullChecksSplit(file *scanner.File, classDecl uint32, propName string) (outside, inside int) {
 	if file == nil || classDecl == 0 || propName == "" {

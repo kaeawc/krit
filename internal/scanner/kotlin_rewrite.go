@@ -44,10 +44,8 @@ type parenFix struct {
 type parenFixKind uint8
 
 const (
-	// parenFixAssignment wraps the target of an assignment.
-	parenFixAssignment parenFixKind = iota
 	// parenFixExpression wraps a plain expression.
-	parenFixExpression
+	parenFixExpression parenFixKind = iota
 )
 
 // declPrefix is a blanked span [start, end) that the declaration beginning at

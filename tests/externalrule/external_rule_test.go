@@ -114,9 +114,10 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 			if finding.Rule != ruleID {
 				continue
 			}
-			abs, err := filepath.Abs(finding.File)
-			if err != nil {
-				t.Fatalf("absolutize finding path %q: %v", finding.File, err)
+			// Finding paths are relative to the scan root (samplesDir).
+			abs := finding.File
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(samplesDir, abs)
 			}
 			if abs == positiveFile {
 				positiveLines = append(positiveLines, finding.Line)
@@ -174,9 +175,10 @@ func TestExternalRuleExample_EndToEnd(t *testing.T) {
 			if finding.Rule != suspendRuleID {
 				continue
 			}
-			abs, err := filepath.Abs(finding.File)
-			if err != nil {
-				t.Fatalf("absolutize finding path %q: %v", finding.File, err)
+			// Finding paths are relative to the scan root (samplesDir).
+			abs := finding.File
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(samplesDir, abs)
 			}
 			if abs == positiveSuspendFile {
 				suspendLines = append(suspendLines, finding.Line)

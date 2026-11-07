@@ -369,16 +369,6 @@ type ButtonOrderResourceRule struct {
 	AndroidRule
 }
 
-func isOKButton(v *android.View) bool {
-	t := strings.ToLower(v.Text)
-	return t == "ok" || t == "confirm" || t == "@string/ok" || t == "@string/confirm"
-}
-
-func isCancelButton(v *android.View) bool {
-	t := strings.ToLower(v.Text)
-	return t == "cancel" || t == "dismiss" || t == "@string/cancel" || t == "@string/dismiss"
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android accessibility resource rule. Detection flags missing
 // contentDescription, importantForAccessibility, and focusable attributes
 // via structural checks. Classified per roadmap/17.

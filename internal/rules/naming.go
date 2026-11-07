@@ -38,62 +38,6 @@ type FunctionNamingRule struct {
 // Classified per roadmap/17.
 func (r *FunctionNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-func functionDeclarationHasExplicitReturnTypeFlat(file *scanner.File, idx uint32) bool {
-	seenParams := false
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		c := file.FlatChild(idx, i)
-		t := file.FlatType(c)
-		if t == "function_value_parameters" {
-			seenParams = true
-			continue
-		}
-		if !seenParams {
-			continue
-		}
-		switch t {
-		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_reference", "dynamic_type":
-			return true
-		case "function_body", "=", "{":
-			return false
-		}
-	}
-	text := file.FlatNodeText(idx)
-	funIdx := strings.Index(text, "fun ")
-	if funIdx < 0 {
-		return false
-	}
-	rest := text[funIdx:]
-	paren := strings.Index(rest, ")")
-	if paren < 0 {
-		return false
-	}
-	after := strings.TrimLeft(rest[paren+1:], " \t\n\r")
-	return strings.HasPrefix(after, ":")
-}
-
-func isTopLevelFunctionFlat(file *scanner.File, idx uint32) bool {
-	p, ok := file.FlatParent(idx)
-	return ok && file.FlatType(p) == "source_file"
-}
-
-func functionHasExpressionBodyReturningCallFlat(file *scanner.File, idx uint32) bool {
-	body, _ := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return false
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if !strings.HasPrefix(bodyText, "=") {
-		return false
-	}
-	for i := 0; i < file.FlatNamedChildCount(body); i++ {
-		c := file.FlatNamedChild(body, i)
-		if file.FlatType(c) == "call_expression" {
-			return true
-		}
-	}
-	return false
-}
-
 // VariableNamingRule checks local variable names.
 type VariableNamingRule struct {
 	FlatDispatchBase
@@ -194,25 +138,6 @@ func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
 
 // namingWireAnnotations map a field to an external schema name, so a snake_case Kotlin name mirrors the wire format.
 var namingWireAnnotations = []string{"SerialName", "SerializedName", "Json", "JsonProperty", "Element", "Attribute"}
-
-// namingSchemaClassAnnotations mark a class whose parameter names follow an external schema.
-var namingSchemaClassAnnotations = []string{"JsonClass", "Serializable", "JsonIgnoreProperties", "JsonInclude"}
-
-// namingClassLooksLikeExternalSchema reports a data class that mirrors an external schema, which
-// fixes its parameter names. primaryCtor is the primary_constructor node.
-func namingClassLooksLikeExternalSchema(file *scanner.File, primaryCtor uint32) bool {
-	cls, ok := file.FlatParent(primaryCtor)
-	if !ok || file.FlatType(cls) != "class_declaration" {
-		return false
-	}
-	for _, name := range namingSchemaClassAnnotations {
-		if hasAnnotationFlat(file, cls, name) {
-			return true
-		}
-	}
-	name := extractIdentifierFlat(file, cls)
-	return strings.HasSuffix(name, "Dto") || strings.HasSuffix(name, "DTO") || strings.HasSuffix(name, "Payload")
-}
 
 // namingParameterHasWireName reports a parameter carrying a serialization name annotation.
 func namingParameterHasWireName(file *scanner.File, param uint32) bool {
@@ -444,35 +369,6 @@ func containsIdentifierStart(text, prefix string) bool {
 	}
 }
 
-func isExtensionFunctionDeclFlat(file *scanner.File, idx uint32) bool {
-	if file == nil || file.FlatType(idx) != "function_declaration" {
-		return false
-	}
-	var sawUserType bool
-	for i := 0; i < file.FlatChildCount(idx); i++ {
-		c := file.FlatChild(idx, i)
-		switch file.FlatType(c) {
-		case "user_type":
-			sawUserType = true
-		case "simple_identifier":
-			if sawUserType {
-				return true
-			}
-			return false
-		}
-	}
-	text := strings.TrimSpace(file.FlatNodeText(idx))
-	if !strings.HasPrefix(text, "fun ") {
-		return false
-	}
-	rest := strings.TrimPrefix(text, "fun ")
-	if parenIdx := strings.Index(rest, "("); parenIdx > 0 {
-		head := rest[:parenIdx]
-		return strings.Contains(head, ".")
-	}
-	return false
-}
-
 // NonBooleanPropertyPrefixedWithIsRule flags non-Boolean properties that start with "is".
 type NonBooleanPropertyPrefixedWithIsRule struct {
 	FlatDispatchBase
@@ -549,30 +445,4 @@ func walkFunctionParametersFlat(file *scanner.File, idx uint32, visit func(uint3
 	file.FlatForEachChild(idx, func(child uint32) {
 		walkFunctionParametersFlat(file, child, visit)
 	})
-}
-
-// namingFunctionReturnsType reports a function whose explicit return type is typeName, ignoring nullability and type arguments.
-func namingFunctionReturnsType(file *scanner.File, fn uint32, typeName string) bool {
-	seenParams := false
-	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
-		t := file.FlatType(c)
-		if t == "function_value_parameters" {
-			seenParams = true
-			continue
-		}
-		if !seenParams {
-			continue
-		}
-		switch t {
-		case "user_type", "nullable_type", "type_reference":
-			text := strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(c)), "?")
-			if i := strings.Index(text, "<"); i >= 0 {
-				text = text[:i]
-			}
-			return text == typeName
-		case "function_body", "=", "{":
-			return false
-		}
-	}
-	return false
 }

@@ -87,31 +87,6 @@ func matchTypeBytes(text []byte, names []string) bool {
 	return false
 }
 
-func classHasMemberFunctionFlat(file *scanner.File, class uint32, name string) bool {
-	body, _ := file.FlatFindChild(class, "class_body")
-	if body == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(body, "function_declaration", func(fn uint32) {
-		if found {
-			return
-		}
-		if extractIdentifierFlat(file, fn) == name {
-			found = true
-		}
-	})
-	file.FlatWalkNodes(body, "method_declaration", func(fn uint32) {
-		if found {
-			return
-		}
-		if extractIdentifierFlat(file, fn) == name {
-			found = true
-		}
-	})
-	return found
-}
-
 func classHasNestedViewHolderFlat(file *scanner.File, class uint32) bool {
 	body, _ := file.FlatFindChild(class, "class_body")
 	if body == 0 {

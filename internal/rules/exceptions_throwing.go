@@ -72,35 +72,6 @@ func (r *ThrowingExceptionsWithoutMessageOrCauseRule) exceptionAllowlist() map[s
 	return r.allowlist
 }
 
-func throwingExceptionArgCountFlat(file *scanner.File, idx uint32) int {
-	if !experiment.Enabled("exceptions-throw-fastpath") {
-		callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
-		if callSuffix == 0 {
-			return -1
-		}
-		valueArgs, _ := file.FlatFindChild(callSuffix, "value_arguments")
-		if valueArgs == 0 {
-			return -1
-		}
-		argCount := 0
-		for i := 0; i < file.FlatChildCount(valueArgs); i++ {
-			if file.FlatType(file.FlatChild(valueArgs, i)) == "value_argument" {
-				argCount++
-			}
-		}
-		return argCount
-	}
-	callSuffix, _ := file.FlatFindChild(idx, "call_suffix")
-	if callSuffix == 0 {
-		return -1
-	}
-	argList, _ := file.FlatFindChild(callSuffix, "value_arguments")
-	if argList == 0 {
-		return -1
-	}
-	return file.FlatNamedChildCount(argList)
-}
-
 // ThrowingNewInstanceOfSameExceptionRule detects catch(e: X) { throw X(e) }.
 type ThrowingNewInstanceOfSameExceptionRule struct {
 	FlatDispatchBase
@@ -393,26 +364,6 @@ func hasLaterCatchSibling(file *scanner.File, catchNode uint32) bool {
 		}
 	}
 	return false
-}
-
-// functionBodyIsOnlyThrow reports a function whose body is a single throw, as a block or an expression body.
-func functionBodyIsOnlyThrow(file *scanner.File, fn uint32) bool {
-	body, ok := file.FlatFindChild(fn, "function_body")
-	if !ok {
-		body, ok = file.FlatFindChild(fn, "block")
-	}
-	if !ok {
-		return false
-	}
-	text := strings.TrimSpace(file.FlatNodeText(body))
-	if strings.HasPrefix(text, "=") {
-		return strings.HasPrefix(strings.TrimSpace(text[1:]), "throw")
-	}
-	stmts, ok := file.FlatFindChild(body, "statements")
-	if !ok {
-		stmts = body
-	}
-	return file.FlatNamedChildCount(stmts) == 1 && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(stmts, 0))), "throw")
 }
 
 // jumpLeavesOnlyNestedScope reports a return or throw inside idx that stays within a declaration nested in

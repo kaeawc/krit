@@ -36,19 +36,6 @@ func classIsEnum(file *scanner.File, idx uint32) bool {
 	return file.FlatHasChildOfType(idx, "enum") || file.FlatHasModifier(idx, "enum")
 }
 
-func classKindLabel(file *scanner.File, idx uint32) string {
-	if file.FlatType(idx) == "object_declaration" {
-		return "Object"
-	}
-	if file.FlatHasChildOfType(idx, "interface") {
-		return "Interface"
-	}
-	if classIsEnum(file, idx) {
-		return "Enum class"
-	}
-	return "Class"
-}
-
 // LargeClassRule detects classes exceeding a line count.
 type LargeClassRule struct {
 	FlatDispatchBase

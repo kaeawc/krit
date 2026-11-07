@@ -25,11 +25,6 @@ func FindingColumnsToDiagnosticsInContent(columns *scanner.FindingColumns, conte
 	return diags
 }
 
-// rowToDiagnostic builds a Diagnostic from a single columnar row.
-func rowToDiagnostic(columns *scanner.FindingColumns, row int) Diagnostic {
-	return rowToDiagnosticInContent(columns, row, nil)
-}
-
 // byteColumnToUTF16 maps a 0-based byte column on a 0-based line to a UTF-16 code unit offset.
 func byteColumnToUTF16(content []byte, line, byteCol int) int {
 	start := lineStartOffset(content, line)

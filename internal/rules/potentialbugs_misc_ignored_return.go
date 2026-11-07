@@ -684,8 +684,8 @@ func ignoredReturnValueTestFileDisposableCall(file *scanner.File, funcName strin
 // ignoredReturnValueFunctionTypeFromInvoke reports a function-typed result that comes from invoking a function value.
 // The expression type of `callback?.invoke(x)` or `state.eventSink(x)` is the callee's type, not a returned function.
 func ignoredReturnValueFunctionTypeFromInvoke(file *scanner.File, call uint32, funcName string, rt *typeinfer.ResolvedType) bool {
-	if rt == nil || !(rt.Kind == typeinfer.TypeFunction || strings.HasPrefix(rt.FQN, "kotlin.Function") ||
-		strings.HasPrefix(rt.Name, "Function")) {
+	if rt == nil || rt.Kind != typeinfer.TypeFunction && !strings.HasPrefix(rt.FQN, "kotlin.Function") &&
+		!strings.HasPrefix(rt.Name, "Function") {
 		return false
 	}
 	if funcName == "invoke" {

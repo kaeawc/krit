@@ -1,9 +1,9 @@
 package rules_test
 
 import (
-	"github.com/kaeawc/krit/internal/oracle"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )

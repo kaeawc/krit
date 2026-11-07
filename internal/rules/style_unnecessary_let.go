@@ -286,7 +286,7 @@ func unnecessaryLetNestedLambdaHides(file *scanner.File, lambda uint32, names []
 	}
 	// A trailing lambda of a capitalized call is a UI content lambda without a
 	// parameter.
-	return !(callee != "" && callee[0] >= 'A' && callee[0] <= 'Z' && unnecessaryLetIsTrailing(file, lambda))
+	return callee == "" || callee[0] < 'A' || callee[0] > 'Z' || !unnecessaryLetIsTrailing(file, lambda)
 }
 
 func unnecessaryLetIsTrailing(file *scanner.File, lambda uint32) bool {

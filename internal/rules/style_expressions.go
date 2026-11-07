@@ -526,7 +526,7 @@ func isNumericLiteral(s string) bool {
 	if len(s) > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X' || s[1] == 'b' || s[1] == 'B') {
 		for i := 2; i < len(s); i++ {
 			c := s[i]
-			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' || c == '_' || c == 'L' || c == 'u' || c == 'U') {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') && c != '_' && c != 'L' && c != 'u' && c != 'U' {
 				return false
 			}
 		}

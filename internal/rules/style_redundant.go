@@ -174,83 +174,113 @@ func offsetInsideSourceComment(file *scanner.File, offset uint32) bool {
 
 // sourceCommentRanges lexes Kotlin text just enough to find comment spans, skipping strings and chars.
 func sourceCommentRanges(src []byte) [][2]uint32 {
-	var ranges [][2]uint32
-	var scan func(i int, untilBrace bool) int
-	scanString := func(i int, raw bool) int {
-		for i < len(src) {
-			switch {
-			case !raw && src[i] == '\\':
-				i += 2
-			case raw && src[i] == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
-				return i + 3
-			case !raw && (src[i] == '"' || src[i] == '\n'):
+	l := &commentRangeLexer{src: src}
+	l.scan(0, false)
+	return l.ranges
+}
+
+// commentRangeLexer collects comment spans; string templates recurse into scan for their `${...}` code.
+type commentRangeLexer struct {
+	src    []byte
+	ranges [][2]uint32
+}
+
+// scan lexes code from i and returns the offset after it: the end of src, or after the closing `}` of a template
+// expression when untilBrace is set.
+func (l *commentRangeLexer) scan(i int, untilBrace bool) int {
+	src := l.src
+	depth := 0
+	for i < len(src) {
+		c := src[i]
+		switch {
+		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			start := i
+			i = lineCommentEnd(src, i)
+			l.ranges = append(l.ranges, [2]uint32{uint32(start), uint32(i)})
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			start := i
+			i = blockCommentEnd(src, i)
+			l.ranges = append(l.ranges, [2]uint32{uint32(start), uint32(i)})
+		case c == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
+			i = l.scanString(i+3, true)
+		case c == '"':
+			i = l.scanString(i+1, false)
+		case c == '\'':
+			i = charLiteralEnd(src, i)
+		case untilBrace && c == '{':
+			depth++
+			i++
+		case untilBrace && c == '}':
+			if depth == 0 {
 				return i + 1
-			case src[i] == '$' && i+1 < len(src) && src[i+1] == '{':
-				i = scan(i+2, true)
-			default:
-				i++
 			}
+			depth--
+			i++
+		default:
+			i++
 		}
-		return i
 	}
-	scan = func(i int, untilBrace bool) int {
-		depth := 0
-		for i < len(src) {
-			c := src[i]
-			switch {
-			case c == '/' && i+1 < len(src) && src[i+1] == '/':
-				start := i
-				for i < len(src) && src[i] != '\n' {
-					i++
-				}
-				ranges = append(ranges, [2]uint32{uint32(start), uint32(i)})
-			case c == '/' && i+1 < len(src) && src[i+1] == '*':
-				start, nest := i, 0
-				for i < len(src) {
-					if src[i] == '/' && i+1 < len(src) && src[i+1] == '*' {
-						nest++
-						i += 2
-					} else if src[i] == '*' && i+1 < len(src) && src[i+1] == '/' {
-						nest--
-						i += 2
-						if nest == 0 {
-							break
-						}
-					} else {
-						i++
-					}
-				}
-				ranges = append(ranges, [2]uint32{uint32(start), uint32(i)})
-			case c == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
-				i = scanString(i+3, true)
-			case c == '"':
-				i = scanString(i+1, false)
-			case c == '\'':
-				i++
-				for i < len(src) && src[i] != '\'' && src[i] != '\n' {
-					if src[i] == '\\' {
-						i++
-					}
-					i++
-				}
-				i++
-			case untilBrace && c == '{':
-				depth++
-				i++
-			case untilBrace && c == '}':
-				if depth == 0 {
-					return i + 1
-				}
-				depth--
-				i++
-			default:
-				i++
+	return i
+}
+
+// scanString skips a string body starting at i (raw for triple-quoted strings) and returns the offset after it.
+func (l *commentRangeLexer) scanString(i int, raw bool) int {
+	src := l.src
+	for i < len(src) {
+		switch {
+		case !raw && src[i] == '\\':
+			i += 2
+		case raw && src[i] == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
+			return i + 3
+		case !raw && (src[i] == '"' || src[i] == '\n'):
+			return i + 1
+		case src[i] == '$' && i+1 < len(src) && src[i+1] == '{':
+			i = l.scan(i+2, true)
+		default:
+			i++
+		}
+	}
+	return i
+}
+
+// lineCommentEnd returns the offset of the line break (or end of src) that ends the `//` comment at i.
+func lineCommentEnd(src []byte, i int) int {
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+// blockCommentEnd returns the offset after the `*/` that closes the (possibly nested) block comment at i.
+func blockCommentEnd(src []byte, i int) int {
+	nest := 0
+	for i < len(src) {
+		if src[i] == '/' && i+1 < len(src) && src[i+1] == '*' {
+			nest++
+			i += 2
+		} else if src[i] == '*' && i+1 < len(src) && src[i+1] == '/' {
+			nest--
+			i += 2
+			if nest == 0 {
+				break
 			}
+		} else {
+			i++
 		}
-		return i
 	}
-	scan(0, false)
-	return ranges
+	return i
+}
+
+// charLiteralEnd returns the offset after the char literal whose opening quote is at i.
+func charLiteralEnd(src []byte, i int) int {
+	i++
+	for i < len(src) && src[i] != '\'' && src[i] != '\n' {
+		if src[i] == '\\' {
+			i++
+		}
+		i++
+	}
+	return i + 1
 }
 
 func isInsideStringTemplateFlat(file *scanner.File, idx uint32) bool {

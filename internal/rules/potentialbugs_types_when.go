@@ -258,7 +258,7 @@ func whenSealedCoveredAt(file *scanner.File, resolver typeinfer.TypeResolver, se
 // elsewhere does not count. An unqualified test of an ambiguous name covers the variant only when
 // its import is declared in the variant's owner.
 func whenTypeTestCovers(file *scanner.File, resolver typeinfer.TypeResolver, sealedName string, covered map[string]bool, variant string, ambiguous bool) bool {
-	if covered[variant] && !(ambiguous && !strings.Contains(variant, ".") && !whenImportOwnerMatches(file, resolver, variant, variant, sealedName)) {
+	if covered[variant] && (!ambiguous || strings.Contains(variant, ".") || whenImportOwnerMatches(file, resolver, variant, variant, sealedName)) {
 		return true
 	}
 	simple := simpleTypeName(variant)

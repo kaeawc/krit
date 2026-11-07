@@ -946,9 +946,9 @@ func nullableBooleanOperand(ctx *api.Context, operand uint32) bool {
 	return false
 }
 
-// lambdaUsesImplicitIt reports whether node (inside the lambda root) reads the lambda's implicit `it`.
+// lambdaUsesImplicitIt reports whether node (inside a lambda) reads the lambda's implicit `it`.
 // Nested lambdas without parameters and nested functions have their own `it`, so they are not entered.
-func lambdaUsesImplicitIt(file *scanner.File, root, node uint32) bool {
+func lambdaUsesImplicitIt(file *scanner.File, node uint32) bool {
 	for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
 		switch file.FlatType(c) {
 		case "simple_identifier":
@@ -962,7 +962,7 @@ func lambdaUsesImplicitIt(file *scanner.File, root, node uint32) bool {
 		case "function_declaration", "anonymous_function", "class_declaration", "object_declaration":
 			continue
 		}
-		if lambdaUsesImplicitIt(file, root, c) {
+		if lambdaUsesImplicitIt(file, c) {
 			return true
 		}
 	}

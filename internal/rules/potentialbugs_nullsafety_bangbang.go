@@ -118,7 +118,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	// A type parameter with a nullable bound is marked non-null yet still nullable, so it stays reported.
 	known, nullable := oracleNullability(ctx, receiverIdx)
 	if known && !nullable &&
-		!(file.FlatType(receiverIdx) == "simple_identifier" && hasNullableGenericParamBoundFlat(file, idx, receiverText)) {
+		(file.FlatType(receiverIdx) != "simple_identifier" || !hasNullableGenericParamBoundFlat(file, idx, receiverText)) {
 		return
 	}
 	// The flow guards below approximate the compiler's smart casts. When the compiler recorded a nullable type

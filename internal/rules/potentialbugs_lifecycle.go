@@ -121,7 +121,7 @@ func kotlinIsMainFunction(file *scanner.File, fn uint32) bool {
 		params, _ := file.FlatFindChild(fn, "function_value_parameters")
 		mods, _ := file.FlatFindChild(params, "parameter_modifiers")
 		vararg := mods != 0 && strings.Contains(file.FlatNodeText(mods), "vararg")
-		if !(types[0] == "Array<String>" && !vararg) && !(vararg && types[0] == "String") {
+		if (types[0] != "Array<String>" || vararg) && (!vararg || types[0] != "String") {
 			return false
 		}
 	}

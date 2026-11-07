@@ -127,18 +127,8 @@ func (r *UseDataClassRule) check(ctx *api.Context) {
 	}
 	// Only private constructors (or none at all): a data class would expose them through copy().
 	ctor, _ := file.FlatFindChild(idx, "primary_constructor")
-	if ctor == 0 || file.FlatHasModifier(ctor, "private") {
-		onlyPrivate := true
-		if body, _ := file.FlatFindChild(idx, "class_body"); body != 0 {
-			forEachDirectClassMemberFlat(file, body, func(m uint32) {
-				if file.FlatType(m) == "secondary_constructor" && !file.FlatHasModifier(m, "private") {
-					onlyPrivate = false
-				}
-			})
-		}
-		if onlyPrivate {
-			return
-		}
+	if useDataClassOnlyPrivateConstructors(file, idx, ctor) {
+		return
 	}
 	if !useDataClassSupertypesAreSimple(file, idx) {
 		return
@@ -150,51 +140,85 @@ func (r *UseDataClassRule) check(ctx *api.Context) {
 			}
 		}
 	}
-	hasVar, hasMember := false, false
-	if ctor != 0 {
-		nonProperty := false
-		file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
-			binding, _ := file.FlatFindChild(p, "binding_pattern_kind")
-			switch {
-			case binding != 0 && file.FlatHasChildOfType(binding, "val"):
-				hasMember = true
-			case binding != 0 && file.FlatHasChildOfType(binding, "var"):
-				hasMember, hasVar = true, true
-			default:
-				nonProperty = true
-			}
-		})
-		if nonProperty {
-			return
-		}
+	ctorMember, ctorVar, ok := useDataClassConstructorProperties(file, ctor)
+	if !ok {
+		return
 	}
-	if body, _ := file.FlatFindChild(idx, "class_body"); body != 0 {
-		blocked := false
-		forEachDirectClassMemberFlat(file, body, func(m uint32) {
-			switch file.FlatType(m) {
-			case "function_declaration":
-				if !useDataClassDefaultFunctions[extractIdentifierFlat(file, m)] {
-					blocked = true
-				}
-			case "property_declaration":
-				hasMember = true
-				if file.FlatHasChildOfType(m, "property_delegate") {
-					blocked = true
-				}
-				if binding, ok := file.FlatFindChild(m, "binding_pattern_kind"); ok && binding != 0 && file.FlatHasChildOfType(binding, "var") {
-					hasVar = true
-				}
-			}
-		})
-		if blocked {
-			return
-		}
+	bodyMember, bodyVar, ok := useDataClassBodyProperties(file, idx)
+	if !ok {
+		return
 	}
+	hasMember, hasVar := ctorMember || bodyMember, ctorVar || bodyVar
 	if !hasMember || (r.AllowVars && hasVar) {
 		return
 	}
 	ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 		"The class "+extractIdentifierFlat(file, idx)+" defines no functionality and only holds data. Consider converting it to a data class.")
+}
+
+// useDataClassOnlyPrivateConstructors reports a class whose primary constructor is missing or private and whose
+// secondary constructors are all private.
+func useDataClassOnlyPrivateConstructors(file *scanner.File, idx, ctor uint32) bool {
+	if ctor != 0 && !file.FlatHasModifier(ctor, "private") {
+		return false
+	}
+	onlyPrivate := true
+	if body, _ := file.FlatFindChild(idx, "class_body"); body != 0 {
+		forEachDirectClassMemberFlat(file, body, func(m uint32) {
+			if file.FlatType(m) == "secondary_constructor" && !file.FlatHasModifier(m, "private") {
+				onlyPrivate = false
+			}
+		})
+	}
+	return onlyPrivate
+}
+
+// useDataClassConstructorProperties reports whether the primary constructor declares val or var properties; ok is
+// false when a parameter is not a property.
+func useDataClassConstructorProperties(file *scanner.File, ctor uint32) (hasMember, hasVar, ok bool) {
+	if ctor == 0 {
+		return false, false, true
+	}
+	nonProperty := false
+	file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
+		binding, _ := file.FlatFindChild(p, "binding_pattern_kind")
+		switch {
+		case binding != 0 && file.FlatHasChildOfType(binding, "val"):
+			hasMember = true
+		case binding != 0 && file.FlatHasChildOfType(binding, "var"):
+			hasMember, hasVar = true, true
+		default:
+			nonProperty = true
+		}
+	})
+	return hasMember, hasVar, !nonProperty
+}
+
+// useDataClassBodyProperties reports whether the class body declares properties and var properties; ok is false
+// when the body has a delegated property or a function other than the data class defaults.
+func useDataClassBodyProperties(file *scanner.File, idx uint32) (hasMember, hasVar, ok bool) {
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false, false, true
+	}
+	blocked := false
+	forEachDirectClassMemberFlat(file, body, func(m uint32) {
+		switch file.FlatType(m) {
+		case "function_declaration":
+			if !useDataClassDefaultFunctions[extractIdentifierFlat(file, m)] {
+				blocked = true
+			}
+		case "property_declaration":
+			hasMember = true
+			if file.FlatHasChildOfType(m, "property_delegate") {
+				blocked = true
+			}
+			if binding, ok := file.FlatFindChild(m, "binding_pattern_kind"); ok && binding != 0 && file.FlatHasChildOfType(binding, "var") {
+				hasVar = true
+			}
+		}
+	})
+	return hasMember, hasVar, !blocked
 }
 
 type UseIfInsteadOfWhenRule struct {

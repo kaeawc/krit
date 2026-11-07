@@ -151,9 +151,10 @@ func annotationArgumentsLength(rest string) int {
 	for i := 0; i < len(rest); i++ {
 		switch c := rest[i]; {
 		case inString:
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == '"' {
+			case '"':
 				inString = false
 			}
 		case c == '"':

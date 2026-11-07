@@ -89,7 +89,7 @@ func (r *ComposeCompilerRemovedFlagsRule) check(ctx *api.Context) {
 	}
 	kotlin := gradleToolchainFor(ctx).kotlin
 	for _, h := range hits {
-		severity, confidence, status, ok := composeStatus(h.construct, h.flag, kotlin)
+		severity, confidence, status, ok := composeStatus(h.construct, kotlin)
 		if !ok {
 			continue
 		}
@@ -160,7 +160,7 @@ func composeHits(src *gradleSource) []composeHit {
 
 // composeStatus maps the construct and the Kotlin version to a severity, confidence and status phrase. ok is false
 // when the construct should not be reported for that version.
-func composeStatus(c composeConstruct, flag bool, kotlin gradleVersion) (severity string, confidence float64, status string, ok bool) {
+func composeStatus(c composeConstruct, kotlin gradleVersion) (severity string, confidence float64, status string, ok bool) {
 	if c.deprecatedOnly {
 		if kotlin.atLeast(2, 4, 0) {
 			return "warning", api.ConfidenceHigh, "is deprecated since Kotlin 2.4.0", true

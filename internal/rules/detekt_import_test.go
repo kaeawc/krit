@@ -42,7 +42,7 @@ func snapshotRegistry(t *testing.T) {
 	var all []saved
 	for _, r := range api.Registry {
 		v := reflect.ValueOf(r.Implementation)
-		if v.Kind() != reflect.Ptr || v.IsNil() || v.Elem().Kind() != reflect.Struct {
+		if v.Kind() != reflect.Pointer || v.IsNil() || v.Elem().Kind() != reflect.Struct {
 			continue
 		}
 		c := reflect.New(v.Elem().Type()).Elem()

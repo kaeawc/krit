@@ -194,7 +194,7 @@ func tempInstantiationSimpleOperand(text string) bool {
 	}
 	for i := 0; i < len(text); i++ {
 		c := text[i]
-		if !(isIdentChar(c) || c == '.') {
+		if !isIdentChar(c) && c != '.' {
 			return false
 		}
 	}

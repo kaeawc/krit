@@ -676,26 +676,8 @@ func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string 
 			outer = typ
 		}
 	}
-	typeOf := func(node uint32) string {
-		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
-			switch file.FlatType(child) {
-			case "user_type", "type_identifier", "scoped_type_identifier", "generic_type":
-				return lintTrimGenerics(file.FlatNodeText(child))
-			case "nullable_type":
-				return lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(child)), "?"))
-			}
-		}
-		return ""
-	}
-	initType := func(init uint32) string {
-		if init == 0 {
-			return ""
-		}
-		if inner, ok := lintCallAt(file, init); ok && inner.Name != "" && inner.Name[0] >= 'A' && inner.Name[0] <= 'Z' {
-			return inner.TypeText
-		}
-		return ""
-	}
+	typeOf := func(node uint32) string { return lintChildTypeText(file, node) }
+	initType := func(init uint32) string { return lintConstructorCallType(file, init) }
 	for _, kind := range []string{"parameter", "class_parameter"} {
 		file.FlatWalkNodes(0, kind, func(decl uint32) {
 			if lintDeclaredName(file, decl) == name {
@@ -743,6 +725,30 @@ func lintDeclaredTypeText(file *scanner.File, scope uint32, name string) string 
 		return local
 	}
 	return outer
+}
+
+// lintChildTypeText returns the first type child of node without type arguments or a trailing `?`.
+func lintChildTypeText(file *scanner.File, node uint32) string {
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "type_identifier", "scoped_type_identifier", "generic_type":
+			return lintTrimGenerics(file.FlatNodeText(child))
+		case "nullable_type":
+			return lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(child)), "?"))
+		}
+	}
+	return ""
+}
+
+// lintConstructorCallType returns the type an initializer constructs when it is a call to a capitalized name.
+func lintConstructorCallType(file *scanner.File, init uint32) string {
+	if init == 0 {
+		return ""
+	}
+	if inner, ok := lintCallAt(file, init); ok && inner.Name != "" && inner.Name[0] >= 'A' && inner.Name[0] <= 'Z' {
+		return inner.TypeText
+	}
+	return ""
 }
 
 func lintTrimGenerics(s string) string {

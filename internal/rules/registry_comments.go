@@ -167,7 +167,7 @@ func registerCommentsRules() {
 						return
 					}
 					name := extractIdentifierFlat(file, member)
-					if !refs[name] || !(file.FlatHasModifier(member, "private") || file.FlatHasModifier(member, "internal")) {
+					if !refs[name] || !file.FlatHasModifier(member, "private") && !file.FlatHasModifier(member, "internal") {
 						return
 					}
 					ctx.EmitAt(declLine(file, member), declCol(file, member),

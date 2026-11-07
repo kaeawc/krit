@@ -233,6 +233,25 @@ func (r *defaultResolver) installLambdaPreludeScope(file *scanner.File, populate
 	}
 }
 
+// indexCompanionMembersFlat registers the typed members of each companion object in bodyIdx as className.member.
+func (r *defaultResolver) indexCompanionMembersFlat(bodyIdx uint32, file *scanner.File, it *ImportTable, className string) {
+	for i := 0; i < file.FlatNamedChildCount(bodyIdx); i++ {
+		child := file.FlatNamedChild(bodyIdx, i)
+		if child == 0 || file.FlatType(child) != "companion_object" {
+			continue
+		}
+		companionBody := flatFindNamedChildOfType(file, child, "class_body")
+		if companionBody == 0 {
+			continue
+		}
+		for _, m := range r.extractMembersFlat(companionBody, file, it) {
+			if m.Type != nil && m.Type.Kind != TypeUnknown {
+				r.functions[className+"."+m.Name] = m.Type
+			}
+		}
+	}
+}
+
 func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it *ImportTable, pkg string) {
 	if file == nil || flatIdx == 0 {
 		return
@@ -272,22 +291,7 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
-		for i := 0; i < file.FlatNamedChildCount(bodyIdx); i++ {
-			child := file.FlatNamedChild(bodyIdx, i)
-			if child == 0 || file.FlatType(child) != "companion_object" {
-				continue
-			}
-			companionBody := flatFindNamedChildOfType(file, child, "class_body")
-			if companionBody == 0 {
-				continue
-			}
-			companionMembers := r.extractMembersFlat(companionBody, file, it)
-			for _, m := range companionMembers {
-				if m.Type != nil && m.Type.Kind != TypeUnknown {
-					r.functions[name+"."+m.Name] = m.Type
-				}
-			}
-		}
+		r.indexCompanionMembersFlat(bodyIdx, file, it, name)
 	}
 
 	r.classes[name] = info

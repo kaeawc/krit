@@ -11,6 +11,9 @@ import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
 import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
+import org.jetbrains.kotlin.fir.declarations.FirFile
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -171,6 +174,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     }
 
     // `toString()` on an enum that does not override it returns the entry name.
+    @OptIn(DirectDeclarationsAccess::class)
     context(context: CheckerContext)
     private fun isEnumToString(receiver: FirExpression?): Boolean {
         var expression = receiver
@@ -188,8 +192,13 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
         val enumClass = (owner.resolvedType.fullyExpandedType() as? ConeClassLikeType)
             ?.lookupTag?.toClassSymbol(context.session)
         if (enumClass?.classKind != ClassKind.ENUM_CLASS) return false
-        // Source origin means the enum declares its own toString().
-        return call.calleeReference.toResolvedCallableSymbol()?.origin != FirDeclarationOrigin.Source
+        // Only an override declared in this file counts, as in Go. Another file's override is source in a full
+        // compile but a class file in a slice compile, so ignoring it keeps both compiles equal.
+        val symbol = call.calleeReference.toResolvedCallableSymbol() ?: return false
+        if (symbol.origin != FirDeclarationOrigin.Source) return true
+        val outermost = enumClass.classId.outermostClassId
+        val file = context.containingElements.firstNotNullOfOrNull { it as? FirFile } ?: return true
+        return file.declarations.none { it is FirRegularClass && it.symbol.classId == outermost }
     }
 
     // True when [call] sits in the arguments of a UI text call or the value of a UI text property assignment.

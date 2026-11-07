@@ -30,6 +30,15 @@ private fun signatureUse(flags: String) = GET_SIGNATURES_USE.format(flags)
 
 internal val crossFileScenarios = listOf(
     CrossFileScenario(
+        "UpperLowerInvariantMisuse control: enum overriding toString() declared in B (only this file's override counts)",
+        "UpperLowerInvariantMisuse",
+        mapOf(
+            "B.kt" to "package p\nenum class Color { Red; override fun toString(): String = \"Red Color\" }\n",
+            "A.kt" to "package p\nfun Text(text: String?): String = text.orEmpty()\nfun f(c: Color): String = Text(c.toString().uppercase())\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
         "SecureRandom control: top-level Random-typed val holding a SecureRandom in B (not followed)", "SecureRandom",
         mapOf(
             "B.kt" to "package p\nimport java.security.SecureRandom\nimport java.util.Random\nval rng: Random = SecureRandom()\n",

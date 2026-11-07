@@ -19,6 +19,8 @@ complete -c krit -l input-types -d 'Load pre-built type oracle JSON' -rF
 complete -c krit -l output-types -d 'Output type oracle JSON' -rF
 complete -c krit -l baseline -d 'Baseline file' -rF
 complete -c krit -l create-baseline -d 'Create baseline file' -rF
+complete -c krit -l detekt-config -d 'Import this detekt.yml under krit.yml' -rF
+complete -c krit -l no-detekt-config -d 'Do not import a detekt config'
 complete -c krit -l base-path -d 'Base path for relative paths' -xa '(__fish_complete_directories)'
 complete -c krit -l enable-editorconfig -d 'Read .editorconfig settings'
 complete -c krit -l validate-config -d 'Validate config and exit'

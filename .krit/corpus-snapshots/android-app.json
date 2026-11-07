@@ -76,15 +76,6 @@
       "lineHash": "87cfcafb740d"
     },
     {
-      "rule": "UnsafeProtectedBroadcastReceiverManifest",
-      "ruleSet": "android-lint",
-      "relPath": "src/main/AndroidManifest.xml",
-      "line": 30,
-      "col": 1,
-      "severity": "warning",
-      "lineHash": "87cfcafb740d"
-    },
-    {
       "rule": "ExportedWithoutPermission",
       "ruleSet": "android-lint",
       "relPath": "src/main/AndroidManifest.xml",

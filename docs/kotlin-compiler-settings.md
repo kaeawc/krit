@@ -1,6 +1,6 @@
 # Kotlin compiler settings
 
-Krit analyzes Kotlin with an embedded Kotlin 2.4 compiler (`krit-fir`). A project pinned to an older
+Krit analyzes Kotlin with an embedded Kotlin 2.4 compiler (`krit-fir`, currently 2.4.21). A project pinned to an older
 language or API level, or that enables an opt-in or an experimental feature,
 must be analyzed under *its* semantics, not the embedded compiler's defaults:
 annotation-target defaults, context parameters, explicit backing fields, `when`

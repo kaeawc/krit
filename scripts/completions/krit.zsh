@@ -23,6 +23,8 @@ _krit() {
         '--output-types[Output type oracle JSON]:file:_files -g "*.json"' \
         '--baseline[Baseline file]:file:_files -g "*.xml"' \
         '--create-baseline[Create baseline]:file:_files -g "*.xml"' \
+        '--detekt-config[Import this detekt.yml under krit.yml]:file:_files -g "*.yml"' \
+        '--no-detekt-config[Do not import a detekt config]' \
         '--base-path[Base path for relative paths]:dir:_directories' \
         '--enable-editorconfig[Read .editorconfig settings]' \
         '--validate-config[Validate config file and exit]' \

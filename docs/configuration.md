@@ -53,6 +53,10 @@ Run everything at once (including opt-in rules):
 krit --all-rules .
 ```
 
+## Kotlin scripts
+
+`.kts` files (Gradle build scripts, `*.main.kts`) are scanned with a script-aware rule policy. The `scripts:` block selects it; see [Kotlin scripts](kotlin-scripts.md).
+
 ## Ignore patterns
 
 Source-file collection always skips built-in test data directories (`/test/data/`,
@@ -60,14 +64,45 @@ Source-file collection always skips built-in test data directories (`/test/data/
 `/compilerTests/`) and test source-set resource directories under
 `src/<set>/resources/` when `<set>` is `test`, `androidTest`, `testFixtures`,
 or ends in `Test` (for example, `src/commonTest/resources/`).
+Directory scans also skip documentation samples: a Kotlin or Java file under an
+`examples` or `references` directory (for example `docs/skill/references/examples/`)
+is not analysed when it is outside any `src` tree and no build file
+(`build.gradle[.kts]`, `settings.gradle[.kts]`, `pom.xml`, `BUILD[.bazel]`,
+`module.yaml`) exists in any directory between it and the Git root. Such
+snippets are not compiled, so project rules would report duplicate declarations
+in them. An example project with its own build file, a module with an `examples`
+directory beside its build file, and anything outside a Git checkout are still
+analysed.
 Built-in skips apply only to directory scans, so files named explicitly on the command line are analyzed unless a user exclude pattern matches them.
+
+Directory scans also skip these tool and cache directories at any depth:
+`.git`, `.krit`, `.krit-cache`, `.krit-types`, `.gradle`, `.idea`, `.kotlin`,
+`.claude`, `.codex`, and `.grit`. Project output such as `build/`,
+`node_modules/`, `target/`, and `vendor/` is not on that list: Krit skips it
+because it applies every `.gitignore` from the Git root down to the scanned
+path. A project that does not ignore its `build/` directory in Git will have
+generated sources analyzed.
+
+Krit cannot tell documentation samples, fixtures, or example projects from real
+sources. Keep them out of a scan with a `.gitignore` entry, or exclude them per
+rule with glob patterns, relative to the project root, in `excludes`:
 
 ```yaml
 naming:
   FunctionNaming:
     ignoreAnnotated: ['Composable', 'Test']
-    excludes: ['**/test/**']
+    excludes:
+      - '**/test/**'
+      - '**/docs/**/examples/**'
+      - '**/samples/**'
 ```
+
+`excludes` applies to that rule only; a rule set can carry its own `excludes`
+list (for example under `naming:`) to cover every rule in it. Supported
+pattern forms are `**/dir/**` (the directory part may contain `*` and `**`),
+`**/*Suffix.kt`, `**/Name.kt`, and a plain glob that matches the file name.
+To keep a path out of every rule, add it to `.gitignore` or run krit on the
+source roots only (`krit app/src features/*/src`).
 
 ## Android policy rules
 
@@ -211,13 +246,13 @@ listed explicitly for their types to resolve.
 
 ## Migrating from detekt
 
-Krit accepts detekt-style rule names, config keys, suppression prefixes, and baseline XML files:
-
-```bash
-krit --config detekt.yml .
-```
-
-Overlapping rules keep the same names and compatible keys, but behavior isn't guaranteed identical in every edge case — sanity-check a few files after migration.
+Krit imports an existing detekt config automatically (`config/detekt/detekt.yml`,
+`detekt.yml`, or `.detekt.yml`) and layers `krit.yml` on top, so krit.yml values
+win. Set `detekt: {enabled: false}` or pass `--no-detekt-config` to opt out, and
+use `detekt: {configFile: path}` or `--detekt-config path` to name the file.
+See [Migrating from detekt](detekt-migration.md) for the full mapping table,
+threshold semantics, `excludes`/`includes`/`ignoreAnnotated`, and baseline
+import.
 
 ## Gradle model
 

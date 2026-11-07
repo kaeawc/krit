@@ -27,6 +27,10 @@ _krit_completions() {
             COMPREPLY=($(compgen -f -X '!*.xml' -- "$cur"))
             return
             ;;
+        --detekt-config)
+            COMPREPLY=($(compgen -f -X '!*.yml' -- "$cur"))
+            return
+            ;;
         --input-types|--output-types)
             COMPREPLY=($(compgen -f -X '!*.json' -- "$cur"))
             return
@@ -45,7 +49,7 @@ _krit_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--help --version -f --report --config --fix --fix-level --fix-suffix --fix-binary --dry-run --all-rules --no-cache --clear-cache --cache-dir --no-type-inference --no-type-oracle --daemon --input-types --output-types --baseline --create-baseline --base-path --enable-editorconfig --validate-config --list-rules --generate-schema --perf -v -q -j -o --warnings-as-errors --init --doctor --diff --completions --disable-rules --enable-rules" -- "$cur"))
+        COMPREPLY=($(compgen -W "--help --version -f --report --config --fix --fix-level --fix-suffix --fix-binary --dry-run --all-rules --no-cache --clear-cache --cache-dir --no-type-inference --no-type-oracle --daemon --input-types --output-types --baseline --create-baseline --detekt-config --no-detekt-config --base-path --enable-editorconfig --validate-config --list-rules --generate-schema --perf -v -q -j -o --warnings-as-errors --init --doctor --diff --completions --disable-rules --enable-rules" -- "$cur"))
         return
     fi
 

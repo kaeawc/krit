@@ -24,7 +24,6 @@ Corpora included: kotlin-webservice, sqldelight, coil, signal-android.
 | FragmentConstructor | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | GetSignatures | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | GlobalScopeLaunchInViewModel | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
-| GrantAllUris | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | HandlerLeak | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | HardcodedSecretKey | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | ImplicitDefaultLocale | 16 | 8 | 0 | 2278 | 66.1% | 4.6% | 8 |
@@ -33,8 +32,6 @@ Corpora included: kotlin-webservice, sqldelight, coil, signal-android.
 | Instantiatable | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | IntoMapMissingKey | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | IntoSetOnNonSetReturn | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
-| IteratorHasNextCallsNextMethod | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
-| IteratorNotThrowingNoSuchElementException | 0 | 0 | 1 | 2278 | 66.1% | 4.6% | 1 |
 | JavaObjectInputStream | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | JdbcPreparedStatementNotClosed | 0 | 1 | 0 | 2278 | 66.1% | 4.6% | 1 |
 | JdbcResultSetLeakedFromFunction | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
@@ -66,7 +63,7 @@ Corpora included: kotlin-webservice, sqldelight, coil, signal-android.
 | SynchronizedOnBoxedPrimitive | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | SynchronizedOnNonFinal | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | TooGenericExceptionThrown | 1 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
-| TrulyRandom | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
+| HardcodedRandomSeed | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | UnicodeNormalizationMissing | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | UnnecessaryFilter | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |
 | UnnecessaryTemporaryInstantiation | 0 | 0 | 0 | 2278 | 66.1% | 4.6% | 0 |

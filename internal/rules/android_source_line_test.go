@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -20,13 +21,95 @@ class Foo
 		}
 	})
 
-	t.Run("flags import android.R.drawable", func(t *testing.T) {
+	t.Run("unused import android.R.drawable is left to UnusedImport", func(t *testing.T) {
 		findings := runRuleByName(t, "WrongImport", `package test
 import android.R.drawable
 class Foo
 `)
-		if len(findings) == 0 {
-			t.Fatal("expected finding for import android.R.drawable")
+		if len(findings) != 0 {
+			t.Fatalf("expected no finding for an unused sub-class import, got %v", findings)
+		}
+	})
+
+	t.Run("framework attr id used as a value says so", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R.attr.minHeight
+fun size() = minHeight + 1
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+		msg := findings[0].Message
+		if strings.Contains(msg, "not referenced by name") || !strings.Contains(msg, "framework R resource id") {
+			t.Fatalf("unexpected message: %s", msg)
+		}
+	})
+
+	t.Run("unused framework attr import is left to UnusedImport", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R.attr.minHeight
+class Foo
+`)
+		if len(findings) != 0 {
+			t.Fatalf("an unused import is not a wrong-import value use, got %v", findings)
+		}
+	})
+
+	t.Run("qualified selectors, labels, parameters and docs are not uses", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R.attr.subtitle
+import android.R.attr.colorPrimary
+
+/** Shows the subtitle and the colorPrimary. */
+class Foo(val item: Item) {
+  fun show(colorPrimary: Int) {
+    render(subtitle = item.subtitle, tint = colorPrimary)
+    println(item.subtitle)
+  }
+  fun other() {
+    val subtitle = "x"
+    println(subtitle)
+  }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("no reference resolves to the imported ids, got %v", findings)
+		}
+	})
+
+	t.Run("bare identifier next to a shadowing parameter in another function still resolves", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R.attr.subtitle
+
+fun shadowed(subtitle: Int) = subtitle
+fun real() = subtitle + 1
+`)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "used as a value") {
+			t.Fatalf("expected the value-use finding, got %v", findings)
+		}
+	})
+
+	t.Run("ignores aliased android.R import", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R as AndroidR
+class Foo {
+    val id = AndroidR.id.content
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for aliased android.R, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores android.R sub-class import that is used", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongImport", `package test
+import android.R.attr
+class Foo {
+    val id = attr.selectableItemBackground
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for used android.R.attr, got %d", len(findings))
 		}
 	})
 
@@ -138,6 +221,31 @@ class Foo {
 }
 
 func TestLayoutInflationRule(t *testing.T) {
+	t.Run("anchors at the null parent argument like Lint", func(t *testing.T) {
+		findings := runLayoutInflationRule(t, `package test
+class Foo {
+    fun a(context: Context): View {
+        return LayoutInflater.from(context)
+            .inflate(R.layout.with_root_layout_params, null, false)
+    }
+
+    fun b(inflater: LayoutInflater): View {
+        val v = inflater.inflate(R.layout.with_root_layout_params, null)
+        return v
+    }
+}
+`, layoutInflationTestIndex())
+		want := [][2]int{{5, 56}, {9, 68}}
+		if len(findings) != len(want) {
+			t.Fatalf("got %d findings, want %d: %v", len(findings), len(want), findings)
+		}
+		for i, f := range findings {
+			if f.Line != want[i][0] || f.Col != want[i][1] {
+				t.Errorf("finding %d at %d:%d, want %d:%d", i, f.Line, f.Col, want[i][0], want[i][1])
+			}
+		}
+	})
+
 	t.Run("flags inflate with null parent when root layout params exist", func(t *testing.T) {
 		findings := runLayoutInflationRule(t, `package test
 class Foo {
@@ -149,6 +257,41 @@ class Foo {
 		if len(findings) == 0 {
 			t.Fatal("expected finding for inflate with null parent")
 		}
+	})
+
+	t.Run("ignores inflate whose result is discarded", func(t *testing.T) {
+		findings := runLayoutInflationRule(t, `package test
+class Foo {
+    fun warmUp(inflater: LayoutInflater) {
+        inflater.inflate(R.layout.with_root_layout_params, null)
+    }
+}
+`, layoutInflationTestIndex())
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for an unused inflate result, got %d", len(findings))
+		}
+	})
+
+	t.Run("ignores inflate in test source sets", func(t *testing.T) {
+		file := parseInline(t, `package test
+class FooTest {
+    fun inflateIt(inflater: LayoutInflater): View {
+        return inflater.inflate(R.layout.with_root_layout_params, null)
+    }
+}
+`)
+		file.Path = "/repo/app/src/test/java/test/FooTest.kt"
+		for _, r := range api.Registry {
+			if r.ID == "LayoutInflation" {
+				dispatcher := rules.NewDispatcher([]*api.Rule{r}, nil)
+				cols := dispatcher.RunResourceSource(file, layoutInflationTestIndex())
+				if got := cols.Findings(); len(got) != 0 {
+					t.Fatalf("expected no findings in test sources, got %d", len(got))
+				}
+				return
+			}
+		}
+		t.Fatal("LayoutInflation not found in registry")
 	})
 
 	t.Run("flags multiline chained inflate", func(t *testing.T) {

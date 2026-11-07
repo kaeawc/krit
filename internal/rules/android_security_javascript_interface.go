@@ -43,13 +43,13 @@ func (r *AddJavascriptInterfaceRule) check(ctx *api.Context) {
 	sdk := addJavascriptInterfaceSDKContextForFile(file)
 	if sdk.minSdk < 17 {
 		f := r.Finding(file, line, col,
-			"addJavascriptInterface called while minSdk is below 17. This exposes injected objects to reflection on older Android versions.")
+			"`WebView.addJavascriptInterface` should not be called with minSdkVersion < 17 for security reasons: JavaScript can use reflection to manipulate application")
 		f.Confidence = confidence
 		ctx.Emit(f)
 	}
-	if sdk.targetSdk >= 17 && addJavascriptInterfaceBridgeMissingAnnotation(file, ctx.Idx) {
+	if bridge := addJavascriptInterfaceBridgeMissingAnnotation(file, ctx.Idx); sdk.targetSdk >= 17 && bridge != "" {
 		f := r.Finding(file, line, col,
-			"Injected JavaScript interface has no @JavascriptInterface-annotated methods for targetSdk 17 or higher.")
+			"None of the methods in the added interface ("+bridge+") have been annotated with `@android.webkit.JavascriptInterface`; they will not be visible in API 17")
 		f.Confidence = confidence
 		ctx.Emit(f)
 	}
@@ -85,6 +85,9 @@ func addJavascriptInterfaceJavaConfidence(file *scanner.File, call uint32) (floa
 	if name == "webView" || name == "wv" || strings.HasSuffix(name, ".webView") || strings.HasSuffix(name, ".wv") {
 		return 0.85, true
 	}
+	if addJavascriptInterfaceJavaDeclaredWebView(file, name) {
+		return 1.0, true
+	}
 	return 0, false
 }
 
@@ -106,10 +109,12 @@ func addJavascriptInterfaceSDKContextForFile(file *scanner.File) addJavascriptIn
 	})
 }
 
-func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint32) bool {
+// addJavascriptInterfaceBridgeMissingAnnotation returns the name of the injected class when none of its methods carry
+// @JavascriptInterface, or "" otherwise.
+func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint32) string {
 	_, args := flatCallExpressionParts(file, call)
 	if args == 0 {
-		return false
+		return ""
 	}
 	arg := flatPositionalValueArgument(file, args, 0)
 	if arg == 0 {
@@ -121,10 +126,13 @@ func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint
 	expr := flatValueArgumentExpression(file, arg)
 	className := addJavascriptInterfaceConstructedClassName(file, expr)
 	if className == "" {
-		return false
+		return ""
 	}
 	classDecl := addJavascriptInterfaceSameFileClass(file, className)
-	return classDecl != 0 && !addJavascriptInterfaceClassHasAnnotatedMethod(file, classDecl)
+	if classDecl != 0 && !addJavascriptInterfaceClassHasAnnotatedMethod(file, classDecl) {
+		return className
+	}
+	return ""
 }
 
 func addJavascriptInterfaceConstructedClassName(file *scanner.File, expr uint32) string {
@@ -246,4 +254,49 @@ func addJavascriptInterfaceTypeIsWebView(resolver typeinfer.TypeResolver, typ *t
 		return false
 	}
 	return visit(typ.FQN) || visit(typ.Name)
+}
+
+// addJavascriptInterfaceJavaDeclaredWebView reports whether a Java receiver identifier is declared in
+// this file (field, local or parameter) with the type WebView.
+func addJavascriptInterfaceJavaDeclaredWebView(file *scanner.File, receiver string) bool {
+	if receiver == "" || strings.ContainsAny(receiver, ".()") {
+		return false
+	}
+	found := false
+	isWebViewType := func(n uint32) bool {
+		switch file.FlatType(n) {
+		case "type_identifier", "scoped_type_identifier":
+			text := file.FlatNodeText(n)
+			return text == "WebView" || text == "android.webkit.WebView"
+		}
+		return false
+	}
+	file.FlatWalkNodes(0, "variable_declarator", func(decl uint32) {
+		if found || file.FlatNamedChildCount(decl) == 0 || file.FlatNodeText(file.FlatNamedChild(decl, 0)) != receiver {
+			return
+		}
+		if parent, ok := file.FlatParent(decl); ok {
+			for c := file.FlatFirstChild(parent); c != 0; c = file.FlatNextSib(c) {
+				if isWebViewType(c) {
+					found = true
+				}
+			}
+		}
+	})
+	file.FlatWalkNodes(0, "formal_parameter", func(param uint32) {
+		if found {
+			return
+		}
+		hasName, hasType := false, false
+		for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "identifier" && file.FlatNodeText(c) == receiver {
+				hasName = true
+			}
+			if isWebViewType(c) {
+				hasType = true
+			}
+		}
+		found = hasName && hasType
+	})
+	return found
 }

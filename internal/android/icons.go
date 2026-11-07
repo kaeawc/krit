@@ -98,6 +98,9 @@ func ScanIconDirsWithWorkers(resDir string, maxWorkers int) (*IconIndex, error) 
 			density = strings.TrimPrefix(dirName, "drawable-")
 		case strings.HasPrefix(dirName, "mipmap-"):
 			density = strings.TrimPrefix(dirName, "mipmap-")
+		case dirName == "drawable":
+			// The densityless folder holds no bucket icons; it only feeds configuration checks.
+			density = "default"
 		default:
 			continue
 		}

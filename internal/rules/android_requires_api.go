@@ -187,7 +187,18 @@ func parseRequiresAPIArgText(text string) int {
 	if n, err := strconv.Atoi(text); err == nil {
 		return n
 	}
+	if i := strings.LastIndex(text, "VERSION_CODES."); i >= 0 {
+		return versionCodeLevels[strings.TrimSpace(text[i+len("VERSION_CODES."):])]
+	}
 	return 0
+}
+
+// versionCodeLevels maps Build.VERSION_CODES constant names to API levels.
+var versionCodeLevels = map[string]int{
+	"ICE_CREAM_SANDWICH": 14, "ICE_CREAM_SANDWICH_MR1": 15, "JELLY_BEAN": 16, "JELLY_BEAN_MR1": 17,
+	"JELLY_BEAN_MR2": 18, "KITKAT": 19, "KITKAT_WATCH": 20, "LOLLIPOP": 21, "LOLLIPOP_MR1": 22, "M": 23,
+	"N": 24, "N_MR1": 25, "O": 26, "O_MR1": 27, "P": 28, "Q": 29, "R": 30, "S": 31, "S_V2": 32,
+	"TIRAMISU": 33, "UPSIDE_DOWN_CAKE": 34, "VANILLA_ICE_CREAM": 35, "BAKLAVA": 36,
 }
 
 // projectMinSdk defaults to 1 so fixtures and editor/LSP single-file runs

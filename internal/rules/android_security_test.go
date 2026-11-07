@@ -131,7 +131,7 @@ class MyWebView {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding for missing JavascriptInterface annotation, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "@JavascriptInterface") {
+		if !strings.Contains(findings[0].Message, "None of the methods in the added interface (Bridge)") {
 			t.Fatalf("expected missing annotation message, got %q", findings[0].Message)
 		}
 	})
@@ -167,7 +167,7 @@ class MyWebView {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding for minSdk 16 hazard, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "minSdk is below 17") {
+		if !strings.Contains(findings[0].Message, "should not be called with minSdkVersion < 17") {
 			t.Fatalf("expected minSdk message, got %q", findings[0].Message)
 		}
 	})
@@ -388,8 +388,8 @@ import android.content.IntentFilter
 
 class ReceiverSetup(private val context: Context, private val receiver: BroadcastReceiver) {
     fun setup() {
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON))
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_USER_PRESENT), 0)
+        context.registerReceiver(receiver, IntentFilter("com.example.SYNC_DONE"))
+        context.registerReceiver(receiver, IntentFilter(CustomActions.REFRESH), 0)
     }
 }
 `)
@@ -428,7 +428,7 @@ import android.content.IntentFilter
 
 class ReceiverSetup(private val context: Context, private val receiver: BroadcastReceiver) {
     fun setup() {
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+        context.registerReceiver(receiver, IntentFilter("com.example.SYNC_DONE"))
     }
 }
 `)
@@ -462,7 +462,7 @@ import android.content.IntentFilter
 
 class ReceiverSetup(private val context: Context, private val receiver: BroadcastReceiver) {
     fun setup() {
-        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+        context.registerReceiver(receiver, IntentFilter("com.example.SYNC_DONE"))
     }
 }
 `)
@@ -483,8 +483,8 @@ import android.content.IntentFilter;
 
 class ReceiverSetup {
   void setup(Context context, BroadcastReceiver receiver) {
-    context.registerReceiver(receiver, new IntentFilter(Intent.ACTION_SCREEN_ON));
-    context.registerReceiver(receiver, new IntentFilter(Intent.ACTION_USER_PRESENT), 0);
+    context.registerReceiver(receiver, new IntentFilter("com.example.SYNC_DONE"));
+    context.registerReceiver(receiver, new IntentFilter(CustomActions.REFRESH), 0);
   }
 }`)
 		if len(findings) != 2 {
@@ -512,8 +512,80 @@ class ReceiverSetup {
 	})
 }
 
+func TestBroadcastReceiverExportedFlagMissing_ProtectedSystemBroadcasts(t *testing.T) {
+	run := func(t *testing.T, body string) int {
+		t.Helper()
+		return len(runAndroidSecurityProjectRule(t, "BroadcastReceiverExportedFlagMissing", "Test.kt", 23, 34, `
+package test
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.PowerManager
+import androidx.core.content.ContextCompat
+
+class ReceiverSetup(private val context: Context, private val receiver: BroadcastReceiver) {
+    fun setup() {
+`+body+`
+    }
+}
+`))
+	}
+	clean := map[string]string{
+		"inline power manager action": `context.registerReceiver(receiver, IntentFilter(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED))`,
+		"inline screen and battery":   `context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_BATTERY_LOW) })`,
+		"variable with addAction": `val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        filter.addAction(Intent.ACTION_USER_PRESENT)
+        context.registerReceiver(receiver, filter)`,
+		"empty ctor apply block": `val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(Intent.ACTION_LOCALE_CHANGED)
+        }
+        context.registerReceiver(receiver, filter)`,
+		"context compat": `ContextCompat.registerReceiver(context, receiver, IntentFilter(Intent.ACTION_BOOT_COMPLETED))`,
+		"string literal": `context.registerReceiver(receiver, IntentFilter("android.intent.action.SCREEN_ON"))`,
+	}
+	for name, body := range clean {
+		if n := run(t, body); n != 0 {
+			t.Errorf("%s: expected no findings, got %d", name, n)
+		}
+	}
+	reported := map[string]string{
+		"custom action": `context.registerReceiver(receiver, IntentFilter("com.example.SYNC_DONE"))`,
+		"mixed protected and custom": `val filter = IntentFilter(Intent.ACTION_SCREEN_ON)
+        filter.addAction("com.example.SYNC_DONE")
+        context.registerReceiver(receiver, filter)`,
+		"unresolved filter":       `context.registerReceiver(receiver, buildFilter())`,
+		"lookalike qualifier":     `context.registerReceiver(receiver, IntentFilter(MyActions.ACTION_SCREEN_ON))`,
+		"empty filter no actions": `context.registerReceiver(receiver, IntentFilter())`,
+	}
+	for name, body := range reported {
+		if n := run(t, body); n != 1 {
+			t.Errorf("%s: expected 1 finding, got %d", name, n)
+		}
+	}
+}
+
+func TestBroadcastReceiverExportedFlagMissing_JavaProtectedBroadcast(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "BroadcastReceiverExportedFlagMissing", "Test.java", 23, 34, `
+package test;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+
+class ReceiverSetup {
+  void setup(Context context, BroadcastReceiver receiver) {
+    context.registerReceiver(receiver, new IntentFilter(Intent.ACTION_SCREEN_ON));
+  }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 Java findings for a protected broadcast, got %d", len(findings))
+	}
+}
+
 func TestGetInstance(t *testing.T) {
-	t.Run("triggers on insecure Cipher algorithm", func(t *testing.T) {
+	t.Run("DES in CBC mode is not reported by Lint", func(t *testing.T) {
 		findings := runRuleByName(t, "GetInstance", `
 package test
 import javax.crypto.Cipher
@@ -523,8 +595,36 @@ class Crypto {
     }
 }
 `)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings, got %v", findings)
+		}
+	})
+	t.Run("Java literals, constants and concatenations", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "GetInstance", `
+package p;
+import javax.crypto.Cipher;
+class C {
+    static final String K = "AES";
+    void f() throws Exception {
+        Cipher.getInstance("AES/ECB/PKCS5Padding");
+        Cipher.getInstance(K);
+        Cipher.getInstance("AES" + "/ECB/NoPadding");
+        Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        Cipher.getInstance("AES/GCM/NoPadding");
+    }
+}
+`)
+		var got []string
+		for _, f := range findings {
+			got = append(got, f.Message)
+		}
+		want := []string{
+			"ECB encryption mode should not be used",
+			"`Cipher.getInstance` should not be called without setting the encryption mode and padding",
+			"ECB encryption mode should not be used (was \"AES/ECB/NoPadding\")",
+		}
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("got %q, want %q", got, want)
 		}
 	})
 	t.Run("triggers on ECB mode with AES", func(t *testing.T) {
@@ -1363,6 +1463,70 @@ class LocalVerifier implements HostnameVerifier {
 	})
 }
 
+func TestAllowAllHostnameVerifierAnonymousForms(t *testing.T) {
+	t.Run("Kotlin flags object literals and SAM lambdas", func(t *testing.T) {
+		findings := runRuleByName(t, "AllowAllHostnameVerifier", `
+package test
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLSession
+
+val a = object : HostnameVerifier {
+    override fun verify(hostname: String?, session: SSLSession?): Boolean = true
+}
+val b = HostnameVerifier { _, _ -> true }
+val ok1 = object : HostnameVerifier {
+    override fun verify(hostname: String?, session: SSLSession?): Boolean = hostname == "x"
+}
+val ok2 = HostnameVerifier { host, _ -> host == "x" }
+`)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Java flags anonymous classes", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "AllowAllHostnameVerifier", `
+package test;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLSession;
+
+class Holder {
+    HostnameVerifier bad = new HostnameVerifier() {
+        public boolean verify(String hostname, SSLSession session) {
+            return true;
+        }
+    };
+    HostnameVerifier good = new HostnameVerifier() {
+        public boolean verify(String hostname, SSLSession session) {
+            return hostname.equals("x");
+        }
+    };
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 Java finding, got %d: %v", len(findings), findings)
+		}
+	})
+}
+
+func TestPrngFromSystemTimeJavaOnlyExactRandomType(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "PrngFromSystemTime", `
+package test;
+import java.util.Random;
+import java.util.SplittableRandom;
+import javax.crypto.Cipher;
+
+class Crypto {
+    void rng() {
+        new Random(System.currentTimeMillis());
+        new MyRandom(System.currentTimeMillis());
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
 func runRuleByNameMultiFile(t *testing.T, ruleName string, sources map[string]string) []scanner.Finding {
 	t.Helper()
 	root := t.TempDir()
@@ -1790,7 +1954,7 @@ package test
 import java.security.MessageDigest
 
 class Crypto {
-    fun hash() {
+    fun signToken() {
         MessageDigest.getInstance("`+algo+`")
     }
 }
@@ -1798,6 +1962,45 @@ class Crypto {
 			if len(findings) != 1 {
 				t.Fatalf("expected 1 finding for %s, got %d: %v", algo, len(findings), findings)
 			}
+		}
+	})
+	t.Run("Kotlin skips checksum and cache key uses", func(t *testing.T) {
+		findings := runRuleByName(t, "WeakMessageDigest", `
+package test
+import java.security.MessageDigest
+
+class Avatars {
+    fun gravatarUrl(email: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        return md.digest(email.toByteArray()).toString()
+    }
+
+    fun fileChecksum(): ByteArray {
+        return MessageDigest.getInstance("SHA-1").digest(ByteArray(0))
+    }
+
+    fun cacheKeyFor(url: String): ByteArray {
+        return MessageDigest.getInstance("MD5").digest(url.toByteArray())
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Kotlin keeps password hash context", func(t *testing.T) {
+		findings := runRuleByName(t, "WeakMessageDigest", `
+package test
+import java.security.MessageDigest
+
+class Login {
+    fun passwordHash(password: String): ByteArray {
+        return MessageDigest.getInstance("MD5").digest(password.toByteArray())
+    }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
 		}
 	})
 	t.Run("Kotlin accepts stronger digest algorithms", func(t *testing.T) {
@@ -1844,7 +2047,7 @@ package test;
 import java.security.MessageDigest;
 
 class Crypto {
-    void hash() throws Exception {
+    void signToken() throws Exception {
         MessageDigest.getInstance("md5");
         java.security.MessageDigest.getInstance("SHA1");
     }
@@ -2424,9 +2627,9 @@ class Screen extends Activity {
 	})
 }
 
-func TestEasterEgg(t *testing.T) {
+func TestHiddenFeatureComment(t *testing.T) {
 	t.Run("triggers on easter egg comment", func(t *testing.T) {
-		findings := runRuleByName(t, "EasterEgg", `
+		findings := runRuleByName(t, "HiddenFeatureComment", `
 package test
 class Game {
     // This is an easter egg feature
@@ -2438,7 +2641,7 @@ class Game {
 		}
 	})
 	t.Run("clean code passes", func(t *testing.T) {
-		findings := runRuleByName(t, "EasterEgg", `
+		findings := runRuleByName(t, "HiddenFeatureComment", `
 package test
 class Game {
     // Normal game logic
@@ -2447,216 +2650,6 @@ class Game {
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-func TestExportedContentProvider(t *testing.T) {
-	t.Run("triggers on ContentProvider without permission check", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedContentProvider", `
-package test
-import android.content.ContentProvider
-class MyProvider : ContentProvider() {
-    override fun query() {}
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("clean code with permission enforcement passes", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedContentProvider", `
-package test
-import android.content.ContentProvider
-class MyProvider : ContentProvider() {
-    override fun query() {
-        enforceCallingPermission("com.example.READ", "No permission")
-    }
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-	t.Run("sibling class enforcement does not suppress provider finding", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedContentProvider", `
-package test
-import android.content.ContentProvider
-class Helper {
-    fun check() {
-        enforceCallingPermission("com.example.READ", "No permission")
-    }
-}
-class MyProvider : ContentProvider() {
-    override fun query() {}
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings; sibling class enforcement must not suppress")
-		}
-	})
-	t.Run("class named ContentProvider without android import does not trigger", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedContentProvider", `
-package test
-class MyProvider : ContentProvider() {
-    override fun query() {}
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings without import, got %d", len(findings))
-		}
-	})
-}
-
-func TestExportedReceiver(t *testing.T) {
-	t.Run("triggers on BroadcastReceiver subclass", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedReceiver", `
-package test
-import android.content.BroadcastReceiver
-class MyReceiver : BroadcastReceiver() {
-    override fun onReceive() {}
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("clean code without receiver passes", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedReceiver", `
-package test
-class MyService {
-    fun doWork() {}
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-func TestExportedService(t *testing.T) {
-	t.Run("triggers on Service subclass", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedService", `
-package test
-import android.app.Service
-class MyService : Service() {
-    override fun onBind(intent: Intent) = null
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("permission enforced passes", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedService", `
-package test
-import android.app.Service
-class SecureService : Service() {
-    override fun onBind(intent: Intent): IBinder? {
-        enforceCallingPermission("p", "no")
-        return null
-    }
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-	t.Run("non-service class passes", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedService", `
-package test
-class NotAService {
-    fun doWork() {}
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-	t.Run("missing import passes", func(t *testing.T) {
-		findings := runRuleByName(t, "ExportedService", `
-package test
-class MyService : Service() {
-    override fun onBind(intent: Intent) = null
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings without import, got %d", len(findings))
-		}
-	})
-}
-
-func TestGrantAllUris(t *testing.T) {
-	t.Run("triggers on grantUriPermission", func(t *testing.T) {
-		findings := runRuleByName(t, "GrantAllUris", `
-package test
-class MyActivity {
-    fun share() {
-        grantUriPermission("com.example", uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("clean code passes", func(t *testing.T) {
-		findings := runRuleByName(t, "GrantAllUris", `
-package test
-class MyActivity {
-    fun share() {
-        startActivity(intent)
-    }
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-	t.Run("triggers on Java Context receiver", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "GrantAllUris", `
-package test;
-import android.content.Context;
-
-class Sharing {
-  void share(Context context, android.net.Uri uri) {
-    context.grantUriPermission("pkg", uri, 3);
-  }
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected Java GrantAllUris finding")
-		}
-	})
-	t.Run("triggers on Java Activity receiver", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "GrantAllUris", `
-package test;
-
-class Sharing extends android.app.Activity {
-  void share(android.net.Uri uri) {
-    this.grantUriPermission("pkg", uri, 3);
-  }
-}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected Java Activity GrantAllUris finding")
-		}
-	})
-	t.Run("Java local lookalike receiver is ignored", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "GrantAllUris", `
-package test;
-
-class Sharing {
-  static class Helper {
-    void grantUriPermission(String pkg, Object uri, int flags) {}
-  }
-  void share(Helper helper, Object uri) {
-    helper.grantUriPermission("pkg", uri, 3);
-  }
-}
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings for Java local lookalike, got %d", len(findings))
 		}
 	})
 }
@@ -2839,6 +2832,24 @@ class HttpClient {
 `)
 		if len(findings) == 0 {
 			t.Fatal("expected finding for empty X509TrustManager override")
+		}
+	})
+	t.Run("empty checkClientTrusted with real server validation passes", func(t *testing.T) {
+		findings := runRuleByName(t, "TrustedServer", `
+package test
+import javax.net.ssl.X509TrustManager
+class HttpClient {
+    val tm = object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out java.security.cert.X509Certificate>?, authType: String?) {
+            pinned.verify(chain)
+        }
+        override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = arrayOf()
+    }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
 	t.Run("X509TrustManager as generic argument is not a supertype", func(t *testing.T) {
@@ -3042,32 +3053,58 @@ class MyView {
 }
 
 func TestFieldGetter(t *testing.T) {
-	t.Run("triggers on getter call inside loop", func(t *testing.T) {
+	t.Run("kotlin self call to trivial getter triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "FieldGetter", `
 package test
 class MyClass {
-    fun process(items: List<Item>) {
-        for (item in items) {
-            val name = item.getName()
-        }
+    private var count = 0
+    fun getCount(): Int { return count }
+    fun isReady() = ready
+    private val ready = true
+    fun use(): Int {
+        val a = this.getCount()
+        return getCount() + a + (if (isReady()) 1 else 0)
     }
 }
 `)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+		if len(findings) != 3 {
+			t.Fatalf("expected 3 findings, got %v", findings)
 		}
 	})
-	t.Run("clean code without loop passes", func(t *testing.T) {
+	t.Run("kotlin calls on other receivers and non-trivial getters are clean", func(t *testing.T) {
 		findings := runRuleByName(t, "FieldGetter", `
 package test
-class MyClass {
-    fun process(item: Item) {
-        val name = item.getName()
+class MyClass(private val other: MyClass) {
+    private var count = 0
+    fun getCount(): Int { return count + 1 }
+    fun getName(): String = other.name
+    private val name = ""
+    fun getSize(x: Int): Int = size
+    private val size = 1
+    fun use(item: Item): Int {
+        for (i in 0..3) { item.getName() }
+        other.getCount()
+        getName()
+        getSize(1)
+        return getCount()
     }
 }
 `)
 		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+			t.Fatalf("expected 0 findings, got %v", findings)
+		}
+	})
+	t.Run("java self call to trivial getter triggers", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "FieldGetter", `
+package test;
+class A {
+    private int mCount;
+    int getCount() { return mCount; }
+    int other() { return getCount() + this.getCount() + b.getCount(); }
+}
+`)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %v", findings)
 		}
 	})
 }
@@ -3076,6 +3113,7 @@ func TestFloatMath(t *testing.T) {
 	t.Run("triggers on FloatMath usage", func(t *testing.T) {
 		findings := runRuleByName(t, "FloatMath", `
 package test
+import android.util.FloatMath
 class Calc {
     fun compute(x: Float): Float {
         return FloatMath.sin(x)
@@ -3119,13 +3157,27 @@ class MyActivity {
 		findings := runRuleByName(t, "HandlerLeak", `
 package test
 class MyActivity {
-    val handler = object : Handler(Looper.getMainLooper()) {
+    val handler = object : Handler() {
         override fun handleMessage(msg: Message) {}
     }
 }
 `)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+		if len(findings) != 1 || findings[0].Message != "This `Handler` class should be static or leaks might occur (anonymous android.os.Handler)" {
+			t.Fatalf("unexpected findings %+v", findings)
+		}
+	})
+	t.Run("Java anonymous Handler on an explicit Looper is clean", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+import android.os.Looper;
+class MyActivity {
+    Handler handler = new Handler(Looper.getMainLooper()) { };
+    Handler plain = new Handler() { };
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 7 {
+			t.Fatalf("expected only the Looper-less handler to report, got %+v", findings)
 		}
 	})
 	t.Run("triggers on Java non-static inner Handler class", func(t *testing.T) {
@@ -3280,13 +3332,16 @@ class MyView {
 }
 
 func TestByteOrderMark(t *testing.T) {
-	t.Run("triggers on file with BOM", func(t *testing.T) {
-		findings := runRuleByName(t, "ByteOrderMark", "\xEF\xBB\xBF"+`
-package test
-class MyClass {}
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+	t.Run("triggers on a BOM in the middle of a file", func(t *testing.T) {
+		findings := runRuleByName(t, "ByteOrderMark", "package test\nclass MyClass { val s = \"\xEF\xBB\xBFx\" }\n")
+		if len(findings) != 1 || findings[0].Message != "Found byte-order-mark in the middle of a file" || findings[0].Line != 2 {
+			t.Fatalf("unexpected findings %+v", findings)
+		}
+	})
+	t.Run("a leading BOM is legal", func(t *testing.T) {
+		findings := runRuleByName(t, "ByteOrderMark", "\xEF\xBB\xBFpackage test\nclass MyClass {}\n")
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %+v", findings)
 		}
 	})
 	t.Run("clean file without BOM passes", func(t *testing.T) {
@@ -3298,4 +3353,423 @@ class MyClass {}
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+}
+
+func TestBroadcastReceiverExportedFlagMissing_FlagsArgumentAnywhere(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "BroadcastReceiverExportedFlagMissing", "Test.kt", 23, 34, `
+package test
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Handler
+
+class ReceiverSetup(private val context: Context, private val receiver: BroadcastReceiver, private val handler: Handler) {
+    fun setup() {
+        context.registerReceiver(receiver, IntentFilter(Intent.ACTION_SCREEN_ON), null, handler, Context.RECEIVER_NOT_EXPORTED)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for 5-arg overload with flag, got %d", len(findings))
+	}
+}
+
+func TestBroadcastReceiverExportedFlagMissing_SkipsFunctionTypeParameter(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "BroadcastReceiverExportedFlagMissing", "Test.kt", 23, 34, `
+package test
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+
+class Watcher(private val context: Context, private val registerReceiver: (BroadcastReceiver, IntentFilter) -> Unit) {
+    fun start(receiver: BroadcastReceiver, filter: IntentFilter) {
+        registerReceiver(receiver, filter)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for function-type parameter, got %d", len(findings))
+	}
+}
+
+func TestHardcodedHttpUrl_SkipsReservedHostsAndTestSources(t *testing.T) {
+	const code = `
+package test
+import okhttp3.Request
+import retrofit2.Retrofit
+import java.net.URL
+
+fun network() {
+    Retrofit.Builder().baseUrl("http://example.com/").build()
+    Request.Builder().url("http://example.org/file").build()
+    URL("http://service.test/data")
+    URL("http://broken.invalid/data")
+    URL("http://example.net/data")
+}
+`
+	if findings := runRuleByName(t, "HardcodedHttpUrl", code); len(findings) != 0 {
+		t.Fatalf("expected 0 findings for reserved hosts, got %d: %v", len(findings), findings)
+	}
+	file := parseInline(t, `
+package test
+import java.net.URL
+
+fun network() {
+    URL("http://files.service.io/data")
+}
+`)
+	if findings := runRuleByNameOnFile(t, "HardcodedHttpUrl", file); len(findings) != 1 {
+		t.Fatalf("expected 1 finding in production source, got %d", len(findings))
+	}
+	file.Path = "/repo/app/src/test/java/test/NetworkTest.kt"
+	if findings := runRuleByNameOnFile(t, "HardcodedHttpUrl", file); len(findings) != 0 {
+		t.Fatalf("expected 0 findings in test source, got %d", len(findings))
+	}
+}
+
+func TestWeakMessageDigest_AvatarAndDiagnosticsUsesIgnored(t *testing.T) {
+	findings := runRuleByName(t, "WeakMessageDigest", `
+package test
+import java.security.MessageDigest
+
+class Profiles {
+    fun avatarUrl(email: String) = MessageDigest.getInstance("MD5").digest(email.toByteArray())
+    fun diagnosticsId(b: ByteArray) = MessageDigest.getInstance("MD5").digest(b)
+    fun other(b: ByteArray) = MessageDigest.getInstance("MD5").digest(b)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the generic function to be flagged, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestWeakMessageDigest_ResultStoredUnderChecksumName(t *testing.T) {
+	findings := runRuleByName(t, "WeakMessageDigest", `
+package test
+import java.security.MessageDigest
+
+class Registry {
+    fun hashToken(raw: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val fingerprint = md.digest(raw.toByteArray())
+        return fingerprint.joinToString("")
+    }
+
+    fun tokenHash(raw: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val checksum: ByteArray
+        checksum = md.digest(raw.toByteArray())
+        return checksum.joinToString("")
+    }
+
+    fun protect(raw: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val passwordHash = md.digest(raw.toByteArray())
+        return passwordHash.joinToString("")
+    }
+
+    fun credential(raw: String): String {
+        val md = MessageDigest.getInstance("MD5")
+        val out = md.digest(raw.toByteArray())
+        return out.joinToString("")
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected only the password and credential digests to be flagged, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestImplicitPendingIntent_TestSourcesIgnored(t *testing.T) {
+	code := `
+package test
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+fun build(context: Context) = PendingIntent.getActivity(context, 0, Intent(), 0)
+`
+	if got := runRuleByName(t, "ImplicitPendingIntent", code); len(got) != 1 {
+		t.Fatalf("expected 1 finding in main source, got %d", len(got))
+	}
+	for _, path := range []string{"app/src/test/kotlin/A.kt", "app/src/androidTest/kotlin/A.kt", "app/src/testFixtures/kotlin/A.kt", "lib/test-fixtures/src/main/kotlin/A.kt"} {
+		if got := runRuleByNameOnPath(t, "ImplicitPendingIntent", path, code); len(got) != 0 {
+			t.Errorf("%s: expected no findings, got %d", path, len(got))
+		}
+	}
+}
+
+func TestGetInstance_RsaEcbIsNotFlagged(t *testing.T) {
+	findings := runRuleByName(t, "GetInstance", `
+package fx
+
+import javax.crypto.Cipher
+
+class C {
+    fun a() = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
+    fun b() = Cipher.getInstance("RSA/ECB/PKCS1Padding")
+    fun c() = Cipher.getInstance("AES/ECB/PKCS5Padding")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the AES/ECB finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestHardcodedSecretKey_RuntimeDerivedBytesAreNotLiteral(t *testing.T) {
+	findings := runRuleByName(t, "HardcodedSecretKey", `
+package fx
+
+import android.util.Base64
+import javax.crypto.spec.SecretKeySpec
+
+class D(private val prefs: Prefs, private val key: String) {
+    fun a() = SecretKeySpec(Base64.decode(prefs.getString("k", ""), Base64.DEFAULT), "AES")
+    fun b() = SecretKeySpec("$key".toByteArray(), "AES")
+    fun c() = SecretKeySpec("${key}x".toByteArray(), "AES")
+    fun d() = SecretKeySpec("abcdefgh12345678".toByteArray(), "AES")
+    fun e() = SecretKeySpec(Base64.decode("QUJD", Base64.DEFAULT), "AES")
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected findings for d and e only, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestDisableCertificatePinning_OnlyEmptyPinnerBuildIsFlagged(t *testing.T) {
+	findings := runRuleByName(t, "DisableCertificatePinning", `
+package fx
+
+import okhttp3.CertificatePinner
+import okhttp3.OkHttpClient
+
+class E {
+    fun pinned() = OkHttpClient.Builder().certificatePinner(CertificatePinner.Builder().add("a.com", "sha256/x").build()).build()
+    fun applied() = CertificatePinner.Builder().apply { add("a.com", "sha256/x") }.build()
+    fun empty() = OkHttpClient.Builder().certificatePinner(CertificatePinner.Builder().build()).build()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected exactly the empty pinner build, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestOkHttpDisableSslValidation_OnlyHostnameVerifierArgumentCounts(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpDisableSslValidation", `
+package fx
+
+import okhttp3.OkHttpClient
+
+class E {
+    fun ok() = OkHttpClient.Builder().hostnameVerifier { h, _ -> h == "x" }.callTimeout(1) { -> true }.build()
+    fun bad() = OkHttpClient.Builder().hostnameVerifier { _, _ -> true }.build()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestInsecureTrustManager_EmptyClientCheckWithValidatingServerCheck(t *testing.T) {
+	findings := runRuleByName(t, "InsecureTrustManager", `
+package fx
+
+import java.security.cert.X509Certificate
+import javax.net.ssl.X509TrustManager
+
+class Pinning(private val delegate: X509TrustManager) : X509TrustManager {
+    override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
+    override fun checkServerTrusted(c: Array<X509Certificate>, a: String) { delegate.checkServerTrusted(c, a) }
+    override fun getAcceptedIssuers(): Array<X509Certificate> = delegate.acceptedIssuers
+}
+
+class TrustAll : X509TrustManager {
+    override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
+    override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {}
+    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected only TrustAll's two methods, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestBroadcastReceiverExportedFlagMissing_NullReceiverAndOpaqueFlags(t *testing.T) {
+	findings := runRuleByName(t, "BroadcastReceiverExportedFlagMissing", `
+package fx
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+
+class G(private val context: Context, private val r: BroadcastReceiver) {
+    fun sticky() { context.registerReceiver(null, IntentFilter("custom.ACTION")) }
+    fun variable(flags: Int) { context.registerReceiver(r, IntentFilter("custom.ACTION"), flags) }
+    fun permission() { context.registerReceiver(r, IntentFilter("custom.ACTION"), "perm", null) }
+    fun zero() { context.registerReceiver(r, IntentFilter("custom.ACTION"), 0) }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected permission and zero findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestImplicitPendingIntent_FlagsAreFourthArgument(t *testing.T) {
+	findings := runRuleByName(t, "ImplicitPendingIntent", `
+package fx
+
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+
+class F(private val context: Context) {
+    fun withOptions(i: Intent) = PendingIntent.getActivity(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT, null)
+    fun immutable(i: Intent) = PendingIntent.getActivity(context, 0, i, PendingIntent.FLAG_IMMUTABLE, null)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestStartActivityWithUntrustedIntent_LiteralUriAndSelectorGuard(t *testing.T) {
+	findings := runRuleByName(t, "StartActivityWithUntrustedIntent", `
+package fx
+
+import android.content.Context
+import android.content.Intent
+
+class F(private val context: Context) {
+    fun literal() {
+        val intent = Intent.parseUri("intent://x#Intent;end", 0)
+        context.startActivity(intent)
+    }
+    fun selector(uri: String) {
+        val intent = Intent.parseUri(uri, 0)
+        intent.selector = null
+        context.startActivity(intent)
+    }
+    fun unsafe(uri: String) {
+        val intent = Intent.parseUri(uri, 0)
+        context.startActivity(intent)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestGetInstance_BareBlockCipherDefaultsToEcb(t *testing.T) {
+	cases := []struct {
+		name string
+		algo string
+		want int
+	}{
+		{"bare AES", "AES", 1},
+		{"bare AES lowercase is a different algorithm name", "aes", 0},
+		{"bare DESede", "DESede", 1},
+		{"bare Blowfish is not reported", "Blowfish", 0},
+		{"AES with mode", "AES/GCM/NoPadding", 0},
+		{"AES CBC", "AES/CBC/PKCS5Padding", 0},
+		{"bare DES still reported", "DES", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "GetInstance", "package test\nimport javax.crypto.Cipher\nfun f() { Cipher.getInstance(\""+tc.algo+"\") }\n")
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
+func TestDrawAllocation_DeferredAndLazyAllocationsAreIgnored(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"plain allocation", "val p = Paint()", 1},
+		{"null checked lazy init", "if (cached == null) { cached = Paint() }", 0},
+		{"elvis lazy init", "cached = cached ?: Paint()", 0},
+		{"anonymous object member", "val r = object : Runnable { override fun run() { val x = Rect() } }", 0},
+		{"posted lambda", "post { val y = Path() }", 0},
+		{"local lambda still per draw", "run { val y = Path() }", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "DrawAllocation", "package test\nimport android.view.View\nimport android.graphics.*\nclass V(c: android.content.Context) : View(c) {\n  private var cached: Paint? = null\n  override fun onDraw(canvas: Canvas) {\n    "+tc.body+"\n  }\n}\n")
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
+func TestFloatMath_ImportAndQualifiedForms(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"unimported lookalike", "package test\nfun f(x: Float) = FloatMath.sin(x)\n", 0},
+		{"fully qualified", "package test\nfun f(x: Float) = android.util.FloatMath.sin(x)\n", 1},
+		{"wildcard import", "package test\nimport android.util.*\nfun f(x: Float) = FloatMath.sin(x)\n", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(runRuleByName(t, "FloatMath", tc.src)); got != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestByteOrderMark_MiddleOfFile(t *testing.T) {
+	findings := runRuleByName(t, "ByteOrderMark", "package test\nclass A {}\n\xEF\xBB\xBFclass B {}\n")
+	if len(findings) != 1 || findings[0].Line != 3 || findings[0].Col != 1 {
+		t.Fatalf("expected one finding at 3:1, got %v", findings)
+	}
+	if !strings.Contains(findings[0].Message, "middle of a file") {
+		t.Fatalf("unexpected message %q", findings[0].Message)
+	}
+}
+
+func TestAddJavascriptInterface_JavaDeclaredWebView(t *testing.T) {
+	findings := runJavaRuleByName(t, "AddJavascriptInterface", `
+package test;
+import android.webkit.WebView;
+class A {
+    WebView field;
+    void f(WebView w, Other o, Object b) {
+        w.addJavascriptInterface(b, "x");
+        field.addJavascriptInterface(b, "y");
+        o.addJavascriptInterface(b, "z");
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (parameter and field), got %v", findings)
+	}
+}
+
+func TestHiddenFeatureComment_JavaUnicodeLineBreakInComment(t *testing.T) {
+	findings := runJavaRuleByName(t, "HiddenFeatureComment", "package test;\nclass A {\n    // harmless \\u000a int hidden = 1;\n    int x;\n}\n")
+	if len(findings) != 1 || findings[0].Line != 3 {
+		t.Fatalf("expected one finding on line 3, got %v", findings)
+	}
+	kotlin := runRuleByName(t, "HiddenFeatureComment", "package test\nclass A {\n    // note \\u000a here\n}\n")
+	if len(kotlin) != 0 {
+		t.Fatalf("Kotlin does not translate unicode escapes in comments, got %v", kotlin)
+	}
+}
+
+func TestDrawAllocation_LintMessageAndLayoutMethods(t *testing.T) {
+	for _, method := range []string{"onDraw(canvas: Canvas)", "onMeasure(w: Int, h: Int)", "onLayout(c: Boolean, l: Int, t: Int, r: Int, b: Int)", "dispatchDraw(canvas: Canvas)"} {
+		findings := runRuleByName(t, "DrawAllocation", "package test\nimport android.graphics.Paint\nclass V {\n    override fun "+method+" {\n        val p = Paint()\n    }\n}\n")
+		if len(findings) != 1 || findings[0].Message != "Avoid object allocations during draw/layout operations (preallocate and reuse instead)" {
+			t.Errorf("%s: unexpected findings %+v", method, findings)
+		}
+	}
 }

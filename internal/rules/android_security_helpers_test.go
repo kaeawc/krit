@@ -16,9 +16,12 @@ func TestHardcodedHTTPURLInsecure(t *testing.T) {
 		raw  string
 		want bool
 	}{
-		{"http://example.com", true},
+		{"http://example.com", false},
+		{"http://example.org/path", false},
+		{"http://service.test/", false},
+		{"http://broken.invalid/", false},
 		{"http://api.acme.io/v1", true},
-		{"HTTP://Example.com/path", true},
+		{"HTTP://Api.Acme.io/path", true},
 		{"https://example.com", false},
 		{"http://localhost:8080/", false},
 		{"http://127.0.0.1/health", false},
@@ -184,11 +187,11 @@ func TestStaticIvLiteralStringBytes(t *testing.T) {
 		`"hello".bytes`,
 	}
 	for _, in := range positives {
-		if !staticIvLiteralStringBytes(in) {
+		if !staticIvLiteralStringBytes(nil, in) {
 			t.Errorf("staticIvLiteralStringBytes(%q) = false, want true", in)
 		}
 	}
-	if staticIvLiteralStringBytes("foo.toByteArray()") {
+	if staticIvLiteralStringBytes(nil, "foo.toByteArray()") {
 		t.Error("expected negative for non-literal receiver")
 	}
 }
@@ -201,11 +204,11 @@ func TestStaticIvLiteralDecodeBytes(t *testing.T) {
 		`"deadbeef".hexToByteArray()`,
 	}
 	for _, in := range positives {
-		if !staticIvLiteralDecodeBytes(in) {
+		if !staticIvLiteralDecodeBytes(nil, in) {
 			t.Errorf("staticIvLiteralDecodeBytes(%q) = false, want true", in)
 		}
 	}
-	if staticIvLiteralDecodeBytes("Base64.decode(input, 0)") {
+	if staticIvLiteralDecodeBytes(nil, "Base64.decode(input, 0)") {
 		t.Error("expected negative when input is not a literal")
 	}
 }

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -37,27 +38,28 @@ func (r *StringIntegerRule) Confidence() float64 { return api.ConfidenceMedium }
 func (r *StringIntegerRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	for i, line := range strings.Split(content, "\n") {
-		if gradleLineHasQuotedIntegerSDKProperty(line) {
+		if literal, ok := gradleLineQuotedIntegerSDKProperty(line); ok {
 			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
-				"SDK version should be an integer, not a string. Remove quotes."))
+				fmt.Sprintf("Use an integer rather than a string here (replace `%s` with just `%s`)", literal, strings.Trim(literal, `"'`))))
 		}
 	}
 }
 
-func gradleLineHasQuotedIntegerSDKProperty(line string) bool {
+// gradleLineQuotedIntegerSDKProperty returns the quoted literal assigned to an SDK property on the line.
+func gradleLineQuotedIntegerSDKProperty(line string) (string, bool) {
 	line = stripGradleLineComment(line)
 	if strings.TrimSpace(line) == "" {
-		return false
+		return "", false
 	}
 	for _, prop := range sdkPropertyNames {
-		if gradleLineHasQuotedIntegerAssignment(line, prop) {
-			return true
+		if literal, ok := gradleLineQuotedIntegerAssignment(line, prop); ok {
+			return literal, true
 		}
 	}
-	return false
+	return "", false
 }
 
-func gradleLineHasQuotedIntegerAssignment(line, prop string) bool {
+func gradleLineQuotedIntegerAssignment(line, prop string) (string, bool) {
 	for i := 0; i < len(line); {
 		r, size := utf8.DecodeRuneInString(line[i:])
 		if !isGradleIdentStart(r) {
@@ -84,13 +86,13 @@ func gradleLineHasQuotedIntegerAssignment(line, prop string) bool {
 		}
 		rest := strings.TrimSpace(line[i:])
 		if rest == "" {
-			return false
+			return "", false
 		}
 		if rest[0] == '=' || rest[0] == '(' {
 			rest = strings.TrimSpace(rest[1:])
 		}
 		if rest == "" || (rest[0] != '"' && rest[0] != '\'') {
-			return false
+			return "", false
 		}
 		quote := rest[0]
 		end := 1
@@ -98,17 +100,32 @@ func gradleLineHasQuotedIntegerAssignment(line, prop string) bool {
 			end++
 		}
 		if end == 1 || end >= len(rest) {
-			return false
+			return "", false
+		}
+		// A call on the literal, such as "21".toInt(), already yields an integer.
+		if after := strings.TrimSpace(rest[end+1:]); strings.HasPrefix(after, ".") || strings.HasPrefix(after, "?") {
+			return "", false
 		}
 		value := rest[1:end]
 		for _, ch := range value {
 			if !unicode.IsDigit(ch) {
-				return false
+				return "", false
 			}
 		}
-		return true
+		return rest[:end+1], true
 	}
-	return false
+	return "", false
+}
+
+var gradleLibraryAliasRe = regexp.MustCompile(`alias\s*\(\s*[\w.]*[lL]ibrary\s*\)`)
+
+// gradleBuildIsLibrary reports a build script that applies the Android library plugin and not the
+// application plugin. A library's targetSdk is not what Google Play checks.
+func gradleBuildIsLibrary(content string) bool {
+	if strings.Contains(content, "com.android.application") || strings.Contains(content, "applicationId") {
+		return false
+	}
+	return strings.Contains(content, "com.android.library") || gradleLibraryAliasRe.MatchString(content)
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +153,7 @@ func (r *GradleOldTargetAPIRule) check(ctx *api.Context) {
 	if threshold == 0 {
 		threshold = defaultOldTargetAPIThreshold
 	}
-	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= threshold {
+	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= threshold || gradleBuildIsLibrary(content) {
 		return
 	}
 	line := findGradleLineStr(content, "targetSdk")
@@ -179,7 +196,7 @@ func (r *ExpiredTargetSdkVersionRule) check(ctx *api.Context) {
 	if floor == 0 {
 		floor = defaultExpiredTargetSdkFloor
 	}
-	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= floor {
+	if cfg.TargetSdkVersion == 0 || cfg.TargetSdkVersion >= floor || gradleBuildIsLibrary(content) {
 		return
 	}
 	line := findGradleLineStr(content, "targetSdk")
@@ -187,9 +204,7 @@ func (r *ExpiredTargetSdkVersionRule) check(ctx *api.Context) {
 		line = 1
 	}
 	ctx.Emit(baseFinding(path, line, r.BaseRule,
-		fmt.Sprintf("targetSdkVersion %d is below the enforced minimum of %d. "+
-			"Update to a supported value before publishing.",
-			cfg.TargetSdkVersion, floor)))
+		fmt.Sprintf("Google Play requires that apps target API level %d or higher.", floor)))
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 package rules
 
-// Miscellaneous Android Lint security rules: EasterEgg, TrustedServer,
+// Miscellaneous Android Lint security rules: HiddenFeatureComment, TrustedServer,
 // WorldReadableFiles, WorldWriteableFiles. These rules are independent
 // of the other security rule clusters and share no helpers with them.
 
@@ -11,8 +11,17 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// EasterEggRule detects comments containing easter egg references.
-type EasterEggRule struct{ AndroidRule }
+// HiddenFeatureCommentRule detects comments that mention a hidden feature
+// ("easter egg", "cheat code", "secret menu") and, in Java, comments that hide
+// code behind a unicode line-break escape.
+//
+// This is a krit-only check. It was named EasterEgg, which is the id Android
+// Lint uses for something else (a unicode escape that ends a comment, see
+// HiddenFeatureCommentRule), so it was renamed.
+type HiddenFeatureCommentRule struct{ AndroidRule }
+
+// hiddenCodeEscapeRe matches a unicode line-break escape, which makes the rest of a // comment compile as code.
+var hiddenCodeEscapeRe = regexp.MustCompile(`(?i)\\u+000[ad]`)
 
 var easterEggRe = regexp.MustCompile(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*(?:mode|menu|feature))\b`)
 
@@ -22,15 +31,20 @@ var easterEggRe = regexp.MustCompile(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*
 // lists of API names) rather than type resolution, so project-
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
-func (r *EasterEggRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *HiddenFeatureCommentRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
-func (r *EasterEggRule) check(ctx *api.Context) {
+func (r *HiddenFeatureCommentRule) check(ctx *api.Context) {
 	file := ctx.File
 	for i, line := range file.Lines {
 		// Only check comments
 		if scanner.IsCommentLine(line) {
+			if loc := hiddenCodeEscapeRe.FindStringIndex(line); loc != nil && file.Language == scanner.LangJava {
+				ctx.Emit(r.Finding(file, i+1, loc[0]+1,
+					"Code might be hidden here; found unicode escape sequence which is interpreted as comment end, compiled code follows"))
+				continue
+			}
 			if easterEggRe.MatchString(line) {
-				ctx.Emit(r.Finding(file, i+1, 1,
+				ctx.Emit(r.Finding(file, i+1, easterEggRe.FindStringIndex(line)[0]+1,
 					"Code contains easter egg / hidden feature reference. Review for security implications."))
 			}
 		}
@@ -82,7 +96,7 @@ func (r *TrustedServerRule) check(ctx *api.Context) {
 			return
 		}
 		ctx.Emit(r.Finding(file, file.FlatRow(node)+1, file.FlatCol(node)+1,
-			"Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."))
+			"Trust manager overrides checkServerTrusted with an empty body, so it trusts every certificate. Perform real certificate validation."))
 	}
 }
 
@@ -136,7 +150,8 @@ func trustedServerHasEmptyTrustCheck(file *scanner.File, decl uint32) bool {
 				fnBody = child
 			}
 		}
-		if name != "checkClientTrusted" && name != "checkServerTrusted" {
+		// An empty checkClientTrusted is normal for client apps; only an empty checkServerTrusted trusts every server.
+		if name != "checkServerTrusted" {
 			continue
 		}
 		if fnBody != 0 && trustedServerFunctionBodyIsEmpty(file, fnBody) {

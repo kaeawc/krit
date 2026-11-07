@@ -47,9 +47,9 @@ func TestRange_SetAlphaOutOfRange(t *testing.T) {
 	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
-    view.setAlpha(300)
-    view.setAlpha(-1)
-}`, map[string]string{"setAlpha": "android.view.View.setAlpha"})
+    paint.setAlpha(300)
+    paint.setAlpha(-1)
+}`, map[string]string{"setAlpha": "android.graphics.Paint.setAlpha"})
 	count := 0
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setAlpha") {
@@ -65,10 +65,10 @@ func TestRange_SetAlphaInRange(t *testing.T) {
 	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
-    view.setAlpha(0)
-    view.setAlpha(128)
-    view.setAlpha(255)
-}`, map[string]string{"setAlpha": "android.view.View.setAlpha"})
+    paint.setAlpha(0)
+    paint.setAlpha(128)
+    paint.setAlpha(255)
+}`, map[string]string{"setAlpha": "android.graphics.Paint.setAlpha"})
 	for _, f := range findings {
 		if f.Rule == "Range" && strings.Contains(f.Message, "setAlpha") {
 			t.Errorf("Should not flag valid setAlpha values, got: %s", f.Message)
@@ -110,20 +110,17 @@ fun example() {
 	}
 }
 
-func TestRange_SetProgressOutOfRange(t *testing.T) {
+// ProgressBar.setProgress has no framework range: the maximum is configurable.
+func TestRange_SetProgressHasNoFixedRange(t *testing.T) {
 	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
-    progressBar.setProgress(150)
+    progressBar.setProgress(750)
 }`, map[string]string{"setProgress": "android.widget.ProgressBar.setProgress"})
-	found := false
 	for _, f := range findings {
-		if f.Rule == "Range" && strings.Contains(f.Message, "setProgress") {
-			found = true
+		if f.Rule == "Range" {
+			t.Errorf("setProgress is not range-annotated, got: %s", f.Message)
 		}
-	}
-	if !found {
-		t.Error("Should flag setProgress(150)")
 	}
 }
 
@@ -142,20 +139,26 @@ fun example() {
 	}
 }
 
-func TestRange_SetRotationOutOfRange(t *testing.T) {
+// View.setAlpha takes 0..1; View.setRotation has no range.
+func TestRange_ViewAlphaIsFraction(t *testing.T) {
 	findings := runRangeRuleWithCallTargets(t, `
 package test
 fun example() {
+    view.setAlpha(1.5f)
+    view.setAlpha(0.5f)
     view.setRotation(720)
-}`, map[string]string{"setRotation": "android.view.View.setRotation"})
-	found := false
+}`, map[string]string{
+		"setAlpha":    "android.view.View.setAlpha",
+		"setRotation": "android.view.View.setRotation",
+	})
+	count := 0
 	for _, f := range findings {
-		if f.Rule == "Range" && strings.Contains(f.Message, "setRotation") {
-			found = true
+		if f.Rule == "Range" {
+			count++
 		}
 	}
-	if !found {
-		t.Error("Should flag setRotation(720)")
+	if count != 1 {
+		t.Errorf("Expected only setAlpha(1.5f) to be flagged, got %d findings", count)
 	}
 }
 
@@ -168,10 +171,10 @@ fun example() {
         255,
         999
     )
-    progressBar.setProgress(-1)
+    paint.setAlpha(-1)
 }`, map[string]string{
-		"Color.rgb":   "android.graphics.Color.rgb",
-		"setProgress": "android.widget.ProgressBar.setProgress",
+		"Color.rgb": "android.graphics.Color.rgb",
+		"setAlpha":  "android.graphics.Paint.setAlpha",
 	})
 	count := 0
 	for _, f := range findings {
@@ -180,7 +183,7 @@ fun example() {
 		}
 	}
 	if count != 2 {
-		t.Errorf("Expected 2 range findings for multiline rgb and unary negative progress, got %d", count)
+		t.Errorf("Expected 2 range findings for multiline rgb and unary negative alpha, got %d", count)
 	}
 }
 

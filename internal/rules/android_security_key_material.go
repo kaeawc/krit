@@ -2,6 +2,7 @@ package rules
 
 import (
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -203,8 +204,8 @@ func isLiteralByteArray(file *scanner.File, expr uint32) bool {
 	text := strings.TrimSpace(file.FlatNodeText(expr))
 	return staticIvLiteralKotlinByteArray(text) ||
 		staticIvLiteralJavaByteArray(text) ||
-		staticIvLiteralStringBytes(text) ||
-		staticIvLiteralDecodeBytes(text)
+		staticIvLiteralStringBytes(file, text) ||
+		staticIvLiteralDecodeBytes(file, text)
 }
 
 func staticIvLiteralKotlinByteArray(text string) bool {
@@ -257,17 +258,63 @@ func staticIvLiteralList(text string) bool {
 	return true
 }
 
-func staticIvLiteralStringBytes(text string) bool {
-	return strings.HasPrefix(text, "\"") &&
-		(strings.Contains(text, "\".toByteArray(") ||
-			strings.Contains(text, "\".encodeToByteArray(") ||
-			strings.Contains(text, "\".getBytes(") ||
-			strings.HasSuffix(text, "\".bytes"))
+func staticIvLiteralStringBytes(file *scanner.File, text string) bool {
+	if !strings.HasPrefix(text, "\"") {
+		return false
+	}
+	if strings.HasSuffix(text, "\".bytes") {
+		return staticIvTemplateIsLiteral(file, strings.TrimSuffix(text, ".bytes"))
+	}
+	for _, call := range []string{"\".toByteArray(", "\".encodeToByteArray(", "\".getBytes("} {
+		if i := strings.Index(text, call); i >= 0 {
+			return staticIvTemplateIsLiteral(file, text[:i+1])
+		}
+	}
+	return false
 }
 
-func staticIvLiteralDecodeBytes(text string) bool {
-	return ((strings.Contains(text, "Base64.decode(") || strings.Contains(text, "Base64.getDecoder().decode(")) && strings.Contains(text, "\"")) ||
-		(strings.HasPrefix(text, "\"") && strings.Contains(text, "\".hexToByteArray("))
+// staticIvTemplateIsLiteral reports whether every `$name` entry of a string
+// literal names a string constant or literal-initialised value in the file.
+func staticIvTemplateIsLiteral(file *scanner.File, literal string) bool {
+	if !strings.Contains(literal, "$") {
+		return true
+	}
+	names := logPiiInterpolatedNames(literal)
+	if len(names) == 0 || file == nil {
+		return false
+	}
+	content := string(file.Content)
+	for _, name := range names {
+		decl := regexp.MustCompile(`\b(?:const\s+val|val|var)\s+` + regexp.QuoteMeta(name) + `\s*(?::\s*String\s*)?=\s*"`)
+		if !decl.MatchString(content) {
+			return false
+		}
+	}
+	return true
+}
+
+// staticIvDecodeCallRe matches the start of a Base64 decode call.
+var staticIvDecodeCallRe = regexp.MustCompile(`^(?:[A-Za-z_.]*\.)?Base64\.(?:(?:getDecoder|getUrlDecoder|getMimeDecoder)\(\)\.)?decode\(`)
+
+// staticIvDecodeArgRe matches a decode data argument that is one string literal
+// followed only by calls whose arguments are literals, such as
+// `"AAAA".replace(" ", "")` or `"""...""".trimIndent()`. It captures the literal.
+var staticIvDecodeArgRe = regexp.MustCompile(`^\s*("""(?s:.*?)"""|"(?:[^"\\]|\\.)*")((?:\.[A-Za-z]+\((?:\s*(?:"(?:[^"\\$]|\\.)*"|'(?:[^'\\]|\\.)'|\d+|Regex\("(?:[^"\\$]|\\.)*"\))\s*,?)*\))*)\s*(?:,|$)`)
+
+func staticIvLiteralDecodeBytes(file *scanner.File, text string) bool {
+	if loc := staticIvDecodeCallRe.FindStringIndex(text); loc != nil {
+		open := loc[1] - 1
+		if closeParen := matchingParenIndex(text, open); closeParen > open {
+			if m := staticIvDecodeArgRe.FindStringSubmatch(text[open+1 : closeParen]); m != nil {
+				return staticIvTemplateIsLiteral(file, m[1])
+			}
+		}
+		return false
+	}
+	if i := strings.Index(text, "\".hexToByteArray("); strings.HasPrefix(text, "\"") && i >= 0 {
+		return staticIvTemplateIsLiteral(file, text[:i+1])
+	}
+	return false
 }
 
 func prngFromSystemTimeCryptoFile(file *scanner.File) bool {
@@ -303,13 +350,20 @@ func prngFromSystemTimeRandomConstructor(file *scanner.File, idx uint32) bool {
 			strings.Contains(file.FlatNodeText(idx), "java.util.Random(")
 	case "object_creation_expression":
 		text := strings.TrimSpace(file.FlatNodeText(idx))
-		if !strings.Contains(text, "Random(") {
+		if !strings.HasPrefix(text, "new") {
 			return false
 		}
-		if strings.Contains(text, "SecureRandom") {
-			return false
+		typeName := strings.TrimSpace(strings.TrimPrefix(text, "new"))
+		if i := strings.Index(typeName, "("); i >= 0 {
+			typeName = strings.TrimSpace(typeName[:i])
 		}
-		return sourceImportsOrMentions(file, "java.util.Random") || strings.Contains(text, "java.util.Random")
+		switch typeName {
+		case "java.util.Random":
+			return true
+		case "Random":
+			return sourceImportsOrMentions(file, "java.util.Random")
+		}
+		return false
 	default:
 		return false
 	}

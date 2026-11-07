@@ -45,16 +45,10 @@ func rangeFrameworkSpecsForTarget(target, callName string) []rangeArgSpec {
 	case callName == "setAlpha" && rangeTargetAny(target,
 		"android.graphics.Paint.setAlpha",
 		"android.graphics.drawable.Drawable.setAlpha",
-		"android.view.View.setAlpha",
 		"android.widget.ImageView.setAlpha"):
 		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 0, 255)}
-	case callName == "setProgress" && rangeTargetAny(target,
-		"android.widget.ProgressBar.setProgress",
-		"android.widget.AbsSeekBar.setProgress"):
-		return []rangeArgSpec{rangeFrameworkSpec(0, "progress", "setProgress", "value", 0, 100)}
-	case callName == "setRotation" && rangeTargetAny(target,
-		"android.view.View.setRotation"):
-		return []rangeArgSpec{rangeFrameworkSpec(0, "rotation", "setRotation", "value", -360, 360)}
+	case callName == "setAlpha" && rangeTargetAny(target, "android.view.View.setAlpha"):
+		return []rangeArgSpec{rangeFrameworkSpec(0, "alpha", "setAlpha", "value", 0, 1)}
 	default:
 		return nil
 	}

@@ -3,6 +3,7 @@ package android
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 	"sync"
 
@@ -42,6 +43,15 @@ type XMLNode struct {
 	Attrs     []XMLAttribute
 	Children  []*XMLNode
 	Text      string
+	// TextNodes holds each non-blank character data run with its position.
+	TextNodes []XMLTextNode
+}
+
+// XMLTextNode is a run of character data and its 1-based position.
+type XMLTextNode struct {
+	Text string
+	Line int
+	Col  int
 }
 
 func (n *XMLNode) Attr(name string) string {
@@ -146,22 +156,59 @@ func buildXMLNode(node *sitter.Node, src []byte) (*XMLNode, error) {
 	if content == nil {
 		return out, nil
 	}
+	// A text run is character data and entity references up to the next element.
+	var run strings.Builder
+	runLine, runCol := 0, 0
+	flush := func() {
+		raw := run.String()
+		run.Reset()
+		trimmed := strings.TrimLeft(raw, " \t\r\n")
+		if strings.TrimSpace(trimmed) == "" {
+			return
+		}
+		line, col := runLine, runCol
+		for _, r := range raw[:len(raw)-len(trimmed)] {
+			if r == '\n' {
+				line++
+				col = 1
+			} else {
+				col++
+			}
+		}
+		out.TextNodes = append(out.TextNodes, XMLTextNode{Text: trimmed, Line: line, Col: col})
+	}
 	for i := 0; i < int(content.ChildCount()); i++ {
 		child := content.Child(i)
 		if child == nil {
 			continue
 		}
-		switch child.Type() {
-		case "element":
+		if child.Type() == "element" {
+			flush()
 			xmlChild, err := buildXMLNode(child, src)
 			if err != nil {
 				return nil, err
 			}
 			out.Children = append(out.Children, xmlChild)
-		case "CharData":
-			out.Text += child.Content(src)
+			continue
 		}
+		switch child.Type() {
+		case "CharData", "EntityRef", "CharRef", "Reference":
+		default:
+			continue
+		}
+		text := child.Content(src)
+		if child.Type() == "CharData" {
+			out.Text += text
+		} else {
+			text = html.UnescapeString(text)
+		}
+		if run.Len() == 0 {
+			p := child.StartPoint()
+			runLine, runCol = int(p.Row)+1, int(p.Column)+1
+		}
+		run.WriteString(text)
 	}
+	flush()
 
 	return out, nil
 }

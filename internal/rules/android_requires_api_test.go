@@ -186,3 +186,44 @@ func TestRequiresApiViolation_ParseRequiresApiAnnotationLevel(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiresApiViolation_VersionCodesConstantAndEarlyReturnGuard(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want int
+	}{
+		"constant level":     {"fun caller() { helper() }", 1},
+		"early return guard": {"fun caller() { if (Build.VERSION.SDK_INT < 26) return\n helper() }", 0},
+		"early throw guard":  {"fun caller() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) { throw IllegalStateException() }\n helper() }", 0},
+		"wrong direction":    {"fun caller() { if (Build.VERSION.SDK_INT >= 26) return\n helper() }", 1},
+		"non-terminating if": {"fun caller() { if (Build.VERSION.SDK_INT < 26) { println() }\n helper() }", 1},
+	}
+	for name, tc := range cases {
+		source := "package test\nimport android.os.Build\nimport androidx.annotation.RequiresApi\n@RequiresApi(Build.VERSION_CODES.O)\nfun helper() {}\n" + tc.body + "\n"
+		if got := len(runRequiresApi(t, source, 21)); got != tc.want {
+			t.Errorf("%s: expected %d findings, got %d", name, tc.want, got)
+		}
+	}
+}
+
+func TestRequiresApiViolation_SuppressLintNewApi(t *testing.T) {
+	source := `package test
+import androidx.annotation.RequiresApi
+@RequiresApi(26)
+fun helper() {}
+@SuppressLint("NewApi")
+fun caller() { helper() }
+`
+	path := filepath.Join(t.TempDir(), "test.kt")
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := scanner.BuildSuppressionFilter(file, nil, nil, "").WithRuleAliases(AllSuppressionAliases())
+	if !filter.IsSuppressedAtColumn("RequiresApiViolation", "android-lint", 6, 15) {
+		t.Fatal("@SuppressLint(\"NewApi\") must suppress RequiresApiViolation")
+	}
+}

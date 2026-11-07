@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,35 +40,108 @@ type ExtraTextEntry struct {
 	Text     string
 }
 
+// TypographyText is one text or CDATA node of a translatable <string>, or of an <item> of a <string-array>
+// or <plurals>, with the position of its first non-blank character.
+type TypographyText struct {
+	FilePath string
+	// Name is the name attribute of the owning <string> or array; empty for plurals.
+	Name string
+	// Text is the node value with entities decoded; CData marks a <![CDATA[ ]]> section.
+	Text  string
+	CData bool
+	// Line and Col are the 1-based position of the first non-blank character, and Offset its byte offset.
+	Line   int
+	Col    int
+	Offset int
+}
+
+// VectorAttr is an attribute of a drawable XML file with the position of its value.
+type VectorAttr struct {
+	Value string
+	// Line and Col are the 1-based position of the attribute name; ValueLine and ValueCol that of the value text.
+	Line, Col           int
+	ValueLine, ValueCol int
+	// ValueOffset is the byte offset of the value text in the file.
+	ValueOffset int
+}
+
+// VectorDrawable records the parts of a drawable XML file that the vector checks read.
+type VectorDrawable struct {
+	FilePath string
+	// FolderVersion is the -vNN API qualifier of the drawable folder, or 0 when it has none.
+	FolderVersion int
+	RootTag       string
+	// Width and Height are the android:width and android:height attributes of the root element, when both exist.
+	Width, Height *VectorAttr
+	// PathData holds every pathData attribute in the file.
+	PathData []VectorAttr
+}
+
 // ResourceIndex holds all parsed Android resource data from a res/ directory.
 type ResourceIndex struct {
-	Layouts             map[string]*Layout            // layout name -> parsed layout (last wins for compat)
-	LayoutConfigs       map[string]map[string]*Layout // layout name -> config qualifier -> layout
-	Strings             map[string]string             // string name -> value
-	StringsNonTranslate map[string]bool               // strings marked translatable="false"
+	// ResDirs lists the absolute res/ directories the index was built from.
+	ResDirs       []string
+	Layouts       map[string]*Layout            // layout name -> parsed layout (the unqualified variant wins)
+	LayoutConfigs map[string]map[string]*Layout // layout name -> config qualifier -> layout
+	// LayoutVariants holds every parsed layout file, including same-named
+	// files in qualifier directories (layout-land) and in other modules.
+	LayoutVariants []*Layout
+	// MenuVariants holds every parsed menu file (res/menu*/), which layout rules must not see.
+	MenuVariants        []*Layout
+	Strings             map[string]string // string name -> value
+	StringsNonTranslate map[string]bool   // strings marked translatable="false"
 	// StringsNonFormatted marks strings with formatted="false". These are
 	// NOT format strings — their `%{var}` / `%foo` sequences are literal,
 	// typically for gettext/phrase-style translation interpolation, and
 	// format-specifier-validation rules should skip them.
 	StringsNonFormatted map[string]bool
+	// StringsWithNote marks strings carrying a translator note: a `note` or
+	// `description` attribute, or an XML comment directly before the element.
+	StringsWithNote map[string]bool
+	// StringsWithMarkup marks strings whose XML content has styling elements such
+	// as <b> or <i>. xliff:g placeholders are not styling and do not count.
+	StringsWithMarkup map[string]bool
 	// StringsTrailingWS marks strings whose raw XML text content ended with
 	// whitespace before TrimSpace. Significant in some locales and in
 	// concatenated strings.
-	StringsTrailingWS  map[string]bool
-	StringsLocation    map[string]StringLocation    // string name -> file path and line
-	Colors             map[string]string            // color name -> value
-	Dimensions         map[string]string            // dimen name -> value
-	DimensionsLocation map[string]StringLocation    // dimen name -> file path and line
-	Styles             map[string]*Style            // style name -> style definition
-	Drawables          []string                     // drawable resource names
-	DrawableSelectors  map[string][]SelectorItem    // selector drawable name -> child items
-	StringArrays       map[string][]string          // string-array name -> items
-	Plurals            map[string]map[string]string // plural name -> quantity -> value
-	Integers           map[string]string            // integer name -> value
-	Booleans           map[string]string            // bool name -> value
-	IDs                map[string]bool              // declared @+id names
-	ExtraTexts         []ExtraTextEntry             // stray text nodes in values files
-	AliasItems         []AliasItem                  // top-level <item name= type=> resource aliases
+	StringsTrailingWS map[string]bool
+	StringsLocation   map[string]StringLocation // string name -> file path and line
+	// StringSources holds default-locale string definitions only, so rules can
+	// ignore translation overrides that share the same name.
+	StringSources map[string]StringSource
+	// StringTranslations holds every non-default-locale definition of a string
+	// name. Strings, StringsLocation and the per-string flags describe the
+	// default locale whenever one exists, so translation-aware rules read this.
+	StringTranslations map[string][]StringSource
+	Colors             map[string]string         // color name -> value
+	Dimensions         map[string]string         // dimen name -> value
+	DimensionsLocation map[string]StringLocation // dimen name -> file path and line
+	Styles             map[string]*Style         // style name -> style definition
+	Drawables          []string                  // drawable resource names
+	DrawableSelectors  map[string][]SelectorItem // selector drawable name -> child items
+	StringArrays       map[string][]string       // string-array name -> items
+	// StringArrayVariants keeps every <string-array> declaration per name, so rules can compare item counts across configurations.
+	StringArrayVariants map[string][]StringArrayVariant
+	Plurals             map[string]map[string]string // plural name -> quantity -> value
+	PluralSources       map[string]string            // plural name -> values directory that supplied the entry
+	PluralsLocation     map[string]StringLocation    // plural name -> file path and line of the supplying <plurals>
+	// PluralDefinitions lists every <plurals> element of every locale, unlike
+	// Plurals which keeps one entry per name.
+	PluralDefinitions []PluralDefinition
+	// StringDefinitions lists every <string> element of every values folder,
+	// qualified folders such as values-night included.
+	StringDefinitions []StringDefinition
+	// TranslatedTokens holds distinct translation values of strings whose value
+	// is a single token (URLs, emails, identifiers), keyed by string name.
+	TranslatedTokens    map[string][]string
+	PluralsNonTranslate map[string]bool   // plurals marked translatable="false"
+	Integers            map[string]string // integer name -> value
+	Booleans            map[string]string // bool name -> value
+	IDs                 map[string]bool   // declared @+id names
+	ExtraTexts          []ExtraTextEntry  // stray text nodes in values files
+	AliasItems          []AliasItem       // top-level <item name= type=> resource aliases
+	TypographyTexts     []TypographyText  // text nodes of translatable strings, for the Typography checks
+	VectorDrawables     []VectorDrawable  // drawable XML files with size or path data, for the vector checks
 }
 
 // AliasItem records a top-level <item name="..." type="..."> resource alias
@@ -95,6 +169,66 @@ type StringLocation struct {
 	Line     int
 }
 
+// PluralDefinition is one <plurals> element from a specific values folder.
+type PluralDefinition struct {
+	Name       string
+	FilePath   string
+	Line       int
+	Quantities map[string]string
+	// QuantityPos maps a quantity to the position of its <item> element.
+	QuantityPos map[string]XMLPos
+}
+
+// StringDefinition is one <string> element from any values folder, with the raw
+// text content Lint's StringFormatDetector inspects.
+type StringDefinition struct {
+	Name     string
+	FilePath string
+	Line     int
+	// Text is the element's text content before trimming.
+	Text string
+	// Formatted is the value of the formatted attribute, or "" when absent.
+	Formatted string
+	// DefaultFolder is true for the unqualified res/values folder.
+	DefaultFolder bool
+}
+
+// StringSource records a <string> defined outside any language-qualified
+// values directory (the default-locale definition).
+type StringSource struct {
+	Value    string
+	FilePath string
+	Line     int
+}
+
+// isDefaultValuesFolder reports whether path is in the unqualified values folder.
+func isDefaultValuesFolder(path string) bool {
+	return filepath.Base(filepath.Dir(filepath.FromSlash(strings.ReplaceAll(path, "\\", "/")))) == "values"
+}
+
+// IsTranslationValuesPath reports whether path is inside a values directory
+// qualified by a language (values-fr, values-zh-rTW, values-b+sr+Latn).
+// API-level, night, density and similar qualifiers are not translations.
+func IsTranslationValuesPath(path string) bool {
+	dir := filepath.Base(filepath.Dir(filepath.FromSlash(strings.ReplaceAll(path, "\\", "/"))))
+	if !strings.HasPrefix(dir, "values-") {
+		return false
+	}
+	first := strings.SplitN(strings.TrimPrefix(dir, "values-"), "-", 2)[0]
+	if strings.HasPrefix(first, "b+") {
+		return true
+	}
+	if len(first) < 2 || len(first) > 3 || first == "tv" || first == "car" {
+		return false
+	}
+	for _, c := range first {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
 // Layout represents a parsed Android layout XML file.
 type Layout struct {
 	Name     string
@@ -114,6 +248,34 @@ type View struct {
 	Attributes         map[string]string // all attributes
 	Children           []*View
 	Line               int // 1-based line number in the XML file
+	Col                int // 1-based column of the element's opening `<`
+	// AttrPos maps an attribute name to the 1-based position of its name.
+	AttrPos map[string]XMLPos
+	// TextNodes holds the non-blank text directly inside the element.
+	TextNodes []XMLTextNode
+}
+
+// StringArrayVariant is one <string-array> declaration in a values directory.
+type StringArrayVariant struct {
+	Dir      string // values directory name, e.g. "values-fr"
+	Count    int
+	FilePath string
+	Line     int
+}
+
+// XMLPos is a 1-based line and column in an XML file.
+type XMLPos struct {
+	Line int
+	Col  int
+}
+
+// PosOf returns the position of the named attribute, or the element start
+// when the attribute is absent or its position is unknown.
+func (v *View) PosOf(attr string) (line, col int) {
+	if p, ok := v.AttrPos[attr]; ok && p.Line > 0 {
+		return p.Line, p.Col
+	}
+	return v.Line, v.Col
 }
 
 // Style represents an Android style definition.
@@ -153,9 +315,13 @@ const (
 	ValuesScanArrays
 	ValuesScanExtraText
 	ValuesScanAliasItems
+	ValuesScanTypography
 )
 
 const ValuesScanAll = ValuesScanStrings | ValuesScanDimensions | ValuesScanPlurals | ValuesScanArrays | ValuesScanExtraText | ValuesScanAliasItems
+
+// ValuesScanEvery adds the typography text scan, which only the Typography checks use.
+const ValuesScanEvery = ValuesScanAll | ValuesScanTypography
 
 // lineAtOffset returns the 1-based line number for the given byte offset in
 // the file's content. A nil file is treated as the first line.
@@ -196,7 +362,7 @@ type LazyValuesScan struct {
 
 // NewLazyValuesScan returns a reusable provider for a single values/ directory.
 func NewLazyValuesScan(dir string, maxWorkers int, kinds ...ValuesScanKind) *LazyValuesScan {
-	kindMask := ValuesScanAll
+	kindMask := ValuesScanEvery
 	if len(kinds) > 0 && kinds[0] != ValuesScanNone {
 		kindMask = kinds[0]
 	}
@@ -244,13 +410,20 @@ func newResourceIndex() *ResourceIndex {
 		StringsNonFormatted: make(map[string]bool),
 		StringsTrailingWS:   make(map[string]bool),
 		StringsLocation:     make(map[string]StringLocation),
+		StringSources:       make(map[string]StringSource),
+		StringTranslations:  make(map[string][]StringSource),
 		Colors:              make(map[string]string),
 		Dimensions:          make(map[string]string),
 		DimensionsLocation:  make(map[string]StringLocation),
 		Styles:              make(map[string]*Style),
 		DrawableSelectors:   make(map[string][]SelectorItem),
 		StringArrays:        make(map[string][]string),
+		StringArrayVariants: make(map[string][]StringArrayVariant),
 		Plurals:             make(map[string]map[string]string),
+		PluralSources:       make(map[string]string),
+		PluralsLocation:     make(map[string]StringLocation),
+		PluralsNonTranslate: make(map[string]bool),
+		TranslatedTokens:    make(map[string][]string),
 		Integers:            make(map[string]string),
 		Booleans:            make(map[string]string),
 		IDs:                 make(map[string]bool),
@@ -278,6 +451,56 @@ func (idx *ResourceIndex) mergeFrom(other *ResourceIndex) {
 	idx.mergeCollectionEntries(other)
 	idx.ExtraTexts = append(idx.ExtraTexts, other.ExtraTexts...)
 	idx.AliasItems = append(idx.AliasItems, other.AliasItems...)
+	idx.TypographyTexts = append(idx.TypographyTexts, other.TypographyTexts...)
+	idx.VectorDrawables = append(idx.VectorDrawables, other.VectorDrawables...)
+	for _, dir := range other.ResDirs {
+		known := false
+		for _, have := range idx.ResDirs {
+			known = known || have == dir
+		}
+		if !known {
+			idx.ResDirs = append(idx.ResDirs, dir)
+		}
+	}
+}
+
+// isDefaultLayout reports whether the layout lives in an unqualified layout/ directory.
+func isDefaultLayout(l *Layout) bool {
+	return filepath.Base(filepath.Dir(l.FilePath)) == "layout"
+}
+
+// AllMenus returns every menu resource file, sorted by path.
+func (idx *ResourceIndex) AllMenus() []*Layout {
+	if idx == nil {
+		return nil
+	}
+	out := append([]*Layout(nil), idx.MenuVariants...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].FilePath < out[j].FilePath })
+	return out
+}
+
+// AllLayouts returns every layout file, including qualifier-directory
+// variants of the same name, ordered by file path. Indexes built without
+// variant tracking fall back to the name-keyed Layouts, ordered by name.
+func (idx *ResourceIndex) AllLayouts() []*Layout {
+	if idx == nil {
+		return nil
+	}
+	if len(idx.LayoutVariants) > 0 {
+		out := append([]*Layout(nil), idx.LayoutVariants...)
+		sort.SliceStable(out, func(i, j int) bool { return out[i].FilePath < out[j].FilePath })
+		return out
+	}
+	names := make([]string, 0, len(idx.Layouts))
+	for name := range idx.Layouts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*Layout, 0, len(names))
+	for _, name := range names {
+		out = append(out, idx.Layouts[name])
+	}
+	return out
 }
 
 func (idx *ResourceIndex) ensureMaps() {
@@ -302,6 +525,12 @@ func (idx *ResourceIndex) ensureMaps() {
 	if idx.StringsLocation == nil {
 		idx.StringsLocation = make(map[string]StringLocation)
 	}
+	if idx.StringSources == nil {
+		idx.StringSources = make(map[string]StringSource)
+	}
+	if idx.StringTranslations == nil {
+		idx.StringTranslations = make(map[string][]StringSource)
+	}
 	if idx.Colors == nil {
 		idx.Colors = make(map[string]string)
 	}
@@ -317,8 +546,20 @@ func (idx *ResourceIndex) ensureMaps() {
 	if idx.StringArrays == nil {
 		idx.StringArrays = make(map[string][]string)
 	}
+	if idx.StringArrayVariants == nil {
+		idx.StringArrayVariants = make(map[string][]StringArrayVariant)
+	}
 	if idx.Plurals == nil {
 		idx.Plurals = make(map[string]map[string]string)
+	}
+	if idx.PluralSources == nil {
+		idx.PluralSources = make(map[string]string)
+	}
+	if idx.PluralsLocation == nil {
+		idx.PluralsLocation = make(map[string]StringLocation)
+	}
+	if idx.PluralsNonTranslate == nil {
+		idx.PluralsNonTranslate = make(map[string]bool)
 	}
 	if idx.Integers == nil {
 		idx.Integers = make(map[string]string)
@@ -333,8 +574,14 @@ func (idx *ResourceIndex) ensureMaps() {
 
 func (idx *ResourceIndex) mergeLayoutEntries(other *ResourceIndex) {
 	for name, layout := range other.Layouts {
+		// A qualifier variant must not replace the default layout by merge order.
+		if prev := idx.Layouts[name]; prev != nil && isDefaultLayout(prev) && !isDefaultLayout(layout) {
+			continue
+		}
 		idx.Layouts[name] = layout
 	}
+	idx.LayoutVariants = append(idx.LayoutVariants, other.LayoutVariants...)
+	idx.MenuVariants = append(idx.MenuVariants, other.MenuVariants...)
 	for name, configs := range other.LayoutConfigs {
 		dst := idx.LayoutConfigs[name]
 		if dst == nil {
@@ -348,8 +595,28 @@ func (idx *ResourceIndex) mergeLayoutEntries(other *ResourceIndex) {
 }
 
 func (idx *ResourceIndex) mergeStringEntries(other *ResourceIndex) {
+	// An index holding only a translation of a name must not replace a default-locale definition.
+	standsIn := func(name string) bool {
+		if _, otherDefault := other.StringSources[name]; otherDefault {
+			return false
+		}
+		if _, hasDefault := idx.StringSources[name]; hasDefault {
+			return true
+		}
+		_, exists := idx.Strings[name]
+		return exists
+	}
 	for name, value := range other.Strings {
+		if standsIn(name) {
+			continue
+		}
 		idx.Strings[name] = value
+	}
+	for name, translations := range other.StringTranslations {
+		if idx.StringTranslations == nil {
+			idx.StringTranslations = make(map[string][]StringSource)
+		}
+		idx.StringTranslations[name] = append(idx.StringTranslations[name], translations...)
 	}
 	for name := range other.StringsNonTranslate {
 		idx.StringsNonTranslate[name] = true
@@ -360,6 +627,18 @@ func (idx *ResourceIndex) mergeStringEntries(other *ResourceIndex) {
 		}
 		idx.StringsNonFormatted[name] = true
 	}
+	for name := range other.StringsWithMarkup {
+		if idx.StringsWithMarkup == nil {
+			idx.StringsWithMarkup = make(map[string]bool)
+		}
+		idx.StringsWithMarkup[name] = true
+	}
+	for name := range other.StringsWithNote {
+		if idx.StringsWithNote == nil {
+			idx.StringsWithNote = make(map[string]bool)
+		}
+		idx.StringsWithNote[name] = true
+	}
 	for name := range other.StringsTrailingWS {
 		if idx.StringsTrailingWS == nil {
 			idx.StringsTrailingWS = make(map[string]bool)
@@ -367,7 +646,21 @@ func (idx *ResourceIndex) mergeStringEntries(other *ResourceIndex) {
 		idx.StringsTrailingWS[name] = true
 	}
 	for name, loc := range other.StringsLocation {
+		if standsIn(name) {
+			continue
+		}
 		idx.StringsLocation[name] = loc
+	}
+	for name, values := range other.TranslatedTokens {
+		for _, value := range values {
+			idx.addTranslatedToken(name, value)
+		}
+	}
+	for name, src := range other.StringSources {
+		if idx.StringSources == nil {
+			idx.StringSources = make(map[string]StringSource)
+		}
+		idx.StringSources[name] = src
 	}
 }
 
@@ -413,6 +706,9 @@ func (idx *ResourceIndex) mergeCollectionEntries(other *ResourceIndex) {
 	// such as InconsistentArraysResource and MissingQuantityResource fire on
 	// resources that ARE defined in the default configuration. Preserve the
 	// populated entry instead.
+	for name, variants := range other.StringArrayVariants {
+		idx.StringArrayVariants[name] = append(idx.StringArrayVariants[name], variants...)
+	}
 	for name, items := range other.StringArrays {
 		if len(items) == 0 {
 			if existing, ok := idx.StringArrays[name]; ok && len(existing) > 0 {
@@ -421,6 +717,8 @@ func (idx *ResourceIndex) mergeCollectionEntries(other *ResourceIndex) {
 		}
 		idx.StringArrays[name] = items
 	}
+	idx.PluralDefinitions = append(idx.PluralDefinitions, other.PluralDefinitions...)
+	idx.StringDefinitions = append(idx.StringDefinitions, other.StringDefinitions...)
 	for name, quantities := range other.Plurals {
 		if len(quantities) == 0 {
 			if existing, ok := idx.Plurals[name]; ok && len(existing) > 0 {
@@ -428,6 +726,15 @@ func (idx *ResourceIndex) mergeCollectionEntries(other *ResourceIndex) {
 			}
 		}
 		idx.Plurals[name] = quantities
+		if src, ok := other.PluralSources[name]; ok {
+			idx.PluralSources[name] = src
+		}
+		if loc, ok := other.PluralsLocation[name]; ok {
+			idx.PluralsLocation[name] = loc
+		}
+		if other.PluralsNonTranslate[name] {
+			idx.PluralsNonTranslate[name] = true
+		}
 	}
 }
 
@@ -468,19 +775,19 @@ func ScanResourceDirWithStats(resDir string) (*ResourceIndex, ResourceScanStats,
 // ScanResourceDirWithStatsWorkers scans an Android res/ directory with an
 // explicit worker cap and returns the resource index plus coarse timing.
 func ScanResourceDirWithStatsWorkers(resDir string, maxWorkers int) (*ResourceIndex, ResourceScanStats, error) {
-	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, true, true, true, ValuesScanAll)
+	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, true, true, true, ValuesScanEvery)
 }
 
 // ScanLayoutResourcesWithStatsWorkers scans only layout and drawable-like resource
 // directories from an Android res/ directory.
 func ScanLayoutResourcesWithStatsWorkers(resDir string, maxWorkers int) (*ResourceIndex, ResourceScanStats, error) {
-	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, true, false, true, ValuesScanAll)
+	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, true, false, true, ValuesScanEvery)
 }
 
 // ScanValuesResourcesWithStatsWorkers scans only values resource directories from
 // an Android res/ directory.
 func ScanValuesResourcesWithStatsWorkers(resDir string, maxWorkers int) (*ResourceIndex, ResourceScanStats, error) {
-	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, false, true, false, ValuesScanAll)
+	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, false, true, false, ValuesScanEvery)
 }
 
 func ScanValuesResourcesWithStatsKindsWorkers(resDir string, maxWorkers int, kinds ValuesScanKind) (*ResourceIndex, ResourceScanStats, error) {
@@ -494,6 +801,7 @@ func scanResourceDirWithStatsWorkers(resDir string, maxWorkers int, includeLayou
 	if abs, err := filepath.Abs(resDir); err == nil {
 		resDir = abs
 	}
+	idx.ResDirs = []string{resDir}
 
 	entries, err := readResourceDirEntries(resDir)
 	if err != nil {
@@ -531,6 +839,11 @@ func scanResourceDirWithStatsWorkers(resDir string, maxWorkers int, includeLayou
 	return idx, stats, nil
 }
 
+// warnSkippedResource reports an XML resource that was left out of the index because it did not parse.
+func warnSkippedResource(kind, path string, err error) {
+	fmt.Fprintf(os.Stderr, "krit: skipping unparsable %s resource %s: %v\n", kind, path, err)
+}
+
 func readResourceDirEntries(resDir string) ([]os.DirEntry, error) {
 	info, err := os.Stat(resDir)
 	if err != nil {
@@ -553,7 +866,7 @@ func buildResourceJobs(entries []os.DirEntry, includeLayouts, includeValues, inc
 			continue
 		}
 		dirName := entry.Name()
-		isLayout := strings.HasPrefix(dirName, "layout")
+		isLayout := strings.HasPrefix(dirName, "layout") || isMenuDirName(dirName)
 		isValues := strings.HasPrefix(dirName, "values")
 		isDrawable := strings.HasPrefix(dirName, "drawable") || strings.HasPrefix(dirName, "mipmap")
 		if (!includeLayouts || !isLayout) &&
@@ -573,7 +886,7 @@ func processResourceDirJob(resDir string, entry os.DirEntry, order int, maxWorke
 	var partialStats ResourceScanStats
 
 	switch {
-	case includeLayouts && strings.HasPrefix(dirName, "layout"):
+	case includeLayouts && (strings.HasPrefix(dirName, "layout") || isMenuDirName(dirName)):
 		start := time.Now()
 		err := partial.scanLayoutDir(dirPath, maxWorkers)
 		partialStats.LayoutScanMs = time.Since(start).Milliseconds()
@@ -583,6 +896,9 @@ func processResourceDirJob(resDir string, entry os.DirEntry, order int, maxWorke
 	case includeValues && strings.HasPrefix(dirName, "values"):
 		start := time.Now()
 		valuesStats, err := partial.scanValuesDirKinds(dirPath, maxWorkers, valueKinds)
+		for name := range partial.Plurals {
+			partial.PluralSources[name] = dirName
+		}
 		partialStats.add(valuesStats)
 		partialStats.ValuesScanMs = time.Since(start).Milliseconds()
 		partialStats.MaxValuesScanMs = partialStats.ValuesScanMs
@@ -599,7 +915,12 @@ func processResourceDirJob(resDir string, entry os.DirEntry, order int, maxWorke
 	return resourceDirResult{order: order, index: partial}
 }
 
-// scanLayoutDir parses all XML files in a layout directory.
+// isMenuDirName reports a menu resource directory such as menu or menu-v21.
+func isMenuDirName(name string) bool {
+	return name == "menu" || strings.HasPrefix(name, "menu-")
+}
+
+// scanLayoutDir parses all XML files in a layout or menu directory.
 func (idx *ResourceIndex) scanLayoutDir(dir string, maxWorkers int) error {
 	files, err := readLayoutDirFiles(dir, maxWorkers)
 	if err != nil {
@@ -649,13 +970,21 @@ func (idx *ResourceIndex) scanLayoutDir(dir string, maxWorkers int) error {
 	dirIdx := newResourceIndex()
 	for i, result := range results {
 		if result.err != nil {
-			return fmt.Errorf("parsing layout %s: %w", files[i].path, result.err)
+			// One unparsable layout must not drop every other layout in the directory.
+			warnSkippedResource("layout", files[i].path, result.err)
+			continue
 		}
 		layout := result.layout
 		input := files[i]
 		layout.Name = input.name
 		layout.FilePath = input.path
+		if isMenuDirName(base) {
+			dirIdx.MenuVariants = append(dirIdx.MenuVariants, layout)
+			collectIDs(layout.RootView, dirIdx.IDs)
+			continue
+		}
 		dirIdx.Layouts[input.name] = layout
+		dirIdx.LayoutVariants = append(dirIdx.LayoutVariants, layout)
 
 		// Store in LayoutConfigs for multi-config tracking
 		if dirIdx.LayoutConfigs[input.name] == nil {
@@ -694,7 +1023,7 @@ func collectIDs(v *View, ids map[string]bool) {
 // — callers that need a worker pool use NewLazyValuesScan / scanValuesDirKinds
 // directly.
 func (idx *ResourceIndex) scanValuesDir(dir string) (ResourceScanStats, error) {
-	return idx.scanValuesDirKinds(dir, 1, ValuesScanAll)
+	return idx.scanValuesDirKinds(dir, 1, ValuesScanEvery)
 }
 
 func (idx *ResourceIndex) scanValuesDirKinds(dir string, maxWorkers int, kinds ValuesScanKind) (ResourceScanStats, error) {
@@ -748,7 +1077,9 @@ func scanValuesDirIndexKinds(dir string, maxWorkers int, kinds ValuesScanKind) (
 	total.ValuesReadMs += readMs
 	for i, result := range results {
 		if result.err != nil {
-			return nil, total, fmt.Errorf("parsing values %s: %w", files[i].path, result.err)
+			// One unparsable file must not drop every other values resource in the directory.
+			warnSkippedResource("values", files[i].path, result.err)
+			continue
 		}
 		idx.mergeFrom(result.index)
 		total.add(result.stats)
@@ -824,6 +1155,9 @@ func isSelectorStateAttr(name string) bool {
 
 func (idx *ResourceIndex) parseDrawableSelectorBytes(path, resName string, data []byte) {
 	root, err := ParseXMLAST(context.Background(), data)
+	if err == nil && root != nil {
+		idx.recordVectorDrawable(path, data, root)
+	}
 	if err != nil || root == nil || root.Tag != "selector" {
 		return
 	}
@@ -870,10 +1204,16 @@ func viewFromXMLNode(node *XMLNode) *View {
 		Type:       node.Tag,
 		Attributes: make(map[string]string),
 		Line:       node.Line,
+		Col:        node.Col,
 	}
+	if len(node.Attrs) > 0 {
+		v.AttrPos = make(map[string]XMLPos, len(node.Attrs))
+	}
+	v.TextNodes = node.TextNodes
 
 	for _, attr := range node.Attrs {
 		v.Attributes[attr.Name] = attr.Value
+		v.AttrPos[attr.Name] = XMLPos{Line: attr.Line, Col: attr.Col}
 		switch attr.Name {
 		case "android:id":
 			v.ID = attr.Value
@@ -899,12 +1239,17 @@ func viewFromXMLNode(node *XMLNode) *View {
 }
 
 func (idx *ResourceIndex) parseValuesXMLKinds(path string, data []byte, kinds ValuesScanKind) error {
+	if kinds&ValuesScanTypography != 0 {
+		idx.scanTypographyTexts(path, data)
+	}
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	needStringLines := kinds&ValuesScanStrings != 0
 	needExtraTextLines := kinds&ValuesScanExtraText != 0
 	needDimenLines := kinds&ValuesScanDimensions != 0
+	needPluralLines := kinds&ValuesScanPlurals != 0
+	needArrayLines := kinds&ValuesScanArrays != 0
 	var lines *scanner.File
-	if needStringLines || needExtraTextLines || needDimenLines {
+	if needStringLines || needExtraTextLines || needDimenLines || needPluralLines || needArrayLines {
 		lines = &scanner.File{Content: data, Language: scanner.LangXML, Path: path}
 	}
 	for {
@@ -928,7 +1273,10 @@ func (idx *ResourceIndex) parseValuesXMLKinds(path string, data []byte, kinds Va
 }
 
 func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string, _ []byte, root xml.StartElement, kinds ValuesScanKind, lines *scanner.File) error {
+	// A comment directly before an element is the translator note for it.
+	commentBefore := false
 	for {
+		tokenStart := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -938,7 +1286,12 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 		}
 
 		switch t := tok.(type) {
+		case xml.Comment:
+			commentBefore = strings.TrimSpace(string(t)) != ""
 		case xml.CharData:
+			if strings.TrimSpace(string(t)) != "" {
+				commentBefore = false
+			}
 			if kinds&ValuesScanExtraText != 0 {
 				raw := string(t)
 				text := strings.TrimSpace(raw)
@@ -955,10 +1308,17 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 			elemLine := 0
 			if lines != nil {
 				switch t.Name.Local {
-				case "string", "dimen", "style", "item":
+				case "string", "dimen", "style", "item", "string-array":
 					elemLine = lineAtOffset(lines, dec.InputOffset())
+				case "plurals":
+					// Lint reports a plurals element at the line its tag opens.
+					elemLine = lineAtOffset(lines, tokenStart)
 				}
 			}
+			if commentBefore && t.Name.Local == "string" {
+				idx.markStringNote(xmlAttr(t.Attr, "name"))
+			}
+			commentBefore = false
 			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, kinds, lines); err != nil {
 				return fmt.Errorf("parsing XML %s: %w", path, err)
 			}
@@ -987,16 +1347,16 @@ func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.
 			return skipElement(dec, start)
 		}
 		return idx.parseStyleElement(dec, start, path, line, lines)
-	case "string-array":
+	case "string-array", "integer-array", "array":
 		if kinds&ValuesScanArrays == 0 {
 			return skipElement(dec, start)
 		}
-		return idx.parseStringArrayElement(dec, start)
+		return idx.parseStringArrayElement(dec, start, path, line)
 	case "plurals":
 		if kinds&ValuesScanPlurals == 0 {
 			return skipElement(dec, start)
 		}
-		return idx.parsePluralsElement(dec, start)
+		return idx.parsePluralsElement(dec, start, path, line, lines)
 	case "item":
 		if kinds&ValuesScanAliasItems == 0 {
 			return skipElement(dec, start)
@@ -1037,16 +1397,46 @@ func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartEl
 	name := xmlAttr(start.Attr, "name")
 	translatable := xmlAttr(start.Attr, "translatable")
 	formatted := xmlAttr(start.Attr, "formatted")
-	raw, text, err := decodeSimpleElementTextWithRaw(dec, start)
+	raw, text, hasMarkup, err := decodeStringElementText(dec, start)
 	if err != nil {
 		return err
 	}
 	if name == "" {
 		return nil
 	}
+	idx.StringDefinitions = append(idx.StringDefinitions, StringDefinition{
+		Name: name, FilePath: path, Line: line, Text: raw, Formatted: formatted,
+		DefaultFolder: isDefaultValuesFolder(path),
+	})
+	if IsTranslationValuesPath(path) {
+		if idx.StringTranslations == nil {
+			idx.StringTranslations = make(map[string][]StringSource)
+		}
+		idx.StringTranslations[name] = append(idx.StringTranslations[name], StringSource{Value: text, FilePath: path, Line: line})
+		if text != "" && !strings.ContainsAny(text, " \t\r\n") {
+			idx.addTranslatedToken(name, text)
+		}
+		// A translation only stands in for the string while no default-locale definition exists.
+		if _, hasDefault := idx.StringSources[name]; !hasDefault {
+			if _, exists := idx.Strings[name]; !exists {
+				idx.Strings[name] = text
+				idx.StringsLocation[name] = StringLocation{FilePath: path, Line: line}
+			}
+		}
+		return nil
+	}
 	idx.Strings[name] = text
+	if hasMarkup {
+		if idx.StringsWithMarkup == nil {
+			idx.StringsWithMarkup = make(map[string]bool)
+		}
+		idx.StringsWithMarkup[name] = true
+	}
 	if translatable == "false" {
 		idx.StringsNonTranslate[name] = true
+	}
+	if xmlAttr(start.Attr, "note") != "" || xmlAttr(start.Attr, "description") != "" {
+		idx.markStringNote(name)
 	}
 	if formatted == "false" {
 		if idx.StringsNonFormatted == nil {
@@ -1061,7 +1451,34 @@ func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartEl
 		idx.StringsTrailingWS[name] = true
 	}
 	idx.StringsLocation[name] = StringLocation{FilePath: path, Line: line}
+	if idx.StringSources == nil {
+		idx.StringSources = make(map[string]StringSource)
+	}
+	idx.StringSources[name] = StringSource{Value: text, FilePath: path, Line: line}
 	return nil
+}
+
+// addTranslatedToken records a distinct translation value for a string name.
+func (idx *ResourceIndex) markStringNote(name string) {
+	if name == "" {
+		return
+	}
+	if idx.StringsWithNote == nil {
+		idx.StringsWithNote = make(map[string]bool)
+	}
+	idx.StringsWithNote[name] = true
+}
+
+func (idx *ResourceIndex) addTranslatedToken(name, value string) {
+	if idx.TranslatedTokens == nil {
+		idx.TranslatedTokens = make(map[string][]string)
+	}
+	for _, existing := range idx.TranslatedTokens[name] {
+		if existing == value {
+			return
+		}
+	}
+	idx.TranslatedTokens[name] = append(idx.TranslatedTokens[name], value)
 }
 
 func (idx *ResourceIndex) parseColorElement(dec *xml.Decoder, start xml.StartElement, kinds ValuesScanKind) error {
@@ -1177,7 +1594,7 @@ func (idx *ResourceIndex) parseStyleElement(dec *xml.Decoder, start xml.StartEle
 	}
 }
 
-func (idx *ResourceIndex) parseStringArrayElement(dec *xml.Decoder, start xml.StartElement) error {
+func (idx *ResourceIndex) parseStringArrayElement(dec *xml.Decoder, start xml.StartElement, path string, line int) error {
 	name := xmlAttr(start.Attr, "name")
 	var items []string
 	for {
@@ -1202,6 +1619,9 @@ func (idx *ResourceIndex) parseStringArrayElement(dec *xml.Decoder, start xml.St
 			if t.Name.Local == start.Name.Local {
 				if name != "" {
 					idx.StringArrays[name] = items
+					idx.StringArrayVariants[name] = append(idx.StringArrayVariants[name], StringArrayVariant{
+						Dir: filepath.Base(filepath.Dir(path)), Count: len(items), FilePath: path, Line: line,
+					})
 				}
 				return nil
 			}
@@ -1209,10 +1629,12 @@ func (idx *ResourceIndex) parseStringArrayElement(dec *xml.Decoder, start xml.St
 	}
 }
 
-func (idx *ResourceIndex) parsePluralsElement(dec *xml.Decoder, start xml.StartElement) error {
+func (idx *ResourceIndex) parsePluralsElement(dec *xml.Decoder, start xml.StartElement, path string, line int, lines *scanner.File) error {
 	name := xmlAttr(start.Attr, "name")
 	quantities := make(map[string]string)
+	positions := make(map[string]XMLPos)
 	for {
+		before := dec.InputOffset()
 		tok, err := dec.Token()
 		if err != nil {
 			return err
@@ -1232,11 +1654,27 @@ func (idx *ResourceIndex) parsePluralsElement(dec *xml.Decoder, start xml.StartE
 			}
 			if quantity != "" {
 				quantities[quantity] = text
+				if lines != nil {
+					row := lineAtOffset(lines, before)
+					col := int(before) - (bytes.LastIndexByte(lines.Content[:before], '\n') + 1) + 1
+					positions[quantity] = XMLPos{Line: row, Col: col}
+				}
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
 				if name != "" {
 					idx.Plurals[name] = quantities
+					idx.PluralDefinitions = append(idx.PluralDefinitions, PluralDefinition{Name: name, FilePath: path, Line: line, Quantities: quantities, QuantityPos: positions})
+					if idx.PluralsLocation == nil {
+						idx.PluralsLocation = make(map[string]StringLocation)
+					}
+					idx.PluralsLocation[name] = StringLocation{FilePath: path, Line: line}
+					if xmlAttr(start.Attr, "translatable") == "false" {
+						if idx.PluralsNonTranslate == nil {
+							idx.PluralsNonTranslate = make(map[string]bool)
+						}
+						idx.PluralsNonTranslate[name] = true
+					}
 				}
 				return nil
 			}
@@ -1250,26 +1688,56 @@ func decodeSimpleElementText(dec *xml.Decoder, start xml.StartElement) (string, 
 }
 
 func decodeSimpleElementTextWithRaw(dec *xml.Decoder, start xml.StartElement) (string, string, error) {
+	raw, text, _, err := decodeStringElementText(dec, start)
+	return raw, text, err
+}
+
+// decodeStringElementText also reports whether the content has a styling child element.
+func decodeStringElementText(dec *xml.Decoder, start xml.StartElement) (raw, text string, hasMarkup bool, err error) {
 	var builder strings.Builder
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return "", "", err
+			return "", "", false, err
 		}
 		switch t := tok.(type) {
 		case xml.CharData:
 			builder.Write([]byte(t))
 		case xml.StartElement:
-			if err := skipElement(dec, t); err != nil {
-				return "", "", err
+			// Markup children such as <b> and <xliff:g> contribute their text to the string.
+			if t.Name.Local != "g" {
+				hasMarkup = true
+			}
+			if err := appendElementText(dec, &builder); err != nil {
+				return "", "", false, err
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
 				raw := builder.String()
-				return raw, strings.TrimSpace(raw), nil
+				return raw, strings.TrimSpace(raw), hasMarkup, nil
 			}
 		}
 	}
+}
+
+// appendElementText writes the character data inside an already-opened element, including nested children.
+func appendElementText(dec *xml.Decoder, builder *strings.Builder) error {
+	depth := 1
+	for depth > 0 {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.CharData:
+			builder.Write([]byte(t))
+		case xml.StartElement:
+			depth++
+		case xml.EndElement:
+			depth--
+		}
+	}
+	return nil
 }
 
 func hasTrailingWhitespace(s string) bool {
@@ -1379,10 +1847,15 @@ func findByType(v *View, viewType string, result *[]*View) {
 
 // HasHardcodedText checks if a view has hardcoded text (not a resource reference).
 func (v *View) HasHardcodedText() bool {
-	if v.Text == "" {
-		return false
-	}
-	return !strings.HasPrefix(v.Text, "@string/") && !strings.HasPrefix(v.Text, "@android:string/")
+	return IsLiteralLayoutText(v.Text)
+}
+
+// IsLiteralLayoutText reports whether an attribute value is literal text. Resource references
+// (`@string/x`, `@null`), theme attributes (`?attr/x`) and data binding expressions (`@{...}`)
+// are not.
+func IsLiteralLayoutText(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && !strings.HasPrefix(value, "@") && !strings.HasPrefix(value, "?")
 }
 
 // HasContentDescription checks if a view has a contentDescription attribute set.
@@ -1410,4 +1883,45 @@ func IsLayoutView(viewType string) bool {
 		return true
 	}
 	return false
+}
+
+// ReferencedViewClasses returns the class names that layout XML instantiates or names: custom
+// element tags, `<view class>` and `android:name` (fragment-style) values. `$` is read as `.`.
+func (idx *ResourceIndex) ReferencedViewClasses() map[string]bool {
+	out := map[string]bool{}
+	if idx == nil {
+		return out
+	}
+	for _, configs := range idx.LayoutConfigs {
+		for _, layout := range configs {
+			if layout != nil {
+				collectReferencedViewClasses(layout.RootView, out)
+			}
+		}
+	}
+	for _, layout := range idx.Layouts {
+		if layout != nil {
+			collectReferencedViewClasses(layout.RootView, out)
+		}
+	}
+	return out
+}
+
+func collectReferencedViewClasses(v *View, out map[string]bool) {
+	if v == nil {
+		return
+	}
+	add := func(name string) {
+		if name = strings.TrimSpace(name); name != "" && !strings.HasPrefix(name, "@") {
+			out[strings.ReplaceAll(name, "$", ".")] = true
+		}
+	}
+	if strings.Contains(v.Type, ".") {
+		add(v.Type)
+	}
+	add(v.Attributes["class"])
+	add(v.Attributes["android:name"])
+	for _, child := range v.Children {
+		collectReferencedViewClasses(child, out)
+	}
 }

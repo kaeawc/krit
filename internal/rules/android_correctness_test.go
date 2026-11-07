@@ -2,6 +2,7 @@ package rules_test
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -904,6 +905,28 @@ const val MY_FLAG_B = 2
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("negative zero one masks and combinations", func(t *testing.T) {
+		findings := runRuleByName(t, "ShiftFlags", `
+package test
+const val MY_FLAG_NONE = 0
+const val MY_FLAG_ONE = 1
+const val MY_FLAG_ALL = 7
+const val MY_FLAG_BOTH = MY_FLAG_A or MY_FLAG_B
+const val MY_FLAG_MASK = 0xFF
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("positive hex single bit", func(t *testing.T) {
+		findings := runRuleByName(t, "ShiftFlags", `
+package test
+const val MY_FLAG_HIGH = 0x10
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
 	t.Run("negative flag constant with shl", func(t *testing.T) {
 		findings := runRuleByName(t, "ShiftFlags", `
 package test
@@ -931,6 +954,42 @@ annotation class Mode
 			t.Fatal("expected findings")
 		}
 	})
+	t.Run("positive constants with the same value", func(t *testing.T) {
+		findings := runRuleByName(t, "UniqueConstants", `
+package test
+const val FIRST = 5
+const val SECOND = 5
+@IntDef(FIRST, SECOND)
+annotation class Mode
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive duplicate inside value array", func(t *testing.T) {
+		findings := runRuleByName(t, "UniqueConstants", `
+package test
+const val FIRST = 1
+const val SECOND = 1
+@IntDef(flag = true, value = [FIRST, SECOND])
+annotation class Mode
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative distinct constants", func(t *testing.T) {
+		findings := runRuleByName(t, "UniqueConstants", `
+package test
+const val FIRST = 1
+const val SECOND = 2
+@IntDef(flag = true, value = [FIRST, SECOND])
+annotation class Mode
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 	t.Run("negative unique IntDef values", func(t *testing.T) {
 		findings := runRuleByName(t, "UniqueConstants", `
 package test
@@ -948,6 +1007,49 @@ annotation class Mode
 // ---------------------------------------------------------------------------
 
 func TestWrongThread(t *testing.T) {
+	t.Run("positive worker calls same-file main-thread function", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongThread", `
+package test
+class Screen {
+    @MainThread fun render() {}
+    @WorkerThread fun load() { render() }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive main thread calls same-file worker function", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongThread", `
+package test
+class Screen {
+    @WorkerThread fun load() {}
+    @MainThread fun render() { load() }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("negative dispatch to the main thread", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongThread", `
+package test
+class Screen {
+    @MainThread fun render() {}
+    @WorkerThread fun load() { handler.post { render() } }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("negative invalidate on a non-view receiver", func(t *testing.T) {
+		findings := runRuleByName(t, "WrongThread", `
+package test
+class Repo {
+    @WorkerThread fun refresh() { cache.invalidate() }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
 	t.Run("negative no WorkerThread annotation", func(t *testing.T) {
 		findings := runRuleByName(t, "WrongThread", `
 package test
@@ -977,22 +1079,40 @@ fun doWork() {
 // ---------------------------------------------------------------------------
 
 func TestSQLiteString(t *testing.T) {
-	t.Run("positive STRING in CREATE TABLE", func(t *testing.T) {
-		findings := runRuleByName(t, "SQLiteString", `
-package test
-val sql = "CREATE TABLE users (name STRING, age INTEGER)"
-`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
+	run := func(body string) []scanner.Finding {
+		return runRuleByName(t, "SQLiteString", "package test\nfun f(db: SQLiteDatabase, x: String) {\n"+body+"\n}\n")
+	}
+	t.Run("STRING column in execSQL CREATE TABLE", func(t *testing.T) {
+		findings := run(`db.execSQL("CREATE TABLE users (name STRING, age INTEGER)")`)
+		if len(findings) != 1 || !strings.HasPrefix(findings[0].Message, "Using column type STRING; did you mean to use TEXT?") {
+			t.Fatalf("unexpected findings: %v", findings)
 		}
 	})
-	t.Run("negative TEXT in CREATE TABLE", func(t *testing.T) {
-		findings := runRuleByName(t, "SQLiteString", `
-package test
-val sql = "CREATE TABLE users (name TEXT, age INTEGER)"
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
+	t.Run("ALTER TABLE, concatenation and a same-file val count", func(t *testing.T) {
+		if f := run(`db.execSQL("ALTER TABLE y ADD COLUMN c STRING")`); len(f) != 1 {
+			t.Fatalf("ALTER TABLE: %v", f)
+		}
+		if f := run(`db.execSQL("CREATE TABLE y (a STRING)" + x)`); len(f) != 1 {
+			t.Fatalf("concatenation: %v", f)
+		}
+		findings := runRuleByName(t, "SQLiteString", "package test\nconst val DDL = \"CREATE TABLE y (a STRING)\"\nfun f(db: SQLiteDatabase) { db.execSQL(DDL) }\n")
+		if len(findings) != 1 || findings[0].Line != 3 {
+			t.Fatalf("val reference should report at the execSQL argument: %v", findings)
+		}
+	})
+	t.Run("Lint ignores TEXT, other calls, lowercase SQL and lowercase string", func(t *testing.T) {
+		for _, body := range []string{
+			`db.execSQL("CREATE TABLE users (name TEXT, age INTEGER)")`,
+			`db.rawQuery("CREATE TABLE y (a STRING)", null)`,
+			`db.execSQL("create table y (a STRING)")`,
+			`db.execSQL("CREATE TABLE y (a string)")`,
+			`db.execSQL("Create Table y (a STRING)")`,
+			`db.execSQL("  CREATE TABLE y (a STRING)")`,
+			`db.execSQL("CREATE TABLE users (a string_value TEXT, b STRING_ID TEXT)")`,
+		} {
+			if f := run(body); len(f) != 0 {
+				t.Errorf("%s: expected no findings, got %v", body, f)
+			}
 		}
 	})
 }
@@ -1034,45 +1154,36 @@ class MainActivity : AppCompatActivity() {
 }
 
 // ---------------------------------------------------------------------------
-// NestedScrolling (CheckLines)
+// SimpleDateFormat (CheckLines)
 // ---------------------------------------------------------------------------
 
-func TestNestedScrollingCorrectness(t *testing.T) {
-	t.Run("positive nested scroll containers", func(t *testing.T) {
-		findings := runRuleByName(t, "NestedScrolling", `package test
-val content = ScrollView {
-    LazyColumn {
-        item { }
-    }
-}`)
-		if len(findings) == 0 {
-			t.Fatal("expected findings")
-		}
-	})
-	t.Run("negative single scroll container", func(t *testing.T) {
-		findings := runRuleByName(t, "NestedScrolling", `package test
-val content = LazyColumn {
-    item { }
-}`)
+func TestSimpleDateFormatOtherPackage(t *testing.T) {
+	t.Run("qualified call outside java.text is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "SimpleDateFormat", `
+package test
+fun format() { val sdf = foo.SimpleDateFormat("yyyy") }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
-	t.Run("negative comments and strings with nested scroll names", func(t *testing.T) {
-		findings := runRuleByName(t, "NestedScrolling", `package test
-fun describe() {
-    // ScrollView { LazyColumn { } }
-    val text = "ScrollView { LazyColumn { item {} } }"
-}`)
+	t.Run("import from another package is clean", func(t *testing.T) {
+		findings := runRuleByName(t, "SimpleDateFormat", `
+package test
+import com.example.SimpleDateFormat
+fun format() { val sdf = SimpleDateFormat("yyyy") }`)
 		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings for text lookalikes, got %d", len(findings))
+			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+	t.Run("qualified java.text call reports", func(t *testing.T) {
+		findings := runRuleByName(t, "SimpleDateFormat", `
+package test
+fun format() { val sdf = java.text.SimpleDateFormat("yyyy") }`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// SimpleDateFormat (CheckLines)
-// ---------------------------------------------------------------------------
 
 func TestSimpleDateFormatRule(t *testing.T) {
 	t.Run("positive without Locale", func(t *testing.T) {
@@ -1185,6 +1296,20 @@ fun update() {
 // StopShip (CheckLines)
 // ---------------------------------------------------------------------------
 
+func TestStopShipIgnoresStringLiterals(t *testing.T) {
+	findings := runRuleByName(t, "StopShip", `
+package test
+val label = "STOPSHIP in a string"
+val tagged = "x" // STOPSHIP real marker
+/*
+ * STOPSHIP in a block
+ */
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected the two comment markers only, got %d", len(findings))
+	}
+}
+
 func TestStopShip(t *testing.T) {
 	t.Run("positive STOPSHIP comment", func(t *testing.T) {
 		findings := runRuleByName(t, "StopShip", `
@@ -1211,6 +1336,21 @@ fun work() {}
 // ---------------------------------------------------------------------------
 // WrongCall (CheckLines)
 // ---------------------------------------------------------------------------
+
+func TestWrongCallInDifferentOverride(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "WrongCall", `
+package test
+import android.view.View
+class CustomView : View() {
+    private val child: View = TODO()
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        child.onMeasure(1, 2)
+    }
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
 
 func TestWrongCall(t *testing.T) {
 	t.Run("positive direct onDraw call inside View subclass", func(t *testing.T) {
@@ -1364,6 +1504,265 @@ fun build(context: android.content.Context) {
 `)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings for text lookalikes, got %d", len(findings))
+		}
+	})
+}
+
+func TestCommitPrefEdits_EscapingAndKtxEditors(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"ktx trailing lambda", "fun f(p: SharedPreferences) { p.edit { putString(\"a\", \"b\") } }", 0},
+		{"expression body returns editor", "fun f(p: SharedPreferences) = p.edit().putString(\"a\", \"b\")", 0},
+		{"returned directly", "fun f(p: SharedPreferences): SharedPreferences.Editor { return p.edit() }", 0},
+		{"local returned later", "fun f(p: SharedPreferences): SharedPreferences.Editor { val ed = p.edit(); return ed }", 0},
+		{"passed as argument", "fun f(p: SharedPreferences) { use(p.edit()) }", 0},
+		{"local passed as argument", "fun f(p: SharedPreferences) { val ed = p.edit(); use(ed) }", 0},
+		{"chain from local ends in apply", "fun f(p: SharedPreferences) { val ed = p.edit(); ed.putInt(\"a\", 1).apply() }", 0},
+		{"edited but never finalized", "fun f(p: SharedPreferences) { p.edit().putInt(\"a\", 1) }", 1},
+		{"local never finalized", "fun f(p: SharedPreferences) { val ed = p.edit(); ed.putInt(\"a\", 1) }", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "CommitPrefEdits", "package test\nimport android.content.SharedPreferences\nfun use(e: SharedPreferences.Editor) {}\n"+tc.body+"\n")
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestCommitTransaction_ReturnedTransactionIsNotReported(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"expression body returns it", "fun f(fm: FragmentManager) = fm.beginTransaction()", 0},
+		{"returned local", "fun f(fm: FragmentManager): FragmentTransaction { val tx = fm.beginTransaction(); return tx }", 0},
+		{"never committed", "fun f(fm: FragmentManager) { fm.beginTransaction().add(1, g()) }", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "CommitTransaction", "package test\nimport androidx.fragment.app.FragmentManager\nimport androidx.fragment.app.FragmentTransaction\n"+tc.body+"\n")
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
+func TestAssertRule_OnlyStdlibAssert(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"bare assert", "package test\nfun f() { assert(1 == 1) }\n", 1},
+		{"kotlin qualified", "package test\nfun f() { kotlin.assert(true) }\n", 1},
+		{"member assert", "package test\nclass Foo { fun assert(b: Boolean) {} }\nfun f(x: Foo) { x.assert(true) }\n", 0},
+		{"file local assert function", "package test\nfun assert(b: Boolean) {}\nfun f() { assert(true) }\n", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(runRuleByName(t, "Assert", tc.src)); got != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestCheckResult_KtxEditLambdaIsNotReported(t *testing.T) {
+	src := "package test\nimport android.content.SharedPreferences\nfun f(p: SharedPreferences) {\n  p.edit { putInt(\"a\", 1) }\n}\n"
+	if got := runRuleByName(t, "CheckResult", src); len(got) != 0 {
+		t.Fatalf("expected 0 findings, got %d", len(got))
+	}
+}
+
+func TestCommitTransactionJava_JudgesEachTransactionAlone(t *testing.T) {
+	code := `package p;
+
+import android.app.FragmentManager;
+import android.app.FragmentTransaction;
+
+class B {
+    void tx(FragmentManager fm) {
+        FragmentTransaction t = fm.beginTransaction();
+        t.add(0, null);
+        FragmentTransaction u = fm.beginTransaction();
+        u.commit();
+        fm.beginTransaction().add(0, null);
+        fm.beginTransaction().add(0, null).commit();
+    }
+    FragmentTransaction handedBack(FragmentManager fm) {
+        FragmentTransaction v = fm.beginTransaction();
+        return v;
+    }
+    FragmentTransaction chainReturned(FragmentManager fm) {
+        return fm.beginTransaction();
+    }
+}
+`
+	findings := runRuleByNameOnJava(t, "CommitTransaction", code)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+		if f.Message != "This transaction should be completed with a `commit()` call" {
+			t.Errorf("unexpected message %q", f.Message)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 8 || lines[1] != 12 {
+		t.Fatalf("expected findings on lines 8 and 12, got %v", lines)
+	}
+}
+
+func TestClickableViewAccessibilitySource(t *testing.T) {
+	messages := func(findings []scanner.Finding) []string {
+		var out []string
+		for _, f := range findings {
+			out = append(out, f.Message)
+		}
+		sort.Strings(out)
+		return out
+	}
+	t.Run("Kotlin custom views", func(t *testing.T) {
+		got := messages(runRuleByName(t, "ClickableViewAccessibility", `
+package p
+import android.content.Context
+import android.view.MotionEvent
+import android.view.View
+import android.widget.ImageView
+
+class NoClick(c: Context) : View(c) {
+    override fun onTouchEvent(e: MotionEvent): Boolean = true
+}
+class Forgets(c: Context) : ImageView(c) {
+    override fun onTouchEvent(e: MotionEvent): Boolean = true
+    override fun performClick(): Boolean = super.performClick()
+}
+class Good(c: Context) : View(c) {
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        performClick()
+        return true
+    }
+    override fun performClick(): Boolean = super.performClick()
+}
+class NotAView {
+    fun onTouchEvent(e: MotionEvent): Boolean = true
+}
+class NoSuper(c: Context) : View(c) {
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        performClick()
+        return true
+    }
+    override fun performClick(): Boolean {
+        return true
+    }
+}
+class CallsSuperOnTouch(c: Context) : View(c) {
+    override fun onTouchEvent(e: MotionEvent): Boolean = super.onTouchEvent(e)
+    override fun performClick(): Boolean = super.performClick()
+}
+fun attach(v: View) {
+    v.setOnTouchListener { view, e -> true }
+    v.setOnTouchListener { view, e -> view.performClick(); true }
+}
+`))
+		want := []string{
+			"Custom view `NoClick` overrides `onTouchEvent` but not `performClick`",
+			"`Forgets#onTouchEvent` should call `Forgets#performClick` when a click is detected",
+			"`onTouch` lambda should call `View#performClick` when a click is detected",
+			"`NoSuper#performClick` should call `super#performClick`",
+			"`CallsSuperOnTouch#onTouchEvent` should call `CallsSuperOnTouch#performClick` when a click is detected",
+		}
+		sort.Strings(want)
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+	t.Run("Java custom views and listeners", func(t *testing.T) {
+		got := messages(runRuleByNameOnJava(t, "ClickableViewAccessibility", `package p;
+import android.content.Context;
+import android.view.MotionEvent;
+import android.view.View;
+
+class NoClick extends View {
+    NoClick(Context c) { super(c); }
+    @Override public boolean onTouchEvent(MotionEvent e) { return true; }
+}
+class Good extends View {
+    Good(Context c) { super(c); }
+    @Override public boolean onTouchEvent(MotionEvent e) { performClick(); return true; }
+    @Override public boolean performClick() { return super.performClick(); }
+}
+class NoSuper extends View {
+    NoSuper(Context c) { super(c); }
+    @Override public boolean performClick() { return true; }
+}
+class Holder {
+    void a(View v) {
+        v.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View view, MotionEvent e) { return true; }
+        });
+        v.setOnTouchListener((view, e) -> { view.performClick(); return true; });
+    }
+}
+`))
+		want := []string{
+			"Custom view `NoClick` overrides `onTouchEvent` but not `performClick`",
+			"`onTouch` should call `View#performClick` when a click is detected",
+			"`NoSuper#performClick` should call `super#performClick`",
+		}
+		sort.Strings(want)
+		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	})
+}
+
+func TestCutPasteIdSource(t *testing.T) {
+	const msg = "The id `R.id.one` has already been looked up in this method; possible cut & paste error?"
+	t.Run("Java", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "CutPasteId", `package p;
+import android.app.Activity;
+import android.view.View;
+class A extends Activity {
+    void a() {
+        View x = findViewById(R.id.one);
+        View y = findViewById(R.id.one);
+        View z = findViewById(R.id.two);
+        View w = findViewById(R.id.six);
+        if (w == null) { w = findViewById(R.id.six); }
+    }
+    void b() {
+        View q = findViewById(R.id.one);
+    }
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 7 || findings[0].Message != msg {
+			t.Fatalf("unexpected findings %+v", findings)
+		}
+	})
+	t.Run("Kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "CutPasteId", `
+package p
+import android.app.Activity
+import android.view.View
+class A : Activity() {
+    fun a() {
+        val x = findViewById<View>(R.id.one)
+        val y = findViewById<View>(R.id.one)
+        val z = findViewById<View>(R.id.two)
+    }
+    fun b() {
+        val q = findViewById<View>(R.id.one)
+    }
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 8 || findings[0].Message != msg {
+			t.Fatalf("unexpected findings %+v", findings)
 		}
 	})
 }

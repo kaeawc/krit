@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/versioncatalog"
 )
@@ -137,7 +138,65 @@ func LoadVersionCatalogForGradlePath(gradlePath string) (VersionCatalog, bool) {
 	return loadVersionCatalogFromSources(sources)
 }
 
+// loadedCatalog is a parsed catalog plus the stat signature of every source it was built from.
+type loadedCatalog struct {
+	stamps  []catalogSourceStamp
+	catalog VersionCatalog
+	ok      bool
+}
+
+type catalogSourceStamp struct {
+	modTime int64
+	size    int64
+	exists  bool
+}
+
+var (
+	loadedCatalogsMu sync.Mutex
+	loadedCatalogs   = make(map[string]loadedCatalog)
+)
+
+func catalogStamps(sources []CatalogSource) []catalogSourceStamp {
+	stamps := make([]catalogSourceStamp, len(sources))
+	for i, source := range sources {
+		if info, err := os.Stat(source.Path); err == nil {
+			stamps[i] = catalogSourceStamp{modTime: info.ModTime().UnixNano(), size: info.Size(), exists: true}
+		}
+	}
+	return stamps
+}
+
+func sameCatalogStamps(a, b []catalogSourceStamp) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// loadVersionCatalogFromSources parses and merges the sources, reusing the previous result while every source
+// keeps the same mtime and size. Callers must treat the returned maps as read-only.
 func loadVersionCatalogFromSources(sources []CatalogSource) (VersionCatalog, bool) {
+	key := catalogSourceCacheKey(sources)
+	stamps := catalogStamps(sources)
+	loadedCatalogsMu.Lock()
+	cached, hit := loadedCatalogs[key]
+	loadedCatalogsMu.Unlock()
+	if hit && sameCatalogStamps(cached.stamps, stamps) {
+		return cached.catalog, cached.ok
+	}
+	catalog, ok := parseVersionCatalogSources(sources)
+	loadedCatalogsMu.Lock()
+	loadedCatalogs[key] = loadedCatalog{stamps: stamps, catalog: catalog, ok: ok}
+	loadedCatalogsMu.Unlock()
+	return catalog, ok
+}
+
+func parseVersionCatalogSources(sources []CatalogSource) (VersionCatalog, bool) {
 	var merged VersionCatalog
 	for _, source := range sources {
 		content, err := os.ReadFile(source.Path)

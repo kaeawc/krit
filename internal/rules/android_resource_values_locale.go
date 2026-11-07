@@ -17,109 +17,192 @@ import (
 // WrongRegionResource
 // ---------------------------------------------------------------------------
 
-// WrongRegionResourceRule detects suspicious language/region combinations in
-// resource folder names, such as values-en-rBR (English + Brazil).
+// WrongRegionResourceRule mirrors Lint's LocaleFolderDetector WrongRegion check: a two-letter language
+// paired with a valid region that LocaleManager does not list for it, such as values-de-rUS.
 type WrongRegionResourceRule struct {
-	LayoutResourceBase
+	ResourceBase
 	AndroidRule
 }
 
-// languageExpectedRegions maps language codes to their expected/natural region codes.
-var languageExpectedRegions = map[string][]string{
-	"en": {"US", "GB", "AU", "CA", "NZ", "IE", "ZA", "IN", "SG", "PH"},
-	"es": {"ES", "MX", "AR", "CO", "CL", "PE", "VE", "EC", "GT", "CU", "BO", "DO", "HN", "PY", "SV", "NI", "CR", "PA", "UY"},
-	"fr": {"FR", "CA", "BE", "CH", "LU", "MC", "SN", "CI", "ML", "BF", "NE", "TG", "BJ"},
-	"de": {"DE", "AT", "CH", "LI", "LU", "BE"},
-	"it": {"IT", "CH", "SM", "VA"},
-	"pt": {"PT", "BR", "AO", "MZ"},
-	"ru": {"RU", "BY", "KZ", "KG"},
-	"zh": {"CN", "TW", "HK", "SG", "MO"},
-	"ja": {"JP"},
-	"ko": {"KR"},
-	"ar": {"SA", "AE", "EG", "IQ", "MA", "DZ", "TN", "LY", "SD", "JO", "LB", "KW", "BH", "QA", "OM", "YE", "SY", "PS"},
-	"nl": {"NL", "BE", "SR"},
-	"pl": {"PL"},
-	"tr": {"TR"},
-	"vi": {"VN"},
-	"th": {"TH"},
-	"sv": {"SE", "FI"},
-	"da": {"DK"},
-	"fi": {"FI"},
-	"nb": {"NO"},
-	"uk": {"UA"},
-	"el": {"GR", "CY"},
-	"cs": {"CZ"},
-	"ro": {"RO", "MD"},
-	"hu": {"HU"},
-	"hr": {"HR", "BA"},
-	"sk": {"SK"},
-	"bg": {"BG"},
-	"hi": {"IN"},
-	"he": {"IL"},
-	"id": {"ID"},
-	"ms": {"MY", "SG", "BN"},
+// AndroidDependencies asks for layouts and string values because both live in locale folders.
+func (WrongRegionResourceRule) AndroidDependencies() AndroidDataDependency {
+	return AndroidDepLayout | AndroidDepValuesStrings
 }
 
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *WrongRegionResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *WrongRegionResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	seen := make(map[string]bool)
-	for _, layout := range idx.Layouts {
-		path := layout.FilePath
-		resIdx := strings.Index(path, "res/")
-		if resIdx < 0 {
-			resIdx = strings.Index(path, "res\\")
-		}
-		if resIdx < 0 {
+	for _, dir := range resourceFolderDirs(ctx) {
+		loc, ok := parseFolderLocale(filepath.Base(dir))
+		if !ok || loc.region == "" || len(loc.language) != 2 {
 			continue
 		}
-		afterRes := path[resIdx+4:]
-		slashIdx := strings.IndexAny(afterRes, "/\\")
-		if slashIdx < 0 {
+		relevant := lintRelevantRegions[loc.language]
+		if len(relevant) == 0 || containsString(relevant, loc.region) || !lintValidRegions[loc.region] {
 			continue
 		}
-		folder := afterRes[:slashIdx]
-		if seen[folder] {
-			continue
+		sorted := append([]string(nil), relevant...)
+		defaultRegion := lintDefaultRegion[loc.language]
+		sort.SliceStable(sorted, func(i, j int) bool {
+			ri, rj := 2, 2
+			if sorted[i] == defaultRegion {
+				ri = 1
+			}
+			if sorted[j] == defaultRegion {
+				rj = 1
+			}
+			if ri != rj {
+				return ri < rj
+			}
+			return sorted[i] < sorted[j]
+		})
+		parts := make([]string, 0, len(sorted))
+		for _, region := range sorted {
+			parts = append(parts, region+" ("+lintRegionNames[region]+")")
 		}
-		seen[folder] = true
+		ctx.Emit(baseFinding(dir, 1, r.BaseRule,
+			fmt.Sprintf("Suspicious language and region combination %s (%s) with %s (%s): language %s is usually paired with: %s",
+				loc.language, lintLanguageNames[loc.language], loc.region, lintRegionNames[loc.region], loc.language, strings.Join(parts, ", "))))
+	}
+}
 
-		// Parse folder for language-rRegion pattern (e.g., values-en-rBR)
-		parts := strings.Split(folder, "-")
-		if len(parts) < 3 {
-			continue
-		}
-		var lang, region string
-		for i := 1; i < len(parts); i++ {
-			if len(parts[i]) == 2 && parts[i] >= "aa" && parts[i] <= "zz" {
-				lang = parts[i]
-			} else if strings.HasPrefix(parts[i], "r") && len(parts[i]) == 3 {
-				region = parts[i][1:] // strip 'r' prefix
+// folderLocale is the locale qualifier of a resource folder name.
+type folderLocale struct{ language, region string }
+
+var (
+	folderMccRe    = regexp.MustCompile(`^mcc\d{3}$`)
+	folderMncRe    = regexp.MustCompile(`^mnc\d{1,3}$`)
+	folderRegionRe = regexp.MustCompile(`^r(?:[A-Z]{2}|\d{3})$`)
+	folderLangRe   = regexp.MustCompile(`^[a-z]{2,3}$`)
+)
+
+// folderOtherQualifierRe matches the non-locale qualifiers FolderConfiguration accepts.
+var folderOtherQualifierRe = regexp.MustCompile(`^(?:ldrtl|ldltr|sw\d+dp|w\d+dp|h\d+dp|small|normal|large|xlarge|long|notlong|round|notround|port|land|` +
+	`car|desk|appliance|television|tv|watch|vrheadset|night|notnight|ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi|anydpi|nodpi|\d+dpi|` +
+	`notouch|finger|stylus|keysexposed|keyshidden|keyssoft|nokeys|qwerty|12key|navexposed|navhidden|nonav|dpad|trackball|wheel|` +
+	`v\d+|widecg|nowidecg|lowdr|highdr|square)$`)
+
+// parseFolderLocale returns the locale qualifier of a resource folder name such as values-en-rUS or
+// values-b+en+US. It reports false when the folder has no locale or is not a valid configuration.
+func parseFolderLocale(folder string) (folderLocale, bool) {
+	dash := strings.Index(folder, "-")
+	if dash < 0 {
+		return folderLocale{}, false
+	}
+	tokens := strings.Split(folder[dash+1:], "-")
+	var loc folderLocale
+	found := false
+	i := 0
+	for i < len(tokens) && (folderMccRe.MatchString(tokens[i]) || folderMncRe.MatchString(tokens[i])) {
+		i++
+	}
+	if i < len(tokens) {
+		switch tok := tokens[i]; {
+		case strings.HasPrefix(tok, "b+"):
+			parts := strings.Split(tok[2:], "+")
+			if len(parts) == 0 || !folderLangRe.MatchString(parts[0]) {
+				return folderLocale{}, false
 			}
-		}
-		if lang == "" || region == "" {
-			continue
-		}
-		expected, ok := languageExpectedRegions[lang]
-		if !ok {
-			continue
-		}
-		found := false
-		for _, r := range expected {
-			if r == region {
-				found = true
-				break
+			loc.language = parts[0]
+			for _, part := range parts[1:] {
+				if len(part) == 2 && part == strings.ToUpper(part) || len(part) == 3 && part[0] >= '0' && part[0] <= '9' {
+					loc.region = part
+				}
 			}
-		}
-		if !found {
-			ctx.Emit(baseFinding(layout.FilePath, 1, r.BaseRule,
-				fmt.Sprintf("Suspicious language/region combination: language `%s` with region `%s` "+
-					"in folder `%s`. Expected regions for `%s`: %s.",
-					lang, region, folder, lang, strings.Join(expected, ", "))))
+			found = true
+			i++
+		case folderLangRe.MatchString(tok):
+			loc.language = tok
+			found = true
+			i++
+			if i < len(tokens) && folderRegionRe.MatchString(tokens[i]) {
+				loc.region = tokens[i][1:]
+				i++
+			}
 		}
 	}
+	if !found {
+		return folderLocale{}, false
+	}
+	for ; i < len(tokens); i++ {
+		if !folderOtherQualifierRe.MatchString(tokens[i]) {
+			return folderLocale{}, false
+		}
+	}
+	return loc, true
+}
+
+// resourceFolderDirs lists the res subfolders of the project: those that hold indexed files and, when the
+// resource roots exist on disk, every directory under them. Each entry is the folder's directory path.
+func resourceFolderDirs(ctx *api.Context) []string {
+	seen := map[string]bool{}
+	var dirs []string
+	add := func(dir string) {
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	if ctx == nil || ctx.ResourceIndex == nil {
+		return nil
+	}
+	idx := ctx.ResourceIndex
+	note := func(path string) {
+		if path == "" {
+			return
+		}
+		folder, ok := resourceFolderOfPath(path)
+		if !ok {
+			return
+		}
+		p := strings.ReplaceAll(path, "\\", "/")
+		if i := strings.LastIndex(p, "res/"+folder+"/"); i >= 0 {
+			add(filepath.FromSlash(p[:i+len("res/")] + folder))
+		}
+	}
+	for _, layout := range idx.AllLayouts() {
+		note(layout.FilePath)
+	}
+	for _, loc := range idx.StringsLocation {
+		note(loc.FilePath)
+	}
+	for _, translations := range idx.StringTranslations {
+		for _, tr := range translations {
+			note(tr.FilePath)
+		}
+	}
+	for _, loc := range idx.PluralsLocation {
+		note(loc.FilePath)
+	}
+	for _, resRoot := range resourceRootsFromIndex(idx) {
+		entries, err := os.ReadDir(resRoot)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				add(filepath.Join(resRoot, e.Name()))
+			}
+		}
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+// resourceFolderOfPath returns the res/ subfolder name holding path.
+func resourceFolderOfPath(path string) (string, bool) {
+	p := strings.ReplaceAll(path, "\\", "/")
+	resIdx := strings.LastIndex(p, "res/")
+	if resIdx < 0 {
+		return "", false
+	}
+	rest := p[resIdx+len("res/"):]
+	slash := strings.Index(rest, "/")
+	if slash <= 0 {
+		return "", false
+	}
+	return rest[:slash], true
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +332,10 @@ func isLocaleLanguageQualifier(part string) bool {
 	if len(part) < 2 || len(part) > 3 {
 		return false
 	}
+	// "car" is the UI-mode qualifier, not a language code.
+	if part == "car" {
+		return false
+	}
 	for _, r := range part {
 		if r < 'a' || r > 'z' {
 			return false
@@ -318,95 +405,58 @@ func diffLocaleSets(configLocales, valuesLocales []string) (missing, extra []str
 // LocaleFolder / UseAlpha2
 // ---------------------------------------------------------------------------
 
-// LocaleFolderRule flags `values-XX_YY` style directory names — the BCP-47
-// underscore form Android does not accept. The correct form is
-// `values-<lang>-r<REGION>`.
+// LocaleFolderRule mirrors Lint's LocaleFolder check: the folders for he, id and yi must use the legacy
+// iw, in and ji codes that java.util.Locale uses.
 type LocaleFolderRule struct {
 	ValuesResourceBase
 	AndroidRule
 }
 
-var localeFolderBadRe = regexp.MustCompile(`^values-(?:[a-z0-9]+-)*([a-z]{2})_([A-Z]{2})(?:-|$)`)
-
-// Confidence reports a tier-3 (high) base confidence: the rule matches against
-// actual `res/values-*/` directory names from `os.ReadDir`, not source text,
-// so the only error path is a filesystem read failure.
+// Confidence reports a tier-3 (high) base confidence.
 func (r *LocaleFolderRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
+var deprecatedLocaleCodes = map[string]string{"he": "iw", "id": "in", "yi": "ji"}
+
 func (r *LocaleFolderRule) check(ctx *api.Context) {
-	forEachValuesQualifierDir(ctx, func(resRoot, name string) {
-		m := localeFolderBadRe.FindStringSubmatch(name)
-		if m == nil {
-			return
+	for _, dir := range resourceFolderDirs(ctx) {
+		loc, ok := parseFolderLocale(filepath.Base(dir))
+		if !ok {
+			continue
 		}
-		ctx.Emit(baseFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
-			"Wrong locale folder naming `"+name+"`. Use `values-<lang>-r<REGION>` format (e.g., `values-"+m[1]+"-r"+m[2]+"`)."))
-	})
+		if legacy, bad := deprecatedLocaleCodes[loc.language]; bad {
+			ctx.Emit(baseFinding(dir, 1, r.BaseRule,
+				fmt.Sprintf("The locale folder \"%s\" should be called \"%s\" instead; see the `java.util.Locale` documentation", loc.language, legacy)))
+		}
+	}
 }
 
-// UseAlpha2Rule flags 3-letter ISO 639-2 locale codes (e.g. `values-eng`)
-// that have a 2-letter ISO 639-1 equivalent — Android resource resolution
-// uses 639-1 codes, so `values-eng/` is silently ignored.
+// UseAlpha2Rule mirrors Lint's UseAlpha2: a three-letter language or region code that has a
+// two-letter equivalent.
 type UseAlpha2Rule struct {
 	ValuesResourceBase
 	AndroidRule
 }
 
-var alpha3to2 = map[string]string{"eng": "en", "fra": "fr", "deu": "de", "spa": "es", "ita": "it", "por": "pt", "rus": "ru", "jpn": "ja", "kor": "ko", "zho": "zh", "ara": "ar", "hin": "hi", "tur": "tr", "pol": "pl", "nld": "nl", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi", "tha": "th"}
-var alpha3FolderRe = regexp.MustCompile(`^values-([a-z]{3})(?:-|$)`)
-
-// Confidence reports a tier-3 (high) base confidence: the 3→2 letter mapping
-// is a closed allow-list, so an unknown 3-letter token (`mcc`, `xyz`, ...)
-// cannot trigger a false positive.
+// Confidence reports a tier-3 (high) base confidence: the code tables come from Lint's LocaleManager.
 func (r *UseAlpha2Rule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *UseAlpha2Rule) check(ctx *api.Context) {
-	forEachValuesQualifierDir(ctx, func(resRoot, name string) {
-		m := alpha3FolderRe.FindStringSubmatch(name)
-		if m == nil {
-			return
-		}
-		repl, ok := alpha3to2[m[1]]
+	for _, dir := range resourceFolderDirs(ctx) {
+		loc, ok := parseFolderLocale(filepath.Base(dir))
 		if !ok {
-			return
-		}
-		ctx.Emit(baseFinding(filepath.Join(resRoot, name), 1, r.BaseRule,
-			"Use 2-letter ISO 639-1 code `"+repl+"` instead of 3-letter code `"+m[1]+"` in locale folder."))
-	})
-}
-
-// forEachValuesQualifierDir visits every `values-*` sub-directory under each
-// resource root inferred from ctx.ResourceIndex. The walk is sorted and reads
-// each resource root at most once per rule invocation.
-//
-// Caveat: the resource-findings cache is keyed by `resDirContentFingerprint`,
-// which hashes file paths but not bare directory entries. An *empty*
-// `values-XX_YY/` (committed without any XML file) therefore does not
-// invalidate cached findings — in practice users always commit a strings.xml
-// alongside the new qualifier, so the gap is narrow.
-func forEachValuesQualifierDir(ctx *api.Context, visit func(resRoot, dirName string)) {
-	if ctx == nil || ctx.ResourceIndex == nil {
-		return
-	}
-	for _, resRoot := range resourceRootsFromIndex(ctx.ResourceIndex) {
-		entries, err := os.ReadDir(resRoot)
-		if err != nil {
 			continue
 		}
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
+		if len(loc.language) == 3 {
+			if two, found := lintLanguageAlpha2[strings.ToLower(loc.language)]; found {
+				ctx.Emit(baseFinding(dir, 1, r.BaseRule,
+					fmt.Sprintf("For compatibility, should use 2-letter language codes when available; use `%s` instead of `%s`", two, loc.language)))
 			}
-			name := e.Name()
-			if !strings.HasPrefix(name, "values-") {
-				continue
-			}
-			names = append(names, name)
 		}
-		sort.Strings(names)
-		for _, name := range names {
-			visit(resRoot, name)
+		if len(loc.region) == 3 && (loc.region[0] < '0' || loc.region[0] > '9') {
+			if two, found := lintRegionAlpha2[strings.ToUpper(loc.region)]; found {
+				ctx.Emit(baseFinding(dir, 1, r.BaseRule,
+					fmt.Sprintf("For compatibility, should use 2-letter region codes when available; use `%s` instead of `%s`", two, loc.region)))
+			}
 		}
 	}
 }

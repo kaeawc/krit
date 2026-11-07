@@ -59,16 +59,15 @@ func TestUnknownId(t *testing.T) {
 		}
 	})
 
-	t.Run("@+id create form is never flagged", func(t *testing.T) {
-		// @+id/x in a constraint creates the id, so it is not a dangling ref
-		// even when x is declared nowhere else.
+	t.Run("@+id in a reference attribute is flagged, as in Lint", func(t *testing.T) {
+		// Lint does not count an @+id/x in a layout_ attribute as a definition.
 		root := view("RelativeLayout", 1, map[string]string{},
 			view("Button", 3, map[string]string{"android:layout_toRightOf": "@+id/created_here"}),
 		)
 		idx := indexWithLayout("a", "res/layout/a.xml", root)
 		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings for @+id create form, got %d (%v)", len(findings), findings)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for @+id reference, got %d (%v)", len(findings), findings)
 		}
 	})
 
@@ -83,17 +82,16 @@ func TestUnknownId(t *testing.T) {
 		}
 	})
 
-	t.Run("id declared via @+id in another attribute resolves", func(t *testing.T) {
-		// button2 is only ever created via a @+id/ in a constraint attr, then
-		// referenced via @id/ elsewhere. That is valid Android, not a typo.
+	t.Run("id created only via @+id in another attribute is still unknown", func(t *testing.T) {
+		// Lint reports both references: only android:id defines an id.
 		root := view("RelativeLayout", 1, map[string]string{},
 			view("Button", 3, map[string]string{"android:layout_alignTop": "@+id/button2"}),
 			view("Button", 5, map[string]string{"android:layout_below": "@id/button2"}),
 		)
 		idx := indexWithLayout("a", "res/layout/a.xml", root)
 		findings := runResourceRule(r, idx)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings when id created via @+id elsewhere, got %d (%v)", len(findings), findings)
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings when id is only created via @+id in references, got %d (%v)", len(findings), findings)
 		}
 	})
 
@@ -141,4 +139,25 @@ func TestUnknownId(t *testing.T) {
 			t.Fatalf("expected 2 findings, got %d (%v)", len(findings), findings)
 		}
 	})
+}
+
+func TestUnknownIdWordingAndSuggestions(t *testing.T) {
+	r := findResourceRule(t, "UnknownId")
+	root := view("RelativeLayout", 1, map[string]string{},
+		view("Button", 3, map[string]string{"android:id": "@+id/def"}),
+		view("Button", 4, map[string]string{"android:layout_below": "@id/defs"}),
+		view("Button", 5, map[string]string{"android:layout_below": "@id/undefined_thing"}),
+	)
+	idx := indexWithLayout("a", "res/layout/a.xml", root)
+	got := runResourceRule(r, idx)
+	if len(got) != 2 || got[0].Message != "The id \"`defs`\" is not defined anywhere. Did you mean def ?" ||
+		got[1].Message != "The id \"`undefined_thing`\" is not defined anywhere." || got[0].Severity != "error" {
+		t.Fatalf("unexpected findings: %+v", got)
+	}
+	// Lint only checks children of relative and constraint layouts.
+	linear := view("LinearLayout", 1, map[string]string{},
+		view("Button", 3, map[string]string{"android:layout_below": "@id/nowhere"}))
+	if f := runResourceRule(r, indexWithLayout("b", "res/layout/b.xml", linear)); len(f) != 0 {
+		t.Fatalf("LinearLayout children are not checked, got %v", f)
+	}
 }

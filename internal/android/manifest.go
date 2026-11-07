@@ -39,8 +39,9 @@ const (
 
 // UsesPermission is a <uses-permission> element.
 type UsesPermission struct {
-	Name      string `xml:"http://schemas.android.com/apk/res/android name,attr"`
-	ToolsNode string `xml:"http://schemas.android.com/tools node,attr"`
+	Name          string `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	MaxSdkVersion string `xml:"http://schemas.android.com/apk/res/android maxSdkVersion,attr"`
+	ToolsNode     string `xml:"http://schemas.android.com/tools node,attr"`
 }
 
 // Permission is a <permission> element.
@@ -51,30 +52,34 @@ type Permission struct {
 
 // UsesFeature is a <uses-feature> element.
 type UsesFeature struct {
-	Name     string `xml:"http://schemas.android.com/apk/res/android name,attr"`
-	Required string `xml:"http://schemas.android.com/apk/res/android required,attr"`
+	Name        string `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	Required    string `xml:"http://schemas.android.com/apk/res/android required,attr"`
+	GlEsVersion string `xml:"http://schemas.android.com/apk/res/android glEsVersion,attr"`
 }
 
 // Application holds application-level attributes and components.
 type Application struct {
-	Name                  string     `xml:"http://schemas.android.com/apk/res/android name,attr"`
-	Debuggable            string     `xml:"http://schemas.android.com/apk/res/android debuggable,attr"`
-	AllowBackup           string     `xml:"http://schemas.android.com/apk/res/android allowBackup,attr"`
-	LocaleConfig          string     `xml:"http://schemas.android.com/apk/res/android localeConfig,attr"`
-	SupportsRtl           string     `xml:"http://schemas.android.com/apk/res/android supportsRtl,attr"`
-	ExtractNativeLibs     string     `xml:"http://schemas.android.com/apk/res/android extractNativeLibs,attr"`
-	UsesCleartextTraffic  string     `xml:"http://schemas.android.com/apk/res/android usesCleartextTraffic,attr"`
-	NetworkSecurityConfig string     `xml:"http://schemas.android.com/apk/res/android networkSecurityConfig,attr"`
-	FullBackupContent     string     `xml:"http://schemas.android.com/apk/res/android fullBackupContent,attr"`
-	DataExtractionRules   string     `xml:"http://schemas.android.com/apk/res/android dataExtractionRules,attr"`
-	Theme                 string     `xml:"http://schemas.android.com/apk/res/android theme,attr"`
-	Label                 string     `xml:"http://schemas.android.com/apk/res/android label,attr"`
-	Icon                  string     `xml:"http://schemas.android.com/apk/res/android icon,attr"`
-	Activities            []Activity `xml:"activity"`
-	Services              []Service  `xml:"service"`
-	Receivers             []Receiver `xml:"receiver"`
-	Providers             []Provider `xml:"provider"`
-	MetaData              []MetaData `xml:"meta-data"`
+	ToolsNode             string          `xml:"http://schemas.android.com/tools node,attr"`
+	Name                  string          `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	Debuggable            string          `xml:"http://schemas.android.com/apk/res/android debuggable,attr"`
+	AllowBackup           string          `xml:"http://schemas.android.com/apk/res/android allowBackup,attr"`
+	LocaleConfig          string          `xml:"http://schemas.android.com/apk/res/android localeConfig,attr"`
+	SupportsRtl           string          `xml:"http://schemas.android.com/apk/res/android supportsRtl,attr"`
+	ExtractNativeLibs     string          `xml:"http://schemas.android.com/apk/res/android extractNativeLibs,attr"`
+	UsesCleartextTraffic  string          `xml:"http://schemas.android.com/apk/res/android usesCleartextTraffic,attr"`
+	NetworkSecurityConfig string          `xml:"http://schemas.android.com/apk/res/android networkSecurityConfig,attr"`
+	FullBackupContent     string          `xml:"http://schemas.android.com/apk/res/android fullBackupContent,attr"`
+	DataExtractionRules   string          `xml:"http://schemas.android.com/apk/res/android dataExtractionRules,attr"`
+	Theme                 string          `xml:"http://schemas.android.com/apk/res/android theme,attr"`
+	Label                 string          `xml:"http://schemas.android.com/apk/res/android label,attr"`
+	Icon                  string          `xml:"http://schemas.android.com/apk/res/android icon,attr"`
+	Banner                string          `xml:"http://schemas.android.com/apk/res/android banner,attr"`
+	Activities            []Activity      `xml:"activity"`
+	ActivityAliases       []ActivityAlias `xml:"activity-alias"`
+	Services              []Service       `xml:"service"`
+	Receivers             []Receiver      `xml:"receiver"`
+	Providers             []Provider      `xml:"provider"`
+	MetaData              []MetaData      `xml:"meta-data"`
 }
 
 // ElementInfo captures raw XML element names and parents for manifest-oriented lint rules.
@@ -93,36 +98,65 @@ type Component struct {
 
 // Activity is an <activity> element.
 type Activity struct {
+	Banner        string         `xml:"http://schemas.android.com/apk/res/android banner,attr"`
+	ToolsNode     string         `xml:"http://schemas.android.com/tools node,attr"`
 	Name          string         `xml:"http://schemas.android.com/apk/res/android name,attr"`
 	Exported      string         `xml:"http://schemas.android.com/apk/res/android exported,attr"`
 	Permission    string         `xml:"http://schemas.android.com/apk/res/android permission,attr"`
 	IntentFilters []IntentFilter `xml:"intent-filter"`
+	NavGraphs     []NavGraph     `xml:"nav-graph"`
+}
+
+// ActivityAlias is an <activity-alias> element.
+type ActivityAlias struct {
+	Banner         string         `xml:"http://schemas.android.com/apk/res/android banner,attr"`
+	ToolsNode      string         `xml:"http://schemas.android.com/tools node,attr"`
+	Name           string         `xml:"http://schemas.android.com/apk/res/android name,attr"`
+	Exported       string         `xml:"http://schemas.android.com/apk/res/android exported,attr"`
+	Permission     string         `xml:"http://schemas.android.com/apk/res/android permission,attr"`
+	TargetActivity string         `xml:"http://schemas.android.com/apk/res/android targetActivity,attr"`
+	IntentFilters  []IntentFilter `xml:"intent-filter"`
+	NavGraphs      []NavGraph     `xml:"nav-graph"`
 }
 
 // Service is a <service> element.
 type Service struct {
+	ToolsNode     string         `xml:"http://schemas.android.com/tools node,attr"`
 	Name          string         `xml:"http://schemas.android.com/apk/res/android name,attr"`
 	Exported      string         `xml:"http://schemas.android.com/apk/res/android exported,attr"`
 	Permission    string         `xml:"http://schemas.android.com/apk/res/android permission,attr"`
 	IntentFilters []IntentFilter `xml:"intent-filter"`
+	NavGraphs     []NavGraph     `xml:"nav-graph"`
 }
 
 // Receiver is a <receiver> element.
 type Receiver struct {
+	ToolsNode     string         `xml:"http://schemas.android.com/tools node,attr"`
 	Name          string         `xml:"http://schemas.android.com/apk/res/android name,attr"`
 	Exported      string         `xml:"http://schemas.android.com/apk/res/android exported,attr"`
 	Permission    string         `xml:"http://schemas.android.com/apk/res/android permission,attr"`
 	IntentFilters []IntentFilter `xml:"intent-filter"`
+	NavGraphs     []NavGraph     `xml:"nav-graph"`
 	MetaData      []MetaData     `xml:"meta-data"`
 }
 
 // Provider is a <provider> element.
 type Provider struct {
+	ToolsNode   string `xml:"http://schemas.android.com/tools node,attr"`
 	Name        string `xml:"http://schemas.android.com/apk/res/android name,attr"`
 	Exported    string `xml:"http://schemas.android.com/apk/res/android exported,attr"`
 	Permission  string `xml:"http://schemas.android.com/apk/res/android permission,attr"`
 	Authorities string `xml:"http://schemas.android.com/apk/res/android authorities,attr"`
+
+	ReadPermission  string `xml:"http://schemas.android.com/apk/res/android readPermission,attr"`
+	WritePermission string `xml:"http://schemas.android.com/apk/res/android writePermission,attr"`
+	PathPermissions []struct {
+		Path string `xml:"http://schemas.android.com/apk/res/android path,attr"`
+	} `xml:"path-permission"`
 }
+
+// NavGraph is a <nav-graph> element, which the manifest merger expands into intent filters.
+type NavGraph struct{}
 
 // IntentFilter is an <intent-filter> element.
 type IntentFilter struct {

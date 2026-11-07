@@ -72,7 +72,7 @@ func (r *OkHTTPDisableSslValidationRule) check(ctx *api.Context) {
 	if !strings.Contains(chainText, "OkHttpClient.Builder") {
 		return
 	}
-	if name == "hostnameVerifier" && !okHTTPDisableSslValidationAlwaysTrueVerifier(chainText) {
+	if name == "hostnameVerifier" && !okHTTPDisableSslValidationAlwaysTrueVerifier(okHTTPCallArgumentsText(file, ctx.Idx)) {
 		return
 	}
 	if name == "sslSocketFactory" && !okHTTPDisableSslValidationUnsafeTrustManager(chainText) {
@@ -97,6 +97,15 @@ func (r *DisableCertificatePinningRule) check(ctx *api.Context) {
 
 func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
 	file := ctx.File
+	if file.FlatType(ctx.Idx) == "call_expression" {
+		if allowAllHostnameVerifierSamLambda(file, ctx.Idx) {
+			f := r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
+				"HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host.")
+			f.Confidence = r.Confidence()
+			ctx.Emit(f)
+		}
+		return
+	}
 	if !allowAllHostnameVerifierClass(file, ctx.Idx) {
 		return
 	}
@@ -125,6 +134,9 @@ func (r *InsecureTrustManagerRule) check(ctx *api.Context) {
 
 func (r *HardcodedHTTPURLRule) check(ctx *api.Context) {
 	file := ctx.File
+	if scanner.IsTestFile(file.Path) {
+		return
+	}
 	raw, ok := hardcodedHTTPURLLiteralArg(file, ctx.Idx)
 	if !ok || !hardcodedHTTPURLInsecure(raw) {
 		return
@@ -215,10 +227,16 @@ func hardcodedHTTPURLInsecure(raw string) bool {
 	if err != nil || !strings.EqualFold(u.Scheme, "http") {
 		return false
 	}
-	switch strings.ToLower(u.Hostname()) {
-	case "localhost", "127.0.0.1", "10.0.2.2", "0.0.0.0":
+	host := strings.ToLower(u.Hostname())
+	switch host {
+	case "localhost", "127.0.0.1", "10.0.2.2", "0.0.0.0", "example.com", "example.org", "example.net":
 		return false
-	default:
-		return true
 	}
+	// Reserved example and test hosts (RFC 2606) never reach a real server.
+	for _, suffix := range []string{".test", ".invalid", ".example", ".localhost"} {
+		if strings.HasSuffix(host, suffix) {
+			return false
+		}
+	}
+	return true
 }

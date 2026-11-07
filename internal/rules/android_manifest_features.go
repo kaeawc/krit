@@ -1,9 +1,17 @@
 package rules
 
 import (
+	"context"
+	"encoding/xml"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode"
 
+	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -11,9 +19,10 @@ import (
 // Rule: RtlEnabledManifestRule
 // ---------------------------------------------------------------------------
 
-// RtlEnabledManifestRule detects missing android:supportsRtl="true" on the
-// <application> element. Supporting RTL layouts is recommended for
-// internationalization.
+// RtlEnabledManifestRule ports Lint's RtlEnabled. A module whose resources use textAlignment or a start/end
+// gravity without its manifest saying whether it supports RTL gets a finding on its manifest, and
+// supportsRtl="true" is reported when the app targets below API 17. Like Lint, both apply only through an app
+// that includes the module (the module itself when it has an <application>), and an unset supportsRtl counts as on.
 type RtlEnabledManifestRule struct {
 	ManifestBase
 	AndroidRule
@@ -21,161 +30,74 @@ type RtlEnabledManifestRule struct {
 
 func (r *RtlEnabledManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	if m.Path == "" || isNonMainManifestPath(m.Path) {
 		return
 	}
-	if isNonMainManifestPath(m.Path) {
-		return
-	}
-	if isLibraryOrTestModuleManifest(m.Path) {
-		return
-	}
-	app := m.Application
-	if app.SupportsRtl == nil || !*app.SupportsRtl {
-		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
-			"Missing `android:supportsRtl=\"true\"` on <application>. "+
-				"Add RTL support to ensure proper layout mirroring for RTL languages."))
-		return
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Rule: RtlCompatManifestRule
-// ---------------------------------------------------------------------------
-
-// RtlCompatManifestRule detects targetSdkVersion >= 17 without
-// supportsRtl="true" on the application element. API 17 introduced native
-// RTL layout support; apps targeting 17+ should enable it.
-type RtlCompatManifestRule struct {
-	ManifestBase
-	AndroidRule
-}
-
-func (r *RtlCompatManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	if m.Application == nil {
-		return
-	}
-	if m.TargetSDK > 0 && m.TargetSDK < 17 {
-		return
-	}
-	// If TargetSDK is 0 (not set), we don't flag — can't confirm API level
-	if m.TargetSDK == 0 {
-		return
-	}
-	if m.Application.SupportsRtl == nil || !*m.Application.SupportsRtl {
-		ctx.Emit(baseFinding(m.Path, m.Application.Line, r.BaseRule,
-			fmt.Sprintf("targetSdkVersion is %d (>= 17) but `android:supportsRtl` is not set to true. "+
-				"Enable RTL support with `android:supportsRtl=\"true\"` for proper right-to-left layout mirroring.",
-				m.TargetSDK)))
-		return
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Rule: AppIndexingErrorManifestRule
-// ---------------------------------------------------------------------------
-
-// AppIndexingErrorManifestRule detects activities with a VIEW intent filter
-// that are missing HTTP or HTTPS data schemes. Activities handling VIEW actions
-// should typically support deep linking via http/https.
-type AppIndexingErrorManifestRule struct {
-	ManifestBase
-	AndroidRule
-}
-
-func (r *AppIndexingErrorManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	if m.Application == nil {
-		return
-	}
-	if isNonMainManifestPath(m.Path) {
-		return
-	}
-	if isLibraryOrTestModuleManifest(m.Path) {
-		return
-	}
-	for _, act := range m.Application.Activities {
-		hasViewAction := false
-		for _, action := range act.IntentFilterActions {
-			if action == "android.intent.action.VIEW" {
-				hasViewAction = true
-				break
+	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
+	mains := rtlResolveMains(ctx, facts, m.Path)
+	module := newRtlModuleCache(ctx, facts).forLayout(filepath.Join(filepath.Dir(m.Path), "res", "layout", "x.xml"))
+	if app := m.Application; app != nil && app.SupportsRtl != nil {
+		if *app.SupportsRtl && !module.modern {
+			if _, ok := rtlApplies(rtlTargetBelow17, mains, module); ok {
+				ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
+					fmt.Sprintf("You must set `android:targetSdkVersion` to at least %d when enabling RTL support", rtlAPI)))
 			}
 		}
-		if !hasViewAction {
+		return
+	}
+	if _, ok := rtlApplies(rtlEnabled, mains, module); ok && resourcesUseRtlAttributes(filepath.Join(filepath.Dir(m.Path), "res")) {
+		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
+			"The project references RTL attributes, but does not explicitly enable or disable RTL support with `android:supportsRtl` in the manifest"))
+	}
+}
+
+var (
+	rtlTextAlignmentRe = regexp.MustCompile(`\bandroid:textAlignment\s*=`)
+	rtlGravityRe       = regexp.MustCompile(`\bandroid:(?:layout_)?gravity\s*=\s*"([^"]*)"`)
+)
+
+// resourcesUseRtlAttributes reports whether any XML resource under resDir (outside values) sets textAlignment or
+// a start/end gravity, the two usages RtlDetector counts as referencing RTL attributes.
+func resourcesUseRtlAttributes(resDir string) bool {
+	entries, err := os.ReadDir(resDir)
+	if err != nil {
+		return false
+	}
+	for _, dir := range entries {
+		if !dir.IsDir() || strings.HasPrefix(dir.Name(), "values") {
 			continue
 		}
-		// Only flag when the activity has EXACTLY ONE of http/https but not
-		// both — that's a partial configuration that misses half of web deep
-		// links. Activities using only custom schemes (tsdevice, sms, tel,
-		// etc.) are legitimate and not a concern here.
-		hasHTTP := false
-		hasHTTPS := false
-		for _, scheme := range act.IntentFilterDataSchemes {
-			switch scheme {
-			case "http":
-				hasHTTP = true
-			case "https":
-				hasHTTPS = true
-			}
-		}
-		if (hasHTTP && !hasHTTPS) || (hasHTTPS && !hasHTTP) {
-			missing := "https"
-			if hasHTTPS {
-				missing = "http"
-			}
-			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
-				fmt.Sprintf("Activity `%s` has a web deep link but is missing the `%s` scheme. "+
-					"Add `<data android:scheme=\"%s\" />` to handle both http and https URLs.",
-					act.Name, missing, missing)))
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Rule: AppIndexingWarningManifestRule
-// ---------------------------------------------------------------------------
-
-// AppIndexingWarningManifestRule detects activities with browsable intent
-// filters that are missing a VIEW action. Activities with the BROWSABLE
-// category should typically also declare a VIEW action for proper deep link
-// handling.
-type AppIndexingWarningManifestRule struct {
-	ManifestBase
-	AndroidRule
-}
-
-func (r *AppIndexingWarningManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	if m.Application == nil {
-		return
-	}
-	for _, act := range m.Application.Activities {
-		hasBrowsable := false
-		for _, cat := range act.IntentFilterCategories {
-			if cat == "android.intent.category.BROWSABLE" {
-				hasBrowsable = true
-				break
-			}
-		}
-		if !hasBrowsable {
+		files, err := os.ReadDir(filepath.Join(resDir, dir.Name()))
+		if err != nil {
 			continue
 		}
-		hasViewAction := false
-		for _, action := range act.IntentFilterActions {
-			if action == "android.intent.action.VIEW" {
-				hasViewAction = true
-				break
+		for _, file := range files {
+			if file.IsDir() || !strings.HasSuffix(file.Name(), ".xml") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(resDir, dir.Name(), file.Name()))
+			if err == nil && rtlXMLUsesRtlAttributes(data) {
+				return true
 			}
 		}
-		if !hasViewAction {
-			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
-				fmt.Sprintf("Activity `%s` has a BROWSABLE intent filter but no VIEW action. "+
-					"Add `<action android:name=\"android.intent.action.VIEW\" />` to handle deep links properly.",
-					act.Name)))
+	}
+	return false
+}
+
+func rtlXMLUsesRtlAttributes(data []byte) bool {
+	if rtlTextAlignmentRe.Match(data) {
+		return true
+	}
+	for _, match := range rtlGravityRe.FindAllSubmatch(data, -1) {
+		value := string(match[1])
+		if strings.Contains(value, "left") || strings.Contains(value, "right") {
+			continue
+		}
+		if strings.Contains(value, "start") || strings.Contains(value, "end") {
+			return true
 		}
 	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -192,41 +114,154 @@ type GoogleAppIndexingDeepLinkErrorManifestRule struct {
 
 func (r *GoogleAppIndexingDeepLinkErrorManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	if m.Application == nil || m.Path == "" {
 		return
 	}
 	if isNonMainManifestPath(m.Path) {
 		return
 	}
-	for _, act := range m.Application.Activities {
-		hasViewAction := false
-		for _, action := range act.IntentFilterActions {
-			if action == "android.intent.action.VIEW" {
-				hasViewAction = true
-				break
-			}
-		}
-		if !hasViewAction {
-			continue
-		}
-		// Custom schemes (not http/https) legitimately don't require a host.
-		// Only flag when http or https is used without a host — those are
-		// real web URLs that need a host to be well-formed.
-		hasWebScheme := false
-		for _, scheme := range act.IntentFilterDataSchemes {
+	emit := func(line int, msg string) {
+		ctx.Emit(baseFinding(m.Path, line, r.BaseRule, msg))
+	}
+	for _, f := range manifestActivityIntentFilters(m.Path) {
+		hasWebScheme, hasHost := false, false
+		for _, d := range f.data {
+			scheme := strings.ToLower(resolveManifestStringRef(ctx, d.scheme))
 			if scheme == "http" || scheme == "https" {
 				hasWebScheme = true
-				break
+			}
+			if d.host != "" {
+				hasHost = true
 			}
 		}
-		if hasWebScheme && len(act.IntentFilterDataHosts) == 0 {
-			ctx.Emit(baseFinding(m.Path, act.Line, r.BaseRule,
-				fmt.Sprintf("Activity `%s` has an http/https deep link with no host. "+
-					"A web URI with a scheme but no host is malformed. "+
-					"Add `<data android:host=\"...\" />` to the intent filter.",
-					act.Name)))
+		// Custom schemes are not web deep links, so only filters with an http(s) scheme are checked.
+		if !hasWebScheme {
+			continue
+		}
+		where := "Activity `" + f.activity + "`: "
+		if !f.hasAction("android.intent.action.VIEW") {
+			emit(f.line, where+"web deep link intent filter is missing the `android.intent.action.VIEW` action.")
+		}
+		if !f.hasCategory("android.intent.category.BROWSABLE") {
+			emit(f.line, where+"web deep link intent filter is missing the `android.intent.category.BROWSABLE` category.")
+		}
+		if !f.hasCategory("android.intent.category.DEFAULT") {
+			emit(f.line, where+"web deep link intent filter is missing the `android.intent.category.DEFAULT` category.")
+		}
+		if !hasHost {
+			emit(f.line, where+"web deep link intent filter has an http/https scheme but no `android:host`. "+
+				"A web URI with a scheme but no host is malformed.")
+		}
+		for _, d := range f.data {
+			for _, p := range [][2]string{{"path", d.path}, {"pathPrefix", d.pathPrefix}} {
+				if p[1] != "" && !strings.HasPrefix(p[1], "/") && !strings.HasPrefix(p[1], "@") && !strings.Contains(p[1], "${") {
+					emit(d.line, where+"`android:"+p[0]+"` should start with `/`: `"+p[1]+"`.")
+				}
+			}
 		}
 	}
+}
+
+// manifestFilter is one <intent-filter> of an activity or activity-alias, read from the raw manifest.
+type manifestFilter struct {
+	activity   string
+	line       int
+	actions    []string
+	categories []string
+	data       []manifestFilterData
+}
+
+type manifestFilterData struct {
+	line                           int
+	scheme, host, path, pathPrefix string
+}
+
+func (f manifestFilter) hasAction(name string) bool {
+	for _, a := range f.actions {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (f manifestFilter) hasCategory(name string) bool {
+	for _, c := range f.categories {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
+// manifestActivityIntentFilters lists each intent filter of every activity with its own actions,
+// categories and data elements, so checks apply per filter rather than per component.
+func manifestActivityIntentFilters(path string) []manifestFilter {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	decoder := xml.NewDecoder(strings.NewReader(string(data)))
+	var out []manifestFilter
+	var stack []string
+	var activity string
+	var cur *manifestFilter
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			parent := ""
+			if len(stack) > 0 {
+				parent = stack[len(stack)-1]
+			}
+			stack = append(stack, t.Name.Local)
+			line := xmlLineAtOffset(data, decoder.InputOffset())
+			switch {
+			case t.Name.Local == "activity" || t.Name.Local == "activity-alias":
+				activity = androidXMLAttr(t.Attr, "name")
+			case t.Name.Local == "intent-filter" && (parent == "activity" || parent == "activity-alias"):
+				cur = &manifestFilter{activity: activity, line: line}
+			case cur != nil && t.Name.Local == "action":
+				cur.actions = append(cur.actions, androidXMLAttr(t.Attr, "name"))
+			case cur != nil && t.Name.Local == "category":
+				cur.categories = append(cur.categories, androidXMLAttr(t.Attr, "name"))
+			case cur != nil && t.Name.Local == "data":
+				cur.data = append(cur.data, manifestFilterData{
+					line:       line,
+					scheme:     androidXMLAttr(t.Attr, "scheme"),
+					host:       androidXMLAttr(t.Attr, "host"),
+					path:       androidXMLAttr(t.Attr, "path"),
+					pathPrefix: androidXMLAttr(t.Attr, "pathPrefix"),
+				})
+			}
+		case xml.EndElement:
+			if cur != nil && t.Name.Local == "intent-filter" {
+				out = append(out, *cur)
+				cur = nil
+			}
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+	return out
+}
+
+// resolveManifestStringRef resolves an `@string/name` value through the resource
+// index when one is available; unresolvable references return "".
+func resolveManifestStringRef(ctx *api.Context, value string) string {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "@") && !strings.Contains(value, "${") {
+		return value
+	}
+	name, ok := strings.CutPrefix(value, "@string/")
+	if !ok || ctx.ResourceIndex == nil {
+		return ""
+	}
+	return strings.TrimSpace(ctx.ResourceIndex.Strings[name])
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +286,21 @@ func (r *GoogleAppIndexingWarningManifestRule) check(ctx *api.Context) {
 	if isTestManifestPath(m.Path) || isLibraryOrTestModuleManifest(m.Path) {
 		return
 	}
+	// Only an application module's manifest can be indexed; skip modules that are not applications.
+	if gi := lookupManifestGradleInfo(m.Path); gi.found && !gi.isApplication {
+		return
+	}
+	// A manifest with no intent filters is a fragment of a merged manifest, not a full app entry point.
+	hasIntentFilter := false
+	for _, act := range m.Application.Activities {
+		if act.HasIntentFilter || len(act.IntentFilterActions) > 0 {
+			hasIntentFilter = true
+			break
+		}
+	}
+	if !hasIntentFilter {
+		return
+	}
 	for _, act := range m.Application.Activities {
 		hasViewAction := false
 		for _, action := range act.IntentFilterActions {
@@ -268,7 +318,12 @@ func (r *GoogleAppIndexingWarningManifestRule) check(ctx *api.Context) {
 			}
 		}
 	}
-	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
+	// Lint reports on <application>, which is also where `tools:ignore="GoogleAppIndexingWarning"` goes.
+	line := m.Application.Line
+	if line < 1 {
+		line = 1
+	}
+	ctx.Emit(baseFinding(m.Path, line, r.BaseRule,
 		"No activity with a VIEW intent filter and http/https data scheme found. "+
 			"Add deep link support to enable Google App Indexing. "+
 			"https://developer.android.com/training/app-indexing"))
@@ -287,73 +342,18 @@ type MissingLeanbackLauncherManifestRule struct {
 	AndroidRule
 }
 
-func (r *MissingLeanbackLauncherManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	hasLeanback := false
-	for _, f := range m.UsesFeatures {
-		if f.Name == "android.software.leanback" {
-			hasLeanback = true
-			break
-		}
-	}
-	if !hasLeanback {
-		return
-	}
-	if m.Application == nil {
-		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-			"App declares `android.software.leanback` feature but has no activity with "+
-				"LEANBACK_LAUNCHER category. Add an activity with "+
-				"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
-		return
-	}
-	for _, act := range m.Application.Activities {
-		for _, cat := range act.IntentFilterCategories {
-			if cat == "android.intent.category.LEANBACK_LAUNCHER" {
-				return
-			}
-		}
-	}
-	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-		"App declares `android.software.leanback` feature but has no activity with "+
-			"LEANBACK_LAUNCHER category. Add an activity with "+
-			"`<category android:name=\"android.intent.category.LEANBACK_LAUNCHER\" />`."))
-}
-
 // ---------------------------------------------------------------------------
 // Rule: MissingLeanbackSupportManifestRule
 // ---------------------------------------------------------------------------
 
 // MissingLeanbackSupportManifestRule detects apps that declare the
-// android.software.leanback feature but do not opt out of the touchscreen
-// requirement. TV apps must declare
+// android.software.leanback feature, or a LEANBACK_LAUNCHER activity, but do
+// not opt out of the touchscreen requirement. TV apps must declare
 // <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 // because TV devices do not have touchscreens.
 type MissingLeanbackSupportManifestRule struct {
 	ManifestBase
 	AndroidRule
-}
-
-func (r *MissingLeanbackSupportManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	hasLeanback := false
-	for _, f := range m.UsesFeatures {
-		if f.Name == "android.software.leanback" {
-			hasLeanback = true
-			break
-		}
-	}
-	if !hasLeanback {
-		return
-	}
-	for _, f := range m.UsesFeatures {
-		if f.Name == "android.hardware.touchscreen" && strings.EqualFold(f.Required, "false") {
-			return
-		}
-	}
-	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-		"App declares `android.software.leanback` feature but does not opt out of touchscreen. "+
-			"TV apps must declare `<uses-feature android:name=\"android.hardware.touchscreen\" "+
-			"android:required=\"false\" />` because TV devices do not have touchscreens."))
 }
 
 // ---------------------------------------------------------------------------
@@ -369,75 +369,6 @@ type PermissionImpliesUnsupportedHardwareManifestRule struct {
 	AndroidRule
 }
 
-// permissionToFeature maps permissions to the hardware features they imply.
-var permissionToFeature = map[string]string{
-	"android.permission.CAMERA":                 "android.hardware.camera",
-	"android.permission.BLUETOOTH":              "android.hardware.bluetooth",
-	"android.permission.BLUETOOTH_ADMIN":        "android.hardware.bluetooth",
-	"android.permission.BLUETOOTH_CONNECT":      "android.hardware.bluetooth",
-	"android.permission.BLUETOOTH_SCAN":         "android.hardware.bluetooth",
-	"android.permission.ACCESS_FINE_LOCATION":   "android.hardware.location.gps",
-	"android.permission.ACCESS_COARSE_LOCATION": "android.hardware.location",
-	"android.permission.CALL_PHONE":             "android.hardware.telephony",
-	"android.permission.READ_PHONE_STATE":       "android.hardware.telephony",
-	"android.permission.READ_SMS":               "android.hardware.telephony",
-	"android.permission.SEND_SMS":               "android.hardware.telephony",
-	"android.permission.RECORD_AUDIO":           "android.hardware.microphone",
-}
-
-func (r *PermissionImpliesUnsupportedHardwareManifestRule) check(ctx *api.Context) {
-	m := ctx.Manifest
-	// Build a set of features declared with required="false"
-	optionalFeatures := make(map[string]bool)
-	for _, f := range m.UsesFeatures {
-		if strings.EqualFold(f.Required, "false") {
-			optionalFeatures[f.Name] = true
-		}
-	}
-
-	// Collect all missing permission/feature pairs first. Emitting one
-	// finding per pair at the same (file, line, col) collided on the
-	// finding key downstream — combine them into a single finding
-	// listing every offender.
-	type permFeature struct{ perm, feature string }
-	var missing []permFeature
-	seen := make(map[string]bool)
-	for _, perm := range m.UsesPermissions {
-		feature, ok := permissionToFeature[perm]
-		if !ok {
-			continue
-		}
-		if seen[feature] {
-			continue
-		}
-		seen[feature] = true
-		if !optionalFeatures[feature] {
-			missing = append(missing, permFeature{perm: perm, feature: feature})
-		}
-	}
-	if len(missing) == 0 {
-		return
-	}
-	if len(missing) == 1 {
-		only := missing[0]
-		ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-			fmt.Sprintf("Permission `%s` implies hardware feature `%s`. "+
-				"Declare `<uses-feature android:name=\"%s\" android:required=\"false\" />` "+
-				"to allow installation on devices without this hardware.",
-				only.perm, only.feature, only.feature)))
-		return
-	}
-	var parts []string
-	for _, mf := range missing {
-		parts = append(parts, fmt.Sprintf("`%s` -> `%s`", mf.perm, mf.feature))
-	}
-	ctx.Emit(baseFinding(m.Path, 1, r.BaseRule,
-		fmt.Sprintf("Permissions imply hardware features that are not declared as optional: %s. "+
-			"Declare each with `<uses-feature android:name=\"…\" android:required=\"false\" />` "+
-			"to allow installation on devices without this hardware.",
-			strings.Join(parts, ", "))))
-}
-
 // ---------------------------------------------------------------------------
 // Rule: UnsupportedChromeOsHardwareManifestRule
 // ---------------------------------------------------------------------------
@@ -451,32 +382,63 @@ type UnsupportedChromeOsHardwareManifestRule struct {
 	AndroidRule
 }
 
-// chromeOsUnsupportedFeatures lists features unavailable on most Chrome OS devices.
+// chromeOsUnsupportedFeatures lists features Lint reports as unavailable on some Chrome OS devices.
 var chromeOsUnsupportedFeatures = map[string]bool{
-	"android.hardware.telephony":            true,
-	"android.hardware.camera":               true,
-	"android.hardware.camera.autofocus":     true,
-	"android.hardware.camera.flash":         true,
-	"android.hardware.nfc":                  true,
-	"android.hardware.sensor.accelerometer": true,
-	"android.hardware.sensor.barometer":     true,
-	"android.hardware.sensor.compass":       true,
-	"android.hardware.sensor.gyroscope":     true,
+	"android.hardware.camera.autofocus":                         true,
+	"android.hardware.camera.capability.manual_post_processing": true,
+	"android.hardware.camera.capability.manual_sensor":          true,
+	"android.hardware.camera.capability.raw":                    true,
+	"android.hardware.camera.flash":                             true,
+	"android.hardware.camera.level.full":                        true,
+	"android.hardware.consumerir":                               true,
+	"android.hardware.location.gps":                             true,
+	"android.hardware.nfc":                                      true,
+	"android.hardware.nfc.hce":                                  true,
+	"android.hardware.sensor.accelerometer":                     true,
+	"android.hardware.sensor.barometer":                         true,
+	"android.hardware.sensor.compass":                           true,
+	"android.hardware.sensor.gyroscope":                         true,
+	"android.hardware.sensor.light":                             true,
+	"android.hardware.sensor.proximity":                         true,
+	"android.hardware.sensor.stepcounter":                       true,
+	"android.hardware.sensor.stepdetector":                      true,
+	"android.hardware.telephony":                                true,
+	"android.hardware.telephony.cdma":                           true,
+	"android.hardware.telephony.gsm":                            true,
+	"android.hardware.touchscreen":                              true,
+	"android.hardware.type.automotive":                          true,
+	"android.hardware.type.television":                          true,
+	"android.hardware.usb.accessory":                            true,
+	"android.hardware.usb.host":                                 true,
+	"android.software.app_widgets":                              true,
+	"android.software.device_admin":                             true,
+	"android.software.home_screen":                              true,
+	"android.software.input_methods":                            true,
+	"android.software.leanback":                                 true,
+	"android.software.live_tv":                                  true,
+	"android.software.live_wallpaper":                           true,
+	"android.software.managed_users":                            true,
+	"android.software.midi":                                     true,
+	"android.software.sip":                                      true,
+	"android.software.sip.voip":                                 true,
+}
+
+// isChromeOsUnsupportedFeature also matches every android.hardware.camera feature, like Lint.
+func isChromeOsUnsupportedFeature(name string) bool {
+	return chromeOsUnsupportedFeatures[name] || strings.HasPrefix(name, "android.hardware.camera")
 }
 
 func (r *UnsupportedChromeOsHardwareManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
 	for _, f := range m.UsesFeatures {
-		if !chromeOsUnsupportedFeatures[f.Name] {
+		if !isChromeOsUnsupportedFeature(f.Name) {
 			continue
 		}
 		if strings.EqualFold(f.Required, "false") {
 			continue
 		}
 		ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,
-			fmt.Sprintf("`<uses-feature android:name=\"%s\">` is not available on most Chrome OS devices. "+
-				"Set `android:required=\"false\"` to allow installation on Chromebooks.",
-				f.Name)))
+			"Expecting `android:required=\"false\"` for this hardware feature that may not be supported by all Chrome OS devices"))
 	}
 }
 
@@ -484,9 +446,9 @@ func (r *UnsupportedChromeOsHardwareManifestRule) check(ctx *api.Context) {
 // Rule: DeviceAdminManifestRule
 // ---------------------------------------------------------------------------
 
-// DeviceAdminManifestRule detects <receiver> elements with the
-// android.app.admin.DEVICE_ADMIN action but missing the required
-// <meta-data android:resource="@xml/device_admin"/> element.
+// DeviceAdminManifestRule mirrors Lint's checkDeviceAdmin: a <receiver> that
+// declares the android.app.device_admin meta-data must also have an
+// intent filter for android.app.action.DEVICE_ADMIN_ENABLED without data.
 type DeviceAdminManifestRule struct {
 	ManifestBase
 	AndroidRule
@@ -494,33 +456,37 @@ type DeviceAdminManifestRule struct {
 
 func (r *DeviceAdminManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	app := manifestApplicationNode(manifestRoot(m))
+	if app == nil {
 		return
 	}
-	for _, recv := range m.Application.Receivers {
-		hasDeviceAdminAction := false
-		for _, action := range recv.IntentFilterActions {
-			if action == "android.app.action.DEVICE_ADMIN_ENABLED" {
-				hasDeviceAdminAction = true
-				break
+	for _, recv := range xmlChildrenNamed(app, "receiver") {
+		var metaName android.XMLAttribute
+		hasMeta, hasFilter := false, false
+		for _, child := range recv.Children {
+			switch child.Tag {
+			case "intent-filter":
+				enabled, hasData := false, false
+				for _, c := range child.Children {
+					switch {
+					case c.Tag == "action" && xmlAttrValue(c, "android:name") == "android.app.action.DEVICE_ADMIN_ENABLED":
+						enabled = true
+					case c.Tag == "data":
+						hasData = true
+					}
+				}
+				if enabled && !hasData {
+					hasFilter = true
+				}
+			case "meta-data":
+				if a, ok := xmlAttrOf(child, "android:name"); ok && a.Value == "android.app.device_admin" {
+					metaName, hasMeta = a, true
+				}
 			}
 		}
-		if !hasDeviceAdminAction {
-			continue
-		}
-		// Check for required <meta-data android:resource="@xml/device_admin"/>
-		hasDeviceAdminMeta := false
-		for _, md := range recv.MetaDataEntries {
-			if md.Name == "android.app.device_admin" && md.Resource != "" {
-				hasDeviceAdminMeta = true
-				break
-			}
-		}
-		if !hasDeviceAdminMeta {
-			ctx.Emit(baseFinding(m.Path, recv.Line, r.BaseRule,
-				fmt.Sprintf("Receiver `%s` handles DEVICE_ADMIN_ENABLED but is missing "+
-					"`<meta-data android:name=\"android.app.device_admin\" android:resource=\"@xml/device_admin\"/>`.",
-					recv.Name)))
+		if hasMeta && !hasFilter {
+			ctx.Emit(baseFindingAt(m.Path, metaName.Line, metaName.Col, r.BaseRule,
+				"You must have an intent filter for action `android.app.action.DEVICE_ADMIN_ENABLED`"))
 		}
 	}
 }
@@ -529,34 +495,147 @@ func (r *DeviceAdminManifestRule) check(ctx *api.Context) {
 // Rule: FullBackupContentManifestRule
 // ---------------------------------------------------------------------------
 
-// FullBackupContentManifestRule detects issues with the fullBackupContent
-// attribute. When allowBackup is true and targetSdk >= 23, the application
-// should declare fullBackupContent to control what gets backed up.
+// FullBackupContentManifestRule validates the XML resources referenced by android:fullBackupContent
+// and android:dataExtractionRules: every include/exclude needs a known domain and a path without "..".
 type FullBackupContentManifestRule struct {
 	ManifestBase
 	AndroidRule
 }
 
+// backupDomains are the domain values accepted in backup rule files.
+var backupDomains = map[string]bool{
+	"root": true, "file": true, "database": true, "sharedpref": true, "external": true,
+	"device_root": true, "device_file": true, "device_database": true, "device_sharedpref": true,
+}
+
 func (r *FullBackupContentManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	if m.Application == nil {
+	if m.Application == nil || m.Path == "" {
 		return
 	}
-	app := m.Application
+	for _, ref := range []string{m.Application.FullBackupContent, m.Application.DataExtractionRules} {
+		name, ok := networkSecurityConfigResourceName(ref)
+		if !ok {
+			continue
+		}
+		path := filepath.Join(filepath.Dir(m.Path), "res", "xml", name+".xml")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		root, err := android.ParseXMLAST(context.Background(), data)
+		if err != nil {
+			continue
+		}
+		r.checkBackupNode(ctx, path, root)
+	}
+}
 
-	// Check if allowBackup is explicitly false — no issue
-	if app.AllowBackup != nil && !*app.AllowBackup {
+// backupDomainList is the domain order Lint prints in its messages.
+const backupDomainList = "file, database, sharedpref, external, root, device_file, device_database, device_sharedpref, device_root"
+
+func (r *FullBackupContentManifestRule) checkBackupNode(ctx *api.Context, path string, root *android.XMLNode) {
+	if root == nil {
 		return
 	}
+	switch root.Tag {
+	case "full-backup-content":
+		r.checkBackupSection(ctx, path, root)
+	case "data-extraction-rules":
+		for _, section := range root.Children {
+			if section.Tag == "cross-platform-transfer" && xmlAttrValue(section, "platform") == "" {
+				ctx.Emit(baseFindingAt(path, section.Line, section.Col+1, r.BaseRule, "Missing required attribute `platform`"))
+			}
+			r.checkBackupSection(ctx, path, section)
+		}
+	}
+}
 
-	// When allowBackup is true (or default) and targetSdk >= 23, missing fullBackupContent is an issue
-	if m.TargetSDK >= 23 && app.FullBackupContent == "" {
-		ctx.Emit(baseFinding(m.Path, app.Line, r.BaseRule,
-			"Missing `android:fullBackupContent` attribute on <application>. "+
-				"When allowBackup is true and targetSdkVersion >= 23, specify fullBackupContent "+
-				"to control which files are backed up. "+
-				"https://developer.android.com/guide/topics/data/autobackup"))
-		return
+// backupValueAt anchors a finding at the value of an attribute, as Lint's value location does.
+func (r *FullBackupContentManifestRule) backupValueAt(ctx *api.Context, path string, a android.XMLAttribute, msg string) {
+	ctx.Emit(baseFindingAt(path, a.Line, a.Col+len(a.Name)+2, r.BaseRule, msg))
+}
+
+// backupPath validates a path attribute and returns it ("" when absent).
+func (r *FullBackupContentManifestRule) backupPath(ctx *api.Context, path string, n *android.XMLNode) string {
+	a, ok := xmlAttrOf(n, "path")
+	if !ok {
+		return ""
+	}
+	switch {
+	case strings.Contains(a.Value, "//"):
+		r.backupValueAt(ctx, path, a, "Paths are not allowed to contain `//`")
+	case strings.Contains(a.Value, ".."):
+		r.backupValueAt(ctx, path, a, "Paths are not allowed to contain `..`")
+	case strings.Contains(a.Value, "/"):
+		if d := n.Attr("domain"); d == "sharedpref" || d == "database" {
+			r.backupValueAt(ctx, path, a, "Subdirectories are not allowed for domain `"+d+"`")
+		}
+	}
+	return a.Value
+}
+
+// backupDomain validates the domain attribute and returns it, or "" when it is missing. An unknown domain is
+// reported but still returned, as Lint does.
+func (r *FullBackupContentManifestRule) backupDomain(ctx *api.Context, path string, n *android.XMLNode) string {
+	a, ok := xmlAttrOf(n, "domain")
+	if !ok || a.Value == "" {
+		ctx.Emit(baseFindingAt(path, n.Line, n.Col, r.BaseRule, "Missing domain attribute, expected one of "+backupDomainList))
+		return ""
+	}
+	if !backupDomains[a.Value] {
+		r.backupValueAt(ctx, path, a, "Unexpected domain `"+a.Value+"`, expected one of "+backupDomainList)
+	}
+	return a.Value
+}
+
+func (r *FullBackupContentManifestRule) checkBackupSection(ctx *api.Context, path string, section *android.XMLNode) {
+	var includes, excludes []*android.XMLNode
+	for _, child := range section.Children {
+		switch {
+		case child.Tag == "include":
+			includes = append(includes, child)
+		case child.Tag == "exclude":
+			excludes = append(excludes, child)
+		case section.Tag == "cross-platform-transfer" && child.Tag == "platform-specific-params":
+		default:
+			ctx.Emit(baseFindingAt(path, child.Line, child.Col+1, r.BaseRule, "Unexpected element `<"+child.Tag+">`"))
+		}
+	}
+	included := map[string][]string{}
+	hasIncluded := false
+	for _, inc := range includes {
+		domain := r.backupDomain(ctx, path, inc)
+		incPath := r.backupPath(ctx, path, inc)
+		if domain == "" {
+			continue
+		}
+		included[domain] = append(included[domain], incPath)
+		hasIncluded = true
+	}
+	for _, exc := range excludes {
+		excPath := r.backupPath(ctx, path, exc)
+		if excPath == "" {
+			continue
+		}
+		domain := r.backupDomain(ctx, path, exc)
+		if domain == "" || !hasIncluded {
+			continue
+		}
+		pathAttr, _ := xmlAttrOf(exc, "path")
+		found := false
+		for _, incPath := range included[domain] {
+			if strings.HasPrefix(excPath, incPath) || incPath == "." {
+				found = true
+				if excPath == incPath {
+					r.backupValueAt(ctx, path, pathAttr, "Include `"+incPath+"` is also excluded")
+				}
+				break
+			}
+		}
+		if !found {
+			r.backupValueAt(ctx, path, pathAttr, "`"+excPath+"` is not in an included path")
+		}
 	}
 }
 
@@ -572,10 +651,18 @@ type MissingRegisteredManifestRule struct {
 	AndroidRule
 }
 
+var manifestPlaceholderRe = regexp.MustCompile(`\$\{[^}]*\}`)
+
 func isInvalidComponentName(name string) (bool, string) {
 	if name == "" {
 		return true, "empty component name"
 	}
+	// A resource reference resolves at build time.
+	if strings.HasPrefix(name, "@") || strings.HasPrefix(name, "?") {
+		return false, ""
+	}
+	// A manifest placeholder such as ${applicationId} expands to a valid name segment.
+	name = manifestPlaceholderRe.ReplaceAllString(name, "P")
 	// Strip leading dot (relative class name)
 	checkName := name
 	checkName = strings.TrimPrefix(checkName, ".")
@@ -588,7 +675,7 @@ func isInvalidComponentName(name string) (bool, string) {
 	}
 	// Check for invalid characters (only letters, digits, dots, underscores, $ allowed)
 	for _, c := range checkName {
-		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '.' && c != '_' && c != '$' {
+		if !unicode.IsLetter(c) && !unicode.IsDigit(c) && c != '.' && c != '_' && c != '$' {
 			return true, fmt.Sprintf("component name contains invalid character '%c'", c)
 		}
 	}

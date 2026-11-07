@@ -29,10 +29,32 @@ func (r *GetInstanceRule) Confidence() float64 { return api.ConfidenceHigh }
 
 func (r *RsaNoPaddingRule) Confidence() float64 { return api.ConfidenceHigh }
 
-var getInstanceInsecureAlgoTokens = []string{"ECB", "DES", "RC2", "RC4"}
+const (
+	getInstanceECBMessage    = "ECB encryption mode should not be used"
+	getInstanceNoModeMessage = "`Cipher.getInstance` should not be called without setting the encryption mode and padding"
+)
+
+// getInstanceMessage mirrors Lint's CipherGetInstanceDetector: the mode of a
+// transformation must not be ECB (RSA excepted), and AES, DES and DESede need
+// an explicit mode and padding. It returns "" when the transformation is fine.
+func getInstanceMessage(algo string) string {
+	parts := strings.Split(algo, "/")
+	if len(parts) >= 2 && parts[1] == "ECB" && parts[0] != "RSA" {
+		return getInstanceECBMessage
+	}
+	switch algo {
+	case "AES", "DES", "DESede":
+		return getInstanceNoModeMessage
+	}
+	return ""
+}
 
 func (r *GetInstanceRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
+	if file.FlatType(idx) == "method_invocation" {
+		r.checkJava(ctx, idx)
+		return
+	}
 	navExpr, args := flatCallExpressionParts(file, idx)
 	if navExpr == 0 || args == 0 {
 		return
@@ -47,19 +69,100 @@ func (r *GetInstanceRule) check(ctx *api.Context) {
 	if !ok {
 		return
 	}
-	upper := strings.ToUpper(algo)
-	hit := false
-	for _, tok := range getInstanceInsecureAlgoTokens {
-		if strings.Contains(upper, tok) {
-			hit = true
-			break
-		}
+	if msg := getInstanceMessage(algo); msg != "" {
+		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
 	}
-	if !hit {
+}
+
+func (r *GetInstanceRule) checkJava(ctx *api.Context, idx uint32) {
+	file := ctx.File
+	if javaMethodInvocationName(file, idx) != "getInstance" {
 		return
 	}
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Cipher.getInstance uses insecure algorithm. Avoid ECB mode and DES/RC2/RC4.")
+	receiver := wrongViewCastCallReceiverName(file, idx)
+	switch receiver {
+	case "Cipher":
+		if !sourceImportsOrMentions(file, "javax.crypto.Cipher") && !strings.Contains(string(file.Content), "import javax.crypto.*;") {
+			return
+		}
+	case "javax.crypto.Cipher":
+	default:
+		return
+	}
+	args := javaArgumentExpressions(file, idx)
+	if len(args) == 0 {
+		return
+	}
+	algo, literal, ok := javaConstantString(file, args[0], 0)
+	if !ok {
+		return
+	}
+	msg := getInstanceMessage(algo)
+	if msg == "" {
+		return
+	}
+	if msg == getInstanceECBMessage && !literal {
+		msg += " (was \"" + algo + "\")"
+	}
+	ctx.EmitAt(file.FlatRow(args[0])+1, file.FlatCol(args[0])+1, msg)
+}
+
+// javaConstantString evaluates a string literal, a "+" concatenation of
+// constants, or a variable whose declaration in the file initializes it to
+// one. literal is true only for a plain string literal.
+func javaConstantString(file *scanner.File, expr uint32, depth int) (value string, literal, ok bool) {
+	if depth > 4 {
+		return "", false, false
+	}
+	switch file.FlatType(expr) {
+	case "string_literal":
+		v, err := strconv.Unquote(file.FlatNodeText(expr))
+		return v, true, err == nil
+	case "parenthesized_expression":
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				v, _, ok := javaConstantString(file, c, depth+1)
+				return v, false, ok
+			}
+		}
+	case "binary_expression":
+		var operands []uint32
+		plus := false
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				operands = append(operands, c)
+			} else if file.FlatNodeText(c) == "+" {
+				plus = true
+			}
+		}
+		if !plus || len(operands) != 2 {
+			return "", false, false
+		}
+		l, _, lok := javaConstantString(file, operands[0], depth+1)
+		r, _, rok := javaConstantString(file, operands[1], depth+1)
+		return l + r, false, lok && rok
+	case "identifier":
+		name := file.FlatNodeText(expr)
+		var found uint32
+		file.FlatWalkNodes(0, "variable_declarator", func(decl uint32) {
+			if found != 0 {
+				return
+			}
+			if id, ok := file.FlatFindChild(decl, "identifier"); ok && file.FlatNodeText(id) == name {
+				for c := file.FlatNextSib(id); c != 0; c = file.FlatNextSib(c) {
+					if file.FlatIsNamed(c) {
+						found = c
+						return
+					}
+				}
+			}
+		})
+		if found != 0 {
+			v, _, ok := javaConstantString(file, found, depth+1)
+			return v, false, ok
+		}
+	}
+	return "", false, false
 }
 
 func (r *RsaNoPaddingRule) check(ctx *api.Context) {

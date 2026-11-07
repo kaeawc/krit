@@ -1,7 +1,11 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -45,12 +49,43 @@ type GradleDeprecatedRule struct {
 	AndroidRule
 }
 
-// deprecatedConfigs maps deprecated configuration names to their replacements.
-var deprecatedConfigs = map[string]string{
-	"compile":     "implementation or api",
-	"testCompile": "testImplementation",
-	"provided":    "compileOnly",
-	"apk":         "runtimeOnly",
+// deprecatedConfigPattern finds a dependency configuration call such as `compile(...)`, `debugCompile '...'` or `provided "..."`.
+var deprecatedConfigPattern = regexp.MustCompile(`(^|[^A-Za-z0-9_.])([a-z][A-Za-z0-9]*)\s*[("']`)
+
+// deprecatedConfigMessage returns Lint's message for a deprecated configuration name, or "".
+func deprecatedConfigMessage(name string) string {
+	lower := func(prefix, suffix string) string {
+		if prefix == "" {
+			return strings.ToLower(suffix[:1]) + suffix[1:]
+		}
+		return prefix + suffix
+	}
+	switch {
+	case name == "compile" || (strings.HasSuffix(name, "Compile") && len(name) > len("Compile")):
+		prefix := strings.TrimSuffix(name, "Compile")
+		if name == "compile" {
+			prefix = ""
+		}
+		impl := lower(prefix, "Implementation")
+		if strings.HasPrefix(name, "test") || strings.HasPrefix(name, "androidTest") {
+			return fmt.Sprintf("`%s` is deprecated; replace with `%s`", name, impl)
+		}
+		return fmt.Sprintf("`%s` is deprecated; replace with either `%s` to maintain current behavior, or `%s` to improve build performance by not sharing this dependency transitively.",
+			name, lower(prefix, "Api"), impl)
+	case name == "provided" || (strings.HasSuffix(name, "Provided") && len(name) > len("Provided")):
+		prefix := strings.TrimSuffix(name, "Provided")
+		if name == "provided" {
+			prefix = ""
+		}
+		return fmt.Sprintf("`%s` is deprecated; replace with `%s`", name, lower(prefix, "CompileOnly"))
+	case name == "apk" || (strings.HasSuffix(name, "Apk") && len(name) > len("Apk")):
+		prefix := strings.TrimSuffix(name, "Apk")
+		if name == "apk" {
+			prefix = ""
+		}
+		return fmt.Sprintf("`%s` is deprecated; replace with `%s`", name, lower(prefix, "RuntimeOnly"))
+	}
+	return ""
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
@@ -64,41 +99,28 @@ func (r *GradleDeprecatedRule) check(ctx *api.Context) {
 		if isGradleCommentLine(line) {
 			continue
 		}
-		for name, replacement := range deprecatedConfigs {
-			idx := strings.Index(line, name)
-			if idx < 0 {
-				continue
+		code := gradleCodeOutsideStrings(stripGradleLineComment(line))
+		for _, m := range deprecatedConfigPattern.FindAllStringSubmatchIndex(code, -1) {
+			name := code[m[4]:m[5]]
+			if msg := deprecatedConfigMessage(name); msg != "" {
+				ctx.Emit(baseFindingAt(path, i+1, m[4]+1, r.BaseRule, msg))
+				break
 			}
-			// The name must be at a word boundary followed by `(`, `"`, or `'`
-			// so that `compileOnly` doesn't match the `compile` prefix.
-			rest := strings.TrimSpace(line[idx+len(name):])
-			if len(rest) == 0 || (rest[0] != '(' && rest[0] != '"' && rest[0] != '\'') {
-				continue
-			}
-			// Reject if preceded by a letter or `_` (e.g. `testCompile` won't
-			// falsely trigger `compile` since we check the exact name, but be
-			// careful not to match in the middle of longer words).
-			if idx > 0 {
-				prev := line[idx-1]
-				if (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || prev == '_' {
-					continue
-				}
-			}
-			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
-				fmt.Sprintf("'%s' is deprecated; use '%s' instead.", name, replacement)))
-			break
 		}
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Rule: GradleGetter
+// Rule: GroovySetterInKotlinDsl
 // ---------------------------------------------------------------------------
 
-// GradleGetterRule detects deprecated Groovy-style DSL property setters in
+// GroovySetterInKotlinDslRule detects deprecated Groovy-style DSL property setters in
 // Gradle Kotlin DSL files. For example, `compileSdkVersion 30` should be
 // `compileSdk = 30` in .kts files.
-type GradleGetterRule struct {
+//
+// This is a krit-only check. It was named GradleGetter, which is the id Android
+// Lint uses for a different check (see GradleGetterRule).
+type GroovySetterInKotlinDslRule struct {
 	GradleBase
 	AndroidRule
 }
@@ -114,9 +136,9 @@ var groovyStyleDSL = map[string]string{
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleGetterRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *GroovySetterInKotlinDslRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *GradleGetterRule) check(ctx *api.Context) {
+func (r *GroovySetterInKotlinDslRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	// Only flag in .kts files where the Kotlin DSL should be used.
 	if !strings.HasSuffix(path, ".kts") {
@@ -212,27 +234,12 @@ type GradlePathRule struct {
 // version. Classified per roadmap/17.
 func (r *GradlePathRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// gradlePathCallContains reports whether a line contains a files() or
-// fileTree() call whose string argument contains needle. We locate the
-// argument by scanning past the opening `("` or `('` token and
-// checking the substring from there.
-func gradlePathCallContains(line, needle string) bool {
-	for _, fn := range []string{"files(", "fileTree("} {
-		idx := strings.Index(line, fn)
-		if idx < 0 {
-			continue
-		}
-		rest := line[idx+len(fn):]
-		rest = strings.TrimSpace(rest)
-		if len(rest) == 0 || (rest[0] != '"' && rest[0] != '\'') {
-			continue
-		}
-		if strings.Contains(rest, needle) {
-			return true
-		}
-	}
-	return false
-}
+// gradlePathCallRe matches a files(), fileTree() or file() call whose first argument (or dir:
+// argument) is a string literal; group 1 is a double-quoted body and group 2 a single-quoted body.
+var gradlePathCallRe = regexp.MustCompile(`\b(?:files|fileTree|file)\s*\(\s*(?:dir\s*[:=]\s*)?(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')`)
+
+// gradleWindowsDriveRe matches a Windows drive path such as C:/libs or C:\\libs.
+var gradleWindowsDriveRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 func (r *GradlePathRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
@@ -240,21 +247,15 @@ func (r *GradlePathRule) check(ctx *api.Context) {
 		if isGradleCommentLine(line) {
 			continue
 		}
-		for _, fn := range []string{"files(", "fileTree("} {
-			idx := strings.Index(line, fn)
-			if idx < 0 {
-				continue
+		for _, m := range gradlePathCallRe.FindAllStringSubmatch(stripGradleLineComment(line), -1) {
+			arg := m[1] + m[2]
+			// An escaped backslash (`\\`) is a real backslash in the path; `\n` and friends are not.
+			switch {
+			case strings.Contains(arg, `\\`):
+				ctx.Emit(baseFinding(path, i+1, r.BaseRule, "Do not use Windows file separators in .gradle files; use / instead"))
+			case strings.HasPrefix(arg, "/") || gradleWindowsDriveRe.MatchString(arg):
+				ctx.Emit(baseFinding(path, i+1, r.BaseRule, "Avoid using absolute paths in .gradle files"))
 			}
-			rest := strings.TrimSpace(line[idx+len(fn):])
-			if len(rest) >= 2 && (rest[0] == '"' || rest[0] == '\'') && rest[1] == '/' {
-				ctx.Emit(baseFinding(path, i+1, r.BaseRule,
-					"Avoid absolute paths in files()/fileTree(); use project-relative paths."))
-				break
-			}
-		}
-		if gradlePathCallContains(line, `\`) {
-			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
-				"Avoid backslashes in dependency paths; use forward slashes for cross-platform compatibility."))
 		}
 	}
 }
@@ -278,25 +279,44 @@ func (r *GradleOverridesRule) Confidence() float64 { return api.ConfidenceMedium
 
 func (r *GradleOverridesRule) check(ctx *api.Context) {
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	if cfg.MinSdkVersion > 0 && cfg.TargetSdkVersion > 0 {
-		// Report on the targetSdk line (second override).
-		line := findGradleLineStr(content, "targetSdk")
+	if cfg == nil {
+		return
+	}
+	// The build script only overrides values the module's main manifest actually declares.
+	manifest, err := os.ReadFile(filepath.Join(filepath.Dir(path), "src", "main", "AndroidManifest.xml"))
+	if err != nil {
+		return
+	}
+	for _, o := range []struct {
+		attr, key string
+		set       bool
+	}{
+		{"minSdkVersion", "minSdk", cfg.MinSdkVersion > 0},
+		{"targetSdkVersion", "targetSdk", cfg.TargetSdkVersion > 0},
+	} {
+		if !o.set || !bytes.Contains(manifest, []byte("android:"+o.attr+"=")) {
+			continue
+		}
+		line := findGradleLineStr(content, o.key)
 		if line == 0 {
 			line = 1
 		}
 		ctx.Emit(baseFinding(path, line, r.BaseRule,
-			"Both minSdk and targetSdk are set in the Gradle build file, overriding any values in AndroidManifest.xml."))
-		return
+			fmt.Sprintf("This build file sets `%s`, which overrides the `android:%s` value declared in AndroidManifest.xml.", o.key, o.attr)))
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Rule: GradleIdeError
+// Rule: ApplyPluginInKotlinDsl
 // ---------------------------------------------------------------------------
 
-// GradleIdeErrorRule detects Gradle IDE error patterns, such as using the
-// legacy `apply plugin:` syntax in .kts files instead of the `plugins { }` block.
-type GradleIdeErrorRule struct {
+// ApplyPluginInKotlinDslRule detects the legacy `apply plugin:` syntax in .kts
+// files, which belongs in the `plugins { }` block.
+//
+// This is a krit-only check. It was named GradleIdeError, an id Android Lint
+// defines (IDE support problems in Gradle files) but never reports in Lint 32;
+// the old id stays a suppression alias and a config alias.
+type ApplyPluginInKotlinDslRule struct {
 	GradleBase
 	AndroidRule
 }
@@ -304,9 +324,12 @@ type GradleIdeErrorRule struct {
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
-func (r *GradleIdeErrorRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *ApplyPluginInKotlinDslRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *GradleIdeErrorRule) check(ctx *api.Context) {
+// gradleIdeApplyPluginRe matches a top-level legacy plugin application in a Kotlin DSL script.
+var gradleIdeApplyPluginRe = regexp.MustCompile(`^apply(?:\s+plugin\s*:|\s*\(\s*plugin\s*=)`)
+
+func (r *ApplyPluginInKotlinDslRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	if !strings.HasSuffix(path, ".kts") {
 		return
@@ -315,11 +338,9 @@ func (r *GradleIdeErrorRule) check(ctx *api.Context) {
 		if isGradleCommentLine(line) {
 			continue
 		}
-		trimmed := strings.TrimSpace(line)
-		// Groovy-style: `apply plugin: "..."` — invalid Kotlin syntax
-		// Kotlin-legacy: `apply(plugin = "...")` — valid Kotlin but deprecated
-		if strings.HasPrefix(trimmed, "apply plugin:") ||
-			(strings.HasPrefix(trimmed, "apply(") && strings.Contains(trimmed, "plugin")) {
+		// Only a top-level call can move into plugins { }; nested ones (subprojects, allprojects,
+		// afterEvaluate, conditionals) have no plugins-block equivalent.
+		if gradleIdeApplyPluginRe.MatchString(line) {
 			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
 				"Use the plugins { } block instead of 'apply plugin:' in Kotlin DSL (.kts) files."))
 		}

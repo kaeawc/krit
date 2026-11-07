@@ -20,6 +20,14 @@ var knownAnimatorProperties = map[string]bool{
 	"rotation": true, "rotationX": true, "rotationY": true,
 	"scaleX": true, "scaleY": true, "x": true, "y": true, "z": true,
 	"elevation": true, "pivotX": true, "pivotY": true,
+	"scrollX": true, "scrollY": true, "left": true, "top": true, "right": true, "bottom": true,
+	"visibility": true, "minimumWidth": true, "minimumHeight": true, "layoutDirection": true,
+	"background": true, "backgroundColor": true, "backgroundResource": true, "backgroundTintList": true,
+	"foreground": true, "clipBounds": true, "transitionAlpha": true, "layoutParams": true,
+	"enabled": true, "selected": true, "activated": true, "pressed": true, "clickable": true,
+	"longClickable": true, "focusable": true, "contentDescription": true, "id": true, "tag": true,
+	"textAlignment": true, "textDirection": true, "tooltipText": true, "outlineProvider": true,
+	"stateListAnimator": true, "scrollBarSize": true, "systemUiVisibility": true,
 }
 
 func (r *ObjectAnimatorBindingRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -39,7 +47,8 @@ func (r *ObjectAnimatorBindingRule) check(ctx *api.Context) {
 		return
 	}
 	if objectAnimatorTypeIsView(ctx.Resolver, targetType) {
-		if knownAnimatorProperties[propertyName] {
+		// Subclasses such as TextView or ProgressBar add setters (textSize, progress) that are not listed here.
+		if knownAnimatorProperties[propertyName] || (targetType.FQN != "android.view.View" && targetType.Name != "View") {
 			return
 		}
 		ctx.Emit(r.Finding(file, file.FlatRow(propertyArg)+1, file.FlatCol(propertyArg)+1,

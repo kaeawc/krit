@@ -8,10 +8,14 @@ package rules
 // similar to how the manifest rules operate on AndroidManifest.xml.
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // GradleBase is an empty marker type embedded by Gradle rule
@@ -40,15 +44,60 @@ func findGradleLine(content string, re *regexp.Regexp) int {
 // `*`, or `/*`) are also skipped so we don't report findings on
 // commented-out code or fragments inside doc-block continuations.
 func findGradleLineStr(content, substr string) int {
+	// A dependency coordinate (`group:name:version`) lives inside a string literal, so match
+	// it against the line text with only trailing comments removed.
+	coordinate := strings.Contains(substr, ":")
 	for i, line := range strings.Split(content, "\n") {
 		if isGradleCommentLine(line) {
+			continue
+		}
+		if coordinate {
+			code := line
+			if c := gradleLineCommentStart(line); c >= 0 {
+				code = line[:c]
+			}
+			if strings.Contains(code, substr) {
+				return i + 1
+			}
 			continue
 		}
 		if strings.Contains(gradleStripStringsAndComments(line), substr) {
 			return i + 1
 		}
 	}
+	if coordinate {
+		return findGradleMapNotationLine(content, substr)
+	}
 	return 0
+}
+
+// findGradleMapNotationLine locates a dependency declared as `group: "g", name: "n"` (or with `=`)
+// for the coordinate `g:n[:version]`, returning 0 when no code line declares it.
+func findGradleMapNotationLine(content, coordinate string) int {
+	parts := strings.Split(coordinate, ":")
+	if len(parts) < 2 {
+		return 0
+	}
+	for i, line := range strings.Split(content, "\n") {
+		if !isGradleCommentLine(line) && gradleLineDeclaresMapCoordinate(line, parts[0], parts[1]) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// gradleLineDeclaresMapCoordinate reports whether a line spells `group: "g", name: "n"` or the `=` form.
+func gradleLineDeclaresMapCoordinate(line, group, name string) bool {
+	if c := gradleLineCommentStart(line); c >= 0 {
+		line = line[:c]
+	}
+	code := strings.NewReplacer(" ", "", "\t", "", "\"", "'").Replace(line)
+	for _, sep := range []string{":", "="} {
+		if strings.Contains(code, "group"+sep+"'"+group+"'") && strings.Contains(code, "name"+sep+"'"+name+"'") {
+			return true
+		}
+	}
+	return false
 }
 
 // gradleStripStringsAndComments returns line with the contents of
@@ -298,3 +347,53 @@ var (
 	ktsNamedArgGroupRe   = regexp.MustCompile(`\bgroup\s*=\s*["']([^"']+)["']`)
 	ktsNamedArgNameRe    = regexp.MustCompile(`\bname\s*=\s*["']([^"']+)["']`)
 )
+
+// accidentalOctalRe matches an integer token with a leading zero that is not part of a larger
+// number, identifier, or version-like string.
+var accidentalOctalRe = regexp.MustCompile(`(^|[\s=(,:\[])(0[0-9]+)\b`)
+
+func (r *AccidentalOctalRule) check(ctx *api.Context) {
+	for i, line := range strings.Split(ctx.GradleContent, "\n") {
+		if isGradleCommentLine(line) {
+			continue
+		}
+		code := gradleCodeOutsideStrings(stripGradleLineComment(line))
+		for _, m := range accidentalOctalRe.FindAllStringSubmatchIndex(code, -1) {
+			lit := code[m[4]:m[5]]
+			if end := m[5]; end < len(code) && (code[end] == '.' || code[end] == '_') {
+				continue
+			}
+			msg := "The leading 0 turns this number into octal which is probably not what was intended"
+			if strings.ContainsAny(lit, "89") {
+				msg += " (and it is not a valid octal number)"
+			} else if n, err := strconv.ParseInt(lit, 8, 64); err == nil {
+				msg += fmt.Sprintf(" (interpreted as %d)", n)
+			}
+			ctx.Emit(baseFindingAt(ctx.GradlePath, i+1, m[4]+1, r.BaseRule, msg))
+		}
+	}
+}
+
+// gradleCodeOutsideStrings blanks the contents of quoted string literals so numbers inside them are ignored.
+func gradleCodeOutsideStrings(line string) string {
+	b := []byte(line)
+	var quote byte
+	for i := 0; i < len(b); i++ {
+		c := b[i]
+		switch {
+		case quote != 0 && c == '\\':
+			b[i] = ' '
+			if i+1 < len(b) {
+				i++
+				b[i] = ' '
+			}
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+			b[i] = ' '
+		case c == '"' || c == '\'':
+			quote = c
+		}
+	}
+	return string(b)
+}

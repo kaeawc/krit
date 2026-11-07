@@ -1,16 +1,10 @@
 package rules
 
 // Android exported-component security rules:
-//   - ExportedContentProviderRule
-//   - ExportedReceiverRule
-//   - GrantAllUrisRule
 //   - UnprotectedDynamicReceiverRule
 //
-// Helpers in this file are also called by
-// BroadcastReceiverExportedFlagMissingRule (defined in android_security.go)
-// — Go same-package resolution keeps that working.
-//
-// Extracted from android_security.go as part of the god-file split.
+// The manifest checks for exported services, receivers and providers are in
+// android_manifest_lint_exported.go.
 
 import (
 	"regexp"
@@ -18,231 +12,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
-
-// ExportedContentProviderRule detects exported content providers without permission.
-type ExportedContentProviderRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *ExportedContentProviderRule) Confidence() float64 { return api.ConfidenceMedium }
-
-func exportedPermissionEnforcedInClass(file *scanner.File, classIdx uint32) bool {
-	body, _ := file.FlatFindChild(classIdx, "class_body")
-	if body == 0 {
-		return false
-	}
-	found := false
-	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
-		if found {
-			return
-		}
-		switch flatCallExpressionName(file, call) {
-		case "enforceCallingPermission",
-			"enforceCallingOrSelfPermission",
-			"checkCallingPermission",
-			"checkCallingOrSelfPermission",
-			"enforcePermission",
-			"checkPermission",
-			"enforceUriPermission",
-			"checkUriPermission":
-			found = true
-		}
-	})
-	return found
-}
-
-func exportedClassExtendsAndroid(file *scanner.File, classIdx uint32, simpleName, fqn string) bool {
-	if !privacyClassDirectlyExtendsFlat(file, classIdx, simpleName) {
-		return false
-	}
-	return missingPermissionHasImport(file, fqn)
-}
-
-func (r *ExportedContentProviderRule) check(ctx *api.Context) {
-	file, idx := ctx.File, ctx.Idx
-	if !exportedClassExtendsAndroid(file, idx, "ContentProvider", "android.content.ContentProvider") {
-		return
-	}
-	if exportedPermissionEnforcedInClass(file, idx) {
-		return
-	}
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"ContentProvider subclass may be exported without permission. Ensure permissions are enforced.")
-}
-
-// ExportedReceiverRule detects exported receivers without permission.
-type ExportedReceiverRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *ExportedReceiverRule) Confidence() float64 { return api.ConfidenceMedium }
-
-func (r *ExportedReceiverRule) check(ctx *api.Context) {
-	file, idx := ctx.File, ctx.Idx
-	if !exportedClassExtendsAndroid(file, idx, "BroadcastReceiver", "android.content.BroadcastReceiver") {
-		return
-	}
-	if exportedPermissionEnforcedInClass(file, idx) {
-		return
-	}
-	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"BroadcastReceiver subclass may be exported without permission. Ensure permissions are enforced.")
-}
-
-// GrantAllUrisRule detects overly broad URI permissions.
-type GrantAllUrisRule struct {
-	FlatDispatchBase
-	AndroidRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. This is an
-// Android-lint port from AOSP; the detection relies on source-text
-// patterns (call names, string literal contents, hardcoded allow-
-// lists of API names) rather than type resolution, so project-
-// specific wrapper APIs can cause false positives or negatives.
-// Classified per roadmap/17.
-func (r *GrantAllUrisRule) Confidence() float64 { return api.ConfidenceMedium }
-
-func (r *GrantAllUrisRule) check(ctx *api.Context) {
-	file, idx := ctx.File, ctx.Idx
-	name := grantURIPermissionCallName(file, idx)
-	if name != "grantUriPermission" && name != "grantUriPermissions" {
-		return
-	}
-	confidence := grantURIPermissionConfidence(ctx, idx)
-	if confidence <= 0 {
-		return
-	}
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Overly broad URI permission grant. Consider restricting to specific URIs.")
-	f.Confidence = confidence
-	ctx.Emit(f)
-}
-
-func grantURIPermissionCallName(file *scanner.File, idx uint32) string {
-	switch file.FlatType(idx) {
-	case "call_expression":
-		return flatCallExpressionName(file, idx)
-	case "method_invocation":
-		return wrongViewCastCallName(file, idx)
-	default:
-		return ""
-	}
-}
-
-func grantURIPermissionConfidence(ctx *api.Context, idx uint32) float64 {
-	file := ctx.File
-	if file.FlatType(idx) == "method_invocation" {
-		return grantURIPermissionJavaConfidence(file, idx)
-	}
-	navExpr, args := flatCallExpressionParts(file, idx)
-	if navExpr != 0 && ctx.Resolver != nil {
-		receiver := file.FlatNamedChild(navExpr, 0)
-		if receiver != 0 {
-			typ := ctx.Resolver.ResolveFlatNode(receiver, file)
-			if typ == nil || typ.Kind == typeinfer.TypeUnknown {
-				if file.FlatType(receiver) == "simple_identifier" {
-					typ = ctx.Resolver.ResolveByNameFlat(file.FlatNodeText(receiver), receiver, file)
-				}
-			}
-			if typ != nil && typ.Kind != typeinfer.TypeUnknown {
-				if grantURITypeIsContext(ctx.Resolver, typ) {
-					return 1.0
-				}
-				return 0
-			}
-		}
-	}
-	if navExpr != 0 {
-		receiver := file.FlatNamedChild(navExpr, 0)
-		if receiver != 0 && file.FlatType(receiver) == "simple_identifier" {
-			recvName := file.FlatNodeText(receiver)
-			if recvName == "this" || recvName == "context" || recvName == "ctx" {
-				if missingPermissionHasImport(file, "android.content.Context") {
-					return 0.85
-				}
-			}
-		}
-	} else if missingPermissionHasImport(file, "android.content.Context") {
-		// Unqualified call in a file that imports Context — likely an Activity/Service.
-		_ = args
-		return 0.85
-	}
-	return 0.7
-}
-
-func grantURIPermissionJavaConfidence(file *scanner.File, idx uint32) float64 {
-	receiver := wrongViewCastCallReceiverName(file, idx)
-	switch receiver {
-	case "context", "ctx", "this":
-		if sourceImportsOrMentions(file, "android.content.Context") ||
-			sourceImportsOrMentions(file, "android.app.Activity") ||
-			sourceImportsOrMentions(file, "android.app.Service") {
-			return 0.85
-		}
-	case "":
-		if sourceImportsOrMentions(file, "android.content.Context") ||
-			sourceImportsOrMentions(file, "android.app.Activity") ||
-			sourceImportsOrMentions(file, "android.app.Service") {
-			return 0.85
-		}
-	default:
-		if strings.HasSuffix(receiver, ".Context") || strings.HasSuffix(receiver, ".Activity") || strings.HasSuffix(receiver, ".Service") {
-			return 0.85
-		}
-	}
-	return 0
-}
-
-func grantURITypeIsContext(resolver typeinfer.TypeResolver, typ *typeinfer.ResolvedType) bool {
-	if typ == nil {
-		return false
-	}
-	seen := make(map[string]bool)
-	var visit func(string) bool
-	visit = func(name string) bool {
-		if name == "" || seen[name] {
-			return false
-		}
-		seen[name] = true
-		if name == "Context" || name == "android.content.Context" {
-			return true
-		}
-		if resolver == nil {
-			return false
-		}
-		info := resolver.ClassHierarchy(name)
-		if info == nil {
-			return false
-		}
-		if info.Name == "Context" || info.FQN == "android.content.Context" {
-			return true
-		}
-		for _, supertype := range info.Supertypes {
-			if visit(supertype) {
-				return true
-			}
-		}
-		return false
-	}
-	return visit(typ.FQN) || visit(typ.Name)
-}
 
 // UnprotectedDynamicReceiverRule detects dynamic broadcast receivers
 // registered for public actions without a broadcast permission.
@@ -295,7 +65,7 @@ func dynamicReceiverHasContextReceiver(file *scanner.File, call uint32) bool {
 		if receiver == 0 {
 			return false
 		}
-		receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
+		receiverText := strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(receiver)), "()")
 		switch receiverText {
 		case "this", "context", "ctx", "activity", "service":
 			return importsContext || importsContextCompat
@@ -308,7 +78,7 @@ func dynamicReceiverHasContextReceiver(file *scanner.File, call uint32) bool {
 				strings.HasSuffix(receiverText, "Service")) && importsContext
 		}
 	case "method_invocation":
-		receiver := wrongViewCastCallReceiverName(file, call)
+		receiver := strings.TrimSuffix(wrongViewCastCallReceiverName(file, call), "()")
 		switch receiver {
 		case "":
 			return importsContext
@@ -363,6 +133,58 @@ func dynamicReceiverHasMissingPermission(file *scanner.File, call uint32) bool {
 }
 
 func broadcastReceiverExportedFlagMissing(file *scanner.File, call uint32) bool {
+	if !broadcastReceiverExportedFlagMissingShape(file, call) {
+		return false
+	}
+	var positional []string
+	switch file.FlatType(call) {
+	case "call_expression":
+		_, args := flatCallExpressionParts(file, call)
+		positional = flatValueArgumentTexts(file, args)
+	case "method_invocation":
+		if args, ok := file.FlatFindChild(call, "argument_list"); ok {
+			positional = flatJavaArgumentTexts(file, args)
+		}
+	}
+	return !broadcastReceiverIsNull(positional, broadcastReceiverUsesContextCompat(file, call)) &&
+		!broadcastReceiverFlagsOpaque(positional, broadcastReceiverUsesContextCompat(file, call))
+}
+
+// broadcastReceiverIsNull reports a registerReceiver(null, filter) call, which
+// only reads a sticky broadcast and registers nothing.
+func broadcastReceiverIsNull(positional []string, compat bool) bool {
+	idx := 0
+	if compat {
+		idx = 1
+	}
+	return idx < len(positional) && positional[idx] == "null"
+}
+
+// broadcastReceiverFlagsOpaque reports a flags argument that is a variable or
+// call, whose value this rule cannot see. Only literal ints and the
+// instant-apps flag alone are known to omit the exported flag.
+func broadcastReceiverFlagsOpaque(positional []string, compat bool) bool {
+	flagsIdx := -1
+	switch {
+	case !compat && len(positional) == 3, !compat && len(positional) == 5, compat && len(positional) == 4, compat && len(positional) == 6:
+		flagsIdx = len(positional) - 1
+	}
+	if flagsIdx < 0 {
+		return false
+	}
+	flags := positional[flagsIdx]
+	if broadcastReceiverFlagTextContainsExportedConstant(flags) || strings.Contains(flags, "RECEIVER_VISIBLE_TO_INSTANT_APPS") {
+		return false
+	}
+	for _, r := range flags {
+		if (r < '0' || r > '9') && r != 'x' && r != 'X' && r != '_' && r != 'L' && r != 'l' && r != ' ' && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return true
+		}
+	}
+	return false
+}
+
+func broadcastReceiverExportedFlagMissingShape(file *scanner.File, call uint32) bool {
 	switch file.FlatType(call) {
 	case "call_expression":
 		_, args := flatCallExpressionParts(file, call)
@@ -372,14 +194,16 @@ func broadcastReceiverExportedFlagMissing(file *scanner.File, call uint32) bool 
 		positional := flatValueArgumentTexts(file, args)
 		if broadcastReceiverUsesContextCompat(file, call) {
 			if len(positional) < 4 {
-				return true
+				return !broadcastFilterOnlyProtectedActions(file, call, positional, true)
 			}
-			return !broadcastReceiverFlagTextContainsExportedConstant(positional[len(positional)-1])
+			return !broadcastReceiverAnyArgHasExportedConstant(positional) &&
+				!broadcastFilterOnlyProtectedActions(file, call, positional, true)
 		}
 		if len(positional) < 3 {
-			return true
+			return !broadcastFilterOnlyProtectedActions(file, call, positional, false)
 		}
-		return !broadcastReceiverFlagTextContainsExportedConstant(positional[2])
+		return !broadcastReceiverAnyArgHasExportedConstant(positional) &&
+			!broadcastFilterOnlyProtectedActions(file, call, positional, false)
 	case "method_invocation":
 		args, ok := file.FlatFindChild(call, "argument_list")
 		if !ok {
@@ -388,17 +212,50 @@ func broadcastReceiverExportedFlagMissing(file *scanner.File, call uint32) bool 
 		positional := flatJavaArgumentTexts(file, args)
 		if broadcastReceiverUsesContextCompat(file, call) {
 			if len(positional) < 4 {
-				return true
+				return !broadcastFilterOnlyProtectedActions(file, call, positional, true)
 			}
-			return !broadcastReceiverFlagTextContainsExportedConstant(positional[len(positional)-1])
+			return !broadcastReceiverAnyArgHasExportedConstant(positional) &&
+				!broadcastFilterOnlyProtectedActions(file, call, positional, true)
 		}
 		if len(positional) < 3 {
-			return true
+			return !broadcastFilterOnlyProtectedActions(file, call, positional, false)
 		}
-		return !broadcastReceiverFlagTextContainsExportedConstant(positional[2])
+		return !broadcastReceiverAnyArgHasExportedConstant(positional) &&
+			!broadcastFilterOnlyProtectedActions(file, call, positional, false)
 	default:
 		return false
 	}
+}
+
+// broadcastReceiverAnyArgHasExportedConstant accepts the flags argument at any position, which covers the 5-arg overload.
+func broadcastReceiverAnyArgHasExportedConstant(args []string) bool {
+	for _, arg := range args {
+		if broadcastReceiverFlagTextContainsExportedConstant(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileDeclaresRegisterReceiver reports whether the file declares its own registerReceiver function or function-type parameter.
+func fileDeclaresRegisterReceiver(file *scanner.File) bool {
+	found := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "function_declaration":
+			found = flatFunctionName(file, n) == "registerReceiver"
+		case "method_declaration":
+			if id, ok := file.FlatFindChild(n, "identifier"); ok {
+				found = file.FlatNodeTextEquals(id, "registerReceiver")
+			}
+		case "parameter", "class_parameter":
+			found = extractIdentifierFlat(file, n) == "registerReceiver" && strings.Contains(file.FlatNodeText(n), "->")
+		}
+	})
+	return found
 }
 
 func broadcastReceiverUsesContextCompat(file *scanner.File, call uint32) bool {
@@ -428,7 +285,8 @@ func flatValueArgumentTexts(file *scanner.File, args uint32) []string {
 		}
 		expr := flatValueArgumentExpression(file, arg)
 		if expr == 0 {
-			continue
+			// The Kotlin grammar leaves a `null` argument as an unnamed token.
+			expr = arg
 		}
 		out = append(out, strings.TrimSpace(file.FlatNodeText(expr)))
 	}

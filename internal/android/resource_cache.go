@@ -29,9 +29,11 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
+// Bump the version whenever a cached type (View, Layout, ...) gains a field, or a
+// cache written by an older build is reused without it.
 const (
-	resourceCacheVersion    uint32 = 3
-	resourceCacheVersionStr        = "3"
+	resourceCacheVersion    uint32 = 19
+	resourceCacheVersionStr        = "19"
 
 	resourceCacheDirName = "resource-cache"
 	resourceCacheEntries = "entries"
@@ -89,7 +91,7 @@ func NewResourceIndexCacheWithCap(repoDir string, capBytes int64) (*ResourceInde
 		Root:       root,
 		EntriesDir: resourceCacheEntries,
 		Tokens: []cacheutil.SchemaToken{
-			{Name: "version", Value: resourceCacheVersionStr},
+			{Name: "version", Value: cacheutil.BuildScopedVersion(resourceCacheVersionStr)},
 			{Name: "hash", Value: hashutil.HasherName()},
 		},
 	}
@@ -243,6 +245,12 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	for k, v := range idx.Layouts {
 		out.Layouts[k] = cloneLayout(v)
 	}
+	for _, v := range idx.LayoutVariants {
+		out.LayoutVariants = append(out.LayoutVariants, cloneLayout(v))
+	}
+	for _, v := range idx.MenuVariants {
+		out.MenuVariants = append(out.MenuVariants, cloneLayout(v))
+	}
 	for name, configs := range idx.LayoutConfigs {
 		out.LayoutConfigs[name] = make(map[string]*Layout, len(configs))
 		for qualifier, layout := range configs {
@@ -258,11 +266,26 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	for k, v := range idx.StringsNonFormatted {
 		out.StringsNonFormatted[k] = v
 	}
+	for k := range idx.StringsWithNote {
+		out.markStringNote(k)
+	}
+	for k := range idx.StringsWithMarkup {
+		if out.StringsWithMarkup == nil {
+			out.StringsWithMarkup = make(map[string]bool)
+		}
+		out.StringsWithMarkup[k] = true
+	}
 	for k, v := range idx.StringsTrailingWS {
 		out.StringsTrailingWS[k] = v
 	}
 	for k, v := range idx.StringsLocation {
 		out.StringsLocation[k] = v
+	}
+	for k, v := range idx.StringSources {
+		out.StringSources[k] = v
+	}
+	for k, v := range idx.StringTranslations {
+		out.StringTranslations[k] = append([]StringSource(nil), v...)
 	}
 	for k, v := range idx.Colors {
 		out.Colors[k] = v
@@ -283,8 +306,27 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 	for k, v := range idx.StringArrays {
 		out.StringArrays[k] = append([]string(nil), v...)
 	}
+	for k, v := range idx.StringArrayVariants {
+		out.StringArrayVariants[k] = append([]StringArrayVariant(nil), v...)
+	}
 	for k, v := range idx.Plurals {
 		out.Plurals[k] = cloneStringMap(v)
+	}
+	for _, def := range idx.PluralDefinitions {
+		out.PluralDefinitions = append(out.PluralDefinitions, PluralDefinition{Name: def.Name, FilePath: def.FilePath, Line: def.Line, Quantities: cloneStringMap(def.Quantities)})
+	}
+	out.StringDefinitions = append(out.StringDefinitions, idx.StringDefinitions...)
+	for k, v := range idx.PluralSources {
+		out.PluralSources[k] = v
+	}
+	for k, v := range idx.PluralsLocation {
+		out.PluralsLocation[k] = v
+	}
+	for k, v := range idx.TranslatedTokens {
+		out.TranslatedTokens[k] = append([]string(nil), v...)
+	}
+	for k, v := range idx.PluralsNonTranslate {
+		out.PluralsNonTranslate[k] = v
 	}
 	for k, v := range idx.Integers {
 		out.Integers[k] = v
@@ -296,6 +338,8 @@ func cloneResourceIndex(idx *ResourceIndex) *ResourceIndex {
 		out.IDs[k] = v
 	}
 	out.ExtraTexts = append(out.ExtraTexts, idx.ExtraTexts...)
+	out.TypographyTexts = append(out.TypographyTexts, idx.TypographyTexts...)
+	out.VectorDrawables = append(out.VectorDrawables, idx.VectorDrawables...)
 	return out
 }
 
@@ -328,6 +372,12 @@ func cloneView(view *View) *View {
 		out.Attributes = make(map[string]string, len(view.Attributes))
 		for k, v := range view.Attributes {
 			out.Attributes[k] = v
+		}
+	}
+	if len(view.AttrPos) > 0 {
+		out.AttrPos = make(map[string]XMLPos, len(view.AttrPos))
+		for k, v := range view.AttrPos {
+			out.AttrPos[k] = v
 		}
 	}
 	if len(view.Children) > 0 {

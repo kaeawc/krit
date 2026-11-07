@@ -32,12 +32,10 @@ func (r *WebViewMixedContentAllowAllRule) check(ctx *api.Context) {
 			return
 		}
 		receiver := kotlinCallReceiverChain(file, ctx.Idx)
-		if !isWebSettingsReceiver(file, receiver) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, receiver) {
 			return
 		}
-		line := file.FlatRow(ctx.Idx) + 1
-		col := file.FlatCol(ctx.Idx) + 1
-		emitWebSettingsBoolFinding(ctx, line, col, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
+		emitWebSettingsBoolFinding(ctx, ctx.Idx, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
 
 	case "method_invocation":
 		if javaAwareCallName(file, ctx.Idx) != "setMixedContentMode" {
@@ -47,12 +45,10 @@ func (r *WebViewMixedContentAllowAllRule) check(ctx *api.Context) {
 			return
 		}
 		receiver := javaMethodReceiverText(file, ctx.Idx)
-		if !isWebSettingsReceiver(file, receiver) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, receiver) {
 			return
 		}
-		line := file.FlatRow(ctx.Idx) + 1
-		col := file.FlatCol(ctx.Idx) + 1
-		emitWebSettingsBoolFinding(ctx, line, col, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
+		emitWebSettingsBoolFinding(ctx, ctx.Idx, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
 
 	case "assignment":
 		target := kotlinAssignmentTargetChain(file, ctx.Idx)
@@ -60,16 +56,14 @@ func (r *WebViewMixedContentAllowAllRule) check(ctx *api.Context) {
 		if tail != "mixedContentMode" {
 			return
 		}
-		if !isWebSettingsReceiver(file, head) {
+		if !isWebSettingsReceiverAt(file, ctx.Idx, head) {
 			return
 		}
 		valueIdx := findKotlinAssignmentValue(file, ctx.Idx)
 		if valueIdx == 0 || !isMixedContentAllowAllExpr(file, valueIdx) {
 			return
 		}
-		line := file.FlatRow(ctx.Idx) + 1
-		col := file.FlatCol(ctx.Idx) + 1
-		emitWebSettingsBoolFinding(ctx, line, col, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
+		emitWebSettingsBoolFinding(ctx, ctx.Idx, r.RuleSetName, r.RuleName, r.Sev, webViewMixedContentAllowAllMessage, r.Confidence())
 	}
 }
 

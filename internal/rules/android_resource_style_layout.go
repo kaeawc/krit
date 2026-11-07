@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
-	"github.com/kaeawc/krit/internal/experiment"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -14,9 +13,11 @@ import (
 // Suspicious0dpResource
 // ---------------------------------------------------------------------------
 
-// Suspicious0dpResourceRule detects 0dp dimension used on the wrong axis in a
-// LinearLayout. In horizontal orientation, 0dp should be on layout_width (for
-// weight distribution); 0dp on layout_height is suspicious (and vice versa).
+// Suspicious0dpResourceRule mirrors Lint's InefficientWeightDetector.checkWrong0Dp: in a
+// LinearLayout, a child whose layout_width or layout_height starts with 0 must have a
+// layout_weight, and the 0 must be on the orientation axis. Like Lint, the scan of a
+// layout's children stops at a custom view, at a child with no 0 size, at a Space and at
+// a child that is 0 on both axes.
 type Suspicious0dpResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -24,30 +25,49 @@ type Suspicious0dpResourceRule struct {
 
 func (r *Suspicious0dpResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViewsWithParent(layout.RootView, nil, func(v, parent *android.View) {
-			if parent == nil || parent.Type != "LinearLayout" {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"Suspicious0dp"}, func(v *android.View) {
+			if v.Type != "LinearLayout" {
 				return
 			}
-			orientation := parent.Attributes["android:orientation"]
-			w := v.Attributes["android:layout_width"]
-			h := v.Attributes["android:layout_height"]
-
-			switch orientation {
-			case "horizontal":
-				// In horizontal, 0dp height is suspicious
-				if h == "0dp" && w != "0dp" {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-						"Suspicious `0dp` on `layout_height` in horizontal `LinearLayout`. Did you mean `layout_width=\"0dp\"` (for weight)?"))
-				}
-			case "vertical":
-				// In vertical, 0dp width is suspicious
-				if w == "0dp" && h != "0dp" {
-					ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-						"Suspicious `0dp` on `layout_width` in vertical `LinearLayout`. Did you mean `layout_height=\"0dp\"` (for weight)?"))
-				}
-			}
+			r.checkChildren(ctx, layout.FilePath, v)
 		})
+	}
+}
+
+func (r *Suspicious0dpResourceRule) checkChildren(ctx *api.Context, path string, parent *android.View) {
+	vertical := parent.Attributes["android:orientation"] == "vertical"
+	for _, child := range parent.Children {
+		if child.Type == "View" || child.Type == "view" || strings.Contains(child.Type, ".") {
+			return
+		}
+		_, hasWeight := child.Attributes["android:layout_weight"]
+		width, hasWidth := child.Attributes["android:layout_width"]
+		height, hasHeight := child.Attributes["android:layout_height"]
+		zeroWidth := hasWidth && strings.HasPrefix(width, "0")
+		zeroHeight := hasHeight && strings.HasPrefix(height, "0")
+		if !zeroWidth && !zeroHeight {
+			return
+		}
+		if child.Type == "Space" || (zeroWidth && zeroHeight) {
+			return
+		}
+		attr := "android:layout_height"
+		if zeroWidth {
+			attr = "android:layout_width"
+		}
+		msg := ""
+		switch {
+		case !hasWeight:
+			msg = "Suspicious size: this will make the view invisible, should be used with `layout_weight`"
+		case zeroWidth && vertical:
+			msg = "Suspicious size: this will make the view invisible, probably intended for `layout_height`"
+		case zeroHeight && !vertical:
+			msg = "Suspicious size: this will make the view invisible, probably intended for `layout_width`"
+		default:
+			continue
+		}
+		ctx.Emit(baseFindingAtAttr(path, child, attr, r.BaseRule, msg))
 	}
 }
 
@@ -55,9 +75,9 @@ func (r *Suspicious0dpResourceRule) check(ctx *api.Context) {
 // DisableBaselineAlignmentResource
 // ---------------------------------------------------------------------------
 
-// DisableBaselineAlignmentResourceRule detects LinearLayout views that have
-// children with layout_weight but the parent does not set
-// baselineAligned="false". Baseline alignment is expensive with weighted children.
+// DisableBaselineAlignmentResourceRule mirrors Lint's InefficientWeightDetector
+// BASELINE_WEIGHTS check: a LinearLayout that is not vertical, sets no
+// android:baselineAligned and distributes weight over nested layouts only.
 type DisableBaselineAlignmentResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -68,124 +88,110 @@ type DisableBaselineAlignmentResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *DisableBaselineAlignmentResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *DisableBaselineAlignmentResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	requireText := experiment.Enabled("disable-baseline-alignment-require-text-children")
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
-				return
-			}
-			// baselineAligned only affects horizontal LinearLayouts.
-			// Default orientation is horizontal, so treat missing as horizontal.
-			orientation := v.Attributes["android:orientation"]
-			if orientation == "vertical" {
-				return
-			}
-			hasWeight := false
-			for _, child := range v.Children {
-				if child.Attributes["android:layout_weight"] != "" {
-					hasWeight = true
-					break
-				}
-			}
-			if !hasWeight {
-				return
-			}
-			if v.Attributes["android:baselineAligned"] == "false" {
-				return
-			}
-			// Opt-in: only flag when at least one direct child is a
-			// text-displaying view. LinearLayouts whose children are
-			// nested containers (LinearLayout/FrameLayout) or images
-			// have negligible baseline-alignment overhead and reporting
-			// them is noise.
-			if requireText && !hasDirectTextChild(v) {
-				return
-			}
-			ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-				fmt.Sprintf("`%s` with weighted children should set `android:baselineAligned=\"false\"` for better performance.", v.Type)))
-		})
+// isLintLayoutTag mirrors Lint's SdkInfo.isLayout: a tag that ends in "Layout"
+// or names one of the platform ViewGroups that do not.
+func isLintLayoutTag(tag string) bool {
+	if strings.HasSuffix(tag, "Layout") {
+		return true
 	}
-}
-
-// hasDirectTextChild reports whether the view has at least one direct
-// (non-descendant) child whose type is a Text-displaying view. Used by
-// DisableBaselineAlignmentResource's experiment gate.
-func hasDirectTextChild(v *android.View) bool {
-	for _, child := range v.Children {
-		if isTextDisplayingViewType(child.Type) {
-			return true
-		}
-	}
-	return false
-}
-
-// isTextDisplayingViewType returns true for view types whose baseline is
-// set by a text element and participate in LinearLayout baseline alignment.
-// Includes AppCompat / Material variants of each.
-func isTextDisplayingViewType(t string) bool {
-	// Strip package prefix if present, keeping only the final segment.
-	if idx := strings.LastIndex(t, "."); idx >= 0 {
-		t = t[idx+1:]
-	}
-	switch t {
-	case "TextView", "AppCompatTextView", "MaterialTextView",
-		"EditText", "AppCompatEditText", "TextInputEditText",
-		"Button", "AppCompatButton", "MaterialButton",
-		"CheckBox", "AppCompatCheckBox", "MaterialCheckBox",
-		"RadioButton", "AppCompatRadioButton", "MaterialRadioButton",
-		"ToggleButton", "Switch", "SwitchCompat", "SwitchMaterial",
-		"Chip", "ChipGroup",
-		"EmojiTextView", "EmojiEditText",
-		"Spinner", "AppCompatSpinner",
-		"AutoCompleteTextView", "MultiAutoCompleteTextView":
+	switch tag {
+	case "MediaController", "SlidingDrawer", "RadioGroup", "TabHost", "ImageSwitcher", "TabWidget",
+		"AdapterViewFlipper", "ViewSwitcher", "DialerFilter", "ViewFlipper", "ListView", "ViewAnimator",
+		"ScrollView", "SearchView", "TableRow", "TextSwitcher", "GridView", "StackView",
+		"HorizontalScrollView", "ExpandableListView":
 		return true
 	}
 	return false
+}
+
+func (r *DisableBaselineAlignmentResourceRule) check(ctx *api.Context) {
+	idx := ctx.ResourceIndex
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"DisableBaselineAlignment"}, func(v *android.View) {
+			if v.Type != "LinearLayout" || len(v.Children) == 0 {
+				return
+			}
+			if v.Attributes["android:orientation"] == "vertical" {
+				return
+			}
+			if _, set := v.Attributes["android:baselineAligned"]; set {
+				return
+			}
+			weighted := false
+			for _, child := range v.Children {
+				if _, ok := child.Attributes["android:layout_weight"]; ok {
+					weighted = true
+				}
+				// Only nested layouts gain from skipping baseline alignment; RadioGroup keeps its baseline.
+				nested := (isLintLayoutTag(child.Type) && child.Type != "RadioGroup") || child.Type == "fragment" || child.Type == "include"
+				if !nested {
+					return
+				}
+			}
+			if !weighted {
+				return
+			}
+			ctx.Emit(baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule,
+				"Set `android:baselineAligned=\"false\"` on this element for better performance"))
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
 // InefficientWeightResource
 // ---------------------------------------------------------------------------
 
-// InefficientWeightResourceRule detects a LinearLayout that uses layout_weight
-// on children but does not specify an android:orientation attribute. Without
-// orientation, the default is horizontal, which can be unintentional.
+// InefficientWeightResourceRule detects a LinearLayout whose only child with a
+// layout_weight does not use 0dp along the layout direction. Like Lint it looks
+// at plain LinearLayout tags, needs exactly one weighted child, and reports an
+// undefined size too. A 0dp size lets the weight alone decide the size and
+// skips a measure pass.
 type InefficientWeightResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
-// anti-patterns and attribute mismatches via structural checks on style
-// XML. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *InefficientWeightResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *InefficientWeightResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			if v.Type != "LinearLayout" && v.Type != "AppCompatLinearLayout" {
+	for _, layout := range idx.AllLayouts() {
+		walkViewsUnlessIgnored(layout.RootView, []string{"InefficientWeight"}, func(v *android.View) {
+			if v.Type != "LinearLayout" {
 				return
 			}
-			// Check if any child uses layout_weight
-			hasWeight := false
+			var weighted *android.View
 			for _, child := range v.Children {
-				if child.Attributes["android:layout_weight"] != "" {
-					hasWeight = true
-					break
+				if _, ok := child.Attributes["android:layout_weight"]; !ok {
+					continue
 				}
+				if weighted != nil {
+					return
+				}
+				weighted = child
 			}
-			if !hasWeight {
+			if weighted == nil || resourceToolsIgnoreMatches(weighted, "InefficientWeight") {
 				return
 			}
-			// Check if orientation is missing
-			if v.Attributes["android:orientation"] == "" {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`%s` uses `layout_weight` but is missing `android:orientation`. "+
-						"Declare orientation explicitly when using weights.", v.Type)))
+			sizeAttr := "android:layout_width"
+			if v.Attributes["android:orientation"] == "vertical" {
+				sizeAttr = "android:layout_height"
 			}
+			size, hasSize := weighted.Attributes[sizeAttr]
+			if !hasSize {
+				// A style may supply the size, and styles are not resolved here.
+				if _, styled := weighted.Attributes["style"]; styled {
+					return
+				}
+				size = "(undefined)"
+			}
+			if strings.HasPrefix(size, "0") {
+				return
+			}
+			ctx.Emit(baseFindingAtAttr(layout.FilePath, weighted, sizeAttr, r.BaseRule,
+				fmt.Sprintf("Use a `%s` of `0dp` instead of `%s` for better performance",
+					strings.TrimPrefix(sizeAttr, "android:"), size)))
 		})
 	}
 }
@@ -194,61 +200,51 @@ func (r *InefficientWeightResourceRule) check(ctx *api.Context) {
 // NestedWeightsResource
 // ---------------------------------------------------------------------------
 
-// NestedWeightsResourceRule detects layout_weight inside a child LinearLayout
-// that itself is inside a LinearLayout with weights. Nested weights cause
-// exponential measure passes.
+// NestedWeightsResourceRule detects a layout_weight on a child of a
+// LinearLayout that is itself a weighted child of another LinearLayout. Like
+// Lint it reports the first such child, on its layout_weight attribute.
 type NestedWeightsResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
-// anti-patterns and attribute mismatches via structural checks on style
-// XML. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence.
 func (r *NestedWeightsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *NestedWeightsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	var findings []scanner.Finding
-	for _, layout := range idx.Layouts {
-		findNestedWeights(layout.RootView, layout.FilePath, r.BaseRule, &findings)
-	}
-	for _, f := range findings {
-		ctx.Emit(f)
+	for _, layout := range idx.AllLayouts() {
+		insideWeight := map[*android.View]bool{}
+		walkViewsUnlessIgnored(layout.RootView, []string{"NestedWeights"}, func(v *android.View) {
+			if v.Type != "LinearLayout" {
+				return
+			}
+			for _, child := range v.Children {
+				if _, ok := child.Attributes["android:layout_weight"]; !ok {
+					continue
+				}
+				insideWeight[child] = true
+				inside, known := insideWeight[v]
+				if !known {
+					insideWeight[v] = false
+					continue
+				}
+				if inside && !resourceToolsIgnoreMatches(child, "NestedWeights") {
+					ctx.Emit(baseFindingAtAttr(layout.FilePath, child, "android:layout_weight", r.BaseRule,
+						"Nested weights are bad for performance"))
+					return
+				}
+			}
+		})
 	}
 }
 
 func isLinearLayout(viewType string) bool {
-	return viewType == "LinearLayout" || viewType == "AppCompatLinearLayout"
-}
-
-func hasWeightedChildren(v *android.View) bool {
-	for _, child := range v.Children {
-		if child.Attributes["android:layout_weight"] != "" {
-			return true
-		}
+	switch frameworkViewName(viewType) {
+	case "LinearLayout", "AppCompatLinearLayout", "LinearLayoutCompat":
+		return true
 	}
 	return false
-}
-
-// findNestedWeights flags a LinearLayout that simultaneously has layout_weight
-// set on itself (parent weighs it) AND has weighted children (it weighs its
-// own kids). That combination is what causes the exponential measure pass
-// cascade. A LinearLayout merely containing weighted children is fine.
-func findNestedWeights(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
-	if v == nil {
-		return
-	}
-	if isLinearLayout(v.Type) &&
-		v.Attributes["android:layout_weight"] != "" &&
-		hasWeightedChildren(v) {
-		*findings = append(*findings, baseFinding(path, v.Line, rule,
-			fmt.Sprintf("Nested weights: `%s` has `layout_weight` set AND contains weighted children. "+
-				"This causes exponential measure passes — restructure to avoid nesting weights.", v.Type)))
-	}
-	for _, child := range v.Children {
-		findNestedWeights(child, path, rule, findings)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -271,7 +267,7 @@ func (r *ObsoleteLayoutParamsResourceRule) Confidence() float64 { return api.Con
 func (r *ObsoleteLayoutParamsResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	var findings []scanner.Finding
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		checkObsoleteParams(layout.RootView, layout.FilePath, r.BaseRule, &findings)
 	}
 	for _, f := range findings {
@@ -279,15 +275,23 @@ func (r *ObsoleteLayoutParamsResourceRule) check(ctx *api.Context) {
 	}
 }
 
+// nonLinearWeightParents lists framework layouts that ignore layout_weight on their children.
+var nonLinearWeightParents = map[string]bool{
+	"FrameLayout": true, "RelativeLayout": true, "GridLayout": true, "ConstraintLayout": true,
+	"CoordinatorLayout": true, "ScrollView": true, "HorizontalScrollView": true, "NestedScrollView": true,
+	"CardView": true, "MaterialCardView": true, "DrawerLayout": true, "AbsoluteLayout": true,
+}
+
 func checkObsoleteParams(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
-	if v == nil {
+	if v == nil || resourceToolsIgnoreMatches(v, "ObsoleteLayoutParam") {
 		return
 	}
-	isLinear := v.Type == "LinearLayout" || v.Type == "AppCompatLinearLayout"
+	// Only parents known not to read layout_weight; RadioGroup, TableRow and app-defined layouts may extend LinearLayout.
+	nonLinear := nonLinearWeightParents[frameworkViewName(v.Type)]
 	for _, child := range v.Children {
-		if !isLinear {
-			if child.Attributes["android:layout_weight"] != "" {
-				*findings = append(*findings, baseFinding(path, child.Line, rule,
+		if nonLinear {
+			if child.Attributes["android:layout_weight"] != "" && !resourceToolsIgnoreMatches(child, "ObsoleteLayoutParam") {
+				*findings = append(*findings, baseFindingAtAttr(path, child, "android:layout_weight", rule,
 					fmt.Sprintf("`android:layout_weight` on `%s` is only valid inside `LinearLayout`. "+
 						"Parent is `%s`.", child.Type, v.Type)))
 			}
@@ -300,9 +304,10 @@ func checkObsoleteParams(v *android.View, path string, rule BaseRule, findings *
 // MergeRootFrameResource
 // ---------------------------------------------------------------------------
 
-// MergeRootFrameResourceRule detects a root FrameLayout that could be
-// replaced with a <merge> tag to reduce one level of nesting when the
-// layout is included in another layout.
+// MergeRootFrameResourceRule detects a root FrameLayout, in a layout that is
+// pulled in with <include>, that could be replaced with a <merge> tag to
+// reduce one level of nesting. Layouts never included are skipped because a
+// <merge> root cannot be inflated without a parent (fragments, view holders).
 type MergeRootFrameResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -313,33 +318,71 @@ type MergeRootFrameResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *MergeRootFrameResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// includedLayoutNames collects layout names referenced by <include layout="@layout/...">.
+func includedLayoutNames(idx *android.ResourceIndex) map[string]bool {
+	names := map[string]bool{}
+	for _, layout := range idx.AllLayouts() {
+		walkViews(layout.RootView, func(v *android.View) {
+			if v.Type == "include" {
+				if ref, ok := strings.CutPrefix(v.Attributes["layout"], "@layout/"); ok {
+					names[ref] = true
+				}
+			}
+		})
+	}
+	return names
+}
+
 func (r *MergeRootFrameResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	// A <merge> root only inflates into a parent, so it is safe only for layouts pulled in with <include>.
+	included := includedLayoutNames(idx)
+	for _, layout := range idx.AllLayouts() {
 		root := layout.RootView
-		if root == nil {
+		if root == nil || !included[layout.Name] {
 			continue
 		}
-		if root.Type != "FrameLayout" {
+		if root.Type != "FrameLayout" || resourceToolsIgnoreMatches(root, "MergeRootFrame") {
 			continue
 		}
-		// Only flag if the FrameLayout has no background, no padding, no ID,
-		// and uses match_parent for both dimensions (default root behavior).
-		if root.Background != "" || root.ID != "" {
+		// Lint skips a root with a layout_gravity unless it fills its parent in both directions.
+		fills := isMatchParent(root.Attributes["android:layout_width"]) && isMatchParent(root.Attributes["android:layout_height"])
+		if _, gravity := root.Attributes["android:layout_gravity"]; gravity && !fills {
 			continue
 		}
-		if hasAnyPadding(root) {
+		if !mergeRootFrameCandidate(root) {
 			continue
 		}
-		ctx.Emit(baseFinding(layout.FilePath, root.Line, r.BaseRule,
-			fmt.Sprintf("Root `FrameLayout` in `%s` can be replaced with `<merge>` tag to reduce nesting.",
-				layout.Name)))
+		// A style can switch on fitsSystemWindows; styles are not resolved, so a styled root is left alone.
+		if _, styled := root.Attributes["style"]; styled {
+			continue
+		}
+		ctx.Emit(baseFindingAt(layout.FilePath, root.Line, root.Col, r.BaseRule,
+			"This `<FrameLayout>` can be replaced with a `<merge>` tag"))
 	}
+}
+
+// mergeRootFrameCandidate reports whether a root FrameLayout carries nothing a <merge> would drop:
+// no background, foreground, fitsSystemWindows or android:padding* (Start and End are not checked, as in Lint).
+func mergeRootFrameCandidate(root *android.View) bool {
+	for _, attr := range []string{
+		"android:background", "android:foreground",
+		"android:padding", "android:paddingLeft", "android:paddingRight", "android:paddingTop", "android:paddingBottom",
+	} {
+		if _, ok := root.Attributes[attr]; ok {
+			return false
+		}
+	}
+	return root.Attributes["android:fitsSystemWindows"] != "true" && root.Background == ""
 }
 
 // ---------------------------------------------------------------------------
 // OverdrawResource
 // ---------------------------------------------------------------------------
+
+func isMatchParent(size string) bool {
+	return size == "match_parent" || size == "fill_parent"
+}
 
 // OverdrawResourceRule detects a root layout with a background where an
 // immediate child layout also has a background. This causes overdraw — the
@@ -370,6 +413,33 @@ func isTransparentBackground(bg string) bool {
 	return false
 }
 
+// isFullBleedOpaqueRepaint reports whether child repaints root with the same
+// opaque color; margins, elevation, shapes or partial sizes leave root visible.
+func isFullBleedOpaqueRepaint(root, child *android.View) bool {
+	bg := child.Background
+	if bg != root.Background || strings.HasPrefix(bg, "@drawable/") || strings.HasPrefix(bg, "@mipmap/") {
+		return false
+	}
+	if hex := strings.ToLower(strings.TrimPrefix(bg, "#")); hex != strings.ToLower(bg) {
+		if (len(hex) == 8 && !strings.HasPrefix(hex, "ff")) || (len(hex) == 4 && !strings.HasPrefix(hex, "f")) {
+			return false
+		}
+	}
+	for attr := range child.Attributes {
+		if strings.HasPrefix(attr, "android:layout_margin") || attr == "android:elevation" || attr == "app:cardElevation" {
+			return false
+		}
+	}
+	width, height := child.LayoutWidth, child.LayoutHeight
+	if width == "" {
+		width = child.Attributes["android:layout_width"]
+	}
+	if height == "" {
+		height = child.Attributes["android:layout_height"]
+	}
+	return width == "match_parent" && height == "match_parent"
+}
+
 // Confidence reports a tier-2 (medium) base confidence. Android style/theme resource rule. Detection flags style inheritance
 // anti-patterns and attribute mismatches via structural checks on style
 // XML. Classified per roadmap/17.
@@ -377,17 +447,18 @@ func (r *OverdrawResourceRule) Confidence() float64 { return api.ConfidenceMediu
 
 func (r *OverdrawResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
+	for _, layout := range idx.AllLayouts() {
 		root := layout.RootView
-		if root == nil || root.Background == "" || isTransparentBackground(root.Background) {
+		if root == nil || root.Background == "" || isTransparentBackground(root.Background) ||
+			resourceToolsIgnoreMatches(root, "Overdraw") {
 			continue
 		}
 		for _, child := range root.Children {
 			if child.Background == "" || isTransparentBackground(child.Background) {
 				continue
 			}
-			if android.IsLayoutView(child.Type) {
-				ctx.Emit(baseFinding(layout.FilePath, child.Line, r.BaseRule,
+			if android.IsLayoutView(child.Type) && isFullBleedOpaqueRepaint(root, child) {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, child, "android:background", r.BaseRule,
 					fmt.Sprintf("Possible overdraw: child `%s` has background `%s` and root `%s` also has background `%s`. "+
 						"Remove one background to reduce overdraw.",
 						child.Type, child.Background, root.Type, root.Background)))
@@ -400,9 +471,11 @@ func (r *OverdrawResourceRule) check(ctx *api.Context) {
 // AlwaysShowActionResource
 // ---------------------------------------------------------------------------
 
-// AlwaysShowActionResourceRule detects showAsAction="always" in menu or layout
-// XML. Using "always" can crowd the action bar on small screens. Prefer
-// "ifRoom" to let the system decide.
+// AlwaysShowActionResourceRule detects menus that pin too many actions to the
+// action bar. Like Android Lint it judges each menu file on its own: it reports
+// one finding, on the first showAsAction="always" item, when the menu has more
+// than one showAsAction item and either more than two "always" items or no
+// "ifRoom" item.
 type AlwaysShowActionResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -413,20 +486,53 @@ type AlwaysShowActionResourceRule struct {
 // XML. Classified per roadmap/17.
 func (r *AlwaysShowActionResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// showAsActionFlags reports whether a showAsAction value carries the "always"
+// and "ifRoom" flags. Lint counts every flag of a "|" separated value.
+func showAsActionFlags(val string) (always, ifRoom bool) {
+	for _, flag := range strings.Split(val, "|") {
+		switch strings.TrimSpace(flag) {
+		case "always":
+			always = true
+		case "ifRoom":
+			ifRoom = true
+		}
+	}
+	return always, ifRoom
+}
+
 func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for _, layout := range idx.Layouts {
-		walkViews(layout.RootView, func(v *android.View) {
-			val := v.Attributes["app:showAsAction"]
-			if val == "" {
-				val = v.Attributes["android:showAsAction"]
-			}
-			if strings.Contains(val, "always") {
-				ctx.Emit(baseFinding(layout.FilePath, v.Line, r.BaseRule,
-					fmt.Sprintf("`showAsAction=\"%s\"` in `%s`. Use `ifRoom` instead of `always` to avoid crowding the action bar on small screens.",
-						val, v.Type)))
+	for _, menu := range idx.AllMenus() {
+		var total, ifRoom int
+		var always []struct {
+			view *android.View
+			attr string
+		}
+		walkViewsUnlessIgnored(menu.RootView, []string{"AlwaysShowAction"}, func(v *android.View) {
+			for _, attr := range []string{"app:showAsAction", "android:showAsAction"} {
+				val := v.Attributes[attr]
+				if val == "" {
+					continue
+				}
+				total++
+				hasAlways, hasIfRoom := showAsActionFlags(val)
+				if hasAlways {
+					always = append(always, struct {
+						view *android.View
+						attr string
+					}{v, attr})
+				}
+				if hasIfRoom {
+					ifRoom++
+				}
 			}
 		})
+		if len(always) == 0 || total <= 1 || (len(always) <= 2 && ifRoom > 0) {
+			continue
+		}
+		first := always[0]
+		ctx.Emit(baseFindingAtAttr(menu.FilePath, first.view, first.attr, r.BaseRule,
+			"Prefer \"`ifRoom`\" instead of \"`always`\""))
 	}
 }
 
@@ -451,24 +557,39 @@ func (r *StateListReachableResourceRule) check(ctx *api.Context) {
 	if idx == nil {
 		return
 	}
-	for _, items := range idx.DrawableSelectors {
-		for j := 1; j < len(items); j++ {
-			for i := 0; i < j; i++ {
-				if !stateAttrsSubsetOf(items[i].StateAttrs, items[j].StateAttrs) {
-					continue
-				}
-				ctx.Emit(scanner.Finding{
-					File:       items[j].FilePath,
-					Line:       items[j].Line,
-					Col:        1,
-					RuleSet:    r.RuleSetName,
-					Rule:       r.RuleName,
-					Severity:   r.Sev,
-					Message:    fmt.Sprintf("This selector item is unreachable because item #%d is a more general match.", i+1),
-					Confidence: r.Confidence(),
-				})
-				break
+	for _, merged := range idx.DrawableSelectors {
+		// The index merges same-named selectors from qualified folders, each of which is its own state list.
+		byFile := make(map[string][]android.SelectorItem)
+		var files []string
+		for _, item := range merged {
+			if _, seen := byFile[item.FilePath]; !seen {
+				files = append(files, item.FilePath)
 			}
+			byFile[item.FilePath] = append(byFile[item.FilePath], item)
+		}
+		for _, file := range files {
+			r.checkItems(ctx, byFile[file])
+		}
+	}
+}
+
+func (r *StateListReachableResourceRule) checkItems(ctx *api.Context, items []android.SelectorItem) {
+	for j := 1; j < len(items); j++ {
+		for i := 0; i < j; i++ {
+			if !stateAttrsSubsetOf(items[i].StateAttrs, items[j].StateAttrs) {
+				continue
+			}
+			ctx.Emit(scanner.Finding{
+				File:       items[j].FilePath,
+				Line:       items[j].Line,
+				Col:        1,
+				RuleSet:    r.RuleSetName,
+				Rule:       r.RuleName,
+				Severity:   r.Sev,
+				Message:    fmt.Sprintf("This item is unreachable because a previous item (item #%d) is a more general match than this one", i+1),
+				Confidence: r.Confidence(),
+			})
+			break
 		}
 	}
 }
@@ -506,27 +627,22 @@ type AaptCrashRule struct {
 func (r *AaptCrashRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // aaptCrashIsGeneratedID reports whether val is an id-generating reference.
-// Only the `@+id/` (and namespace-qualified `@+android:id/`) forms allocate a
-// new id; the plain `@id/...` reference does not and is safe inside a style.
+// Only the `@+id/` form allocates a new id; `@id/...` is safe inside a style.
 func aaptCrashIsGeneratedID(val string) bool {
-	v := strings.TrimSpace(val)
-	return strings.HasPrefix(v, "@+id/") || strings.HasPrefix(v, "@+android:id/")
+	return strings.HasPrefix(strings.TrimSpace(val), "@+id/")
 }
 
 func (r *AaptCrashRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for _, style := range idx.Styles {
 		val, ok := style.Items["android:id"]
-		if !ok {
+		if !ok || !aaptCrashIsGeneratedID(val) {
 			continue
 		}
-		if !aaptCrashIsGeneratedID(val) {
-			continue
-		}
+		val = strings.TrimSpace(val)
+		name := strings.TrimPrefix(val, "@+id/")
 		ctx.Emit(baseFinding(style.FilePath, style.ItemLines["android:id"], r.BaseRule,
-			fmt.Sprintf("Style `%s` sets `android:id` to a dynamically generated id `%s`, "+
-				"which can crash the resource packaging tool at build time. Declare the id "+
-				"explicitly with `<item type=\"id\" name=\"...\"/>` and reference it with `@id/...`.",
-				style.Name, strings.TrimSpace(val))))
+			fmt.Sprintf("This construct can potentially crash `aapt` during a build. Change `%s` to `@id/%s` and define the id explicitly using `<item type=\"id\" name=\"%s\"/>` instead.",
+				val, name, name)))
 	}
 }

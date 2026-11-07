@@ -2,9 +2,11 @@ package rules
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -12,9 +14,9 @@ import (
 // StringFormatInvalidResource
 // ---------------------------------------------------------------------------
 
-// StringFormatInvalidResourceRule detects invalid format specifiers in string
-// resources. Checks for bare `%` at end of string, `%` followed by invalid
-// conversion characters, etc. Valid: %s, %d, %f, %1$s, %%, %n, %x, %o, %e, %g.
+// StringFormatInvalidResourceRule mirrors Lint's StringFormatInvalid check on string
+// resources: a space-flagged conversion such as the `% s` in "100% sure" is probably a
+// literal percent sign that was not doubled.
 type StringFormatInvalidResourceRule struct {
 	ValuesStringsResourceBase
 	AndroidRule
@@ -24,96 +26,25 @@ type StringFormatInvalidResourceRule struct {
 func (r *StringFormatInvalidResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatInvalidResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for name, val := range idx.Strings {
-		// Skip strings with formatted="false". These are NOT format
-		// strings — the `%{var}` / `%word` sequences are literal text
-		// (typically for gettext/phrase-style translation placeholders).
-		if idx.StringsNonFormatted != nil && idx.StringsNonFormatted[name] {
-			continue
-		}
-		msg := checkInvalidFormatString(val)
-		if msg == "" {
-			continue
-		}
-		// Use the real file path and line from the resource index. The
-		// previous hardcoded `res/values/strings.xml` at line 0 both
-		// mislocated findings (emitting a CWD-relative path that could
-		// even reference other repos if krit was run from a parent dir)
-		// and collapsed multiple findings into one key.
-		filePath := "res/values/strings.xml"
-		line := 0
-		if loc, ok := idx.StringsLocation[name]; ok {
-			if loc.FilePath != "" {
-				filePath = loc.FilePath
-			}
-			if loc.Line > 0 {
-				line = loc.Line
-			}
-		}
-		ctx.Emit(baseFinding(filePath, line, r.BaseRule,
-			fmt.Sprintf("String `%s` has invalid format specifier: %s", name, msg)))
-	}
+	emitStringFormatFindings(ctx, r.BaseRule, "StringFormatInvalid")
 }
 
-// checkInvalidFormatString checks a string value for invalid % sequences.
-// Returns an error description or "" if valid.
-func checkInvalidFormatString(s string) string {
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			continue
+// emitStringFormatFindings reports the Lint StringFormatDetector findings of one issue id.
+func emitStringFormatFindings(ctx *api.Context, rule BaseRule, issue string) {
+	for _, f := range analyzeStringFormats(ctx.ResourceIndex) {
+		if f.issue == issue {
+			ctx.Emit(baseFinding(f.path, f.line, rule, f.msg))
 		}
-		if i+1 >= len(s) {
-			return "bare `%` at end of string"
-		}
-		next := s[i+1]
-		// %% is a literal percent
-		if next == '%' {
-			i++
-			continue
-		}
-		// Skip optional argument index (digits followed by $)
-		j := i + 1
-		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-			j++
-		}
-		if j < len(s) && s[j] == '$' {
-			j++
-		}
-		// Skip flags
-		for j < len(s) && (s[j] == '-' || s[j] == '+' || s[j] == ' ' || s[j] == '0' || s[j] == '#') {
-			j++
-		}
-		// Skip width
-		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-			j++
-		}
-		// Skip precision
-		if j < len(s) && s[j] == '.' {
-			j++
-			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-				j++
-			}
-		}
-		if j >= len(s) {
-			return "bare `%` at end of string (incomplete format)"
-		}
-		c := s[j]
-		if !validConversions[c] {
-			return fmt.Sprintf("invalid conversion character `%c` after `%%`", c)
-		}
-		i = j
 	}
-	return ""
 }
 
 // ---------------------------------------------------------------------------
 // StringFormatCountResource
 // ---------------------------------------------------------------------------
 
-// StringFormatCountResourceRule detects format strings where positional argument
-// indices are inconsistent. For example, `%1$s and %3$s` is suspicious because
-// %2$ is missing.
+// StringFormatCountResourceRule mirrors Lint's StringFormatCount check: a variant of a
+// string whose number of format arguments differs from the default string, and a
+// string that skips a numbered argument such as the 2 in `%1$s ... %3$s`.
 type StringFormatCountResourceRule struct {
 	ValuesStringsResourceBase
 	AndroidRule
@@ -123,76 +54,16 @@ type StringFormatCountResourceRule struct {
 func (r *StringFormatCountResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatCountResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	for name, val := range idx.Strings {
-		if msg := checkFormatArgCount(val); msg != "" {
-			ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
-				fmt.Sprintf("String `%s`: %s", name, msg)))
-		}
-	}
-}
-
-// checkFormatArgCount checks for gaps in positional argument indices.
-func checkFormatArgCount(s string) string {
-	indices := make(map[int]bool)
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			continue
-		}
-		if i+1 >= len(s) {
-			continue
-		}
-		if s[i+1] == '%' {
-			i++
-			continue
-		}
-		// Look for digits followed by $
-		j := i + 1
-		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-			j++
-		}
-		if j > i+1 && j < len(s) && s[j] == '$' {
-			idx, _ := strconv.Atoi(s[i+1 : j])
-			if idx > 0 {
-				indices[idx] = true
-			}
-			i = j
-		}
-	}
-	if len(indices) < 2 {
-		return ""
-	}
-	// Find max index and check for gaps
-	maxIdx := 0
-	for idx := range indices {
-		if idx > maxIdx {
-			maxIdx = idx
-		}
-	}
-	var missing []int
-	for i := 1; i <= maxIdx; i++ {
-		if !indices[i] {
-			missing = append(missing, i)
-		}
-	}
-	if len(missing) > 0 {
-		parts := make([]string, len(missing))
-		for i, m := range missing {
-			parts[i] = fmt.Sprintf("%%%d$", m)
-		}
-		return fmt.Sprintf("positional arguments have gap: missing %s (max is %%%d$)",
-			strings.Join(parts, ", "), maxIdx)
-	}
-	return ""
+	emitStringFormatFindings(ctx, r.BaseRule, "StringFormatCount")
 }
 
 // ---------------------------------------------------------------------------
 // StringFormatMatchesResource
 // ---------------------------------------------------------------------------
 
-// StringFormatMatchesResourceRule detects format specifier type mismatches across
-// plural quantities. If a plural has `%d` in "one" but `%s` in "other", the
-// types are inconsistent and will likely cause a runtime crash.
+// StringFormatMatchesResourceRule mirrors Lint's StringFormatMatches check on string
+// resources: a variant of a string that uses an incompatible conversion for a numbered
+// argument. It also compares the conversions of plural quantities, which Lint does not.
 type StringFormatMatchesResourceRule struct {
 	ValuesPluralsResourceBase
 	AndroidRule
@@ -202,95 +73,54 @@ type StringFormatMatchesResourceRule struct {
 func (r *StringFormatMatchesResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringFormatMatchesResourceRule) check(ctx *api.Context) {
+	emitStringFormatFindings(ctx, r.BaseRule, "StringFormatMatches")
+	// Lint does not compare plural quantities; this is a krit extension.
 	idx := ctx.ResourceIndex
 	for name, quantities := range idx.Plurals {
 		if len(quantities) < 2 {
 			continue
 		}
-		// Extract format specifier types for each quantity
-		typesByQty := make(map[string][]byte)
+		type quantityArgs struct {
+			qty           string
+			slots         map[int]byte
+			allPositional bool
+		}
+		var withArgs []quantityArgs
 		for qty, val := range quantities {
-			types := extractFormatTypes(val)
-			if len(types) > 0 {
-				typesByQty[qty] = types
+			if slots, allPos := formatArgSlots(val); len(slots) > 0 {
+				withArgs = append(withArgs, quantityArgs{qty, slots, allPos})
 			}
 		}
-		if len(typesByQty) < 2 {
+		sort.Slice(withArgs, func(i, j int) bool { return withArgs[i].qty < withArgs[j].qty })
+		if len(withArgs) < 2 {
 			continue
 		}
-		// Compare all quantities against the first one found
-		var refQty string
-		var refTypes []byte
-		for qty, types := range typesByQty {
-			refQty = qty
-			refTypes = types
-			break
+		filePath, line, located := pluralResourceLocation(idx, name)
+		if !located {
+			continue
 		}
-		for qty, types := range typesByQty {
-			if qty == refQty {
+		ref := withArgs[0]
+		for _, cur := range withArgs[1:] {
+			// A quantity may drop arguments, so unnumbered specifiers of
+			// different lengths cannot be lined up and are skipped.
+			if len(cur.slots) != len(ref.slots) && !(cur.allPositional && ref.allPositional) {
 				continue
 			}
-			if len(types) != len(refTypes) {
-				ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
-					fmt.Sprintf("Plural `%s`: quantity `%s` has %d format args but `%s` has %d",
-						name, qty, len(types), refQty, len(refTypes))))
-				continue
+			slotNums := make([]int, 0, len(cur.slots))
+			for n := range cur.slots {
+				slotNums = append(slotNums, n)
 			}
-			for i := range types {
-				if types[i] != refTypes[i] {
-					ctx.Emit(baseFinding("res/values/strings.xml", 0, r.BaseRule,
+			sort.Ints(slotNums)
+			for _, n := range slotNums {
+				if want, ok := ref.slots[n]; ok && want != cur.slots[n] {
+					ctx.Emit(baseFinding(filePath, line, r.BaseRule,
 						fmt.Sprintf("Plural `%s`: format type mismatch at arg %d — `%s` uses `%%%c` but `%s` uses `%%%c`",
-							name, i+1, qty, types[i], refQty, refTypes[i])))
+							name, n, cur.qty, cur.slots[n], ref.qty, want)))
 					break
 				}
 			}
 		}
 	}
-}
-
-// extractFormatTypes returns the conversion characters from format specifiers.
-func extractFormatTypes(s string) []byte {
-	var types []byte
-	for i := 0; i < len(s); i++ {
-		if s[i] != '%' {
-			continue
-		}
-		if i+1 >= len(s) {
-			continue
-		}
-		if s[i+1] == '%' {
-			i++
-			continue
-		}
-		j := i + 1
-		// Skip argument index
-		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-			j++
-		}
-		if j < len(s) && s[j] == '$' {
-			j++
-		}
-		// Skip flags
-		for j < len(s) && (s[j] == '-' || s[j] == '+' || s[j] == ' ' || s[j] == '0' || s[j] == '#') {
-			j++
-		}
-		// Skip width
-		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-			j++
-		}
-		// Skip precision
-		if j < len(s) && s[j] == '.' {
-			j++
-			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
-				j++
-			}
-		}
-		if j < len(s) && validConversions[s[j]] {
-			types = append(types, s[j])
-			i = j
-		}
-	}
-	return types
 }
 
 // ---------------------------------------------------------------------------
@@ -310,20 +140,31 @@ func (r *StringFormatTrivialResourceRule) Confidence() float64 { return api.Conf
 func (r *StringFormatTrivialResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for name, val := range idx.Strings {
-		if isTrivialSingleStringFormatResource(val) {
-			filePath := "res/values/strings.xml"
-			line := 0
-			if loc, ok := idx.StringsLocation[name]; ok {
-				if loc.FilePath != "" {
-					filePath = loc.FilePath
-				}
-				if loc.Line > 0 {
-					line = loc.Line
-				}
+		// Judge only the default-locale definition; translations of a
+		// placeholder-only string are expected to match it.
+		if idx.StringSources != nil {
+			src, ok := idx.StringSources[name]
+			if !ok {
+				continue
 			}
+			val = src.Value
+		}
+		if skipFormatChecks(idx, name) {
+			continue
+		}
+		// Such strings are usually expanded as templates in code (`%1$s` wraps a label), and this rule has no source usage scan.
+		if lower := strings.ToLower(name); strings.Contains(lower, "button") || strings.Contains(lower, "label") {
+			continue
+		}
+		// A translator note says the pass-through wrapper is deliberate.
+		if idx.StringsWithNote[name] {
+			continue
+		}
+		if isTrivialSingleStringFormatResource(val) {
+			filePath, line := stringResourceLocation(idx, name)
 			ctx.Emit(baseFinding(filePath, line, r.BaseRule,
-				fmt.Sprintf("String `%s` is only a string format placeholder. "+
-					"Use the source string directly instead of formatting this resource.", name)))
+				fmt.Sprintf("String `%s` is only a string format placeholder, so it adds no text of its own. "+
+					"Pass the argument directly unless the wrapper is needed for translation.", name)))
 		}
 	}
 }
@@ -384,7 +225,7 @@ func skipArgIndex(s string, j int) int {
 }
 
 func skipFlagsAndWidth(s string, j int) int {
-	for j < len(s) && (s[j] == '-' || s[j] == '+' || s[j] == ' ' || s[j] == '0' || s[j] == '#') {
+	for j < len(s) && isFormatFlag(s[j]) {
 		j++
 	}
 	for j < len(s) && s[j] >= '0' && s[j] <= '9' {
@@ -401,6 +242,179 @@ func skipPrecision(s string, j int) int {
 		}
 	}
 	return j
+}
+
+// isFormatFlag reports whether c is a java.util.Formatter flag: `-#+ 0,(<`.
+func isFormatFlag(c byte) bool {
+	switch c {
+	case '-', '#', '+', ' ', '0', ',', '(', '<':
+		return true
+	}
+	return false
+}
+
+// stringResourceLocation returns the recorded file and line of a default-locale
+// string, falling back to the last-seen definition and then a placeholder path.
+func stringResourceLocation(idx *android.ResourceIndex, name string) (string, int) {
+	loc := idx.StringsLocation[name]
+	if src, ok := idx.StringSources[name]; ok && src.FilePath != "" {
+		loc = android.StringLocation{FilePath: src.FilePath, Line: src.Line}
+	}
+	if loc.FilePath == "" {
+		return "res/values/strings.xml", 0
+	}
+	return loc.FilePath, loc.Line
+}
+
+// storedStringLocation returns the file and line that supplied the stored value of a string.
+func storedStringLocation(idx *android.ResourceIndex, name string) (string, int) {
+	if loc := idx.StringsLocation[name]; loc.FilePath != "" {
+		return loc.FilePath, loc.Line
+	}
+	return "res/values/strings.xml", 0
+}
+
+// pluralResourceLocation returns the recorded file and line of a plurals entry.
+// ok is false when the entry has no recorded position, so callers skip it rather than report a made-up one.
+func pluralResourceLocation(idx *android.ResourceIndex, name string) (file string, line int, ok bool) {
+	if loc, found := idx.PluralsLocation[name]; found && loc.FilePath != "" && loc.Line > 0 {
+		return loc.FilePath, loc.Line, true
+	}
+	return "", 0, false
+}
+
+// skipFormatChecks reports whether a string is exempt from format validation.
+// stringDefinition is one <string> definition: the default-locale value or a translation.
+type stringDefinition struct {
+	name, value, filePath string
+	line                  int
+	translation           bool
+}
+
+// stringDefinitions lists the default-locale value of every string followed by each translation
+// whose text differs from the default, in a stable order. A string with no default-locale
+// definition is listed from the stored value alone.
+func stringDefinitions(idx *android.ResourceIndex) []stringDefinition {
+	seen := make(map[string]bool, len(idx.Strings))
+	names := make([]string, 0, len(idx.Strings))
+	for name := range idx.Strings {
+		seen[name] = true
+		names = append(names, name)
+	}
+	for name := range idx.StringSources {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var out []stringDefinition
+	for _, name := range names {
+		def, hasDefault := idx.StringSources[name]
+		storedPath, storedLine := storedStringLocation(idx, name)
+		stored, hasStored := idx.Strings[name]
+		if hasDefault {
+			out = append(out, stringDefinition{name: name, value: def.Value, filePath: def.FilePath, line: def.Line})
+		} else if hasStored {
+			out = append(out, stringDefinition{name: name, value: stored, filePath: storedPath, line: storedLine,
+				translation: android.IsTranslationValuesPath(storedPath)})
+		}
+		listed := map[string]bool{}
+		for _, tr := range idx.StringTranslations[name] {
+			listed[tr.FilePath] = true
+			if hasDefault && tr.Value == def.Value {
+				continue
+			}
+			out = append(out, stringDefinition{name: name, value: tr.Value, filePath: tr.FilePath, line: tr.Line, translation: true})
+		}
+		// An index built without StringTranslations may still keep a translation as the stored value.
+		if hasDefault && hasStored && stored != def.Value && android.IsTranslationValuesPath(storedPath) && !listed[storedPath] {
+			out = append(out, stringDefinition{name: name, value: stored, filePath: storedPath, line: storedLine, translation: true})
+		}
+	}
+	return out
+}
+
+func skipFormatChecks(idx *android.ResourceIndex, name string) bool {
+	return idx.StringsNonTranslate[name] || idx.StringsNonFormatted[name]
+}
+
+// isTranslationOverride reports whether the stored value for name came from a
+// translation file whose text differs from the default-locale value.
+func isTranslationOverride(idx *android.ResourceIndex, name, val string) (android.StringSource, bool) {
+	src, ok := idx.StringSources[name]
+	if !ok || src.Value == val {
+		return src, false
+	}
+	return src, android.IsTranslationValuesPath(idx.StringsLocation[name].FilePath)
+}
+
+// formatArgSlots returns the argument types by 1-based slot and whether every
+// specifier is positional. `<` reuses the previous slot; `%n` and `%%` take none.
+func formatArgSlots(s string) (slots map[int]byte, allPositional bool) {
+	slots = map[int]byte{}
+	allPositional = true
+	next, prev := 1, 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != '%' || i+1 >= len(s) {
+			continue
+		}
+		if s[i+1] == '%' {
+			i++
+			continue
+		}
+		j := i + 1
+		k := skipArgIndex(s, j)
+		explicit := 0
+		if k != j {
+			explicit, _ = strconv.Atoi(s[j : k-1])
+		}
+		flagsStart := k
+		k = skipFlagsAndWidth(s, k)
+		reuse := strings.Contains(s[flagsStart:k], "<")
+		k = skipPrecision(s, k)
+		if k >= len(s) || !validConversions[s[k]] {
+			continue
+		}
+		i = k
+		if s[k] == 'n' {
+			continue
+		}
+		slot := explicit
+		switch {
+		case reuse:
+			slot = prev
+		case explicit == 0:
+			slot = next
+			next++
+			allPositional = false
+		}
+		if slot > 0 {
+			slots[slot] = s[k]
+			prev = slot
+		}
+	}
+	return slots, allPositional
+}
+
+// templateTokenCount returns the number of distinct `^N` template tokens in s.
+func templateTokenCount(s string) int {
+	seen := map[byte]bool{}
+	for i := 0; i+1 < len(s); i++ {
+		if s[i] == '^' && s[i+1] >= '1' && s[i+1] <= '9' {
+			seen[s[i+1]] = true
+		}
+	}
+	return len(seen)
+}
+
+// hasTemplateToken reports whether s contains a `^1`-style template placeholder.
+func hasTemplateToken(s string) bool {
+	for i := 0; i+1 < len(s); i++ {
+		if s[i] == '^' && s[i+1] >= '1' && s[i+1] <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 func isFormatConversionChar(c byte) bool {
@@ -429,28 +443,17 @@ func (r *StringResourceMissingPositionalRule) Confidence() float64 { return api.
 
 func (r *StringResourceMissingPositionalRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
-	for name, val := range idx.Strings {
-		if idx.StringsNonTranslate[name] {
+	for _, def := range stringDefinitions(idx) {
+		name := def.name
+		if idx.StringsNonTranslate[name] || idx.StringsNonFormatted[name] {
 			continue
 		}
-		if idx.StringsNonFormatted != nil && idx.StringsNonFormatted[name] {
-			continue
-		}
-		nonPos, pos := classifyFormatSpecifiers(val)
+		// Translations that copy the default are skipped by stringDefinitions; a translation with its own text is judged on its own entry.
+		nonPos, pos := classifyFormatSpecifiers(def.value)
 		if nonPos < 2 || pos > 0 {
 			continue
 		}
-		filePath := "res/values/strings.xml"
-		line := 0
-		if loc, ok := idx.StringsLocation[name]; ok {
-			if loc.FilePath != "" {
-				filePath = loc.FilePath
-			}
-			if loc.Line > 0 {
-				line = loc.Line
-			}
-		}
-		ctx.Emit(baseFinding(filePath, line, r.BaseRule,
+		ctx.Emit(baseFinding(def.filePath, def.line, r.BaseRule,
 			fmt.Sprintf("String `%s` has multiple non-positional format specifiers. "+
 				"Use positional syntax like `%%1$s %%2$s` so translators can reorder arguments.", name)))
 	}
@@ -483,7 +486,7 @@ func classifyFormatSpecifiers(s string) (nonPositional, positional int) {
 			j = k + 1
 		}
 		// Skip flags
-		for j < len(s) && (s[j] == '-' || s[j] == '+' || s[j] == ' ' || s[j] == '0' || s[j] == '#') {
+		for j < len(s) && isFormatFlag(s[j]) {
 			j++
 		}
 		// Skip width

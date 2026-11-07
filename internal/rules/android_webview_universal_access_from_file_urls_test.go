@@ -114,3 +114,27 @@ fun describe(): String = "webView.settings.setAllowUniversalAccessFromFileURLs(t
 		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 	}
 }
+
+func TestWebViewSettingsFindingsSpanTheWholeStatement(t *testing.T) {
+	src := `
+import android.webkit.WebView
+
+fun configure(webView: WebView) {
+    webView.settings.allowUniversalAccessFromFileURLs = true
+    webView.settings.setAllowFileAccess(true)
+}
+`
+	for rule, want := range map[string]string{
+		"WebViewUniversalAccessFromFileUrls": "webView.settings.allowUniversalAccessFromFileURLs = true",
+		"WebViewAllowFileAccess":             "webView.settings.setAllowFileAccess(true)",
+	} {
+		findings := runRuleByName(t, rule, src)
+		if len(findings) != 1 {
+			t.Fatalf("%s: expected 1 finding, got %d", rule, len(findings))
+		}
+		f := findings[0]
+		if got := src[f.StartByte:f.EndByte]; got != want {
+			t.Errorf("%s: span %q, want %q", rule, got, want)
+		}
+	}
+}

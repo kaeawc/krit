@@ -368,11 +368,10 @@ func (r *kotlinRewriter) startsDeclaration(i int) bool {
 		if j == i {
 			return false
 		}
-		w := string(o[i:j])
-		if contextFollowWords[w] {
+		if contextFollowWords[string(o[i:j])] {
 			return r.isCode(i)
 		}
-		if !contextModifierWords[w] {
+		if !contextModifierWords[string(o[i:j])] {
 			return false
 		}
 		i = j
@@ -403,7 +402,7 @@ func (r *kotlinRewriter) rewriteNameBasedDestructuring() {
 			}
 		}
 		j := r.skipWS(i + 1)
-		if !(r.wordAt(j, "val") || r.wordAt(j, "var")) {
+		if !r.wordAt(j, "val") && !r.wordAt(j, "var") {
 			continue
 		}
 		end := r.skipBalanced(i, o[i], closeCh)

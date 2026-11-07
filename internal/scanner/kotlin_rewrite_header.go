@@ -44,6 +44,27 @@ func indexWord(o []byte, w string, from int) int {
 // scanHeader reads a header whose keyword ends at i.
 func (r *kotlinRewriter) scanHeader(i int) {
 	o := r.orig
+	if i = r.skipHeaderNameAndTypeParams(i); i < 0 {
+		return
+	}
+	if i = r.skipHeaderModifiers(i); i < 0 {
+		return
+	}
+	if i < len(o) && o[i] == '(' {
+		if i = r.skipBalanced(i, '(', ')'); i < 0 {
+			return
+		}
+		i = r.skipWS(i)
+	}
+	if i >= len(o) || o[i] != ':' {
+		return
+	}
+	r.scanSupertypes(i + 1)
+}
+
+// skipHeaderNameAndTypeParams skips the declared name and type parameters after i, or returns -1 on unbalanced brackets.
+func (r *kotlinRewriter) skipHeaderNameAndTypeParams(i int) int {
+	o := r.orig
 	i = r.skipWS(i)
 	if i < len(o) && isIdentStartByte(o[i]) {
 		for i < len(o) && isIdentByte(o[i]) {
@@ -53,10 +74,17 @@ func (r *kotlinRewriter) scanHeader(i int) {
 	i = r.skipWS(i)
 	if i < len(o) && o[i] == '<' {
 		if i = r.skipAngle(i); i < 0 {
-			return
+			return -1
 		}
 		i = r.skipWS(i)
 	}
+	return i
+}
+
+// skipHeaderModifiers skips up to eight primary-constructor annotations and modifiers at i,
+// or returns -1 on an unbalanced annotation argument list.
+func (r *kotlinRewriter) skipHeaderModifiers(i int) int {
+	o := r.orig
 	for n := 0; n < 8 && i < len(o); n++ {
 		if o[i] == '@' {
 			j := i + 1
@@ -65,7 +93,7 @@ func (r *kotlinRewriter) scanHeader(i int) {
 			}
 			if j < len(o) && o[j] == '(' {
 				if j = r.skipBalanced(j, '(', ')'); j < 0 {
-					return
+					return -1
 				}
 			}
 			i = r.skipWS(j)
@@ -81,16 +109,7 @@ func (r *kotlinRewriter) scanHeader(i int) {
 		}
 		break
 	}
-	if i < len(o) && o[i] == '(' {
-		if i = r.skipBalanced(i, '(', ')'); i < 0 {
-			return
-		}
-		i = r.skipWS(i)
-	}
-	if i >= len(o) || o[i] != ':' {
-		return
-	}
-	r.scanSupertypes(i + 1)
+	return i
 }
 
 // scanSupertypes walks the supertype list that starts at i.
@@ -102,10 +121,10 @@ func (r *kotlinRewriter) scanSupertypes(i int) {
 		if !r.isCode(j) {
 			continue
 		}
-		switch c := o[j]; c {
+		switch o[j] {
 		case '(', '[':
 			depth++
-		case ')', ']':
+		case ')', ']', '}':
 			depth--
 			if depth < 0 {
 				return
@@ -120,41 +139,45 @@ func (r *kotlinRewriter) scanSupertypes(i int) {
 				return
 			}
 			depth++
-		case '}':
-			depth--
-			if depth < 0 {
-				return
-			}
-		case ',':
-			if depth == 0 {
-				lastBy = -1
-			}
 		case ';':
 			return
-		case '=':
+		default:
 			if depth == 0 {
-				return
-			}
-		case '@':
-			if depth != 0 {
-				continue
-			}
-			if p := r.prevNonSpace(j); p >= 0 && (o[p] == ':' || o[p] == ',') {
-				end := r.annotationEnd(j)
-				r.blank(j, end)
-				j = end - 1
-			}
-		case 'b':
-			if depth == 0 && r.wordAt(j, "by") {
-				lastBy = j
-				j++
-			}
-		case '\n':
-			if depth == 0 && !r.headerContinues(j) {
-				return
+				var stop bool
+				if j, lastBy, stop = r.scanTopLevelSupertypeByte(j, lastBy); stop {
+					return
+				}
 			}
 		}
 	}
+}
+
+// scanTopLevelSupertypeByte handles the byte at j outside any brackets of a supertype list.
+// It returns the index to resume from, the updated position of the last `by`, and whether the list ended.
+func (r *kotlinRewriter) scanTopLevelSupertypeByte(j, lastBy int) (int, int, bool) {
+	o := r.orig
+	switch o[j] {
+	case ',':
+		lastBy = -1
+	case '=':
+		return j, lastBy, true
+	case '@':
+		if p := r.prevNonSpace(j); p >= 0 && (o[p] == ':' || o[p] == ',') {
+			end := r.annotationEnd(j)
+			r.blank(j, end)
+			j = end - 1
+		}
+	case 'b':
+		if r.wordAt(j, "by") {
+			lastBy = j
+			j++
+		}
+	case '\n':
+		if !r.headerContinues(j) {
+			return j, lastBy, true
+		}
+	}
+	return j, lastBy, false
 }
 
 // headerContinues reports whether the header goes on after the line break at

@@ -171,7 +171,7 @@ func (f *SuppressionFilter) IsSuppressedAtColumn(ruleID, ruleSet string, line, c
 	byteOffset := -1
 	if f.file != nil && line >= 1 {
 		start := f.file.LineOffset(line - 1)
-		off := start
+		var off int
 		if col > 1 {
 			off = start + col - 1
 		} else {
@@ -784,10 +784,10 @@ func flatProcessFileAnnotation(tree *FlatTree, idx uint32, content []byte, out *
 	})
 }
 
-func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out *SuppressionIndex) bool {
+func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out *SuppressionIndex) {
 	parseText := suppressionAnnotationText(tree, idx, content)
 	if parseText == nil {
-		return false
+		return
 	}
 	rules := extractSuppressedRules(string(parseText))
 	var target uint32
@@ -796,7 +796,7 @@ func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out 
 		// the next statement.
 		target = nextStatementSibling(tree, idx, content)
 		if target == 0 {
-			return true
+			return
 		}
 	} else if operand := splitReturnOperand(tree, idx, content); operand != 0 {
 		target = operand
@@ -804,11 +804,11 @@ func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out 
 		target = flatFindAnnotationTarget(tree, idx)
 	}
 	if target == 0 && idx != 0 {
-		return true
+		return
 	}
 	if cs, ce, ok := constructorSuppressionSpan(tree, target, content); ok {
 		out.suppressions = append(out.suppressions, Suppression{StartByte: cs, EndByte: ce, Rules: rules})
-		return true
+		return
 	}
 	// Cover the annotation itself when it precedes its target, so findings
 	// reported at the annotation line match.
@@ -818,7 +818,6 @@ func flatProcessSuppressionNode(tree *FlatTree, idx uint32, content []byte, out 
 		EndByte:   suppressionTargetEnd(tree, target, content),
 		Rules:     rules,
 	})
-	return true
 }
 
 // suppressionAnnotationText returns the text of the suppress annotation that
@@ -864,19 +863,8 @@ func flatAnnotationHasArgs(tree *FlatTree, idx uint32) bool {
 }
 
 func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
-	if nodeTypeName(tree.Types[idx]) == "prefix_expression" {
-		var annChild uint32
-		hasOperand := false
-		for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
-			if nodeTypeName(tree.Types[child]) == "annotation" {
-				annChild = child
-			} else {
-				hasOperand = true
-			}
-		}
-		if annChild != 0 && hasOperand && flatAnnotationHasArgs(tree, annChild) {
-			return idx
-		}
+	if nodeTypeName(tree.Types[idx]) == "prefix_expression" && prefixAnnotationWrapsOperand(tree, idx) {
+		return idx
 	}
 
 	parent := tree.Parents[idx]
@@ -897,24 +885,47 @@ func flatFindAnnotationTarget(tree *FlatTree, idx uint32) uint32 {
 		return parent
 	}
 	if parentType == "source_file" || parentType == "statements" || parentType == "class_body" {
-		foundSelf := false
-		for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
-			if child == idx {
-				foundSelf = true
-				continue
-			}
-			if !foundSelf {
-				continue
-			}
-			childType := nodeTypeName(tree.Types[child])
-			if childType == "prefix_expression" || childType == "annotation" || isCommentNode(tree, child) {
-				continue
-			}
-			return child
+		if next := nextAnnotatedSibling(tree, parent, idx); next != 0 {
+			return next
 		}
-		return parent
 	}
 	return parent
+}
+
+// prefixAnnotationWrapsOperand reports whether the prefix_expression at idx pairs an annotation
+// that has arguments with an operand, so the expression itself is the target.
+func prefixAnnotationWrapsOperand(tree *FlatTree, idx uint32) bool {
+	var annChild uint32
+	hasOperand := false
+	for child := tree.FirstChildren[idx]; child != 0; child = tree.NextSibs[child] {
+		if nodeTypeName(tree.Types[child]) == "annotation" {
+			annChild = child
+		} else {
+			hasOperand = true
+		}
+	}
+	return annChild != 0 && hasOperand && flatAnnotationHasArgs(tree, annChild)
+}
+
+// nextAnnotatedSibling returns the first child of parent after idx that is not an annotation,
+// prefix_expression or comment, or 0 when there is none.
+func nextAnnotatedSibling(tree *FlatTree, parent, idx uint32) uint32 {
+	foundSelf := false
+	for child := tree.FirstChildren[parent]; child != 0; child = tree.NextSibs[child] {
+		if child == idx {
+			foundSelf = true
+			continue
+		}
+		if !foundSelf {
+			continue
+		}
+		childType := nodeTypeName(tree.Types[child])
+		if childType == "prefix_expression" || childType == "annotation" || isCommentNode(tree, child) {
+			continue
+		}
+		return child
+	}
+	return 0
 }
 
 func hasSuppressionNeedle(text []byte) bool {

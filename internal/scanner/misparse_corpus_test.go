@@ -34,15 +34,15 @@ func TestMisparseCorpus(t *testing.T) {
 		t.Skip("KRIT_MISPARSE_CORPUS not set")
 	}
 	var paths []string
-	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() && (d.Name() == "build" || d.Name() == ".git" || d.Name() == ".claude" || d.Name() == ".idea") {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() && strings.HasSuffix(p, ".kt") {
-			paths = append(paths, p)
+	// Unreadable entries are skipped rather than aborting the walk.
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr == nil {
+			if d.IsDir() && (d.Name() == "build" || d.Name() == ".git" || d.Name() == ".claude" || d.Name() == ".idea") {
+				return filepath.SkipDir
+			}
+			if !d.IsDir() && strings.HasSuffix(p, ".kt") {
+				paths = append(paths, p)
+			}
 		}
 		return nil
 	})

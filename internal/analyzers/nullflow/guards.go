@@ -388,3 +388,86 @@ func firstNamedChildAfterToken(file *scanner.File, parent uint32, token string) 
 	}
 	return 0
 }
+
+// IsPreconditionGuarded reports whether an earlier statement in an enclosing block proves the
+// receiver non-null without a smart cast: `x ?: return`, `check(x != null)`, `require(...)`,
+// `requireNotNull(x)` or `checkNotNull(x)`. Needed for properties the compiler cannot smart-cast.
+func IsPreconditionGuarded(file *scanner.File, useIdx uint32, receiver uint32) bool {
+	if file == nil || useIdx == 0 || receiver == 0 {
+		return false
+	}
+	child := useIdx
+	for p, ok := file.FlatParent(useIdx); ok; p, ok = file.FlatParent(p) {
+		t := file.FlatType(p)
+		if t == "function_declaration" {
+			return false
+		}
+		if t == "statements" {
+			for stmt := file.FlatFirstChild(p); stmt != 0 && stmt != child; stmt = file.FlatNextSib(stmt) {
+				if file.FlatIsNamed(stmt) && statementProvesNonNull(file, stmt, receiver, useIdx) {
+					return true
+				}
+			}
+		}
+		if t == "lambda_literal" {
+			return false
+		}
+		child = p
+	}
+	return false
+}
+
+func statementProvesNonNull(file *scanner.File, stmt, receiver, useIdx uint32) bool {
+	stmt = flatUnwrapParenExpr(file, stmt)
+	switch file.FlatType(stmt) {
+	case "elvis_expression":
+		return elvisExitsOnNull(file, stmt, receiver, useIdx)
+	case "property_declaration":
+		for c := file.FlatFirstChild(stmt); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "elvis_expression" && elvisExitsOnNull(file, c, receiver, useIdx) {
+				return true
+			}
+		}
+	case "call_expression":
+		return preconditionCallProvesNonNull(file, stmt, receiver, useIdx)
+	}
+	return false
+}
+
+func elvisExitsOnNull(file *scanner.File, elvis, receiver, useIdx uint32) bool {
+	if file.FlatChildCount(elvis) < 3 {
+		return false
+	}
+	left := flatUnwrapParenExpr(file, file.FlatChild(elvis, 0))
+	right := flatUnwrapParenExpr(file, file.FlatChild(elvis, file.FlatChildCount(elvis)-1))
+	return conditionReferenceMatchesReceiver(file, left, receiver, useIdx) && file.FlatType(right) == "jump_expression"
+}
+
+func preconditionCallProvesNonNull(file *scanner.File, call, receiver, useIdx uint32) bool {
+	// `checkNotNull(x) { "msg" }` nests the argument call inside the trailing-lambda call.
+	if inner := file.FlatFirstChild(call); inner != 0 && file.FlatType(inner) == "call_expression" {
+		call = inner
+	}
+	name := flatCallExpressionName(file, call)
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return false
+	}
+	var first uint32
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) == "value_argument" {
+			first = flatValueArgumentExpression(file, arg)
+			break
+		}
+	}
+	if first == 0 {
+		return false
+	}
+	switch name {
+	case "check", "require", "assert":
+		return ConditionTrueProvesNonNull(file, first, receiver, useIdx)
+	case "requireNotNull", "checkNotNull":
+		return conditionReferenceMatchesReceiver(file, flatUnwrapParenExpr(file, first), receiver, useIdx)
+	}
+	return false
+}

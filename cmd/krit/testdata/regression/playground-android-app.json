@@ -1,30 +1,14 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 59,
+  "findings_count": 68,
   "findings": [
     {
-      "rule": "DependenciesInRootProject",
-      "ruleSet": "supply-chain",
-      "file": "build.gradle.kts",
-      "line": 30,
-      "col": 0,
-      "message": "Root project dependencies block declares implementation. Move project dependencies into an owning module or add legitimate root tooling configurations to allowedConfigurations."
-    },
-    {
-      "rule": "GoogleAppIndexingWarningManifest",
+      "rule": "CoarseFineLocation",
       "ruleSet": "android-lint",
       "file": "src/main/AndroidManifest.xml",
-      "line": 1,
+      "line": 5,
       "col": 0,
-      "message": "No activity with a VIEW intent filter and http/https data scheme found. Add deep link support to enable Google App Indexing. https://developer.android.com/training/app-indexing"
-    },
-    {
-      "rule": "PermissionImpliesUnsupportedHardwareManifest",
-      "ruleSet": "android-lint",
-      "file": "src/main/AndroidManifest.xml",
-      "line": 1,
-      "col": 0,
-      "message": "Permissions imply hardware features that are not declared as optional: `android.permission.ACCESS_FINE_LOCATION` -\u003e `android.hardware.location.gps`, `android.permission.CAMERA` -\u003e `android.hardware.camera`. Declare each with `\u003cuses-feature android:name=\"…\" android:required=\"false\" /\u003e` to allow installation on devices without this hardware."
+      "message": "If you need access to FINE location, you must request both `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`"
     },
     {
       "rule": "AllowBackupManifest",
@@ -40,47 +24,23 @@
       "file": "src/main/AndroidManifest.xml",
       "line": 11,
       "col": 0,
-      "message": "`android:debuggable=\"true\"` is set in the manifest. This should be controlled by the build system (debug vs release build type). Remove the debuggable attribute from the manifest."
+      "message": "Avoid hardcoding the debug mode; leaving it out allows debug and release builds to automatically assign one"
     },
     {
-      "rule": "InsecureBaseConfigurationManifest",
+      "rule": "GoogleAppIndexingWarningManifest",
       "ruleSet": "android-lint",
       "file": "src/main/AndroidManifest.xml",
       "line": 11,
       "col": 0,
-      "message": "Missing `android:networkSecurityConfig` on \u003capplication\u003e with targetSdkVersion \u003e= 28. Add a Network Security Configuration to explicitly control network security behavior. https://developer.android.com/training/articles/security-config"
+      "message": "No activity with a VIEW intent filter and http/https data scheme found. Add deep link support to enable Google App Indexing. https://developer.android.com/training/app-indexing"
     },
     {
-      "rule": "RtlEnabledManifest",
-      "ruleSet": "android-lint",
-      "file": "src/main/AndroidManifest.xml",
-      "line": 11,
-      "col": 0,
-      "message": "Missing `android:supportsRtl=\"true\"` on \u003capplication\u003e. Add RTL support to ensure proper layout mirroring for RTL languages."
-    },
-    {
-      "rule": "ExportedWithoutPermission",
-      "ruleSet": "android-lint",
-      "file": "src/main/AndroidManifest.xml",
-      "line": 30,
-      "col": 0,
-      "message": "Exported receiver `.receivers.BootReceiver` does not require a permission. Add android:permission to restrict access."
-    },
-    {
-      "rule": "UnsafeProtectedBroadcastReceiverManifest",
-      "ruleSet": "android-lint",
-      "file": "src/main/AndroidManifest.xml",
-      "line": 30,
-      "col": 0,
-      "message": "Receiver `.receivers.BootReceiver` listens for protected broadcast `android.intent.action.BOOT_COMPLETED` and is exported without a permission. Add android:permission to prevent unauthorized broadcasts."
-    },
-    {
-      "rule": "ExportedWithoutPermission",
+      "rule": "ExportedContentProviderManifest",
       "ruleSet": "android-lint",
       "file": "src/main/AndroidManifest.xml",
       "line": 39,
       "col": 0,
-      "message": "Exported provider `.providers.DataProvider` does not require a permission. Add android:permission to restrict access."
+      "message": "Exported content providers can provide access to potentially sensitive data"
     },
     {
       "rule": "ShowToast",
@@ -88,7 +48,7 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 22,
       "col": 0,
-      "message": "Toast.makeText() called without .show(). The toast will not be displayed."
+      "message": "Toast created but not shown: did you forget to call `show()`?"
     },
     {
       "rule": "SimpleDateFormat",
@@ -96,7 +56,7 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 25,
       "col": 0,
-      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+      "message": "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
     },
     {
       "rule": "MagicNumber",
@@ -104,7 +64,7 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 39,
       "col": 0,
-      "message": "Magic number '1000'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -112,7 +72,7 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 45,
       "col": 0,
-      "message": "Magic number '2000L'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -120,7 +80,7 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 45,
       "col": 0,
-      "message": "Magic number '500'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "EmptyFunctionBlock",
@@ -144,15 +104,23 @@
       "file": "src/main/kotlin/com/example/app/MainActivity.kt",
       "line": 54,
       "col": 0,
-      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+      "message": "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
     },
     {
       "rule": "RecyclerAdapterWithoutDiffUtil",
       "ruleSet": "resource-cost",
       "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
-      "line": 12,
+      "line": 41,
       "col": 0,
       "message": "'UserAdapter' uses notifyDataSetChanged() without DiffUtil; use ListAdapter or DiffUtil.calculateDiff() for efficient updates."
+    },
+    {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
+      "line": 48,
+      "col": 0,
+      "message": "The caught exception is swallowed. The original exception could be lost."
     },
     {
       "rule": "TooGenericExceptionCaught",
@@ -160,7 +128,7 @@
       "file": "src/main/kotlin/com/example/app/adapters/UserAdapter.kt",
       "line": 48,
       "col": 0,
-      "message": "Caught too-generic exception type 'IndexOutOfBoundsException'."
+      "message": "The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled."
     },
     {
       "rule": "FragmentConstructor",
@@ -169,6 +137,14 @@
       "line": 12,
       "col": 0,
       "message": "Fragment subclass must have a default (no-arg) constructor for framework re-instantiation."
+    },
+    {
+      "rule": "LongParameterList",
+      "ruleSet": "complexity",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 33,
+      "col": 0,
+      "message": "The function updateContent(title: String, subtitle: String, description: String, imageUrl: String, category: String, tags: List\u003cString\u003e, isPublished: Boolean) has too many parameters. The current threshold is set to 7."
     },
     {
       "rule": "UnusedParameter",
@@ -227,12 +203,28 @@
       "message": "Empty catch block detected. Empty catch blocks should be avoided."
     },
     {
+      "rule": "SwallowedException",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 0,
+      "message": "The caught exception is swallowed. The original exception could be lost."
+    },
+    {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
+      "line": 50,
+      "col": 0,
+      "message": "The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled."
+    },
+    {
       "rule": "ForbiddenComment",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/fragments/HomeFragment.kt",
       "line": 55,
       "col": 0,
-      "message": "Forbidden comment marker 'TODO:' found."
+      "message": "Forbidden TODO todo marker in comment, please do the changes."
     },
     {
       "rule": "MagicNumber",
@@ -240,7 +232,7 @@
       "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
       "line": 15,
       "col": 0,
-      "message": "Magic number '1024'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -248,7 +240,7 @@
       "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
       "line": 15,
       "col": 0,
-      "message": "Magic number '1024'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -256,7 +248,7 @@
       "file": "src/main/kotlin/com/example/app/fragments/SettingsFragment.kt",
       "line": 15,
       "col": 0,
-      "message": "Magic number '50'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "FunctionOnlyReturningConstant",
@@ -267,12 +259,20 @@
       "message": "Function 'getRetryInterval' only returns a constant. Consider replacing with a const val."
     },
     {
+      "rule": "TooGenericExceptionCaught",
+      "ruleSet": "exceptions",
+      "file": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
+      "line": 39,
+      "col": 0,
+      "message": "The caught exception is too generic. Prefer catching specific exceptions to the case that is currently handled."
+    },
+    {
       "rule": "RoomSelectStarWithoutLimit",
       "ruleSet": "database",
       "file": "src/main/kotlin/com/example/app/libraries/LibraryCoverage.kt",
-      "line": 66,
+      "line": 67,
       "col": 0,
-      "message": "@Query on 'getAll' uses 'SELECT *' without a LIMIT and returns a materialised type; add a LIMIT or return Flow/PagingSource to avoid unbounded loads."
+      "message": "@Query on 'getAll' uses 'SELECT *' without a LIMIT and returns a materialised collection; add a LIMIT or return Flow/PagingSource to avoid unbounded loads."
     },
     {
       "rule": "RoomFallbackToDestructiveMigration",
@@ -283,12 +283,20 @@
       "message": "Room.fallbackToDestructiveMigration() drops all user data on a schema version bump; provide a Migration or restrict the call to debug builds."
     },
     {
+      "rule": "VariableNaming",
+      "ruleSet": "naming",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 14,
+      "col": 0,
+      "message": "Private variable names should match the pattern: (_)?[a-z][A-Za-z0-9]*"
+    },
+    {
       "rule": "MagicNumber",
       "ruleSet": "style",
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
       "line": 54,
       "col": 0,
-      "message": "Magic number '100'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -296,7 +304,7 @@
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
       "line": 63,
       "col": 0,
-      "message": "Magic number '5000'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "SimpleDateFormat",
@@ -304,7 +312,7 @@
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
       "line": 71,
       "col": 0,
-      "message": "SimpleDateFormat without explicit Locale. Use SimpleDateFormat(pattern, Locale) to avoid locale bugs."
+      "message": "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
     },
     {
       "rule": "UnusedVariable",
@@ -320,7 +328,7 @@
       "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
       "line": 79,
       "col": 0,
-      "message": "Magic number '200'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "Wakelock",
@@ -331,12 +339,20 @@
       "message": "WakeLock acquired without release. Ensure WakeLock.release() is called."
     },
     {
+      "rule": "WakelockTimeout",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/services/SyncService.kt",
+      "line": 93,
+      "col": 0,
+      "message": "Provide a timeout when requesting a wakelock with `PowerManager.Wakelock.acquire(long timeout)`. This will ensure the OS will cleanup any wakelocks that last longer than you intend, and will save your user's battery."
+    },
+    {
       "rule": "SetJavaScriptEnabled",
       "ruleSet": "android-lint",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 19,
       "col": 0,
-      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+      "message": "Using `setJavaScriptEnabled` can introduce XSS vulnerabilities into your application, review carefully"
     },
     {
       "rule": "AddJavascriptInterface",
@@ -344,7 +360,15 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 20,
       "col": 0,
-      "message": "Injected JavaScript interface has no @JavascriptInterface-annotated methods for targetSdk 17 or higher."
+      "message": "None of the methods in the added interface (JsBridge) have been annotated with `@android.webkit.JavascriptInterface`; they will not be visible in API 17"
+    },
+    {
+      "rule": "CustomX509TrustManager",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 25,
+      "col": 0,
+      "message": "Implementing a custom `X509TrustManager` is error-prone and likely to be insecure. It is likely to disable certificate validation altogether, and is non-trivial to implement correctly without calling Android's default implementation."
     },
     {
       "rule": "TrustedServer",
@@ -352,7 +376,15 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 25,
       "col": 0,
-      "message": "Trust manager overrides checkClientTrusted/checkServerTrusted with an empty body. Perform real certificate validation."
+      "message": "Trust manager overrides checkServerTrusted with an empty body, so it trusts every certificate. Perform real certificate validation."
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 0,
+      "message": "Empty function body detected."
     },
     {
       "rule": "InsecureTrustManager",
@@ -363,12 +395,44 @@
       "message": "Trust manager check method accepts certificates without validation. Perform certificate validation or remove the trust-all manager."
     },
     {
+      "rule": "TrustAllX509TrustManager",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 26,
+      "col": 0,
+      "message": "`checkClientTrusted` is empty, which could cause insecure network traffic due to trusting arbitrary TLS/SSL certificates presented by peers"
+    },
+    {
+      "rule": "EmptyFunctionBlock",
+      "ruleSet": "empty-blocks",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 0,
+      "message": "Empty function body detected."
+    },
+    {
       "rule": "InsecureTrustManager",
       "ruleSet": "security",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 27,
       "col": 0,
       "message": "Trust manager check method accepts certificates without validation. Perform certificate validation or remove the trust-all manager."
+    },
+    {
+      "rule": "TrustAllX509TrustManager",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 27,
+      "col": 0,
+      "message": "`checkServerTrusted` is empty, which could cause insecure network traffic due to trusting arbitrary TLS/SSL certificates presented by peers"
+    },
+    {
+      "rule": "AllowAllHostnameVerifier",
+      "ruleSet": "security",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 35,
+      "col": 0,
+      "message": "HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host."
     },
     {
       "rule": "FunctionOnlyReturningConstant",
@@ -384,7 +448,7 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 41,
       "col": 0,
-      "message": "Hardcoded /sdcard path. Use Environment.getExternalStorageDirectory() instead."
+      "message": "Do not hardcode \"/sdcard/\"; use `Environment.getExternalStorageDirectory().getPath()` instead"
     },
     {
       "rule": "SdCardPath",
@@ -392,7 +456,15 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 46,
       "col": 0,
-      "message": "Hardcoded /data/ path. Use Context.getFilesDir() instead; the per-user data directory can vary."
+      "message": "Do not hardcode \"/data/\"; use `Context.getFilesDir().getPath()` instead"
+    },
+    {
+      "rule": "SetWorldReadable",
+      "ruleSet": "android-lint",
+      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
+      "line": 47,
+      "col": 0,
+      "message": "Setting file permissions to world-readable can be risky, review carefully"
     },
     {
       "rule": "MagicNumber",
@@ -400,7 +472,7 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 55,
       "col": 0,
-      "message": "Magic number '5000'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -408,7 +480,7 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 56,
       "col": 0,
-      "message": "Magic number '10000'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "MagicNumber",
@@ -416,7 +488,7 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 61,
       "col": 0,
-      "message": "Magic number '200'. Consider extracting it to a named constant."
+      "message": "This expression contains a magic number. Consider defining it to a well named constant."
     },
     {
       "rule": "SetJavaScriptEnabled",
@@ -424,7 +496,7 @@
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 73,
       "col": 0,
-      "message": "Using setJavaScriptEnabled(true). Review for XSS vulnerabilities."
+      "message": "Using `setJavaScriptEnabled` can introduce XSS vulnerabilities into your application, review carefully"
     },
     {
       "rule": "WebViewAllowFileAccess",
@@ -451,28 +523,28 @@
       "message": "Empty function body detected."
     },
     {
-      "rule": "UnusedParameter",
-      "ruleSet": "style",
-      "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
-      "line": 83,
-      "col": 0,
-      "message": "Parameter 'message' is unused."
-    },
-    {
-      "rule": "DisableBaselineAlignmentResource",
+      "rule": "LayoutEditTextMissingImportance",
       "ruleSet": "android-lint",
-      "file": "src/main/res/layout/item_user.xml",
-      "line": 2,
+      "file": "src/main/res/layout/activity_main.xml",
+      "line": 26,
       "col": 0,
-      "message": "`LinearLayout` with weighted children should set `android:baselineAligned=\"false\"` for better performance."
+      "message": "`EditText` has no `android:importantForAutofill`, so it defaults to `auto` and the autofill service decides whether to fill it. Set `yes` or `no` to choose explicitly (API 26+)."
     },
     {
-      "rule": "StringNotLocalizableResource",
+      "rule": "TextFieldsResource",
+      "ruleSet": "android-lint",
+      "file": "src/main/res/layout/activity_main.xml",
+      "line": 26,
+      "col": 0,
+      "message": "This text field does not specify an `inputType`"
+    },
+    {
+      "rule": "TypographyEllipsis",
       "ruleSet": "android-lint",
       "file": "src/main/res/values/strings.xml",
-      "line": 15,
+      "line": 10,
       "col": 0,
-      "message": "String `btn_ok` appears to be a technical identifier (`OK`). Consider marking as `translatable=\"false\"`."
+      "message": "Replace \"...\" with ellipsis character (…, \u0026#8230;) ?"
     }
   ]
 }

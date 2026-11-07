@@ -159,6 +159,7 @@ func emitDaemonFilteredColumns(f *scanFlags, paths []string, columns *scanner.Fi
 		Writer:           w,
 		Format:           format,
 		BasePath:         basePath,
+		AbsolutePaths:    *f.AbsolutePaths,
 		StartTime:        time.Now(),
 		Version:          Version,
 		ExperimentNames:  experiment.Current().Names(),

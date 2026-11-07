@@ -27,6 +27,7 @@ func TestMayReferenceAndroidResources(t *testing.T) {
 		{"import + use", "import com.app.R\nval s = R.string.foo", true},
 		{"false-positive via identifier", "val PARSER. = 1\n", true},
 		{"comment mentioning R.", "// uses R.string.foo somewhere\nfun greet() = \"\"", true},
+		{"custom view superclass", "class Foo(c: Context) : FrameLayout(c)", true},
 		{"unicode without R", "val π = 3.14", false},
 		{"multiline Kotlin source no R", "package com.demo\nfun a() = 1\nfun b() = 2\n", false},
 	}

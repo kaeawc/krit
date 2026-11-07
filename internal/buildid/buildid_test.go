@@ -171,3 +171,57 @@ func TestPersistentHashMemoUnavailableAndBounded(t *testing.T) {
 		t.Fatalf("unavailable cache blocked direct hashing: %v", err)
 	}
 }
+
+func TestTokenIdentifiesBuilds(t *testing.T) {
+	isolatedHashCache(t)
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	oldInfo, oldExe, oldOnce, oldToken := readBuildInfo, executable, tokenOnce, token
+	t.Cleanup(func() { readBuildInfo, executable, tokenOnce, token = oldInfo, oldExe, oldOnce, oldToken })
+	tokenFor := func(settings []debug.BuildSetting, exe string) string {
+		readBuildInfo = func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{Settings: settings}, true }
+		executable = func() (string, error) { return exe, nil }
+		tokenOnce = new(sync.Once)
+		token = ""
+		return Token()
+	}
+	clean := func(rev string) []debug.BuildSetting {
+		return []debug.BuildSetting{{Key: "vcs.revision", Value: rev}, {Key: "vcs.modified", Value: "false"}}
+	}
+	dirty := []debug.BuildSetting{{Key: "vcs.revision", Value: "aaa"}, {Key: "vcs.modified", Value: "true"}}
+	exeA, exeB := write("a", "binary a"), write("b", "binary b")
+
+	// A clean checkout is identified by its revision, whatever the binary bytes are.
+	if a, b := tokenFor(clean("aaa"), exeA), tokenFor(clean("aaa"), exeB); a != b || a != "rev:aaa" {
+		t.Fatalf("same revision: %q vs %q, want both rev:aaa", a, b)
+	}
+	if a, b := tokenFor(clean("aaa"), exeA), tokenFor(clean("bbb"), exeA); a == b {
+		t.Fatalf("different revisions share token %q", a)
+	}
+	// A dirty tree or missing VCS data falls back to the executable bytes: same bytes, same token.
+	if a, b := tokenFor(dirty, exeA), tokenFor(nil, exeA); a != b || !strings.HasPrefix(a, "exe:") {
+		t.Fatalf("same executable: %q vs %q, want one exe: token", a, b)
+	}
+	if a, b := tokenFor(dirty, exeA), tokenFor(dirty, exeB); a == b {
+		t.Fatalf("different executables share token %q", a)
+	}
+}
+
+func TestOverrideTokenForTestRestores(t *testing.T) {
+	before := Token()
+	t.Run("override", func(t *testing.T) {
+		OverrideTokenForTest(t, "simulated-build")
+		if got := Token(); got != "simulated-build" {
+			t.Fatalf("Token() = %q during override", got)
+		}
+	})
+	if got := Token(); got != before {
+		t.Fatalf("Token() = %q after override, want %q", got, before)
+	}
+}

@@ -24,7 +24,9 @@ func (e ValidationError) String() string {
 var sectionValidators = map[string]func(interface{}) []ValidationError{
 	"analysis": validateAnalysis,
 	"fir":      validateFIR,
+	"scripts":  validateScripts,
 	"oracle":   validateOracle,
+	"detekt":   validateDetekt,
 }
 
 // ValidateConfig checks a Config for unknown rulesets, unknown rules,
@@ -114,7 +116,21 @@ func ValidateConfig(cfg *config.Config) []ValidationError {
 				// Ruleset-level active flag
 				continue
 			}
+			if ruleKey == "excludes" || ruleKey == "includes" {
+				if typeErr := checkType(key+"."+ruleKey, ruleVal, OptionTypeStringSlice); typeErr != nil {
+					errs = append(errs, *typeErr)
+				}
+				continue
+			}
 
+			if current, legacy := config.LegacyRuleIDs()[ruleKey]; legacy && !knownRules[ruleKey] && knownRules[current] {
+				errs = append(errs, ValidationError{
+					Path:    fmt.Sprintf("%s.%s", key, ruleKey),
+					Message: fmt.Sprintf("rule '%s' was replaced by '%s'; the old id is still honored", ruleKey, current),
+					Level:   "warning",
+				})
+				continue
+			}
 			if !knownRules[ruleKey] {
 				errs = append(errs, ValidationError{
 					Path:    fmt.Sprintf("%s.%s", key, ruleKey),
@@ -158,6 +174,101 @@ func validateFIR(raw interface{}) []ValidationError {
 		if option != "goAuthoritativeRules" {
 			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in fir", option), Level: "error"})
 		} else if typeErr := checkType(path, value, OptionTypeStringSlice); typeErr != nil {
+			errs = append(errs, *typeErr)
+		}
+	}
+	return errs
+}
+
+// validateScripts checks the top-level scripts block: a policy mode and two
+// lists of known rule IDs.
+func validateScripts(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{Path: "scripts", Message: fmt.Sprintf("expected object, got %T", raw), Level: "error"}}
+	}
+	keys := make([]string, 0, len(section))
+	for option := range section {
+		keys = append(keys, option)
+	}
+	sort.Strings(keys)
+	known := map[string]bool{}
+	for _, rules := range KnownRulesBySet() {
+		for id := range rules {
+			known[id] = true
+		}
+	}
+	var errs []ValidationError
+	for _, option := range keys {
+		path := "scripts." + option
+		switch option {
+		case "policy":
+			if err := checkType(path, section[option], OptionTypeString); err != nil {
+				errs = append(errs, *err)
+				continue
+			}
+			switch section[option] {
+			case "auto", "all", "none":
+			default:
+				errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown policy %q: want one of auto, all, none", section[option]), Level: "error"})
+			}
+		case "include", "exclude":
+			if err := checkType(path, section[option], OptionTypeStringSlice); err != nil {
+				errs = append(errs, *err)
+				continue
+			}
+			for _, id := range toStringList(section[option]) {
+				if !known[id] {
+					errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown rule %q", id), Level: "error"})
+				}
+			}
+		default:
+			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in scripts", option), Level: "error"})
+		}
+	}
+	return errs
+}
+
+// toStringList returns the string items of a decoded YAML list.
+func toStringList(v interface{}) []string {
+	switch items := v.(type) {
+	case []string:
+		return items
+	case []interface{}:
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// validateDetekt checks the top-level detekt block.
+func validateDetekt(raw interface{}) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{Path: "detekt", Message: fmt.Sprintf("expected object, got %T", raw), Level: "error"}}
+	}
+	types := map[string]OptionType{
+		"enabled":    OptionTypeBool,
+		"configFile": OptionTypeString,
+		"baseline":   OptionTypeString,
+	}
+	keys := make([]string, 0, len(section))
+	for option := range section {
+		keys = append(keys, option)
+	}
+	sort.Strings(keys)
+	var errs []ValidationError
+	for _, option := range keys {
+		path := "detekt." + option
+		want, known := types[option]
+		if !known {
+			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in detekt", option), Level: "error"})
+		} else if typeErr := checkType(path, section[option], want); typeErr != nil {
 			errs = append(errs, *typeErr)
 		}
 	}
@@ -482,6 +593,16 @@ func checkInt(path string, val interface{}) *ValidationError {
 	return &ValidationError{Path: path, Message: fmt.Sprintf("expected integer, got %T", val), Level: "error"}
 }
 
+// isDetektValueWithReason reports whether elem is a detekt `{value: ..., reason: ...}` list entry.
+func isDetektValueWithReason(elem interface{}) bool {
+	m, ok := elem.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	_, ok = m["value"].(string)
+	return ok
+}
+
 // checkStringSlice validates an OptionTypeStringSlice value. YAML decodes
 // arrays as []interface{}, so each element must be checked individually.
 // A bare string is also accepted as a one-element list to match historic
@@ -490,7 +611,7 @@ func checkStringSlice(path string, val interface{}) *ValidationError {
 	switch v := val.(type) {
 	case []interface{}:
 		for i, elem := range v {
-			if _, ok := elem.(string); !ok {
+			if _, ok := elem.(string); !ok && !isDetektValueWithReason(elem) {
 				return &ValidationError{
 					Path:    path,
 					Message: fmt.Sprintf("expected string element in %q at index %d, got %T", path, i, elem),

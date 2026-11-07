@@ -119,7 +119,13 @@ func TestEnsureRunning_ChildBindsSuccessfully(t *testing.T) {
 	if c.SocketPath() != want {
 		t.Fatalf("client socket %q, want %q", c.SocketPath(), want)
 	}
-	data, _ := os.ReadFile(argsFile)
+	// The reachable server can win the race against a slow first script exec.
+	var data []byte
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if data, _ = os.ReadFile(argsFile); strings.Contains(string(data), "\n") {
+			break
+		}
+	}
 	if got := string(data); !strings.Contains(got, "serve --root "+root+" --socket "+want) {
 		t.Fatalf("child args %q do not pass --socket %s", got, want)
 	}

@@ -3631,3 +3631,35 @@ func TestReferencesDocumentNotOpen(t *testing.T) {
 		t.Errorf("expected 0 references for unopened document, got %d", len(locs))
 	}
 }
+
+func TestByteOffsetToPositionCountsUTF16Units(t *testing.T) {
+	// "é" is 2 bytes and 1 unit; the emoji is 4 bytes and 2 units.
+	content := "aé\U0001F642b\nxy"
+	tests := []struct {
+		offset int
+		want   Position
+	}{
+		{1, Position{Line: 0, Character: 1}},
+		{3, Position{Line: 0, Character: 2}},
+		{7, Position{Line: 0, Character: 4}},
+		{8, Position{Line: 0, Character: 5}},
+		{10, Position{Line: 1, Character: 1}},
+	}
+	for _, tt := range tests {
+		if got := byteOffsetToPosition(content, tt.offset); got != tt.want {
+			t.Errorf("byteOffsetToPosition(%d) = %+v, want %+v", tt.offset, got, tt.want)
+		}
+	}
+}
+
+func TestDiagnosticColumnIsUTF16(t *testing.T) {
+	content := []byte("val s = \"héllo\U0001F642\"; val n = 1234\n")
+	// Byte column of "1234" (0-based): the emoji adds 4 bytes and the accent 2.
+	byteCol := strings.Index(string(content), "1234")
+	cols := scanner.CollectFindings([]scanner.Finding{{File: "a.kt", Line: 1, Col: byteCol + 1, RuleSet: "style", Rule: "R", Severity: "warning", Message: "m"}})
+	diags := FindingColumnsToDiagnosticsInContent(&cols, content)
+	want := uint32(len([]rune(string(content[:byteCol]))) + 1) // the emoji is a surrogate pair
+	if len(diags) != 1 || diags[0].Range.Start.Character != want {
+		t.Fatalf("got %+v, want character %d", diags, want)
+	}
+}

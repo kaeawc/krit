@@ -150,6 +150,17 @@ func (m *Matcher) ignoreForDir(dir string) *ignore.GitIgnore {
 	if gi, ok := m.combined[dir]; ok {
 		return gi
 	}
+	// A directory with no .gitignore of its own has exactly its parent's rules, so it shares the
+	// parent's compiled matcher instead of compiling every ancestor pattern again.
+	if dir != m.root && len(nonBlank(m.linesForDir(dir))) == 0 {
+		if parent := filepath.Dir(dir); parent != dir {
+			if rel, err := filepath.Rel(m.root, parent); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				gi := m.ignoreForDir(parent)
+				m.combined[dir] = gi
+				return gi
+			}
+		}
+	}
 	var lines []string
 	for _, ignoreDir := range m.ignoreDirsFor(dir, true) {
 		relDir, err := filepath.Rel(m.root, ignoreDir)
@@ -167,6 +178,17 @@ func (m *Matcher) ignoreForDir(dir string) *ignore.GitIgnore {
 	gi := ignore.CompileIgnoreLines(lines...)
 	m.combined[dir] = gi
 	return gi
+}
+
+// nonBlank returns the lines that are not empty or comments.
+func nonBlank(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if t := strings.TrimSpace(l); t != "" && !strings.HasPrefix(t, "#") {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func (m *Matcher) linesForDir(dir string) []string {

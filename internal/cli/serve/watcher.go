@@ -126,7 +126,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 	fw.backendKind = resolved
 	// Add the root synchronously so files written directly under it
 	// are caught from t=0. The recursive descent runs in a goroutine —
-	// on a 60k-file repo a sync walk costs multiple seconds, which is
+	// on a large repo a sync walk is slow, which is
 	// the daemon's first-call latency budget. For fanotify the first
 	// Add marks the containing filesystem; subsequent Adds during the
 	// recursive walk are no-ops handled inside the backend.
@@ -243,7 +243,7 @@ func (fw *fileWatcher) handle(ev backendEvent) {
 	// Chmod alone never changes file content. On macOS, kqueue emits
 	// spurious Chmod events when other processes stat or open watched
 	// files (Spotlight, git, finder previews, anti-virus tools). On a
-	// heavily-trafficked monorepo that meant every analyze drained a
+	// busy repo that meant every analyze drained a
 	// burst of Chmod events for build.gradle.kts and unrelated .kt
 	// paths, each one triggering InvalidateLibraryFacts /
 	// scheduleKotlinInvalidate. That blew the AndroidProject /

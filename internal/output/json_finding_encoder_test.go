@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -274,5 +275,25 @@ func TestAppendJSONFloat_MatchesJSONMarshal(t *testing.T) {
 				t.Fatalf("appendJSONFloat(%v) = %q, json.Marshal = %q", v, got, want)
 			}
 		})
+	}
+}
+
+func TestConfidenceAlwaysEncodesWithFraction(t *testing.T) {
+	for _, tc := range []struct {
+		conf ConfidenceValue
+		want string
+	}{{1, `"confidence":1.0`}, {0.75, `"confidence":0.75`}, {0.5, `"confidence":0.5`}} {
+		f := JSONFinding{File: "a.kt", Line: 1, Column: 1, Rule: "R", Confidence: tc.conf}
+		got := string(appendFindingJSON(nil, f))
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("fast encoder: %s lacks %s", got, tc.want)
+		}
+		want, err := json.Marshal(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Errorf("fast encoder %s differs from json.Marshal %s", got, want)
+		}
 	}
 }

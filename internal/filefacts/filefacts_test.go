@@ -255,3 +255,20 @@ func TestFunctionDecl_CachesPerNode(t *testing.T) {
 		t.Fatal("nil cache should return distinct pointers")
 	}
 }
+
+func TestMentions(t *testing.T) {
+	file := parseSample(t)
+	c := NewCache()
+	for i := 0; i < 2; i++ {
+		if !c.Mentions(file, "org.slf4j.LoggerFactory") {
+			t.Fatal("expected a mention of org.slf4j.LoggerFactory")
+		}
+		if c.Mentions(file, "okhttp3.OkHttpClient") {
+			t.Fatal("did not expect a mention of okhttp3.OkHttpClient")
+		}
+	}
+	var nilCache *Cache
+	if !nilCache.Mentions(file, "android.util.Log") {
+		t.Fatal("nil cache should still search the source")
+	}
+}

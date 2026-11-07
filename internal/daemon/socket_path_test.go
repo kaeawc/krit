@@ -36,8 +36,11 @@ func longRoot(t *testing.T) string {
 }
 
 func TestDefaultSocketPath_ShortRootUsesKritDir(t *testing.T) {
-	isolateTmp(t)
-	root := t.TempDir()
+	// Resolve first: /tmp is a symlink on macOS and t.TempDir names are too long.
+	root := filepath.Join(isolateTmp(t), "r")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if resolved, err := filepath.EvalSymlinks(root); err == nil {
 		root = resolved
 	}

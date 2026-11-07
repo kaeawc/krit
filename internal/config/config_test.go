@@ -1830,3 +1830,43 @@ func TestAutoDetectVisitsEachAncestorOnce(t *testing.T) {
 		})
 	})
 }
+
+func TestGetStringListAcceptsDetektValueWithReason(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "krit.yml")
+	yml := "style:\n  ForbiddenComment:\n    comments:\n      - reason: 'no'\n        value: 'HACK:'\n      - 'XXX:'\n"
+	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.GetStringList("style", "ForbiddenComment", "comments")
+	if len(got) != 2 || got[0] != "HACK:" || got[1] != "XXX:" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestLegacyRuleIDsFallBackToTheReplacementRule(t *testing.T) {
+	cfg := NewConfigFromData(map[string]interface{}{
+		"android-lint": map[string]interface{}{
+			"NestedScrolling": map[string]interface{}{"active": false},
+		},
+	})
+	if got := cfg.IsRuleActive("android-lint", "NestedScrollingResource"); got == nil || *got {
+		t.Fatalf("expected the legacy NestedScrolling block to deactivate NestedScrollingResource, got %v", got)
+	}
+	cfg = NewConfigFromData(map[string]interface{}{
+		"android-lint": map[string]interface{}{
+			"NestedScrolling":         map[string]interface{}{"active": false},
+			"NestedScrollingResource": map[string]interface{}{"active": true},
+		},
+	})
+	if got := cfg.IsRuleActive("android-lint", "NestedScrollingResource"); got == nil || !*got {
+		t.Fatalf("the replacement rule's own block must win, got %v", got)
+	}
+	if got := cfg.IsRuleActive("android-lint", "SomeOtherRule"); got != nil {
+		t.Fatalf("unrelated rules are unaffected, got %v", got)
+	}
+}

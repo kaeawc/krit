@@ -122,7 +122,7 @@ func TestCompileContextOnlyFileNeverYieldsFindings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.FilesScanned != 1 || result.FindingsCount != 1 || !strings.Contains(string(result.JSON), filepath.Join(scanRoot, "Example.kt")) {
+		if result.FilesScanned != 1 || result.FindingsCount != 1 || !strings.Contains(string(result.JSON), `"file": "Example.kt"`) {
 			t.Fatalf("context leaked into findings: files=%d findings=%d json=%s", result.FilesScanned, result.FindingsCount, result.JSON)
 		}
 	}

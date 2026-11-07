@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
@@ -688,7 +689,7 @@ func (s *Server) analyzeAndPublish(uri string, content []byte) {
 	s.docsMu.Unlock()
 
 	// Convert to LSP diagnostics
-	diagnostics := FindingColumnsToDiagnostics(&columns)
+	diagnostics := FindingColumnsToDiagnosticsInContent(&columns, file.Content)
 
 	s.publishDiagnostics(uri, diagnostics)
 }
@@ -786,7 +787,7 @@ func findingColumnsToCodeActions(uri string, content string, columns *scanner.Fi
 		}
 
 		ruleName := columns.RuleAt(row)
-		diag := rowToDiagnostic(columns, row)
+		diag := rowToDiagnosticInContent(columns, row, []byte(content))
 		action := CodeAction{
 			Title:       fmt.Sprintf("Fix: %s", ruleName),
 			Kind:        "quickfix",
@@ -1182,16 +1183,23 @@ func extractSymbolsFlatFromNode(file *scanner.File, idx uint32) []DocumentSymbol
 }
 
 // byteOffsetToPosition converts a byte offset in content to an LSP Position (0-based line/character).
+// The character is counted in UTF-16 code units, as LSP requires.
 func byteOffsetToPosition(content string, offset int) Position {
 	line := 0
 	col := 0
-	for i := 0; i < offset && i < len(content); i++ {
+	for i := 0; i < offset && i < len(content); {
 		if content[i] == '\n' {
 			line++
 			col = 0
-		} else {
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(content[i:])
+		col++
+		if r > 0xffff {
 			col++
 		}
+		i += size
 	}
 	return Position{Line: uint32(line), Character: uint32(col)}
 }

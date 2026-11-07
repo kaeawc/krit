@@ -55,9 +55,9 @@ func warnStaleGradleModel(dir string, paths []string, out io.Writer) {
 	if err != nil {
 		return
 	}
-	_, missing := model.Classpath()
-	if missing > 0 {
-		fmt.Fprintf(out, "warning: gradle model %s references %d classpath jars missing on disk (some may be unbuilt project module outputs); build those modules or rerun kritExportModel\n", dir, missing)
+	_, missing := model.ClasspathWithMissing()
+	if msg := missingClasspathWarning(dir, missing); msg != "" {
+		fmt.Fprintln(out, msg)
 	}
 	newest := newestModelTime(dir)
 	root := filepath.Dir(filepath.Dir(dir))
@@ -110,4 +110,28 @@ func explicitRoot(path string) string {
 		return path
 	}
 	return filepath.Dir(path)
+}
+
+// missingClasspathWarning splits missing entries into module build outputs
+// (fixed by building) and other files (fixed by re-exporting the model), so
+// the warning says which action applies.
+func missingClasspathWarning(dir string, missing []string) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	built := 0
+	for _, p := range missing {
+		if strings.Contains(filepath.ToSlash(p), "/build/") {
+			built++
+		}
+	}
+	other := len(missing) - built
+	var parts []string
+	if built > 0 {
+		parts = append(parts, fmt.Sprintf("%d module build outputs (build those modules)", built))
+	}
+	if other > 0 {
+		parts = append(parts, fmt.Sprintf("%d other files (rerun kritExportModel)", other))
+	}
+	return fmt.Sprintf("warning: gradle model %s lists %d classpath entries missing on disk: %s; types from them resolve as unknown", dir, len(missing), strings.Join(parts, " and "))
 }

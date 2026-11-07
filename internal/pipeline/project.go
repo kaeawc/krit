@@ -80,6 +80,10 @@ type ProjectArgs struct {
 	// IncludeGenerated retains files under */generated/* during parse.
 	IncludeGenerated    bool
 	GeneratedSourceDirs []string
+	// GradleModelDir and NoGradleModel mirror --gradle-model and
+	// --no-gradle-model for the oracle's file-to-project map.
+	GradleModelDir string
+	NoGradleModel  bool
 	// EditorConfigEnabled participates in the analysis-cache rule hash.
 	// CLI callers set this from --editorconfig; false preserves the
 	// daemon's existing hash contract.
@@ -143,6 +147,9 @@ type ProjectArgs struct {
 	// output. Empty means OutputPhase falls back to the first scan
 	// path.
 	BasePath string
+	// AbsolutePaths reports finding paths as absolute instead of relative to
+	// BasePath.
+	AbsolutePaths bool
 	// ShowPerf, when true, snapshots the host tracker + cache state
 	// at OutputPhase time and forwards the result through
 	// OutputInput.PerfTimings/Caches/CacheBudget.
@@ -249,7 +256,7 @@ type ProjectHostState struct {
 	// *android.Project across calls. IndexPhase.detectAndroidProject
 	// consults the slot before falling through to android.DetectProject
 	// (which walks the source tree for AndroidManifest.xml + build.gradle
-	// markers — ~1s on a 60k-file corpus). The fingerprint is the
+	// markers — about a second on a large repo). The fingerprint is the
 	// repo-root scan-path set; the watcher's InvalidateLibraryFacts hook
 	// (fired on build.gradle / version-catalog edits) also drops this
 	// slot. *WorkspaceState satisfies this interface.
@@ -281,9 +288,9 @@ type ProjectHostState struct {
 	TypeIndexCacheDir string
 	// ResidentFileTypeInfo is the daemon's in-memory cache for
 	// per-file *typeinfer.FileTypeInfo, consulted before the
-	// disk-backed TypeIndexCacheDir. On a 18k-file warm baseline
-	// this turns 18 k disk-cache hits into 18 k map lookups (~180 ms
-	// → ~5 ms in typeIndex.perFileExtraction). Watcher's
+	// disk-backed TypeIndexCacheDir. On a large warm baseline
+	// this turns per-file disk-cache hits into map lookups (
+	// much cheaper in typeIndex.perFileExtraction). Watcher's
 	// Invalidate(path) drops the corresponding entry.
 	// *WorkspaceState satisfies the interface.
 	ResidentFileTypeInfo typeinfer.ResidentFileTypeInfoCache
@@ -705,6 +712,7 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 		BaselinePath:     args.BaselinePath,
 		DiffRef:          args.DiffRef,
 		BasePath:         args.BasePath,
+		AbsolutePaths:    args.AbsolutePaths,
 		StartTime:        startTime,
 		Version:          args.Version,
 		ExperimentNames:  args.ExperimentNames,
@@ -1073,6 +1081,8 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ModuleScanRoot:      scanRoot,
 		ModuleJobsFlag:      args.Workers,
 		ModuleHasAwareRule:  hasModuleAwareRule,
+		GradleModelDir:      args.GradleModelDir,
+		NoGradleModel:       args.NoGradleModel,
 		InputTypesPath:      args.InputTypesPath,
 		OracleClasspath:     args.OracleClasspath,
 		OracleSourceDirs:    args.OracleSourceDirs,
@@ -1128,6 +1138,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	indexResult.Jobs = args.Workers
 	indexResult.ProfileDispatch = args.ProfileDispatch
 	indexResult.EmitPerFileStats = args.EmitPerFileStats
+	indexResult.SkipRuleTiming = !(args.ShowPerf || args.PerfRules || args.ProfileDispatch || (host.Tracker != nil && host.Tracker.IsEnabled()))
 	indexResult.Reporter = host.Reporter
 	indexResult.Tracker = host.Tracker
 	// WarmCrossFindings carries the pre-loaded findings forward to
@@ -1156,7 +1167,7 @@ func completeRunProjectIndexResult(args ProjectArgs, host ProjectHostState, warm
 	indexResult.CacheScanPaths = args.Paths
 	indexResult.Version = args.Version
 	if indexResult.RuleHash == "" {
-		indexResult.RuleHash = projectRuleHashForArgs(args, false)
+		indexResult.RuleHash = projectAnalysisCacheRuleHash(args, host, false)
 	}
 }
 
@@ -1286,7 +1297,7 @@ func buildWarmAnalysisCachePlan(args ProjectArgs, host ProjectHostState) warmAna
 	}
 	kotlinPaths, javaPaths := warmSourcePaths(args)
 	filePaths := warmCacheFilePaths(args, kotlinPaths, javaPaths)
-	ruleHash := projectRuleHashForArgs(args, args.EditorConfigEnabled)
+	ruleHash := projectAnalysisCacheRuleHash(args, host, args.EditorConfigEnabled)
 	result, stats := warmAnalysisCacheResult(args, host, filePaths, ruleHash)
 	plan := warmAnalysisCachePlan{
 		cache:       host.AnalysisCache,
@@ -1513,7 +1524,13 @@ func projectRuleHash(activeRules []*api.Rule, cfg *config.Config) string {
 }
 
 func projectRuleHashWithEditorConfig(activeRules []*api.Rule, cfg *config.Config, editorConfigEnabled bool) string {
-	return cache.ComputeCacheKeyHash(cacheRuleNames(activeRules, false), cfg, editorConfigEnabled)
+	return withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(activeRules, false), cfg, editorConfigEnabled), nil)
+}
+
+// withOracleIdentity folds the krit-fir jar and oracle schema identity into a
+// rule hash, so oracle-derived findings never replay across a jar upgrade.
+func withOracleIdentity(ruleHash string, scanPaths []string) string {
+	return hashutil.HashHex([]byte(ruleHash + "|" + oracle.CacheIdentity(scanPaths)))[:16]
 }
 
 // noTypeOracleCacheMarker is folded into the rule-name list of a
@@ -1537,7 +1554,18 @@ func cacheRuleNames(activeRules []*api.Rule, noTypeOracle bool) []string {
 // projectRuleHashForArgs is projectRuleHashWithEditorConfig for a hosted run:
 // it additionally separates --no-type-oracle runs from oracle-backed ones.
 func projectRuleHashForArgs(args ProjectArgs, editorConfigEnabled bool) string {
-	return cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled)
+	return withOracleIdentity(cache.ComputeCacheKeyHash(cacheRuleNames(args.ActiveRules, args.NoTypeOracle), args.Config, editorConfigEnabled), args.Paths)
+}
+
+// projectAnalysisCacheRuleHash is the rule hash that keys the per-file analysis cache. It matches what IndexPhase
+// computes, so it adds the project's SDK levels and library facts on top of projectRuleHashForArgs.
+func projectAnalysisCacheRuleHash(args ProjectArgs, host ProjectHostState, editorConfigEnabled bool) string {
+	project := preparseAndroidProject(args, host)
+	if project == nil {
+		return projectRuleHashForArgs(args, editorConfigEnabled)
+	}
+	_, libraryFactsFP := preparseProjectFingerprints(args, host)
+	return withProjectFacts(projectRuleHashForArgs(args, editorConfigEnabled), project, libraryFactsFP)
 }
 
 // wireAnalysisCacheLookup turns on IndexPhase.runCacheLoad when the
@@ -1688,8 +1716,8 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		// nor augmentDirtyWithStatDrift detected a stat change — so
 		// the on-disk stat is unchanged from the prior manifest.
 		// Calling os.Stat here would re-confirm the same stat at
-		// ~one syscall per file × 18 k files = 80-200 ms of pure
-		// overhead on kotlin-corpus warm runs. Fall back to
+		// ~one syscall per file, a large pure
+		// overhead on large-repo warm runs. Fall back to
 		// statForPath when PriorFileStats is nil (CLI path / cold
 		// daemon session — no prior manifest, so no carry-forward
 		// either).
@@ -1805,8 +1833,8 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	// manifestAnalysis / resourceAnalysis sub-scopes nest under
 	// "androidPhase" in the --perf tree. Without this the sub-scopes
 	// would sit at the top level alongside crossFileAnalysis (or vanish
-	// entirely when in.Tracker is nil) — on a kotlin-style monorepo
-	// that's 1+ seconds of otherwise-invisible time.
+	// entirely when in.Tracker is nil) — on a large monorepo
+	// that is a lot of otherwise-invisible time.
 	var androidTracker perf.Tracker
 	if host.Tracker != nil && host.Tracker.IsEnabled() {
 		androidTracker = host.Tracker.Serial("androidPhase")
@@ -2186,7 +2214,7 @@ func tryLoadFindingsBundleBeforeParse(
 	// definition they're valid for this request. Eligibility mirrors
 	// the post-Load BundleOutput cache hit below.
 	if canUseBundleOutputCache(args, host) {
-		if cachedOut := host.BundleOutput(scanner.FindingsBundleKey(fp)); cachedOut != nil {
+		if cachedOut := host.BundleOutput(bundleOutputKey(fp, args)); cachedOut != nil {
 			if bundleTracker != nil {
 				bundleTracker.TrackVoid("bundleLoadSkipped", func() {})
 				recordBundleOutcome(bundleTracker, true)
@@ -2289,6 +2317,7 @@ func emitBundleHitOutput(
 		BaselinePath:     args.BaselinePath,
 		DiffRef:          args.DiffRef,
 		BasePath:         args.BasePath,
+		AbsolutePaths:    args.AbsolutePaths,
 		StartTime:        startTime,
 		Version:          args.Version,
 		ExperimentNames:  args.ExperimentNames,
@@ -2388,10 +2417,10 @@ func serveBundleHitFromOutputCache(
 	caches []cacheutil.NamedCacheStats,
 	cacheBudget *cacheutil.BudgetReport,
 ) (ProjectResult, bool, error) {
-	key := scanner.FindingsBundleKey(fp)
-	if key == "" {
+	if scanner.FindingsBundleKey(fp) == "" {
 		return ProjectResult{}, false, nil
 	}
+	key := bundleOutputKey(fp, args)
 	out2 := host.BundleOutput(key)
 	if out2 == nil {
 		// Cache miss: must have the decoded FindingColumns to
@@ -2400,7 +2429,7 @@ func serveBundleHitFromOutputCache(
 		if cached == nil {
 			return ProjectResult{}, false, nil
 		}
-		built, ok := buildCachedBundleOutput(cached, args.ActiveRules)
+		built, ok := buildCachedBundleOutput(cached, args.ActiveRules, ReportPathFunc(reportBasePath(args.BasePath, args.Paths), args.AbsolutePaths))
 		if !ok {
 			return ProjectResult{}, false, nil
 		}
@@ -2436,14 +2465,24 @@ func serveBundleHitFromOutputCache(
 	}, true, nil
 }
 
+// bundleOutputKey keys formatted bundle output by the findings and the path
+// spelling the report uses, so one scan root never serves another's paths.
+func bundleOutputKey(fp scanner.RunFingerprint, args ProjectArgs) string {
+	return fmt.Sprintf("%s|paths=%s|abs=%t", scanner.FindingsBundleKey(fp), reportBasePath(args.BasePath, args.Paths), args.AbsolutePaths)
+}
+
 // buildCachedBundleOutput formats the bundle's findings into a
 // reusable byte buffer + summary. Mirrors what FormatJSONColumnsCompact
 // does for the findings array, but exposes the bytes so the daemon
 // can stash them on WorkspaceState. ok=false on degenerate input
 // so the caller can fall back to OutputPhase.
-func buildCachedBundleOutput(cached *scanner.FindingColumns, activeRules []*api.Rule) (*CachedBundleOutput, bool) {
+func buildCachedBundleOutput(cached *scanner.FindingColumns, activeRules []*api.Rule, reportPath func(string) string) (*CachedBundleOutput, bool) {
 	if cached == nil {
 		return nil, false
+	}
+	if reportPath != nil {
+		rewritten := cached.RewriteFiles(reportPath)
+		cached = &rewritten
 	}
 	fixLevels := make(map[string]string)
 	efforts := make(map[string]string)
@@ -2871,6 +2910,9 @@ func xmlInputsFingerprint(host ProjectHostState, project *android.Project, kotli
 	if len(resDirs) > 0 {
 		_, _ = h.Write([]byte(mergedResourceIndexFingerprint(resDirs)))
 	}
+	// Module SDK levels come from build scripts the hashes above do not cover.
+	_, _ = h.Write([]byte{3})
+	_, _ = h.Write([]byte(sdkLevelsFingerprint(project)))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

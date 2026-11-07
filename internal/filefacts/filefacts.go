@@ -10,6 +10,7 @@
 package filefacts
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -371,4 +372,30 @@ func (c *Cache) FunctionDecl(file *scanner.File, idx uint32, compute func() *Fun
 		return existing.(*FunctionDeclFact)
 	}
 	return fact
+}
+
+// mentionSet remembers, per file, whether the source text contains each queried string.
+type mentionSet struct {
+	mu sync.Mutex
+	by map[string]bool
+}
+
+// Mentions reports whether the file's source text contains text anywhere, including strings and comments.
+// Each (file, text) answer is computed once per Cache.
+func (c *Cache) Mentions(file *scanner.File, text string) bool {
+	if file == nil {
+		return false
+	}
+	if c == nil {
+		return bytes.Contains(file.Content, []byte(text))
+	}
+	set := FileFact(c, file, "mentions", func() *mentionSet { return &mentionSet{by: map[string]bool{}} })
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	if hit, ok := set.by[text]; ok {
+		return hit
+	}
+	hit := bytes.Contains(file.Content, []byte(text))
+	set.by[text] = hit
+	return hit
 }

@@ -69,6 +69,20 @@ func Token() string {
 	return token
 }
 
+// OverrideTokenForTest makes Token return token until the test ends, so a test can play two different krit
+// builds against one cache. It is not safe for parallel tests.
+func OverrideTokenForTest(tb interface {
+	Helper()
+	Cleanup(func())
+}, override string) {
+	tb.Helper()
+	oldOnce, oldToken := tokenOnce, token
+	tokenOnce = new(sync.Once)
+	tokenOnce.Do(func() {})
+	token = override
+	tb.Cleanup(func() { tokenOnce, token = oldOnce, oldToken })
+}
+
 // HashFile returns the SHA-256 hex digest of a file's contents. Cache failures
 // are ignored; the file itself remains the source of truth.
 func HashFile(path string) (string, error) {

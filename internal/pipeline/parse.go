@@ -249,7 +249,7 @@ func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string,
 	if f.Suppression != nil && f.SuppressionIdx != nil {
 		return
 	}
-	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "").WithRuleAliases(ruleAliases)
+	f.Suppression = scanner.BuildSuppressionFilter(f, nil, ruleExcludes, "").WithRuleAliases(ruleAliases).WithExcludedRules(rules.ScriptPolicyExcludes(f))
 	f.SuppressionIdx = f.Suppression.Annotations()
 }
 

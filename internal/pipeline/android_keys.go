@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/hex"
+	"path/filepath"
 	"sort"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -63,6 +64,38 @@ func (in AndroidInput) manifestKey(contentHash, bundleFP string) string {
 		InputFP:        contentHash,
 		Extra:          bundleFP,
 	})
+}
+
+// manifestInputFP identifies one manifest as the rules see it. Its bytes alone are not enough: findings carry the
+// path, stub manifests of different modules are often byte-identical, and manifest rules read the module's res/
+// files and build script from disk (for example RtlEnabledManifest scans the layouts).
+func (in AndroidInput) manifestInputFP(path, contentHash string, resDirs *resDirFingerprints) string {
+	return contentHash + "\x00" + path + "\x00" + in.manifestModuleFP(path, resDirs)
+}
+
+// manifestModuleFP fingerprints the files next to a manifest that its rules read: the module's res directory
+// and build script.
+func (in AndroidInput) manifestModuleFP(manifestPath string, resDirs *resDirFingerprints) string {
+	h := hashutil.Hasher().New()
+	if in.Project != nil {
+		res := filepath.Join(filepath.Dir(manifestPath), "res")
+		for _, dir := range in.Project.ResDirs {
+			if dir == res {
+				_, _ = h.Write([]byte(resDirs.fingerprint(res)))
+				break
+			}
+		}
+	}
+	_, _ = h.Write([]byte{0})
+	module := moduleDirOfFile(manifestPath)
+	memo := hashutil.Default()
+	for _, name := range []string{"build.gradle.kts", "build.gradle"} {
+		if sum, err := memo.HashFile(filepath.Join(module, name), nil); err == nil {
+			_, _ = h.Write([]byte(name))
+			_, _ = h.Write([]byte(sum))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (in AndroidInput) manifestBundleKey(bundleFP string) string {
@@ -179,12 +212,13 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 			return "", false
 		}
 	}
-	if needs.gradle {
-		if !writePathHashes(h, "gradle", in.Project.GradlePaths) {
+	// Manifest rules also read the module's build script and res/ files from disk.
+	if needs.gradle || needs.manifest {
+		if !writePathHashes(h, "gradle", in.Project.GradlePaths) || !writeGradlePropertiesHashes(h, in.Project.GradlePaths) {
 			return "", false
 		}
 	}
-	if needs.resources || needs.icons {
+	if needs.resources || needs.icons || needs.manifest {
 		writeResDirFingerprints(h, in.Project.ResDirs, resDirFPs)
 	}
 	if hasResourceSourceRules(in.ActiveRules) {
@@ -306,8 +340,40 @@ func (in AndroidInput) gradleKey(path, contentHash string) string {
 		// positions in the project tree (root vs module) and rules may
 		// behave differently based on which one they're inspecting.
 		InputFP: contentHash,
-		Extra:   path,
+		Extra:   path + "\x00" + gradlePropertiesKey(path),
 	})
+}
+
+// gradlePropertiesKey fingerprints the gradle.properties files a Gradle rule can read for the script at path
+// (see rules.GradlePropertiesFilesFor). Rules read properties such as android.builtInKotlin and report on
+// obsolete keys, so an edit there must change the cached findings of the scripts that see it.
+func gradlePropertiesKey(path string) string {
+	files := rules.GradlePropertiesFilesFor(path)
+	if len(files) == 0 {
+		return ""
+	}
+	h := hashutil.Hasher().New()
+	if !writePathHashes(h, "gradle-properties", files) {
+		return "unreadable"
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// writeGradlePropertiesHashes folds every gradle.properties file the Gradle rules can read for paths into h.
+func writeGradlePropertiesHashes(h interface {
+	Write([]byte) (int, error)
+}, gradlePaths []string) bool {
+	seen := map[string]bool{}
+	var files []string
+	for _, p := range gradlePaths {
+		for _, f := range rules.GradlePropertiesFilesFor(p) {
+			if !seen[f] {
+				seen[f] = true
+				files = append(files, f)
+			}
+		}
+	}
+	return writePathHashes(h, "gradle-properties", files)
 }
 
 func (in AndroidInput) gradleBundleKey(bundleFP string) string {

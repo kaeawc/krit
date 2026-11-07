@@ -68,11 +68,10 @@ func ValidateFixResult(ctx context.Context, path string, original, fixed []byte)
 func countParseErrors(ctx context.Context, content []byte) int {
 	parser := scanner.GetKotlinParser()
 	defer scanner.PutKotlinParser(parser)
-	tree, err := parser.ParseCtx(ctx, nil, content)
+	file, err := scanner.ParseKotlinFile(ctx, parser, "", content)
 	if err != nil {
 		return 1 // treat parse failure as one error
 	}
-	file := scanner.NewParsedFile("", content, tree)
 	if file == nil || file.FlatTree == nil {
 		return 0
 	}
@@ -134,8 +133,15 @@ func ApplyAllFixesColumns(ctx context.Context, columns *scanner.FindingColumns, 
 // conflicts (with their Reason populated). The returned dropped slice
 // is ordered by file path so callers can render stable diagnostics.
 func ApplyAllFixesColumnsDetailed(ctx context.Context, columns *scanner.FindingColumns, suffix string) (totalFixes int, filesModified int, dropped []DroppedFix, errors []error) {
+	totalFixes, modified, dropped, errors := ApplyAllFixesColumnsModified(ctx, columns, suffix)
+	return totalFixes, len(modified), dropped, errors
+}
+
+// ApplyAllFixesColumnsModified is ApplyAllFixesColumnsDetailed but returns the sorted paths of the files that
+// received at least one fix, so callers can report what changed instead of what was attempted.
+func ApplyAllFixesColumnsModified(ctx context.Context, columns *scanner.FindingColumns, suffix string) (totalFixes int, modified []string, dropped []DroppedFix, errors []error) {
 	if columns == nil || columns.Len() == 0 {
-		return 0, 0, nil, nil
+		return 0, nil, nil, nil
 	}
 
 	byFile := make(map[string][]int)
@@ -165,7 +171,7 @@ func ApplyAllFixesColumnsDetailed(ctx context.Context, columns *scanner.FindingC
 		}
 		if res.Applied > 0 {
 			totalFixes += res.Applied
-			filesModified++
+			modified = append(modified, path)
 		}
 		if len(res.DroppedFixes) > 0 {
 			dropped = append(dropped, res.DroppedFixes...)

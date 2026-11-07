@@ -484,7 +484,8 @@ func TestJavaCosmeticFixesApplied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := "package test;\nimport java.util.List;\n\nclass JavaFix {\n    void example() {\n        List<String> values = List.of(\"x\");\n    }\n}\n"
+	// TrailingWhitespace and NoTabs are detekt rules, so they leave Java sources alone.
+	expected := "package test;\nimport java.util.List;\n\nclass JavaFix {   \n\tvoid example() {\n\t\tList<String> values = List.of(\"x\");\n\t}\n}\n"
 	if string(content) != expected {
 		t.Fatalf("fixed Java output mismatch.\n--- got ---\n%s\n--- expected ---\n%s", string(content), expected)
 	}

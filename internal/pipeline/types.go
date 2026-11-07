@@ -304,6 +304,10 @@ type IndexResult struct {
 	// / aggregateFinalize / lineRules / suppressionFilter /
 	// topDispatchRules entries onto the per-run ruleExecution tracker.
 	EmitPerFileStats bool
+	// SkipRuleTiming, when true, stops the dispatcher from timing each rule
+	// call. Set when no perf output was requested; the timings feed only
+	// --perf and --perf-rules.
+	SkipRuleTiming bool
 	// CrossFileParentTracker, when non-nil, is the "crossFileAnalysis"
 	// parent tracker the CLI creates so IndexPhase and CrossFilePhase can
 	// nest their children (indexing + rule execution) under the same
@@ -378,7 +382,7 @@ type ResolverCache = XFileCache[typeinfer.TypeResolver]
 // AndroidProjectCache memoizes the detected *android.Project across
 // RunProject calls. DetectProject walks the project tree for
 // AndroidManifest.xml / build.gradle / src/main/res markers, which
-// costs ~1s on a 60k-file corpus even when nothing changed. The
+// costs about a second on a large repo even when nothing changed. The
 // watcher invalidates this slot whenever a build.gradle / version
 // catalog changes (same hook as LibraryFactsCache), so a non-nil
 // cached value is safe to reuse for the current run.
@@ -480,6 +484,9 @@ type OutputInput struct {
 	// BasePath is the base for relative paths in the output; empty
 	// means "first scan path".
 	BasePath string
+	// AbsolutePaths reports every finding path as absolute instead of
+	// relative to BasePath.
+	AbsolutePaths bool
 	// ShowPerf, when true, causes Output to append a --perf summary
 	// to Writer.
 	ShowPerf bool

@@ -797,6 +797,40 @@ func TestValidateConfig_AnalysisDepth(t *testing.T) {
 	}
 }
 
+func TestValidateConfig_Scripts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		section interface{}
+		wantErr bool
+	}{
+		{"policy and lists", map[string]interface{}{
+			"policy":  "none",
+			"include": []interface{}{"DeadCode"},
+			"exclude": []interface{}{"MagicNumber"},
+		}, false},
+		{"unknown policy", map[string]interface{}{"policy": "some"}, true},
+		{"unknown rule", map[string]interface{}{"include": []interface{}{"NoSuchRule"}}, true},
+		{"unknown key", map[string]interface{}{"gradle": true}, true},
+		{"list of numbers", map[string]interface{}{"exclude": 5}, true},
+		{"not an object", "all", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Data()["scripts"] = tc.section
+			gotErr := false
+			for _, e := range ValidateConfig(cfg) {
+				gotErr = gotErr || e.Level == "error"
+			}
+			if gotErr != tc.wantErr {
+				t.Errorf("error = %v, want %v: %v", gotErr, tc.wantErr, ValidateConfig(cfg))
+			}
+		})
+	}
+	if GenerateSchema(nil).Properties["scripts"] == nil {
+		t.Error("schema has no scripts section")
+	}
+}
+
 func TestValidateConfig_Oracle(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -829,5 +863,66 @@ func TestValidateConfig_Oracle(t *testing.T) {
 	props := GenerateSchema(nil).Properties["oracle"]
 	if props == nil || props.Properties["compilerPlugins"] == nil || props.Properties["compilerPluginOptions"] == nil {
 		t.Fatal("the schema must describe oracle.compilerPlugins and oracle.compilerPluginOptions")
+	}
+}
+
+func TestValidateConfig_DetektBlockAndFileGlobs(t *testing.T) {
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"detekt": map[string]interface{}{"enabled": false, "configFile": "d.yml", "baseline": "b.xml"},
+		"complexity": map[string]interface{}{
+			"excludes": []interface{}{"**/gen/**"},
+			"includes": []interface{}{"**/main/**"},
+			"LongMethod": map[string]interface{}{
+				"includes":        []interface{}{"**/main/**"},
+				"ignoreAnnotated": []interface{}{"Composable"},
+			},
+		},
+	})
+	for _, e := range ValidateConfig(cfg) {
+		t.Errorf("unexpected validation issue: %s", e)
+	}
+}
+
+func TestValidateConfig_DetektBlockRejectsBadKeys(t *testing.T) {
+	cfg := config.NewConfigFromData(map[string]interface{}{
+		"detekt": map[string]interface{}{"enabled": "yes", "bogus": 1},
+	})
+	var paths []string
+	for _, e := range ValidateConfig(cfg) {
+		paths = append(paths, e.Path)
+	}
+	joined := strings.Join(paths, ",")
+	if !strings.Contains(joined, "detekt.enabled") || !strings.Contains(joined, "detekt.bogus") {
+		t.Errorf("want errors for detekt.enabled and detekt.bogus, got %v", paths)
+	}
+}
+
+func TestGenerateSchema_DocumentsDetektBlock(t *testing.T) {
+	data, err := json.Marshal(GenerateSchema(CollectRuleMeta()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"detekt"`, `"configFile"`, `"ignoreAnnotated"`, `"includes"`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("schema missing %s", want)
+		}
+	}
+}
+
+func TestValidateConfig_LegacyRuleIDIsAWarning(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("android-lint", "NestedScrolling", "active", true)
+
+	var found bool
+	for _, e := range ValidateConfig(cfg) {
+		if e.Path == "android-lint.NestedScrolling" {
+			found = true
+			if e.Level != "warning" {
+				t.Errorf("expected a warning for a legacy rule id, got %s: %s", e.Level, e.Message)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a note about the legacy rule id")
 	}
 }

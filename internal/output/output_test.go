@@ -1267,3 +1267,20 @@ func firstSarifResultLevel(t *testing.T, raw []byte) string {
 	level, _ := first["level"].(string)
 	return level
 }
+
+func TestSARIFRegionOmitsZeroPositionsAndCarriesByteSpan(t *testing.T) {
+	cc := scanner.NewFindingCollector(2)
+	cc.Append(scanner.Finding{File: "A.kt", Line: 3, Col: 5, StartByte: 40, EndByte: 47, Severity: "warning", RuleSet: "style", Rule: "R", Message: "m"})
+	cc.Append(scanner.Finding{File: "B.kt", Severity: "warning", RuleSet: "style", Rule: "R", Message: "m"})
+	var buf bytes.Buffer
+	if err := FormatSARIFColumns(&buf, cc.Columns(), "test"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"startLine":3,"startColumn":5,"byteOffset":40,"byteLength":7`) {
+		t.Errorf("missing positioned region in %s", out)
+	}
+	if strings.Contains(out, `"startLine":0`) || strings.Contains(out, `"startColumn":0`) {
+		t.Errorf("SARIF regions must not contain zero positions: %s", out)
+	}
+}

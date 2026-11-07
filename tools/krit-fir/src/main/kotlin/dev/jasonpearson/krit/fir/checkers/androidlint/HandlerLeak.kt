@@ -98,7 +98,8 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
                 // An inner class always has a modifier list (`inner`); Go
                 // reports its first line, where the first annotation or
                 // modifier stands.
-                report(firstModifierAnchor(source) ?: source, innerMessage(declaration.symbol.classId.relativeClassName.asString()))
+                val className = declaration.symbol.classId.relativeClassName.asString()
+                report(firstModifierAnchor(source) ?: source, innerMessage(className))
             }
         }
     }

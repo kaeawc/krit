@@ -37,22 +37,32 @@ fun main(args: Array<String>) {
     // its (built) classpath and its oracle facts are written to DIR, one file per module. Modules do not
     // depend on each other here, so a caller can split a request across processes.
     extractCliValue(args, "--module-facts-file")?.let { path ->
-        val request = requireNotNull(parseModuleRequest(JavaFile(path).readText(), oneShot = true)) { "Missing modules" }
-        val dir = JavaFile(requireNotNull(extractCliValue(args, "--facts-dir")) { "--facts-dir is required" }).also { it.mkdirs() }
-        val session = AnalysisSession(emptyList(), emptyList(), request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() })
+        val request = requireNotNull(
+            parseModuleRequest(JavaFile(path).readText(), oneShot = true),
+        ) { "Missing modules" }
+        val factsDir = requireNotNull(extractCliValue(args, "--facts-dir")) { "--facts-dir is required" }
+        val dir = JavaFile(factsDir).also { it.mkdirs() }
+        val jvmTarget = request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() }
+        val session = AnalysisSession(emptyList(), emptyList(), jvmTarget)
         // An optional shared FIR check request: each module runs the checkers over its own requested files.
-        val check = extractCliValue(args, "--check-request")?.let { AnalysisSession.ModuleCheckIndex(parseRequest(JavaFile(it).readText())) }
+        val check = extractCliValue(args, "--check-request")?.let {
+            AnalysisSession.ModuleCheckIndex(parseRequest(JavaFile(it).readText()))
+        }
         for (module in request.modules) {
             val started = System.nanoTime()
             val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            // Compiler failures are not a closed set; one bad module must not stop the others.
+            @Suppress("TooGenericExceptionCaught")
             val (outcome, checked) = try {
                 session.analyzeModuleFacts(module, check)
             } catch (e: Exception) {
-                System.err.println("FACTS\t${module.id}\tfailed\t${e.message?.lineSequence()?.firstOrNull()}")
+                val reason = e.message?.lineSequence()?.firstOrNull()
+                System.err.println("FACTS\t${module.id}\tfailed\t$reason")
                 continue
             }
             if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
-            JavaFile(dir, "$name.json").writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
+            JavaFile(dir, "$name.json")
+                .writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
             System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
         }
         exitProcess(0)

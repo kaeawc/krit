@@ -38,7 +38,11 @@ const (
 	// v8: Kotlin top-level annotation normalization changes persisted FlatTrees.
 	// v9: explicit backing fields are re-typed as explicit_backing_field;
 	// v8 trees still hold the recovered property_declaration named `field`.
-	parseCacheVersion uint32 = 9
+	// v10: classes whose constructor starts on a later line parse with a body.
+	// v12: pre-parse rewrites (kotlin_rewrite.go) change Kotlin trees.
+	// v13: call-chain assignments that span lines are parenthesized.
+	// v14: a line that starts with `+` or `-` ends the statement above.
+	parseCacheVersion uint32 = 14
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.
@@ -173,14 +177,18 @@ func GrammarVersion() string {
 	return KotlinGrammarVersion()
 }
 
+// kotlinTreeRepairRevision changes when a pre-parse rewrite or tree repair
+// changes the trees ParseKotlinFlat returns, so cached trees are not reused.
+const kotlinTreeRepairRevision = 1
+
 // KotlinGrammarVersion returns a stable identifier for the tree-sitter
 // Kotlin grammar binding in use. The SymbolCount is appended so a
 // regenerated-but-same-dep-version grammar (rare but possible) still
 // invalidates cached entries.
 func KotlinGrammarVersion() string {
 	kotlinGrammarVerOnce.Do(func() {
-		kotlinGrammarVer = fmt.Sprintf("smacker/go-tree-sitter@%s#kotlin:%d",
-			treeSitterDepVersion(), kotlin.GetLanguage().SymbolCount())
+		kotlinGrammarVer = fmt.Sprintf("smacker/go-tree-sitter@%s#kotlin:%d#repair:%d",
+			treeSitterDepVersion(), kotlin.GetLanguage().SymbolCount(), kotlinTreeRepairRevision)
 	})
 	return kotlinGrammarVer
 }

@@ -46,9 +46,11 @@ func hasNamedNode(f *File, nodeType, text string) bool {
 // (2024) handles syntax added up to Kotlin 2.4 (#785). Constructs it predates
 // produce ERROR/MISSING nodes; krit then drops only findings anchored inside
 // those spans (FilterColumnsByErrorRegions), so each case also asserts that
-// the error stays local and the enclosing declaration is still indexed. When
-// the grammar is upgraded and a case starts parsing cleanly, update its
-// expectation and docs/kotlin-syntax-support.md.
+// the error stays local and the enclosing declaration is still indexed.
+// Context clauses and when guards parse cleanly because ParseKotlinFlat
+// rewrites them before parsing. When the grammar is upgraded and another case
+// starts parsing cleanly, update its expectation and
+// docs/kotlin-syntax-support.md.
 func TestKotlin24SyntaxSupport(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -59,25 +61,22 @@ func TestKotlin24SyntaxSupport(t *testing.T) {
 		{
 			name:      "context receiver (pre-2.2)",
 			src:       "class Logger\ncontext(Logger)\nfun log() { }\n",
-			survivors: [][2]string{{"function_declaration", "fun log() { }"}},
+			survivors: [][2]string{{"function_declaration", "context(Logger)\nfun log() { }"}},
 		},
 		{
 			name:      "named context parameter",
 			src:       "class Logger\ncontext(logger: Logger)\nfun log() { }\n",
-			errors:    []string{": Logger"},
-			survivors: [][2]string{{"function_declaration", "fun log() { }"}},
+			survivors: [][2]string{{"function_declaration", "context(logger: Logger)\nfun log() { }"}},
 		},
 		{
 			name:      "anonymous context parameter",
 			src:       "class Logger\ncontext(_: Logger)\nfun log() { }\n",
-			errors:    []string{": Logger"},
-			survivors: [][2]string{{"function_declaration", "fun log() { }"}},
+			survivors: [][2]string{{"function_declaration", "context(_: Logger)\nfun log() { }"}},
 		},
 		{
 			name:      "context parameter on a property",
 			src:       "class Users\ncontext(users: Users)\nval first: Int get() = 1\n",
-			errors:    []string{": Users"},
-			survivors: [][2]string{{"property_declaration", "val first: Int get() = 1"}},
+			survivors: [][2]string{{"property_declaration", "context(users: Users)\nval first: Int get() = 1"}},
 		},
 		{
 			name:      "explicit backing field",
@@ -99,7 +98,6 @@ func TestKotlin24SyntaxSupport(t *testing.T) {
 		{
 			name:      "when guard",
 			src:       "fun f(x: Any) = when (x) {\n  is Int if x > 0 -> 1\n  else -> 0\n}\n",
-			errors:    []string{"if x > 0"},
 			survivors: [][2]string{{"when_entry", "else -> 0"}},
 		},
 		{
@@ -165,15 +163,11 @@ func functionParents(f *File) map[string]string {
 	return out
 }
 
-// Named context parameters on class members (#785). One such member leaves
-// the class body intact, with an error-flagged property_declaration for the
-// `context(...)` list in front of the function. Two or more members with a
-// named context parameter in one class break the class: it keeps no body and
-// every member is left at the top level of the file. Old-style context
-// receivers `context(Logger)` do not. Both backends see the full class (the
-// tests/parity Kotlin 2.4 fixtures compare them); only an upgrade of the
-// vendored grammar fixes this. When it does, update this test and
-// docs/kotlin-syntax-support.md.
+// Named context parameters on class members (#785). The grammar reads the
+// `context(...)` list as a call expression and loses the class body when two
+// or more members have one. ParseKotlinFlat blanks the clause before parsing
+// (kotlin_rewrite.go), so every member stays in its class and the declaration
+// covers the clause.
 func TestNamedContextParametersInClassBody(t *testing.T) {
 	const header = "interface Logger\nclass C {\n"
 	named := func(name string) string {
@@ -192,7 +186,7 @@ func TestNamedContextParametersInClassBody(t *testing.T) {
 		{
 			name:    "two named context members",
 			members: named("f") + named("g") + "    fun h() { }\n",
-			parents: map[string]string{"f": "source_file", "g": "source_file", "h": "source_file"},
+			parents: map[string]string{"f": "class_body", "g": "class_body", "h": "class_body"},
 		},
 		{
 			name:    "context receivers are unaffected",

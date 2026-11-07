@@ -1328,3 +1328,44 @@ fun use(f: Foo) {}
 		t.Errorf("strict helper should NOT report a.Foo referenced; only b.Foo is")
 	}
 }
+
+func TestCollectDeclarationsFlat_SkipsLocalDeclarations(t *testing.T) {
+	src := []byte(`package demo
+
+class Holder {
+    val member = 1
+    fun run() {
+        val local = 2
+        fun helper() {}
+        class LocalClass
+        listOf(1).forEach { val inLambda = it }
+    }
+    val lazyProp: Int get() { val inGetter = 3; return inGetter }
+}
+`)
+	parser := GetKotlinParser()
+	defer PutKotlinParser(parser)
+	tree, err := parser.ParseCtx(context.Background(), nil, src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	file := NewParsedFile("demo.kt", src, tree)
+
+	var symbols []Symbol
+	collectDeclarationsFlat(file, &symbols)
+
+	got := map[string]bool{}
+	for _, s := range symbols {
+		got[s.Name] = true
+	}
+	for _, want := range []string{"Holder", "member", "run", "lazyProp"} {
+		if !got[want] {
+			t.Errorf("missing symbol %q in %v", want, symbolNames(symbols))
+		}
+	}
+	for _, local := range []string{"local", "helper", "LocalClass", "inLambda", "inGetter"} {
+		if got[local] {
+			t.Errorf("local declaration %q must not be indexed", local)
+		}
+	}
+}

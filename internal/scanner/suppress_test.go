@@ -406,3 +406,89 @@ func parseKotlinBench(b *testing.B, src string) (*sitter.Node, []byte) {
 	}
 	return tree.RootNode(), content
 }
+
+func TestMatchExcludePatternDirectoryRuns(t *testing.T) {
+	cases := []struct {
+		path, pattern string
+		want          bool
+	}{
+		{"/repo/docs/guide/examples/A.kt", "**/docs/**/examples/**", true},
+		{"docs/guide/examples/A.kt", "**/docs/**/examples/**", true},
+		{"docs/examples/A.kt", "**/docs/**/examples/**", true},
+		{"/repo/src/examples/A.kt", "**/docs/**/examples/**", false},
+		{"docs/A.kt", "**/docs/**", true},
+		{"/repo/mydocs/A.kt", "**/docs/**", false},
+		{"/repo/app/test/A.kt", "**/test/**", true},
+	}
+	for _, c := range cases {
+		if got := MatchExcludePattern(c.path, c.pattern); got != c.want {
+			t.Errorf("MatchExcludePattern(%q, %q) = %v, want %v", c.path, c.pattern, got, c.want)
+		}
+	}
+}
+
+func TestExtractSuppressedRules_NamedAndArrayArguments(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"vararg", `@Suppress("A", "B")`, []string{"A", "B"}},
+		{"named array", `@Suppress(names = ["A", "B"])`, []string{"A", "B"}},
+		{"value array", `@SuppressWarnings(value = ["A"])`, []string{"A"}},
+		{"java braces", `@SuppressWarnings(value = {"A", "B"})`, []string{"A", "B"}},
+		{"arrayOf", `@Suppress(*arrayOf("A"))`, []string{"A"}},
+		{"detekt prefix", `@Suppress("detekt.A", "detekt:B")`, []string{"A", "B"}},
+		{"constant reference is ignored", `@Suppress(NAME, "A")`, []string{"A"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractSuppressedRules(tc.text)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for _, w := range tc.want {
+				if !got[w] {
+					t.Fatalf("got %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestSplitSourceLinesDropsLeadingBOM(t *testing.T) {
+	content := []byte("\ufeffpackage a\nimport b\n")
+	lines := splitSourceLines(content)
+	if lines[0] != "package a" || lines[1] != "import b" {
+		t.Fatalf("got %q", lines)
+	}
+	if len(content) != len(strings.Join(lines, "\n"))+3 {
+		t.Fatal("content must keep the BOM so byte offsets stay valid")
+	}
+}
+
+func TestBuildSuppressionIndex_SuppressLint(t *testing.T) {
+	src := `import android.annotation.SuppressLint
+
+class A {
+    @SuppressLint("SdCardPath", "ShortAlarm")
+    val path = "/sdcard/x"
+
+    val other = "/sdcard/y"
+}
+`
+	root, content := parseKotlin(t, src)
+	idx := BuildSuppressionIndex(root, content)
+
+	covered := strings.Index(src, "/sdcard/x")
+	uncovered := strings.Index(src, "/sdcard/y")
+	if !idx.IsSuppressed(covered, "SdCardPath", "android-lint") || !idx.IsSuppressed(covered, "ShortAlarm", "android-lint") {
+		t.Errorf("@SuppressLint ids should suppress the annotated property, got %+v", idx.suppressions)
+	}
+	if idx.IsSuppressed(covered, "UseValueOf", "android-lint") {
+		t.Error("@SuppressLint must not suppress rules it does not name")
+	}
+	if idx.IsSuppressed(uncovered, "SdCardPath", "android-lint") {
+		t.Error("@SuppressLint must not cover the next property")
+	}
+}

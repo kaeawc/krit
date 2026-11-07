@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fsutil"
 )
 
@@ -18,7 +19,13 @@ import (
 type Baseline struct {
 	ManuallySuppressed map[string]bool // IDs manually suppressed by user
 	CurrentIssues      map[string]bool // IDs from last run (auto-generated)
+
+	// detektBudget counts imported detekt entries per (rule, file name). Each
+	// entry silences one finding of the rule in a file with that name.
+	detektBudget map[detektKey]int
 }
+
+type detektKey struct{ rule, file string }
 
 // BaselineEntry is a parsed baseline ID from one of the baseline sections.
 type BaselineEntry struct {
@@ -69,7 +76,56 @@ func LoadBaselineXML(path string) (*Baseline, error) {
 	for _, id := range db.CurrentIssues.IDs {
 		b.CurrentIssues[id] = true
 	}
+	b.indexDetektEntries()
 	return b, nil
+}
+
+// parseDetektBaselineID splits a detekt baseline ID, `Rule:File.kt$Scope$sig`,
+// into its rule and file name. Krit IDs, `Rule:File.kt:$Rule$msg`, put a colon
+// before the first `$` and are rejected.
+func parseDetektBaselineID(id string) (rule, file string, ok bool) {
+	colon := strings.IndexByte(id, ':')
+	if colon <= 0 {
+		return "", "", false
+	}
+	rest := id[colon+1:]
+	dollar := strings.IndexByte(rest, '$')
+	if dollar <= 0 {
+		return "", "", false
+	}
+	if c := strings.IndexByte(rest, ':'); c >= 0 && c < dollar {
+		return "", "", false
+	}
+	file = rest[:dollar]
+	if !strings.Contains(file, ".") || strings.ContainsAny(file, " /\\") {
+		return "", "", false
+	}
+	return id[:colon], file, true
+}
+
+// indexDetektEntries builds the per-(rule, file) budget from detekt-format
+// IDs, also crediting the krit rules that replaced a renamed detekt rule.
+func (b *Baseline) indexDetektEntries() {
+	renames := config.DetektRuleRenames()
+	count := func(id string) {
+		rule, file, ok := parseDetektBaselineID(id)
+		if !ok {
+			return
+		}
+		if b.detektBudget == nil {
+			b.detektBudget = map[detektKey]int{}
+		}
+		b.detektBudget[detektKey{rule, file}]++
+		for _, target := range renames[rule] {
+			b.detektBudget[detektKey{target, file}]++
+		}
+	}
+	for id := range b.ManuallySuppressed {
+		count(id)
+	}
+	for id := range b.CurrentIssues {
+		count(id)
+	}
 }
 
 // baselineJSON is the JSON encoding of a Baseline used for krit-native files.
@@ -281,6 +337,13 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 	if baseline == nil {
 		return columns.Clone()
 	}
+	var budget map[detektKey]int
+	if len(baseline.detektBudget) > 0 {
+		budget = make(map[detektKey]int, len(baseline.detektBudget))
+		for k, v := range baseline.detektBudget {
+			budget[k] = v
+		}
+	}
 	return columns.FilterRows(func(row int) bool {
 		id := BaselineIDAt(columns, row, "", basePath)
 		if baseline.Contains(id) {
@@ -289,6 +352,13 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 		if basePath != "" {
 			idFilenameOnly := BaselineIDFilenameOnlyAt(columns, row, "")
 			if baseline.Contains(idFilenameOnly) {
+				return false
+			}
+		}
+		if budget != nil {
+			key := detektKey{columns.RuleAt(row), filepath.Base(columns.FileAt(row))}
+			if budget[key] > 0 {
+				budget[key]--
 				return false
 			}
 		}

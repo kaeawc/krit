@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 var defaultTestPaths = [...]string{
@@ -40,9 +41,27 @@ func InitTestPaths(config []string, override []string) {
 	testPaths = next
 	testPathsOverride = len(override) > 0
 	testPathMu.Unlock()
+	// Swap after the markers change so a result computed from old markers is never served from the new memo.
+	testPathMemo.Store(new(sync.Map))
 }
 
+// testPathMemo holds IsTestFile results by path; rules ask for the same file once per node.
+var testPathMemo atomic.Pointer[sync.Map]
+
+func init() { testPathMemo.Store(new(sync.Map)) }
+
+// IsTestFile reports whether path is under a test source set or a configured test marker.
 func IsTestFile(path string) bool {
+	memo := testPathMemo.Load()
+	if v, ok := memo.Load(path); ok {
+		return v.(bool)
+	}
+	result := isTestFileUncached(path)
+	memo.Store(path, result)
+	return result
+}
+
+func isTestFileUncached(path string) bool {
 	slash := filepath.ToSlash(path)
 	testPathMu.RLock()
 	defer testPathMu.RUnlock()
@@ -64,7 +83,7 @@ func isGradleTestSourceSet(slash string) bool {
 		if end := strings.IndexByte(segment, '/'); end >= 0 {
 			segment = segment[:end]
 		}
-		if segment == "test" || strings.HasSuffix(segment, "Test") {
+		if isTestSourceSetName(segment) {
 			return true
 		}
 	}
@@ -81,7 +100,7 @@ func isGradleTestSourceSet(slash string) bool {
 			end += start
 		}
 		segment := slash[start:end]
-		if segment == "test" || strings.HasSuffix(segment, "Test") {
+		if isTestSourceSetName(segment) {
 			return true
 		}
 		offset = start
@@ -106,4 +125,18 @@ func cleanTestPaths(paths []string) []string {
 		out = append(out, path)
 	}
 	return out
+}
+
+// isTestSourceSetName reports whether a Gradle source set directory holds tests: test, androidTest, a
+// multiplatform *Test set, or a variant of the Android sets such as testDebug or androidTestDebug.
+func isTestSourceSetName(segment string) bool {
+	if segment == "test" || strings.HasSuffix(segment, "Test") {
+		return true
+	}
+	for _, prefix := range [...]string{"test", "androidTest"} {
+		if rest := strings.TrimPrefix(segment, prefix); rest != segment && rest != "" && rest[0] >= 'A' && rest[0] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }

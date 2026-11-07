@@ -14,6 +14,7 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 
+	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
@@ -93,7 +94,8 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // bare-identifier initializer (`val f: T = x` was indexed as `x`).
 // v12: function, method, constructor and Java field signatures carry declared
 // parameter, return and field types.
-const CrossFileCacheVersion = 12
+// v13: local functions, classes, objects and properties are no longer indexed.
+const CrossFileCacheVersion = 13
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade
@@ -171,6 +173,9 @@ func crossFileFingerprintEntries(kotlinFiles, javaFiles []*File, xmlFiles []*XML
 func fingerprintCrossFileEntries(entries []fingerprintEntry) string {
 	h := hashutil.Hasher().New()
 	_, _ = h.Write([]byte(bloomLibraryVersion))
+	_, _ = h.Write([]byte{'\n'})
+	// Extraction code changes with the build, so a new build rebuilds the index.
+	_, _ = h.Write([]byte(buildid.Token()))
 	_, _ = h.Write([]byte{'\n'})
 	for _, e := range entries {
 		_, _ = h.Write([]byte(e.Path))

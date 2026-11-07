@@ -331,6 +331,18 @@ func (c *FindingColumns) Clone() FindingColumns {
 	return clone
 }
 
+// RewriteFiles returns a copy whose file paths are mapped through fn and
+// re-sorted by the new spelling. The receiver is left unchanged.
+func (c *FindingColumns) RewriteFiles(fn func(string) string) FindingColumns {
+	out := c.Clone()
+	for i, f := range out.Files {
+		out.Files[i] = fn(f)
+	}
+	out.fileLexRanks = nil
+	out.SortByFileLine()
+	return out
+}
+
 // FileAt returns the file path for row i.
 func (c *FindingColumns) FileAt(i int) string {
 	return c.Files[c.FileIdx[i]]

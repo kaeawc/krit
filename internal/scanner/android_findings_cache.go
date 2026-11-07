@@ -21,7 +21,7 @@ import (
 // androidFindingsCacheVersion is bumped whenever the on-disk layout or
 // FindingColumns shape changes in a way the old payload cannot be decoded
 // under. Mismatch is treated as a miss.
-const androidFindingsCacheVersion uint32 = 1
+const androidFindingsCacheVersion uint32 = 2
 
 const androidFindingsCacheDirName = "android-findings-cache"
 

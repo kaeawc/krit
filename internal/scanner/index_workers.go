@@ -250,40 +250,30 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 		bloomMu.Unlock()
 	}
 
-	collectShardJob := func(job shardJob) (syms []Symbol, refs []Reference, shardBf *bloom.BloomFilter) {
+	// collectShardJob loads or builds one shard. The caller adds the reference names to its worker-local
+	// bloom. Shards no longer persist a bloom: decoding a gzip of about 1 MB of mostly zero bits per file
+	// cost far more than hashing the names again.
+	collectShardJob := func(job shardJob) (syms []Symbol, refs []Reference) {
 		if s, ok := store.LoadShard(job.Path, job.ContentHash); ok {
-			syms, refs = s.Symbols, s.References
-			// Cache hit: decode the persisted bloom. A decode
-			// failure falls back to rebuilding from refs so the
-			// aggregate is never missing a name — correctness
-			// beats a single-shard perf win.
-			if bf, err := decodeShardBloom(s.Bloom); err == nil && bf != nil {
-				shardBf = bf
-			} else if len(refs) > 0 {
-				shardBf = buildShardBloomFromRefs(refs)
-			}
-		} else {
-			syms, refs = job.Fresh()
-			shardBf = buildShardBloomFromRefs(refs)
-			encoded, _ := encodeShardBloom(shardBf)
-			blob, err := encodeShardBlob(&fileShard{
-				Version:     crossFileShardVersion,
-				Path:        job.Path,
-				ContentHash: job.ContentHash,
-				Symbols:     syms,
-				References:  refs,
-				Bloom:       encoded,
-			})
-			if err == nil {
-				pendingMu.Lock()
-				pendingWrites = append(pendingWrites, encodedShardWrite{
-					key:  shardKey(job.Path, job.ContentHash),
-					blob: blob,
-				})
-				pendingMu.Unlock()
-			}
+			return s.Symbols, s.References
 		}
-		return syms, refs, shardBf
+		syms, refs = job.Fresh()
+		blob, err := encodeShardBlob(&fileShard{
+			Version:     crossFileShardVersion,
+			Path:        job.Path,
+			ContentHash: job.ContentHash,
+			Symbols:     syms,
+			References:  refs,
+		})
+		if err == nil {
+			pendingMu.Lock()
+			pendingWrites = append(pendingWrites, encodedShardWrite{
+				key:  shardKey(job.Path, job.ContentHash),
+				blob: blob,
+			})
+			pendingMu.Unlock()
+		}
+		return syms, refs
 	}
 
 	// NOTE: This is a long-lived worker-pool fan-out, not the per-item
@@ -309,9 +299,16 @@ func collectIndexDataSharded(cacheDir string, files []*File, javaFiles []*File, 
 			go func(workerID int) {
 				defer wg.Done()
 				buf := &buffers[workerID]
+				var localBloom *bloom.BloomFilter
+				defer func() { mergeBloom(localBloom) }()
 				for job := range jobCh {
-					syms, fileRefs, shardBf := collectShardJob(job)
-					mergeBloom(shardBf)
+					syms, fileRefs := collectShardJob(job)
+					if len(fileRefs) > 0 && localBloom == nil {
+						localBloom = newShardBloom()
+					}
+					for _, r := range fileRefs {
+						localBloom.AddString(r.Name)
+					}
 					if len(syms) > 0 {
 						buf.symbols = append(buf.symbols, syms...)
 					}

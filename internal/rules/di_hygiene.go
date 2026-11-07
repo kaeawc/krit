@@ -151,9 +151,10 @@ func splitAnnotationArguments(s string) []string {
 	for i := 0; i < len(s); i++ {
 		switch c := s[i]; {
 		case inString:
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == '"' {
+			case '"':
 				inString = false
 			}
 		case c == '"':

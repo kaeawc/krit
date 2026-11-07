@@ -239,15 +239,15 @@ type ifBranch struct {
 	isElse bool
 }
 
-// bracesPolicyOrDefault returns mode, or the detekt default when mode is empty.
-func bracesPolicyOrDefault(mode string, multiLine bool, fallbackSingle, fallbackMulti string) string {
+// bracesPolicyOrDefault returns mode, or the detekt default (`always` for multi-line, `never` otherwise) when mode is empty.
+func bracesPolicyOrDefault(mode string, multiLine bool) string {
 	if mode != "" {
 		return mode
 	}
 	if multiLine {
-		return fallbackMulti
+		return "always"
 	}
-	return fallbackSingle
+	return "never"
 }
 
 // isElseIfOfParent reports whether the if_expression sits in the else branch of another if.
@@ -362,9 +362,9 @@ func (r *BracesOnIfStatementsRule) check(ctx *api.Context) {
 	}
 
 	isSingleLine := !strings.Contains(file.FlatNodeText(idx), "\n")
-	mode := bracesPolicyOrDefault(r.SingleLine, !isSingleLine, "never", "always")
+	mode := bracesPolicyOrDefault(r.SingleLine, !isSingleLine)
 	if !isSingleLine {
-		mode = bracesPolicyOrDefault(r.MultiLine, true, "never", "always")
+		mode = bracesPolicyOrDefault(r.MultiLine, true)
 	}
 
 	var violators []ifBranch
@@ -537,9 +537,9 @@ func (r *BracesOnWhenStatementsRule) check(ctx *api.Context) {
 	}
 
 	multiLine := whenIsMultiLine(file, idx)
-	mode := bracesPolicyOrDefault(r.SingleLine, multiLine, "never", "always")
+	mode := bracesPolicyOrDefault(r.SingleLine, multiLine)
 	if multiLine {
-		mode = bracesPolicyOrDefault(r.MultiLine, true, "never", "always")
+		mode = bracesPolicyOrDefault(r.MultiLine, true)
 	}
 
 	hasBraces := func(e uint32) bool { return controlBodyHasBraces(file, whenEntryBody(file, e)) }

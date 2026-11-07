@@ -275,21 +275,21 @@ func statementTerminatesFlat(file *scanner.File, stmt uint32, resolver typeinfer
 	case "when_expression":
 		return whenIsExhaustiveAndTerminatesFlat(file, stmt, resolver)
 	case "try_expression":
-		return tryTerminatesFlat(file, stmt, resolver)
+		return tryTerminatesFlat(file, stmt)
 	case "while_statement", "do_while_statement":
 		return loopNeverEndsFlat(file, stmt)
 	case "call_expression":
 		if isNothingReturningCallFlat(file, stmt, resolver) {
 			return true
 		}
-		return scopeCallLambdaTerminatesFlat(file, stmt, resolver)
+		return scopeCallLambdaTerminatesFlat(file, stmt)
 	}
 	return false
 }
 
 // tryTerminatesFlat: a finally block that terminates decides the outcome; otherwise the try body and every
 // catch block must terminate.
-func tryTerminatesFlat(file *scanner.File, try uint32, resolver typeinfer.TypeResolver) bool {
+func tryTerminatesFlat(file *scanner.File, try uint32) bool {
 	var catches []uint32
 	finally := uint32(0)
 	bodyStmts := uint32(0)
@@ -374,7 +374,7 @@ var terminatingScopeCalls = map[string]bool{
 }
 
 // scopeCallLambdaTerminatesFlat reports `x.let { return 1 }` and similar calls with a terminating lambda.
-func scopeCallLambdaTerminatesFlat(file *scanner.File, call uint32, resolver typeinfer.TypeResolver) bool {
+func scopeCallLambdaTerminatesFlat(file *scanner.File, call uint32) bool {
 	if !terminatingScopeCalls[flatCallExpressionName(file, call)] {
 		return false
 	}

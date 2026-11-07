@@ -59,17 +59,17 @@ func TestFixtureFindingPositions(t *testing.T) {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".kt") {
 			return err
 		}
+		// Fixtures that fail to parse are skipped rather than failing the walk.
 		file, perr := scanner.ParseFile(context.Background(), path)
-		if perr != nil {
-			return nil
-		}
-		count++
-		d := rules.NewDispatcher(single, nil)
-		cols := d.Run(file)
-		for _, f := range cols.Findings() {
-			if reason := positionProblem(file, f); reason != "" && !indentationRules[f.Rule] {
-				if _, seen := bad[f.Rule]; !seen {
-					bad[f.Rule] = reason + " at " + filepath.Base(path) + ":" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(f.Col)
+		if perr == nil {
+			count++
+			d := rules.NewDispatcher(single, nil)
+			cols := d.Run(file)
+			for _, f := range cols.Findings() {
+				if reason := positionProblem(file, f); reason != "" && !indentationRules[f.Rule] {
+					if _, seen := bad[f.Rule]; !seen {
+						bad[f.Rule] = reason + " at " + filepath.Base(path) + ":" + strconv.Itoa(f.Line) + ":" + strconv.Itoa(f.Col)
+					}
 				}
 			}
 		}

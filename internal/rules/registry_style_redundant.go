@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"github.com/kaeawc/krit/internal/oracle"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"

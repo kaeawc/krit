@@ -27,7 +27,7 @@ func registerAndroidLintPortRules() {
 	registerVectorChecks()
 	registerReceiverFlag()
 	registerSecurityCallChecks()
-	registerMissingInflatedId()
+	registerMissingInflatedID()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector
@@ -270,7 +270,7 @@ func registerSecurityCallChecks() {
 	registerLintRule(client.AndroidRule, client, client.Confidence(), client.check, trustManagerClassNodes, 0, nil)
 }
 
-func registerMissingInflatedId() {
+func registerMissingInflatedID() {
 	r := &MissingInflatedIdRule{AndroidRule: lintAndroidRule("MissingInflatedId", "ID not found in inflated resource", ALCCorrectness, ALSError, 5)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),

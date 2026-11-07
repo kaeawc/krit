@@ -44,7 +44,7 @@ func registerStyleExpressionsExtraRules() {
 					}
 					return
 				}
-				if !lambdaUsesImplicitIt(file, idx, idx) {
+				if !lambdaUsesImplicitIt(file, idx) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,

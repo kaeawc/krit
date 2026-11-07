@@ -66,7 +66,7 @@ func checkUnusedUnaryOperator(ctx *api.Context, r *UnusedUnaryOperatorRule) {
 	top := idx
 	for {
 		parent, ok := file.FlatParent(top)
-		if !ok || !(unaryBinaryTypes[file.FlatType(parent)] || file.FlatType(parent) == "check_expression" && unaryIsBinary(file, parent)) {
+		if !ok || !unaryBinaryTypes[file.FlatType(parent)] && (file.FlatType(parent) != "check_expression" || !unaryIsBinary(file, parent)) {
 			break
 		}
 		// detekt does not report `a += -b` on a var: the compiler rewrites it to an assignment it uses.

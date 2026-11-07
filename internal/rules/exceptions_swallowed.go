@@ -54,14 +54,14 @@ func swallowedIsNameReference(file *scanner.File, n uint32) bool {
 
 // swallowedQualified returns the expression a receiver reference belongs to: the navigation (or the call
 // wrapping it) when ref is the receiver of a `.` access, otherwise ref itself.
-func swallowedQualified(file *scanner.File, ref uint32) (uint32, bool) {
+func swallowedQualified(file *scanner.File, ref uint32) uint32 {
 	p, ok := file.FlatParent(ref)
 	if !ok || file.FlatType(p) != "navigation_expression" || file.FlatFirstChild(p) != ref {
-		return ref, false
+		return ref
 	}
 	for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
 		if file.FlatType(c) == "navigation_suffix" && strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(c)), "?.") {
-			return ref, false
+			return ref
 		}
 	}
 	// Climb through a chain `e.cause.message` and a trailing call `e.toString()`.
@@ -85,7 +85,7 @@ func swallowedQualified(file *scanner.File, ref uint32) (uint32, bool) {
 		}
 		break
 	}
-	return cur, true
+	return cur
 }
 
 func swallowedParentIsThrow(file *scanner.File, n uint32) bool {
@@ -138,7 +138,7 @@ func swallowedReferences(file *scanner.File, thrown, catchNode uint32, name stri
 		}
 		text := file.FlatNodeText(id)
 		if text == name {
-			q, _ := swallowedQualified(file, id)
+			q := swallowedQualified(file, id)
 			refs = append(refs, q)
 			return
 		}
@@ -156,7 +156,7 @@ func swallowedReferences(file *scanner.File, thrown, catchNode uint32, name stri
 			}
 			file.FlatWalkNodes(init, "simple_identifier", func(inner uint32) {
 				if file.FlatNodeText(inner) == name && swallowedIsReference(file, inner) {
-					q, _ := swallowedQualified(file, inner)
+					q := swallowedQualified(file, inner)
 					refs = append(refs, q)
 				}
 			})

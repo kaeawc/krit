@@ -1762,8 +1762,8 @@ class Holder {
 		t.Fatalf("both vars stay reported, got %d: %v", len(findings), findings)
 	}
 	for _, f := range findings {
-		switch {
-		case f.Message == "Variable 'task' could be val.", f.Message == "Variable 'count' could be val.":
+		switch f.Message {
+		case "Variable 'task' could be val.", "Variable 'count' could be val.":
 		default:
 			t.Fatalf("unexpected finding %q", f.Message)
 		}

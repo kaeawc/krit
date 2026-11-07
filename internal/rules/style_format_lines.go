@@ -196,7 +196,7 @@ func (r *MaxLineLengthRule) check(ctx *api.Context) {
 }
 
 // maxLineLengthUnwrappable reports the long lines krit exempts although detekt flags them.
-func maxLineLengthUnwrappable(line, trimmed string, max int) bool {
+func maxLineLengthUnwrappable(line, trimmed string, maxLen int) bool {
 	// A URL literal that holds the overflow.
 	if containsURLLiteral(line) {
 		return true
@@ -206,7 +206,7 @@ func maxLineLengthUnwrappable(line, trimmed string, max int) bool {
 		return true
 	}
 	// The overflow sits inside a string literal, so wrapping would change the value.
-	if overflowInsideStringLiteral(line, max) {
+	if overflowInsideStringLiteral(line, maxLen) {
 		return true
 	}
 	// Android resource identifiers (`R.<kind>.`) are single tokens.

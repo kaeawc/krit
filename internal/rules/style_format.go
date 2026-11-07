@@ -311,8 +311,8 @@ func (r *MaxChainedCallsOnSameLineRule) check(ctx *api.Context) {
 	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, maxChainedCallsMessage(count, r.MaxCalls)))
 }
 
-func maxChainedCallsMessage(count, max int) string {
-	return fmt.Sprintf("%d chained calls on a single line; more than %d calls should be wrapped to a new line.", count, max)
+func maxChainedCallsMessage(count, maxCalls int) string {
+	return fmt.Sprintf("%d chained calls on a single line; more than %d calls should be wrapped to a new line.", count, maxCalls)
 }
 
 // kotlinChainRuns splits a call chain at every selector that starts a new line and returns the call count of each

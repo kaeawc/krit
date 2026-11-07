@@ -109,7 +109,7 @@ func registerComposeDerivedStateMisuse() {
 			// A comparison reduces a changing value to fewer distinct values, which is what
 			// derivedStateOf is for. It is redundant only for a Boolean state or a remember keyed on the state.
 			name := composeComparedStateName(file, body, delegatedReads, stateHolders)
-			if name == "" || !(composeStateIsBooleanFlat(file, idx, name) || composeRememberKeyedOnFlat(file, idx, name, delegatedReads)) {
+			if name == "" || !composeStateIsBooleanFlat(file, idx, name) && !composeRememberKeyedOnFlat(file, idx, name, delegatedReads) {
 				return
 			}
 			ctx.EmitAt(callLine(file, idx), callCol(file, idx),

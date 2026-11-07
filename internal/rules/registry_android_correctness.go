@@ -675,7 +675,7 @@ func registerAndroidCorrectnessSQLiteString() {
 			arg := flatPositionalValueArgument(file, flatCallKeyArguments(file, idx), 0)
 			expr := flatValueArgumentExpression(file, arg)
 			text, ok := sqliteSQLText(file, expr, 0)
-			if !ok || !(strings.HasPrefix(text, "CREATE TABLE") || strings.HasPrefix(text, "ALTER TABLE")) {
+			if !ok || !strings.HasPrefix(text, "CREATE TABLE") && !strings.HasPrefix(text, "ALTER TABLE") {
 				return
 			}
 			if sqliteStringTypeRe.MatchString(text) {

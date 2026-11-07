@@ -162,15 +162,15 @@ func findObsoleteScriptConstructs(src *gradleSource) []obsoleteCandidate {
 		}
 	}
 	for _, m := range langVersionArgRe.FindAllStringSubmatchIndex(src.text, -1) {
-		maj, min, ok := languageVersionGroups(src.text, m, 2, 6)
-		if c, bad := languageVersionCandidate(m[0], m[1], maj, min, ok); bad {
+		maj, mnr, ok := languageVersionGroups(src.text, m, 6)
+		if c, bad := languageVersionCandidate(m[0], m[1], maj, mnr, ok); bad {
 			out = append(out, c)
 		}
 	}
 	for _, re := range []*regexp.Regexp{langVersionEnumRe, langVersionStringRe} {
 		for _, m := range re.FindAllStringSubmatchIndex(src.text, -1) {
-			maj, min, ok := languageVersionGroups(src.text, m, 2, -1)
-			if c, bad := languageVersionCandidate(m[0], m[1], maj, min, ok); bad {
+			maj, mnr, ok := languageVersionGroups(src.text, m, -1)
+			if c, bad := languageVersionCandidate(m[0], m[1], maj, mnr, ok); bad {
 				out = append(out, c)
 			}
 		}
@@ -178,9 +178,12 @@ func findObsoleteScriptConstructs(src *gradleSource) []obsoleteCandidate {
 	return out
 }
 
-// languageVersionGroups reads a major.minor pair from the submatch groups starting at group index first
+// languageVersionFirstGroup is the submatch group index of the major version in every language-version regex.
+const languageVersionFirstGroup = 2
+
+// languageVersionGroups reads a major.minor pair from the submatch groups starting at languageVersionFirstGroup
 // (and, when second >= 0, from a second pair that follows a separate "-language-version" argument).
-func languageVersionGroups(text string, m []int, first, second int) (major, minor int, ok bool) {
+func languageVersionGroups(text string, m []int, second int) (major, minor int, ok bool) {
 	pair := func(g int) (int, int, bool) {
 		if g < 0 || g+3 >= len(m) || m[g] < 0 || m[g+1] < 0 || m[g+2] < 0 || m[g+3] < 0 {
 			return 0, 0, false
@@ -189,7 +192,7 @@ func languageVersionGroups(text string, m []int, first, second int) (major, mino
 		b, errB := strconv.Atoi(text[m[g+2]:m[g+3]])
 		return a, b, errA == nil && errB == nil
 	}
-	if a, b, found := pair(first); found {
+	if a, b, found := pair(languageVersionFirstGroup); found {
 		return a, b, true
 	}
 	return pair(second)
@@ -220,21 +223,21 @@ func languageVersionCandidate(start, end, major, minor int, ok bool) (obsoleteCa
 // scriptLanguageVersion returns the language version a script pins, or an unknown version.
 func scriptLanguageVersion(src *gradleSource) gradleVersion {
 	var best gradleVersion
-	consider := func(maj, min int, ok bool) {
+	consider := func(maj, mnr int, ok bool) {
 		if !ok {
 			return
 		}
-		v := gradleVersion{major: maj, minor: min, known: true}
+		v := gradleVersion{major: maj, minor: mnr, known: true}
 		if !best.known || !v.atLeast(best.major, best.minor, 0) {
 			best = v
 		}
 	}
 	for _, m := range langVersionArgRe.FindAllStringSubmatchIndex(src.text, -1) {
-		consider(languageVersionGroups(src.text, m, 2, 6))
+		consider(languageVersionGroups(src.text, m, 6))
 	}
 	for _, re := range []*regexp.Regexp{langVersionEnumRe, langVersionStringRe} {
 		for _, m := range re.FindAllStringSubmatchIndex(src.text, -1) {
-			consider(languageVersionGroups(src.text, m, 2, -1))
+			consider(languageVersionGroups(src.text, m, -1))
 		}
 	}
 	return best

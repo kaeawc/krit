@@ -1,10 +1,11 @@
 package librarymodel
 
 import (
-	"github.com/kaeawc/krit/internal/buildid"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/buildid"
 )
 
 func TestProjectProfileCache_HitAndGradleInvalidation(t *testing.T) {

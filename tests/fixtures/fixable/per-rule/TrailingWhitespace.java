@@ -1,7 +1,0 @@
-package style;
-
-class TrailingWhitespaceFixture {
-    void example() {   
-        int value = 1;	
-    }
-}

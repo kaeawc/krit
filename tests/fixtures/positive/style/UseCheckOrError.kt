@@ -9,3 +9,8 @@ fun processWrapped(value: Int) {
     if (!(value > 0)) throw IllegalStateException()
     println("processing")
 }
+
+fun processNonNegated(cond: Boolean) {
+    if (cond) throw IllegalStateException()
+    println("processing")
+}

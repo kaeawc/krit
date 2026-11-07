@@ -1,8 +1,11 @@
 package style
 
-fun example() {
-    val nullable: String? = "hello"
-    nullable
-    val x = "world"
-    x.toString()
+class Widget {
+    fun render(): Int = 1
+}
+
+fun example(widget: Widget, nullable: Widget?) {
+    val first = widget.render()
+    val second = widget
+    val third = nullable?.render()
 }

@@ -1,0 +1,5 @@
+<network-security-config>
+    <domain-config>
+        <domain>example.com</domain>
+    </domain-config>
+</network-security-config>

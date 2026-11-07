@@ -4,10 +4,12 @@ annotation class Provides
 
 interface Plugin
 
+class Registry
+
 class PluginsModule {
     @Provides
-    fun providePlugins(): Set<Plugin> = emptySet()
+    fun provideRegistry(plugins: Set<Plugin>): Registry = Registry()
 
     @Provides
-    fun providePluginMap(): Map<String, Plugin> = emptyMap()
+    fun provideMapRegistry(plugins: Map<String, Plugin>): Registry = Registry()
 }

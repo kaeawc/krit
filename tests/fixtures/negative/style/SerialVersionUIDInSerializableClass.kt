@@ -4,7 +4,7 @@ import java.io.Serializable
 
 class Foo : Serializable {
     companion object {
-        const val serialVersionUID = 1L
+        private const val serialVersionUID = 1L
     }
 
     fun doSomething() {

@@ -1,7 +1,7 @@
 package test
 
-import java.security.SecureRandom
+import javax.crypto.Cipher
 
-fun createRandom(): SecureRandom {
-    return SecureRandom()
+fun createCipher(): Cipher {
+    return Cipher.getInstance("AES")
 }

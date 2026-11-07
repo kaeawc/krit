@@ -30,6 +30,13 @@ interface UserDao {
         println("id=$id")
     }
 
+    @Query("SELECT * FROM posts WHERE user_id = :id")
+    suspend fun getPosts(id: Long): List<Post>
+
+    // Two suspend queries need the outer transaction to read a consistent snapshot.
+    @Transaction
+    suspend fun loadBoth(id: Long): UserWithPosts = UserWithPosts(getUser(id), getPosts(id))
+
     // Suspend @Query without @Transaction — Room handles it directly.
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun fetch(id: Long): User

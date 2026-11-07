@@ -5,9 +5,9 @@ fun process(valid: Boolean) {
     println("processing")
 }
 
-// Non-negated condition should not trigger
-fun processNonNegated(cond: Boolean) {
-    if (cond) throw IllegalArgumentException()
+// A throw with a cause cannot be expressed with check()/require()
+fun processWithCause(cond: Boolean, cause: Exception) {
+    if (cond) throw IllegalArgumentException("bad", cause)
     println("processing")
 }
 

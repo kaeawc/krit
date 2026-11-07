@@ -41,3 +41,26 @@ class BackgroundTask {
 
     private fun process() {}
 }
+
+// detekt only looks at the caught type, so a catch that logs, rethrows or lives in a worker still reports.
+class Runner : Runnable {
+    override fun run() {
+        try {
+            doWork()
+        } catch (e: Exception) {
+            println(e)
+        }
+    }
+
+    private fun doWork() {}
+}
+
+fun rethrow() {
+    try {
+        doSomething()
+    } catch (e: Exception) {
+        throw IllegalStateException(e)
+    }
+}
+
+private fun doSomething() {}

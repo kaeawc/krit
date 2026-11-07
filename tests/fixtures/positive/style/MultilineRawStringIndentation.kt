@@ -5,5 +5,5 @@ fun example() {
         Hello
     World
             Foo
-    """
+    """.trimIndent()
 }

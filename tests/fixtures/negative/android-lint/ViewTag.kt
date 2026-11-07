@@ -4,30 +4,30 @@ import android.app.Activity
 import android.view.View
 
 class SafeTagUsage {
-    fun bindData(view: View, label: String, contextName: String) {
+    fun bindData(view: View, label: String, other: View) {
         view.setTag(label)
-        view.setTag("activity")
-        view.setTag(contextName)
+        view.setTag(other)
+        view.setTag(1, label)
     }
 
-    fun keyedTag(view: View, activity: Activity) {
+    fun keyedActivity(view: View, activity: Activity) {
         view.setTag(1, activity)
     }
 
     fun unresolvedArg(view: View) {
-        view.setTag(activity)
+        view.setTag(1, activity)
     }
 }
 
 class TagStore {
-    fun setTag(value: Activity) {}
+    fun setTag(key: Int, value: View) {}
 }
 
-fun unrelated(store: TagStore, activity: Activity) {
-    store.setTag(activity)
+fun unrelated(store: TagStore, other: View) {
+    store.setTag(1, other)
 }
 
 fun commentsAndStrings() {
-    // view.setTag(activity)
-    val sample = "view.setTag(activity)"
+    // view.setTag(1, other)
+    val sample = "view.setTag(1, other)"
 }

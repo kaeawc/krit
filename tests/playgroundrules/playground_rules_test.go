@@ -98,9 +98,16 @@ func TestPlaygroundCustomRules_EndToEnd(t *testing.T) {
 	})
 
 	t.Run("kritCheck fires both rules on the expected lines", func(t *testing.T) {
+		// --daemon leaves a krit daemon and a krit-fir JVM serving the playground; stop them.
+		t.Cleanup(func() {
+			stop := exec.Command(kritBin, "daemon", "stop", "-repo", playgroundDir)
+			stop.Dir = repoRoot
+			_ = stop.Run()
+		})
 		stdout := runKrit(t, kritBin, repoRoot,
 			"--custom-rule-jars", jarPath,
 			"--daemon",
+			"--absolute-paths",
 			"-f", "json",
 			"--no-cache",
 			"-q",

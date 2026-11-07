@@ -6,4 +6,10 @@ class ComplexCondition {
             println("complex")
         }
     }
+
+    fun checkWithLambda(items: List<Int>, a: Boolean) {
+        if (a && items.any { it > 0 && it < 10 && it != 5 && it != 7 || it == 42 }) {
+            println("detekt counts the operators in the lambda text too")
+        }
+    }
 }

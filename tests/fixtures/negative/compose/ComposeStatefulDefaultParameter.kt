@@ -1,5 +1,7 @@
 package test
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.Composable
 
 @Composable
-fun Counter(state: CounterState = rememberCounterState()) { }
+fun Pane(state: ScrollState = rememberScrollState()) { }

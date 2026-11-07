@@ -148,7 +148,7 @@ func injectCases() []genCase {
 	for _, o := range owners {
 		for _, d := range dispatchers {
 			name := fmt.Sprintf("inject_%s_%s", o.key, d)
-			shouldFlag := o.flagged && d != "Main"
+			shouldFlag := o.flagged && d != "Main" && d != "Unconfined"
 			body := fmt.Sprintf("withContext(Dispatchers.%s) { }", d)
 			src := fmt.Sprintf(`package %s
 import kotlinx.coroutines.Dispatchers

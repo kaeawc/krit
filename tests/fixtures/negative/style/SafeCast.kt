@@ -49,3 +49,19 @@ fun processWhenDifferentTypes(x: Any) {
         }
     }
 }
+
+// A cast repeated after an is-check is not reported unless reportRedundantCasts is on
+fun redundantCastAfterIsCheck(x: Any) {
+    if (x is String) {
+        val s = x as String
+        println(s)
+    }
+}
+
+// Other branch values are not the safe cast pattern
+fun otherValues(x: Any, y: Any?) {
+    val a = if (x is String) x else "default"
+    val b = if (x is String) y else null
+    val c = if (x is String) x else x
+    println("$a $b $c")
+}

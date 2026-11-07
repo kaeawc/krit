@@ -1,7 +1,5 @@
 package fixtures.positive.potentialbugs
 
 class ImplicitUnitReturnType {
-    fun foo() {
-        println("hi")
-    }
+    fun foo(items: MutableList<Int>) = items.clear()
 }

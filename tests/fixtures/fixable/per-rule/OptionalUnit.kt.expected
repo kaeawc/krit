@@ -4,7 +4,7 @@ fun doSomething() {
     println("hello")
 }
 
-fun doOther() = println("world")
+fun doOther(): Unit = println("world")
 
 fun returnUnit() {
     return

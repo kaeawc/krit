@@ -9,9 +9,11 @@ fun doSomething() {
     println("hi")
 }
 
-// (2) override no-op required by a framework contract — not a bug.
+// (2) override whose body documents the no-op.
 class Impl : Listener {
-    override fun onEvent() {}
+    override fun onEvent() {
+        // intentionally empty
+    }
 }
 
 // (3) body whose only content is a line comment documenting the no-op.

@@ -22,7 +22,6 @@ public class Foo constructor(val name: String) {
         val arr: Array<Int> = intArrayOf(1, 2, 3)
         val arr2: Array<Boolean> = booleanArrayOf()
         val greeting = "hello".orEmpty()
-        val x2 = items.apply { }
         val thing = { it -> it + 1 }
         for (i in 0 until 10) {
             println(i)

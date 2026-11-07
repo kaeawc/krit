@@ -4,5 +4,5 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class HardcodedDateFormat {
-    val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    val fileNameFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE-MMM-d-yyyy")
 }

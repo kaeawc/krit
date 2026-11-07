@@ -202,17 +202,9 @@ func (r *TextFieldsResourceRule) check(ctx *api.Context) {
 }
 
 func (r *TextFieldsResourceRule) checkEditText(ctx *api.Context, idx *android.ResourceIndex, path string, v *android.View) {
-	inputType, hasAttr := v.Attributes["android:inputType"]
-	if !hasAttr {
-		if style := v.Attributes["style"]; style != "" {
-			value, found, resolved := lintStyleAttribute(idx, style, "android:inputType")
-			if !resolved {
-				return
-			}
-			if found {
-				inputType = value
-			}
-		}
+	inputType, hasAttr, resolved := textFieldsInputType(idx, v)
+	if !resolved {
+		return
 	}
 	if !hasAttr && inputType == "" || inputType == "TODO" {
 		if _, ok := v.Attributes["android:inputMethod"]; ok {
@@ -225,46 +217,71 @@ func (r *TextFieldsResourceRule) checkEditText(ctx *api.Context, idx *android.Re
 	if !ok || id == "" || id == "editText" {
 		return
 	}
-	mismatch := func(msg string) {
+	_, hasPhoneNumber := v.Attributes["android:phoneNumber"]
+	_, hasPassword := v.Attributes["android:password"]
+	for _, msg := range textFieldsIDMismatches(id, inputType, hasPhoneNumber, hasPassword) {
 		line, col := v.PosOf("android:id")
 		if hasAttr {
 			line, col = v.PosOf("android:inputType")
 		}
 		ctx.Emit(baseFindingAt(path, line, col, r.BaseRule, msg))
 	}
-	_, hasPhoneNumber := v.Attributes["android:phoneNumber"]
-	_, hasPassword := v.Attributes["android:password"]
+}
+
+// textFieldsInputType returns the view's inputType, falling back to its project style. hasAttr reports an
+// explicit attribute; resolved is false when the style is not a project style, so the type is unknown.
+func textFieldsInputType(idx *android.ResourceIndex, v *android.View) (inputType string, hasAttr, resolved bool) {
+	inputType, hasAttr = v.Attributes["android:inputType"]
+	if hasAttr {
+		return inputType, true, true
+	}
+	if style := v.Attributes["style"]; style != "" {
+		value, found, ok := lintStyleAttribute(idx, style, "android:inputType")
+		if !ok {
+			return "", false, false
+		}
+		if found {
+			inputType = value
+		}
+	}
+	return inputType, false, true
+}
+
+// textFieldsIDMismatches returns the messages for an id that names a kind of input the inputType does not declare.
+func textFieldsIDMismatches(id, inputType string, hasPhoneNumber, hasPassword bool) []string {
+	var msgs []string
 	switch {
 	case lintContainsWord(id, "phone", true, true):
 		if !strings.Contains(inputType, "phone") && !hasPhoneNumber {
-			mismatch("The view name (`" + id + "`) suggests this is a phone number, but it does not include '`phone`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a phone number, but it does not include '`phone`' in the `inputType`")
 		}
 	case lintContainsWord(id, "width", false, true) || lintContainsWord(id, "height", false, true) ||
 		lintContainsWord(id, "size", false, true) || lintContainsWord(id, "length", false, true) ||
 		lintContainsWord(id, "weight", false, true) || lintContainsWord(id, "number", false, true):
 		if !strings.Contains(inputType, "number") && !strings.Contains(inputType, "phone") {
-			mismatch("The view name (`" + id + "`) suggests this is a number, but it does not include a numeric `inputType` (such as '`numberSigned`')")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a number, but it does not include a numeric `inputType` (such as '`numberSigned`')")
 		}
 	case lintContainsWord(id, "password", true, true):
 		if !strings.Contains(inputType, "Password") && !hasPassword {
-			mismatch("The view name (`" + id + "`) suggests this is a password, but it does not include '`textPassword`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a password, but it does not include '`textPassword`' in the `inputType`")
 		}
 	case lintContainsWord(id, "email", true, true):
 		if !strings.Contains(inputType, "Email") {
-			mismatch("The view name (`" + id + "`) suggests this is an e-mail address, but it does not include '`textEmail`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is an e-mail address, but it does not include '`textEmail`' in the `inputType`")
 		}
 	case lintEndsWithWord(id, "pin", false, true):
 		if !strings.Contains(inputType, "numberPassword") && !hasPassword {
-			mismatch("The view name (`" + id + "`) suggests this is a password, but it does not include '`numberPassword`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a password, but it does not include '`numberPassword`' in the `inputType`")
 		}
 	default:
 		if (lintContainsWord(id, "uri", false, false) || lintContainsWord(id, "url", false, false)) && !strings.Contains(inputType, "textUri") {
-			mismatch("The view name (`" + id + "`) suggests this is a URI, but it does not include '`textUri`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a URI, but it does not include '`textUri`' in the `inputType`")
 		}
 		if lintContainsWord(id, "date", false, false) && !strings.Contains(inputType, "date") {
-			mismatch("The view name (`" + id + "`) suggests this is a date, but it does not include '`date`' or '`datetime`' in the `inputType`")
+			msgs = append(msgs, "The view name (`"+id+"`) suggests this is a date, but it does not include '`date`' or '`datetime`' in the `inputType`")
 		}
 	}
+	return msgs
 }
 
 // lintIndexOfWord mirrors TextFieldDetector.indexOfWord: it finds needle in a view id at a

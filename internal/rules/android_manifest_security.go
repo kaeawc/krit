@@ -213,40 +213,15 @@ func deepLinkMissingAutoVerifyFilters(path string) []deepLinkIntentFilter {
 			}
 			stack = append(stack, t.Name.Local)
 			if t.Name.Local == "intent-filter" && (parent == "activity" || parent == "activity-alias") {
-				filter = &deepLinkIntentFilter{line: xmlLineAtOffset(data, tokenStart)}
-				for _, attr := range t.Attr {
-					// A placeholder or resource value is unknown, so only "false" is missing.
-					if attr.Name.Local == "autoVerify" && !strings.EqualFold(strings.TrimSpace(attr.Value), "false") {
-						filter.autoVerify = true
-					}
-				}
+				filter = newDeepLinkIntentFilter(xmlLineAtOffset(data, tokenStart), t.Attr)
 				continue
 			}
-			if filter == nil {
-				continue
-			}
-			switch t.Name.Local {
-			case "action":
-				if androidXMLAttr(t.Attr, "name") == "android.intent.action.VIEW" {
-					filter.hasView = true
-				}
-			case "category":
-				name := androidXMLAttr(t.Attr, "name")
-				if name == "android.intent.category.DEFAULT" {
-					filter.hasDefault = true
-				}
-				if name == "android.intent.category.BROWSABLE" {
-					filter.hasBrowse = true
-				}
-			case "data":
-				scheme := strings.ToLower(androidXMLAttr(t.Attr, "scheme"))
-				if scheme == "http" || scheme == "https" {
-					filter.hasWebData = true
-				}
+			if filter != nil {
+				filter.recordChild(t)
 			}
 		case xml.EndElement:
 			if filter != nil && t.Name.Local == "intent-filter" {
-				if !filter.autoVerify && filter.hasView && filter.hasDefault && filter.hasBrowse && filter.hasWebData {
+				if filter.missingAutoVerify() {
 					out = append(out, *filter)
 				}
 				filter = nil
@@ -257,6 +232,46 @@ func deepLinkMissingAutoVerifyFilters(path string) []deepLinkIntentFilter {
 		}
 	}
 	return out
+}
+
+// newDeepLinkIntentFilter starts tracking an intent-filter opened at line with the given attributes.
+func newDeepLinkIntentFilter(line int, attrs []xml.Attr) *deepLinkIntentFilter {
+	filter := &deepLinkIntentFilter{line: line}
+	for _, attr := range attrs {
+		// A placeholder or resource value is unknown, so only "false" is missing.
+		if attr.Name.Local == "autoVerify" && !strings.EqualFold(strings.TrimSpace(attr.Value), "false") {
+			filter.autoVerify = true
+		}
+	}
+	return filter
+}
+
+// recordChild records the action, category or data element t nested in the intent-filter.
+func (f *deepLinkIntentFilter) recordChild(t xml.StartElement) {
+	switch t.Name.Local {
+	case "action":
+		if androidXMLAttr(t.Attr, "name") == "android.intent.action.VIEW" {
+			f.hasView = true
+		}
+	case "category":
+		name := androidXMLAttr(t.Attr, "name")
+		if name == "android.intent.category.DEFAULT" {
+			f.hasDefault = true
+		}
+		if name == "android.intent.category.BROWSABLE" {
+			f.hasBrowse = true
+		}
+	case "data":
+		scheme := strings.ToLower(androidXMLAttr(t.Attr, "scheme"))
+		if scheme == "http" || scheme == "https" {
+			f.hasWebData = true
+		}
+	}
+}
+
+// missingAutoVerify reports whether the filter is a browsable HTTP(S) VIEW link without autoVerify.
+func (f *deepLinkIntentFilter) missingAutoVerify() bool {
+	return !f.autoVerify && f.hasView && f.hasDefault && f.hasBrowse && f.hasWebData
 }
 
 func androidXMLAttr(attrs []xml.Attr, local string) string {

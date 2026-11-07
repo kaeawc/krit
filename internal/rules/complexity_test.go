@@ -2,6 +2,7 @@ package rules_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,8 +115,8 @@ func TestLongMethod_TripleQuoteInBlockComment(t *testing.T) {
 	}
 }
 
-// Sanity: a multi-line raw string literal still suppresses its content lines.
-func TestLongMethod_RawStringContentSkipped(t *testing.T) {
+// A multi-line raw string literal counts its non-blank content lines, as detekt does.
+func TestLongMethod_RawStringContentCounted(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("package test\nfun process() {\n")
 	b.WriteString("    val s = \"\"\"\n")
@@ -128,8 +129,8 @@ func TestLongMethod_RawStringContentSkipped(t *testing.T) {
 	b.WriteString("    val y = 1\n")
 	b.WriteString("}\n")
 	findings := runRuleByName(t, "LongMethod", b.String())
-	if len(findings) != 0 {
-		t.Fatalf("expected no LongMethod finding (raw-string body should not count), got %d", len(findings))
+	if len(findings) != 1 {
+		t.Fatalf("expected a LongMethod finding (raw-string body counts), got %d", len(findings))
 	}
 }
 
@@ -169,6 +170,26 @@ func TestCyclomaticComplexMethod_Negative(t *testing.T) {
 	findings := runRuleByName(t, "CyclomaticComplexMethod", b.String())
 	if len(findings) != 0 {
 		t.Fatalf("expected no CyclomaticComplexMethod finding, got %d", len(findings))
+	}
+}
+
+func TestCyclomaticComplexMethod_CountsElvisButNotSafeCall(t *testing.T) {
+	build := func(use func(i int) string) string {
+		var b strings.Builder
+		b.WriteString("package test\nfun load(a: A?): Int {\n")
+		for i := 1; i <= 19; i++ {
+			b.WriteString("    val x" + itoa(i) + " = " + use(i) + "\n")
+		}
+		b.WriteString("    return x1\n}\n")
+		return b.String()
+	}
+	elvis := build(func(i int) string { return "a?.v" + itoa(i) + " ?: error(\"missing\")" })
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", elvis); len(findings) != 1 {
+		t.Fatalf("19 elvis operators give complexity 20, which detekt reports, got %d findings", len(findings))
+	}
+	safe := build(func(i int) string { return "a?.v" + itoa(i) })
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", safe); len(findings) != 0 {
+		t.Fatalf("safe calls are not decision points, got %d findings", len(findings))
 	}
 }
 
@@ -274,118 +295,74 @@ fun classify(x: Int): String {
 	}
 }
 
-func TestCyclomaticComplexMethod_HonorsIgnoreNestingFunctions(t *testing.T) {
-	// IgnoreNestingFunctions + NestingFunctions were previously dead
-	// config — exposed in metadata but never consulted because the
-	// shared metrics walker stops at every lambda_literal. The new
-	// wiring uses a fresh walker that respects the nesting-list
-	// configuration:
-	//   - ignoreNestingFunctions=true (default) + listed callee →
-	//     skip the lambda body.
-	//   - listed callee removed from the list → count its decisions.
-	//   - ignoreNestingFunctions=false → count decisions in ALL lambdas.
-	var rule *rules.CyclomaticComplexMethodRule
-	for _, candidate := range api.Registry {
-		if candidate.ID == "CyclomaticComplexMethod" {
-			var ok bool
-			rule, ok = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
-			if !ok {
-				t.Fatalf("expected CyclomaticComplexMethodRule, got %T", candidate.Implementation)
-			}
-			break
-		}
-	}
-	if rule == nil {
-		t.Fatal("CyclomaticComplexMethod rule not registered")
-	}
-	originalFlag := rule.IgnoreNestingFunctions
-	originalList := rule.NestingFunctions
-	defer func() {
-		rule.IgnoreNestingFunctions = originalFlag
-		rule.NestingFunctions = originalList
-	}()
+func TestCyclomaticComplexMethod_NestingFunctionsAddOnePerCallWithLambda(t *testing.T) {
+	// detekt counts a call to a nesting function (also, apply, forEach, isNotNull, ifNull, let, run, use,
+	// with by default) that has a lambda as +1, and counts the decisions inside every lambda.
+	rule := cyclomaticRule(t)
+	original := *rule
+	defer func() { *rule = original }()
 
-	// 16 if-expressions inside `forEach { ... }`. Threshold is 14.
+	// 1 + 7 forEach/let/run/with/apply/also/use calls with a lambda = 8, under the threshold of 14 ...
 	var b strings.Builder
-	b.WriteString("package test\nfun process(items: List<Int>): Int {\n  var r = 0\n  items.forEach { item ->\n")
-	for i := 1; i <= 16; i++ {
-		b.WriteString("    if (item > ")
-		b.WriteString(itoa(i))
-		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
-		b.WriteString("\n")
+	b.WriteString("package test\nfun process(items: List<Int>, x: Int?): Int {\n  var r = 0\n")
+	for _, name := range []string{"forEach", "let", "run", "with", "apply", "also", "use"} {
+		b.WriteString("  items." + name + " { r += 1 }\n")
 	}
-	b.WriteString("  }\n  return r\n}\n")
+	b.WriteString("  return r\n}\n")
 	code := b.String()
-
-	// Default: IgnoreNestingFunctions=true and forEach is on the list,
-	// so the lambda body is skipped — no finding.
+	rule.AllowedComplexity = 7
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 1 ||
+		!strings.Contains(findings[0].Message, "(complexity: 8)") {
+		t.Fatalf("seven nesting-function lambdas give complexity 8, got %+v", findings)
+	}
+	// ... and ignoreNestingFunctions removes the +1 per call.
+	rule.IgnoreNestingFunctions = true
 	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
-		t.Fatalf("expected no findings with default forEach in NestingFunctions, got %d", len(findings))
+		t.Fatalf("expected no findings under IgnoreNestingFunctions=true, got %+v", findings)
 	}
-
-	// Remove forEach from the list. The lambda body now counts and the
-	// function crosses the threshold.
-	rule.NestingFunctions = []string{"apply", "let", "run", "with"}
-	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
-		t.Fatal("expected finding once forEach is no longer in NestingFunctions")
-	}
-
-	// Restore the list, then turn the flag off to count decisions in every
-	// lambda regardless of callee.
-	rule.NestingFunctions = originalList
+	// A narrowed nestingFunctions list counts only the listed names.
 	rule.IgnoreNestingFunctions = false
-	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
-		t.Fatal("expected finding under IgnoreNestingFunctions=false (all lambda decisions count)")
+	rule.NestingFunctions = []string{"let"}
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
+		t.Fatalf("one listed call gives complexity 2, got %+v", findings)
+	}
+
+	// Decisions inside a lambda always count, whatever the callee.
+	var d strings.Builder
+	d.WriteString("package test\nfun process(items: List<Int>): Int {\n  var r = 0\n  items.map { item ->\n")
+	for i := 1; i <= 14; i++ {
+		d.WriteString("    if (item > " + itoa(i) + ") r += " + itoa(i) + "\n")
+	}
+	d.WriteString("  }\n  return r\n}\n")
+	rule.AllowedComplexity = 14
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", d.String()); len(findings) != 1 {
+		t.Fatalf("14 ifs inside a map lambda give complexity 15, got %d findings", len(findings))
 	}
 }
 
-func TestCyclomaticComplexMethod_HonorsIgnoreLocalFunctions(t *testing.T) {
-	// IgnoreLocalFunctions was previously a dead config — exposed in
-	// metadata but never consulted. With it set to true, complexity
-	// findings on nested local functions are suppressed; the outer
-	// function is still analyzed independently.
-	var rule *rules.CyclomaticComplexMethodRule
-	for _, candidate := range api.Registry {
-		if candidate.ID == "CyclomaticComplexMethod" {
-			var ok bool
-			rule, ok = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
-			if !ok {
-				t.Fatalf("expected CyclomaticComplexMethodRule, got %T", candidate.Implementation)
-			}
-			break
-		}
-	}
-	if rule == nil {
-		t.Fatal("CyclomaticComplexMethod rule not registered")
-	}
-	original := rule.IgnoreLocalFunctions
-	defer func() { rule.IgnoreLocalFunctions = original }()
-
-	// A simple outer function whose only complexity comes from a nested
-	// local helper that crosses the threshold. With IgnoreLocalFunctions
-	// = true, the local helper's complexity is suppressed; the outer
-	// function has trivial complexity, so total findings = 0.
+func TestCyclomaticComplexMethod_NestedFunctionsCountForTheOuterFunction(t *testing.T) {
+	// detekt adds a nested function and its decisions to the outer function, and does not report the nested one.
 	var b strings.Builder
 	b.WriteString("package test\nfun outer() {\n  fun helper(x: Int): Int {\n    var r = 0\n")
-	for i := 1; i <= 16; i++ {
-		b.WriteString("    if (x > ")
-		b.WriteString(itoa(i))
-		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
-		b.WriteString("\n")
+	for i := 1; i <= 14; i++ {
+		b.WriteString("    if (x > " + itoa(i) + ") r += " + itoa(i) + "\n")
 	}
 	b.WriteString("    return r\n  }\n  helper(1)\n}\n")
-	code := b.String()
-
-	rule.IgnoreLocalFunctions = true
-	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
-		t.Fatalf("expected no findings under IgnoreLocalFunctions=true, got %d", len(findings))
+	findings := runRuleByName(t, "CyclomaticComplexMethod", b.String())
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "function outer") || !strings.Contains(findings[0].Message, "(complexity: 16)") {
+		t.Fatalf("expected only outer with complexity 16, got %+v", findings)
 	}
+}
 
-	rule.IgnoreLocalFunctions = false
-	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
-		t.Fatal("expected complexity finding for the local helper when IgnoreLocalFunctions=false")
+func TestCyclomaticComplexMethod_FunctionsInObjectLiteralsAreNotCounted(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun outer() = object : Runnable {\n  override fun run() {\n")
+	for i := 1; i <= 20; i++ {
+		b.WriteString("    if (x > " + itoa(i) + ") foo()\n")
+	}
+	b.WriteString("  }\n}\n")
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", b.String()); len(findings) != 0 {
+		t.Fatalf("detekt skips functions inside object literals, got %+v", findings)
 	}
 }
 
@@ -514,17 +491,17 @@ func TestTooManyFunctions_Positive(t *testing.T) {
 }
 
 func TestTooManyFunctions_Negative(t *testing.T) {
-	// 11 top-level functions equals threshold (not exceeded)
+	// 10 top-level functions is below the threshold of 11, which detekt reports at
 	var b strings.Builder
 	b.WriteString("package test\n")
-	for i := 1; i <= 11; i++ {
+	for i := 1; i <= 10; i++ {
 		b.WriteString("fun fn")
 		b.WriteString(itoa(i))
 		b.WriteString("() {}\n")
 	}
 	findings := runRuleByName(t, "TooManyFunctions", b.String())
 	if len(findings) != 0 {
-		t.Fatalf("expected no TooManyFunctions finding for 11 functions, got %d", len(findings))
+		t.Fatalf("expected no TooManyFunctions finding for 10 functions, got %d", len(findings))
 	}
 }
 
@@ -569,6 +546,37 @@ class Outer {
 	findings := runRuleByName(t, "TooManyFunctions", code)
 	if len(findings) != 0 {
 		t.Fatalf("expected no TooManyFunctions finding for outer class with 2 direct functions, got %d", len(findings))
+	}
+}
+
+func TestTooManyFunctions_FunInterfaceMembersNotCountedAsTopLevel(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun interface Handler {\n    fun a(): Int\n")
+	for i := 1; i <= 12; i++ {
+		b.WriteString("    fun fn")
+		b.WriteString(itoa(i))
+		b.WriteString("() {}\n")
+	}
+	b.WriteString("}\n")
+	for _, f := range runRuleByName(t, "TooManyFunctions", b.String()) {
+		if strings.Contains(f.Message, "top-level") {
+			t.Fatalf("unexpected top-level finding: %s", f.Message)
+		}
+	}
+}
+
+func TestTooManyFunctions_ClassMembersAreNotTopLevel(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nclass Holder {\n")
+	for i := 1; i <= 12; i++ {
+		b.WriteString("    fun fn")
+		b.WriteString(itoa(i))
+		b.WriteString("() {}\n")
+	}
+	b.WriteString("}\n")
+	findings := runRuleByName(t, "TooManyFunctions", b.String())
+	if len(findings) != 1 || strings.Contains(findings[0].Message, "top-level") {
+		t.Fatalf("expected one class-scope finding, got %v", findings)
 	}
 }
 
@@ -635,15 +643,16 @@ fun deepNesting(x: Int) {
 	}
 }
 
-func TestNestedBlockDepth_Negative(t *testing.T) {
-	// 4 levels of nesting equals threshold (not exceeded)
+func TestNestedBlockDepth_FindingAnchoredAtFunctionLine(t *testing.T) {
 	code := `package test
-fun shallowNesting(x: Int) {
+fun deepNesting(x: Int) {
     if (x > 0) {
         if (x > 1) {
             if (x > 2) {
                 if (x > 3) {
-                    println(x)
+                    if (x > 4) {
+                        println(x)
+                    }
                 }
             }
         }
@@ -651,8 +660,37 @@ fun shallowNesting(x: Int) {
 }
 `
 	findings := runRuleByName(t, "NestedBlockDepth", code)
+	if len(findings) != 1 || findings[0].Line != 2 {
+		t.Fatalf("expected one finding on the function line (2), got %v", findings)
+	}
+	suppressed := strings.Replace(code, "fun deepNesting", "@Suppress(\"NestedBlockDepth\")\nfun deepNesting", 1)
+	if findings := runRuleByName(t, "NestedBlockDepth", suppressed); len(findings) != 0 {
+		t.Fatalf("expected @Suppress on the function to silence the finding, got %d", len(findings))
+	}
+}
+
+func TestNestedBlockDepth_Negative(t *testing.T) {
+	// 3 levels of nesting is below the threshold of 4
+	code := `package test
+fun shallowNesting(x: Int) {
+    if (x > 0) {
+        if (x > 1) {
+            if (x > 2) {
+                println(x)
+            }
+        }
+    }
+}
+`
+	findings := runRuleByName(t, "NestedBlockDepth", code)
 	if len(findings) != 0 {
-		t.Fatalf("expected no NestedBlockDepth finding for depth 4, got %d", len(findings))
+		t.Fatalf("expected no NestedBlockDepth finding for depth 3, got %d", len(findings))
+	}
+	// detekt reports at depth >= threshold, so 4 levels is reported.
+	deeper := strings.Replace(code, "                println(x)\n", "                if (x > 3) {\n                    println(x)\n                }\n", 1)
+	if findings := runRuleByName(t, "NestedBlockDepth", deeper); len(findings) != 1 ||
+		findings[0].Message != "Function shallowNesting is nested too deeply." {
+		t.Fatalf("expected one finding for depth 4, got %+v", findings)
 	}
 }
 
@@ -664,9 +702,7 @@ fun chain(x: Int) {
     } else if (x < 0) {
         if (x < -1) {
             if (x < -2) {
-                if (x < -3) {
-                    println(x)
-                }
+                println(x)
             }
         }
     }
@@ -693,9 +729,7 @@ fun chain(x: Int) {
         if (x < 0) {
         if (x < -1) {
             if (x < -2) {
-                if (x < -3) {
-                    println(x)
-                }
+                println(x)
             }
         }
     }
@@ -710,10 +744,10 @@ fun chain(x: Int) {
 // --- CognitiveComplexMethod ---
 
 func TestCognitiveComplexMethod_Positive(t *testing.T) {
-	// Each top-level if adds 1 (1+0 nesting). 16 top-level ifs => complexity = 16 > 15
+	// Each top-level if adds 1 (1+0 nesting). 15 top-level ifs => complexity = 15, which reaches the threshold
 	var b strings.Builder
 	b.WriteString("package test\nfun cognitive(x: Int): Int {\n    var r = 0\n")
-	for i := 1; i <= 16; i++ {
+	for i := 1; i <= 15; i++ {
 		b.WriteString("    if (x > ")
 		b.WriteString(itoa(i))
 		b.WriteString(") r += ")
@@ -728,10 +762,10 @@ func TestCognitiveComplexMethod_Positive(t *testing.T) {
 }
 
 func TestCognitiveComplexMethod_Negative(t *testing.T) {
-	// 15 top-level ifs => complexity = 15 (equals threshold, not exceeded)
+	// 14 top-level ifs => complexity = 14, below the threshold of 15
 	var b strings.Builder
 	b.WriteString("package test\nfun cognitive(x: Int): Int {\n    var r = 0\n")
-	for i := 1; i <= 15; i++ {
+	for i := 1; i <= 14; i++ {
 		b.WriteString("    if (x > ")
 		b.WriteString(itoa(i))
 		b.WriteString(") r += ")
@@ -775,7 +809,7 @@ fun check(a: Boolean, b: Boolean, c: Boolean) {
 	}
 }
 
-func TestComplexCondition_LambdaOperatorsDoNotInflateOuter(t *testing.T) {
+func TestComplexCondition_LambdaOperatorsCountLikeDetekt(t *testing.T) {
 	code := `package test
 fun check(a: Boolean, items: List<Int>) {
     if (a && items.any { it > 0 && it < 10 && it != 5 && it != 7 || it == 42 }) {
@@ -784,8 +818,15 @@ fun check(a: Boolean, items: List<Int>) {
 }
 `
 	findings := runRuleByName(t, "ComplexCondition", code)
-	if len(findings) != 0 {
-		t.Fatalf("expected no ComplexCondition finding when operators live in nested lambda, got %d", len(findings))
+	if len(findings) != 1 || findings[0].Message != "This condition is too complex (6). Defined complexity threshold for conditions is set to '4'" {
+		t.Fatalf("detekt counts the operators in the text of the lambda, got %v", findings)
+	}
+	// Three operators make four conditions, which reaches the threshold; two do not.
+	if got := runRuleByName(t, "ComplexCondition", "package test\nfun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean) {\n    if (a && b && c && d) { println() }\n}\n"); len(got) != 1 {
+		t.Fatalf("a && b && c && d must be reported, got %v", got)
+	}
+	if got := runRuleByName(t, "ComplexCondition", "package test\nfun f(a: Boolean, b: Boolean, c: Boolean) {\n    if (a && b && c) { println() }\n}\n"); len(got) != 0 {
+		t.Fatalf("a && b && c must not be reported, got %v", got)
 	}
 }
 
@@ -826,7 +867,7 @@ func TestComplexInterface_Positive(t *testing.T) {
 func TestComplexInterface_Negative(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("package test\ninterface SmallApi {\n")
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= 9; i++ {
 		b.WriteString("    fun method")
 		b.WriteString(itoa(i))
 		b.WriteString("()\n")
@@ -834,7 +875,18 @@ func TestComplexInterface_Negative(t *testing.T) {
 	b.WriteString("}\n")
 	findings := runRuleByName(t, "ComplexInterface", b.String())
 	if len(findings) != 0 {
-		t.Fatalf("expected no ComplexInterface finding for 10 methods, got %d", len(findings))
+		t.Fatalf("expected no ComplexInterface finding for 9 members, got %d", len(findings))
+	}
+	// detekt reports at members >= threshold (10).
+	b.Reset()
+	b.WriteString("package test\ninterface BigApi {\n    val p: Int\n")
+	for i := 1; i <= 9; i++ {
+		b.WriteString("    fun method" + itoa(i) + "()\n")
+	}
+	b.WriteString("}\n")
+	findings = runRuleByName(t, "ComplexInterface", b.String())
+	if len(findings) != 1 || findings[0].Message != "The interface BigApi is too complex. Consider splitting it up." {
+		t.Fatalf("expected one finding for 10 members, got %v", findings)
 	}
 }
 
@@ -850,7 +902,6 @@ interface Api {
     fun method7()
     fun method8()
     fun method9()
-    fun method10()
 
     class Nested {
         fun helper1() {}
@@ -877,7 +928,6 @@ interface Api {
     fun g()
     fun h()
     fun i()
-    fun j()
     class Nested {
         fun nested1() {}
         fun nested2() {}
@@ -1099,7 +1149,7 @@ func TestMethodOverloading_Positive(t *testing.T) {
 func TestMethodOverloading_Negative(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("package test\n")
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 5; i++ {
 		b.WriteString("fun process(")
 		for j := 0; j < i; j++ {
 			if j > 0 {
@@ -1113,7 +1163,18 @@ func TestMethodOverloading_Negative(t *testing.T) {
 	}
 	findings := runRuleByName(t, "MethodOverloading", b.String())
 	if len(findings) != 0 {
-		t.Fatalf("expected no MethodOverloading finding for 6 overloads, got %d", len(findings))
+		t.Fatalf("expected no MethodOverloading finding for 5 overloads, got %d", len(findings))
+	}
+	// detekt reports at overloads >= threshold (6), with this message.
+	b.WriteString("fun process(z: String) {}\n")
+	findings = runRuleByName(t, "MethodOverloading", b.String())
+	if len(findings) != 1 || findings[0].Message != "The method 'process' is overloaded 6 times." {
+		t.Fatalf("expected one finding for 6 overloads, got %v", findings)
+	}
+	// Extension functions are keyed by receiver, so they are not overloads of each other.
+	ext := "package test\nfun Int.d() {}\nfun String.d() {}\nfun Long.d() {}\nfun Float.d() {}\nfun Double.d() {}\nfun Char.d() {}\n"
+	if got := runRuleByName(t, "MethodOverloading", ext); len(got) != 0 {
+		t.Fatalf("extensions on different receivers are not overloads, got %v", got)
 	}
 }
 
@@ -1170,8 +1231,8 @@ class Outer {
 }
 `
 	findings := runRuleByName(t, "MethodOverloading", code)
-	if len(findings) != 0 {
-		t.Fatalf("expected no MethodOverloading finding when overloads are split across nested classes, got %d", len(findings))
+	if len(findings) != 1 || findings[0].Line != 5 {
+		t.Fatalf("expected only Inner (line 5) to be reported, not Outer, got %v", findings)
 	}
 }
 
@@ -1460,7 +1521,7 @@ func TestStringLiteralDuplication_HonorsIgnoreStringsRegex(t *testing.T) {
 	original := rule.IgnoreStringsRegex
 	defer func() { rule.IgnoreStringsRegex = original }()
 
-	rule.IgnoreStringsRegex = `^https?://`
+	rule.IgnoreStringsRegex = `https?://.*` // detekt matches the whole literal
 
 	// URL-shaped literals match the ignore regex and should not contribute
 	// to the duplication count, so the file produces no finding even though
@@ -1768,5 +1829,429 @@ fun Logger.d(tag: String, message: String, throwable: Throwable? = null) =
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for forwarding wrapper call, got %d", len(findings))
+	}
+}
+
+const longParamList = "a: Int, b: Int, c: Int, d: Int, e: Int, g: Int, h: Int, i: Int"
+
+func TestLongParameterList_ReportsTotalCount(t *testing.T) {
+	findings := runRuleByName(t, "LongParameterList", "package test\nfun f("+longParamList+") {}\n")
+	want := "The function f(" + longParamList + ") has too many parameters. The current threshold is set to 6."
+	if len(findings) != 1 || findings[0].Message != want || findings[0].Col != 6 {
+		t.Fatalf("expected one finding at the parameter list with detekt's message, got %v", findings)
+	}
+}
+
+func TestLongParameterList_SuppressOnIndentedMemberFunction(t *testing.T) {
+	code := "package test\nclass Box {\n    @Suppress(\"LongParameterList\")\n    fun f(" + longParamList + ") {}\n}\n"
+	if findings := runRuleByName(t, "LongParameterList", code); len(findings) != 0 {
+		t.Fatalf("expected suppressed finding, got %v", findings)
+	}
+}
+
+func TestLongParameterList_SuppressWarningsOnEnclosingClass(t *testing.T) {
+	code := "package test\n@SuppressWarnings(\"LongParameterList\")\nclass Box {\n    fun f(" + longParamList + ") {}\n}\n"
+	if findings := runRuleByName(t, "LongParameterList", code); len(findings) != 0 {
+		t.Fatalf("expected suppressed finding, got %v", findings)
+	}
+}
+
+func TestLongParameterList_SuppressOnClass(t *testing.T) {
+	code := "package test\n@Suppress(\"LongParameterList\")\nclass Box(" + longParamList + ")\n"
+	if findings := runRuleByName(t, "LongParameterList", code); len(findings) != 0 {
+		t.Fatalf("expected suppressed finding, got %v", findings)
+	}
+}
+
+// detekt has no DI or Compose exemption: only override functions, data class constructors and parameters
+// matching ignoreAnnotatedParameter are skipped.
+func TestLongParameterList_OnlyOverridesAndDataClassesAreExempt(t *testing.T) {
+	for _, code := range []string{
+		"package test\n@Provides\nfun f(" + longParamList + ") = 1\n",
+		"package test\nclass Box @Inject constructor(" + longParamList + ")\n",
+		"package test\n@Composable\nfun Screen(" + longParamList + ") {}\n",
+	} {
+		if findings := runRuleByName(t, "LongParameterList", code); len(findings) != 1 {
+			t.Fatalf("expected one finding for %q, got %v", code, findings)
+		}
+	}
+	for _, code := range []string{
+		"package test\nclass A : B {\n    override fun f(" + longParamList + ") {}\n}\n",
+		"package test\ndata class D(" + longParamList + ")\n",
+		"package test\nfun outer() {\n    fun inner(" + longParamList + ") {}\n}\n",
+	} {
+		if findings := runRuleByName(t, "LongParameterList", code); len(findings) != 0 {
+			t.Fatalf("expected no findings for %q, got %v", code, findings)
+		}
+	}
+	// 7 constructor parameters reach the constructor threshold of 7.
+	seven := "package test\nclass C(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int, g: Int)\n"
+	if findings := runRuleByName(t, "LongParameterList", seven); len(findings) != 1 {
+		t.Fatalf("7 constructor parameters must be reported, got %v", findings)
+	}
+}
+
+// kotlinBody returns n statement lines, each `val xN = N`.
+func kotlinBody(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		b.WriteString("    val x" + itoa(i) + " = " + itoa(i) + "\n")
+	}
+	return b.String()
+}
+
+// detekt sizes a function by its body only: the opening brace line to the closing brace line, so the
+// annotation and the signature do not count. A body of 60 code lines reaches the default threshold of 60.
+func TestLongMethod_BoundaryCountsBodyLinesOnly(t *testing.T) {
+	build := func(statements int) string {
+		return "package test\n@Suppress(\"unused\")\nfun process(\n    a: Int,\n    b: Int,\n) {\n" + kotlinBody(statements) + "}\n"
+	}
+	// The `) {` line, the statements and the closing brace.
+	if findings := runRuleByName(t, "LongMethod", build(57)); len(findings) != 0 {
+		t.Fatalf("59 body lines must not be reported, got %d", len(findings))
+	}
+	findings := runRuleByName(t, "LongMethod", build(58))
+	if len(findings) != 1 {
+		t.Fatalf("60 body lines reach the threshold of 60 and must be reported, got %d", len(findings))
+	}
+	if findings[0].Message != "The function process is too long (60). The maximum length is 60." {
+		t.Errorf("unexpected message: %s", findings[0].Message)
+	}
+}
+
+// An expression body counts from the expression, not from the `=`.
+func TestLongMethod_ExpressionBodyCountsExpressionLines(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun process() =\n    listOf(\n")
+	for i := 0; i < 58; i++ {
+		b.WriteString("        " + itoa(i) + ",\n")
+	}
+	b.WriteString("    )\n")
+	// 1 (listOf) + 58 + 1 = 60 expression lines.
+	if findings := runRuleByName(t, "LongMethod", b.String()); len(findings) != 1 {
+		t.Fatalf("expected one finding for a 60 line expression body, got %d", len(findings))
+	}
+}
+
+// Lines of nested functions do not count for the outer function, which keeps only its own lines.
+func TestLongMethod_NestedFunctionLinesAreNotCountedForTheOuterFunction(t *testing.T) {
+	code := "package test\nfun outer() {\n    fun inner() {\n" + kotlinBody(70) + "    }\n    inner()\n}\n"
+	findings := runRuleByName(t, "LongMethod", code)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "The function inner is too long") {
+		t.Fatalf("only the nested function should be reported, got %v", findings)
+	}
+}
+
+// A line with code and a block comment counts, a comment-only line does not.
+func TestLongMethod_InlineBlockCommentLineCounts(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun process() {\n")
+	b.WriteString("    /* leading */ val first = 1\n")
+	b.WriteString("    val second = 2 /* trailing */\n")
+	b.WriteString("    /* only a comment */\n")
+	b.WriteString("    /*\n     * many\n     * lines\n     */\n")
+	b.WriteString("    // line comment\n")
+	b.WriteString(kotlinBody(55))
+	b.WriteString("}\n")
+	// `{` line + 2 code-and-comment lines + 55 statements + closing brace = 59.
+	if findings := runRuleByName(t, "LongMethod", b.String()); len(findings) != 0 {
+		t.Fatalf("expected 59 code lines, got a finding: %s", findings[0].Message)
+	}
+	b.Reset()
+	b.WriteString("package test\nfun process() {\n    /* leading */ val first = 1\n")
+	b.WriteString(kotlinBody(58))
+	b.WriteString("}\n")
+	if findings := runRuleByName(t, "LongMethod", b.String()); len(findings) != 1 {
+		t.Fatalf("expected a finding for 61 code lines, got %d", len(findings))
+	}
+}
+
+// LargeClass counts the class's own lines, with every raw string line (blank ones too), in a .main.kts
+// script as in a .kt file. A class of 600 code lines reaches the default threshold of 600.
+func TestLargeClass_BoundaryInScriptCountsRawStringsAndSkipsNestedClasses(t *testing.T) {
+	build := func(statements int) string {
+		var b strings.Builder
+		b.WriteString("class Big {\n")
+		b.WriteString("    val template = \"\"\"\n        first\n\n        second\n    \"\"\"\n")
+		b.WriteString("    class Nested {\n" + kotlinBody(30) + "    }\n")
+		b.WriteString(kotlinBody(statements))
+		b.WriteString("}\n")
+		return b.String()
+	}
+	// class line + 5 raw-string lines (the blank one counts) + statements + closing brace.
+	if findings := runRuleByNameOnPath(t, "LargeClass", "scripts/tool.main.kts", build(600-8)); len(findings) != 0 {
+		t.Fatalf("599 code lines must not be reported, got %d", len(findings))
+	}
+	findings := runRuleByNameOnPath(t, "LargeClass", "scripts/tool.main.kts", build(600-7))
+	if len(findings) != 1 {
+		t.Fatalf("600 code lines reach the threshold of 600 and must be reported, got %d", len(findings))
+	}
+	if findings[0].Message != "Class Big is too large. Consider splitting it into smaller pieces." {
+		t.Errorf("unexpected message: %s", findings[0].Message)
+	}
+}
+
+func TestCyclomaticComplexMethod_IgnoreSingleWhenExpressionCoversReturnWhen(t *testing.T) {
+	var rule *rules.CyclomaticComplexMethodRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "CyclomaticComplexMethod" {
+			rule, _ = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CyclomaticComplexMethod rule not registered")
+	}
+	originalSingle, originalSimple := rule.IgnoreSingleWhenExpression, rule.IgnoreSimpleWhenEntries
+	defer func() { rule.IgnoreSingleWhenExpression, rule.IgnoreSimpleWhenEntries = originalSingle, originalSimple }()
+	rule.IgnoreSimpleWhenEntries = true
+
+	// A table-like when: braced entries with an if each, wrapped in a block that only returns it.
+	var b strings.Builder
+	b.WriteString("package test\nenum class Kind { A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P }\n")
+	b.WriteString("fun span(kind: Kind, large: Boolean): Int {\n    return when (kind) {\n")
+	for _, name := range []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"} {
+		b.WriteString("        Kind." + name + " -> {\n            if (large) 12 else 6\n        }\n")
+	}
+	b.WriteString("    }\n}\n")
+	code := b.String()
+
+	rule.IgnoreSingleWhenExpression = true
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) != 0 {
+		t.Fatalf("expected `return when` to count as a single when expression, got %d findings", len(findings))
+	}
+	rule.IgnoreSingleWhenExpression = false
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", code); len(findings) == 0 {
+		t.Fatal("expected a finding for the same function when IgnoreSingleWhenExpression is false")
+	}
+}
+
+func TestCyclomaticComplexMethod_FlatWhenOfSimpleEntriesCountsOnce(t *testing.T) {
+	var rule *rules.CyclomaticComplexMethodRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "CyclomaticComplexMethod" {
+			rule, _ = candidate.Implementation.(*rules.CyclomaticComplexMethodRule)
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("CyclomaticComplexMethod rule not registered")
+	}
+	originalSingle, originalSimple := rule.IgnoreSingleWhenExpression, rule.IgnoreSimpleWhenEntries
+	defer func() { rule.IgnoreSingleWhenExpression, rule.IgnoreSimpleWhenEntries = originalSingle, originalSimple }()
+	rule.IgnoreSingleWhenExpression = false
+	rule.IgnoreSimpleWhenEntries = true
+
+	// 30 unbraced entries count as one, so the function stays far below the threshold.
+	var b strings.Builder
+	b.WriteString("package test\nfun label(x: Int): String {\n    val prefix = \"p\"\n    return prefix + when (x) {\n")
+	for i := 1; i <= 30; i++ {
+		b.WriteString("        " + itoa(i) + " -> \"v" + itoa(i) + "\"\n")
+	}
+	b.WriteString("        else -> \"other\"\n    }\n}\n")
+	if findings := runRuleByName(t, "CyclomaticComplexMethod", b.String()); len(findings) != 0 {
+		t.Fatalf("expected a flat when of simple entries to count as 1, got %d findings", len(findings))
+	}
+}
+
+func TestCyclomaticComplexMethod_ReportsLongFunctions(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\n\nfun big(x: Int): Int {\n    var r = 0\n")
+	for i := 0; i < 20; i++ {
+		fmt.Fprintf(&b, "    if (x == %d) { r += 1 }\n", i)
+	}
+	for i := 0; i < 50; i++ {
+		fmt.Fprintf(&b, "    r += %d\n", i)
+	}
+	b.WriteString("    return r\n}\n")
+	if got := runRuleByName(t, "CyclomaticComplexMethod", b.String()); len(got) != 1 {
+		t.Fatalf("a function longer than 60 lines with complexity 21 must be reported once, got %d", len(got))
+	}
+}
+
+func TestLongParameterList_ReportsLongFunctions(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\n\nfun send(a: Int, b: Int, c: Int, d: Int, e: Int, f: Int) {\n    var r = 0\n")
+	for i := 0; i < 70; i++ {
+		fmt.Fprintf(&b, "    r += %d\n", i)
+	}
+	b.WriteString("}\n")
+	if got := runRuleByName(t, "LongParameterList", b.String()); len(got) != 1 {
+		t.Fatalf("a function longer than 60 lines with 6 parameters must be reported once, got %d", len(got))
+	}
+}
+
+func TestNestedBlockDepth_CountsScopeFunctionLambdas(t *testing.T) {
+	code := `package test
+fun f(x: Int, y: Int) {
+    run {
+        if (x > 0) {
+            for (i in 0..x) {
+                while (i > 0) {
+                    if (y > 0) {
+                        println()
+                    }
+                }
+            }
+        }
+    }
+}
+`
+	if got := runRuleByName(t, "NestedBlockDepth", code); len(got) != 1 {
+		t.Fatalf("depth 5 inside run { } must be reported once, got %d", len(got))
+	}
+	plain := `package test
+fun f(xs: List<Int>, y: Int) {
+    xs.map {
+        if (y > 0) {
+            println()
+        }
+    }
+}
+`
+	if got := runRuleByName(t, "NestedBlockDepth", plain); len(got) != 0 {
+		t.Fatalf("shallow nesting inside a lambda must not be reported, got %d", len(got))
+	}
+}
+
+func TestNestedBlockDepth_AlsoLambdaIsNotCounted(t *testing.T) {
+	code := `package test
+fun f(x: Int, y: Int) {
+    if (x > 0) {
+        for (i in 0..x) {
+            if (y > 0) {
+                y.also {
+                    println(it)
+                }
+            }
+        }
+    }
+}
+`
+	if got := runRuleByName(t, "NestedBlockDepth", code); len(got) != 0 {
+		t.Fatalf("depth 3 plus an also lambda must not be reported (detekt does not count also), got %d", len(got))
+	}
+	counted := strings.Replace(code, "y.also {", "y.let {", 1)
+	if got := runRuleByName(t, "NestedBlockDepth", counted); len(got) != 1 {
+		t.Fatalf("a let lambda at depth 4 must be reported once, got %d", len(got))
+	}
+}
+
+func TestNestedBlockDepth_TryCountsAsNesting(t *testing.T) {
+	code := `package test
+fun f(x: Int, y: Int) {
+    try {
+        if (x > 0) {
+            for (i in 0..x) {
+                while (i > 0) {
+                    if (y > 0) {
+                        println()
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        throw e
+    }
+}
+`
+	if got := runRuleByName(t, "NestedBlockDepth", code); len(got) != 1 {
+		t.Fatalf("depth 5 including try must be reported once, got %d", len(got))
+	}
+}
+
+func TestCognitiveComplexMethod_ElseIfChainIsLinear(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun f(x: Int) {\n    if (x == 0) { println() }")
+	for i := 1; i < 12; i++ {
+		fmt.Fprintf(&b, " else if (x == %d) { println() }", i)
+	}
+	b.WriteString(" else { println() }\n}\n")
+	// Sonar scoring: 1 for the if, 1 per else-if, 1 for the else = 13, below the limit of 15.
+	if got := runRuleByName(t, "CognitiveComplexMethod", b.String()); len(got) != 0 {
+		t.Fatalf("an else-if chain must not be scored quadratically, got %v", got)
+	}
+}
+
+func TestCognitiveComplexMethod_CountsDecisionsInLambdas(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package test\nfun f(xs: List<Int>) {\n    xs.forEach { x ->\n")
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&b, "        if (x == %d) { for (j in 0..x) { if (j > 1) { println() } } }\n", i)
+	}
+	b.WriteString("    }\n}\n")
+	if got := runRuleByName(t, "CognitiveComplexMethod", b.String()); len(got) != 1 {
+		t.Fatalf("decisions inside a lambda must count towards cognitive complexity, got %d", len(got))
+	}
+}
+
+func TestTooManyFunctions_InterfacesObjectsEnumsAndNestedClasses(t *testing.T) {
+	funcs := func(n int, body string) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, "    fun f%d()%s\n", i, body)
+		}
+		return b.String()
+	}
+	cases := map[string]string{
+		"interface":    "interface Api {\n" + funcs(12, "") + "}\n",
+		"object":       "object Util {\n" + funcs(12, " {}") + "}\n",
+		"enum":         "enum class Kind { A;\n" + funcs(12, " {}") + "}\n",
+		"nested class": "class Outer {\n    class Inner {\n" + funcs(12, " {}") + "    }\n}\n",
+	}
+	for name, src := range cases {
+		if got := runRuleByName(t, "TooManyFunctions", "package test\n"+src); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	got := runRuleByName(t, "TooManyFunctions", "package test\ninterface Api {\n"+funcs(11, "")+"}\n")
+	if len(got) != 1 || got[0].Message != "Interface 'Api' with '11' functions detected. Defined threshold inside interfaces is set to '11'" {
+		t.Errorf("11 functions reach the threshold of 11, got %v", got)
+	}
+	if got := runRuleByName(t, "TooManyFunctions", "package test\ninterface Api {\n"+funcs(10, "")+"}\n"); len(got) != 0 {
+		t.Errorf("10 functions are allowed, got %d findings", len(got))
+	}
+}
+
+func TestNamedArguments_SkipsVarargBuilders(t *testing.T) {
+	src := "package test\nfun f() {\n    val a = listOf(1, 2, 3, 4, 5)\n    val b = arrayOf(1, 2, 3, 4)\n    val c = String.format(\"%s %s %s %s\", 1, 2, 3, 4)\n}\n"
+	if got := runRuleByName(t, "NamedArguments", src); len(got) != 0 {
+		t.Errorf("variadic builders cannot take named elements, got %v", got)
+	}
+	src = "package test\nfun g(a: Int, b: Int, c: Int, d: Int) {}\nfun f() { g(1, 2, 3, 4) }\n"
+	if got := runRuleByName(t, "NamedArguments", src); len(got) != 1 {
+		t.Errorf("an ordinary call with four positional arguments must be reported, got %d", len(got))
+	}
+}
+
+func TestComplexCondition_DoWhileCondition(t *testing.T) {
+	src := "package test\nfun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean, e: Boolean) {\n    do { println() } while (a && b || c && d || e)\n}\n"
+	if got := runRuleByName(t, "ComplexCondition", src); len(got) != 1 {
+		t.Fatalf("a complex do-while condition must be reported once, got %d", len(got))
+	}
+}
+
+func TestNestedScopeFunctions_ChainsAreNotNesting(t *testing.T) {
+	chain := "package test\nfun f(x: String) {\n    x.also { println(it) }.also { println(it) }.also { println(it) }.apply { println(this) }\n}\n"
+	if got := runRuleByName(t, "NestedScopeFunctions", chain); len(got) != 0 {
+		t.Errorf("a chain of scope calls is not nesting, got %v", got)
+	}
+	nested := "package test\nfun f(x: String) {\n    run { run { run { println(x) } } }\n}\n"
+	if got := runRuleByName(t, "NestedScopeFunctions", nested); len(got) != 1 {
+		t.Errorf("three nested run blocks must be reported once, got %d", len(got))
+	}
+}
+
+// detekt's NestedBlockDepth visitor does not descend into a call that is not one of its nesting functions,
+// so control flow inside such a call's arguments or lambda is not counted. `with(x) { }` is one call.
+func TestNestedBlockDepth_DoesNotDescendIntoOtherCalls(t *testing.T) {
+	body := "if (a) { if (b) { if (c) { if (d) { println() } } } }"
+	other := "package test\nfun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean) {\n    launch { " + body + " }\n}\n"
+	if got := runRuleByName(t, "NestedBlockDepth", other); len(got) != 0 {
+		t.Fatalf("control flow inside a non-nesting lambda is not counted, got %d", len(got))
+	}
+	with := "package test\nfun f(a: Boolean, b: Boolean, c: Boolean, d: Boolean) {\n    with(a) { " + body + " }\n}\n"
+	if got := runRuleByName(t, "NestedBlockDepth", with); len(got) != 1 {
+		t.Fatalf("with(x) { } nests, so depth 5 is reported, got %d", len(got))
 	}
 }

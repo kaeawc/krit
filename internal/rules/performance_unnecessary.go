@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"bytes"
 	"strconv"
 	"strings"
 
@@ -108,13 +107,14 @@ func flatNumericZeroExpression(file *scanner.File, expr uint32) bool {
 
 func numericLiteralIsZero(text string) bool {
 	clean := strings.ReplaceAll(strings.TrimSpace(text), "_", "")
+	// Hex digits include D and F, so only the unsigned/long suffixes may be trimmed there.
+	if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0X") {
+		v, err := strconv.ParseUint(strings.TrimRight(clean[2:], "uUlL"), 16, 64)
+		return err == nil && v == 0
+	}
 	clean = strings.TrimRight(clean, "uUlLfFdD")
 	if clean == "" {
 		return false
-	}
-	if strings.HasPrefix(clean, "0x") || strings.HasPrefix(clean, "0X") {
-		v, err := strconv.ParseUint(clean[2:], 16, 64)
-		return err == nil && v == 0
 	}
 	if strings.HasPrefix(clean, "0b") || strings.HasPrefix(clean, "0B") {
 		v, err := strconv.ParseUint(clean[2:], 2, 64)
@@ -186,87 +186,19 @@ type UnnecessaryTemporaryInstantiationRule struct {
 // support; fallback is heuristic. Classified per roadmap/17.
 func (r *UnnecessaryTemporaryInstantiationRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var tempInstantiationPrefixNeedles = [][]byte{
-	[]byte("Integer"), []byte("Long"), []byte("Short"), []byte("Byte"),
-	[]byte("Float"), []byte("Double"), []byte("Boolean"), []byte("Character"),
-}
-
-var tempInstantiationMethods = map[string]bool{
-	"valueOf":     true,
-	"parseInt":    true,
-	"parseLong":   true,
-	"parseFloat":  true,
-	"parseDouble": true,
-}
-
-var tempInstantiationTypeNames = map[string]bool{
-	"Integer":   true,
-	"Long":      true,
-	"Short":     true,
-	"Byte":      true,
-	"Float":     true,
-	"Double":    true,
-	"Boolean":   true,
-	"Character": true,
-}
-
-func looksLikeTempInstantiation(src []byte) bool {
-	if !bytes.Contains(src, []byte("toString")) {
+// tempInstantiationSimpleOperand reports whether text can take a `.toString()` suffix without parentheses.
+func tempInstantiationSimpleOperand(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
 		return false
 	}
-	if !bytes.Contains(src, []byte("valueOf")) && !bytes.Contains(src, []byte("parse")) {
-		return false
-	}
-	for _, needle := range tempInstantiationPrefixNeedles {
-		if bytes.Contains(src, needle) {
-			return true
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if !(isIdentChar(c) || c == '.') {
+			return false
 		}
 	}
-	return false
-}
-
-func tempInstantiationReceiverFlat(file *scanner.File, nav uint32) uint32 {
-	for i := 0; i < file.FlatChildCount(nav); i++ {
-		child := file.FlatChild(nav, i)
-		if file.FlatType(child) == "navigation_suffix" || file.FlatType(child) == "." {
-			continue
-		}
-		return child
-	}
-	return 0
-}
-
-func tempInstantiationTypeNameFlat(file *scanner.File, nav uint32) string {
-	receiver := tempInstantiationReceiverFlat(file, nav)
-	if receiver == 0 {
-		return ""
-	}
-	name := strings.TrimSpace(file.FlatNodeText(receiver))
-	if name == "" {
-		return ""
-	}
-	if idx := strings.LastIndex(name, "."); idx >= 0 {
-		name = name[idx+1:]
-	}
-	return name
-}
-
-func tempInstantiationFirstArgumentFlat(file *scanner.File, call uint32) string {
-	callSuffix, _ := file.FlatFindChild(call, "call_suffix")
-	if callSuffix == 0 {
-		return ""
-	}
-	valueArgs, _ := file.FlatFindChild(callSuffix, "value_arguments")
-	if valueArgs == 0 {
-		return ""
-	}
-	for i := 0; i < file.FlatChildCount(valueArgs); i++ {
-		child := file.FlatChild(valueArgs, i)
-		if file.FlatType(child) == "value_argument" {
-			return file.FlatNodeText(child)
-		}
-	}
-	return ""
+	return true
 }
 
 // UnnecessaryTypeCastingRule detects casting a value to its own type.

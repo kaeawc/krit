@@ -77,7 +77,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyFunctionBlock_Java(t *testing.T) {
+func TestEmptyFunctionBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyFunctionBlock", `
 package test;
 class Example {
@@ -85,19 +85,13 @@ class Example {
   void used() { System.out.println("ok"); }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty method finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
-// TestEmptyFunctionBlock_SkipsOverrideEmptyBodyByDefault verifies that empty
-// override bodies are NOT flagged by default. An `override fun foo() {}` is
-// almost always an intentional no-op required by a framework/interface
-// contract (TextWatcher.afterTextChanged, AnimatorListener.onAnimationEnd,
-// etc.), which made empty overrides the dominant false-positive source on
-// real apps. The skip is driven by the AST `override` modifier node, not a
-// text scan.
-func TestEmptyFunctionBlock_SkipsOverrideEmptyBodyByDefault(t *testing.T) {
+// detekt 1.23.8 reports an empty override unless ignoreOverridden is set, which defaults to false.
+func TestEmptyFunctionBlock_ReportsOverrideEmptyBodyByDefault(t *testing.T) {
 	findings := runRuleByName(t, "EmptyFunctionBlock", `
 package test
 class Listener : AnimatorListener {
@@ -105,8 +99,8 @@ class Listener : AnimatorListener {
     override fun onAnimationStart(a: Animator) {}
 }
 `)
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings for empty override bodies by default, got %d", len(findings))
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings for empty override bodies by default, got %d", len(findings))
 	}
 }
 
@@ -153,28 +147,6 @@ class TrustNothing : X509TrustManager {
 // non-override method still is. The override is detected via the AST
 // `marker_annotation` node and the comment via the `block`'s `line_comment`
 // child — never a text scan.
-func TestEmptyFunctionBlock_JavaOverrideAndCommentOnly(t *testing.T) {
-	findings := runRuleByNameOnJava(t, "EmptyFunctionBlock", `
-package test
-class Example {
-    @Override
-    public void onEvent() {}
-
-    public void documentedNoOp() {
-        // intentionally no-op
-    }
-
-    public void forgotten() {}
-}
-`)
-	if len(findings) != 1 {
-		for _, f := range findings {
-			t.Logf("  %s:%d %s", f.File, f.Line, f.Message)
-		}
-		t.Fatalf("expected 1 finding (only the non-override, non-commented empty method), got %d", len(findings))
-	}
-}
-
 // --- EmptyClassBlock ---
 
 func TestEmptyClassBlock_Positive(t *testing.T) {
@@ -210,6 +182,45 @@ class NonEmpty {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected 0 Java empty class findings (rule is Kotlin-only), got %d", len(findings))
+	}
+}
+
+func TestEmptyClassBlock_NegativeCommentAndAnonymousObject(t *testing.T) {
+	findings := runRuleByName(t, "EmptyClassBlock", `
+class Documented {
+    // intentionally empty
+}
+class Block {
+    /* reserved for later */
+}
+val anonymous = object { }
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyClassBlock_ReportsInterfacesObjectsEnumsAndCompanions(t *testing.T) {
+	findings := runRuleByName(t, "EmptyClassBlock", `
+interface Marker {}
+object Registry {}
+enum class Mode {}
+class Host { companion object {} }
+`)
+	if len(findings) != 4 {
+		t.Fatalf("expected 4 findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyBlocks_ReportOnTheBrace(t *testing.T) {
+	// detekt reports an empty block where its `{` is, which differs from the keyword's line for multi-line signatures.
+	findings := runRuleByName(t, "EmptyFunctionBlock", "package test\nfun f(\n    a: Int,\n) {}\n")
+	if len(findings) != 1 || findings[0].Line != 4 || findings[0].Col != 3 {
+		t.Fatalf("expected one finding on the brace at 4:3, got %+v", findings)
+	}
+	findings = runRuleByName(t, "EmptyIfBlock", "package test\nfun f(b: Boolean) {\n    if (b)\n    {\n    }\n}\n")
+	if len(findings) != 1 || findings[0].Line != 4 {
+		t.Fatalf("expected the if finding on line 4, got %+v", findings)
 	}
 }
 
@@ -280,7 +291,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyCatchBlock_Java(t *testing.T) {
+func TestEmptyCatchBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyCatchBlock", `
 package test;
 class Example {
@@ -292,8 +303,8 @@ class Example {
   void work() {}
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected Java empty catch finding")
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -363,7 +374,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyIfBlock_Java(t *testing.T) {
+func TestEmptyIfBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyIfBlock", `
 package test;
 class Example {
@@ -374,8 +385,8 @@ class Example {
   void work() { System.out.println("ok"); }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty if finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -411,7 +422,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyElseBlock_Java(t *testing.T) {
+func TestEmptyElseBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyElseBlock", `
 package test;
 class Example {
@@ -423,8 +434,8 @@ class Example {
   void work() { System.out.println("ok"); }
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected Java empty else finding")
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -484,7 +495,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyForBlock_Java(t *testing.T) {
+func TestEmptyForBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyForBlock", `
 package test;
 class Example {
@@ -494,8 +505,8 @@ class Example {
   }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty for finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -525,7 +536,19 @@ fun foo() {
 	}
 }
 
-func TestEmptyWhileBlock_Java(t *testing.T) {
+func TestEmptyWhileBlock_BracelessBodyIsNotEmpty(t *testing.T) {
+	findings := runRuleByName(t, "EmptyWhileBlock", `
+fun foo(next: () -> Int) {
+    var state = next()
+    while (state < 3) state = next()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a brace-less body, got %d", len(findings))
+	}
+}
+
+func TestEmptyWhileBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyWhileBlock", `
 package test;
 class Example {
@@ -535,8 +558,8 @@ class Example {
   }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty while finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -570,7 +593,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyTryBlock_Java(t *testing.T) {
+func TestEmptyTryBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyTryBlock", `
 package test;
 class Example {
@@ -580,8 +603,8 @@ class Example {
   void handle() {}
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected Java empty try finding")
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -615,7 +638,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyFinallyBlock_Java(t *testing.T) {
+func TestEmptyFinallyBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyFinallyBlock", `
 package test;
 class Example {
@@ -627,8 +650,8 @@ class Example {
   void work() {}
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected Java empty finally finding")
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -684,7 +707,7 @@ fun foo() {
 	}
 }
 
-func TestEmptyDoWhileBlock_Java(t *testing.T) {
+func TestEmptyDoWhileBlock_SkipsJava(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "EmptyDoWhileBlock", `
 package test;
 class Example {
@@ -695,8 +718,8 @@ class Example {
   void work() {}
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 Java empty do-while finding, got %d", len(findings))
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not analyze Java sources; expected no findings, got %d", len(findings))
 	}
 }
 
@@ -718,6 +741,19 @@ func TestEmptyDefaultConstructor_Negative(t *testing.T) {
 class Foo(val name: String) {
     val x = 1
 }
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyDefaultConstructor_NegativeSecondaryConstructorsAndModifiers(t *testing.T) {
+	findings := runRuleByName(t, "EmptyDefaultConstructor", `
+class Delegating constructor() {
+    constructor(x: Int) : this()
+}
+class Hidden private constructor()
+class Tagged @Marker constructor()
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
@@ -778,16 +814,48 @@ fun hello() {}
 	}
 }
 
+func TestEmptyKotlinFile_NegativePlaceholderComment(t *testing.T) {
+	for name, src := range map[string]string{
+		"line":  "package test\n\n// Placeholder so the module has a source set.\n",
+		"block": "package test\n\n/* This file is intentionally empty. */\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if findings := runRuleByName(t, "EmptyKotlinFile", src); len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestEmptyKotlinFile_PositiveUnrelatedComment(t *testing.T) {
+	findings := runRuleByName(t, "EmptyKotlinFile", "package test\n\n// Copyright 2024 Example\n")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
 // --- EmptySecondaryConstructor ---
 
 func TestEmptySecondaryConstructor_Positive(t *testing.T) {
+	findings := runRuleByName(t, "EmptySecondaryConstructor", `
+class Foo {
+    constructor() {}
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for empty secondary constructor")
+	}
+}
+
+// detekt 1.23.8 reports an empty secondary constructor even when it delegates with this(...) or super(...).
+func TestEmptySecondaryConstructor_ReportsDelegatingConstructorLikeDetekt(t *testing.T) {
 	findings := runRuleByName(t, "EmptySecondaryConstructor", `
 class Foo(val x: Int) {
     constructor(x: Int, y: Int) : this(x) {}
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for empty secondary constructor")
+	if len(findings) != 1 {
+		t.Fatalf("expected a finding for a delegating constructor with an empty body, got %d", len(findings))
 	}
 }
 
@@ -801,5 +869,246 @@ class Foo(val x: Int) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyFunctionBlock_SkipsExpressionBodyEndingInEmptyLambda(t *testing.T) {
+	findings := runRuleByName(t, "EmptyFunctionBlock", `
+package test
+fun build() = Widget { }
+fun launch() = run {}
+fun listener(): Runnable = Runnable {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestEmptyFunctionBlock_SkipsEmptyLambdaInsideRealBody(t *testing.T) {
+	findings := runRuleByName(t, "EmptyFunctionBlock", `
+package test
+fun register(host: Host) {
+    host.onClick {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestEmptyFunctionBlock_FlagsEmptyBlockBody(t *testing.T) {
+	findings := runRuleByName(t, "EmptyFunctionBlock", `
+package test
+fun nothing() { }
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %v", findings)
+	}
+}
+
+func TestEmptyIfBlock_KotlinCommentOrLambdaIsNotEmpty(t *testing.T) {
+	findings := runRuleByName(t, "EmptyIfBlock", `
+package test
+fun f(c: Boolean, m: Modifier) {
+    if (c) {
+        // intentionally nothing
+    }
+    val x = if (c) m.foo {} else m
+    if (c) m.foo {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyIfBlock_KotlinEmptyBracesStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "EmptyIfBlock", `
+package test
+fun f(c: Boolean) {
+    if (c) {
+    } else {
+        g()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestEmptyElseBlock_CommentAndWhenElseAreNotEmpty(t *testing.T) {
+	findings := runRuleByName(t, "EmptyElseBlock", `
+package test
+fun f(c: Boolean, x: Int) {
+    if (c) {
+        g()
+    } else {
+        // nothing to do
+    }
+    when (x) {
+        1 -> g()
+        else -> {}
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyForBlock_BodiesWithStatementsAreNotEmpty(t *testing.T) {
+	findings := runRuleByName(t, "EmptyForBlock", `
+package test
+fun f(xs: List<Int>) {
+    for (i in xs) g(i)
+    for (i in xs) g(i) {}
+    for (i in xs) { g(i) }
+    for (i in xs) {
+        // placeholder
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyForBlock_KotlinEmptyBracesFlagged(t *testing.T) {
+	findings := runRuleByName(t, "EmptyForBlock", `
+package test
+fun f(xs: List<Int>) {
+    for (i in xs) { }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestEmptyForBlock_JavaBracelessAndCommentBodiesAreNotEmpty(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "EmptyForBlock", `
+class A {
+    void f(int[] xs) {
+        for (int x : xs) g(x);
+        for (int x : xs) {
+            // placeholder
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyWhileBlock_CommentOrSideEffectConditionIgnored(t *testing.T) {
+	findings := runRuleByName(t, "EmptyWhileBlock", `
+package test
+class Chan { fun awaitItem(): Int? = null }
+fun f(c: Chan) {
+    while (c.awaitItem() != null) {
+    }
+    while (true) {
+        // spin until interrupted
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestEmptyWhileBlock_PlainFlagConditionStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "EmptyWhileBlock", `
+package test
+fun f(flag: Boolean) {
+    while (flag) {
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+// --- soft keyword used as an identifier ---
+
+// A branch holding only a soft keyword identifier parses as a modifier with no declaration, so the
+// tree has no statements node. The branch is still non-empty source.
+func TestEmptyBlocks_SoftKeywordIdentifierBranchIsNotEmpty(t *testing.T) {
+	for _, kw := range []string{"internal", "external", "open", "data", "inner", "value", "inline", "abstract", "final", "override", "lateinit", "tailrec", "operator", "infix", "suspend"} {
+		src := `
+fun foo(c: Boolean, ` + kw + `: String, other: String) {
+    val v = if (c) { ` + kw + ` } else { ` + kw + ` }
+    for (i in 0..1) { ` + kw + ` }
+    v.length
+}
+`
+		for _, rule := range []string{"EmptyIfBlock", "EmptyElseBlock", "EmptyForBlock"} {
+			if got := runRuleByName(t, rule, src); len(got) != 0 {
+				t.Errorf("%s with soft keyword %q: expected no findings, got %d", rule, kw, len(got))
+			}
+		}
+	}
+}
+
+func TestEmptyBlocks_SoftKeywordStillFlagsTrulyEmpty(t *testing.T) {
+	src := `
+fun foo(c: Boolean) {
+    if (c) { /* x */ } else { }
+    if (c) {  } else { internal }
+}
+`
+	if got := runRuleByName(t, "EmptyElseBlock", src); len(got) != 1 {
+		t.Fatalf("expected 1 EmptyElseBlock finding, got %d", len(got))
+	}
+}
+
+func TestEmptyBlocks_SoftKeywordIdentifierInTextBasedRules(t *testing.T) {
+	src := `
+class K(val internal: Int) {
+    init { internal }
+    fun f(open: Int, value: Int) { open }
+    fun g(data: Int) {
+        try { data } catch (e: Exception) { data } finally { data }
+        while (data > 0) { data }
+    }
+}
+`
+	for _, rule := range []string{"EmptyFunctionBlock", "EmptyTryBlock", "EmptyCatchBlock", "EmptyFinallyBlock", "EmptyInitBlock", "EmptyWhileBlock"} {
+		if got := runRuleByName(t, rule, src); len(got) != 0 {
+			t.Errorf("%s: expected no findings, got %d", rule, len(got))
+		}
+	}
+}
+
+func TestEmptyBlocks_CommentOnlyBodiesAreNotEmpty(t *testing.T) {
+	cases := map[string]string{
+		"EmptyInitBlock":    "class A {\n    init {\n        // intentionally blank\n    }\n}\n",
+		"EmptyFinallyBlock": "fun f() {\n    try { g() } finally { /* nothing */ }\n}\nfun g() {}\n",
+		"EmptyTryBlock":     "fun f() {\n    try { /* nothing */ } catch (e: Exception) { g() }\n}\nfun g() {}\n",
+		"EmptyWhenBlock":    "fun f(x: Int) {\n    when (x) { /* nothing */ }\n}\n",
+		"EmptyDoWhileBlock": "fun f(x: Int) {\n    do { /* spin */ } while (x > 0)\n}\n",
+	}
+	for rule, src := range cases {
+		if got := runRuleByName(t, rule, src); len(got) != 0 {
+			t.Errorf("%s: want no findings for a comment-only body, got %d", rule, len(got))
+		}
+	}
+}
+
+func TestEmptyBlocks_BracesOutsideTheBodyAreIgnored(t *testing.T) {
+	if got := runRuleByName(t, "EmptySecondaryConstructor", "class B {\n    constructor(f: () -> Unit = { })\n}\n"); len(got) != 0 {
+		t.Errorf("secondary constructor without a body must not be reported, got %d", len(got))
+	}
+	if got := runRuleByName(t, "EmptySecondaryConstructor", "class B {\n    constructor(f: () -> Unit = { println() }) {}\n}\n"); len(got) != 1 {
+		t.Errorf("empty secondary constructor body must be reported once, got %d", len(got))
+	}
+	if got := runRuleByName(t, "EmptyDoWhileBlock", "fun f(xs: List<Int>) {\n    do { } while (xs.any { it > 0 })\n}\n"); len(got) != 1 {
+		t.Errorf("empty do-while with a lambda condition must be reported once, got %d", len(got))
+	}
+	if got := runRuleByName(t, "EmptyWhenBlock", "fun f() {\n    when (val y = run { 1 }) { }\n}\n"); len(got) != 1 {
+		t.Errorf("empty when with a lambda subject must be reported once, got %d", len(got))
 	}
 }

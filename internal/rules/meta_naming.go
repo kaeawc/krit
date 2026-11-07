@@ -58,13 +58,13 @@ func (r *ConstructorParameterNamingRule) Meta() api.RuleDescriptor {
 			}),
 			api.RegexOption(api.RegexOptionSpec[ConstructorParameterNamingRule]{
 				Name:        "parameterPattern",
-				Default:     "[a-z][a-zA-Z0-9]*",
+				Default:     "[a-z][A-Za-z0-9]*",
 				Description: "Regex pattern for constructor parameter names.",
 				Apply:       func(r *ConstructorParameterNamingRule, v *regexp.Regexp) { r.Pattern = v },
 			}),
 			api.RegexOption(api.RegexOptionSpec[ConstructorParameterNamingRule]{
 				Name:        "privateParameterPattern",
-				Default:     "",
+				Default:     "[a-z][A-Za-z0-9]*",
 				Description: "Regex for private constructor parameter names.",
 				Apply:       func(r *ConstructorParameterNamingRule, v *regexp.Regexp) { r.PrivateParameterPattern = v },
 			}),
@@ -97,7 +97,7 @@ func (r *ForbiddenClassNameRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[ForbiddenClassNameRule]{
 				Name:        "forbiddenName",
-				Default:     []string{"Manager", "Helper", "Util", "Utils"},
+				Default:     []string{},
 				Description: "List of forbidden class names.",
 				Apply:       func(r *ForbiddenClassNameRule, v []string) { r.ForbiddenNames = v },
 			}),
@@ -166,7 +166,7 @@ func (r *FunctionNamingRule) Meta() api.RuleDescriptor {
 			}),
 			api.BoolOption(api.BoolOptionSpec[FunctionNamingRule]{
 				Name:        "customPreviewWildcard",
-				Default:     true,
+				Default:     false,
 				Description: "Treat annotations whose simple name ends with Preview/Previews as preview scaffolding.",
 				Apply:       func(r *FunctionNamingRule, v bool) { r.CustomPreviewWildcard = v },
 			}),
@@ -303,19 +303,19 @@ func (r *ObjectPropertyNamingRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[ObjectPropertyNamingRule]{
 				Name:        "constantPattern",
-				Default:     "[A-Z][_A-Z0-9]*",
+				Default:     "[A-Za-z][_A-Za-z0-9]*",
 				Description: "Regex pattern for constant properties in objects.",
 				Apply:       func(r *ObjectPropertyNamingRule, v *regexp.Regexp) { r.ConstPattern = v },
 			}),
 			api.RegexOption(api.RegexOptionSpec[ObjectPropertyNamingRule]{
 				Name:        "privatePropertyPattern",
-				Default:     "",
+				Default:     "(_)?[A-Za-z][_A-Za-z0-9]*",
 				Description: "Regex for private properties in objects.",
 				Apply:       func(r *ObjectPropertyNamingRule, v *regexp.Regexp) { r.PrivatePropertyPattern = v },
 			}),
 			api.RegexOption(api.RegexOptionSpec[ObjectPropertyNamingRule]{
 				Name:        "propertyPattern",
-				Default:     "[a-z][A-Za-z0-9]*",
+				Default:     "[A-Za-z][_A-Za-z0-9]*",
 				Description: "Regex pattern for non-constant properties in objects.",
 				Apply:       func(r *ObjectPropertyNamingRule, v *regexp.Regexp) { r.PropertyPattern = v },
 			}),
@@ -347,19 +347,19 @@ func (r *TopLevelPropertyNamingRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[TopLevelPropertyNamingRule]{
 				Name:        "constantPattern",
-				Default:     "[A-Z][_A-Za-z0-9]*",
+				Default:     "[A-Z][_A-Z0-9]*",
 				Description: "Regex pattern for top-level constant properties.",
 				Apply:       func(r *TopLevelPropertyNamingRule, v *regexp.Regexp) { r.ConstPattern = v },
 			}),
 			api.RegexOption(api.RegexOptionSpec[TopLevelPropertyNamingRule]{
 				Name:        "privatePropertyPattern",
-				Default:     "",
+				Default:     "_?[A-Za-z][_A-Za-z0-9]*",
 				Description: "Regex for private top-level properties.",
 				Apply:       func(r *TopLevelPropertyNamingRule, v *regexp.Regexp) { r.PrivatePropertyPattern = v },
 			}),
 			api.RegexOption(api.RegexOptionSpec[TopLevelPropertyNamingRule]{
 				Name:        "propertyPattern",
-				Default:     "[a-z][A-Za-z0-9]*",
+				Default:     "[A-Za-z][_A-Za-z0-9]*",
 				Description: "Regex pattern for top-level non-constant properties.",
 				Apply:       func(r *TopLevelPropertyNamingRule, v *regexp.Regexp) { r.PropertyPattern = v },
 			}),
@@ -395,7 +395,7 @@ func (r *VariableMinLengthRule) Meta() api.RuleDescriptor {
 			api.IntOption(api.IntOptionSpec[VariableMinLengthRule]{
 				Name:        "minimumVariableNameLength",
 				Aliases:     []string{"minLength"},
-				Default:     2,
+				Default:     1,
 				Description: "Minimum allowed variable name length.",
 				Apply:       func(r *VariableMinLengthRule, v int) { r.MinLength = v },
 			}),
@@ -415,9 +415,15 @@ func (r *VariableNamingRule) Meta() api.RuleDescriptor {
 				Description: "Regex for classes to exclude from this rule.",
 				Apply:       func(r *VariableNamingRule, v *regexp.Regexp) { r.ExcludeClassPattern = v },
 			}),
+			api.BoolOption(api.BoolOptionSpec[VariableNamingRule]{
+				Name:        "ignoreOverridden",
+				Default:     true,
+				Description: "Skip overriding properties.",
+				Apply:       func(r *VariableNamingRule, v bool) { r.IgnoreOverridden = v },
+			}),
 			api.RegexOption(api.RegexOptionSpec[VariableNamingRule]{
 				Name:        "privateVariablePattern",
-				Default:     "",
+				Default:     "(_)?[a-z][A-Za-z0-9]*",
 				Description: "Regex pattern for private variable names.",
 				Apply:       func(r *VariableNamingRule, v *regexp.Regexp) { r.PrivateVariablePattern = v },
 			}),

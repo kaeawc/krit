@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -178,6 +179,9 @@ func composeFunctionHasPreviewAnnotationWithConfig(file *scanner.File, fn uint32
 			return true
 		}
 	}
+	if mods, ok := file.FlatFindChild(fn, "modifiers"); ok {
+		return composeModifierTextHasMultipreviewAnnotation(file, file.FlatNodeText(mods))
+	}
 	return false
 }
 
@@ -199,12 +203,116 @@ func composeAssignmentIsMutableTransitionTargetState(file *scanner.File, assignm
 	if receiver == "" || strings.ContainsAny(receiver, " \t\n(){}") {
 		return false
 	}
+	// A MutableTransitionState passed in as a parameter is driven by the caller's composition the same way.
+	if strings.Contains(composeParamTypeTexts(file, fn)[receiver], "MutableTransitionState") {
+		return true
+	}
 	prefix, ok := composeCodeOnlySlice(file, fn, assignment)
 	if !ok {
 		return false
 	}
-	return strings.Contains(prefix, "val "+receiver+" = remember { MutableTransitionState(") ||
-		strings.Contains(prefix, "var "+receiver+" = remember { MutableTransitionState(")
+	return composeTransitionStateDeclRe(receiver).MatchString(prefix)
+}
+
+// composeTransitionStateDeclRe matches a local initialized by a MutableTransitionState call, bare or
+// inside any remember-family wrapper such as rememberRetained.
+func composeTransitionStateDeclRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?:val|var)\s+` + regexp.QuoteMeta(name) +
+		`\s*(?::[^=]+)?(?:=|\bby\b)\s*(?:remember\w*\s*(?:\([^)]*\))?\s*\{\s*)?MutableTransitionState\s*[(<]`)
+}
+
+// composeRememberedDeclRe matches `val|var name = remember[(keys)] { <factory>` or the `by` form.
+func composeRememberedDeclRe(name, factory string) *regexp.Regexp {
+	return regexp.MustCompile(`(?:val|var)\s+` + regexp.QuoteMeta(name) + `\s*(?::[^=]+)?(?:=|\bby\b)\s*remember(?:Saveable)?\s*(?:\([^)]*\))?\s*\{\s*` + factory)
+}
+
+// composeIsTestSourceOrFake reports whether fn lives in a test source set or a Fake/Test class.
+func composeIsTestSourceOrFake(file *scanner.File, fn uint32) bool {
+	return composeIsTestSourceOrFakeAt(file, fn)
+}
+
+// composeRememberedWriteState reports whether the assigned variable was created by remember {} in
+// fn, and whether it is read between that declaration and the assignment.
+func composeRememberedWriteState(file *scanner.File, assignment uint32, fn uint32) (remembered, readBefore bool) {
+	lhs, _, ok := composeAssignmentTextParts(file, assignment)
+	if !ok {
+		return false, false
+	}
+	name := strings.TrimPrefix(strings.TrimSuffix(lhs, ".value"), "this.")
+	// An indexed write (`cache[key] = v`) fills a remembered SnapshotStateMap or list.
+	if bracket := strings.Index(name, "["); bracket > 0 && strings.HasSuffix(name, "]") {
+		name = name[:bracket]
+	}
+	if name == "" || strings.ContainsAny(name, ".[](){} \t\n") {
+		return false, false
+	}
+	prefix, ok := composeCodeOnlySlice(file, fn, assignment)
+	if !ok {
+		return false, false
+	}
+	loc := composeRememberedDeclRe(name, "").FindAllStringIndex(prefix, -1)
+	if len(loc) == 0 {
+		return false, false
+	}
+	declEnd := file.FlatStartByte(fn) + uint32(loc[len(loc)-1][1])
+	return true, composeNameReadInCompositionBetween(file, fn, name, declEnd, file.FlatStartByte(assignment))
+}
+
+// composeDeferredLambdaCallees run their lambda later (an effect or an input callback), not while composing.
+var composeDeferredLambdaCallees = map[string]bool{
+	"clickable": true, "combinedClickable": true, "LaunchedEffect": true, "DisposableEffect": true,
+	"SideEffect": true, "pointerInput": true, "launch": true, "async": true, "toggleable": true,
+	"selectable": true, "draggable": true, "scrollable": true,
+}
+
+// composeNameReadInCompositionBetween reports a reference to name in [from, to) that is not inside a
+// callback or effect lambda. Reads inside those lambdas do not happen during composition.
+func composeNameReadInCompositionBetween(file *scanner.File, fn uint32, name string, from, to uint32) bool {
+	read := false
+	file.FlatWalkNodes(fn, "simple_identifier", func(ref uint32) {
+		if read || !file.FlatNodeTextEquals(ref, name) {
+			return
+		}
+		if start := file.FlatStartByte(ref); start < from || start >= to {
+			return
+		}
+		if !composeRefInDeferredLambda(file, fn, ref) {
+			read = true
+		}
+	})
+	return read
+}
+
+func composeRefInDeferredLambda(file *scanner.File, fn, ref uint32) bool {
+	for cur, ok := file.FlatParent(ref); ok && cur != fn; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "lambda_literal" {
+			continue
+		}
+		for outer, ok := file.FlatParent(cur); ok && outer != fn; outer, ok = file.FlatParent(outer) {
+			switch file.FlatType(outer) {
+			case "value_argument":
+				label := flatValueArgumentLabel(file, outer)
+				if len(label) > 2 && strings.HasPrefix(label, "on") && label[2] >= 'A' && label[2] <= 'Z' {
+					return true
+				}
+			case "call_expression":
+				if composeDeferredLambdaCallees[flatCallNameAny(file, outer)] {
+					return true
+				}
+			}
+			if file.FlatType(outer) == "call_expression" {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// composeAssignmentInitializesFreshRememberedState reports a write to state created by remember {}
+// earlier in the same composable with no read of it in between.
+func composeAssignmentInitializesFreshRememberedState(file *scanner.File, assignment uint32, fn uint32) bool {
+	remembered, readBefore := composeRememberedWriteState(file, assignment, fn)
+	return remembered && !readBefore
 }
 
 func composeAssignmentSynchronizesRememberedObject(file *scanner.File, assignment uint32, fn uint32) bool {
@@ -387,4 +495,63 @@ func composeAssignmentIsDirectFunctionBodyStatement(file *scanner.File, assignme
 func flatNodeHasDirectParent(file *scanner.File, node uint32, parent uint32) bool {
 	actual, ok := file.FlatParent(node)
 	return ok && actual == parent
+}
+
+// composeAssignmentIsStateWriteAfterRead reports a `.value` write to remember-created state that was read earlier.
+func composeAssignmentIsStateWriteAfterRead(file *scanner.File, assignment uint32, fn uint32) bool {
+	lhs, _, ok := composeAssignmentTextParts(file, assignment)
+	if !ok || !strings.HasSuffix(lhs, ".value") {
+		return false
+	}
+	remembered, readBefore := composeRememberedWriteState(file, assignment, fn)
+	return remembered && readBefore
+}
+
+var composePlainCollectionFactories = map[string]bool{
+	"mutableMapOf": true, "mutableListOf": true, "mutableSetOf": true, "arrayListOf": true, "hashMapOf": true,
+	"linkedMapOf": true, "arrayOf": true, "HashMap": true, "ArrayList": true, "LinkedHashMap": true,
+	"IntArray": true, "BooleanArray": true, "FloatArray": true, "LongArray": true, "DoubleArray": true,
+	"StringBuilder": true,
+}
+
+// composeLocalDeclRe captures the delegate keyword and first call name of a local property declaration.
+func composeLocalDeclRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`^\s*(?:@\w+\s+)*(?:val|var)\s+` + regexp.QuoteMeta(name) + `\b[^=]*?(=|\bby\b)\s*(\w+)`)
+}
+
+// composeAssignmentTargetsPlainLocal reports a write that only touches a plain local of the composable:
+// reassigning a non-delegated local `var`, or filling a local built by a plain collection factory.
+// Neither is observable outside the composition, so neither is a side effect.
+func composeAssignmentTargetsPlainLocal(file *scanner.File, assignment, fn uint32) bool {
+	lhs, _, ok := composeAssignmentTextParts(file, assignment)
+	if !ok {
+		return false
+	}
+	indexed := false
+	name := lhs
+	if bracket := strings.Index(name, "["); bracket > 0 && strings.HasSuffix(name, "]") {
+		name, indexed = name[:bracket], true
+	}
+	if name == "" || strings.ContainsAny(name, ".[](){} \t\n") {
+		return false
+	}
+	re := composeLocalDeclRe(name)
+	start := file.FlatStartByte(assignment)
+	result := false
+	file.FlatWalkNodes(fn, "property_declaration", func(prop uint32) {
+		if result || file.FlatStartByte(prop) >= start || extractIdentifierFlat(file, prop) != name {
+			return
+		}
+		m := re.FindStringSubmatch(file.FlatNodeText(prop))
+		if m == nil || strings.HasPrefix(m[2], "remember") || strings.HasPrefix(m[2], "mutableState") ||
+			strings.HasPrefix(m[2], "mutable") && strings.Contains(m[2], "State") {
+			return
+		}
+		if indexed {
+			result = m[1] == "=" && composePlainCollectionFactories[m[2]]
+			return
+		}
+		result = m[1] == "="
+	})
+	return result
 }

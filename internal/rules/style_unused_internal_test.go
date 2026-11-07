@@ -98,8 +98,10 @@ fun foo(annotation: KSAnnotation) {
 		t.Fatal("expected to find foo()'s function_body in fixture")
 	}
 
-	if !unusedParameterErrorSubtreeMentionsNameFlat(file, body, "annotation") {
-		t.Errorf("ERROR fallback should mention soft-keyword param name %q", "annotation")
+	// ParseKotlinFlat now parses the receiver cleanly, so no ERROR subtree
+	// exists and the fallback has nothing to report.
+	if unusedParameterErrorSubtreeMentionsNameFlat(file, body, "annotation") {
+		t.Errorf("clean parse must not need the ERROR fallback for %q", "annotation")
 	}
 	if unusedParameterErrorSubtreeMentionsNameFlat(file, body, "missing") {
 		t.Errorf("ERROR fallback must not invent a mention of unrelated name %q", "missing")

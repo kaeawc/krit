@@ -316,6 +316,45 @@ class Outer {
 	})
 }
 
+func TestRecyclerAdapterWithoutDiffUtil_Kotlin(t *testing.T) {
+	t.Run("BaseAdapter for ListView is not flagged", func(t *testing.T) {
+		findings := runRuleByName(t, "RecyclerAdapterWithoutDiffUtil", `
+package test
+import android.widget.BaseAdapter
+class RowAdapter : BaseAdapter() {
+    fun refresh() { notifyDataSetChanged() }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings for BaseAdapter, got %d", len(findings))
+		}
+	})
+	t.Run("test source sets are not flagged", func(t *testing.T) {
+		findings := runRuleByNameOnPath(t, "RecyclerAdapterWithoutDiffUtil", "app/src/test/java/test/FakeAdapter.kt", `
+package test
+import androidx.recyclerview.widget.RecyclerView
+class FakeAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    fun refresh() { notifyDataSetChanged() }
+}
+`)
+		if len(findings) != 0 {
+			t.Fatalf("expected 0 findings in test sources, got %d", len(findings))
+		}
+	})
+	t.Run("RecyclerView adapter is flagged", func(t *testing.T) {
+		findings := runRuleByName(t, "RecyclerAdapterWithoutDiffUtil", `
+package test
+import androidx.recyclerview.widget.RecyclerView
+class RowAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    fun refresh() { notifyDataSetChanged() }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+}
+
 func TestDatabaseLibraryFacts_DisableRoomWhenKnownAbsent(t *testing.T) {
 	file := parseInline(t, `
 package test
@@ -1145,5 +1184,153 @@ class MainActivity : android.app.Activity() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for non-database query method, got %d", len(findings))
+	}
+}
+
+const okHTTPClientPerCallPositiveSource = `
+package test
+
+import okhttp3.OkHttpClient
+import okhttp3.Request
+
+class Api {
+    fun fetch(url: String) {
+        val client = OkHttpClient.Builder().build()
+        client.newCall(Request.Builder().url(url).build())
+    }
+}
+`
+
+func TestOkHttpClientCreatedPerCall_PositiveRequestMethod(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpClientCreatedPerCall", okHTTPClientPerCallPositiveSource)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestOkHttpClientCreatedPerCall_NegativeScriptAndToolingPaths(t *testing.T) {
+	for _, path := range []string{"build.gradle.kts", "repo/tooling/Check.kt", "repo/scripts/Check.kt"} {
+		findings := runRuleByNameOnPath(t, "OkHttpClientCreatedPerCall", path, okHTTPClientPerCallPositiveSource)
+		if len(findings) != 0 {
+			t.Fatalf("expected no finding for %s, got %d", path, len(findings))
+		}
+	}
+}
+
+func TestOkHttpClientCreatedPerCall_NegativeLazyAndValInitializer(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpClientCreatedPerCall", `
+package test
+
+import okhttp3.OkHttpClient
+
+class Api {
+    private val sharedClient by lazy { OkHttpClient.Builder().build() }
+    private val client = buildClient()
+
+    private fun buildClient(): OkHttpClient = OkHttpClient.Builder().build()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestOkHttpClientCreatedPerCall_PositiveHelperCalledFromMethod(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpClientCreatedPerCall", `
+package test
+
+import okhttp3.OkHttpClient
+
+class Api {
+    private val client = buildClient()
+
+    fun fetch() {
+        val other = buildClient()
+    }
+
+    private fun buildClient(): OkHttpClient = OkHttpClient.Builder().build()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestOkHttpCallExecuteSync_NegativeCancellableBridge(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpCallExecuteSync", `
+package test
+
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+class NetworkRepository {
+  suspend fun fetchData(call: okhttp3.Call): String = suspendCancellableCoroutine { cont ->
+    cont.invokeOnCancellation { call.cancel() }
+    val response = call.execute()
+    cont.resume(response.body?.string() ?: "", null)
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding for execute() bridged with cancellation, got %d", len(findings))
+	}
+}
+
+func TestOkHttpCallExecuteSync_NegativeKdocRequiresIoDispatcher(t *testing.T) {
+	findings := runRuleByName(t, "OkHttpCallExecuteSync", `
+package test
+
+class NetworkRepository {
+  /** Blocks the caller. Call this on the IO dispatcher. */
+  suspend fun fetchData(call: okhttp3.Call): String {
+    val response = call.execute()
+    return response.body?.string() ?: ""
+  }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no finding when KDoc documents the IO dispatcher contract, got %d", len(findings))
+	}
+}
+
+func TestHttpClientNotReused_NegativeScriptAndToolingPaths(t *testing.T) {
+	const code = `
+import java.net.http.HttpClient
+
+fun fetch() {
+    val client = HttpClient.newHttpClient()
+}
+`
+	for _, path := range []string{"build.gradle.kts", "repo/tooling/Fetch.kt"} {
+		if findings := runRuleByNameOnPath(t, "HttpClientNotReused", path, code); len(findings) != 0 {
+			t.Fatalf("expected no finding for %s, got %d", path, len(findings))
+		}
+	}
+	if findings := runRuleByNameOnPath(t, "HttpClientNotReused", "repo/app/Fetch.kt", code); len(findings) != 1 {
+		t.Fatalf("expected 1 finding in production code, got %d", len(findings))
+	}
+}
+
+func TestComposePainterResourceInLoop_GuardedBranchIgnored(t *testing.T) {
+	findings := runRuleByName(t, "ComposePainterResourceInLoop", `
+package test
+
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.painterResource
+
+@Composable
+fun Example(items: List<Int>, show: Boolean) {
+    items.forEach { i ->
+        if (show) {
+            Image(painter = painterResource(1), contentDescription = null)
+        }
+    }
+    for (i in items) {
+        Image(painter = painterResource(2), contentDescription = null)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the unguarded for-loop call, got %d: %v", len(findings), findings)
 	}
 }

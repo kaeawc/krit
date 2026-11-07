@@ -34,7 +34,7 @@ func registerPrivacyAnalyticsRules() {
 					if keyText == "" {
 						return
 					}
-					if piiKeyPattern.MatchString(keyText) {
+					if piiKeyMatches(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Analytics event parameter \""+keyText+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
 						emitted = true
 					}
@@ -54,7 +54,7 @@ func registerPrivacyAnalyticsRules() {
 					if !ok {
 						return
 					}
-					if piiKeyPattern.MatchString(body) {
+					if piiKeyMatches(body) {
 						ctx.EmitAt(file.FlatRow(strNode)+1, file.FlatCol(strNode)+1, "Analytics event parameter \""+body+"\" looks like PII. Avoid sending personally identifiable information to analytics services.")
 					}
 				})
@@ -125,7 +125,7 @@ func registerPrivacyAnalyticsRules() {
 				if !ok {
 					return
 				}
-				if !piiKeyPattern.MatchString(body) {
+				if !piiKeyMatches(body) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(argExpr)+1, file.FlatCol(argExpr)+1, "Crashlytics custom key \""+body+"\" looks like PII. Crash reports should not carry personally identifiable information.")
@@ -158,7 +158,7 @@ func registerPrivacyAnalyticsRules() {
 					if keyText == "" {
 						return
 					}
-					if piiKeyPattern.MatchString(keyText) {
+					if piiKeyMatches(keyText) {
 						ctx.EmitAt(file.FlatRow(infix)+1, file.FlatCol(infix)+1, "Remote Config default key \""+keyText+"\" looks like PII. Remote Config values are not encrypted at rest.")
 					}
 				})
@@ -186,7 +186,7 @@ func registerPrivacyAnalyticsRules() {
 				if ok && privacyHasConsentEarlyReturn(file, fn, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Analytics call without a visible consent gate. Guard analytics events behind a consent check (e.g. if (consent.analyticsAllowed) { ... }).")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Analytics call without a visible consent gate. Guard analytics events behind a consent check (e.g. if (consent.analyticsAllowed) { ... }).")
 			},
 		})
 	}

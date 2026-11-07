@@ -199,8 +199,12 @@ func splitGradleProperty(line string) (key, value string, ok bool) {
 	for i, r := range line {
 		if r == '=' || r == ':' || r == ' ' || r == '\t' {
 			key = strings.TrimSpace(line[:i])
-			value = strings.TrimSpace(line[i+len(string(r)):])
-			return key, value, key != ""
+			rest := strings.TrimLeft(line[i:], " \t")
+			// Java properties allow whitespace around the separator: `key = value`.
+			if rest != "" && (rest[0] == '=' || rest[0] == ':') {
+				rest = rest[1:]
+			}
+			return key, strings.TrimSpace(rest), key != ""
 		}
 	}
 	return "", "", false

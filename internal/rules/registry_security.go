@@ -238,10 +238,21 @@ func registerSecurityRules() {
 			Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !xmlExternalEntityFactoryCall(file, idx) || xmlExternalEntityHasHardeningAfter(file, idx) {
+				if !xmlExternalEntityFactoryCall(file, idx) || xmlExternalEntityHasHardeningAfter(file, idx) ||
+					!xmlExternalEntityUsedToParse(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "XML factory created without XXE-disabling features. Disable DOCTYPE/external entities before parsing untrusted XML.")
+				confidence := r.Confidence()
+				if strings.HasSuffix(strings.ToLower(file.Path), ".kts") {
+					// Tooling scripts parse repository files unless they also fetch data from the network.
+					if !xmlExternalEntityScriptFetchesExternalInput(file) {
+						return
+					}
+					confidence = api.ConfidenceLow
+				}
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "XML factory created without XXE-disabling features. Disable DOCTYPE/external entities before parsing untrusted XML.")
+				f.Confidence = confidence
+				ctx.Emit(f)
 			},
 		})
 	}
@@ -376,7 +387,7 @@ func registerSecurityRules() {
 				if zipSlipFunctionHasGuard(file, fn) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Zip entry path written without canonical-path containment check. Verify out.canonicalPath.startsWith(destDir.canonicalPath + File.separator) or Path.normalize().startsWith(destDir.normalize()) before writing the file.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Zip entry path written without canonical-path containment check. Verify out.canonicalPath.startsWith(destDir.canonicalPath + File.separator) or Path.normalize().startsWith(destDir.normalize()) before writing the file.")
 			},
 		})
 	}
@@ -388,7 +399,7 @@ func registerSecurityRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				lowerPath := strings.ToLower(file.Path)
-				if strings.HasSuffix(lowerPath, ".pem") || strings.HasSuffix(lowerPath, ".json") {
+				if strings.HasSuffix(lowerPath, ".pem") || strings.HasSuffix(lowerPath, ".json") || scanner.IsTestFile(file.Path) {
 					return
 				}
 				text := file.FlatNodeText(idx)
@@ -407,6 +418,9 @@ func registerSecurityRules() {
 			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if scanner.IsTestFile(file.Path) {
+					return
+				}
 				text := file.FlatNodeText(idx)
 				if _, ok := extractHardcodedBearerToken(text); !ok {
 					return
@@ -422,6 +436,9 @@ func registerSecurityRules() {
 			NodeTypes: []string{"string_literal"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if scanner.IsTestFile(file.Path) {
+					return
+				}
 				text := file.FlatNodeText(idx)
 				body, ok := kotlinStringLiteralBody(text)
 				if !ok {

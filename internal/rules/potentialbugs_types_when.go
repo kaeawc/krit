@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -17,6 +18,8 @@ import (
 type ElseCaseInsteadOfExhaustiveWhenRule struct {
 	FlatDispatchBase
 	BaseRule
+	// IgnoredSubjectTypes lists fully qualified subject types the rule skips, like detekt's option.
+	IgnoredSubjectTypes []string
 }
 
 // Confidence reports a tier-2 (medium) base confidence — with the
@@ -24,52 +27,6 @@ type ElseCaseInsteadOfExhaustiveWhenRule struct {
 // flags any when-with-else-using-is, which is noisier. Classified per
 // roadmap/17.
 func (r *ElseCaseInsteadOfExhaustiveWhenRule) Confidence() float64 { return api.ConfidenceMedium }
-
-// whenElseBranchDeletionFix returns a byte-mode Fix that removes the
-// `else -> ...` when_entry from a when_expression along with surrounding
-// whitespace. Returns nil when no else entry is found. The fix preserves
-// the surrounding closing brace and indentation by trimming the trailing
-// newline only when present.
-func whenElseBranchDeletionFix(file *scanner.File, idx uint32) *scanner.Fix {
-	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
-		if file.FlatType(entry) != "when_entry" {
-			continue
-		}
-		isElse := false
-		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "else" {
-				isElse = true
-				break
-			}
-		}
-		if !isElse {
-			continue
-		}
-		start := int(file.FlatStartByte(entry))
-		end := int(file.FlatEndByte(entry))
-		// Pull leading indentation back to (but not past) the previous
-		// newline so the entry's leading whitespace is removed.
-		for start > 0 {
-			c := file.Content[start-1]
-			if c == ' ' || c == '\t' {
-				start--
-				continue
-			}
-			break
-		}
-		// Consume the trailing newline so the line collapses entirely.
-		if end < len(file.Content) && file.Content[end] == '\n' {
-			end++
-		}
-		return &scanner.Fix{
-			ByteMode:    true,
-			StartByte:   start,
-			EndByte:     end,
-			Replacement: "",
-		}
-	}
-	return nil
-}
 
 // whenHasElseBranchFlat returns true when the when_expression at idx has
 // an `else ->` branch. A when_entry for the else branch has an `else`
@@ -254,6 +211,188 @@ func whenVariantsCoveredFlat(coveredTypes map[string]bool, variants []string) bo
 	return len(variants) > 0
 }
 
+// whenUnguardedTypeTests returns the `is T` type names of entries that have no guard. A guarded
+// entry (`is T if cond ->`) only matches some instances of T, so it does not cover T.
+func whenUnguardedTypeTests(file *scanner.File, idx uint32) map[string]bool {
+	covered := make(map[string]bool)
+	file.FlatForEachChild(idx, func(entry uint32) {
+		if file.FlatType(entry) != "when_entry" || whenEntryIsGuarded(file, entry) {
+			return
+		}
+		file.FlatForEachChild(entry, func(cond uint32) {
+			if file.FlatType(cond) != "when_condition" {
+				return
+			}
+			if typeName := whenConditionTypeTestName(file, cond); typeName != "" {
+				covered[typeName] = true
+			}
+		})
+	})
+	return covered
+}
+
+var whenGuardKeywordPattern = regexp.MustCompile(`(^|[\s)])if[\s(]`)
+
+// whenEntryIsGuarded reports an entry whose condition part has an `if` guard, which the grammar
+// parses as an error inside the condition.
+func whenEntryIsGuarded(file *scanner.File, entry uint32) bool {
+	for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "->" {
+			prefix := file.Content[file.FlatStartByte(entry):file.FlatStartByte(child)]
+			return whenGuardKeywordPattern.Match(prefix)
+		}
+	}
+	return false
+}
+
+// whenSealedFullyCovered reports whether the covered type tests reach every permitted subtype of a
+// sealed type, including the subtypes of nested sealed types.
+func whenSealedFullyCovered(file *scanner.File, resolver typeinfer.TypeResolver, sealedName string, variants []string, covered map[string]bool, depth int) bool {
+	counts := map[string]int{}
+	whenCountHierarchyNames(resolver, sealedName, variants, counts, 0)
+	return whenSealedCoveredAt(file, resolver, sealedName, variants, covered, counts, depth)
+}
+
+// whenCountHierarchyNames counts the simple names of every subtype below a sealed type, so a name
+// declared in two nested types is known to be ambiguous.
+func whenCountHierarchyNames(resolver typeinfer.TypeResolver, sealedName string, variants []string, counts map[string]int, depth int) {
+	if depth > 8 {
+		return
+	}
+	seen := map[string]bool{}
+	all := append([]string(nil), variants...)
+	all = append(all, resolver.SealedVariants(typeinfer.SealedIntermediateKey(sealedName))...)
+	for _, v := range all {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		counts[simpleTypeName(v)]++
+		if info := resolver.ClassHierarchy(v); info != nil && info.IsSealed {
+			whenCountHierarchyNames(resolver, v, resolver.SealedVariants(v), counts, depth+1)
+		}
+	}
+}
+
+func whenSealedCoveredAt(file *scanner.File, resolver typeinfer.TypeResolver, sealedName string, variants []string, covered map[string]bool, counts map[string]int, depth int) bool {
+	if depth > 8 {
+		return false
+	}
+	all := append([]string(nil), variants...)
+	all = append(all, resolver.SealedVariants(typeinfer.SealedIntermediateKey(sealedName))...)
+	if len(all) == 0 {
+		return false
+	}
+	for _, v := range all {
+		if v == "" || whenTypeTestCovers(file, resolver, sealedName, covered, v, counts[simpleTypeName(v)] > 1) {
+			continue
+		}
+		// A sealed variant is covered by covering each of its own subtypes.
+		sub := resolver.SealedVariants(v)
+		sub = append(sub, resolver.SealedVariants(typeinfer.SealedIntermediateKey(v))...)
+		if info := resolver.ClassHierarchy(v); len(sub) > 0 && info != nil && info.IsSealed &&
+			whenSealedCoveredAt(file, resolver, v, resolver.SealedVariants(v), covered, counts, depth+1) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// whenTypeTestCovers matches a variant against the tested type names. A qualified test (`Outer.Inner`)
+// only covers the variant whose resolved name ends with that qualified name, so a same-named class
+// elsewhere does not count. An unqualified test of an ambiguous name covers the variant only when
+// its import is declared in the variant's owner.
+func whenTypeTestCovers(file *scanner.File, resolver typeinfer.TypeResolver, sealedName string, covered map[string]bool, variant string, ambiguous bool) bool {
+	if covered[variant] && !(ambiguous && !strings.Contains(variant, ".") && !whenImportOwnerMatches(file, resolver, variant, variant, sealedName)) {
+		return true
+	}
+	simple := simpleTypeName(variant)
+	qualifiedVariant := variant
+	if info := resolver.ClassHierarchy(variant); info != nil && info.FQN != "" {
+		qualifiedVariant = info.FQN
+	}
+	for name := range covered {
+		if simpleTypeName(name) != simple {
+			continue
+		}
+		if ambiguous && !strings.Contains(name, ".") && !whenImportOwnerMatches(file, resolver, name, variant, sealedName) {
+			continue
+		}
+		// Nested variants may resolve without their parent in the name, so the sealed type also qualifies them.
+		qualifier := strings.TrimSuffix(strings.TrimSuffix(name, simple), ".")
+		if !strings.Contains(name, ".") || qualifiedVariant == name || strings.HasSuffix(qualifiedVariant, "."+name) ||
+			simpleTypeName(qualifier) == simpleTypeName(sealedName) {
+			return true
+		}
+	}
+	return false
+}
+
+// whenImportOwnerMatches reports whether an unqualified type test refers to a class nested in the
+// variant's owner type. Tests with no nesting owner (top-level or unresolved) match any variant.
+func whenImportOwnerMatches(file *scanner.File, resolver typeinfer.TypeResolver, testName, variant, sealedName string) bool {
+	imported := whenExplicitImport(file, testName)
+	if imported == "" {
+		imported = resolver.ResolveImport(testName, file)
+	}
+	testOwner := nestingOwner(imported)
+	if testOwner == "" {
+		return true
+	}
+	variantOwner := nestingOwner(variant)
+	if variantOwner == "" {
+		variantOwner = simpleTypeName(sealedName)
+	}
+	return testOwner == variantOwner
+}
+
+var whenImportPattern = regexp.MustCompile(`(?m)^\s*import\s+([\w.]+)\s*$`)
+
+// whenExplicitImport returns the fully qualified name an explicit import gives a simple name, or "".
+// The file's own import lines are read because the resolver prefers a same-file declaration.
+func whenExplicitImport(file *scanner.File, simple string) string {
+	for _, m := range whenImportPattern.FindAllSubmatch(file.Content, -1) {
+		if path := string(m[1]); simpleTypeName(path) == simple {
+			return path
+		}
+	}
+	return ""
+}
+
+// nestingOwner returns the enclosing class segment of a dotted name, or "" when the name has no
+// class owner (package segments start in lower case).
+func nestingOwner(qualified string) string {
+	parts := strings.Split(qualified, ".")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner := parts[len(parts)-2]
+	if owner == "" || owner[0] < 'A' || owner[0] > 'Z' {
+		return ""
+	}
+	return owner
+}
+
+// whenAddUnguardedObjectBranches adds value branches (`Loading ->`, `Outer.Loading ->`) that name an
+// object, since an object is covered by equality as well as by `is`.
+func whenAddUnguardedObjectBranches(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver, covered map[string]bool) {
+	file.FlatForEachChild(idx, func(entry uint32) {
+		if file.FlatType(entry) != "when_entry" || whenEntryIsGuarded(file, entry) {
+			return
+		}
+		file.FlatForEachChild(entry, func(cond uint32) {
+			name := whenConditionEnumEntryName(file, cond)
+			if name == "" {
+				return
+			}
+			if info := resolver.ClassHierarchy(name); info != nil && info.Kind == "object" {
+				covered[name] = true
+			}
+		})
+	})
+}
+
 // whenConditionTypeTestName returns the type identifier from an
 // `is TypeName` when_condition, or "" if the condition is not a
 // type_test. Works on the condition node, not the whole entry.
@@ -263,6 +402,10 @@ func whenConditionTypeTestName(file *scanner.File, condition uint32) string {
 	}
 	typeTest, ok := file.FlatFindChild(condition, "type_test")
 	if !ok {
+		return ""
+	}
+	// `!is T` covers everything except T.
+	if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(typeTest)), "!is") {
 		return ""
 	}
 	userType, ok := file.FlatFindChild(typeTest, "user_type")
@@ -319,7 +462,8 @@ func collectWhenCoveredVariants(file *scanner.File, idx uint32) (typeNames map[s
 	typeNames = map[string]bool{}
 	entryNames = map[string]bool{}
 	file.FlatForEachChild(idx, func(entry uint32) {
-		if file.FlatType(entry) != "when_entry" {
+		// A guarded entry only matches some instances, so it covers nothing.
+		if file.FlatType(entry) != "when_entry" || whenEntryIsGuarded(file, entry) {
 			return
 		}
 		file.FlatForEachChild(entry, func(cond uint32) {
@@ -461,7 +605,7 @@ func whenSubjectResolvesToBoolean(file *scanner.File, idx uint32, resolver typei
 
 func collectBooleanCoveredLiterals(file *scanner.File, idx uint32) (hasTrue, hasFalse bool) {
 	file.FlatForEachChild(idx, func(entry uint32) {
-		if file.FlatType(entry) != "when_entry" {
+		if file.FlatType(entry) != "when_entry" || whenEntryIsGuarded(file, entry) {
 			return
 		}
 		file.FlatForEachChild(entry, func(cond uint32) {
@@ -496,9 +640,85 @@ func missingWhenSealedOrEnumVariants(file *scanner.File, idx uint32, resolver ty
 	typeNames, entryNames := collectWhenCoveredVariants(file, idx)
 	switch kind {
 	case "sealed":
+		// An object variant is also matched by value (`Loading ->`).
+		for name := range entryNames {
+			typeNames[name] = true
+		}
 		missing = missingSealedVariants(typeNames, variants)
 	case "enum":
 		missing = missingEnumEntries(entryNames, variants)
 	}
 	return kind, subjectName, missing
+}
+
+// whenSubjectTypeIsSealed reports whether the resolver knows the named type as a sealed class or interface.
+func whenSubjectTypeIsSealed(resolver typeinfer.TypeResolver, name string) bool {
+	info := resolver.ClassHierarchy(name)
+	return info != nil && info.IsSealed
+}
+
+// whenSubjectIsNullableFlat reports whether the subject resolves to a nullable type.
+func whenSubjectIsNullableFlat(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver) bool {
+	subject := whenSubjectExpressionFlat(file, idx)
+	if subject == 0 {
+		return false
+	}
+	if t := resolver.ResolveFlatNode(subject, file); t != nil && t.IsNullable() {
+		return true
+	}
+	if file.FlatType(subject) == "simple_identifier" {
+		t := resolver.ResolveByNameFlat(file.FlatNodeText(subject), subject, file)
+		return t != nil && t.IsNullable()
+	}
+	return false
+}
+
+// whenHasNullBranchFlat reports whether some when_entry has a `null` condition.
+func whenHasNullBranchFlat(file *scanner.File, idx uint32) bool {
+	found := false
+	file.FlatForEachChild(idx, func(entry uint32) {
+		if file.FlatType(entry) != "when_entry" {
+			return
+		}
+		file.FlatForEachChild(entry, func(cond uint32) {
+			if file.FlatType(cond) == "when_condition" && strings.TrimSpace(file.FlatNodeText(cond)) == "null" {
+				found = true
+			}
+		})
+	})
+	return found
+}
+
+// whenElseEntryNode returns the `else ->` when_entry of a when_expression, or idx when there is none.
+func whenElseEntryNode(file *scanner.File, idx uint32) uint32 {
+	for entry := file.FlatFirstChild(idx); entry != 0; entry = file.FlatNextSib(entry) {
+		if file.FlatType(entry) != "when_entry" {
+			continue
+		}
+		for child := file.FlatFirstChild(entry); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "else" {
+				return entry
+			}
+		}
+	}
+	return idx
+}
+
+// whenSubjectIsIgnored reports whether the subject type is one of the configured ignoredSubjectTypes.
+func whenSubjectIsIgnored(file *scanner.File, idx uint32, resolver typeinfer.TypeResolver, ignored []string) bool {
+	if len(ignored) == 0 {
+		return false
+	}
+	subject := whenSubjectExpressionFlat(file, idx)
+	if subject == 0 {
+		return false
+	}
+	for _, candidate := range whenSubjectTypeCandidatesFlat(file, subject, resolver) {
+		for _, name := range ignored {
+			if strings.TrimSpace(name) == candidate {
+				return true
+			}
+		}
+	}
+	return false
 }

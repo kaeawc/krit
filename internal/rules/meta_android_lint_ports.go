@@ -1,0 +1,201 @@
+// Descriptor metadata for the Android Lint ports in android_lint_*.go.
+
+package rules
+
+import api "github.com/kaeawc/krit/internal/rules/api"
+
+func (r *UnspecifiedImmutableFlagRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UnspecifiedImmutableFlag", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WeekBasedYearRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WeekBasedYear", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UsableSpaceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UsableSpace", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SetWorldReadableRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SetWorldReadable", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SetWorldWritableRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SetWorldWritable", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *CustomX509TrustManagerRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "CustomX509TrustManager", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TrustAllX509TrustManagerRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TrustAllX509TrustManager", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WakelockTimeoutRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WakelockTimeout", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SuspiciousImportRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SuspiciousImport", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UsingHttpRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UsingHttp", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ProxyPasswordRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ProxyPassword", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ExactAlarmRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ExactAlarm", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SelectedPhotoAccessRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SelectedPhotoAccess", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DataExtractionRulesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DataExtractionRules", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *RedundantLabelRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "RedundantLabel", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MissingTvBannerRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MissingTvBanner", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UnsupportedTvHardwareRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UnsupportedTvHardware", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ImpliedTouchscreenHardwareRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ImpliedTouchscreenHardware", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TypographyDashesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TypographyDashes", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TypographyEllipsisRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TypographyEllipsis", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TypographyFractionsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TypographyFractions", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TypographyOtherRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TypographyOther", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *TypographyQuotesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "TypographyQuotes", RuleSet: "android-lint", DefaultActive: false, OptInReason: api.OptInReasonAndroidOnly}
+}
+
+func (r *SignatureOrSystemPermissionsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SignatureOrSystemPermissions", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *HighSamplingRateRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "HighSamplingRate", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *KeyboardInaccessibleWidgetRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "KeyboardInaccessibleWidget", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *BottomAppBarRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "BottomAppBar", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *InvalidImeActionIdRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidImeActionId", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MenuTitleRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MenuTitle", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UsingC2DMRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UsingC2DM", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *InvalidPermissionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidPermission", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *CoarseFineLocationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "CoarseFineLocation", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *LeanbackUsesWifiRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "LeanbackUsesWifi", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UnnecessaryRequiredFeatureRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UnnecessaryRequiredFeature", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *InvalidManifestAttributeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidManifestAttribute", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *EllipsizeMaxLinesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "EllipsizeMaxLines", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *NetworkSecurityConfigRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NetworkSecurityConfig", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *PinSetExpiryRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "PinSetExpiry", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MissingBackupPinRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MissingBackupPin", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AcceptsUserCertificatesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AcceptsUserCertificates", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *VectorRasterRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "VectorRaster", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *VectorPathRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "VectorPath", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *InvalidVectorPathRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidVectorPath", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UnspecifiedRegisterReceiverFlagRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UnspecifiedRegisterReceiverFlag", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SSLCertificateSocketFactoryGetInsecureRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SSLCertificateSocketFactoryGetInsecure", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SSLCertificateSocketFactoryCreateSocketRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SSLCertificateSocketFactoryCreateSocket", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DeletedProviderRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DeletedProvider", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WebViewClientOnReceivedSslErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WebViewClientOnReceivedSslError", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MissingInflatedIdRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MissingInflatedId", RuleSet: "android-lint", DefaultActive: true}
+}

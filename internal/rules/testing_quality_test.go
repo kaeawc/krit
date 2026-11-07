@@ -46,6 +46,27 @@ fun testCompute() {
 	}
 }
 
+func TestAssertEqualsArgumentOrder_MessageAndDelta(t *testing.T) {
+	findings := runRuleByName(t, "AssertEqualsArgumentOrder", `
+package test
+
+import org.junit.Assert.assertEquals
+
+fun testCompute() {
+    val actual = compute()
+    val expected = 42
+    assertEquals("message", actual, expected)
+    assertEquals(actual, expected, "message")
+    assertEquals(actual, expected, 0.1)
+    assertEquals("message", expected, actual)
+    assertEquals(expected, actual, "message")
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %d", len(findings))
+	}
+}
+
 func TestAssertTrueOnComparison_Positive(t *testing.T) {
 	findings := runRuleByName(t, "AssertTrueOnComparison", `
 package test
@@ -79,6 +100,41 @@ fun testCompute() {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestAssertTrueOnComparison_NegativeBooleanLiteralOperand(t *testing.T) {
+	findings := runRuleByName(t, "AssertTrueOnComparison", `
+package test
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+
+fun testNullSafe(x: String?, flag: Boolean?) {
+    assertTrue(x?.contains("a") == true)
+    assertTrue(flag == true)
+    assertFalse(flag == false)
+    assertTrue(false == flag)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestAssertTrueOnComparison_PositiveSizeComparison(t *testing.T) {
+	findings := runRuleByName(t, "AssertTrueOnComparison", `
+package test
+
+import org.junit.Assert.assertTrue
+
+fun testSize(list: List<Int>, a: Int, b: Int) {
+    assertTrue(list.size == 1)
+    assertTrue(a == b)
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
 	}
 }
 
@@ -378,21 +434,20 @@ class Result(val items: List<String>)
 	}
 }
 
-func TestAssertNullableWithNotNullAssertion_PositiveCustomAssertDirectArgument(t *testing.T) {
+func TestAssertNullableWithNotNullAssertion_NegativeProjectAssertHelper(t *testing.T) {
 	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
 package test
 
 fun testHelper(result: Result?) {
-    assertState(State(result!!.items))
+    assertState(result!!.items)
 }
 
-private fun assertState(state: State) {}
+private fun assertState(items: List<String>) {}
 
 class Result(val items: List<String>)
-class State(val items: List<String>)
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected custom assert direct argument to be flagged")
+	if len(findings) != 0 {
+		t.Fatalf("expected project assert-prefixed helper to be ignored, got %d", len(findings))
 	}
 }
 
@@ -401,8 +456,8 @@ func TestAssertNullableWithNotNullAssertion_UsesLocalASTOnly(t *testing.T) {
 	if rule == nil {
 		t.Fatal("AssertNullableWithNotNullAssertion rule is not registered")
 	}
-	if rule.Needs != 0 {
-		t.Fatalf("AssertNullableWithNotNullAssertion should remain AST-only, got needs %v", rule.Needs)
+	if rule.Needs != api.NeedsResolver|api.NeedsOracleDiagnostics|api.NeedsOracleCallTargets {
+		t.Fatalf("AssertNullableWithNotNullAssertion should only need oracle diagnostics and call targets, got needs %v", rule.Needs)
 	}
 	if rule.Oracle != nil {
 		t.Fatal("AssertNullableWithNotNullAssertion should not declare oracle metadata")
@@ -623,6 +678,107 @@ class RunTestWithDelayPositive {
 	}
 }
 
+func TestRunTestWithDelay_NegativeDelayDrivesOtherWork(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunTestWithDelayDrivesWork {
+    @Test
+    fun launched() = runTest {
+        launch { emit(1) }
+        delay(100)
+        assert(true)
+    }
+
+    @Test
+    fun scheduled() = runTest {
+        start()
+        delay(100)
+        advanceUntilIdle()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when delay lets other work run, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRunTestWithDelay_PositiveIsInfoAndDoesNotClaimDefect(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunTestWithDelayLone {
+    @Test
+    fun works() = runTest {
+        delay(1000)
+        assert(true)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Severity != "info" || !strings.Contains(findings[0].Message, "virtual time") {
+		t.Fatalf("unexpected severity or message: %q %q", findings[0].Severity, findings[0].Message)
+	}
+}
+
+func TestRunTestWithDelay_ChildCoroutineDelayIgnored(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunTestWithDelayChild {
+    @Test
+    fun launched() = runTest {
+        launch { delay(100) }
+    }
+
+    @Test
+    fun flowBuilder() = runTest {
+        val f = flow { delay(100); emit(1) }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for delay in child coroutines, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithDelay_InlineScopeDelayStillFlagged(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunTestWithDelayInline {
+    @Test
+    fun works() = runTest {
+        repeat(2) { delay(100) }
+    }
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for delay in an inline scope inside runTest")
+	}
+}
+
 func TestRunTestWithDelay_PositiveFullyQualifiedDelay(t *testing.T) {
 	findings := runRuleByName(t, "RunTestWithDelay", `
 package test
@@ -835,6 +991,29 @@ class RunBlockingInTestPositive {
 	}
 }
 
+func TestRunBlockingInTest_NestedInRunTestSaysRemoveNested(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RunBlockingInTestNested {
+    @Test
+    fun works() = runTest {
+        runBlocking { assert(true) }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+	if !strings.Contains(findings[0].Message, "nested `runBlocking`") || strings.Contains(findings[0].Message, "Use `runTest`") {
+		t.Fatalf("unexpected message: %s", findings[0].Message)
+	}
+}
+
 func TestRunBlockingInTest_Negative(t *testing.T) {
 	findings := runRuleByName(t, "RunBlockingInTest", `
 package test
@@ -1003,7 +1182,7 @@ class RunBlockingThreadIdentityAssertionNegative {
     @Test
     fun comparesThreadIdentity() {
         runBlocking {
-            assertThat(innerThread).isSameInstanceAs(outerThread)
+            assertThat(workerThread).isSameInstanceAs(callerThread)
         }
     }
 }
@@ -1023,13 +1202,12 @@ import org.junit.Test
 
 class RunBlockingDispatcherCheckNegative {
     @Test
-    fun readToWriteRequiresDispatch() = runBlocking {
-        var dispatchNeededFromRead: Boolean? = null
-        withContext(persistenceDispatcher.read) {
-            val writeDispatcher = persistenceDispatcher.write
-            dispatchNeededFromRead = writeDispatcher.isDispatchNeeded(coroutineContext)
+    fun switchingPoolsRequiresDispatch() = runBlocking {
+        var switchNeeded: Boolean? = null
+        withContext(sensorPools.sampling) {
+            switchNeeded = sensorPools.upload.isDispatchNeeded(coroutineContext)
         }
-        assertThat(dispatchNeededFromRead).isTrue()
+        assertThat(switchNeeded).isTrue()
     }
 }
 `)
@@ -1051,13 +1229,13 @@ import org.junit.Test
 
 class RunBlockingRealConcurrencyNegative {
     @Test
-    fun concurrentCoroutinesWithSameIdOnlyOneExecutes() = runBlocking {
-        val scope = CoroutineScope(Dispatchers.Default)
-        val syncStartedLatch = CountDownLatch(1)
-        val job = scope.launch {
-            syncStartedLatch.countDown()
+    fun backgroundJobSignalsStart() = runBlocking {
+        val workScope = CoroutineScope(Dispatchers.Default)
+        val startedLatch = CountDownLatch(1)
+        val job = workScope.launch {
+            startedLatch.countDown()
         }
-        syncStartedLatch.await()
+        startedLatch.await()
         job.cancel()
     }
 }
@@ -1127,14 +1305,14 @@ class RunBlockingRxJavaBridgeNegative {
     @Test
     fun bridgesSuspendSetupIntoRxAssertion() {
         runBlocking {
-            whenever(filesDao.getFileInfoOrNull(FILE_ID)).thenReturn(partialFileInfo)
+            whenever(invoiceDao.findOrNull(INVOICE_ID)).thenReturn(draftInvoice)
         }
 
-        val observer = TestObserver.create<FileInfo>()
-        filesRepository.getFile(FILE_ID).subscribe(observer)
+        val observer = TestObserver.create<Invoice>()
+        invoiceRepository.watch(INVOICE_ID).subscribe(observer)
 
         runBlocking {
-            verify(filesDao).getFileInfoOrNull(FILE_ID)
+            verify(invoiceDao).findOrNull(INVOICE_ID)
         }
     }
 }
@@ -1155,8 +1333,8 @@ import org.junit.Test
 class RunBlockingRxJavaExpressionPositive {
     @Test
     fun blocksWholeTest() = runBlocking {
-        val observer = TestObserver.create<FileInfo>()
-        filesRepository.getFile(FILE_ID).subscribe(observer)
+        val observer = TestObserver.create<Invoice>()
+        invoiceRepository.watch(INVOICE_ID).subscribe(observer)
     }
 }
 `)
@@ -1175,8 +1353,8 @@ import org.junit.Test
 
 class RunBlockingInlineResultNegative {
     @Test
-    fun convertsShortcutUrl() {
-        val result = runBlocking { converter.convert(listOf(attachment)) }
+    fun rendersSingleLineItem() {
+        val result = runBlocking { invoiceMapper.render(listOf(lineItem)) }
         assertThat(result).hasSize(1)
     }
 }
@@ -1191,12 +1369,16 @@ func TestRunBlockingInTest_PositiveInlineResultNotAsserted(t *testing.T) {
 package test
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 class RunBlockingInlineResultPositive {
     @Test
-    fun convertsShortcutUrl() {
-        val result = runBlocking { converter.convert(listOf(attachment)) }
+    fun otherTest() = runTest { assert(true) }
+
+    @Test
+    fun rendersSingleLineItem() {
+        val result = runBlocking { invoiceMapper.render(listOf(lineItem)) }
         println(result)
     }
 }
@@ -1218,7 +1400,7 @@ import kotlin.test.assertFalse
 class RunBlockingTurbineNegative {
     @Test
     fun emitsFalseByDefault() = runBlocking {
-        secondaryAuthHelper.observeSecondaryAuthEnabled().test {
+        featureToggles.watchBetaEnabled().test {
             assertFalse(awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
@@ -1292,6 +1474,96 @@ class TestWithoutAssertionNegative {
 	}
 }
 
+func TestTestWithoutAssertion_NegativeAssertingHelpersAndSmokeTests(t *testing.T) {
+	tests := map[string]string{
+		"same-file helper using check": `
+    private fun assertLoaded(items: List<Int>) {
+        check(items.isNotEmpty())
+    }
+    @Test
+    fun loads() {
+        assertLoaded(listOf(1))
+    }`,
+		"same-file helper using require": `
+    private fun ensureLoaded(items: List<Int>) {
+        require(items.isNotEmpty()) { "empty" }
+    }
+    @Test
+    fun loads() {
+        ensureLoaded(listOf(1))
+    }`,
+		"direct require": `
+    @Test
+    fun loads() {
+        require(listOf(1).isNotEmpty())
+    }`,
+		"mockito verify": `
+    @Test
+    fun notifies() {
+        listener.onDone()
+        verify(listener).onDone()
+    }`,
+		"verifyNoMoreInteractions": `
+    @Test
+    fun notifies() {
+        listener.onDone()
+        verifyNoMoreInteractions(listener)
+    }`,
+		"espresso check matches": `
+    @Test
+    fun shows() {
+        onView(withId(1)).check(matches(isDisplayed()))
+    }`,
+		"no exception comment": `
+    @Test
+    fun renders() {
+        // Smoke test: no exception is thrown while rendering.
+        render()
+    }`,
+		"does not throw comment": `
+    @Test
+    fun renders() {
+        render() // does not throw
+    }`,
+	}
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class HelperAssertionTest {`+body+`
+}
+`)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestTestWithoutAssertion_PositiveHelperWithoutAssertion(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class HelperPositiveTest {
+    private fun prepare(items: List<Int>) {
+        println(items)
+    }
+    @Test
+    fun loads() {
+        prepare(listOf(1))
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
 func TestTestWithoutAssertion_NegativeAndroidLintExpect(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test
@@ -1310,6 +1582,72 @@ class AndroidLintExpectNegative {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected Android lint expect chain to count as verification, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeMacrobenchmarkScopeJourney(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import androidx.benchmark.macro.MacrobenchmarkScope
+import org.junit.Test
+
+class JourneyTest {
+    private val scope = MacrobenchmarkScope("com.example", true)
+
+    @Test
+    fun validateJourney() = with(scope) { runFlow() }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected macrobenchmark journey to be skipped, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeUiAutomatorJourney(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import androidx.test.uiautomator.UiDevice
+import org.junit.Test
+
+class JourneyTest {
+    @Test
+    fun opensSettings() {
+        device.pressHome()
+        device.wait(1000)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected UI Automator journey to be skipped, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeLargeTestInBenchmarkSourceSet(t *testing.T) {
+	src := `
+package test
+
+import androidx.test.filters.LargeTest
+import org.junit.Test
+
+@LargeTest
+class JourneyTest {
+    @Test
+    fun runsFlow() {
+        flow.run()
+    }
+}
+`
+	if got := runRuleByNameOnPath(t, "TestWithoutAssertion", "app/benchmark/src/main/kotlin/JourneyTest.kt", src); len(got) != 0 {
+		t.Fatalf("expected @LargeTest in benchmark source set to be skipped, got %d", len(got))
+	}
+	got := runRuleByNameOnPath(t, "TestWithoutAssertion", "app/src/test/kotlin/JourneyTest.kt", src)
+	if len(got) != 1 {
+		t.Fatalf("expected finding outside benchmark source set, got %d", len(got))
+	}
+	if got[0].Line != 10 || got[0].Col != 9 {
+		t.Fatalf("expected finding anchored on function name at 10:9, got %d:%d", got[0].Line, got[0].Col)
 	}
 }
 
@@ -1803,37 +2141,13 @@ import org.mockito.kotlin.verify
 class MockitoVerifySetterNegative {
     @Test
     fun hidesLoading() {
-        messagesDelegate.showLoading(true)
-        verify(mockMessagesRecyclerView).visibility = View.INVISIBLE
+        playlistController.showSpinner(true)
+        verify(playlistListView).visibility = View.INVISIBLE
     }
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected Mockito verify property-setter chain to count as assertion-equivalent, got %d", len(findings))
-	}
-}
-
-func TestTestWithoutAssertion_NegativeEspressoWaitForElementDisplayed(t *testing.T) {
-	findings := runRuleByName(t, "TestWithoutAssertion", `
-package test
-
-import androidx.test.espresso.matcher.ViewMatchers.withId
-import androidx.test.espresso.matcher.ViewMatchers.withText
-import org.hamcrest.Matchers.allOf
-import org.junit.Test
-
-class EspressoWaitNegative {
-    @Test
-    fun showsChannelPurpose() {
-        launchFragment()
-        waitForElementDisplayed(
-            allOf(withId(R.id.channel_purpose), withText(CHANNEL_PURPOSE))
-        )
-    }
-}
-`)
-	if len(findings) != 0 {
-		t.Fatalf("expected Espresso waitForElementDisplayed helper to count as assertion-equivalent, got %d", len(findings))
 	}
 }
 
@@ -1942,19 +2256,19 @@ class LocalIsDisplayedLookalikePositive {
 	}
 }
 
-func TestTestWithoutAssertion_PositiveLocalWaitForElementDisplayedLookalike(t *testing.T) {
+func TestTestWithoutAssertion_PositiveWaitUntilExistsWithoutComposeEvidence(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test
 
 class LocalWaitLookalikePositive {
     @Test
     fun setupOnly() {
-        waitForElementDisplayed("not espresso")
+        waitUntilAtLeastOneExists("not compose")
     }
 }
 `)
 	if len(findings) == 0 {
-		t.Fatal("expected local waitForElementDisplayed lookalike without Espresso evidence to be reported")
+		t.Fatal("expected waitUntilAtLeastOneExists lookalike without Compose evidence to be reported")
 	}
 }
 
@@ -1962,15 +2276,18 @@ func TestTestWithoutAssertion_NegativeUiVisibilityHelpers(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test
 
-import com.example.uitesting.robots.TabNavRobot.Companion.tabNav
+import androidx.compose.ui.test.junit4.createComposeRule
+import org.junit.Rule
 import org.junit.Test
 
 class UiVisibilityHelpersNegative {
+    @get:Rule val composeTestRule = createComposeRule()
+
     @Test
     fun displaysPage() {
-        tabNav(rule) {
-            isTextDisplayed("Details")
-            waitUntilViewIsDisplayed(withId(R.id.title))
+        detailsPage(composeTestRule) {
+            isTitleDisplayed("Details")
+            waitUntilAtLeastOneExists(hasText("Details"))
         }
     }
 }
@@ -1989,10 +2306,10 @@ import org.junit.Test
 class UiVisibilityLookalikePositive {
     @Test
     fun callsLocalWaitHelper() {
-        waitUntilViewIsDisplayed("Details")
+        isTitleDisplayed("Details")
     }
 
-    private fun waitUntilViewIsDisplayed(text: String) {
+    private fun isTitleDisplayed(text: String) {
         println(text)
     }
 }
@@ -2584,8 +2901,8 @@ import org.junit.Test
 class SmokeTest {
     @Test
     fun attachesAndDetachesPresenter() {
-        searchPresenter.attach(fakeSearchView)
-        searchPresenter.detach()
+        timerPresenter.attach(stubTimerView)
+        timerPresenter.detach()
     }
 }
 `)
@@ -2689,8 +3006,8 @@ func TestTestWithoutAssertion_UsesLocalASTOnly(t *testing.T) {
 	if rule == nil {
 		t.Fatal("TestWithoutAssertion rule is not registered")
 	}
-	if rule.Needs != 0 {
-		t.Fatalf("TestWithoutAssertion should remain AST-only, got needs %v", rule.Needs)
+	if rule.Needs != api.NeedsCrossFile {
+		t.Fatalf("TestWithoutAssertion should need only the cross-file index, got needs %v", rule.Needs)
 	}
 	if rule.Oracle != nil {
 		t.Fatal("TestWithoutAssertion should not declare oracle metadata")
@@ -3269,5 +3586,1054 @@ class VerifyWithoutMockDirectReceiverPositive {
 	}
 	if findings[0].Message == "" || !strings.Contains(findings[0].Message, "`api`") {
 		t.Fatalf("expected finding to mention api receiver, got %q", findings[0].Message)
+	}
+}
+
+func TestTestDispatcherNotInjected_PositiveConstructorArgument(t *testing.T) {
+	findings := runRuleByName(t, "TestDispatcherNotInjected", `
+package test
+
+import kotlinx.coroutines.Dispatchers
+import org.junit.Test
+
+class DispatcherInjectionPositive {
+    @Test
+    fun works() {
+        val repository = Repository(Dispatchers.IO)
+        assert(repository.load() == "data")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestTestDispatcherNotInjected_NegativeTestSideCoroutines(t *testing.T) {
+	findings := runRuleByName(t, "TestDispatcherNotInjected", `
+package test
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.junit.Test
+
+class DispatcherInjectionNegative {
+    @Test
+    fun works() = runTest {
+        val a = withContext(Dispatchers.IO) { readFile() }
+        launch(Dispatchers.Default) { readFile() }
+        val b = async(Dispatchers.IO) { readFile() }
+        assert(a == b.await())
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test-side dispatcher use, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PlantedFailuresAreImplicitAssertions(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class PlantedFailures {
+    @Test
+    fun observerThrows() {
+        val sink = object : AuditSink() {
+            override fun write(entry: String) {
+                throw IllegalStateException()
+            }
+        }
+        AuditLog.attach(sink)
+        try {
+            ReceiptBuilder().setNote("<>").build()
+        } finally {
+            AuditLog.detach(sink)
+        }
+    }
+
+    @Test
+    fun lazyFails() {
+        buildScreen(enabled = false, loader = Lazy { error("loaded while disabled") })
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class StillReported {
+    @Test
+    fun noChecks() {
+        val sink = AuditSink()
+        AuditLog.attach(sink)
+        try {
+            ReceiptBuilder().setNote("<>").build()
+        } finally {
+            AuditLog.detach(sink)
+        }
+    }
+
+    @Test
+    fun mockCallOnly() {
+        presenter.attach(view)
+        presenter.detach()
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithThreadSleep_SkipsRealConcurrency(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithThreadSleep", `
+package test
+
+import java.util.concurrent.CountDownLatch
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class RealThreads {
+    @Test
+    fun latch() = runTest {
+        val started = CountDownLatch(1)
+        val first = launch(realDispatchers.default) { poll() }
+        started.await(5, TimeUnit.SECONDS)
+        Thread.sleep(50)
+        started.countDown()
+        first.join()
+        assertThat(state()).isEqualTo(1)
+    }
+
+    @Test
+    fun ioDispatcher() = runTest {
+        val job = launch(Dispatchers.IO) { work() }
+        Thread.sleep(50)
+        job.join()
+        assertThat(state()).isEqualTo(1)
+    }
+
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for real concurrency, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "RunTestWithThreadSleep", `
+package test
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class VirtualTime {
+    @Test
+    fun plainVirtualTime() = runTest {
+        work()
+        Thread.sleep(50)
+        assertThat(state()).isEqualTo(1)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected the virtual-time test to be reported, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithThreadSleep_NegativeNestedScopes(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithThreadSleep", `
+package test
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class ThreadSleepNested {
+    @Test
+    fun works() = runTest {
+        val worker = object : Runnable {
+            override fun run() {
+                Thread.sleep(10)
+            }
+        }
+        fun pause() {
+            Thread.sleep(10)
+        }
+        while (!worker.isDone()) {
+            Thread.sleep(5)
+        }
+        assert(true)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_NegativeClassUsesRealDispatchers(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.junit.Test
+
+class RealDispatcherTest {
+    @Test
+    fun works() = runBlocking {
+        val value = withContext(Dispatchers.IO) { compute() }
+        assert(value == 1)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+const realDispatcherMarkerSource = `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+@Suppress("UsesRealDispatchers")
+class MarkedTest {
+    @Test
+    fun works() = runBlocking {
+        assert(true)
+    }
+}
+`
+
+func TestRunBlockingInTest_NegativeConfiguredRealDispatcherMarker(t *testing.T) {
+	var impl *rules.RunBlockingInTestRule
+	for _, r := range api.Registry {
+		if r.ID == "RunBlockingInTest" {
+			impl = r.Implementation.(*rules.RunBlockingInTestRule)
+		}
+	}
+	if impl == nil {
+		t.Fatal("RunBlockingInTest not registered")
+	}
+	saved := impl.RealDispatcherMarkers
+	t.Cleanup(func() { impl.RealDispatcherMarkers = saved })
+	impl.RealDispatcherMarkers = []string{"UsesRealDispatchers"}
+	if findings := runRuleByName(t, "RunBlockingInTest", realDispatcherMarkerSource); len(findings) != 0 {
+		t.Fatalf("expected no findings with a configured marker, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_PositiveMarkerNotConfiguredByDefault(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", realDispatcherMarkerSource)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding without a configured marker, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_NegativeResetInAfter(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.After
+import org.junit.Test
+
+class SharedStateTest {
+    @After
+    fun tearDown() {
+        Holder.value = 0
+    }
+
+    @Test
+    fun works() {
+        Holder.value = 1
+        assert(Holder.value == 1)
+    }
+
+    companion object Holder {
+        var value = 0
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_PositiveUnresetVar(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+class SharedStatePositive {
+    @Test
+    fun works() {
+        assert(true)
+    }
+
+    companion object {
+        var value = 0
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_OneFindingPerProperty(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+class SharedStateMany {
+    @Test
+    fun works() {
+        assert(true)
+    }
+
+    companion object {
+        var first = 0
+        var second = ""
+        var third: Int? = null
+    }
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings (one per property), got %d", len(findings))
+	}
+	for i, want := range []string{"first", "second", "third"} {
+		if !strings.Contains(findings[i].Message, "'"+want+"'") {
+			t.Fatalf("finding %d = %q, want property %s", i, findings[i].Message, want)
+		}
+	}
+}
+
+func TestSharedMutableStateInObject_SkipsTestSupportObjects(t *testing.T) {
+	for name, src := range map[string]string{
+		"fake name":      "object FakeClock { var now = 0L }",
+		"stub name":      "object ClockStub { var now = 0L }",
+		"annotated":      "@VisibleForTesting object Clock { var now = 0L }",
+		"annotated prop": "object Clock { @VisibleForTesting var now = 0L }",
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+annotation class VisibleForTesting
+
+class SomethingTest {
+    @Test
+    fun works() {}
+}
+
+`+src+"\n")
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings, got %d", len(findings))
+			}
+		})
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_NegativeEarlierTruthIsNotNull(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.google.common.truth.Truth.assertThat
+
+fun testNullable(vm: Vm) {
+    assertThat(vm.state.user).isNotNull()
+    assertThat(vm.state.user!!.name).isEqualTo("x")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings after an earlier isNotNull assertion, got %d", len(findings))
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_PositiveAssertionOnOtherExpression(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.google.common.truth.Truth.assertThat
+
+fun testNullable(vm: Vm) {
+    assertThat(vm.other).isNotNull()
+    assertThat(vm.state.user!!.name).isEqualTo("x")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected a finding when the earlier assertion targets a different expression")
+	}
+}
+
+func TestTestWithoutAssertion_ExpectAndAwaitCallsCount(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+class SampleTest {
+    @Test
+    fun noEvents() {
+        navigator.expectNoEvents()
+    }
+
+    @Test
+    fun nextScreen() {
+        navigator.awaitNextScreen()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_ErrorRecoveryBodyAbstains(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+class SampleTest {
+    @Test
+    fun stored() {
+        handles.single().mutable.value = State.Done(stats(6))
+        assertThat(handles.single().cancels).isEqualTo(1)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a body damaged by error recovery, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_StillReportsPlainCalls(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+class SampleTest {
+    @Test
+    fun plain() {
+        doSomething()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestRunTestWithDelay_FakeLambdaPropertyIgnored(t *testing.T) {
+	findings := runRuleByName(t, "RunTestWithDelay", `
+package test
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class FakeRepo { var onFetch: suspend () -> Unit = {} }
+
+class RunTestWithDelayFakeLambda {
+    @Test
+    fun applied() = runTest {
+        val fake = FakeRepo().apply { onFetch = { delay(100) } }
+        val other = FakeRepo()
+        other.onFetch = { delay(50) }
+        assert(fake !== other)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for delay in a stored lambda, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_RxTestSchedulerIgnored(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import io.reactivex.rxjava3.schedulers.TestScheduler
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class RunBlockingRxScheduler {
+    @Test
+    fun drives() {
+        val scheduler = TestScheduler()
+        val result = runBlocking { compute() }
+        scheduler.triggerActions()
+        println(result)
+    }
+    suspend fun compute(): Int = 1
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings with an Rx TestScheduler, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_RoboImageHelpersAndEmptyFixturesAreNotReported(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class SnapshotSuite {
+    @Test fun popupExpanded() = captureExpanded()
+
+    @Test fun direct() {
+        captureScreenRoboImage()
+    }
+
+    @Test fun compared() {
+        compareRoboImage("golden.png")
+    }
+
+    @Config(sdk = [36]) @Test fun anchor() = Unit
+
+    @Test fun placeholder() {
+    }
+
+    private fun captureExpanded() {
+        composeTestRule.waitForIdle()
+        captureScreenRoboImage()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("snapshot captures and empty fixture tests are not missing assertions, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_AnchorsAtFunctionNameNotAnnotation(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class Suite {
+    @Test
+    fun loads() {
+        println(42)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %d", len(findings))
+	}
+	if findings[0].Line != 8 {
+		t.Fatalf("expected the finding on the fun name line 8, got %d", findings[0].Line)
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_NegativeFileDeclaredLibraryName(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+fun testHelper(result: Result?) {
+    assertEquals(result!!.items)
+}
+
+private fun assertEquals(items: List<String>) {}
+
+class Result(val items: List<String>)
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected file-declared function to shadow the library name, got %d", len(findings))
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_PositiveTruthAssertThat(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.google.common.truth.Truth.assertThat
+
+fun testNullable(maybeX: String?) {
+    assertThat(maybeX!!).isEqualTo("x")
+}
+`)
+	if len(findings) == 0 {
+		t.Fatal("expected finding for assertThat with !! argument")
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_NegativeAssertNotNullArgument(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import kotlin.test.assertNotNull
+
+fun testNullable(maybeX: String?) {
+    assertNotNull(maybeX!!)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("assertNotNull cannot replace itself, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_NegativeWaitAndEnsureHelpers(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class RobotTest {
+    private val robot = ScreenRobot()
+
+    @Test
+    fun waitsForRow() {
+        robot.open()
+        robot.waitForRowToAppear("a")
+    }
+
+    @Test
+    fun ensuresNoEvents() {
+        robot.open()
+        ensureNoRemainingEvents()
+    }
+
+    @Test
+    fun waitsUntilGone() {
+        robot.open()
+        waitUntilRowGone("a")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected wait/ensure helpers to count as assertions, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_PositiveWaiterLookalike(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class RobotTest {
+    @Test
+    fun opens() {
+        waiter()
+        ensured()
+        waitForward()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected the empty test to be reported, got %d", len(findings))
+	}
+}
+
+func TestRunBlockingInTest_SkipsSingleCallInNonCoroutineTest(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class SchedulerBasedTest {
+    @Test
+    fun works() {
+        val subject = Subject()
+        subject.configure()
+        val result = runBlocking { subject.load() }
+        subject.finish(result)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRunBlockingInTest_ReportsInCoroutineTestFile(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class CoroutineBasedTest {
+    @Test
+    fun usesRunTest() = runTest { assert(true) }
+
+    @Test
+    fun usesRunBlocking() {
+        val subject = Subject()
+        val result = runBlocking { subject.load() }
+        subject.finish(result)
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRunBlockingInTest_ReportsWholeBodyBlock(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", `
+package test
+
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+
+class WholeBodyTest {
+    @Test
+    fun works() {
+        runBlocking { assert(true) }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+const runBlockingSchedulerFileHeader = `
+package test
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class SchedulerDrivenTest {
+    private val scheduler = TestCoroutineScheduler()
+    private val controller = FakeController()
+
+`
+
+func TestRunBlockingInTest_SkipsFakeCallWhenTestDrivesOwnScheduler(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", runBlockingSchedulerFileHeader+`
+    @Test
+    fun holdsReply() {
+        runBlocking { controller.start() }
+        val job = hold()
+        scheduler.runCurrent()
+        assertThat(job.isActive).isTrue()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRunBlockingInTest_SchedulerDrivenFileStillReportsWholeBody(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", runBlockingSchedulerFileHeader+`
+    @Test
+    fun wholeBody() = runBlocking {
+        controller.start()
+        scheduler.advanceUntilIdle()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRunBlockingInTest_SchedulerDrivenFileStillReportsNestedInRunTest(t *testing.T) {
+	findings := runRuleByName(t, "RunBlockingInTest", runBlockingSchedulerFileHeader+`
+    @Test
+    fun nested() = runTest {
+        runBlocking { controller.start() }
+        scheduler.advanceUntilIdle()
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_TruncatesLongOperand(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+fun testItems(repository: Repository?) {
+    assertEquals("x", repository
+        ?.loadSomethingWithAVeryLongDescriptiveNameForTheFixture(argumentNumberOne, argumentNumberTwo)
+        ?.items!!.size)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %d", len(findings))
+	}
+	msg := findings[0].Message
+	if strings.Contains(msg, "\n") || len(msg) > 140 {
+		t.Fatalf("message should be one short line, got %q", msg)
+	}
+	if !strings.Contains(msg, "...") {
+		t.Fatalf("long operand should be truncated, got %q", msg)
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_TruthFilesDoNotSuggestJUnitAssertNotNull(t *testing.T) {
+	findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.google.common.truth.Truth.assertThat
+
+fun testItems(maybe: Item?, other: String?) {
+    assertEquals("x", maybe!!.name)
+    assertEquals("x", other!!)
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("both bangs stay flagged, got %d", len(findings))
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Message, "assertNotNull") {
+			t.Fatalf("Truth file should not be told to use assertNotNull: %q", f.Message)
+		}
+		if !strings.Contains(f.Message, "isNotNull()") {
+			t.Fatalf("Truth file should be told to use isNotNull(): %q", f.Message)
+		}
+	}
+}
+
+func TestTestFunctionReturnValue_AllowsTestResult(t *testing.T) {
+	findings := runRuleByName(t, "TestFunctionReturnValue", `
+package test
+
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.runTest
+import org.junit.Test
+
+class ResultTest {
+    @Test
+    fun runs(): TestResult = runTest { }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for TestResult, got %d", len(findings))
+	}
+}
+
+func TestTestWithOnlyTodo_SoleTodoOrNotImplementedOnly(t *testing.T) {
+	findings := runRuleByName(t, "TestWithOnlyTodo", `
+package test
+
+import org.junit.Test
+
+class SoleTest {
+    @Test
+    fun a() {
+        TODO("later")
+    }
+
+    @Test
+    fun b() {
+        // placeholder
+        throw NotImplementedError()
+    }
+
+    @Test
+    fun c() = TODO()
+
+    @Test
+    fun d() {
+        prepare()
+        TODO()
+    }
+
+    @Test
+    fun e() {
+        fail(buildMessage())
+    }
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected findings for a, b, c only, got %d", len(findings))
+	}
+}
+
+func TestTestWithOnlyTodo_ImplementedTestsWithFailOrLambdaAreSilent(t *testing.T) {
+	findings := runRuleByName(t, "TestWithOnlyTodo", `
+package test
+
+import org.junit.Test
+
+class ImplementedTest {
+    @Test
+    fun branch() {
+        if (compute() > 1) fail("too big")
+    }
+
+    @Test
+    fun whenBranch() {
+        when (compute()) {
+            1 -> error("one")
+            else -> TODO()
+        }
+    }
+
+    @Test
+    fun lambdaTail() {
+        runCase { fail("boom") }
+    }
+
+    @Test
+    fun throwing() {
+        throw IllegalStateException("x")
+    }
+
+    @Test
+    fun todoInLambda() {
+        run { TODO() }
+    }
+
+    @Test
+    fun tryCatch() {
+        try {
+            compute()
+        } catch (e: Exception) {
+            fail("unexpected")
+        }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestTestInheritanceDepth_IgnoresInterfacesAndStripsGenerics(t *testing.T) {
+	findings := runRuleByName(t, "TestInheritanceDepth", `
+package test
+
+interface Marker
+open class IfaceTest : Marker
+class TwoTest : IfaceTest()
+`)
+	if len(findings) != 0 {
+		t.Fatalf("interfaces must not add depth, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "TestInheritanceDepth", `
+package test
+
+open class RootTest<T>
+open class MidTest : RootTest<String>()
+class LeafTest : MidTest()
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding through generic superclass, got %d", len(findings))
+	}
+}
+
+func TestTestWithOnlyTodo_ClassLevelIgnoreIsSkipped(t *testing.T) {
+	findings := runRuleByName(t, "TestWithOnlyTodo", `
+package test
+
+import org.junit.Ignore
+import org.junit.Test
+
+@Ignore("flaky")
+class TodoInIgnoredClass {
+    @Test
+    fun loads() {
+        TODO()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a test in an @Ignore class, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_TodoOnlyBodyIsLeftToTestWithOnlyTodo(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class TodoOnly {
+    @Test
+    fun loads() {
+        TODO()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestRelaxedMockUsedForValueClass_SameFileValueClass(t *testing.T) {
+	findings := runRuleByName(t, "RelaxedMockUsedForValueClass", `
+package test
+
+import io.mockk.mockk
+
+@JvmInline
+value class UserId(val raw: String)
+
+class Plain(val raw: String)
+
+class RelaxedValueTest {
+    fun a() { val id = mockk<UserId>(relaxed = true) }
+    fun b() { val p = mockk<Plain>(relaxed = true) }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for the value class only, got %d", len(findings))
+	}
+}
+
+func TestTestNameContainsUnderscore_SkipsInstrumentedTests(t *testing.T) {
+	src := `
+package test
+
+import org.junit.Test
+
+class LoginTest {
+    @Test
+    fun login_succeeds() {
+        assertTrue(true)
+    }
+}
+`
+	if got := runRuleByNameOnPath(t, "TestNameContainsUnderscore", "app/src/androidTest/kotlin/LoginTest.kt", src); len(got) != 0 {
+		t.Fatalf("instrumented tests cannot use spaced names; got %d findings", len(got))
+	}
+	if got := runRuleByNameOnPath(t, "TestNameContainsUnderscore", "app/src/test/kotlin/LoginTest.kt", src); len(got) != 1 {
+		t.Fatalf("JVM unit tests should still be flagged; got %d findings", len(got))
+	}
+}
+
+func TestAssertTrueOnComparison_NullOperandSuggestsNullAssertions(t *testing.T) {
+	cases := []struct {
+		name, call, want string
+	}{
+		{"right null equals", "assertTrue(actual == null)", "Use `assertNull` instead of `assertTrue` for null comparisons."},
+		{"left null equals", "assertTrue(null == actual)", "Use `assertNull` instead of `assertTrue` for null comparisons."},
+		{"not equals null", "assertTrue(actual != null)", "Use `assertNotNull` instead of `assertTrue` for null comparisons."},
+		{"qualified junit", "Assert.assertTrue(actual == null)", "Use `assertNull` instead of `assertTrue` for null comparisons."},
+		{"plain equality", "assertTrue(actual == expected)", "Use `assertEquals` instead of `assertTrue` for equality comparisons."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "AssertTrueOnComparison", "package test\n\nfun testCompute(actual: Int?, expected: Int?) {\n    "+tc.call+"\n}\n")
+			if len(findings) != 1 {
+				t.Fatalf("expected one finding, got %d: %v", len(findings), findings)
+			}
+			if findings[0].Message != tc.want {
+				t.Errorf("message = %q, want %q", findings[0].Message, tc.want)
+			}
+		})
 	}
 }

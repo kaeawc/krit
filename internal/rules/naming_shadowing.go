@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/kaeawc/krit/internal/experiment"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -271,11 +272,9 @@ func (r *NoNameShadowingRule) reportIfShadowedFlat(ctx *shadowScanCtx, name stri
 	if blocked != nil && blocked[name] {
 		return
 	}
-	// Skip destructuring components. `val (a, b) = pair` and lambda
-	// destructuring `{ (view, day) -> ... }` bind names that refer to a
-	// specific element of the source expression — the names are not
-	// freely choosable without changing semantics.
-	if isInsideDestructuringFlat(file, child) {
+	// detekt reports positional destructuring in declarations and loops, but not lambda parameters. A
+	// name-based entry `(val name) = x` binds the property of that name, so it cannot be renamed.
+	if skipShadowedDestructuringEntry(file, child) {
 		return
 	}
 	if localNames == nil || !localNames[name] {
@@ -294,6 +293,31 @@ func (r *NoNameShadowingRule) reportIfShadowedFlat(ctx *shadowScanCtx, name stri
 				fmt.Sprintf("Name '%s' shadows an outer declaration", name)))
 		}
 	}
+}
+
+var nameBasedDestructuringRe = regexp.MustCompile(`^[(\[]\s*(val|var)\b`)
+
+// skipShadowedDestructuringEntry reports a destructuring entry that NoNameShadowing leaves alone: a lambda
+// parameter entry, or an entry of a name-based destructuring.
+func skipShadowedDestructuringEntry(file *scanner.File, idx uint32) bool {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "multi_variable_declaration":
+			// The rewrite turns `(val a, val b) = x` into `val (a, b) = x`, so the declaration starts at its bracket.
+			if decl, ok := file.FlatParent(p); ok && file.FlatType(decl) == "property_declaration" {
+				if c := file.Content[file.FlatStartByte(decl)]; c == '(' || c == '[' {
+					return true
+				}
+			}
+			if nameBasedDestructuringRe.MatchString(file.FlatNodeText(p)) {
+				return true
+			}
+			return file.FlatHasAncestorOfType(p, "lambda_parameters")
+		case "function_declaration", "lambda_literal", "class_body", "function_body", "statements", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func isInsideDestructuringFlat(file *scanner.File, idx uint32) bool {

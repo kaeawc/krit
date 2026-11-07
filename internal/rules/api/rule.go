@@ -9,6 +9,7 @@ package api
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
@@ -637,6 +638,11 @@ const (
 	// heavy enough that defaulting them on would noticeably hurt run time
 	// even on projects that want them. Examples: module-aware dead-code.
 	OptInReasonExpensive
+	// OptInReasonObsolete marks rules for a check that upstream tooling no
+	// longer ships or that the build system now covers. They stay available
+	// for projects that still rely on them. Example: Lint's
+	// UsesMinSdkAttributes, removed once AGP moved minSdk to Gradle.
+	OptInReasonObsolete
 )
 
 // String returns a human-readable label for the OptInReason value.
@@ -658,6 +664,8 @@ func (r OptInReason) String() string {
 		return "duplicates-compiler"
 	case OptInReasonExpensive:
 		return "expensive"
+	case OptInReasonObsolete:
+		return "obsolete"
 	default:
 		return "unspecified"
 	}
@@ -800,6 +808,11 @@ type Rule struct {
 	// The dispatcher uses RuleLanguages() to skip rules whose language
 	// list does not include the current file's Language.
 	Languages []scanner.Language
+
+	// Scripts declares which Kotlin script (.kts) files the rule runs on.
+	// The zero value resolves from the category and override tables in
+	// script_scope.go; see RuleScriptScope.
+	Scripts ScriptScope
 
 	// Maturity is the rule's lifecycle stage. The zero value is
 	// MaturityStable. Experimental and deprecated rules are
@@ -1080,11 +1093,60 @@ type Context struct {
 	// and recompute without caching in that case.
 	Facts *filefacts.Cache
 
+	// RtlMainsFor, when set, lists the Lint main projects whose settings decide
+	// the RTL checks for a layout or manifest file: the app modules that include
+	// the file's module (the module itself when it has an <application>). The
+	// bool is false when the project cannot say, so the RTL rules assume a
+	// modern app. A nil func means the same.
+	RtlMainsFor func(path string) ([]RtlMainProject, bool)
+
+	// DescribedViewNames holds the camel-cased binding names of views that
+	// Kotlin or Java source gives a content description at runtime. Nil
+	// when no source was scanned.
+	DescribedViewNames map[string]bool
+
+	// ResourceCodeRefs holds the resources Kotlin and Java source refers to
+	// (R.type.name) and the view binding classes it mentions. Nil when no
+	// source was scanned.
+	ResourceCodeRefs *ResourceCodeRefs
+
 	// AtThoroughDepth is true when the scan ran with --depth=thorough.
 	// Rules read it to branch on stricter cross-file or oracle-confirmed
 	// query paths that trade extra cost for precision. False at
 	// fast/balanced — rules must keep working without this signal.
 	AtThoroughDepth bool
+}
+
+// ResourceCodeRefs is what source code says about resource use.
+type ResourceCodeRefs struct {
+	// ResRoots lists every res directory of the project, so a rule that runs once per module can still look at
+	// the whole project.
+	ResRoots []string
+	memo     sync.Once
+	memoized any
+	// Refs holds "type/name" for every R.type.name reference, with dots in names turned into underscores.
+	Refs map[string]bool
+	// Bindings holds every identifier ending in Binding, such as ActivityMainBinding.
+	Bindings map[string]bool
+}
+
+// Memoize returns the value build produced the first time any caller asked, so project-wide data is built once
+// per scan however many modules run the rule.
+func (r *ResourceCodeRefs) Memoize(build func() any) any {
+	r.memo.Do(func() { r.memoized = build() })
+	return r.memoized
+}
+
+// RtlMainProject is one app Lint runs the RTL checks from. Lint's RtlDetector
+// reads the main project's merged manifest and SDK levels, so a library module's
+// findings depend on the apps that include it.
+type RtlMainProject struct {
+	// HasApplication is true when the manifest has an <application> element.
+	HasApplication bool
+	// RtlOff is true when <application> sets android:supportsRtl="false".
+	RtlOff bool
+	// MinSdk and TargetSdk are the declared levels, 0 when unknown.
+	MinSdk, TargetSdk int
 }
 
 // GradleAST returns a parsed Kotlin DSL (.kts) Gradle script carrying a flat
@@ -1121,6 +1183,17 @@ func (c *Context) EmitAt(line, col int, msg string) {
 	})
 }
 
+// EmitAtNode emits a finding at the start of the flat node idx, spanning the node.
+func (c *Context) EmitAtNode(idx uint32, msg string) {
+	c.Emit(scanner.Finding{
+		Line:      c.File.FlatRow(idx) + 1,
+		Col:       c.File.FlatCol(idx) + 1,
+		StartByte: int(c.File.FlatStartByte(idx)),
+		EndByte:   int(c.File.FlatEndByte(idx)),
+		Message:   msg,
+	})
+}
+
 // stamp fills in Rule/RuleSet/Severity/File/Confidence fields that the
 // rule body didn't populate, using Context.Rule / Context.File /
 // Context.DefaultConfidence as the source of truth.
@@ -1146,6 +1219,8 @@ func (c *Context) stamp(f *scanner.Finding) {
 	if c.File != nil && f.File == "" {
 		f.File = c.File.Path
 	}
+	f.Col = anchorXMLColumn(f.File, f.Line, f.Col)
+	c.fillSpan(f)
 }
 
 // RuleLanguages returns the languages a rule applies to, falling back to

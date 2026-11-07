@@ -105,9 +105,9 @@ func registerAndroidResourceStyleRules() {
 	}
 	{
 		r := &Suspicious0dpResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "Suspicious0dpResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "Suspicious0dpResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "Suspicious0dp",
-			Brief:      "0dp dimension on wrong axis in LinearLayout",
+			Brief:      "Suspicious 0dp dimension",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   6,
@@ -139,7 +139,7 @@ func registerAndroidResourceStyleRules() {
 		r := &InefficientWeightResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "InefficientWeightResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "InefficientWeight",
-			Brief:      "LinearLayout with weights missing orientation",
+			Brief:      "Weighted LinearLayout child should use a 0dp size along the layout direction",
 			Category:   ALCPerformance,
 			ALSeverity: ALSWarning,
 			Priority:   3,

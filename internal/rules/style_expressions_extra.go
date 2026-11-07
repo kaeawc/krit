@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -34,12 +35,104 @@ type MultilineRawStringIndentationRule struct {
 // Classified per roadmap/17.
 func (r *MultilineRawStringIndentationRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// rawStringSurroundedByLineBreaks reports whether the raw string starts with a line break after its opening quotes
+// and ends with a line break (and only blanks) before its closing quotes.
+func rawStringSurroundedByLineBreaks(text string) bool {
+	inner := strings.TrimSuffix(strings.TrimPrefix(text, `"""`), `"""`)
+	open := strings.TrimLeft(inner, " \t")
+	if !strings.HasPrefix(open, "\n") && !strings.HasPrefix(open, "\r\n") {
+		return false
+	}
+	last := inner[strings.LastIndexByte(inner, '\n')+1:]
+	return strings.TrimSpace(last) == ""
+}
+
+// countLeadingBlanks counts the leading whitespace characters of line.
+func countLeadingBlanks(line string) int {
+	n := 0
+	for n < len(line) && (line[n] == ' ' || line[n] == '\t') {
+		n++
+	}
+	return n
+}
+
+func rawStringIndentMessage(expected, actual int) string {
+	return fmt.Sprintf("The indentation should be %d but it is %d.", expected, actual)
+}
+
+// check follows detekt: the content lines of a trimmed multiline raw string must sit one indent step deeper than the
+// line that opens it (lines that are shallower are reported one by one, content that is deeper everywhere is reported
+// once at its first line), and the closing quotes must align with that line.
 func (r *MultilineRawStringIndentationRule) check(ctx *api.Context) {
-	if !isUntrimmedMultilineRawString(ctx, r.TrimmingMethods) {
+	file := ctx.File
+	if file == nil || !isRawStringLiteralNode(file, ctx.Idx) || !rawStringHasTrimCall(file, ctx.Idx, r.TrimmingMethods) {
 		return
 	}
-	ctx.Emit(r.Finding(ctx.File, ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
-		"Multiline raw string should use trimIndent() or trimMargin()."))
+	text := file.FlatNodeText(ctx.Idx)
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return
+	}
+	row := file.FlatRow(ctx.Idx) + 1
+	if !rawStringSurroundedByLineBreaks(text) {
+		ctx.EmitAt(row, file.FlatCol(ctx.Idx)+1, "A multiline raw string should start with a break line and should end with another")
+		return
+	}
+	size := r.IndentSize
+	if size <= 0 {
+		size = 4
+	}
+	start := int(file.FlatStartByte(ctx.Idx))
+	if start < 0 || start > len(file.Content) {
+		return
+	}
+	lineStart := strings.LastIndexByte(string(file.Content[:start]), '\n') + 1
+	lineEnd := start + strings.IndexByte(string(file.Content[start:])+"\n", '\n')
+	base := countLeadingBlanks(string(file.Content[lineStart:lineEnd]))
+	want := base + size
+
+	type lineInfo struct {
+		row    int
+		text   string
+		indent int
+	}
+	var content []lineInfo
+	for i := 1; i < len(lines)-1; i++ {
+		line := strings.TrimRight(lines[i], "\r")
+		content = append(content, lineInfo{row: row + i, text: line, indent: countLeadingBlanks(line)})
+	}
+	if len(content) > 0 {
+		reported := false
+		hasWanted := false
+		minIndent := content[0].indent
+		for _, l := range content {
+			if l.indent == want {
+				hasWanted = true
+			}
+			if l.indent < minIndent {
+				minIndent = l.indent
+			}
+			if l.text != "" && l.indent < want {
+				col := l.indent + 1
+				if strings.TrimSpace(l.text) == "" {
+					col = 1
+				}
+				ctx.EmitAt(l.row, col, rawStringIndentMessage(want, l.indent))
+				reported = true
+			}
+		}
+		if !reported && !hasWanted {
+			ctx.EmitAt(content[0].row, want+1, rawStringIndentMessage(want, minIndent))
+		}
+	}
+	closing := strings.TrimRight(lines[len(lines)-1], "\r")
+	if actual := countLeadingBlanks(closing); actual != base {
+		col := base + 1
+		if actual < base {
+			col = actual + 1
+		}
+		ctx.EmitAt(row+len(lines)-1, col, rawStringIndentMessage(base, actual))
+	}
 }
 
 // TrimMultilineRawStringRule detects raw strings missing trimIndent/trimMargin.
@@ -75,7 +168,21 @@ func isUntrimmedMultilineRawString(ctx *api.Context, trimmingMethods []string) b
 		return false
 	}
 	text := ctx.File.FlatNodeText(ctx.Idx)
-	return strings.Contains(text, "\n") && !rawStringHasTrimCall(ctx.File, ctx.Idx, trimmingMethods)
+	if !strings.Contains(text, "\n") || rawStringHasTrimCall(ctx.File, ctx.Idx, trimmingMethods) {
+		return false
+	}
+	// Annotation arguments and const values cannot call trimIndent().
+	for p, ok := ctx.File.FlatParent(ctx.Idx); ok; p, ok = ctx.File.FlatParent(p) {
+		switch ctx.File.FlatType(p) {
+		case "annotation":
+			return false
+		case "property_declaration":
+			return !ctx.File.FlatHasModifier(p, "const")
+		case "function_declaration", "class_body", "source_file":
+			return true
+		}
+	}
+	return true
 }
 
 func isRawStringLiteralNode(file *scanner.File, idx uint32) bool {
@@ -94,7 +201,8 @@ func rawStringHasTrimCall(file *scanner.File, idx uint32, trimmingMethods []stri
 	}
 	after := strings.TrimSpace(string(file.Content[end:]))
 	for _, method := range rawStringTrimMethods(trimmingMethods) {
-		if strings.HasPrefix(after, "."+method+"()") {
+		// trimMargin("|") takes an argument, so only the opening parenthesis is checked.
+		if strings.HasPrefix(after, "."+method+"(") || strings.HasPrefix(after, "?."+method+"(") {
 			return true
 		}
 	}
@@ -153,6 +261,15 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *api.Context) {
 	if file.FlatHasChildOfType(idx, "property_delegate") {
 		return
 	}
+	// Other files, modules and Java callers can assign null to a non-private member, so only private members and locals qualify.
+	if parent, ok := file.FlatParent(idx); ok {
+		switch file.FlatType(parent) {
+		case "class_body", "enum_class_body", "source_file":
+			if !file.FlatHasModifier(idx, "private") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "override") {
+				return
+			}
+		}
+	}
 	if canBeNonNullableHasSetter(file, idx) {
 		return
 	}
@@ -174,7 +291,7 @@ func (r *CanBeNonNullableRule) checkPropertyFlat(ctx *api.Context) {
 			return
 		}
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, 1,
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Property type can be non-nullable since it is initialized with a non-null value and never assigned null."))
 }
 
@@ -379,7 +496,8 @@ func canBeNonNullableAsExpressionCanBeNullFlat(file *scanner.File, idx uint32) b
 
 func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") {
+	if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "open") || file.FlatHasModifier(idx, "abstract") ||
+		file.FlatHasModifier(idx, "actual") || file.FlatHasModifier(idx, "expect") {
 		return
 	}
 
@@ -399,6 +517,10 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *api.Context) {
 			continue
 		}
 		if !file.FlatHasChildOfType(param, "nullable_type") {
+			continue
+		}
+		// A `= null` default makes null a valid argument, so the type must stay nullable.
+		if flatParameterDefaultIsNull(file, param) {
 			continue
 		}
 
@@ -434,7 +556,7 @@ func (r *CanBeNonNullableRule) checkFunctionParamsFlat(ctx *api.Context) {
 		})
 
 		if usageCount > 0 && allNonNullAsserted {
-			ctx.Emit(r.Finding(file, file.FlatRow(param)+1, 1,
+			ctx.Emit(r.Finding(file, file.FlatRow(param)+1, file.FlatCol(param)+1,
 				fmt.Sprintf("Parameter '%s' can be non-nullable since every usage applies non-null assertion (!!).", paramName)))
 		}
 	}
@@ -534,20 +656,134 @@ func splitIsNotPrefix(name string) (kind, suffix string) {
 	return "", ""
 }
 
-// DoubleNegativeLambdaRule detects `filterNot { !it }`, `none { !it }`.
+// DoubleNegativeLambdaRule detects a negative function such as `none` or `takeUnless` whose lambda also negates.
 type DoubleNegativeLambdaRule struct {
 	FlatDispatchBase
 	BaseRule
-	// NegativeFunctions is an additional callee allowlist. Configured
-	// names are treated as double-negation candidates alongside the
-	// always-on `filterNot` and `none`.
+	// NegativeFunctions are the callee names whose lambda must not contain a negation.
 	NegativeFunctions []string
+	// NegativeFunctionNameParts are the camel-case words that mark a called function as a negation.
+	NegativeFunctionNameParts []string
 }
 
-// doubleNegativeLambdaCalleeConfigured reports whether the callee name
-// appears in the user-configured NegativeFunctions list.
+// doubleNegativeRecommendations holds detekt's reasons for its default negative functions; krit adds filterNot.
+var doubleNegativeRecommendations = map[string]string{
+	"none":       "Use `all` instead.",
+	"takeUnless": "Use `takeIf` instead.",
+	"filterNot":  "Use `filter` instead.",
+}
+
+func (r *DoubleNegativeLambdaRule) Confidence() float64 { return api.ConfidenceHigher }
+
+// camelCaseWords splits at each lowercase-to-uppercase boundary, like the regex (?<=[a-z])(?=[A-Z]).
+func camelCaseWords(text string) []string {
+	var words []string
+	start := 0
+	for i := 1; i < len(text); i++ {
+		if text[i-1] >= 'a' && text[i-1] <= 'z' && text[i] >= 'A' && text[i] <= 'Z' {
+			words = append(words, text[start:i])
+			start = i
+		}
+	}
+	return append(words, text[start:])
+}
+
+// doubleNegativeCallText returns the text of a call without its receiver, such as `isNotEmpty()`.
+func doubleNegativeCallText(file *scanner.File, call uint32) string {
+	name := flatCallExpressionName(file, call)
+	if name == "" {
+		return ""
+	}
+	if suffix, ok := file.FlatFindChild(call, "call_suffix"); ok && suffix != 0 {
+		return name + file.FlatNodeText(suffix)
+	}
+	return name
+}
+
+// forbiddenNegations lists, in source order, the negating operators and calls inside a lambda.
+func (r *DoubleNegativeLambdaRule) forbiddenNegations(file *scanner.File, lambda uint32) []string {
+	type hit struct {
+		start int
+		text  string
+	}
+	var hits []hit
+	parts := r.NegativeFunctionNameParts
+	file.FlatWalkAllNodes(lambda, func(n uint32) {
+		switch file.FlatType(n) {
+		case "!", "!=", "!==", "!is", "!in":
+			hits = append(hits, hit{int(file.FlatStartByte(n)), file.FlatNodeText(n)})
+		case "call_expression":
+			text := doubleNegativeCallText(file, n)
+			if text == "" {
+				return
+			}
+			if text == "not()" {
+				hits = append(hits, hit{int(file.FlatStartByte(n)), text})
+				return
+			}
+			for _, word := range camelCaseWords(text) {
+				for _, part := range parts {
+					if strings.ToLower(word) == part {
+						hits = append(hits, hit{int(file.FlatStartByte(n)), text})
+						return
+					}
+				}
+			}
+		}
+	})
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].start < hits[j].start })
+	out := make([]string, len(hits))
+	for i, h := range hits {
+		out[i] = h.text
+	}
+	return out
+}
+
+// checkDoubleNegativeLambdaFlat follows detekt: a call to a configured negative function whose trailing lambda holds
+// a negating operator or a call named like a negation.
+func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	callee := flatCallExpressionName(file, idx)
+	if !doubleNegativeLambdaCalleeConfigured(callee, r.NegativeFunctions) {
+		return
+	}
+	lambda := flatCallTrailingLambda(file, idx)
+	if lambda == 0 {
+		return
+	}
+	hits := r.forbiddenNegations(file, lambda)
+	if len(hits) == 0 {
+		return
+	}
+	recommendation := doubleNegativeRecommendations[callee]
+	if recommendation == "" {
+		recommendation = "Rewrite in the positive."
+	}
+	quoted := make([]string, len(hits))
+	for i, h := range hits {
+		quoted[i] = "`" + h + "`"
+	}
+	msg := "Double negative through using " + strings.Join(quoted, ", ") + " inside a `" + callee + "` lambda. " + recommendation
+	f := r.Finding(file, callLine(file, idx), callCol(file, idx), msg)
+	// Only a lone `!pred` body of filterNot or none has a deterministic rewrite.
+	if replacement := map[string]string{"filterNot": "filter", "none": "all"}[callee]; replacement != "" {
+		if stmts, _ := file.FlatFindChild(lambda, "statements"); stmts != 0 && file.FlatNamedChildCount(stmts) == 1 {
+			body := flatUnwrapParenExpr(file, file.FlatNamedChild(stmts, 0))
+			if file.FlatType(body) == "prefix_expression" {
+				if op := file.FlatFirstChild(body); op != 0 && file.FlatType(op) == "!" {
+					if operand := file.FlatNextSib(op); operand == 0 || prefixMutationOperandFlat(file, operand) == operand {
+						f.Fix = buildDoubleNegativeLambdaFix(file, idx, op, callee, replacement)
+					}
+				}
+			}
+		}
+	}
+	ctx.Emit(f)
+}
+
+// doubleNegativeLambdaCalleeConfigured reports whether the callee name appears in the configured negative functions.
 func doubleNegativeLambdaCalleeConfigured(callee string, configured []string) bool {
-	if callee == "" || len(configured) == 0 {
+	if callee == "" {
 		return false
 	}
 	for _, name := range configured {
@@ -556,63 +792,6 @@ func doubleNegativeLambdaCalleeConfigured(callee string, configured []string) bo
 		}
 	}
 	return false
-}
-
-// Confidence: tier-1 syntactic — the shape `.filterNot { <negation> }` and
-// `.none { <negation> }` where the lambda body is a single prefix-bang
-// expression is an unambiguous double negative. We deliberately do NOT
-// flag multi-statement lambdas or compound expressions where `!` appears
-// inside a larger boolean expression.
-func (r *DoubleNegativeLambdaRule) Confidence() float64 { return api.ConfidenceHigher }
-
-// checkDoubleNegativeLambdaFlat runs on a call_expression. Fires when the
-// callee is `filterNot` or `none` (qualified or unqualified) and the
-// trailing lambda body is a single unary-bang expression. Additional
-// callee names can be configured via NegativeFunctions; those receive a
-// generic suggestion to invert the lambda body.
-func (r *DoubleNegativeLambdaRule) checkDoubleNegativeLambdaFlat(ctx *api.Context) {
-	idx, file := ctx.Idx, ctx.File
-	callee := flatCallExpressionName(file, idx)
-	var msg, replacementCallee string
-	switch callee {
-	case "filterNot":
-		msg = "Double negative in '.filterNot { !... }'. Use '.filter { ... }' instead."
-		replacementCallee = "filter"
-	case "none":
-		msg = "Double negative in '.none { !... }'. Use '.all { ... }' instead."
-		replacementCallee = "all"
-	default:
-		if !doubleNegativeLambdaCalleeConfigured(callee, r.NegativeFunctions) {
-			return
-		}
-		msg = fmt.Sprintf("Double negative in '.%s { !... }'. Invert the lambda body to remove the redundant negation.", callee)
-	}
-	lambda := flatCallTrailingLambda(file, idx)
-	if lambda == 0 {
-		return
-	}
-	stmts, _ := file.FlatFindChild(lambda, "statements")
-	if stmts == 0 || file.FlatNamedChildCount(stmts) != 1 {
-		return // require a single-statement body
-	}
-	body := file.FlatNamedChild(stmts, 0)
-	body = flatUnwrapParenExpr(file, body)
-	if file.FlatType(body) != "prefix_expression" {
-		return
-	}
-	op := file.FlatFirstChild(body)
-	if op == 0 || file.FlatType(op) != "!" {
-		return
-	}
-
-	f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
-	// Only the well-known names have a deterministic name swap. For
-	// configurable NegativeFunctions the right replacement is the
-	// author's call — emit without a fix.
-	if replacementCallee != "" {
-		f.Fix = buildDoubleNegativeLambdaFix(file, idx, op, callee, replacementCallee)
-	}
-	ctx.Emit(f)
 }
 
 // buildDoubleNegativeLambdaFix rewrites `recv.filterNot { !pred }` to
@@ -678,6 +857,61 @@ type RangeUntilInsteadOfRangeToRule struct {
 // Classified per roadmap/17.
 func (r *RangeUntilInsteadOfRangeToRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// UntilInsteadOfRangeToRule detects `a..b - 1` and `a.rangeTo(b - 1)`, which `a until b` states directly.
+type UntilInsteadOfRangeToRule struct {
+	FlatDispatchBase
+	BaseRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence. The check is syntactic: it cannot tell whether the operands
+// are integers, for which until applies.
+func (r *UntilInsteadOfRangeToRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// isMinusOneExpression reports `x - 1` where the right side is the literal 1.
+func isMinusOneExpression(file *scanner.File, n uint32) bool {
+	if n == 0 || file.FlatType(n) != "additive_expression" || file.FlatChildCount(n) != 3 {
+		return false
+	}
+	op := file.FlatChild(n, 1)
+	right := file.FlatChild(n, 2)
+	return op != 0 && right != 0 && file.FlatNodeTextEquals(op, "-") && strings.TrimSpace(file.FlatNodeText(right)) == "1"
+}
+
+func (r *UntilInsteadOfRangeToRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	switch file.FlatType(idx) {
+	case "range_expression":
+		if file.FlatChildCount(idx) != 3 {
+			return
+		}
+		op := file.FlatChild(idx, 1)
+		if op == 0 || !file.FlatNodeTextEquals(op, "..") || !isMinusOneExpression(file, file.FlatChild(idx, 2)) {
+			return
+		}
+		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "'..' call can be replaced with 'until'")
+	case "call_expression":
+		if flatCallExpressionName(file, idx) != "rangeTo" {
+			return
+		}
+		_, args := flatCallExpressionParts(file, idx)
+		if args == 0 {
+			return
+		}
+		var only uint32
+		count := 0
+		for c := file.FlatFirstChild(args); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "value_argument" {
+				only = flatValueArgumentExpression(file, c)
+				count++
+			}
+		}
+		if count != 1 || !isMinusOneExpression(file, only) {
+			return
+		}
+		ctx.EmitAt(callLine(file, idx), callCol(file, idx), "'rangeTo' call can be replaced with 'until'")
+	}
+}
+
 // DestructuringDeclarationWithTooManyEntriesRule limits destructuring entries.
 type DestructuringDeclarationWithTooManyEntriesRule struct {
 	FlatDispatchBase
@@ -690,4 +924,58 @@ type DestructuringDeclarationWithTooManyEntriesRule struct {
 // Classified per roadmap/17.
 func (r *DestructuringDeclarationWithTooManyEntriesRule) Confidence() float64 {
 	return api.ConfidenceMedium
+}
+
+// nullableBooleanOperand reports whether the compared operand can be a nullable Boolean:
+// the resolver says so, or the type is unknown and the operand contains a safe call.
+func nullableBooleanOperand(ctx *api.Context, operand uint32) bool {
+	file := ctx.File
+	// An elvis chain is nullable exactly when its last operand is.
+	if file.FlatType(operand) == "elvis_expression" && file.FlatChildCount(operand) >= 3 {
+		return nullableBooleanOperand(ctx, file.FlatChild(operand, file.FlatChildCount(operand)-1))
+	}
+	text := file.FlatNodeText(operand)
+	if strings.Contains(text, "?.") && !strings.HasSuffix(text, "!!") {
+		return true
+	}
+	if ctx.Resolver != nil {
+		if t := ctx.Resolver.ResolveFlatNode(operand, file); t != nil && t.Kind != typeinfer.TypeUnknown {
+			return t.IsNullable()
+		}
+	}
+	return false
+}
+
+// lambdaUsesImplicitIt reports whether node (inside the lambda root) reads the lambda's implicit `it`.
+// Nested lambdas without parameters and nested functions have their own `it`, so they are not entered.
+func lambdaUsesImplicitIt(file *scanner.File, root, node uint32) bool {
+	for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			if file.FlatNodeTextEquals(c, "it") {
+				return true
+			}
+		case "lambda_literal":
+			if !file.FlatHasChildOfType(c, "lambda_parameters") {
+				continue
+			}
+		case "function_declaration", "anonymous_function", "class_declaration", "object_declaration":
+			continue
+		}
+		if lambdaUsesImplicitIt(file, root, c) {
+			return true
+		}
+	}
+	return false
+}
+
+// flatParameterDefaultIsNull reports whether a parameter declares `= null` as its default value.
+// The grammar places `=` and the default expression as siblings after the parameter node.
+func flatParameterDefaultIsNull(file *scanner.File, param uint32) bool {
+	eq := file.FlatNextSib(param)
+	if eq == 0 || file.FlatType(eq) != "=" {
+		return false
+	}
+	value := file.FlatNextSib(eq)
+	return value != 0 && file.FlatNodeTextEquals(value, "null")
 }

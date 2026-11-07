@@ -1,9 +1,12 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -49,7 +52,7 @@ func registerAndroidCorrectnessChecksOverrideAbstract() {
 			var baseClass string
 			var required []string
 			for cls, reqs := range abstractClassRequirements {
-				if classHasSupertypeNamed(file, idx, cls) {
+				if classExtendsAndroidClass(file, idx, cls) {
 					baseClass = cls
 					required = reqs
 					break
@@ -66,7 +69,7 @@ func registerAndroidCorrectnessChecksOverrideAbstract() {
 				}
 			}
 			if len(missing) > 0 {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, baseClass+" subclass must override: "+strings.Join(missing, ", ")+".")
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), baseClass+" subclass must override: "+strings.Join(missing, ", ")+".")
 			}
 		},
 	})
@@ -82,13 +85,17 @@ func registerAndroidCorrectnessChecksParcelCreator() {
 			if !classHasSupertypeNamed(file, idx, "Parcelable") {
 				return
 			}
+			// Only concrete classes need a CREATOR; subclasses of an abstract parent declare their own.
+			if abstractRuleIsInterface(file, idx) || file.FlatHasModifier(idx, "abstract") || file.FlatHasModifier(idx, "sealed") {
+				return
+			}
 			if hasAnnotationNamed(file, idx, "Parcelize") {
 				return
 			}
 			if classDeclaresStaticProperty(file, idx, "CREATOR") {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Parcelable class missing CREATOR field. Use @Parcelize or add a CREATOR companion.")
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "This class implements `Parcelable` but does not provide a `CREATOR` field")
 		},
 	})
 }
@@ -112,28 +119,27 @@ func registerAndroidCorrectnessChecksSwitchIntDef() {
 			// Walk when entries for coverage of VISIBLE/INVISIBLE/GONE and else.
 			hasVisible, hasInvisible, hasGone, hasElse := false, false, false, false
 			file.FlatWalkNodes(idx, "when_entry", func(entry uint32) {
+				// Only the conditions before `->` count, not the branch body.
 				entryText := file.FlatNodeText(entry)
-				if strings.Contains(entryText, "VISIBLE") && !strings.Contains(entryText, "INVISIBLE") {
-					hasVisible = true
+				if arrow := strings.Index(entryText, "->"); arrow >= 0 {
+					entryText = entryText[:arrow]
 				}
-				if strings.Contains(entryText, "INVISIBLE") {
-					hasInvisible = true
+				if strings.TrimSpace(entryText) == "else" {
+					hasElse = true
 				}
-				if strings.Contains(entryText, "GONE") {
-					hasGone = true
+				for _, cond := range strings.Split(entryText, ",") {
+					switch name := lastDottedSegment(strings.TrimSpace(cond)); name {
+					case "VISIBLE":
+						hasVisible = true
+					case "INVISIBLE":
+						hasInvisible = true
+					case "GONE":
+						hasGone = true
+					}
 				}
 			})
-			// Check for else_entry directly.
 			if _, ok := file.FlatFindChild(idx, "else_entry"); ok {
 				hasElse = true
-			}
-			// Also check when_entry children for "else" keyword.
-			if !hasElse {
-				file.FlatWalkNodes(idx, "when_entry", func(entry uint32) {
-					if strings.Contains(file.FlatNodeText(entry), "else") {
-						hasElse = true
-					}
-				})
 			}
 			if hasElse {
 				return
@@ -149,33 +155,18 @@ func registerAndroidCorrectnessChecksSwitchIntDef() {
 				missing = append(missing, "GONE")
 			}
 			if len(missing) > 0 && len(missing) < 3 {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "when on visibility missing constants: "+strings.Join(missing, ", ")+". Add them or an else branch.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "when on visibility missing constants: "+strings.Join(missing, ", ")+". Add them or an else branch.")
 			}
 		},
 	})
 }
 
 func registerAndroidCorrectnessChecksTextViewEdits() {
-	r := &TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Calling setText on an EditText", ALSWarning, 5)}
+	r := &TextViewEditsRule{AndroidRule: alcRule("TextViewEdits", "Editing the text of a TextView that is not an EditText", ALSWarning, 5)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			if flatCallExpressionName(file, idx) != "setText" {
-				return
-			}
-			// Require a navigation receiver whose identifier ends with "editText" or "EditText".
-			navExpr, _ := flatCallExpressionParts(file, idx)
-			if navExpr == 0 {
-				return
-			}
-			recvText := strings.ToLower(file.FlatNodeText(file.FlatFirstChild(navExpr)))
-			if !strings.Contains(recvText, "edittext") {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Using setText on an EditText. Consider using Editable or getText().")
-		},
+		NodeTypes: []string{"as_expression"}, Needs: api.NeedsTypeInfo, Confidence: r.Confidence(), Implementation: r,
+		Check: checkTextViewEdits,
 	})
 }
 
@@ -186,9 +177,11 @@ func registerAndroidCorrectnessChecksWrongViewCast() {
 		NodeTypes: []string{"call_expression", "as_expression", "cast_expression", "local_variable_declaration"},
 		Needs: api.NeedsTypeInfo |
 			api.NeedsOracleCallTargets |
-			api.NeedsOracleSupertypes,
-		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
-		Confidence: r.Confidence(), Implementation: r,
+			api.NeedsOracleSupertypes |
+			api.NeedsResources,
+		AndroidDeps: uint32(AndroidDepLayout),
+		Languages:   []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Confidence:  r.Confidence(), Implementation: r,
 		Check: r.check,
 	})
 }
@@ -205,13 +198,34 @@ func registerAndroidCorrectnessChecksDeprecated() {
 			}
 			name := file.FlatNodeText(idx)
 			for _, entry := range deprecatedApis {
-				if entry.Pattern == name {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, entry.Message)
-					return
+				if entry.Pattern != name || !deprecatedEntryApplies(file, idx, entry) {
+					continue
 				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, entry.Message)
+				return
 			}
 		},
 	})
+}
+
+// deprecatedEntryApplies reports whether the identifier at idx is a use of the deprecated API.
+// Class entries need an import (or fully qualified mention) of the platform class, and the
+// identifier must not be a declaration name. Method entries must be member calls.
+func deprecatedEntryApplies(file *scanner.File, idx uint32, entry deprecatedAPIEntry) bool {
+	parent, _ := file.FlatParent(idx)
+	if len(entry.FQNs) == 0 {
+		return file.FlatType(parent) == "navigation_suffix"
+	}
+	switch file.FlatType(parent) {
+	case "class_declaration", "object_declaration", "type_alias", "function_declaration", "property_declaration", "variable_declaration":
+		return false
+	}
+	for _, fqn := range entry.FQNs {
+		if sourceImportsOrMentions(file, fqn) {
+			return true
+		}
+	}
+	return false
 }
 
 func registerAndroidCorrectnessChecksRange() {
@@ -230,13 +244,19 @@ func registerAndroidCorrectnessChecksResourceType() {
 	r := &ResourceTypeRule{AndroidRule: alcRule("ResourceType", "Wrong resource type", ALSError, 7)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallExpressionName(file, idx)
 			expected, ok := resourceMethodExpected[name]
 			if !ok {
 				return
+			}
+			// With an oracle, an app-defined method that happens to share a framework name is not checked.
+			if cr, isComposite := ctx.Resolver.(*oracle.CompositeResolver); isComposite && cr.Oracle() != nil {
+				if !strings.HasPrefix(oracleLookupCallTargetFlat(cr.Oracle(), file, idx), "android.") {
+					return
+				}
 			}
 			// Find first value_argument that is a navigation_expression starting with "R".
 			_, args := flatCallExpressionParts(file, idx)
@@ -258,8 +278,12 @@ func registerAndroidCorrectnessChecksResourceType() {
 					}
 					actualType := parts[1]
 					resourceName := parts[2]
-					if actualType != expected {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("%s(R.%s.%s): expected R.%s resource, not R.%s.", name, actualType, resourceName, expected, actualType))
+					// TypedArray accessors take R.styleable indices, not resource ids of the result type.
+					if actualType == "styleable" {
+						return
+					}
+					if actualType != expected && !resourceTypeAlsoAccepted(name, actualType) {
+						ctx.EmitAt(callLine(file, idx), callCol(file, idx), fmt.Sprintf("%s(R.%s.%s): expected R.%s resource, not R.%s.", name, actualType, resourceName, expected, actualType))
 					}
 					return
 				}
@@ -273,12 +297,18 @@ func registerAndroidCorrectnessChecksResourceAsColor() {
 	r := &ResourceAsColorRule{AndroidRule: alcRule("ResourceAsColor", "Should pass resolved color instead of resource id", ALSError, 7)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
+		NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets, Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallExpressionName(file, idx)
 			if name != "setBackgroundColor" && name != "setTextColor" && name != "setColor" {
 				return
+			}
+			// With an oracle, an app-defined setter that takes a @ColorRes id is not a framework call.
+			if cr, isComposite := ctx.Resolver.(*oracle.CompositeResolver); isComposite && cr.Oracle() != nil {
+				if !strings.HasPrefix(oracleLookupCallTargetFlat(cr.Oracle(), file, idx), "android.") {
+					return
+				}
 			}
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
@@ -298,7 +328,7 @@ func registerAndroidCorrectnessChecksResourceAsColor() {
 					first := file.FlatFirstChild(root)
 					if first == 0 || file.FlatType(first) != "navigation_expression" {
 						if first != 0 && file.FlatNodeText(first) == "R" {
-							ctx.EmitAt(file.FlatRow(idx)+1, 1, "Passing a resource ID where a color value is expected. Use ContextCompat.getColor() instead.")
+							ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Passing a resource ID where a color value is expected. Use ContextCompat.getColor() instead.")
 						}
 						break
 					}
@@ -314,45 +344,17 @@ func registerAndroidCorrectnessChecksSupportAnnotationUsage() {
 	r := &SupportAnnotationUsageRule{AndroidRule: alcRule("SupportAnnotationUsage", "Incorrect support annotation usage", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			// Require @MainThread annotation in the preceding sibling (modifiers block).
-			if !hasAnnotationFlat(file, idx, "MainThread") {
-				return
-			}
-			// Walk call_expressions in the function body, check for IO type names.
-			startLine := file.FlatRow(idx) + 1
-			file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
-				name := flatCallNameAny(file, callIdx)
-				if ioCallNames[name] {
-					ctx.EmitAt(file.FlatRow(callIdx)+1, 1, fmt.Sprintf("@MainThread function (line %d) performs IO/network operation (%s). This may block the UI thread.", startLine, name))
-				}
-			})
-		},
+		NodeTypes: []string{"function_declaration", "property_declaration", "parameter", "class_parameter"}, Confidence: r.Confidence(), Implementation: r,
+		Check: checkSupportAnnotationUsage,
 	})
 }
 
 func registerAndroidCorrectnessChecksAccidentalOctal() {
-	r := &AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSWarning, 5)}
+	r := &AccidentalOctalRule{AndroidRule: alcRule("AccidentalOctal", "Accidental octal interpretation", ALSError, 5)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"integer_literal"}, Confidence: r.Confidence(), Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			text := file.FlatNodeText(idx)
-			// Must start with "0" followed by at least two more digits (not 0x, 0b).
-			if len(text) < 3 || text[0] != '0' {
-				return
-			}
-			if text[1] == 'x' || text[1] == 'X' || text[1] == 'b' || text[1] == 'B' {
-				return
-			}
-			if text[1] < '0' || text[1] > '9' {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Suspicious leading zero — this may be an accidental octal literal.")
-		},
+		Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+		Check: r.check,
 	})
 }
 
@@ -364,50 +366,97 @@ func registerAndroidCorrectnessChecksAppCompatMethod() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := flatCallExpressionName(file, idx)
-			if name != "getActionBar" && name != "setProgressBarVisibility" && name != "setProgressBarIndeterminateVisibility" {
+			replacement, ok := appCompatMethodReplacements[name]
+			if !ok {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use AppCompat equivalent methods for backward compatibility.")
+			// Only the activity's own methods have AppCompat equivalents, not `other.getActionBar()`.
+			if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 {
+				recv := strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(navExpr, 0)))
+				if recv != "this" && recv != "super" {
+					return
+				}
+			}
+			cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration")
+			if !ok || !classExtendsAnyFlat(file, cls, "AppCompatActivity", "ActionBarActivity") {
+				return
+			}
+			ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Should use `"+replacement+"` instead of `"+name+"` name")
 		},
 	})
+}
+
+// appCompatMethodReplacements maps framework Activity methods to their AppCompatActivity equivalents.
+var appCompatMethodReplacements = map[string]string{
+	"getActionBar":                          "getSupportActionBar",
+	"startActionMode":                       "startSupportActionMode",
+	"setProgressBarVisibility":              "setSupportProgressBarVisibility",
+	"setProgressBarIndeterminate":           "setSupportProgressBarIndeterminate",
+	"setProgressBarIndeterminateVisibility": "setSupportProgressBarIndeterminateVisibility",
 }
 
 func registerAndroidCorrectnessChecksCustomViewStyleable() {
 	r := &CustomViewStyleableRule{AndroidRule: alcRule("CustomViewStyleable", "Mismatched Styleable/Custom View Name", ALSWarning, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Needs: api.NeedsTypeInfo, Confidence: api.ConfidenceHigher, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if flatCallExpressionName(file, idx) != "obtainStyledAttributes" {
 				return
 			}
-			// Second positional arg is R.styleable.<Name> — extract
-			// <Name> via AST navigation rather than regex-matching the
-			// whole call's text.
+			// The attrs array is the second argument, or the only one in obtainStyledAttributes(attrs).
 			args := flatCallKeyArguments(file, idx)
-			secondArg := flatPositionalValueArgument(file, args, 1)
-			expr := flatValueArgumentExpression(file, secondArg)
+			attrsArg := flatPositionalValueArgument(file, args, 1)
+			if attrsArg == 0 && file.FlatNamedChildCount(args) == 1 {
+				attrsArg = flatPositionalValueArgument(file, args, 0)
+			}
+			expr := flatValueArgumentExpression(file, attrsArg)
 			if expr == 0 || file.FlatType(expr) != "navigation_expression" {
 				return
 			}
 			styleableName := flatNavigationExpressionLastIdentifier(file, expr)
-			if styleableName == "" {
+			if styleableName == "" || !strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(expr)), "styleable."+styleableName) {
 				return
 			}
-			// Enclosing class name via AST, not classNameRe text scan.
-			classIdx, ok := flatEnclosingAncestor(file, idx, "class_declaration")
-			if !ok {
+			// The styleable only has to match a custom view, and only code that runs per instance.
+			classIdx, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration", "companion_object")
+			if !ok || file.FlatType(classIdx) != "class_declaration" {
+				return
+			}
+			if !androidEnclosingClassExtendsView(file, idx, ctx.Resolver) {
 				return
 			}
 			className := extractIdentifierFlat(file, classIdx)
 			if className == "" || styleableName == className {
 				return
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1,
-				fmt.Sprintf("Custom view '%s' uses R.styleable.%s — expected R.styleable.%s to match the class name.", className, styleableName, className))
+			// A subclass may reuse the styleable of the view it extends.
+			for _, super := range androidDirectSupertypesFlat(file, classIdx) {
+				if super.simple == styleableName {
+					return
+				}
+			}
+			ctx.EmitAt(file.FlatRow(expr)+1, file.FlatCol(expr)+1,
+				fmt.Sprintf("By convention, the custom view (`%s`) and the declare-styleable (`%s`) should have the same name (various editor features rely on this convention)", className, styleableName))
 		},
 	})
+}
+
+// dottedInnerClassName reports a dotted name where two consecutive segments start with an uppercase letter,
+// such as com.example.Outer.Inner, which Class.forName cannot load.
+func dottedInnerClassName(name string) bool {
+	segments := strings.Split(name, ".")
+	for i := 0; i+1 < len(segments); i++ {
+		if startsWithUpper(segments[i]) && startsWithUpper(segments[i+1]) {
+			return true
+		}
+	}
+	return false
+}
+
+func startsWithUpper(s string) bool {
+	return s != "" && s[0] >= 'A' && s[0] <= 'Z'
 }
 
 func registerAndroidCorrectnessChecksInnerclassSeparator() {
@@ -442,8 +491,11 @@ func registerAndroidCorrectnessChecksInnerclassSeparator() {
 				return
 			}
 			content := stringLiteralContent(file, expr)
-			if strings.Contains(content, "/") && !strings.Contains(content, "$") {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Use '$' instead of '/' as inner class separator in class names.")
+			if strings.Contains(content, "$") {
+				return
+			}
+			if strings.Contains(content, "/") || dottedInnerClassName(content) {
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "Use '$' instead of '.' or '/' as the inner class separator in class names.")
 			}
 		},
 	})
@@ -465,7 +517,7 @@ func registerAndroidCorrectnessChecksObjectAnimatorBinding() {
 }
 
 func registerAndroidCorrectnessChecksOnClick() {
-	r := &OnClickRule{AndroidRule: alcRule("OnClick", "android:onClick handler missing or has wrong signature", ALSWarning, 6)}
+	r := &OnClickRule{AndroidRule: alcRule("OnClick", "android:onClick handler missing or has wrong signature", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		Needs:       api.NeedsResources | api.NeedsParsedFiles,
@@ -511,7 +563,7 @@ func registerAndroidCorrectnessChecksPropertyEscape() {
 							i++
 							continue
 						}
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Invalid escape sequence '\\"+string(next)+"' in string literal.")
 						i++
 					}
 				}
@@ -527,41 +579,131 @@ func registerAndroidCorrectnessChecksShortAlarm() {
 		NodeTypes: []string{"call_expression"}, Confidence: r.Confidence(), Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			name := flatCallExpressionName(file, idx)
-			if name != "setRepeating" && name != "setInexactRepeating" {
+			if flatCallExpressionName(file, idx) != "setRepeating" {
 				return
 			}
-			// setRepeating(type, triggerAtMillis, intervalMillis, operation) —
-			// the interval is the third positional argument.
+			// setRepeating(type, triggerAtMillis, intervalMillis, operation); the receiver is
+			// not typed here, so require the file to mention AlarmManager.
+			if !bytes.Contains(file.Content, []byte("AlarmManager")) {
+				return
+			}
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
 				return
 			}
-			intervalArg := flatPositionalValueArgument(file, args, 2)
-			if intervalArg == 0 {
+			// Android Lint only checks the four-parameter overload.
+			params := shortAlarmParameters(file, args)
+			if params == nil {
 				return
 			}
-			for expr := file.FlatFirstChild(intervalArg); expr != 0; expr = file.FlatNextSib(expr) {
-				if !file.FlatIsNamed(expr) {
-					continue
+			for _, check := range shortAlarmChecks {
+				expr := flatValueArgumentExpression(file, params[check.index])
+				// Lint reports any known value below the minimum, zero and negatives included.
+				if val, ok := shortAlarmConstantMillis(file, expr); ok && val < check.min {
+					ctx.EmitAtNode(expr, fmt.Sprintf("Value will be forced up to %d as of Android 5.1; don't rely on this to be exact", check.min))
 				}
-				t := file.FlatType(expr)
-				if t != "integer_literal" && t != "long_literal" {
-					return
-				}
-				text := strings.TrimRight(file.FlatNodeText(expr), "lLuU")
-				val := parseInt(text)
-				if val > 0 && val < 60000 {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, "Short alarm interval. Consider using a minimum of 60 seconds for repeating alarms.")
-				}
-				return
 			}
 		},
 	})
 }
 
+// shortAlarmChecks are the triggerAtMillis and intervalMillis minimums Lint enforces.
+var shortAlarmChecks = []struct {
+	index int
+	min   int64
+}{{1, 5000}, {2, 60000}}
+
+// shortAlarmParamNames are the parameter names of setRepeating(int, long, long, PendingIntent).
+var shortAlarmParamNames = [4]string{"type", "triggerAtMillis", "intervalMillis", "operation"}
+
+// shortAlarmParameters maps the four setRepeating parameters to their arguments, honoring
+// named arguments. It returns nil unless the call has exactly four arguments.
+func shortAlarmParameters(file *scanner.File, args uint32) *[4]uint32 {
+	var out [4]uint32
+	var positional []uint32
+	count := 0
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) != "value_argument" {
+			continue
+		}
+		count++
+		label := flatValueArgumentLabel(file, arg)
+		if label == "" {
+			positional = append(positional, arg)
+			continue
+		}
+		slot := -1
+		for i, name := range shortAlarmParamNames {
+			if name == label {
+				slot = i
+			}
+		}
+		if slot < 0 || out[slot] != 0 {
+			return nil
+		}
+		out[slot] = arg
+	}
+	if count != len(out) {
+		return nil
+	}
+	for i := range out {
+		if out[i] == 0 && len(positional) > 0 {
+			out[i], positional = positional[0], positional[1:]
+		}
+		if out[i] == 0 {
+			return nil
+		}
+	}
+	return &out
+}
+
+// shortAlarmConstantMillis folds integer literals combined with * and +.
+func shortAlarmConstantMillis(file *scanner.File, idx uint32) (int64, bool) {
+	idx = flatUnwrapParenExpr(file, idx)
+	switch file.FlatType(idx) {
+	case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+		return parseKotlinIntegerLiteral(file.FlatNodeText(idx))
+	case "prefix_expression":
+		text := strings.TrimSpace(file.FlatNodeText(idx))
+		if !strings.HasPrefix(text, "-") {
+			return 0, false
+		}
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && file.FlatType(child) != "unary_prefix_operator" {
+				v, ok := shortAlarmConstantMillis(file, child)
+				return -v, ok
+			}
+		}
+		return 0, false
+	case "multiplicative_expression", "additive_expression":
+		var values []int64
+		op := ""
+		for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+			if !file.FlatIsNamed(child) {
+				op = file.FlatNodeText(child)
+				continue
+			}
+			v, ok := shortAlarmConstantMillis(file, child)
+			if !ok {
+				return 0, false
+			}
+			values = append(values, v)
+		}
+		if len(values) != 2 {
+			return 0, false
+		}
+		switch op {
+		case "*":
+			return values[0] * values[1], true
+		case "+":
+			return values[0] + values[1], true
+		}
+	}
+	return 0, false
+}
+
 func registerAndroidCorrectnessChecksLocalSuppress() {
-	r := &LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSWarning, 6)}
+	r := &LocalSuppressRule{AndroidRule: alcRule("LocalSuppress", "@SuppressLint misuse", ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"annotation"}, Confidence: r.Confidence(), Implementation: r,
@@ -618,14 +760,21 @@ func registerAndroidCorrectnessChecksLocalSuppress() {
 					}
 					raw := file.FlatNodeText(expr)
 					issueID := strings.Trim(raw, `"`)
-					if !knownLintIssueIDs[issueID] {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@SuppressLint(\"%s\"): '%s' is not a known Android Lint issue ID.", issueID, issueID))
+					// The known list is partial and Lint accepts third-party IDs, so report only near-misses of a known ID.
+					if isKnownLintIssueID(issueID) {
+						continue
+					}
+					if near := nearestKnownLintIssueID(issueID); near != "" {
+						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@SuppressLint(\"%s\"): '%s' is not a known Android Lint issue ID. Did you mean '%s'?", issueID, issueID, near))
 					}
 				}
 			}
 		},
 	})
 }
+
+// pluralsEqualsOneRe matches `== 1` or `== 1L` but not `== 10`, `== 1.5` or `== 1x`.
+var pluralsEqualsOneRe = regexp.MustCompile(`==\s*1[lL]?($|[^0-9.A-Za-z_])`)
 
 func registerAndroidCorrectnessChecksPluralsCandidate() {
 	r := &PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}
@@ -650,7 +799,7 @@ func registerAndroidCorrectnessChecksPluralsCandidate() {
 					return
 				}
 				condText := file.FlatNodeText(cond)
-				if !strings.Contains(condText, "== 1") && !strings.Contains(condText, "== 1L") {
+				if !pluralsEqualsOneRe.MatchString(condText) {
 					return
 				}
 			} else {
@@ -684,8 +833,16 @@ func registerAndroidCorrectnessChecksPluralsCandidate() {
 				}
 			})
 			if found {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, "Manual pluralization detected. Use getQuantityString() for proper plural handling.")
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Manual pluralization detected. Use getQuantityString() for proper plural handling.")
 			}
 		},
 	})
+}
+
+// lastDottedSegment returns the text after the final dot, so `View.GONE` yields `GONE`.
+func lastDottedSegment(text string) string {
+	if dot := strings.LastIndex(text, "."); dot >= 0 {
+		return text[dot+1:]
+	}
+	return text
 }

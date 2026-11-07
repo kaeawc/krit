@@ -34,7 +34,6 @@ type unusedVariableDecl struct {
 	name     string
 	stmt     uint32
 	nameNode uint32
-	emitNode uint32
 	scope    uint32
 }
 
@@ -50,6 +49,9 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 	nameNode := uint32(0)
 	switch nodeType {
 	case "property_declaration":
+		if _, _, artifact := softKeywordCallParts(file, idx); artifact {
+			return target, false
+		}
 		if strings.Contains(file.FlatNodeText(idx), "@JvmField") {
 			return target, false
 		}
@@ -81,6 +83,10 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		}
 		switch file.FlatType(grand) {
 		case "property_declaration":
+			// `open(a, b)` is a call that the grammar reads as a modifier plus a destructuring pattern.
+			if _, _, artifact := softKeywordCallParts(file, grand); artifact {
+				return target, false
+			}
 			stmt = grand
 			nameNode, _ = file.FlatFindChild(idx, "simple_identifier")
 		case "for_statement":
@@ -113,7 +119,7 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		!file.FlatHasAncestorOfType(stmt, "secondary_constructor") {
 		return target, false
 	}
-	if !unusedVariableIsLocalProperty(file, stmt) {
+	if !unusedVariableIsLocalProperty(file, stmt) || !unusedVariableHasExecutableAncestor(file, stmt) {
 		return target, false
 	}
 	scope, ok := unusedVariableDeclScope(file, stmt)
@@ -124,7 +130,6 @@ func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDe
 		name:     name,
 		stmt:     stmt,
 		nameNode: nameNode,
-		emitNode: idx,
 		scope:    scope,
 	}, true
 }
@@ -142,7 +147,25 @@ func unusedVariableDeclScope(file *scanner.File, stmt uint32) (uint32, bool) {
 			return 0, false
 		}
 	}
-	return unusedVariableLexicalScope(file, stmt)
+	scope, ok := unusedVariableLexicalScope(file, stmt)
+	if !ok {
+		return 0, false
+	}
+	// A block folded into an assignment's left side by parse recovery: its uses sit past the assignment.
+	for a, ok := file.FlatParent(stmt); ok; a, ok = file.FlatParent(a) {
+		if file.FlatType(a) == "function_declaration" {
+			break
+		}
+		if file.FlatType(a) != "directly_assignable_expression" {
+			continue
+		}
+		if assign, ok := file.FlatParent(a); ok && file.FlatType(assign) == "assignment" {
+			if wider, ok := unusedVariableLexicalScope(file, assign); ok {
+				scope = wider
+			}
+		}
+	}
+	return scope, true
 }
 
 func unusedVariablePropertyHasVisibilityModifier(file *scanner.File, idx uint32) bool {
@@ -173,6 +196,14 @@ func unusedVariablePropertyHasAccessor(file *scanner.File, idx uint32) bool {
 }
 
 func unusedVariableIsConstructorBodyParseArtifact(file *scanner.File, idx uint32) bool {
+	// `class Foo\n@Ann\nconstructor(a: Int = 0) : Base() { ... }` fails to parse: the class body ends up
+	// as a lambda on a top-level call, and its properties are members.
+	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+		if parent, hasParent := file.FlatParent(a); hasParent && file.FlatType(parent) == "source_file" &&
+			unusedVariableFollowsClassHeaderWithConstructor(file, a) {
+			return true
+		}
+	}
 	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
 		switch file.FlatType(a) {
 		case "call_expression":
@@ -198,6 +229,44 @@ func unusedVariableIsConstructorBodyParseArtifact(file *scanner.File, idx uint32
 		case "function_declaration", "anonymous_function":
 			return false
 		case "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+var unusedVariableClassHeaderWithConstructorPattern = regexp.MustCompile(`(?s)\bclass\s+\w+[^{};]*?\bconstructor\s*\(.*\)\s*:\s*$`)
+
+func unusedVariableFollowsClassHeaderWithConstructor(file *scanner.File, node uint32) bool {
+	start := int(file.FlatStartByte(node))
+	if start <= 0 || start > len(file.Content) {
+		return false
+	}
+	return unusedVariableClassHeaderWithConstructorPattern.Match(file.Content[max(start-1500, 0):start])
+}
+
+func unusedVariablePropertyIsConstructorHeaderArtifact(file *scanner.File, prop uint32) bool {
+	typ, ok := file.FlatFindChild(prop, "user_type")
+	return ok && file.FlatNodeTextEquals(typ, "constructor") && file.FlatHasChildOfType(prop, "multi_variable_declaration")
+}
+
+// unusedVariableHasExecutableAncestor reports whether stmt sits inside code that runs
+// (a function, initializer, accessor or property initializer). A lambda that hangs off
+// the top level or a class header is a parse-recovery artifact whose "locals" are members.
+func unusedVariableHasExecutableAncestor(file *scanner.File, stmt uint32) bool {
+	for a, ok := file.FlatParent(stmt); ok; a, ok = file.FlatParent(a) {
+		switch file.FlatType(a) {
+		case "property_declaration":
+			// `abstract class X\nprotected constructor(...) : Base() { ... }` parses as a property
+			// typed `constructor`; the class body hangs off it.
+			if unusedVariablePropertyIsConstructorHeaderArtifact(file, a) {
+				return false
+			}
+			return true
+		case "function_declaration", "anonymous_function", "anonymous_initializer",
+			"secondary_constructor", "getter", "setter":
+			return true
+		case "delegation_specifier", "explicit_delegation":
 			return false
 		}
 	}
@@ -303,6 +372,58 @@ func unusedVariableUnaryContinuationUsesName(file *scanner.File, target unusedVa
 	return found
 }
 
+// unusedVariableNewlineStatementUsesName handles a statement the parser folded into the previous
+// declaration: one that starts with `(` on the next line (a call suffix) or follows a bare
+// `return`/`break`/`continue`/`throw` keyword on the next line. Kotlin treats both as new
+// statements, so any reference from that point to the end of the declaration node is a use.
+func unusedVariableNewlineStatementUsesName(file *scanner.File, target unusedVariableDecl) bool {
+	if file == nil || target.stmt == 0 || target.name == "" || file.FlatType(target.stmt) != "property_declaration" {
+		return false
+	}
+	split := uint32(0)
+	consider := func(pos uint32) {
+		if split == 0 || pos < split {
+			split = pos
+		}
+	}
+	endRow := func(n uint32) int { return file.FlatRow(n) + strings.Count(file.FlatNodeText(n), "\n") }
+	file.FlatWalkNodes(target.stmt, "call_suffix", func(suffix uint32) {
+		prev, ok := file.FlatPrevSibling(suffix)
+		if !ok || file.FlatRow(suffix) <= endRow(prev) || !strings.HasPrefix(file.FlatNodeText(suffix), "(") {
+			return
+		}
+		consider(file.FlatStartByte(suffix))
+	})
+	file.FlatWalkNodes(target.stmt, "jump_expression", func(jump uint32) {
+		if file.FlatChildCount(jump) < 2 {
+			return
+		}
+		keyword, operand := file.FlatChild(jump, 0), file.FlatChild(jump, 1)
+		if file.FlatType(keyword) == "return@" || file.FlatRow(operand) <= file.FlatRow(keyword) {
+			return
+		}
+		consider(file.FlatStartByte(operand))
+	})
+	if split == 0 {
+		return false
+	}
+	found := false
+	for _, nodeType := range []string{"simple_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
+		file.FlatWalkNodes(target.stmt, nodeType, func(candidate uint32) {
+			if found || file.FlatStartByte(candidate) < split || unusedVariableReferenceName(file, candidate) != target.name {
+				return
+			}
+			if file.FlatType(candidate) == "simple_identifier" {
+				if isReference, known := unusedVariableIsReferenceIdentifier(file, candidate); !known || !isReference {
+					return
+				}
+			}
+			found = true
+		})
+	}
+	return found
+}
+
 // unusedVariableContinuationOperandUsesName reports whether `operand` — the
 // right-hand side of a unary-prefixed continuation that tree-sitter folded
 // into a preceding declaration's initializer — contains a genuine reference to
@@ -398,7 +519,16 @@ func unusedVariableLexicalScope(file *scanner.File, stmt uint32) (uint32, bool) 
 	}
 	for {
 		switch file.FlatType(scope) {
-		case "statements", "function_body", "lambda_literal", "control_structure_body", "source_file":
+		case "statements":
+			// After parse recovery, trailing statements can sit beside `statements` in its parent block.
+			if parent, ok := file.FlatParent(scope); ok {
+				switch file.FlatType(parent) {
+				case "function_body", "lambda_literal", "control_structure_body":
+					return parent, true
+				}
+			}
+			return scope, true
+		case "function_body", "lambda_literal", "control_structure_body", "source_file":
 			return scope, true
 		}
 		next, ok := file.FlatParent(scope)
@@ -424,11 +554,16 @@ func unusedVariableUsage(file *scanner.File, target unusedVariableDecl) (used bo
 	// `val factoryCall = when { ... }` looks textually as if `factoryCall` is
 	// referenced inside its own initializer. Recognize that pattern as a use
 	// to avoid a false positive.
-	if unusedVariableUnaryContinuationUsesName(file, target) {
+	if unusedVariableUnaryContinuationUsesName(file, target) ||
+		unusedVariableNewlineStatementUsesName(file, target) {
 		return true, false
 	}
 	stmtEnd := file.FlatEndByte(target.stmt)
-	for _, nodeType := range []string{"simple_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
+	if softKeywordCallMentions(file, target.scope, target.name, stmtEnd) ||
+		unusedVariableMisLexedNegationUses(file, target.scope, target.name, stmtEnd) {
+		return true, false
+	}
+	for _, nodeType := range []string{"simple_identifier", "type_identifier", "interpolated_identifier", "line_str_ref", "multi_line_str_ref"} {
 		file.FlatWalkNodes(target.scope, nodeType, func(candidate uint32) {
 			if used || unknown || file.FlatStartByte(candidate) <= stmtEnd {
 				return
@@ -449,6 +584,9 @@ func unusedVariableUsage(file *scanner.File, target unusedVariableDecl) (used bo
 
 func unusedVariableResolveReference(file *scanner.File, target unusedVariableDecl, ref uint32) unusedVariableReferenceMatch {
 	if unusedVariableReferenceName(file, ref) != target.name {
+		return unusedVariableNoMatch
+	}
+	if file.FlatType(ref) == "type_identifier" && !unusedVariableIsCallableReferenceReceiver(file, ref) {
 		return unusedVariableNoMatch
 	}
 	if file.FlatType(ref) == "simple_identifier" {
@@ -473,6 +611,16 @@ func unusedVariableResolveReference(file *scanner.File, target unusedVariableDec
 	return unusedVariableMatchesOtherDeclaration
 }
 
+// unusedVariableIsCallableReferenceReceiver matches `name::member`, which the parser tags as a type.
+func unusedVariableIsCallableReferenceReceiver(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(parent) != "callable_reference" {
+		return false
+	}
+	next, ok := file.FlatNextSibling(idx)
+	return ok && file.FlatType(next) == "::"
+}
+
 func unusedVariableIdentifierName(file *scanner.File, idx uint32) string {
 	if file == nil || idx == 0 {
 		return ""
@@ -482,7 +630,7 @@ func unusedVariableIdentifierName(file *scanner.File, idx uint32) string {
 
 func unusedVariableReferenceName(file *scanner.File, idx uint32) string {
 	switch file.FlatType(idx) {
-	case "simple_identifier":
+	case "simple_identifier", "type_identifier":
 		return unusedVariableIdentifierName(file, idx)
 	case "interpolated_identifier", "line_str_ref", "multi_line_str_ref":
 		text := strings.TrimSpace(file.FlatNodeText(idx))
@@ -627,9 +775,31 @@ func unusedVariableShadowDeclarationStatement(file *scanner.File, idx uint32) ui
 	}
 }
 
+// unusedVariableHeaderBindingScope returns the when or for node a header binding is scoped to, 0 otherwise.
+func unusedVariableHeaderBindingScope(file *scanner.File, idx uint32) uint32 {
+	for a, ok := file.FlatParent(idx); ok; a, ok = file.FlatParent(a) {
+		switch file.FlatType(a) {
+		case "when_subject":
+			if when, ok := file.FlatParent(a); ok {
+				return when
+			}
+			return 0
+		case "for_statement":
+			return a
+		case "statements", "function_body", "lambda_literal", "control_structure_body", "source_file":
+			return 0
+		}
+	}
+	return 0
+}
+
 func unusedVariableShadowScope(file *scanner.File, idx uint32) uint32 {
 	switch file.FlatType(idx) {
 	case "property_declaration", "variable_declaration":
+		// `when (val x = ...)` and `for (x in ...)` bind x only inside the when or the loop.
+		if scope := unusedVariableHeaderBindingScope(file, idx); scope != 0 {
+			return scope
+		}
 		scope, ok := unusedVariableLexicalScope(file, idx)
 		if ok {
 			return scope
@@ -650,4 +820,86 @@ func unusedVariableShadowScope(file *scanner.File, idx uint32) uint32 {
 func unusedVariableNodeContains(file *scanner.File, ancestor, idx uint32) bool {
 	return file.FlatStartByte(ancestor) <= file.FlatStartByte(idx) &&
 		file.FlatEndByte(ancestor) >= file.FlatEndByte(idx)
+}
+
+// softKeywordCallParts recognises the parse of a call to a function named like a soft keyword
+// (`open(a, b)`) as a property with that modifier and the arguments as a destructuring pattern.
+// It returns the callee name and the argument identifiers.
+func softKeywordCallParts(file *scanner.File, prop uint32) (callee string, args []uint32, ok bool) {
+	if file == nil || prop == 0 || file.FlatType(prop) != "property_declaration" {
+		return "", nil, false
+	}
+	mods, hasMods := file.FlatFindChild(prop, "modifiers")
+	pattern, hasPattern := file.FlatFindChild(prop, "multi_variable_declaration")
+	kind, hasKind := file.FlatFindChild(prop, "binding_pattern_kind")
+	if !hasMods || !hasPattern || !hasKind || strings.TrimSpace(file.FlatNodeText(kind)) != "" {
+		return "", nil, false
+	}
+	callee = strings.TrimSpace(file.FlatNodeText(mods))
+	if callee == "" || strings.ContainsAny(callee, " \t\r\n") {
+		return "", nil, false
+	}
+	file.FlatForEachChild(pattern, func(decl uint32) {
+		if file.FlatType(decl) != "variable_declaration" {
+			return
+		}
+		if ident, found := file.FlatFindChild(decl, "simple_identifier"); found {
+			args = append(args, ident)
+		}
+	})
+	return callee, args, true
+}
+
+// softKeywordCallMentions reports whether a soft-keyword call parse inside scope, starting at or
+// after from, names `name` as the callee or as an argument.
+func softKeywordCallMentions(file *scanner.File, scope uint32, name string, from uint32) bool {
+	found := false
+	file.FlatWalkNodes(scope, "property_declaration", func(prop uint32) {
+		if found || file.FlatStartByte(prop) < from {
+			return
+		}
+		callee, args, ok := softKeywordCallParts(file, prop)
+		if !ok {
+			return
+		}
+		if callee == name {
+			found = true
+			return
+		}
+		for _, arg := range args {
+			if unusedVariableIdentifierName(file, arg) == name {
+				found = true
+				return
+			}
+		}
+	})
+	// A bare `get` / `set` after `if (c)` lexes as an accessor keyword, so the call `set()` has no identifier.
+	for _, accessor := range []string{"setter", "getter"} {
+		file.FlatWalkNodes(scope, accessor, func(n uint32) {
+			if !found && file.FlatStartByte(n) >= from && file.FlatNodeTextEquals(n, name) {
+				found = true
+			}
+		})
+	}
+	return found
+}
+
+// unusedVariableMisLexedNegationUses finds `!isReady` / `!inProgress` reads, which the grammar lexes
+// as a `!is` / `!in` test of `Ready` / `Progress`, after `from` inside scope.
+func unusedVariableMisLexedNegationUses(file *scanner.File, scope uint32, name string, from uint32) bool {
+	if !strings.HasPrefix(name, "is") && !strings.HasPrefix(name, "in") {
+		return false
+	}
+	found := false
+	for _, testType := range []string{"type_test", "range_test", "check_expression"} {
+		file.FlatWalkNodes(scope, testType, func(test uint32) {
+			if found || file.FlatStartByte(test) < from {
+				return
+			}
+			if misLexed, ok := misLexedNegatedIdentifierFlat(file, test); ok && misLexed == name {
+				found = true
+			}
+		})
+	}
+	return found
 }

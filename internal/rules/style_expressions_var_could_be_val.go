@@ -24,6 +24,11 @@ type VarCouldBeValRule struct {
 // confidence reflects the known analysis gap.
 func (r *VarCouldBeValRule) Confidence() float64 { return api.ConfidenceMedium }
 
+func fileHasErrorNode(file *scanner.File) bool {
+	errorTypeID, ok := scanner.LookupFlatNodeType("ERROR")
+	return ok && file.FlatTree != nil && len(file.FlatTree.NodesOfType(errorTypeID)) > 0
+}
+
 func flatSubtreeHasNodeType(file *scanner.File, idx uint32, nodeType string) bool {
 	if file == nil || idx == 0 || nodeType == "" {
 		return false
@@ -241,6 +246,69 @@ func qualifiedAssignTargetMatchesFlat(file *scanner.File, target uint32, names m
 		}
 	}
 	return suffixes == 1 && selector == varName
+}
+
+// reassignedViaAnyReceiverFlat reports whether scope writes `<receiver>.varName` for any receiver. A private member is
+// visible to every instance of its class, so `other.varName = x` reassigns it.
+func reassignedViaAnyReceiverFlat(file *scanner.File, scope uint32, varName string) bool {
+	if file == nil || scope == 0 || varName == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(scope, func(child uint32) {
+		if found {
+			return
+		}
+		var target uint32
+		switch file.FlatType(child) {
+		case "assignment", "assignment_expression", "augmented_assignment":
+			if file.FlatChildCount(child) == 0 {
+				return
+			}
+			target = file.FlatChild(child, 0)
+		case "postfix_expression", "prefix_expression":
+			hasMutation := false
+			for gc := file.FlatFirstChild(child); gc != 0; gc = file.FlatNextSib(gc) {
+				if file.FlatNodeTextEquals(gc, "++") || file.FlatNodeTextEquals(gc, "--") {
+					hasMutation = true
+				} else if target == 0 && file.FlatIsNamed(gc) {
+					target = gc
+				}
+			}
+			if !hasMutation {
+				return
+			}
+			if file.FlatType(child) == "prefix_expression" {
+				target = prefixMutationOperandFlat(file, target)
+			}
+		default:
+			return
+		}
+		if assignTargetSelectorIs(file, target, varName) {
+			found = true
+		}
+	})
+	return found
+}
+
+// assignTargetSelectorIs reports whether an assignment target ends in `.name` after some receiver.
+func assignTargetSelectorIs(file *scanner.File, target uint32, name string) bool {
+	if target == 0 {
+		return false
+	}
+	target = flatUnwrapParenExpr(file, target)
+	if file.FlatType(target) == "directly_assignable_expression" && file.FlatNamedChildCount(target) == 1 {
+		return assignTargetSelectorIs(file, file.FlatNamedChild(target, 0), name)
+	}
+	if t := file.FlatType(target); t != "directly_assignable_expression" && t != "navigation_expression" {
+		return false
+	}
+	suffix := flatLastChildOfType(file, target, "navigation_suffix")
+	if suffix == 0 {
+		return false
+	}
+	id, ok := file.FlatFindChild(suffix, "simple_identifier")
+	return ok && file.FlatNodeTextEquals(id, name)
 }
 
 func reassignedPostfixNameFlat(file *scanner.File, idx uint32) (string, bool) {

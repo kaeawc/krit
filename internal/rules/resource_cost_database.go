@@ -134,7 +134,7 @@ func databaseQueryHasMainThreadEvidence(file *scanner.File, idx uint32, fn uint3
 }
 
 func databaseQueryHasMainThreadAnnotation(file *scanner.File, fn uint32) bool {
-	if hasAnnotationFlat(file, fn, "MainThread") || hasAnnotationFlat(file, fn, "UiThread") {
+	if hasExactAnnotationFlat(file, fn, "MainThread") || hasExactAnnotationFlat(file, fn, "UiThread") {
 		return true
 	}
 	text := file.FlatNodeText(fn)
@@ -396,7 +396,7 @@ func databaseFunctionReturnsAsyncRoomType(file *scanner.File, fn uint32, roomFac
 
 func databaseHasAnyAnnotationFlat(file *scanner.File, idx uint32, names []string) bool {
 	for _, name := range names {
-		if hasAnnotationFlat(file, idx, name) {
+		if hasExactAnnotationFlat(file, idx, name) {
 			return true
 		}
 	}

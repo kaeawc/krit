@@ -52,6 +52,12 @@ func (r *DoubleNegativeLambdaRule) Meta() api.RuleDescriptor {
 				Description: "Functions treated as negative.",
 				Apply:       func(r *DoubleNegativeLambdaRule, v []string) { r.NegativeFunctions = v },
 			}),
+			api.StringListOption(api.StringListOptionSpec[DoubleNegativeLambdaRule]{
+				Name:        "negativeFunctionNameParts",
+				Default:     []string{"not", "non"},
+				Description: "Camel-case words that mark a called function as a negation.",
+				Apply:       func(r *DoubleNegativeLambdaRule, v []string) { r.NegativeFunctionNameParts = v },
+			}),
 		},
 	}
 }
@@ -104,6 +110,15 @@ func (r *RangeUntilInsteadOfRangeToRule) Meta() api.RuleDescriptor {
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
+	}
+}
+
+func (r *UntilInsteadOfRangeToRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UntilInsteadOfRangeTo",
+		RuleSet:       "style",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 	}
 }
 

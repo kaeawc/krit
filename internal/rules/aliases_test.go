@@ -66,8 +66,18 @@ func TestAllSuppressionAliases_ReturnsNilWhenNoRulesDeclareAliases(t *testing.T)
 	}
 	api.Registry = stripped
 
-	if got := AllSuppressionAliases(); got != nil {
-		t.Errorf("AllSuppressionAliases with no aliases declared = %v, want nil", got)
+	// Only the Android lint IDs derived from rule identity and the detekt names may remain.
+	detekt := detektNamesByRule()
+	for id, aliases := range AllSuppressionAliases() {
+		var rule *api.Rule
+		for _, r := range stripped {
+			if r.ID == id {
+				rule = r
+			}
+		}
+		if want := LintSuppressionAliases(rule); len(aliases) != len(want)+len(detekt[id]) {
+			t.Errorf("AllSuppressionAliases[%s] = %v, want only derived lint aliases %v", id, aliases, want)
+		}
 	}
 }
 
@@ -94,4 +104,20 @@ func keys(m map[string][]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func TestAllSuppressionAliases_IncludesDetektStyleNames(t *testing.T) {
+	want := map[string]string{
+		"MayBeConstant":                 "MayBeConst",
+		"UnusedImport":                  "UnusedImports",
+		"SpacingAfterPackageAndImports": "SpacingBetweenPackageAndImports",
+		"RedundantVisibilityModifier":   "RedundantVisibilityModifierRule",
+		"BracesOnWhenStatements":        "OptionalWhenBraces",
+	}
+	got := AllSuppressionAliases()
+	for rule, detekt := range want {
+		if !containsString(got[rule], detekt) {
+			t.Errorf("aliases for %s = %v, want %s", rule, got[rule], detekt)
+		}
+	}
 }

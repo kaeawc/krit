@@ -491,8 +491,8 @@ func (r *RoomLoadsAllWhereFirstUsedRule) checkParsedFiles(ctx *api.Context) {
 			}
 			ctx.Emit(r.Finding(
 				file,
-				file.FlatRow(idx)+1,
-				file.FlatCol(idx)+1,
+				calleeLine(file, idx),
+				callCol(file, idx),
 				fmt.Sprintf("Room DAO %s().%s() loads all rows before selecting one element. Add LIMIT 1 to the @Query, or expose a dedicated DAO method that returns a single row.", receiverName, terminal),
 			))
 		})

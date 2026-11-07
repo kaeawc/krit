@@ -329,7 +329,19 @@ var composeSemanticsEscapeHatches = map[string]bool{
 
 // channelCloseNames is the set of Channel finalization methods that
 // release the receiver coroutine.
-var channelCloseNames = map[string]bool{"close": true}
+var channelCloseNames = map[string]bool{"close": true, "cancel": true, "consumeAsFlow": true}
+
+// importsCoroutinesChannels reports whether the file imports from kotlinx.coroutines.channels, so a
+// `Channel(...)` call is the coroutines factory and not a domain class with that name.
+func importsCoroutinesChannels(file *scanner.File) bool {
+	found := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if strings.Contains(file.FlatNodeText(node), "kotlinx.coroutines.channels") {
+			found = true
+		}
+	})
+	return found
+}
 
 // coroutineScopeCancelNames is the set of CoroutineScope finalization
 // methods that stop the launched coroutines.
@@ -561,7 +573,7 @@ func functionHasReceiverCallAfter(file *scanner.File, fn, target uint32, receive
 		if !names[flatCallExpressionName(file, call)] {
 			return
 		}
-		if flatReceiverNameFromCall(file, call) != receiverName {
+		if flatReceiverNameFromCall(file, call) != receiverName && chainRootName(file, call) != receiverName {
 			return
 		}
 		if accept != nil && !accept(file, call) {

@@ -68,6 +68,13 @@ func (r *RunBlockingInTestRule) Meta() api.RuleDescriptor {
 		ID:            "RunBlockingInTest",
 		RuleSet:       "testing-quality",
 		DefaultActive: true,
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[RunBlockingInTestRule]{
+				Name:        "realDispatcherMarkers",
+				Description: "Strings (for example a project lint suppression id) whose presence in a test class marks it as deliberately using real dispatchers, so runBlocking there is not reported.",
+				Apply:       func(r *RunBlockingInTestRule, v []string) { r.RealDispatcherMarkers = v },
+			}),
+		},
 	}
 }
 

@@ -55,7 +55,8 @@ func (r *PrecompileDuplicateDeclarationRule) check(ctx *api.Context) {
 		if name == "" {
 			continue
 		}
-		key := kind + "|" + name + "|" + sig
+		// Extension receivers and expect/actual pairs declare distinct symbols with the same name.
+		key := kind + "|" + name + "|" + sig + "|" + duplicateDeclReceiver(file, child) + "|" + duplicateDeclPlatformModifier(file, child)
 		if first, dup := seen[key]; dup {
 			ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
 				fmt.Sprintf("Duplicate top-level %s declaration `%s`; already declared on line %d.",
@@ -124,4 +125,32 @@ func duplicateDeclParameterType(file *scanner.File, paramIdx uint32) string {
 		return strings.Join(strings.Fields(text), "")
 	}
 	return "?"
+}
+
+// duplicateDeclReceiver returns the whitespace-free receiver type text of an extension function or
+// property, or "" when the declaration has no receiver.
+func duplicateDeclReceiver(file *scanner.File, idx uint32) string {
+	var receiver uint32
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			receiver = child
+		case ".":
+			if receiver != 0 {
+				return strings.Join(strings.Fields(file.FlatNodeText(receiver)), "")
+			}
+		case "simple_identifier", "variable_declaration", "function_value_parameters", "multi_variable_declaration":
+			return ""
+		}
+	}
+	return ""
+}
+
+func duplicateDeclPlatformModifier(file *scanner.File, idx uint32) string {
+	for _, m := range []string{"expect", "actual"} {
+		if file.FlatHasModifier(idx, m) {
+			return m
+		}
+	}
+	return ""
 }

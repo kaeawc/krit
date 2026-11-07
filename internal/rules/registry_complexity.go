@@ -2,8 +2,10 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf16"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -13,173 +15,151 @@ func registerComplexityRules() {
 
 	// --- from complexity.go ---
 	{
-		r := &LongMethodRule{BaseRule: BaseRule{RuleName: "LongMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions that exceed a configurable line count threshold."}, AllowedLines: 60}
+		// AllowedLines is detekt's threshold minus one, because detekt reports at lines >= threshold.
+		r := &LongMethodRule{BaseRule: BaseRule{RuleName: "LongMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions that exceed a configurable line count threshold."}, AllowedLines: 59}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				lines, ok := functionBodyCodeLines(file, idx)
+				if !ok || lines <= r.AllowedLines {
 					return
 				}
-				if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
-					strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
-					return
-				}
-				if flatHasAnnotationNamed(file, idx, "Composable") {
-					return
-				}
-				if flatHasAnnotationNamed(file, idx, "Test") ||
-					flatHasAnnotationNamed(file, idx, "ParameterizedTest") {
-					return
-				}
-				if strings.Contains(file.Path, "/migration/") ||
-					strings.Contains(file.Path, "\\migration\\") ||
-					strings.Contains(file.Path, "/migrations/") ||
-					strings.Contains(file.Path, "\\migrations\\") {
-					return
-				}
-				if isDSLBuilderBodyFlat(idx, file) {
-					return
-				}
-				name := extractIdentifierFlat(file, idx)
-				if androidLifecycleMethods[name] {
-					return
-				}
-				if strings.HasSuffix(file.Path, "Job.kt") &&
-					(name == "run" || name == "onRun" || name == "doRun" || name == "onHandle") {
-					return
-				}
-				lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx))
-				if lines > r.AllowedLines {
-					line := longMethodDeclarationLineFlat(file, idx)
-					ctx.EmitAt(line, 1,
-						fmt.Sprintf("Function '%s' has %d lines (allowed: %d).", name, lines, r.AllowedLines))
-				}
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+					fmt.Sprintf("The function %s is too long (%d). The maximum length is %d.", detektFunctionName(file, idx), lines, r.AllowedLines+1))
 			},
 		})
 	}
 	{
-		r := &LargeClassRule{BaseRule: BaseRule{RuleName: "LargeClass", RuleSetName: "complexity", Sev: "warning", Desc: "Detects classes that exceed a configurable line count threshold."}, AllowedLines: 600}
+		// AllowedLines is detekt's threshold minus one, because detekt reports at lines >= threshold.
+		r := &LargeClassRule{BaseRule: BaseRule{RuleName: "LargeClass", RuleSetName: "complexity", Sev: "warning", Desc: "Detects classes that exceed a configurable line count threshold."}, AllowedLines: 599}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
-					return
-				}
-				if strings.HasSuffix(file.Path, "Table.kt") || strings.HasSuffix(file.Path, "Tables.kt") ||
-					strings.HasSuffix(file.Path, "Dao.kt") || strings.HasSuffix(file.Path, "DAO.kt") {
-					return
-				}
-				lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx))
-				if lines > r.AllowedLines {
-					name := extractIdentifierFlat(file, idx)
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Class '%s' has %d lines (allowed: %d).", name, lines, r.AllowedLines))
+				if lines := classCodeLines(file, idx); lines > r.AllowedLines {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("Class %s is too large. Consider splitting it into smaller pieces.", detektClassName(file, idx)))
 				}
 			},
 		})
 	}
 	{
-		r := &NestedBlockDepthRule{BaseRule: BaseRule{RuleName: "NestedBlockDepth", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions with excessive nesting depth of control flow blocks."}, AllowedDepth: 4}
+		// AllowedDepth is detekt's threshold minus one, because detekt reports at depth >= threshold.
+		r := &NestedBlockDepthRule{BaseRule: BaseRule{RuleName: "NestedBlockDepth", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions with excessive nesting depth of control flow blocks."}, AllowedDepth: 3}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				depth, line, exceeded := nestedBlockDepthExceedsFlat(file, idx, r.AllowedDepth)
-				if exceeded {
-					name := extractIdentifierFlat(file, idx)
-					ctx.EmitAt(line, 1,
-						fmt.Sprintf("Function '%s' has a nested block depth of %d (allowed: %d).", name, depth, r.AllowedDepth))
+				if hasEnclosingFunction(file, idx) {
+					return
+				}
+				if detektNestedBlockDepth(file, idx) > r.AllowedDepth {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("Function %s is nested too deeply.", extractIdentifierFlat(file, idx)))
 				}
 			},
 		})
 	}
 	{
+		// AllowedComplexity is detekt's threshold minus one, because detekt reports at complexity >= threshold.
 		r := &CyclomaticComplexMethodRule{
-			BaseRule:                BaseRule{RuleName: "CyclomaticComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cyclomatic complexity exceeds a configurable threshold."},
-			AllowedComplexity:       14,
-			IgnoreSimpleWhenEntries: false,
-			// Default IgnoreNestingFunctions=true with the standard
-			// nesting-function list preserves krit's pre-wiring behavior of
-			// not penalizing decisions inside common scope-function
-			// lambdas (apply/let/run/forEach/etc.) while allowing
-			// projects to narrow the list or flip the flag off to
-			// count decisions in all lambdas.
-			IgnoreNestingFunctions: true,
-			NestingFunctions:       []string{"also", "apply", "forEach", "isNotNull", "ifNull", "let", "run", "use", "with"},
+			BaseRule:          BaseRule{RuleName: "CyclomaticComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cyclomatic complexity exceeds a configurable threshold."},
+			AllowedComplexity: 14,
+			NestingFunctions:  []string{"also", "apply", "forEach", "isNotNull", "ifNull", "let", "run", "use", "with"},
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if r.IgnoreLocalFunctions && functionIsLocalFlat(file, idx) {
+				if hasEnclosingFunction(file, idx) {
 					return
 				}
 				if r.IgnoreSingleWhenExpression && functionBodyIsSingleWhenExpressionFlat(file, idx) {
 					return
 				}
-				if file.FlatHasModifier(idx, "override") {
-					name := extractIdentifierFlat(file, idx)
-					if name == "equals" || name == "hashCode" {
-						return
-					}
+				opts := cyclomaticOptions{
+					ignoreSimpleWhenEntries: r.IgnoreSimpleWhenEntries,
+					ignoreNestingFunctions:  r.IgnoreNestingFunctions,
+					nestingFunctions:        make(map[string]bool, len(r.NestingFunctions)),
 				}
-				if isPureBooleanPredicateFlat(file, idx) {
-					return
+				for _, name := range r.NestingFunctions {
+					opts.nestingFunctions[strings.TrimSpace(name)] = true
 				}
-				if lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx)); lines > 60 {
-					return
-				}
-				complexity, line, exceeded := cyclomaticComplexityExceedsFlat(file, idx, r.AllowedComplexity, r.IgnoreSimpleWhenEntries, r.IgnoreNestingFunctions, r.NestingFunctions)
-				if exceeded {
-					name := extractIdentifierFlat(file, idx)
-					ctx.EmitAt(line, 1,
-						fmt.Sprintf("Function '%s' has a cyclomatic complexity of %d (allowed: %d).", name, complexity, r.AllowedComplexity))
+				if complexity := detektCyclomaticComplexity(file, idx, opts); complexity > r.AllowedComplexity {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("The function %s appears to be too complex based on Cyclomatic Complexity (complexity: %d). Defined complexity threshold for methods is set to '%d'",
+							extractIdentifierFlat(file, idx), complexity, r.AllowedComplexity+1))
 				}
 			},
 		})
 	}
 	{
-		r := &CognitiveComplexMethodRule{BaseRule: BaseRule{RuleName: "CognitiveComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cognitive complexity exceeds a configurable threshold, weighting nesting depth."}, AllowedComplexity: 15}
+		// AllowedComplexity is detekt's threshold minus one, because detekt reports at complexity >= threshold.
+		r := &CognitiveComplexMethodRule{BaseRule: BaseRule{RuleName: "CognitiveComplexMethod", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions whose cognitive complexity exceeds a configurable threshold, weighting nesting depth."}, AllowedComplexity: 14}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				metrics := getComplexityMetricsFlat(idx, file)
-				if metrics.cognitive > r.AllowedComplexity {
-					name := extractIdentifierFlat(file, idx)
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Function '%s' has a cognitive complexity of %d (allowed: %d).", name, metrics.cognitive, r.AllowedComplexity))
+				if hasEnclosingFunction(file, idx) {
+					return
+				}
+				if complexity := detektCognitiveComplexity(file, idx); complexity > r.AllowedComplexity {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("The function %s appears to be too complex based on Cognitive Complexity (complexity: %d). Defined complexity threshold for methods is set to '%d'",
+							extractIdentifierFlat(file, idx), complexity, r.AllowedComplexity+1))
 				}
 			},
 		})
 	}
 	{
+		// AllowedConditions is detekt's threshold (4) minus one, because detekt reports at count >= threshold.
 		r := &ComplexConditionRule{BaseRule: BaseRule{RuleName: "ComplexCondition", RuleSetName: "complexity", Sev: "warning", Desc: "Detects conditions with too many mixed logical operators."}, AllowedConditions: 3}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"if_expression", "while_statement"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"if_expression", "while_statement", "do_while_statement"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				condOps := countLogicalOperatorsOutsideBodiesFlat(file, idx)
-				if condOps > r.AllowedConditions {
-					if isPureDisjunctionOrConjunctionFlat(file, idx) {
-						return
+				cond := conditionExpressionOf(file, idx)
+				if cond == 0 {
+					return
+				}
+				// detekt: with more than one binary expression, take the longest one by text and count the
+				// `&&` and `||` in its text (strings and lambdas included), plus one.
+				var longest uint32
+				binaries := 0
+				var walk func(n uint32)
+				walk = func(n uint32) {
+					if isPsiBinaryExpression(file, n) {
+						binaries++
+						if longest == 0 || file.FlatEndByte(n)-file.FlatStartByte(n) > file.FlatEndByte(longest)-file.FlatStartByte(longest) {
+							longest = n
+						}
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Complex condition with %d logical operators (allowed: %d).", condOps, r.AllowedConditions))
+					for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+						walk(c)
+					}
+				}
+				walk(cond)
+				if binaries <= 1 {
+					return
+				}
+				text := file.FlatNodeText(longest)
+				count := strings.Count(text, "&&") + strings.Count(text, "||") + 1
+				if count > r.AllowedConditions {
+					ctx.EmitAt(file.FlatRow(cond)+1, file.FlatCol(cond)+1,
+						fmt.Sprintf("This condition is too complex (%d). Defined complexity threshold for conditions is set to '%d'", count, r.AllowedConditions+1))
 				}
 			},
 		})
 	}
 	{
-		r := &ComplexInterfaceRule{BaseRule: BaseRule{RuleName: "ComplexInterface", RuleSetName: "complexity", Sev: "warning", Desc: "Detects interfaces with too many member declarations."}, AllowedDefinitions: 10, IncludePrivateDeclarations: false, IncludeStaticDeclarations: false}
+		r := &ComplexInterfaceRule{BaseRule: BaseRule{RuleName: "ComplexInterface", RuleSetName: "complexity", Sev: "warning", Desc: "Detects interfaces with too many member declarations."}, AllowedDefinitions: 9, IncludePrivateDeclarations: false, IncludeStaticDeclarations: false}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
@@ -192,11 +172,11 @@ func registerComplexityRules() {
 				if body == 0 {
 					return
 				}
-				members := countComplexInterfaceMembersFlat(file, body, r.IncludePrivateDeclarations, r.IncludeStaticDeclarations)
+				members := countComplexInterfaceMembersFlat(file, body, r.IncludePrivateDeclarations, r.IncludeStaticDeclarations, r.IgnoreOverloaded)
 				if members > r.AllowedDefinitions {
 					name := extractIdentifierFlat(file, idx)
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Interface '%s' has %d members (allowed: %d).", name, members, r.AllowedDefinitions))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("The interface %s is too complex. Consider splitting it up.", name))
 				}
 			},
 		})
@@ -205,114 +185,109 @@ func registerComplexityRules() {
 		r := &LabeledExpressionRule{BaseRule: BaseRule{RuleName: "LabeledExpression", RuleSetName: "complexity", Sev: "warning", Desc: "Detects labeled expressions such as return@label, break@label, and continue@label."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"label"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"label", "jump_expression", "this_expression", "super_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				labelText := strings.TrimSpace(file.FlatNodeText(idx))
-				if labeledExpressionLabelIgnored(labelText, r.IgnoredLabels) {
+				name := ""
+				switch file.FlatType(idx) {
+				case "label":
+					// A label after return, break or continue is reported with its jump expression.
+					if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "jump_expression" {
+						return
+					}
+					name = strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(idx)), "@")
+				case "jump_expression":
+					if l, ok := file.FlatFindChild(idx, "label"); ok {
+						name = strings.TrimSpace(file.FlatNodeText(l))
+					}
+				default:
+					for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+						if t := file.FlatType(c); t == "type_identifier" || t == "label" {
+							name = file.FlatNodeText(c)
+						}
+					}
+					if name == "" {
+						return
+					}
+					if file.FlatType(idx) == "this_expression" && !thisLabelReportable(file, idx, name) {
+						return
+					}
+				}
+				if name == "" || labeledExpressionLabelIgnored(name, r.IgnoredLabels) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Labeled expression '%s' detected. Consider refactoring to avoid labels.", labelText))
+				row, col := file.FlatRow(idx)+1, file.FlatCol(idx)+1
+				if file.FlatType(idx) == "jump_expression" {
+					// detekt anchors a jump at its label qualifier, `@name`.
+					if l, ok := file.FlatFindChild(idx, "label"); ok {
+						row, col = file.FlatRow(l)+1, file.FlatCol(l)
+					}
+				}
+				ctx.EmitAt(row, col, "Expression with labels increase complexity and affect maintainability.")
 			},
 		})
 	}
 	{
+		// The allowed counts are detekt's thresholds (6 and 7) minus one, because detekt reports at count >= threshold.
 		r := &LongParameterListRule{BaseRule: BaseRule{RuleName: "LongParameterList", RuleSetName: "complexity", Sev: "warning", Desc: "Detects functions or constructors with too many parameters."}, AllowedFunctionParameters: 5, AllowedConstructorParameters: 6, IgnoreDefaultParameters: false, IgnoreDataClasses: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration", "class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"function_declaration", "class_declaration", "secondary_constructor"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if hasEnclosingFunction(file, idx) {
 					return
 				}
-				if file.FlatType(idx) == "function_declaration" {
-					summary := getFunctionDeclSummaryFlat(file, idx)
-					if summary.hasComposable {
+				res := compileAnnotationPatterns(r.IgnoreAnnotatedParameter)
+				emit := func(list uint32, entries []longParamEntry, description string, allowed int) {
+					if countLongParams(entries, r.IgnoreDefaultParameters) <= allowed {
 						return
 					}
-					if summary.hasOverride {
-						return
-					}
-					if lines := countSignificantLines(file, file.FlatRow(idx), flatEndRow(file, idx)); lines > 60 {
-						return
-					}
-					if summary.paramsNode == 0 {
-						return
-					}
-					params := 0
-					limit := r.AllowedFunctionParameters
-					for _, p := range summary.params {
-						if r.IgnoreDefaultParameters && p.hasDefault {
-							continue
+					anchor := file.FlatFirstChild(list)
+					for c := anchor; c != 0; c = file.FlatNextSib(c) {
+						if file.FlatType(c) == "(" {
+							anchor = c
+							break
 						}
-						if strings.Contains(file.FlatNodeText(p.idx), "->") {
-							continue
-						}
-						if paramHasIgnoredAnnotationFlat(file, p.idx, r.IgnoreAnnotatedParameter) {
-							continue
-						}
-						params++
-						if params > limit {
-							name := summary.name
-							ctx.EmitAt(file.FlatRow(idx)+1, 1,
-								fmt.Sprintf("Function '%s' has %d parameters (allowed: %d).", name, params, limit))
+					}
+					ctx.EmitAt(file.FlatRow(anchor)+1, file.FlatCol(anchor)+1,
+						longParameterListMessage(description, entries, allowed+1))
+				}
+				switch file.FlatType(idx) {
+				case "function_declaration":
+					if file.FlatHasModifier(idx, "override") {
+						return
+					}
+					params, ok := file.FlatFindChild(idx, "function_value_parameters")
+					if !ok {
+						return
+					}
+					emit(params, functionParamEntries(file, params, res), "function "+extractIdentifierFlat(file, idx), r.AllowedFunctionParameters)
+				case "class_declaration":
+					if r.IgnoreDataClasses && file.FlatHasModifier(idx, "data") {
+						return
+					}
+					if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
+						emit(ctor, classParamEntries(file, ctor, res), "constructor", r.AllowedConstructorParameters)
+					}
+				case "secondary_constructor":
+					if cls, ok := file.FlatParent(idx); ok {
+						if cls, ok = file.FlatParent(cls); ok && r.IgnoreDataClasses && file.FlatHasModifier(cls, "data") {
 							return
 						}
 					}
-				} else if file.FlatType(idx) == "class_declaration" {
-					summary := getClassDeclSummaryFlat(file, idx)
-					if r.IgnoreDataClasses && summary.hasData {
-						return
-					}
-					if summary.hasParcelizeLike {
-						return
-					}
-					if len(summary.classParams) > 0 && r.IgnoreDataClasses {
-						allProps := true
-						for _, p := range summary.classParams {
-							if !p.isProperty {
-								allProps = false
-								break
-							}
-						}
-						if allProps {
-							return
-						}
-					}
-					clsName := summary.name
-					if strings.HasSuffix(clsName, "ViewModel") || strings.HasSuffix(clsName, "Presenter") {
-						return
-					}
-					params := 0
-					limit := r.AllowedConstructorParameters
-					for _, p := range summary.classParams {
-						if r.IgnoreDefaultParameters && p.hasDefault {
-							continue
-						}
-						if p.isFunctionType {
-							continue
-						}
-						if paramHasIgnoredAnnotationFlat(file, p.idx, r.IgnoreAnnotatedParameter) {
-							continue
-						}
-						params++
-						if params > limit {
-							ctx.EmitAt(file.FlatRow(idx)+1, 1,
-								fmt.Sprintf("Constructor of '%s' has %d parameters (allowed: %d).", clsName, params, limit))
-							return
-						}
+					if params, ok := file.FlatFindChild(idx, "function_value_parameters"); ok {
+						emit(params, functionParamEntries(file, params, res), "constructor", r.AllowedConstructorParameters)
 					}
 				}
 			},
 		})
 	}
 	{
-		r := &MethodOverloadingRule{BaseRule: BaseRule{RuleName: "MethodOverloading", RuleSetName: "complexity", Sev: "warning", Desc: "Detects methods with too many overloads of the same name in a scope."}, AllowedOverloads: 6}
+		r := &MethodOverloadingRule{BaseRule: BaseRule{RuleName: "MethodOverloading", RuleSetName: "complexity", Sev: "warning", Desc: "Detects methods with too many overloads of the same name in a scope."}, AllowedOverloads: 5}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"source_file"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"source_file", "class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				r.checkScopeFlat(ctx, ctx.Idx)
 			},
@@ -359,10 +334,10 @@ func registerComplexityRules() {
 					}
 				}
 				if unnamed > r.AllowedArguments {
-					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) {
+					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) || namedArgumentsVarargCalls[extractCallNameFlat(file, idx)] {
 						return
 					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 						fmt.Sprintf("Function call has %d unnamed arguments (allowed: %d). Use named arguments.", unnamed, r.AllowedArguments))
 				}
 			},
@@ -381,17 +356,16 @@ func registerComplexityRules() {
 					return
 				}
 				depth := 0
-				for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-					if file.FlatType(parent) == "call_expression" {
-						pName := extractCallNameFlat(file, parent)
-						if active[pName] {
-							depth++
-						}
+				for child, parent := idx, firstParent(file, idx); parent != 0; child, parent = parent, firstParent(file, parent) {
+					// Only a call inside the outer call's lambda is nested; a call in its receiver is a chain.
+					if file.FlatType(parent) == "call_expression" && file.FlatType(child) == "call_suffix" &&
+						active[extractCallNameFlat(file, parent)] {
+						depth++
 					}
 				}
 				if depth > r.AllowedDepth {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Nested scope function '%s' at depth %d (allowed: %d).", name, depth, r.AllowedDepth))
+					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
+						fmt.Sprintf("The scope function '%s' is nested too deeply ('%d'). Complexity threshold is set to '%d'.", name, depth, r.AllowedDepth))
 				}
 			},
 		})
@@ -422,33 +396,27 @@ func registerComplexityRules() {
 		})
 	}
 	{
-		r := &StringLiteralDuplicationRule{BaseRule: BaseRule{RuleName: "StringLiteralDuplication", RuleSetName: "complexity", Sev: "warning", Desc: "Detects string literals that appear more than a configurable number of times in a file."}, AllowedDuplications: 2, AllowedWithLengthLessThan: 5}
+		r := &StringLiteralDuplicationRule{BaseRule: BaseRule{RuleName: "StringLiteralDuplication", RuleSetName: "complexity", Sev: "warning", Desc: "Detects string literals that appear more than a configurable number of times in a file."}, AllowedDuplications: 2, AllowedWithLengthLessThan: 5, IgnoreAnnotation: true, IgnoreStringsRegex: "$^"}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"source_file"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				// Compile the configured ignore-regex once per file walk.
-				// Invalid patterns are silently skipped (no findings filtered);
-				// the registry's CompileAnchoredPattern path doesn't run for
-				// OptString options, so guard here.
+				// detekt matches the whole content of the literal against ignoreStringsRegex.
 				var ignoreRe *regexp.Regexp
 				if r.IgnoreStringsRegex != "" {
-					if compiled, err := regexp.Compile(r.IgnoreStringsRegex); err == nil {
+					if compiled, err := regexp.Compile("^(?:" + r.IgnoreStringsRegex + ")$"); err == nil {
 						ignoreRe = compiled
 					}
 				}
-				// Content-length floor: skip literals whose unquoted content
-				// is shorter than AllowedWithLengthLessThan. Default 5 follows
-				// the documented short-string exclusion cutoff.
-				// AllowedWithLengthLessThan <= 0 disables the floor.
+				// Short literals are skipped by UTF-16 length, like Kotlin's String.length.
 				minContentLen := r.AllowedWithLengthLessThan
 				counts := make(map[string]int)
 				firstLine := make(map[string]int)
+				firstCol := make(map[string]int)
 				file.FlatWalkNodes(idx, "string_literal", func(strNode uint32) {
-					text := file.FlatNodeText(strNode)
-					content := stringLiteralUnquote(text)
-					if minContentLen > 0 && len(content) < minContentLen {
+					content := stringLiteralUnquote(file.FlatNodeText(strNode))
+					if minContentLen > 0 && len(utf16.Encode([]rune(content))) < minContentLen {
 						return
 					}
 					if ignoreRe != nil && ignoreRe.MatchString(content) {
@@ -457,92 +425,95 @@ func registerComplexityRules() {
 					if r.IgnoreAnnotation && stringLiteralInsideAnnotationFlat(file, strNode) {
 						return
 					}
-					counts[text]++
-					if _, ok := firstLine[text]; !ok {
-						firstLine[text] = file.FlatRow(strNode) + 1
+					counts[content]++
+					if _, ok := firstLine[content]; !ok {
+						firstLine[content] = file.FlatRow(strNode) + 1
+						firstCol[content] = file.FlatCol(strNode) + 1
 					}
 				})
 				for text, count := range counts {
 					if count > r.AllowedDuplications {
-						ctx.EmitAt(firstLine[text], 1,
-							fmt.Sprintf("String literal %s appears %d times (allowed: %d). Consider extracting to a constant.", text, count, r.AllowedDuplications))
+						ctx.EmitAt(firstLine[text], firstCol[text],
+							"Multiple occurrences of the same string literal within a single file detected. Prefer extracting the string literal into a property or constant.")
 					}
 				}
 			},
 		})
 	}
 	{
-		r := &TooManyFunctionsRule{BaseRule: BaseRule{RuleName: "TooManyFunctions", RuleSetName: "complexity", Sev: "warning", Desc: "Detects files or classes that declare too many functions."}, AllowedFunctionsPerFile: 11, IgnoreOverridden: false}
+		// The allowed counts are detekt's thresholds (11) minus one, because detekt reports at count >= threshold.
+		r := &TooManyFunctionsRule{BaseRule: BaseRule{RuleName: "TooManyFunctions", RuleSetName: "complexity", Sev: "warning", Desc: "Detects files or classes that declare too many functions."},
+			AllowedFunctionsPerFile: 10, AllowedFunctionsPerClass: 10, AllowedFunctionsPerInterface: 10, AllowedFunctionsPerObject: 10, AllowedFunctionsPerEnum: 10}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"source_file"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"source_file", "class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				topLevelCount := 0
-				var classDecls []uint32
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					switch file.FlatType(child) {
-					case "function_declaration":
-						if r.shouldCountFunctionFlat(child, file) {
-							topLevelCount++
+				if file.FlatType(idx) == "source_file" {
+					// detekt does not count a script's functions toward the file threshold.
+					if file.IsScript() {
+						return
+					}
+					count := 0
+					for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+						if file.FlatType(c) == "function_declaration" && r.shouldCountFunctionFlat(c, file) {
+							count++
 						}
-					case "class_declaration":
-						classDecls = append(classDecls, child)
 					}
+					if count > r.AllowedFunctionsPerFile {
+						row, col := 1, 1
+						if hdr, ok := file.FlatFindChild(idx, "package_header"); ok {
+							row, col = file.FlatRow(hdr)+1, file.FlatCol(hdr)+1
+						} else {
+							for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+								switch file.FlatType(c) {
+								case "import_list", "import_header", "line_comment", "multiline_comment", "file_annotation":
+									continue
+								}
+								row, col = file.FlatRow(c)+1, file.FlatCol(c)+1
+								break
+							}
+						}
+						ctx.EmitAt(row, col, fmt.Sprintf("File '%s' with '%d' functions detected. Defined threshold inside files is set to '%d'",
+							filepath.Base(file.Path), count, r.AllowedFunctionsPerFile+1))
+					}
+					return
 				}
-				if topLevelCount > r.AllowedFunctionsPerFile {
-					ctx.EmitAt(1, 1,
-						fmt.Sprintf("File has %d top-level functions (allowed: %d).", topLevelCount, r.AllowedFunctionsPerFile))
+				count := r.countFunctionsInClassFlat(idx, file)
+				kind, limit, plural := "Class", r.AllowedFunctionsPerClass, "classes"
+				switch {
+				case file.FlatType(idx) != "class_declaration":
+					kind, limit, plural = "Object", r.AllowedFunctionsPerObject, "objects"
+				case file.FlatHasChildOfType(idx, "interface"):
+					kind, limit, plural = "Interface", r.AllowedFunctionsPerInterface, "interfaces"
+				case classIsEnum(file, idx):
+					kind, limit, plural = "Enum class", r.AllowedFunctionsPerEnum, "enum classes"
 				}
-				for _, cls := range classDecls {
-					if file.FlatHasModifier(cls, "sealed") {
-						continue
-					}
-					if file.FlatHasModifier(cls, "abstract") {
-						continue
-					}
-					if file.FlatHasChildOfType(cls, "interface") {
-						continue
-					}
-					if flatHasAnnotationNamed(file, cls, "Component") ||
-						flatHasAnnotationNamed(file, cls, "Subcomponent") ||
-						flatHasAnnotationNamed(file, cls, "Module") ||
-						flatHasAnnotationNamed(file, cls, "DependencyGraph") ||
-						flatHasAnnotationNamed(file, cls, "GraphExtension") ||
-						flatHasAnnotationNamed(file, cls, "ContributesTo") ||
-						flatHasAnnotationNamed(file, cls, "BindingContainer") {
-						continue
-					}
-					clsName := extractIdentifierFlat(file, cls)
-					if strings.HasSuffix(clsName, "Table") || strings.HasSuffix(clsName, "Tables") ||
-						strings.HasSuffix(clsName, "Dao") || strings.HasSuffix(clsName, "DAO") ||
-						strings.HasSuffix(clsName, "Repository") || strings.HasSuffix(clsName, "Store") ||
-						strings.HasSuffix(clsName, "Fragment") || strings.HasSuffix(clsName, "ViewModel") ||
-						strings.HasSuffix(clsName, "Activity") || strings.HasSuffix(clsName, "Screen") ||
-						strings.HasSuffix(clsName, "View") || strings.HasSuffix(clsName, "Adapter") ||
-						strings.HasSuffix(clsName, "Presenter") || strings.HasSuffix(clsName, "Manager") {
-						continue
-					}
-					count := r.countFunctionsInClassFlat(cls, file)
-					limit := r.AllowedFunctionsPerFile
-					if r.AllowedFunctionsPerClass > 0 {
-						limit = r.AllowedFunctionsPerClass
-					}
-					if r.AllowedFunctionsPerInterface > 0 && file.FlatHasChildOfType(cls, "interface") {
-						limit = r.AllowedFunctionsPerInterface
-					} else if r.AllowedFunctionsPerObject > 0 && file.FlatHasChildOfType(cls, "object") {
-						limit = r.AllowedFunctionsPerObject
-					} else if r.AllowedFunctionsPerEnum > 0 && file.FlatHasChildOfType(cls, "enum") {
-						limit = r.AllowedFunctionsPerEnum
-					}
-					if count > limit {
-						name := extractIdentifierFlat(file, cls)
-						ctx.EmitAt(file.FlatRow(cls)+1, 1,
-							fmt.Sprintf("Class '%s' has %d functions (allowed: %d).", name, count, limit))
-					}
+				if count > limit {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("%s '%s' with '%d' functions detected. Defined threshold inside %s is set to '%d'",
+							kind, detektClassName(file, idx), count, plural, limit+1))
 				}
 			},
 		})
 	}
+}
+
+// namedArgumentsVarargCalls are variadic library functions. Their elements share one vararg parameter, so
+// naming them makes no sense.
+var namedArgumentsVarargCalls = map[string]bool{
+	"listOf": true, "mutableListOf": true, "listOfNotNull": true, "arrayListOf": true,
+	"setOf": true, "mutableSetOf": true, "setOfNotNull": true, "hashSetOf": true, "linkedSetOf": true, "sortedSetOf": true,
+	"mapOf": true, "mutableMapOf": true, "hashMapOf": true, "linkedMapOf": true, "sortedMapOf": true,
+	"arrayOf": true, "arrayOfNulls": true, "intArrayOf": true, "longArrayOf": true, "doubleArrayOf": true,
+	"floatArrayOf": true, "booleanArrayOf": true, "charArrayOf": true, "byteArrayOf": true, "shortArrayOf": true,
+	"sequenceOf": true, "format": true, "printf": true, "asList": true, "hash": true,
+}
+
+func firstParent(file *scanner.File, idx uint32) uint32 {
+	parent, ok := file.FlatParent(idx)
+	if !ok {
+		return 0
+	}
+	return parent
 }

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strings"
@@ -31,10 +32,20 @@ func registerStyleUnusedRules() {
 				if r.hasReferenceName(file, shortName) {
 					return
 				}
-				f := r.Finding(file, importLine, 1,
+				f := r.Finding(file, importLine, file.FlatCol(idx)+1,
 					fmt.Sprintf("Unused import '%s'.", shortName))
 				startByte := int(file.FlatStartByte(idx))
 				endByte := int(file.FlatEndByte(idx))
+				// The node can swallow a following KDoc; imports are one line.
+				if nl := bytes.IndexByte(file.Content[startByte:endByte], '\n'); nl >= 0 {
+					endByte = startByte + nl
+					if endByte > startByte && file.Content[endByte-1] == '\r' {
+						endByte--
+					}
+				}
+				if endByte < len(file.Content) && file.Content[endByte] == '\r' {
+					endByte++
+				}
 				if endByte < len(file.Content) && file.Content[endByte] == '\n' {
 					endByte++
 				}
@@ -102,6 +113,9 @@ func registerStyleUnusedRules() {
 					(strings.HasPrefix(trimmedBody, "{") && strings.Count(trimmedBody, "\n") <= 3) {
 					return
 				}
+				if unusedParameterBodyIsStub(file, summary.body) {
+					return
+				}
 				if strings.HasPrefix(trimmedBody, "= throw ") ||
 					strings.HasPrefix(trimmedBody, "= TODO(") ||
 					strings.HasPrefix(trimmedBody, "= error(") {
@@ -126,18 +140,31 @@ func registerStyleUnusedRules() {
 					}
 					used := false
 					unknown := false
+					callable := param.isFunctionType || unusedParameterTypeMayBeFunctionAlias(file, param.idx)
 					if summary.paramsNode != 0 {
-						used, unknown = unusedParameterUsageFlat(file, summary.paramsNode, param.idx, paramName, param.isFunctionType)
+						used, unknown = unusedParameterUsageFlat(file, summary.paramsNode, param.idx, paramName, callable)
 					}
 					if !used && !unknown {
-						used, unknown = unusedParameterUsageFlat(file, summary.body, param.idx, paramName, param.isFunctionType)
+						used, unknown = unusedParameterUsageFlat(file, summary.body, param.idx, paramName, callable)
+					}
+					// Error recovery can strand part of the body in ERROR children of the function.
+					for c := file.FlatFirstChild(idx); !used && !unknown && c != 0; c = file.FlatNextSib(c) {
+						if file.FlatType(c) == "ERROR" {
+							used, unknown = unusedParameterUsageFlat(file, c, param.idx, paramName, callable)
+						}
+					}
+					if !used && !unknown && unusedParameterStrandedSiblingsMentionName(file, idx, paramName) {
+						unknown = true
 					}
 					if unknown {
 						continue
 					}
 					if !used {
-						ctx.EmitAt(file.FlatRow(param.idx)+1, 1,
-							fmt.Sprintf("Parameter '%s' is unused.", paramName))
+						msg := fmt.Sprintf("Parameter '%s' is unused.", paramName)
+						if unusedParameterShadowedByLambdaParameter(file, summary.body, paramName) {
+							msg += " A lambda parameter of the same name shadows it; its uses refer to the lambda parameter."
+						}
+						ctx.EmitAt(file.FlatRow(param.idx)+1, file.FlatCol(param.idx)+1, msg)
 					}
 				}
 			},
@@ -163,8 +190,7 @@ func registerStyleUnusedRules() {
 				}
 				used, unknown := unusedVariableUsage(file, target)
 				if !used && !unknown {
-					ctx.EmitAt(file.FlatRow(target.emitNode)+1, 1,
-						fmt.Sprintf("Local variable '%s' is never used.", target.name))
+					ctx.EmitAtNode(target.nameNode, fmt.Sprintf("Local variable '%s' is never used.", target.name))
 				}
 			},
 		})
@@ -184,8 +210,8 @@ func registerStyleUnusedRules() {
 					return
 				}
 				if !fileHasReferenceNameOutsideNode(file, name, idx) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Private class '%s' is never used.", name))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("Private class %s is unused.", name))
 				}
 			},
 		})
@@ -217,8 +243,8 @@ func registerStyleUnusedRules() {
 					return
 				}
 				if !fileHasReferenceNameOutsideNode(file, name, idx) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Private function '%s' is never called.", name))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("Private function `%s` is unused.", name))
 				}
 			},
 		})
@@ -227,10 +253,18 @@ func registerStyleUnusedRules() {
 		r := &UnusedPrivatePropertyRule{BaseRule: BaseRule{RuleName: "UnusedPrivateProperty", RuleSetName: "style", Sev: "warning", Desc: "Detects private properties that are never referenced in the file."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
+			NodeTypes: []string{"property_declaration", "class_parameter"}, Confidence: api.ConfidenceMedium, Fix: api.FixNone, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "class_parameter" {
+					checkUnusedConstructorParameter(ctx, r, idx)
+					return
+				}
 				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				// Error recovery can yield property nodes for class headers; real ones have val/var.
+				if !propertyDeclarationHasValVar(file, idx) {
 					return
 				}
 				if flatHasFrameworkAnnotation(file, idx) {
@@ -248,9 +282,13 @@ func registerStyleUnusedRules() {
 						return
 					}
 				}
+				// Deleting the property would also delete the initializer's side effect.
+				if unusedPropertyInitializerHasSideEffects(file, idx) {
+					return
+				}
 				if !fileHasReferenceNameOutsideNode(file, name, idx) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Private property '%s' is never used.", name))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+						fmt.Sprintf("Private property `%s` is unused.", name))
 				}
 			},
 		})
@@ -263,6 +301,9 @@ func registerStyleUnusedRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !file.FlatHasModifier(idx, "private") {
+					return
+				}
+				if file.FlatType(idx) == "property_declaration" && !propertyDeclarationHasValVar(file, idx) {
 					return
 				}
 				mods, _ := file.FlatFindChild(idx, "modifiers")
@@ -285,11 +326,70 @@ func registerStyleUnusedRules() {
 				if r.AllowedNames != nil && r.AllowedNames.MatchString(name) {
 					return
 				}
+				// Apply the same exemptions as UnusedPrivateFunction/UnusedPrivateProperty.
+				switch file.FlatType(idx) {
+				case "function_declaration":
+					if scanner.IsTestFile(file.Path) ||
+						flatHasEntryPointAnnotation(file, idx) ||
+						privateOperatorFunctionHasSymbolUse(file, idx, name) {
+						return
+					}
+				case "property_declaration":
+					if flatHasFrameworkAnnotation(file, idx) {
+						return
+					}
+					if name == "TAG" && propertyInitializerCallCalleeName(file, idx) == "tag" {
+						return
+					}
+					if unusedPropertyInitializerHasSideEffects(file, idx) {
+						return
+					}
+				}
 				if !fileHasReferenceNameOutsideNode(file, name, idx) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						fmt.Sprintf("Private member '%s' is never used.", name))
 				}
 			},
 		})
+	}
+}
+
+// checkUnusedConstructorParameter reports a private constructor property, or a plain primary-constructor parameter,
+// that nothing in the file refers to. detekt reports both as unused private properties.
+func checkUnusedConstructorParameter(ctx *api.Context, r *UnusedPrivatePropertyRule, param uint32) {
+	file := ctx.File
+	ctor, ok := file.FlatParent(param)
+	if !ok || file.FlatType(ctor) != "primary_constructor" {
+		return
+	}
+	class, ok := file.FlatParent(ctor)
+	if !ok || file.FlatType(class) != "class_declaration" {
+		return
+	}
+	for _, m := range []string{"annotation", "expect", "actual", "data", "value", "inline"} {
+		if file.FlatHasModifier(class, m) {
+			return
+		}
+	}
+	binding, _ := file.FlatFindChild(param, "binding_pattern_kind")
+	isProperty := binding != 0
+	if isProperty && !file.FlatHasModifier(param, "private") {
+		return
+	}
+	if flatHasFrameworkAnnotation(file, param) {
+		return
+	}
+	name, nameNode := "", uint32(0)
+	for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "simple_identifier" {
+			name, nameNode = file.FlatNodeText(c), c
+			break
+		}
+	}
+	if name == "" || (r.AllowedNames != nil && r.AllowedNames.MatchString(name)) {
+		return
+	}
+	if !fileHasReferenceNameOutsideNode(file, name, param) {
+		ctx.EmitAtNode(nameNode, fmt.Sprintf("Private property `%s` is unused.", name))
 	}
 }

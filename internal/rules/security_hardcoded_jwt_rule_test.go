@@ -65,3 +65,20 @@ class Auth {
 		t.Fatalf("expected 1 Java finding, got %d: %v", len(findings), findings)
 	}
 }
+
+func TestHardcodedJwtAndBearer_SkipTestSources(t *testing.T) {
+	code := `
+package test
+
+val jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+val bearer = "Bearer abcdefghijklmnopqrstuvwxyz0123456789"
+`
+	for _, rule := range []string{"HardcodedJwt", "HardcodedBearerToken"} {
+		if got := runRuleByNameOnPath(t, rule, "src/test/kotlin/AuthTest.kt", code); len(got) != 0 {
+			t.Fatalf("%s: expected 0 findings in test source, got %d: %v", rule, len(got), got)
+		}
+		if got := runRuleByNameOnPath(t, rule, "src/main/kotlin/Auth.kt", code); len(got) != 1 {
+			t.Fatalf("%s: expected 1 finding in main source, got %d: %v", rule, len(got), got)
+		}
+	}
+}

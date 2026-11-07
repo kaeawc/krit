@@ -27,6 +27,41 @@ fun double(x: Int): Int {
 	}
 }
 
+func TestExpressionBodySyntax_ReportsReturnAndAccessors(t *testing.T) {
+	findings := runRuleByName(t, "ExpressionBodySyntax", `package test
+class Box {
+    val size: Int
+        get() {
+            return 1
+        }
+
+    fun double(x: Int): Int {
+        return x * 2
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected a finding for the getter and the function, got %d", len(findings))
+	}
+	if l0, l1 := findings[0].Line, findings[1].Line; (l0 != 5 || l1 != 9) && (l0 != 9 || l1 != 5) {
+		t.Errorf("findings must sit on the return statements, got lines %d and %d", l0, l1)
+	}
+	if !strings.Contains(findings[0].Message, "exact one statement") {
+		t.Errorf("unexpected message %q", findings[0].Message)
+	}
+}
+
+func TestExpressionBodySyntax_SkipsReturnNestedInElvis(t *testing.T) {
+	findings := runRuleByName(t, "ExpressionBodySyntax", `package test
+fun first(x: Int?): Int {
+    return x ?: return 2
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when a return sits inside an elvis, got %d", len(findings))
+	}
+}
+
 func TestExpressionBodySyntax_Negative(t *testing.T) {
 	findings := runRuleByName(t, "ExpressionBodySyntax", `
 package test
@@ -193,6 +228,20 @@ fun validate(x: Int) {
 	}
 }
 
+func TestThrowsCount_SkipsOverrideFunctions(t *testing.T) {
+	body := `
+    if (x < 0) throw IllegalArgumentException("negative")
+    if (x == 0) throw IllegalStateException("zero")
+    if (x > 100) throw RuntimeException("too big")
+`
+	if f := runRuleByName(t, "ThrowsCount", "package test\nclass A : B {\n override fun run(x: Int) {"+body+"}\n}\n"); len(f) != 0 {
+		t.Fatalf("detekt skips override functions, got %d", len(f))
+	}
+	if f := runRuleByName(t, "ThrowsCount", "package test\nclass A : B {\n fun run(x: Int) {"+body+"}\n}\n"); len(f) != 1 {
+		t.Fatalf("a non-override member should still report, got %d", len(f))
+	}
+}
+
 // --- CollapsibleIfStatements ---
 
 func TestCollapsibleIfStatements_Positive(t *testing.T) {
@@ -306,8 +355,67 @@ fun check(a: Boolean, b: Boolean) {
 
 // --- SafeCast ---
 
-func TestSafeCast_Positive(t *testing.T) {
+// runRedundantSafeCast runs SafeCast with the krit-only redundant cast check enabled.
+func runRedundantSafeCast(t *testing.T, code string) []scanner.Finding {
+	t.Helper()
+	for _, r := range api.Registry {
+		if r.ID != "SafeCast" {
+			continue
+		}
+		rule, ok := r.Implementation.(*rules.SafeCastRule)
+		if !ok {
+			t.Fatalf("SafeCast implementation is %T", r.Implementation)
+		}
+		rule.ReportRedundantCasts = true
+		defer func() { rule.ReportRedundantCasts = false }()
+		file := parseInline(t, code)
+		cols := rules.NewDispatcher([]*api.Rule{r}, nil).Run(file)
+		return cols.Findings()
+	}
+	t.Fatal("SafeCast not registered")
+	return nil
+}
+
+func TestSafeCast_RedundantCastsAreOffByDefault(t *testing.T) {
 	findings := runRuleByName(t, "SafeCast", `
+package test
+fun process(obj: Any) {
+    if (obj is String) {
+        val s = obj as String
+        println(s)
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("detekt does not report a cast after an is-check, got %v", findings)
+	}
+}
+
+func TestSafeCast_DetektDocumentedCases(t *testing.T) {
+	findings := runRuleByName(t, "SafeCast", `
+package test
+fun noncompliant(element: Any): Int? {
+    return if (element is Int) element else null
+}
+fun noncompliantNegated(element: Any): Int? {
+    return if (element !is Int) null else element
+}
+fun compliant(element: Any): Int? = element as? Int
+fun otherName(element: Any, other: Any): Int? = if (element is Int) other as Int else null
+fun nullableTarget(element: Any): Int? = if (element is Int?) element else null
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %v", findings)
+	}
+	for _, f := range findings {
+		if f.Message != "This cast should be replaced with a safe cast: as?" {
+			t.Errorf("unexpected message %q", f.Message)
+		}
+	}
+}
+
+func TestSafeCast_Positive(t *testing.T) {
+	findings := runRedundantSafeCast(t, `
 package test
 fun process(obj: Any) {
     if (obj is String) {
@@ -334,6 +442,29 @@ fun process(obj: Any) {
 	}
 }
 
+func TestSafeCast_UnstableSubjectAndMixedElseIgnored(t *testing.T) {
+	findings := runRedundantSafeCast(t, `
+package test
+class Holder {
+    var mutable: Any? = null
+    val lazyValue: Any by lazy { 1 }
+    fun a() = if (mutable is String) mutable as String else null
+    fun b() = if (lazyValue is String) lazyValue as String else null
+}
+fun c(x: Any) = if (x is String) x as String else x as Int
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+	stable := runRedundantSafeCast(t, `
+package test
+fun d(x: Any) = if (x is String) x as String else null
+`)
+	if len(stable) != 1 {
+		t.Fatalf("expected the stable parameter to be flagged, got %d", len(stable))
+	}
+}
+
 // --- VarCouldBeVal ---
 
 func TestVarCouldBeVal_Positive(t *testing.T) {
@@ -346,6 +477,37 @@ fun example() {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for var that is never reassigned")
+	}
+}
+
+func TestVarCouldBeVal_SkipsNonPrivateEnumMember(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+enum class Level {
+    LOW,
+    HIGH;
+
+    var cachedId: String? = null
+    var weight = -1
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for public enum member vars, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_ReportsPrivateEnumMember(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+enum class Level {
+    LOW,
+    HIGH;
+
+    private var weight = -1
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for private enum member var, got %d", len(findings))
 	}
 }
 
@@ -528,8 +690,11 @@ class FragmentLike {
     }
 }
 `)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings when class body contains parse error, got %d", len(findings))
+	// The assignment through a call chain now parses, so the class body is
+	// intact and the never-reassigned private `id` is reported. The assignment
+	// to `tags` targets another object and must not count against `id`.
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding for private var id, got %d", len(findings))
 	}
 }
 
@@ -664,7 +829,7 @@ class Counter {
 			findings := runRuleByName(t, "VarCouldBeVal", code)
 			flagged := false
 			for _, f := range findings {
-				if strings.Contains(f.Message, "'var count'") {
+				if strings.Contains(f.Message, "Variable 'count'") {
 					flagged = true
 				}
 			}
@@ -757,22 +922,20 @@ class Foo {
     private lateinit var name: String
     fun read() = name
 }`
-	// Default (true): lateinit var is skipped regardless of assignment
-	// analysis — no finding.
-	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) != 0 {
-		t.Fatalf("expected no findings under default IgnoreLateinitVar=true, got %d", len(findings))
+	// Default (false, as in detekt): the reassignment analysis reports the lateinit var.
+	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) == 0 {
+		t.Fatal("expected finding under the default IgnoreLateinitVar=false for never-reassigned lateinit var")
 	}
 
-	rule.IgnoreLateinitVar = false
+	rule.IgnoreLateinitVar = true
 
-	// With the flag flipped off, the lateinit skip is bypassed and the
-	// reassignment analysis reports that name is never reassigned.
-	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) == 0 {
-		t.Fatal("expected finding under IgnoreLateinitVar=false for never-reassigned lateinit var")
+	// With the flag on, the lateinit skip bypasses the reassignment analysis.
+	if findings := runRuleByName(t, "VarCouldBeVal", code); len(findings) != 0 {
+		t.Fatalf("expected no findings under IgnoreLateinitVar=true, got %d", len(findings))
 	}
 }
 
-func TestVarCouldBeVal_ShippedDefaultConfigSkipsLateinitVar(t *testing.T) {
+func TestVarCouldBeVal_ShippedDefaultConfigReportsLateinitVar(t *testing.T) {
 	cfg, err := config.LoadAndMerge("", filepath.Join("..", "..", "config", "default-krit.yml"))
 	if err != nil {
 		t.Fatalf("load default config: %v", err)
@@ -804,8 +967,8 @@ class Holder {
         private lateinit var x: Foo
     }
 }`)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings for lateinit var under shipped defaults, got %d", len(findings))
+	if len(findings) != 1 {
+		t.Fatalf("expected a finding for the lateinit var under shipped defaults (detekt parity), got %d", len(findings))
 	}
 
 	if findings := runRuleByName(t, "VarCouldBeVal", `
@@ -958,6 +1121,44 @@ fun getAnswer(): Int {
 	}
 }
 
+func TestFunctionOnlyReturningConstant_SkipsTestsAndErrorRecoveredBodies(t *testing.T) {
+	findings := runRuleByName(t, "FunctionOnlyReturningConstant", `
+package test
+
+class FooTest {
+    @Test
+    fun `+"`reports the name`"+`() {
+        setUp().storedName = "archive (1).zip"
+        register(ROW, Stream())
+
+        val export = exporter().export(range())
+
+        assertThat(export.path).isEqualTo("/downloads/archive (1).zip")
+    }
+
+    @Test
+    fun constantTest() = 1
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for test functions, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "FunctionOnlyReturningConstant", `
+package test
+
+class Holder {
+    fun run() {
+        setUp().storedName = "x"
+        register(ROW)
+        check(value())
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a multi-statement Unit body, got %d", len(findings))
+	}
+}
+
 func TestFunctionOnlyReturningConstant_Negative(t *testing.T) {
 	findings := runRuleByName(t, "FunctionOnlyReturningConstant", `
 package test
@@ -1066,6 +1267,44 @@ fun process(items: List<Int>) {
 `)
 	if len(findings) == 0 {
 		t.Fatal("expected finding for loop with 2 jump statements (max 1)")
+	}
+}
+
+func TestLoopWithTooManyJumpStatements_MessageMatchesDetekt(t *testing.T) {
+	findings := runRuleByName(t, "LoopWithTooManyJumpStatements", `
+package test
+fun process(items: List<Int>): Int {
+    for (item in items) {
+        if (item < 0) continue
+        if (item > 100) break
+        if (item == 50) return item
+    }
+    return 0
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	want := "The loop contains more than one break or continue statement. The code should be refactored to increase readability."
+	if findings[0].Message != want {
+		t.Fatalf("message = %q, want %q", findings[0].Message, want)
+	}
+}
+
+func TestLoopWithTooManyJumpStatements_ReturnNotCounted(t *testing.T) {
+	findings := runRuleByName(t, "LoopWithTooManyJumpStatements", `
+package test
+fun process(items: List<Int>): Int {
+    for (item in items) {
+        if (item < 0) continue
+        if (item == 50) return item
+        if (item == 60) return -item
+    }
+    return 0
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
 	}
 }
 
@@ -1264,5 +1503,507 @@ val x = "short line"
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings for short lines, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_ThisAssignmentInLambdaAndOtherFunctionCounts(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Holder {
+    private var title: String = ""
+    private var count: Int = 0
+    fun update(values: List<Int>) {
+        values.forEach { this.count = it }
+    }
+    private fun rename(value: String) {
+        this.title = value
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestVarCouldBeVal_PublicMemberVarIsNotReported(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Holder {
+    var title: String = ""
+    internal var count: Int = 0
+    protected var flag: Boolean = false
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for non-private vars, got %v", findings)
+	}
+}
+
+func TestVarCouldBeVal_PrivateMemberVarWithoutWritesReported(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Holder {
+    private var title: String = ""
+    private var other: String = ""
+    fun rename(value: String) {
+        this.other = value
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for the unwritten private var, got %v", findings)
+	}
+}
+
+func TestMayBeConstant_SkipsOverrideOpenAndLocals(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+
+open class Base {
+    open val limit = 2
+    companion object {
+        override val name = "base"
+    }
+}
+
+fun compute(): Int {
+    val local = 6
+    return local
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMayBeConstant_FlagsObjectAndCompanionMembers(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+
+object Defaults {
+    val retries = 3
+}
+
+class Holder {
+    companion object {
+        val label = "holder"
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+}
+
+func TestReturnCountAndThrowsCount_HonourSuppressOnFunctionAndClass(t *testing.T) {
+	const body = `
+    fun f(x: Int): Int {
+        if (x == 1) return 1
+        if (x == 2) return 2
+        if (x == 3) return 3
+        return 4
+    }
+`
+	suppressed := `
+package test
+@Suppress("ReturnCount")
+class A {` + body + `}
+class B {
+    @Suppress("ReturnCount")` + body + `}
+`
+	if findings := runRuleByName(t, "ReturnCount", suppressed); len(findings) != 0 {
+		t.Fatalf("expected suppressed ReturnCount findings to be dropped, got %d", len(findings))
+	}
+	if findings := runRuleByName(t, "ReturnCount", "package test\nclass C {"+body+"}\n"); len(findings) != 1 {
+		t.Fatalf("expected 1 unsuppressed ReturnCount finding, got %d", len(findings))
+	}
+	const throws = `
+    fun f(x: Int): Int {
+        if (x == 1) throw IllegalStateException()
+        if (x == 2) throw IllegalStateException()
+        if (x == 3) throw IllegalStateException()
+        return 4
+    }
+`
+	if findings := runRuleByName(t, "ThrowsCount", "package test\n@Suppress(\"ThrowsCount\")\nclass A {"+throws+"}\n"); len(findings) != 0 {
+		t.Fatalf("expected suppressed ThrowsCount findings to be dropped, got %d", len(findings))
+	}
+	if findings := runRuleByName(t, "ThrowsCount", "package test\nclass C {"+throws+"}\n"); len(findings) != 1 {
+		t.Fatalf("expected 1 unsuppressed ThrowsCount finding, got %d", len(findings))
+	}
+}
+
+func TestFunctionOnlyReturningConstant_HonorsSuppress(t *testing.T) {
+	findings := runRuleByName(t, "FunctionOnlyReturningConstant", `
+package test
+
+class Config {
+    @Suppress("FunctionOnlyReturningConstant")
+    fun name() = "config"
+
+    @Suppress("unused", "FunctionOnlyReturningConstant")
+    fun version(): Int {
+        return 3
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected suppressed findings, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "FunctionOnlyReturningConstant", `
+package test
+
+class Config {
+    fun name() = "config"
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding without @Suppress, got %d", len(findings))
+	}
+}
+
+func TestVarCouldBeVal_SecondaryConstructorThisAssignmentIsReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Counter {
+    private var count = 0
+
+    constructor(start: Int) {
+        this.count = start
+    }
+
+    fun read(): Int = count
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings when a secondary constructor assigns this.count, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestVarCouldBeVal_SecondaryConstructorParameterShadowIsNotReassignment(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Counter {
+    private var count = 0
+
+    constructor(count: Int) {
+        println(count)
+    }
+
+    fun read(): Int = count
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected the never-written property to be reported, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSafeCast_ImplicitReceiverPropertyIgnoredAndMessageSaysRedundant(t *testing.T) {
+	unresolved := runRedundantSafeCast(t, `
+package test
+fun a() {
+    produceState {
+        if (value is Loaded) {
+            use((value as Loaded).items)
+        }
+    }
+}
+`)
+	if len(unresolved) != 0 {
+		t.Fatalf("a subject not declared in the file cannot be proven stable, got %d", len(unresolved))
+	}
+	stable := runRedundantSafeCast(t, `
+package test
+fun b(items: List<Any>) {
+    items.forEach { item ->
+        if (item is String) {
+            println((item as String).length)
+        }
+    }
+}
+`)
+	if len(stable) != 1 {
+		t.Fatalf("expected the lambda parameter to be flagged, got %d", len(stable))
+	}
+	if !strings.Contains(stable[0].Message, "Redundant cast after is-check") || strings.Contains(stable[0].Message, "as?") {
+		t.Fatalf("unexpected message: %s", stable[0].Message)
+	}
+}
+
+func TestSafeCast_MessageStartsWithRedundantCast(t *testing.T) {
+	findings := runRedundantSafeCast(t, `
+package test
+fun f(x: Any) {
+    if (x is String) {
+        val s = x as String
+        println(s)
+    }
+}
+`)
+	if len(findings) != 1 || !strings.HasPrefix(findings[0].Message, "Redundant cast") {
+		t.Fatalf("expected one finding starting with 'Redundant cast', got %v", findings)
+	}
+}
+
+func TestVarCouldBeVal_NullInitializerNeverAssignedMessage(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class Holder {
+    private var task: Task? = null
+    private var count: Int = 0
+
+    fun run() {
+        task?.cancel()
+        println(count)
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("both vars stay reported, got %d: %v", len(findings), findings)
+	}
+	for _, f := range findings {
+		switch {
+		case f.Message == "Variable 'task' could be val.", f.Message == "Variable 'count' could be val.":
+		default:
+			t.Fatalf("unexpected finding %q", f.Message)
+		}
+	}
+}
+
+func TestCollapsibleIfStatements_FixKeepsPrecedenceOfOrConditions(t *testing.T) {
+	findings := runRuleByName(t, "CollapsibleIfStatements", `
+package test
+fun h(a: Boolean, b: Boolean, c: Boolean, d: Boolean) {
+    if (a || b) {
+        if (c) {
+            println("x")
+        }
+    }
+    if ((a) || (b)) {
+        if ((c) && (d)) {
+            println("z")
+        }
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+	for i, want := range []string{"if ((a || b) && c) {", "if (((a) || (b)) && (c) && (d)) {"} {
+		if findings[i].Fix == nil || !strings.HasPrefix(findings[i].Fix.Replacement, want) {
+			t.Errorf("finding %d: fix = %+v, want prefix %q", i, findings[i].Fix, want)
+		}
+	}
+}
+
+func TestMayBeConstant_SkipsAccessorsDelegatesAndNonConstTypes(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+
+val withGetter = 1
+    get() = field + 1
+val nullable: String? = "a"
+val customType: Foo = 1
+actual val actualVal = 1
+val plain = 1
+val typed: Long = 1L
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected only plain and typed, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestModifierOrder_FixKeepsAnnotationsBetweenModifiers(t *testing.T) {
+	src := `package test
+class A {
+    @Suppress("X") override public fun r() {}
+    @Ann(1)
+    suspend private fun t() {}
+}
+`
+	findings := runRuleByName(t, "ModifierOrder", src)
+	if len(findings) != 2 {
+		t.Fatalf("expected two findings, got %d", len(findings))
+	}
+	apply := func(f scanner.Finding) string { return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:] }
+	if got := apply(findings[0]); !strings.Contains(got, `@Suppress("X") public override fun r()`) {
+		t.Errorf("annotation lost or modifiers unsorted: %s", got)
+	}
+	if got := apply(findings[1]); !strings.Contains(got, "@Ann(1)\n    private suspend fun t()") {
+		t.Errorf("annotation lost or modifiers unsorted: %s", got)
+	}
+}
+
+func TestVarCouldBeVal_PrivateMemberWrittenThroughAnotherInstanceOrVolatile(t *testing.T) {
+	findings := runRuleByName(t, "VarCouldBeVal", `
+package test
+class A {
+    private var viaOther = 0
+    private var untouched = 0
+    @Volatile private var flag = false
+    val other = A()
+    fun f() { other.viaOther = 1 }
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 5 {
+		t.Fatalf("only the untouched private var is a candidate, got %v", findings)
+	}
+}
+
+func TestSafeCast_IsCheckReturningValueOrNull(t *testing.T) {
+	src := `package test
+fun f(x: Any, y: Any?) {
+    val a = if (x is String) x else null
+    val b = if (x !is String) null else x
+    val c = if (x is String) x else "d"
+    var m: Any = x
+    val d = if (m is String) m else null
+}
+`
+	findings := runRuleByName(t, "SafeCast", src)
+	if len(findings) != 3 || findings[0].Line != 3 || findings[1].Line != 4 || findings[2].Line != 7 {
+		t.Fatalf("expected findings on lines 3, 4 and 7, got %v", findings)
+	}
+	fix := findings[0].Fix
+	if fix == nil || fix.Replacement != "x as? String" {
+		t.Fatalf("expected an 'x as? String' fix, got %+v", fix)
+	}
+}
+
+func TestCollapsibleIfStatements_FixKeepsOperandPrecedence(t *testing.T) {
+	src := `package test
+fun t(a: Boolean, b: Boolean, c: Boolean) {
+    if (a || b) {
+        if (c) {
+            println()
+        }
+    }
+    if ((a) || (b)) {
+        if ((c)) println()
+    }
+}
+`
+	findings := runRuleByName(t, "CollapsibleIfStatements", src)
+	if len(findings) != 2 {
+		t.Fatalf("expected two findings, got %d", len(findings))
+	}
+	if got := findings[0].Fix.Replacement; !strings.HasPrefix(got, "if ((a || b) && c)") {
+		t.Errorf("disjunction must stay parenthesized: %s", got)
+	}
+	if got := findings[1].Fix.Replacement; !strings.HasPrefix(got, "if (((a) || (b)) && c)") {
+		t.Errorf("unexpected merge: %s", got)
+	}
+}
+
+// --- MayBeConstant (detekt MayBeConst) ---
+
+func TestMayBeConstant_DetektSemantics(t *testing.T) {
+	findings := runRuleByName(t, "MayBeConstant", `
+package test
+
+val topLevel = 1
+val greeting = "hello"
+val interpolated = "a${topLevel}"
+val sum = 1 + 2 * 3
+val wrapped = (1 + 2)
+var mutable = 1
+const val alreadyConst = 1
+@JvmField val jvmField = 1
+val withGetter get() = 1
+val computed = listOf(1)
+
+class Holder {
+    val member = 1
+    companion object {
+        val inCompanion = 1
+        override val overridden = 1
+    }
+}
+
+object Settings {
+    val inObject = 5L
+}
+
+fun f() {
+    val local = 1
+}
+`)
+	got := map[string]bool{}
+	for _, f := range findings {
+		got[f.Message] = true
+	}
+	for _, name := range []string{"topLevel", "greeting", "sum", "wrapped", "inCompanion", "inObject"} {
+		if !got[name+" can be a `const val`."] {
+			t.Errorf("expected a finding for %s, got %v", name, got)
+		}
+	}
+	if len(findings) != 6 {
+		t.Errorf("expected exactly 6 findings, got %d: %v", len(findings), got)
+	}
+}
+
+func TestLoopWithTooManyJumpStatements_CountsJumpsInLambdasButNotNestedLoops(t *testing.T) {
+	findings := runRuleByName(t, "LoopWithTooManyJumpStatements", `
+package test
+fun process(items: List<List<Int>>) {
+    for (row in items) {
+        row.forEach {
+            if (it < 0) continue
+            if (it > 100) break
+        }
+    }
+    for (row in items) {
+        for (item in row) {
+            if (item < 0) continue
+        }
+        if (row.isEmpty()) break
+    }
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 4 {
+		t.Fatalf("expected only the first loop (non-local jumps in a lambda) to be flagged, got %v", findings)
+	}
+}
+
+func TestReturnCount_DetektMessageAndExcludedFunctionPatterns(t *testing.T) {
+	findings := runRuleByName(t, "ReturnCount", `
+package test
+fun noncompliant(x: Int): Int {
+    if (x < 0) return -1
+    if (x == 0) return 0
+    return 1
+}
+class Foo {
+    override fun equals(other: Any?): Boolean {
+        if (other == null) return false
+        if (other === this) return true
+        return false
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding (equals is excluded by default), got %v", findings)
+	}
+	want := "Function noncompliant has 3 return statements which exceeds the limit of 2."
+	if findings[0].Message != want {
+		t.Fatalf("message = %q, want %q", findings[0].Message, want)
+	}
+}
+
+func TestReturnCount_ReportsTheFullCountWhenGuardClausesAreExcluded(t *testing.T) {
+	findings := runRuleByName(t, "ReturnCount", `
+package test
+fun f(x: Int): Int {
+    when (x) {
+        1 -> return 10
+        2 -> return 20
+        3 -> return 30
+    }
+    if (x == 4) return 40
+    return 50
+}
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "has 5 return statements") {
+		t.Fatalf("expected one finding counting 5 returns, got %v", findings)
 	}
 }

@@ -1,8 +1,11 @@
 package rules
 
 import (
+	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/kaeawc/krit/internal/experiment"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -28,29 +31,97 @@ type MagicNumberRule struct {
 	IgnoreCompanionObjectPropertyDeclaration bool
 	IgnoreExtensionFunctions                 bool
 	IgnoreLocalVariableDeclaration           bool
+	// IgnoreIdioms exempts the Android, Compose and DSL idioms krit adds to detekt's rule; see kritIdiom.
+	IgnoreIdioms bool
 
-	ignoredNumbersOnce sync.Once
-	ignoredNumbersMap  map[string]bool
+	ignoredNumbersMu  sync.Mutex
+	ignoredNumbersKey string
+	ignoredNumbersMap map[float64]bool
 }
 
-func (r *MagicNumberRule) ignoredNumberSet() map[string]bool {
-	r.ignoredNumbersOnce.Do(func() {
-		nums := r.IgnoreNumbers
-		if len(nums) == 0 {
-			nums = []string{"-1", "0", "1", "2"}
+// ignoredNumberSet returns the configured ignoreNumbers as values, so `1f`, `1.0` and `1` are the same number.
+func (r *MagicNumberRule) ignoredNumberSet() map[float64]bool {
+	nums := r.IgnoreNumbers
+	if len(nums) == 0 {
+		nums = []string{"-1", "0", "1", "2"}
+	}
+	key := strings.Join(nums, "\x00")
+	r.ignoredNumbersMu.Lock()
+	defer r.ignoredNumbersMu.Unlock()
+	if r.ignoredNumbersMap != nil && r.ignoredNumbersKey == key {
+		return r.ignoredNumbersMap
+	}
+	m := make(map[float64]bool, len(nums))
+	for _, n := range nums {
+		if v, ok := parseMagicNumberValue(n); ok {
+			m[v] = true
 		}
-		m := make(map[string]bool, len(nums)*2)
-		for _, n := range nums {
-			m[n] = true
-			// Also store the stripped form so that configured values like
-			// "0.5f" / "1000L" match the cleaned literal text used at lookup.
-			clean := strings.TrimRight(n, "fFdDlLuU")
-			clean = strings.ReplaceAll(clean, "_", "")
-			m[clean] = true
+	}
+	r.ignoredNumbersKey, r.ignoredNumbersMap = key, m
+	return m
+}
+
+// parseMagicNumberValue parses a Kotlin numeric literal, with an optional leading minus, as detekt does.
+func parseMagicNumberValue(text string) (float64, bool) {
+	t := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(text), "_", ""))
+	negative := strings.HasPrefix(t, "-")
+	t = strings.TrimPrefix(t, "-")
+	var v float64
+	switch {
+	case strings.HasPrefix(t, "0x"):
+		digits := strings.TrimRight(strings.TrimPrefix(t, "0x"), "lu")
+		n, err := strconv.ParseUint(digits, 16, 64)
+		if err != nil {
+			return 0, false
 		}
-		r.ignoredNumbersMap = m
-	})
-	return r.ignoredNumbersMap
+		v = float64(n)
+	case strings.HasPrefix(t, "0b"):
+		digits := strings.TrimRight(strings.TrimPrefix(t, "0b"), "lu")
+		n, err := strconv.ParseUint(digits, 2, 64)
+		if err != nil {
+			return 0, false
+		}
+		v = float64(n)
+	default:
+		t = strings.TrimRight(t, "lfdu")
+		f, err := strconv.ParseFloat(t, 64)
+		if err != nil {
+			return 0, false
+		}
+		v = f
+	}
+	if negative {
+		v = -v
+	}
+	return v, true
+}
+
+// isIgnoredNumber reports whether the literal's value, with a leading unary minus, is in ignoreNumbers.
+func (r *MagicNumberRule) isIgnoredNumber(file *scanner.File, idx uint32, text string) bool {
+	v, ok := parseMagicNumberValue(text)
+	if !ok {
+		return false
+	}
+	if magicNumberHasUnaryMinus(file, idx) {
+		v = -v
+	}
+	return r.ignoredNumberSet()[v]
+}
+
+func magicNumberHasUnaryMinus(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(parent) != "prefix_expression" {
+		return false
+	}
+	for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatNodeTextEquals(child, "-") {
+			return true
+		}
+		if file.FlatNodeTextEquals(child, "+") || file.FlatNodeTextEquals(child, "!") {
+			return false
+		}
+	}
+	return false
 }
 
 func magicNumberIsBitOperationLiteral(file *scanner.File, idx uint32) bool {
@@ -370,6 +441,193 @@ func callExpressionHasDurationUnitArg(file *scanner.File, callIdx uint32) bool {
 		(sourceImportsOrMentions(file, "kotlin.time.Duration") ||
 			sourceImportsOrMentions(file, "java.time.Duration")) {
 		return true
+	}
+	return false
+}
+
+// kritIdiom reports literals that krit exempts on top of what detekt does: common Android, Compose,
+// networking and DSL idioms where the number documents itself. detekt reports these, so
+// ignoreIdioms: false turns the whole group off.
+func (r *MagicNumberRule) kritIdiom(file *scanner.File, idx uint32, text string) bool {
+	line := file.Lines[file.FlatRow(idx)]
+	trimmed := strings.TrimSpace(line)
+	// Numeric literals written with underscore separators
+	// (e.g., 25_000L, 1_000_000) have explicit author-intended grouping;
+	// these aren't magic numbers, the author already made the value legible.
+	if strings.Contains(text, "_") {
+		return true
+	}
+	if magicNumberIsBitOperationLiteral(file, idx) {
+		return true
+	}
+	if magicNumberIsBinaryProtocolLiteral(file, idx) {
+		return true
+	}
+	if magicNumberIsAndroidAPILevelLiteral(file, idx) {
+		return true
+	}
+	if magicNumberIsHTTPStatusLiteral(file, idx) {
+		return true
+	}
+
+	var ancestorCtx *magicNumberAncestorContext
+	if experiment.Enabled("magic-number-ancestor-scan") {
+		ancestorCtx = buildMagicNumberAncestorContext(file, idx)
+	}
+
+	// Skip literals that are the direct value of a when branch mapping an
+	// enum/constant to discrete numeric values — this is a lookup-table
+	// idiom, not a magic number. Example: `SIZE.LARGE -> 0.8f`.
+	if isWhenBranchValue(file, idx) {
+		return true
+	}
+	// Skip literals inside array/list index access: `parts[1]`, `bytes[3]`.
+	// These are positional indices, not magic numbers.
+	if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "indexing_suffix" {
+		return true
+	}
+	// Skip literals that are the RHS of a `.size` / `.length` / `.count`
+	// equality/comparison. These are intrinsic collection-cardinality
+	// checks (e.g. `parts.size == 7`, `daysEnabled.size == 7`), not
+	// extractable constants.
+	if isSizeCardinalityComparison(file, idx) {
+		return true
+	}
+	// Skip regex-group accessor arguments: `matcher.group(3)`,
+	// `match.groupValues[1]`, etc. Regex capture indices are intrinsic
+	// to the pattern.
+	if experiment.Enabled("magic-number-skip-regex-group-indices") &&
+		isInsideRegexGroupAccessor(file, idx) {
+		return true
+	}
+	// Skip SDK_INT comparisons: `Build.VERSION.SDK_INT < 24`, etc.
+	// API-level literals are semantic constants.
+	if isNearSdkIntComparison(file, idx) {
+		return true
+	}
+	// Skip literals inside SDK-version annotations: @RequiresApi(26),
+	// @TargetApi(31), @ChecksSdkIntAtLeast(N), @RequiresExtension(N).
+	if isInsideSdkAnnotation(file, idx) {
+		return true
+	}
+	// Skip literals that are the RHS of an ALL_CAPS named constant
+	// declaration (e.g., `private val MAX_SIZE = 1024`). Flagging these
+	// defeats the "extract to named constant" guidance.
+	if isInsideAllCapsConstantDecl(file, idx) {
+		return true
+	}
+	// Skip literals inside database migration methods (`onUpgrade`,
+	// `onDowngrade`, `onCreate`) where version comparisons reference
+	// historical schema versions.
+	if isInsideDbMigrationMethod(file, idx) {
+		return true
+	}
+	// Skip literals inside crypto/KDF calls — output lengths, key sizes
+	// are dictated by the algorithm, not arbitrary.
+	if magicNumberInsideNamedMethodCall(file, idx, cryptoMethods, ancestorCtx) {
+		return true
+	}
+	// Skip hex literals (0x...) — hex notation is already self-documenting
+	// as a color/mask/byte pattern.
+	if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
+		return true
+	}
+	// Skip Bitmap/collection/cache builder constructors.
+	if magicNumberInsideNamedMethodCall(file, idx, bitmapBuilderMethods, ancestorCtx) {
+		return true
+	}
+	// Skip HTTP status comparisons: `x.status == 200`, `code >= 500`.
+	if isHTTPStatusComparison(file, idx) {
+		return true
+	}
+	// Skip literals inside Compose `Color(...)` calls — component values
+	// 0f-1f are semantic color channels, not magic numbers.
+	if magicNumberInsideComposeCall(file, idx, "Color", ancestorCtx) {
+		return true
+	}
+	// Skip literals inside Compose/Canvas/Path/animator DSL methods where
+	// raw coordinates are inherent to the API.
+	if magicNumberInsideGeometryDslCall(file, idx, ancestorCtx) {
+		return true
+	}
+	// Skip literals inside coordinate/size constructors like `PointF(x, y)`
+	// or setters like `point.set(x, y)`.
+	if magicNumberInsideNamedMethodCall(file, idx, coordinateConstructors, ancestorCtx) {
+		return true
+	}
+	// Skip literals inside dimension/animation DSL calls.
+	if magicNumberInsideNamedMethodCall(file, idx, dimensionConversionMethods, ancestorCtx) ||
+		magicNumberInsideNamedMethodCall(file, idx, animationMethods, ancestorCtx) {
+		return true
+	}
+	// Skip literals inside range expressions / IntRange constants
+	// (e.g., `0x0000..0x024F` Unicode ranges).
+	if file.FlatHasAncestorOfType(idx, "range_expression") {
+		return true
+	}
+	// Skip literals that are part of a `to` infix expression used in a
+	// collection builder (mapOf lookup tables, version maps).
+	if isInsideToInfixMap(file, idx) {
+		return true
+	}
+	// Skip literals inside preview/sample/fake/mock/stub functions — these
+	// are scaffolding for UI tooling, not production constants.
+	if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
+		return true
+	}
+	// Skip literals that are the duration argument of a call whose sibling
+	// is a `TimeUnit.X` reference (e.g., `Single.timer(200, TimeUnit.MILLISECONDS)`).
+	if magicNumberDurationLiteralWithTimeUnit(file, idx, ancestorCtx) {
+		return true
+	}
+	// Skip literals that are arguments to java.math / java.time builder
+	// calls where the literal is documentational (BigDecimal.valueOf(3),
+	// Instant.ofEpochMilli(0), Duration.ofSeconds(30), etc.).
+	if magicNumberInsideNamedMethodCall(file, idx, jvmBuilderMethods, ancestorCtx) {
+		return true
+	}
+	// Skip literals inside primitive-array builders `byteArrayOf(1, 2, 3)` —
+	// these are data payloads (test fixtures, magic bytes, handshake
+	// sequences), never meaningful constants to extract.
+	if magicNumberInsideNamedMethodCall(file, idx, primitiveArrayBuilders, ancestorCtx) {
+		return true
+	}
+	// Skip HTTP status code literals inside exception constructor calls
+	// (e.g., `NonSuccessfulResponseCodeException(404)`). The exception
+	// type name together with the known HTTP status range is
+	// self-documenting.
+	if isHTTPStatusExceptionArg(file, idx) {
+		return true
+	}
+	// Skip literals that are the RHS of an assignment to a semantic UI /
+	// animation / layout property — the property name itself documents
+	// the value (`duration = 250`, `textSize = 14f`, `elevation = 4f`).
+	if isSemanticPropertyAssignment(file, idx) {
+		return true
+	}
+
+	// Skip color literals: hex numbers inside Color() calls or in color-named properties
+	if r.IgnoreColorLiterals && strings.HasPrefix(text, "0x") {
+		if strings.Contains(line, "Color(") {
+			return true
+		}
+		lowerLine := strings.ToLower(trimmed)
+		if strings.Contains(lowerLine, "color") || strings.Contains(lowerLine, "background") ||
+			strings.Contains(lowerLine, "tint") || strings.Contains(lowerLine, "palette") {
+			return true
+		}
+	}
+
+	// Skip Compose dimension units: N.dp, N.sp, N.px, N.em
+	if r.IgnoreComposeUnits {
+		endByte := int(file.FlatEndByte(idx))
+		if endByte+3 <= len(file.Content) {
+			after := string(file.Content[endByte:min(endByte+4, len(file.Content))])
+			if strings.HasPrefix(after, ".dp") || strings.HasPrefix(after, ".sp") ||
+				strings.HasPrefix(after, ".px") || strings.HasPrefix(after, ".em") {
+				return true
+			}
+		}
 	}
 	return false
 }

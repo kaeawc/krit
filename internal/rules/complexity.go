@@ -8,11 +8,9 @@ import (
 )
 
 type complexityMetrics struct {
-	maxNestedDepth       int
-	deepestLine          int
-	cyclomatic           int
-	cyclomaticSimpleSkip int // cyclomatic with simple when_entry nodes excluded
-	cognitive            int
+	maxNestedDepth int
+	cyclomatic     int
+	cognitive      int
 }
 
 type FunctionComplexity struct {
@@ -47,62 +45,17 @@ func getComplexityMetricsFlat(idx uint32, file *scanner.File) complexityMetrics 
 	})
 }
 
+// collectComplexityMetricsFlat measures a function with detekt's default settings, for reports that show
+// complexity without applying a rule threshold.
 func collectComplexityMetricsFlat(root uint32, file *scanner.File) complexityMetrics {
-	var m complexityMetrics
 	if file == nil || file.FlatTree == nil {
-		return m
+		return complexityMetrics{}
 	}
-	m.cyclomatic = 1
-	m.cyclomaticSimpleSkip = 1
-	var walk func(uint32, int, int)
-	walk = func(idx uint32, depthNesting int, cognitiveNesting int) {
-		nodeType := file.FlatType(idx)
-		if idx != root && (nodeType == "function_declaration" || nodeType == "lambda_literal") {
-			return
-		}
-		nextDepthNesting := depthNesting
-		if isNestingType(nodeType) {
-			if !isElseIfChainNodeFlat(file, idx) {
-				nextDepthNesting++
-			}
-			if nextDepthNesting > m.maxNestedDepth {
-				m.maxNestedDepth = nextDepthNesting
-				m.deepestLine = file.FlatRow(idx) + 1
-			}
-		}
-		if decisionTypes[nodeType] {
-			m.cyclomatic++
-			// cyclomaticSimpleSkip excludes simple when_entry nodes (used by
-			// CyclomaticComplexMethodRule when IgnoreSimpleWhenEntries is set).
-			if nodeType != "when_entry" || !isSimpleWhenEntryFlat(file, idx) {
-				m.cyclomaticSimpleSkip++
-			}
-		}
-		if nodeType == "elvis_expression" {
-			m.cyclomatic++
-			m.cyclomaticSimpleSkip++
-		}
-		nextCognitiveNesting := cognitiveNesting
-		if cognitiveTypes[nodeType] {
-			m.cognitive += 1 + cognitiveNesting
-			nextCognitiveNesting++
-		}
-		if nodeType == "conjunction_expression" || nodeType == "disjunction_expression" || nodeType == "elvis_expression" {
-			m.cognitive++
-		}
-		// Iterate children directly via FirstChild/NextSib (O(N) total)
-		// instead of FlatNamedChild(idx, i) in a loop (O(N²) due to O(i)
-		// per FlatNamedChild call).
-		t := file.FlatTree
-		for child := t.FirstChildren[idx]; child != 0; child = t.NextSibs[child] {
-			if !t.NodeIsNamed(child) {
-				continue
-			}
-			walk(child, nextDepthNesting, nextCognitiveNesting)
-		}
+	return complexityMetrics{
+		maxNestedDepth: detektNestedBlockDepth(file, root),
+		cyclomatic:     detektCyclomaticComplexity(file, root, defaultCyclomaticOptions()),
+		cognitive:      detektCognitiveComplexity(file, root),
 	}
-	walk(root, 0, 0)
-	return m
 }
 
 func isElseIfChainNodeFlat(file *scanner.File, idx uint32) bool {
@@ -140,109 +93,16 @@ func isElseIfChainNodeFlat(file *scanner.File, idx uint32) bool {
 
 func isNestingType(nodeType string) bool {
 	switch nodeType {
-	case "if_expression", "for_statement", "while_statement", "do_while_statement", "when_expression":
+	case "if_expression", "for_statement", "while_statement", "do_while_statement", "when_expression", "try_expression":
 		return true
-	// try_expression intentionally NOT counted — try/catch/finally are
-	// cleanup boundaries, not control-flow branching that adds cognitive
-	// nesting depth.
 	default:
 		return false
 	}
 }
 
-// androidLifecycleMethods are Android Fragment/Activity/View lifecycle
-// callbacks that are often legitimately long due to wiring setup.
-var androidLifecycleMethods = map[string]bool{
-	"onCreate":               true,
-	"onCreateView":           true,
-	"onViewCreated":          true,
-	"onAttach":               true,
-	"onResume":               true,
-	"onStart":                true,
-	"onActivityCreated":      true,
-	"onCreateDialog":         true,
-	"onCreateOptionsMenu":    true,
-	"onOptionsItemSelected":  true,
-	"onConfigurationChanged": true,
-	// View-wiring / fragment binding helpers — conventional names that
-	// do the same work as onViewCreated.
-	"bindAdapter": true,
-	"bindView":    true,
-	"bindData":    true,
-	"bind":        true,
-	"initViews":   true,
-	"initView":    true,
-	"setupViews":  true,
-	"setupView":   true,
-	"setupUi":     true,
-	"setupUI":     true,
-	"configure":   true,
-	"configureUi": true,
-	"configureUI": true,
-}
-
-func isDSLBuilderBodyFlat(idx uint32, file *scanner.File) bool {
-	body, _ := file.FlatFindChild(idx, "function_body")
-	if body == 0 {
-		return false
-	}
-	bodyText := strings.TrimSpace(file.FlatNodeText(body))
-	if strings.HasPrefix(bodyText, "=") {
-		return strings.Contains(bodyText, "{") && strings.HasSuffix(bodyText, "}")
-	}
-	stmts, _ := file.FlatFindChild(body, "statements")
-	if stmts == 0 {
-		return false
-	}
-	var namedChildren []uint32
-	for i := 0; i < file.FlatNamedChildCount(stmts); i++ {
-		namedChildren = append(namedChildren, file.FlatNamedChild(stmts, i))
-	}
-	if len(namedChildren) == 0 {
-		return false
-	}
-	last := namedChildren[len(namedChildren)-1]
-	checkNode := last
-	if file.FlatType(checkNode) == "jump_expression" && file.FlatNamedChildCount(checkNode) > 0 {
-		checkNode = file.FlatNamedChild(checkNode, 0)
-	}
-	if file.FlatType(checkNode) != "call_expression" {
-		return false
-	}
-	suffix, _ := file.FlatFindChild(checkNode, "call_suffix")
-	if suffix == 0 {
-		return false
-	}
-	hasTrailingLambda := false
-	for i := 0; i < file.FlatChildCount(suffix); i++ {
-		t := file.FlatType(file.FlatChild(suffix, i))
-		if t == "annotated_lambda" || t == "lambda_literal" {
-			hasTrailingLambda = true
-			break
-		}
-	}
-	if !hasTrailingLambda {
-		return false
-	}
-	for i := 0; i < len(namedChildren)-1; i++ {
-		stmt := namedChildren[i]
-		switch file.FlatType(stmt) {
-		case "property_declaration", "variable_declaration", "assignment", "multi_variable_declaration":
-		case "call_expression":
-			if strings.Count(file.FlatNodeText(stmt), "\n") > 0 {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// countSignificantLines returns the number of non-blank, non-comment lines
-// in the inclusive row range [startRow, endRow]. Blank lines and comment-only
-// lines are excluded, as are lines fully inside a triple-quoted string literal
-// (which are string content, not source lines).
+// countSignificantLines returns the number of lines in the inclusive row range [startRow, endRow] that hold
+// code. Blank lines and comment-only lines are excluded; a line with code and a comment counts. Non-blank
+// lines inside a triple-quoted string count, as detekt counts them.
 func countSignificantLines(file *scanner.File, startRow, endRow int) int {
 	if startRow < 0 {
 		startRow = 0
@@ -253,50 +113,9 @@ func countSignificantLines(file *scanner.File, startRow, endRow int) int {
 	count := 0
 	state := lineScanState{}
 	for i := startRow; i <= endRow; i++ {
-		line := file.Lines[i]
-		trimmed := strings.TrimSpace(line)
-		priorBlockComment := state.inBlockComment
-		priorRawString := state.inRawString
-		scanLineState(line, &state)
-		// Entirely inside a raw string from start to end — string content,
-		// not a source line.
-		if priorRawString && state.inRawString {
-			continue
-		}
-		// Entirely inside a block comment from start to end.
-		if priorBlockComment && state.inBlockComment {
-			continue
-		}
-		if priorBlockComment {
-			// Block comment closed mid-line; if nothing else of substance
-			// remains we still skip. A simple heuristic: if the line ends
-			// with `*/` and has no further code, treat as comment-only.
-			idx := strings.Index(line, "*/")
-			if idx >= 0 {
-				rest := strings.TrimSpace(line[idx+2:])
-				if rest == "" {
-					continue
-				}
-			}
+		if strings.TrimSpace(stripCommentsKeepStrings(file.Lines[i], &state)) != "" {
 			count++
-			continue
 		}
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "*") && !strings.HasPrefix(trimmed, "*=") {
-			// KDoc continuation line.
-			continue
-		}
-		if strings.HasPrefix(trimmed, "/*") {
-			// If the block comment is not closed on this line, the caller
-			// already updated inBlockComment state before reaching here.
-			continue
-		}
-		count++
 	}
 	return count
 }

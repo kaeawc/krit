@@ -273,6 +273,42 @@ func isKotlinTODOCall(file *scanner.File, idx uint32) bool {
 	return false
 }
 
+// isThrowOfNotImplementedError reports `throw NotImplementedError(...)` and `throw kotlin.NotImplementedError(...)`.
+func isThrowOfNotImplementedError(file *scanner.File, idx uint32) bool {
+	if first := file.FlatFirstChild(idx); first == 0 || file.FlatType(first) != "throw" {
+		return false
+	}
+	target := throwExpressionTargetFlat(file, idx)
+	if target == 0 {
+		return false
+	}
+	for child := file.FlatFirstChild(target); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier":
+			return file.FlatNodeTextEquals(child, "NotImplementedError")
+		case "navigation_expression":
+			segments := flatNavigationChainIdentifiers(file, child)
+			return len(segments) == 2 && segments[0] == "kotlin" && segments[1] == "NotImplementedError"
+		}
+	}
+	return false
+}
+
+// isProgramEntryMain reports whether a function named main can be a program entry point: a top-level
+// Kotlin function, a `@JvmStatic` member, or a static Java method, with no parameter or one array parameter.
+func isProgramEntryMain(file *scanner.File, fn uint32) bool {
+	if params, ok := file.FlatFindChild(fn, "function_value_parameters"); ok && file.FlatNamedChildCount(params) > 1 {
+		return false
+	}
+	if file.Language == scanner.LangJava {
+		return file.FlatHasModifier(fn, "static")
+	}
+	if _, member := flatEnclosingAncestor(file, fn, "class_body"); member {
+		return flatHasAnnotationNamed(file, fn, "JvmStatic")
+	}
+	return true
+}
+
 // RethrowCaughtExceptionRule detects catch { throw e } where e is the caught variable.
 type RethrowCaughtExceptionRule struct {
 	FlatDispatchBase

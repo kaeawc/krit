@@ -160,7 +160,7 @@ func (r *GradleBuildContainsTodoRule) check(ctx *api.Context) {
 // Confidence reports a tier-2 (medium) base confidence. Release-engineering rule. Detection scans module metadata and Gradle
 // files for configuration drift and plugin hygiene; matches are
 // project-structure-sensitive. Classified per roadmap/17.
-func (r *CommentedOutCodeBlockRule) Confidence() float64 { return api.ConfidenceMedium }
+func (r *CommentedOutCodeBlockRule) Confidence() float64 { return api.ConfidenceMediumLow }
 
 func (r *CommentedOutCodeBlockRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -242,7 +242,8 @@ func discoverConventionPlugins(root string) []conventionPlugin {
 
 func scanAppliedConventionPluginIDs(graph *module.Graph) map[string]bool {
 	used := make(map[string]bool)
-	for _, script := range gradleScriptsToInspect(graph) {
+	scripts := append(gradleScriptsToInspect(graph), conventionPluginHostFiles(graph)...)
+	for _, script := range scripts {
 		data, err := os.ReadFile(script)
 		if err != nil {
 			continue
@@ -251,12 +252,56 @@ func scanAppliedConventionPluginIDs(graph *module.Graph) map[string]bool {
 			if strings.Contains(line, "apply false") {
 				continue
 			}
-			for _, match := range conventionPluginUsageRe.FindAllStringSubmatch(line, -1) {
-				used[match[1]] = true
+			for i, re := range conventionPluginUsageRes {
+				// `{ id = "x" }` is a plugin registration in Kotlin scripts; only catalogs use it as a reference.
+				if i == len(conventionPluginUsageRes)-1 && !strings.HasSuffix(script, ".toml") {
+					continue
+				}
+				for _, match := range re.FindAllStringSubmatch(line, -1) {
+					used[match[1]] = true
+				}
 			}
 		}
 	}
 	return used
+}
+
+// conventionPluginUsageRes match the ways a plugin id is applied: id("x"), apply(plugin = "x"),
+// apply("x"), apply plugin: 'x', and version-catalog entries `id = "x"` consumed through alias(...).
+var conventionPluginUsageRes = []*regexp.Regexp{
+	conventionPluginUsageRe,
+	regexp.MustCompile(`apply\s*\(\s*plugin\s*=\s*["']([^"']+)["']`),
+	regexp.MustCompile(`apply\s*\(\s*["']([^"']+)["']`),
+	regexp.MustCompile(`apply\s+plugin\s*:\s*["']([^"']+)["']`),
+	regexp.MustCompile(`\{\s*id\s*=\s*["']([^"']+)["']`),
+}
+
+// conventionPluginHostFiles lists the build-logic and buildSrc scripts and the version catalogs, since
+// convention plugins commonly apply each other and catalogs expose them to alias(...).
+func conventionPluginHostFiles(graph *module.Graph) []string {
+	if graph == nil || graph.RootDir == "" {
+		return nil
+	}
+	var files []string
+	for _, root := range []string{"build-logic", "buildSrc"} {
+		_ = filepath.Walk(filepath.Join(graph.RootDir, root), func(path string, info os.FileInfo, err error) error {
+			if err != nil || info == nil {
+				return nil //nolint:nilerr // Walk callback skip-and-continue: per-entry error means skip this entry
+			}
+			if info.IsDir() {
+				if name := info.Name(); name == "build" || name == ".gradle" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.HasSuffix(path, ".kts") || strings.HasSuffix(path, ".kt") || strings.HasSuffix(path, ".gradle") {
+				files = append(files, path)
+			}
+			return nil
+		})
+	}
+	catalogs, _ := filepath.Glob(filepath.Join(graph.RootDir, "gradle", "*.toml"))
+	return append(files, catalogs...)
 }
 
 func gradleScriptsToInspect(graph *module.Graph) []string {
@@ -367,14 +412,14 @@ func isLikelyLoggingCallFlat(file *scanner.File, idx uint32) bool {
 	switch receiver := flatReceiverNameFromCall(file, idx); receiver {
 	case "Log", "Timber", "logger", "log", "Logger":
 		switch flatCallExpressionName(file, idx) {
-		case "v", "d", "i", "w", "e", "wtf", "trace", "debug", "info", "warn", "warning", "error":
+		// Warnings and errors are legitimately logged in release builds only.
+		case "v", "d", "i", "trace", "debug", "info":
 			return true
 		}
 	}
 
 	switch flatCallExpressionName(file, idx) {
-	case "println", "print", "debug", "info", "warn", "warning", "error", "trace", "log",
-		"logDebug", "logInfo", "logWarn", "logWarning", "logError", "logTrace":
+	case "println", "print", "debug", "info", "trace", "logDebug", "logInfo", "logTrace":
 		return true
 	default:
 		return false

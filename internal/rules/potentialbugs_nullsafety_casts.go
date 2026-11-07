@@ -13,7 +13,8 @@ import (
 // UnsafeCastRule detects casts that cannot ever succeed.
 //
 // The authoritative path consumes Kotlin compiler diagnostics from the oracle
-// (CAST_NEVER_SUCCEEDS). Without compiler diagnostics, the fallback only emits
+// (CAST_NEVER_SUCCEEDS) and reports only when both the source and target
+// types resolve to Kotlin types (stdlib or project Kotlin sources). Without compiler diagnostics, the fallback only emits
 // when the local resolver proves both source and target are final, disjoint
 // types.
 // ---------------------------------------------------------------------------
@@ -31,11 +32,6 @@ func (r *UnsafeCastRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
 func (r *UnsafeCastRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	// Skip .gradle.kts files — Gradle's extra properties and configuration
-	// delegates commonly require `as` casts with no safer alternative.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
-		return
-	}
 	// Skip test files — test code commonly uses `as` to cast framework
 	// return values to concrete types; failure = test failure anyway.
 	if scanner.IsTestFile(file.Path) {
@@ -59,7 +55,15 @@ func (r *UnsafeCastRule) check(ctx *api.Context) {
 	if unsafeCastTypeNodeIsNullableFlat(file, cast.target) {
 		return
 	}
+	// A call returning a Java or SDK type has a platform type, so a "never succeeds" verdict is unreliable.
+	if unsafeCastSourceIsPlatformCallFlat(ctx, cast.source) {
+		return
+	}
 	if d, ok := unsafeCastHasNeverSucceedsDiagnosticFlat(ctx, idx); ok {
+		// Java and library types have platform or erased shapes, so only Kotlin source types are reported.
+		if !unsafeCastBothSourceResolvedKotlin(ctx, cast) {
+			return
+		}
 		f := r.Finding(file, d.Line, d.Col, unsafeCastFindingMessage(cast, d))
 		f.Confidence = 0.95
 		if !cast.safe {
@@ -235,11 +239,18 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 	if ctx.Resolver == nil {
 		return
 	}
-	targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
-	if targetType == nil || !targetType.Resolved || targetType.Kind == typeinfer.TypeUnknown {
+	// detekt reads the left side's type through the cast, so a nested cast never reports.
+	if inner := unsafeCastUnwrapExpressionFlat(file, cast.source); inner != 0 && file.FlatType(inner) == "as_expression" {
 		return
 	}
-	if targetType.IsNullable() {
+	if name := castTargetSimpleName(file, cast.target); name != "" {
+		if isParam, allowsNull := enclosingTypeParameterAllowsNull(file, idx, name); isParam && allowsNull {
+			return
+		}
+	}
+	// An unresolved target may be a typealias of a nullable type, so only a resolved non-null target reports.
+	targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
+	if targetType == nil || !targetType.Resolved || targetType.Kind == typeinfer.TypeUnknown || targetType.IsNullable() {
 		return
 	}
 	if !castNullableToNonNullableSourceIsNullable(ctx, cast.source) {
@@ -268,6 +279,25 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 // so `o as T` after `if (o == null) return` correctly sees `o` as non-null
 // and the cast is not flagged.
 func castNullableToNonNullableSourceIsNullable(ctx *api.Context, source uint32) bool {
+	source = unsafeCastUnwrapExpressionFlat(ctx.File, source)
+	switch ctx.File.FlatType(source) {
+	case "navigation_expression":
+		if flatNavigationLastSuffixOperator(ctx.File, source) == "?." {
+			return true
+		}
+	case "call_expression":
+		if nav, _ := flatCallExpressionParts(ctx.File, source); nav != 0 && flatNavigationLastSuffixOperator(ctx.File, nav) == "?." {
+			return true
+		}
+	case "elvis_expression":
+		return castNullableToNonNullableSourceIsNullable(ctx, lastNamedChild(ctx.File, source))
+	case "simple_identifier":
+		if resolved := ctx.Resolver.ResolveFlatNode(source, ctx.File); resolved != nil && !resolved.IsNullable() {
+			if isParam, allowsNull := enclosingTypeParameterAllowsNull(ctx.File, source, resolved.Name); isParam {
+				return allowsNull
+			}
+		}
+	}
 	if resolved := ctx.Resolver.ResolveFlatNode(source, ctx.File); resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 		return resolved.IsNullable()
 	}
@@ -305,4 +335,47 @@ func (r *CastToNullableTypeRule) check(ctx *api.Context) {
 		Replacement: strings.TrimSpace(file.FlatNodeText(cast.source)) + " as? " + typeName,
 	}
 	ctx.Emit(f)
+}
+
+func lastNamedChild(file *scanner.File, n uint32) uint32 {
+	last := uint32(0)
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) {
+			last = c
+		}
+	}
+	return last
+}
+
+// castTargetSimpleName returns the name of a plain, unqualified, non-generic type reference.
+func castTargetSimpleName(file *scanner.File, target uint32) string {
+	if file.FlatType(target) != "user_type" || file.FlatNamedChildCount(target) != 1 {
+		return ""
+	}
+	if id := file.FlatNamedChild(target, 0); file.FlatType(id) == "type_identifier" {
+		return file.FlatNodeText(id)
+	}
+	return ""
+}
+
+// enclosingTypeParameterAllowsNull reports whether name is a type parameter in scope at idx and whether its
+// upper bound admits null (no bound, or a nullable one).
+func enclosingTypeParameterAllowsNull(file *scanner.File, idx uint32, name string) (isParam, allowsNull bool) {
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		tp, found := file.FlatFindChild(p, "type_parameters")
+		if !found {
+			continue
+		}
+		for param := file.FlatFirstChild(tp); param != 0; param = file.FlatNextSib(param) {
+			if file.FlatType(param) != "type_parameter" || file.FlatNamedChildCount(param) == 0 ||
+				file.FlatNodeText(file.FlatNamedChild(param, 0)) != name {
+				continue
+			}
+			if file.FlatNamedChildCount(param) < 2 {
+				return true, true
+			}
+			return true, file.FlatType(file.FlatNamedChild(param, 1)) == "nullable_type"
+		}
+	}
+	return false, false
 }

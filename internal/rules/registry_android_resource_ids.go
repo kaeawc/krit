@@ -45,7 +45,7 @@ func registerAndroidResourceIDsRules() {
 			IssueID:    "InvalidId",
 			Brief:      "Malformed android:id value",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   8,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -72,18 +72,18 @@ func registerAndroidResourceIDsRules() {
 		})
 	}
 	{
-		r := &CutPasteIDResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "CutPasteIdResource", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:    "CutPasteId",
-			Brief:      "Likely cut & paste mistakes",
+		r := &IdTypePrefixMismatchResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "IdTypePrefixMismatchResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			Brief:      "View id prefix suggests a different view type",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSWarning,
 			Priority:   6,
-			Origin:     "AOSP Android Lint",
+			Origin:     "Krit",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Aliases: []string{"CutPasteIdResource"},
+			Needs:   api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
@@ -105,7 +105,7 @@ func registerAndroidResourceIDsRules() {
 	}
 	{
 		r := &MissingPrefixResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "MissingPrefixResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "MissingPrefixResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "MissingPrefix",
 			Brief:      "Attribute missing android: namespace prefix",
 			Category:   ALCCorrectness,
@@ -125,7 +125,7 @@ func registerAndroidResourceIDsRules() {
 			IssueID:    "NamespaceTypo",
 			Brief:      "Misspelled namespace URI",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   8,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -141,7 +141,7 @@ func registerAndroidResourceIDsRules() {
 			IssueID:    "ResAuto",
 			Brief:      "Namespace used in resource files should be res-auto",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   6,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -153,11 +153,11 @@ func registerAndroidResourceIDsRules() {
 	}
 	{
 		r := &UnusedNamespaceResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "UnusedNamespaceResource", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule:   BaseRule{RuleName: "UnusedNamespaceResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "UnusedNamespace",
 			Brief:      "Unused namespace",
-			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
 			Priority:   4,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -169,11 +169,11 @@ func registerAndroidResourceIDsRules() {
 	}
 	{
 		r := &IllegalResourceRefResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "IllegalResourceRefResource", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule:   BaseRule{RuleName: "IllegalResourceRefResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "IllegalResourceRef",
 			Brief:      "Name is not a valid resource reference format",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSWarning,
 			Priority:   8,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -233,18 +233,19 @@ func registerAndroidResourceIDsRules() {
 	}
 	{
 		r := &AppCompatResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "AppCompatResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "AppCompatResource",
 			Brief:      "Using android:showAsAction instead of app:showAsAction",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSWarning,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
-			Check: r.check,
+			NeedsLibraryFacts: true,
+			Check:             r.check,
 		})
 	}
 }

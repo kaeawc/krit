@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -328,8 +329,8 @@ func firstScopeAnnotationFlat(file *scanner.File, idx uint32) string {
 	return ""
 }
 
-// MissingJvmSuppressWildcardsRule detects @Provides/@Binds functions returning
-// Set<T> or Map<K, V> without @JvmSuppressWildcards on the value type. Without
+// MissingJvmSuppressWildcardsRule detects @Provides/@Binds functions taking
+// Set<T> or Map<K, V> parameters without @JvmSuppressWildcards on the value type. Without
 // the annotation, the Kotlin compiler emits Set<? extends T> in JVM signatures
 // and Dagger fails to find matching multibindings.
 type MissingJvmSuppressWildcardsRule struct {
@@ -340,34 +341,154 @@ type MissingJvmSuppressWildcardsRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
 func (r *MissingJvmSuppressWildcardsRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func multibindingReturnNeedsJvmSuppress(typeText string) (string, bool) {
+// fileImportsMetro reports whether the file imports the Metro DI runtime.
+func fileImportsMetro(file *scanner.File) bool {
+	for _, line := range file.Lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "import dev.zacsweers.metro") {
+			return true
+		}
+	}
+	return false
+}
+
+// functionValueParameterTypeTexts returns the declared type text of each value parameter of fn,
+// including annotations written on the type itself.
+func functionValueParameterTypeTexts(file *scanner.File, fn uint32) []string {
+	params, ok := file.FlatFindChild(fn, "function_value_parameters")
+	if !ok {
+		return nil
+	}
+	var types []string
+	for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+		if file.FlatType(param) != "parameter" {
+			continue
+		}
+		_, typ, found := strings.Cut(file.FlatNodeText(param), ":")
+		if !found {
+			continue
+		}
+		if eq := strings.Index(typ, "="); eq >= 0 && !strings.Contains(typ[:eq], "<") {
+			typ = typ[:eq]
+		}
+		types = append(types, strings.TrimSpace(typ))
+	}
+	return types
+}
+
+var typeAnnotationPrefixRe = regexp.MustCompile(`^(@[A-Za-z_][\w.]*(\([^)]*\))?\s+)+`)
+
+// kotlinFinalTypes are final JVM types, so Kotlin emits no wildcard when one is a covariant type argument.
+var kotlinFinalTypes = map[string]bool{
+	"String": true, "Int": true, "Long": true, "Short": true, "Byte": true, "Char": true,
+	"Boolean": true, "Float": true, "Double": true, "Unit": true, "Pair": true, "Triple": true,
+}
+
+// fileFinalClassNames returns the simple names of classes in the file that are final on the JVM:
+// classes without open, abstract or sealed, and objects. Interfaces are excluded.
+func fileFinalClassNames(file *scanner.File) map[string]bool {
+	names := map[string]bool{}
+	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
+		if file.FlatHasChildOfType(decl, "interface") || file.FlatHasModifier(decl, "open") ||
+			file.FlatHasModifier(decl, "abstract") || file.FlatHasModifier(decl, "sealed") ||
+			file.FlatHasModifier(decl, "annotation") {
+			return
+		}
+		if name := extractIdentifierFlat(file, decl); name != "" {
+			names[name] = true
+		}
+	})
+	return names
+}
+
+// multibindingReturnNeedsJvmSuppress reports the first Set or Map in typeText, at any nesting depth,
+// whose covariant value type argument would get a `? extends` wildcard in the JVM signature.
+func multibindingReturnNeedsJvmSuppress(typeText string, finalTypes map[string]bool) (string, bool) {
 	s := strings.TrimSpace(typeText)
 	if s == "" {
 		return "", false
 	}
-	s = strings.TrimSuffix(s, "?")
-	s = strings.TrimSpace(s)
-	openIdx := strings.Index(s, "<")
-	if openIdx < 0 {
+	// @JvmSuppressWildcards on the type itself covers every type argument.
+	prefix := typeAnnotationPrefixRe.FindString(s)
+	if strings.Contains(prefix, "@JvmSuppressWildcards") {
 		return "", false
 	}
-	bare := strings.TrimSpace(s[:openIdx])
-	if dotIdx := strings.LastIndex(bare, "."); dotIdx >= 0 {
-		bare = bare[dotIdx+1:]
+	s = s[len(prefix):]
+	for i := 0; i < len(s); i++ {
+		if s[i] != '<' {
+			continue
+		}
+		start := i
+		for start > 0 && (isIdentByte(s[start-1])) {
+			start--
+		}
+		bare := s[start:i]
+		if bare != "Set" && bare != "MutableSet" && bare != "Map" && bare != "MutableMap" {
+			continue
+		}
+		if start > 0 && s[start-1] != '.' && s[start-1] != '<' && s[start-1] != ',' && s[start-1] != ' ' {
+			continue
+		}
+		args, ok := splitTypeArguments(s[i:])
+		if !ok || len(args) == 0 {
+			continue
+		}
+		value := strings.TrimSpace(args[0])
+		if strings.HasSuffix(bare, "Map") {
+			if len(args) < 2 {
+				continue
+			}
+			value = strings.TrimSpace(args[len(args)-1])
+		}
+		if strings.Contains(value, "@JvmSuppressWildcards") {
+			continue
+		}
+		if !strings.HasPrefix(value, "out ") && multibindingValueIsFinal(value, finalTypes) {
+			continue
+		}
+		return bare, true
 	}
-	switch bare {
-	case "Set", "MutableSet", "Map", "MutableMap":
-	default:
-		return "", false
+	return "", false
+}
+
+// multibindingValueIsFinal reports a value type that Kotlin never wraps in a wildcard.
+func multibindingValueIsFinal(value string, finalTypes map[string]bool) bool {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(value), "?"))
+	if lt := strings.Index(value, "<"); lt >= 0 {
+		value = value[:lt]
 	}
-	if !strings.HasSuffix(s, ">") {
-		return "", false
+	if dot := strings.LastIndex(value, "."); dot >= 0 {
+		value = value[dot+1:]
 	}
-	inner := s[openIdx+1 : len(s)-1]
-	if strings.Contains(inner, "@JvmSuppressWildcards") {
-		return "", false
+	return kotlinFinalTypes[value] || finalTypes[value]
+}
+
+// splitTypeArguments splits the top-level arguments of a type argument list that starts with `<`.
+func splitTypeArguments(s string) ([]string, bool) {
+	depth := 0
+	start := 1
+	var args []string
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '<', '(':
+			depth++
+		case ')':
+			depth--
+		case '>':
+			if i > 0 && s[i-1] == '-' {
+				continue
+			}
+			depth--
+			if depth == 0 {
+				return append(args, s[start:i]), true
+			}
+		case ',':
+			if depth == 1 {
+				args = append(args, s[start:i])
+				start = i + 1
+			}
+		}
 	}
-	return bare, true
+	return nil, false
 }
 
 // ModuleWithNonStaticProvidesRule detects @Module abstract class declarations
@@ -486,4 +607,98 @@ func intoSetReturnIsCollectionWrapper(typeText string) (string, bool) {
 		return bare, true
 	}
 	return "", false
+}
+
+var singletonThreadSafeMarkers = []string{
+	"@Volatile", "@GuardedBy", "Synchronized", "by atomic", "Atomic", "Mutex", "MutableStateFlow", "MutableSharedFlow",
+}
+
+// singletonVarIsProtected reports whether a singleton var has an atomic or lock-based guard.
+func singletonVarIsProtected(file *scanner.File, classIdx, prop uint32, propName string) bool {
+	text := file.FlatNodeText(prop)
+	for _, marker := range singletonThreadSafeMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return strings.Contains(text, "private") && mutableObjectPropertyReferencesAreSynchronized(file, classIdx, prop, propName)
+}
+
+var singletonThreadAnnotations = []string{"MainThread", "UiThread", "WorkerThread"}
+
+var singletonConfinementParamNames = map[string]bool{
+	"mainThreadHandler": true, "mainHandler": true, "uiHandler": true,
+	"mainDispatcher": true, "uiDispatcher": true, "mainThreadDispatcher": true,
+}
+
+var singletonConfinementParamTypes = map[string]bool{"Handler": true, "MainCoroutineDispatcher": true}
+
+// singletonClassIsThreadConfined reports a class whose constructor takes a main-thread handler or
+// dispatcher, or that carries a thread annotation itself. Its state is assumed to be touched from one thread.
+func singletonClassIsThreadConfined(file *scanner.File, classIdx uint32) bool {
+	for _, a := range singletonThreadAnnotations {
+		if hasAnnotationFlat(file, classIdx, a) {
+			return true
+		}
+	}
+	ctor, ok := file.FlatFindChild(classIdx, "primary_constructor")
+	if !ok {
+		return false
+	}
+	confined := false
+	file.FlatWalkNodes(ctor, "class_parameter", func(param uint32) {
+		name := extractIdentifierFlat(file, param)
+		_, typ, _ := strings.Cut(file.FlatNodeText(param), ":")
+		typ = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(typ), "?"))
+		if i := strings.LastIndex(typ, "."); i >= 0 {
+			typ = typ[i+1:]
+		}
+		if singletonConfinementParamNames[name] || singletonConfinementParamTypes[typ] {
+			confined = true
+		}
+	})
+	return confined
+}
+
+// singletonVarOnlyTouchedByThreadAnnotatedMembers reports a property that is referenced only inside
+// functions annotated @MainThread, @UiThread or @WorkerThread.
+func singletonVarOnlyTouchedByThreadAnnotatedMembers(file *scanner.File, classIdx, prop uint32, propName string) bool {
+	seen := false
+	all := true
+	file.FlatWalkNodes(classIdx, "simple_identifier", func(ref uint32) {
+		if !all || !file.FlatNodeTextEquals(ref, propName) || flatNodeHasAncestor(file, ref, prop) {
+			return
+		}
+		seen = true
+		fn, ok := flatEnclosingFunction(file, ref)
+		if !ok {
+			all = false
+			return
+		}
+		for _, a := range singletonThreadAnnotations {
+			if hasAnnotationFlat(file, fn, a) {
+				return
+			}
+		}
+		all = false
+	})
+	return seen && all
+}
+
+// singletonClassAssignsProperty reports whether the class body assigns the named property, as `name = x`,
+// `this.name = x` or a compound assignment such as `name += x`.
+func singletonClassAssignsProperty(file *scanner.File, classIdx uint32, propName string) bool {
+	found := false
+	file.FlatWalkNodes(classIdx, "assignment", func(assign uint32) {
+		if found {
+			return
+		}
+		target := file.FlatFirstChild(assign)
+		if target == 0 {
+			return
+		}
+		text := strings.TrimSpace(file.FlatNodeText(target))
+		found = text == propName || text == "this."+propName
+	})
+	return found
 }

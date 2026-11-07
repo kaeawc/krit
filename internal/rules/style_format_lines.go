@@ -1,7 +1,6 @@
 package rules
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -24,16 +23,22 @@ var trailingWhitespaceRe = regexp.MustCompile(`[ \t]+$`)
 
 func (r *TrailingWhitespaceRule) check(ctx *api.Context) {
 	file := ctx.File
-	for i, line := range file.Lines {
+	insideRawString := computeRawStringLines(file.Lines)
+	for i, rawLine := range file.Lines {
+		// Lines of CRLF files keep their '\r'; it is not whitespace to report.
+		line := strings.TrimSuffix(rawLine, "\r")
 		if trailingWhitespaceRe.MatchString(line) {
 			trimmed := strings.TrimRight(line, " \t")
 			f := r.Finding(file, i+1, len(trimmed)+1, "Trailing whitespace detected.")
-			lineStart := file.LineOffset(i)
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   lineStart,
-				EndByte:     lineStart + len(line),
-				Replacement: trimmed,
+			// Whitespace inside a raw string is part of its value, so it is reported but not removed.
+			if !insideRawString[i] {
+				lineStart := file.LineOffset(i)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   lineStart + len(trimmed),
+					EndByte:     lineStart + len(line),
+					Replacement: "",
+				}
 			}
 			ctx.Emit(f)
 		}
@@ -62,17 +67,20 @@ func (r *NoTabsRule) check(ctx *api.Context) {
 		indent = 4
 	}
 	spaces := strings.Repeat(" ", indent)
+	insideRawString := computeRawStringLines(file.Lines)
 	for i, line := range file.Lines {
 		if strings.Contains(line, "\t") {
 			f := r.Finding(file, i+1, strings.Index(line, "\t")+1,
 				"Tab character found. Use spaces for indentation.")
-			lineStart := file.LineOffset(i)
-			replaced := strings.ReplaceAll(line, "\t", spaces)
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   lineStart,
-				EndByte:     lineStart + len(line),
-				Replacement: replaced,
+			// Tabs inside a raw string are part of its value, so they are reported but not replaced.
+			if !insideRawString[i] {
+				lineStart := file.LineOffset(i)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   lineStart,
+					EndByte:     lineStart + len(line),
+					Replacement: strings.ReplaceAll(line, "\t", spaces),
+				}
 			}
 			ctx.Emit(f)
 		}
@@ -88,6 +96,46 @@ type MaxLineLengthRule struct {
 	ExcludeImportStatements  bool
 	ExcludeCommentStatements bool
 	ExcludeRawStrings        bool
+	// IgnoreUnwrappableLines skips long lines that cannot be wrapped without changing their meaning
+	// (SQL, log messages, resource references, call chains). krit extension; detekt reports them.
+	IgnoreUnwrappableLines bool
+}
+
+// maxLineLengthMessage is detekt's message for every long line.
+const maxLineLengthMessage = "Line detected, which is longer than the defined maximum line length in the code style."
+
+var (
+	markdownURLTailRe   = regexp.MustCompile(`\[.+\]\([^\s]+(?:\s+(?:\([^()]*\)|"[^"]*"|'[^']*'))?\s*\)$`)
+	kotlinRefTailRe     = regexp.MustCompile(`\[[\w|.]*\]$`)
+	urlSchemePrefixList = []string{"http://", "https://", "ftp://", "file:", "jar:", "mailto:"}
+)
+
+// maxLineLengthUnits counts UTF-16 code units, which is what detekt's String.length measures.
+func maxLineLengthUnits(line string) int {
+	n := 0
+	for _, r := range line {
+		if r >= 0x10000 {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+// lineEndsWithURL mirrors detekt: a line whose last token is a URL, a markdown link or a KDoc reference cannot be shortened.
+func lineEndsWithURL(line string) bool {
+	trimmed := strings.TrimRight(line, " \t\r")
+	fields := strings.Fields(trimmed)
+	if len(fields) > 0 {
+		last := fields[len(fields)-1]
+		for _, p := range urlSchemePrefixList {
+			if strings.HasPrefix(last, p) {
+				return true
+			}
+		}
+	}
+	return markdownURLTailRe.MatchString(trimmed) || kotlinRefTailRe.MatchString(trimmed)
 }
 
 // Confidence bumps this line rule from the 0.75 line-rule default to
@@ -101,11 +149,6 @@ func (r *MaxLineLengthRule) check(ctx *api.Context) {
 	// Skip test files — test code commonly uses long descriptive strings
 	// and chained builder calls where wrapping hurts readability.
 	if scanner.IsTestFile(file.Path) {
-		return
-	}
-	// Skip gradle build scripts — DSL chains with long type/config names
-	// are the norm.
-	if strings.HasSuffix(file.Path, ".gradle.kts") {
 		return
 	}
 	// Compute set of lines that are inside a triple-quoted raw string literal.
@@ -129,63 +172,57 @@ func (r *MaxLineLengthRule) check(ctx *api.Context) {
 			continue
 		}
 		// Skip lines inside raw string literals (""").
-		if insideRawString[i] {
+		if r.ExcludeRawStrings && insideRawString[i] {
 			continue
 		}
 		// Skip KDoc / block comment continuation lines (`* ...`).
-		if insideBlockComment[i] || strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "//") {
+		if r.ExcludeCommentStatements && (insideBlockComment[i] || strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "//")) {
 			continue
 		}
 		// Skip single-line block comments `/** ... */` or `/* ... */`.
-		if strings.HasPrefix(trimmed, "/*") && strings.HasSuffix(trimmed, "*/") {
+		if r.ExcludeCommentStatements && strings.HasPrefix(trimmed, "/*") && strings.HasSuffix(trimmed, "*/") {
 			continue
 		}
-		if len(line) > r.Max {
-			// Skip lines whose overflow is entirely contained in a URL literal.
-			if containsURLLiteral(line) {
+		if maxLineLengthUnits(strings.TrimSuffix(line, "\r")) > r.Max {
+			if lineEndsWithURL(line) {
 				continue
 			}
-			// Skip lines that contain SQL DDL/DML keywords inside string
-			// literals — these are typically hard-to-wrap schema definitions.
-			if containsSQLLiteral(line) {
+			if r.IgnoreUnwrappableLines && maxLineLengthUnwrappable(line, trimmed, r.Max) {
 				continue
 			}
-			// Skip lines where the overflow position sits inside a string
-			// literal — the long part is string content that cannot be
-			// wrapped without changing the string value.
-			if overflowInsideStringLiteral(line, r.Max) {
-				continue
-			}
-			// Skip lines containing an Android string resource reference.
-			// Resource identifiers are single tokens and cannot be
-			// wrapped. Cover the full `R.<kind>.` prefix set — R.string,
-			// R.plurals, R.drawable, R.id, R.layout, R.menu, R.color,
-			// R.dimen, R.style, R.array, R.bool, R.integer, R.raw,
-			// R.mipmap, R.xml, R.anim, R.animator, R.font, R.navigation.
-			if containsRResourceReference(line) {
-				continue
-			}
-			// Skip android.util.Log calls — log messages are typically
-			// string content that shouldn't be wrapped mid-message.
-			if isLogCallLine(trimmed) {
-				continue
-			}
-			// Skip Android Navigation Safe-Args generated Directions
-			// calls. The generated `XxxFragmentDirections.actionXxxToYyy()`
-			// identifiers are single tokens that can't be wrapped.
-			if strings.Contains(line, "Directions.action") {
-				continue
-			}
-			// Skip lines that are a single dotted call-chain expression —
-			// these cannot be wrapped without breaking the expression and
-			// are a common source of unwrappable overflow in builder DSLs.
-			if isDottedCallChainLine(trimmed) {
-				continue
-			}
-			ctx.Emit(r.Finding(file, i+1, r.Max+1,
-				fmt.Sprintf("Line exceeds maximum length of %d characters.", r.Max)))
+			ctx.Emit(r.Finding(file, i+1, r.Max+1, maxLineLengthMessage))
 		}
 	}
+}
+
+// maxLineLengthUnwrappable reports the long lines krit exempts although detekt flags them.
+func maxLineLengthUnwrappable(line, trimmed string, max int) bool {
+	// A URL literal that holds the overflow.
+	if containsURLLiteral(line) {
+		return true
+	}
+	// SQL DDL/DML keywords inside string literals: schema definitions are hard to wrap.
+	if containsSQLLiteral(line) {
+		return true
+	}
+	// The overflow sits inside a string literal, so wrapping would change the value.
+	if overflowInsideStringLiteral(line, max) {
+		return true
+	}
+	// Android resource identifiers (`R.<kind>.`) are single tokens.
+	if containsRResourceReference(line) {
+		return true
+	}
+	// Log messages are string content that should not be wrapped mid-message.
+	if isLogCallLine(trimmed) {
+		return true
+	}
+	// Safe-Args generated `XxxDirections.actionXxxToYyy()` identifiers are single tokens.
+	if strings.Contains(line, "Directions.action") {
+		return true
+	}
+	// A single dotted call chain with no natural wrap point.
+	return isDottedCallChainLine(trimmed)
 }
 
 // rResourceKindPrefixes enumerates the `R.<kind>.` Android resource

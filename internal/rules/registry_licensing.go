@@ -122,7 +122,7 @@ func registerLicensingRules() {
 	}
 	{
 		r := &OptInMarkerExposedPubliclyRule{
-			BaseRule: BaseRule{RuleName: "OptInMarkerExposedPublicly", RuleSetName: licensingRuleSet, Sev: "warning", Desc: "Detects public API declarations annotated directly with an opt-in marker, which propagates the opt-in requirement to callers."},
+			BaseRule: BaseRule{RuleName: "OptInMarkerExposedPublicly", RuleSetName: "libraries", Sev: "warning", Desc: "Detects public API declarations annotated directly with an opt-in marker, which propagates the opt-in requirement to callers."},
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
@@ -146,9 +146,11 @@ func registerLicensingRules() {
 				if !ok {
 					return
 				}
-				if file.FlatHasModifier(decl, "private") ||
-					file.FlatHasModifier(decl, "internal") ||
-					file.FlatHasModifier(decl, "protected") {
+				// A member of a private or internal class is not reachable by callers outside the module.
+				if !libraryEffectivelyPublic(file, decl) {
+					return
+				}
+				if optInMarkerIsAcknowledged(file, decl, name) {
 					return
 				}
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,

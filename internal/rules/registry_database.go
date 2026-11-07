@@ -25,13 +25,16 @@ func registerDatabaseRules() {
 				if !ok {
 					return
 				}
-				if hasAnnotationFlat(file, fn, "Provides") {
+				if hasExactAnnotationFlat(file, fn, "Provides") {
 					return
 				}
 				if hasModuleAnnotatedAncestorFlat(file, fn) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Room.databaseBuilder(...) inside a regular function recreates the database; create it once via @Provides or a singleton holder.")
+				if roomBuilderStoredOnceFlat(file, idx, fn) {
+					return
+				}
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx), "Room.databaseBuilder(...) inside a regular function recreates the database; create it once via @Provides or a singleton holder.")
 			},
 		})
 	}
@@ -42,7 +45,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Dao") {
+				if !hasExactAnnotationFlat(file, idx, "Dao") {
 					return
 				}
 				if file.FlatHasChildOfType(idx, "interface") {
@@ -52,7 +55,7 @@ func registerDatabaseRules() {
 				if name == "" {
 					name = "DAO"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("@Dao '%s' should be declared as an interface, not an abstract class.", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Dao '%s' should be declared as an interface, not an abstract class.", name))
 			},
 		})
 	}
@@ -63,7 +66,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Dao") {
+				if !hasExactAnnotationFlat(file, idx, "Dao") {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "class_body")
@@ -82,11 +85,15 @@ func registerDatabaseRules() {
 					if daoFunctionHasAllowedAnnotationFlat(file, child) {
 						continue
 					}
+					// Concrete helper methods in abstract-class DAOs are legal Room code.
+					if functionHasBodyFlat(file, child) {
+						continue
+					}
 					funcName := extractIdentifierFlat(file, child)
 					if funcName == "" {
 						funcName = "function"
 					}
-					ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("@Dao '%s' function '%s' must be annotated with @Query, @Insert, @Update, @Delete, or @Transaction.", daoName, funcName))
+					ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1, fmt.Sprintf("@Dao '%s' function '%s' must be annotated with @Query, @Insert, @Update, @Delete, or @Transaction.", daoName, funcName))
 				}
 			},
 		})
@@ -148,7 +155,7 @@ func registerDatabaseRules() {
 				if name == "" {
 					name = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Function '%s' returns ResultSet; callers almost always forget to close it. Accept a (ResultSet) -> R block and call .use {} instead.", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Function '%s' returns ResultSet; callers almost always forget to close it. Accept a (ResultSet) -> R block and call .use {} instead.", name))
 			},
 		})
 	}
@@ -159,7 +166,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"class_parameter", "property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "PrimaryKey") {
+				if !hasExactAnnotationFlat(file, idx, "PrimaryKey") {
 					return
 				}
 				if !declarationIsVarFlat(file, idx) {
@@ -187,7 +194,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Entity") {
+				if !hasExactAnnotationFlat(file, idx, "Entity") {
 					return
 				}
 				ctor, _ := file.FlatFindChild(idx, "primary_constructor")
@@ -222,7 +229,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Database") {
+				if !hasExactAnnotationFlat(file, idx, "Database") {
 					return
 				}
 				if !roomDatabaseExportSchemaDisabledFlat(file, idx) {
@@ -232,7 +239,7 @@ func registerDatabaseRules() {
 				if name == "" {
 					name = "database"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@Database '%s' sets exportSchema = false; schema history is lost. Set exportSchema = true and configure room.schemaLocation.", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("@Database '%s' sets exportSchema = false; schema history is lost. Set exportSchema = true and configure room.schemaLocation.", name))
 			},
 		})
 	}
@@ -252,13 +259,13 @@ func registerDatabaseRules() {
 				if !sourceImportsOrMentions(file, "androidx.room") {
 					return
 				}
-				if isDebugSourceFile(file.Path) {
+				if isDebugSourceFile(file.Path) || isTestSupportFile(file.Path) {
 					return
 				}
 				if enclosedInBuildConfigDebugGuard(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
 					fmt.Sprintf("Room.%s() drops all user data on a schema version bump; provide a Migration or restrict the call to debug builds.", name))
 			},
 		})
@@ -310,7 +317,11 @@ func registerDatabaseRules() {
 				if jdbcPreparedStatementHasCleanupFlat(file, idx, cursorName) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Cursor '%s' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().", cursorName))
+				// A returned or stored cursor is closed by its new owner.
+				if scope, ok := file.FlatParent(idx); ok && localEscapesAfterDeclaration(file, scope, idx, cursorName) {
+					return
+				}
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Cursor '%s' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().", cursorName))
 			},
 		})
 	}
@@ -329,7 +340,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if hasAnnotationFlat(file, idx, "Transaction") {
+				if hasExactAnnotationFlat(file, idx, "Transaction") {
 					return
 				}
 				body, _ := file.FlatFindChild(idx, "function_body")
@@ -340,7 +351,7 @@ func registerDatabaseRules() {
 				if !ok {
 					return
 				}
-				if !hasAnnotationFlat(file, cls, "Dao") {
+				if !hasExactAnnotationFlat(file, cls, "Dao") {
 					return
 				}
 				writers := daoWriteAnnotatedSiblings(file, cls)
@@ -358,7 +369,7 @@ func registerDatabaseRules() {
 						wrapped = true
 						return
 					}
-					if _, ok := writers[name]; ok {
+					if _, ok := writers[name]; ok && roomCallHasLocalReceiver(file, callIdx) {
 						count++
 					}
 				})
@@ -369,7 +380,7 @@ func registerDatabaseRules() {
 				if fnName == "" {
 					fnName = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("DAO function '%s' performs multiple @Insert/@Update/@Delete calls but is not @Transaction; wrap it with @Transaction to make the writes atomic.", fnName))
 			},
 		})
@@ -399,13 +410,13 @@ func registerDatabaseRules() {
 				if expr == 0 || file.FlatType(expr) != "string_literal" {
 					return
 				}
-				if !flatContainsStringInterpolation(file, expr) {
+				if !flatContainsStringInterpolation(file, expr) || migrationInterpolationsAreConstants(file, expr) {
 					return
 				}
 				if !enclosingMigrationOwnerFlat(file, idx) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "execSQL inside a Room Migration uses string interpolation; use a non-interpolated literal or bindArgs to avoid SQL injection and migration drift.")
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx), "execSQL inside a Room Migration uses string interpolation; use a non-interpolated literal or bindArgs to avoid SQL injection and migration drift.")
 			},
 		})
 	}
@@ -416,7 +427,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"function_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := findAnnotationTextFlat(file, idx, "Query")
+				text := findExactAnnotationTextFlat(file, idx, "Query")
 				if text == "" {
 					return
 				}
@@ -435,7 +446,7 @@ func registerDatabaseRules() {
 				if fnName == "" {
 					fnName = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("@Query on '%s' issues a %s without a WHERE clause; add a WHERE clause or rename the function to deleteAll/clearAll if a full-table operation is intended.", fnName, keyword))
 			},
 		})
@@ -447,7 +458,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"function_declaration"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := findAnnotationTextFlat(file, idx, "Query")
+				text := findExactAnnotationTextFlat(file, idx, "Query")
 				if text == "" {
 					return
 				}
@@ -459,15 +470,15 @@ func registerDatabaseRules() {
 					return
 				}
 				retType := directExplicitTypeTextFlat(file, idx)
-				if roomReturnTypeAllowsUnboundedSelect(retType) {
+				if !roomReturnTypeLoadsCollection(retType) {
 					return
 				}
 				fnName := extractIdentifierFlat(file, idx)
 				if fnName == "" {
 					fnName = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("@Query on '%s' uses 'SELECT *' without a LIMIT and returns a materialised type; add a LIMIT or return Flow/PagingSource to avoid unbounded loads.", fnName))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+					fmt.Sprintf("@Query on '%s' uses 'SELECT *' without a LIMIT and returns a materialised collection; add a LIMIT or return Flow/PagingSource to avoid unbounded loads.", fnName))
 			},
 		})
 	}
@@ -478,7 +489,7 @@ func registerDatabaseRules() {
 			NodeTypes: []string{"function_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := findAnnotationTextFlat(file, idx, "Query")
+				text := findExactAnnotationTextFlat(file, idx, "Query")
 				if text == "" {
 					return
 				}
@@ -490,19 +501,19 @@ func registerDatabaseRules() {
 				if !ok {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("@Query uses 'LIKE :%s' without wildcard embedding or ESCAPE; embed wildcards (e.g. '%%' || :%s || '%%' ESCAPE '\\\\') or rename if exact-match is intended.", bind, bind))
 			},
 		})
 	}
 	{
-		r := &RoomSuspendQueryInTransactionRule{BaseRule: BaseRule{RuleName: "RoomSuspendQueryInTransaction", RuleSetName: "database", Sev: "warning", Desc: "Detects suspend @Transaction DAO functions calling sibling suspend @Query methods; Room already wraps suspending queries and the double-wrap breaks cancellation."}}
+		r := &RoomSuspendQueryInTransactionRule{BaseRule: BaseRule{RuleName: "RoomSuspendQueryInTransaction", RuleSetName: "database", Sev: "warning", Desc: "Detects suspend @Transaction DAO functions whose only DAO call is one sibling suspend @Query method; Room already runs a suspending query in its own transaction, so the outer @Transaction adds nothing."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"function_declaration"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Transaction") {
+				if !hasExactAnnotationFlat(file, idx, "Transaction") {
 					return
 				}
 				if !file.FlatHasModifier(idx, "suspend") {
@@ -516,35 +527,38 @@ func registerDatabaseRules() {
 				if !ok {
 					return
 				}
-				if !hasAnnotationFlat(file, cls, "Dao") {
+				if !hasExactAnnotationFlat(file, cls, "Dao") {
 					return
 				}
 				queries := daoSuspendQueryAnnotatedSiblings(file, cls)
 				if len(queries) == 0 {
 					return
 				}
-				hit := false
+				writes := daoWriteAnnotatedSiblings(file, cls)
+				// Several sibling calls need the outer transaction for atomicity; a single query does not.
+				siblingCalls := 0
+				queryCalls := 0
 				file.FlatWalkNodes(body, "call_expression", func(callIdx uint32) {
-					if hit {
-						return
-					}
 					name := flatCallExpressionName(file, callIdx)
-					if name == "" {
+					if name == "" || !roomCallHasLocalReceiver(file, callIdx) {
 						return
 					}
 					if _, ok := queries[name]; ok {
-						hit = true
+						siblingCalls++
+						queryCalls++
+					} else if _, ok := writes[name]; ok {
+						siblingCalls++
 					}
 				})
-				if !hit {
+				if siblingCalls != 1 || queryCalls != 1 {
 					return
 				}
 				fnName := extractIdentifierFlat(file, idx)
 				if fnName == "" {
 					fnName = "function"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					fmt.Sprintf("Suspend DAO function '%s' is @Transaction and calls sibling suspend @Query methods; Room already wraps suspending queries in a transaction, so the outer @Transaction double-wraps and breaks cancellation. Drop @Transaction or make the DAO function blocking.", fnName))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+					fmt.Sprintf("Suspend DAO function '%s' is @Transaction but only calls one suspend @Query method; Room already runs a suspending query in its own transaction, so the outer @Transaction adds nothing. Drop @Transaction or call a second DAO method that needs to be atomic with it.", fnName))
 			},
 		})
 	}
@@ -565,7 +579,7 @@ func registerDatabaseRules() {
 				if jdbcPreparedStatementHasCleanupFlat(file, idx, stmtName) {
 					return
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("PreparedStatement '%s' should be wrapped in use { } or explicitly closed with .close().", stmtName))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("PreparedStatement '%s' should be wrapped in use { } or explicitly closed with .close().", stmtName))
 			},
 		})
 	}

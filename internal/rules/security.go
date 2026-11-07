@@ -19,7 +19,22 @@ type LogPiiRule struct {
 
 func (r *LogPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var defaultLogPiiNamePattern = regexp.MustCompile(`(?i)(password|passwd|token|secret|apiKey|api_key|authHeader|authorization|ssn|pan|cvv|jwt|sessionId|cookie)`)
+// defaultLogPiiNamePattern matches whole snake_case words. Identifiers are
+// split into words before matching (see logPiiNameMatches) so that `pan` does
+// not match `expandedState`, `company`, or `span`.
+var defaultLogPiiNamePattern = regexp.MustCompile(`(?i)(^|_)(passwords?|passwd|tokens?|secrets?|api_?keys?|auth_?headers?|authorization|ssn|pan|cvv|jwt|session_?ids?|cookies?)(_|$)`)
+
+var logPiiCamelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])|([A-Z]+)([A-Z][a-z])`)
+
+// logPiiNameMatches reports whether name matches pattern either as written or
+// after splitting camelCase into snake_case words.
+func logPiiNameMatches(pattern *regexp.Regexp, name string) bool {
+	if pattern.MatchString(name) {
+		return true
+	}
+	snake := logPiiCamelBoundary.ReplaceAllString(name, "${1}${3}_${2}${4}")
+	return snake != name && pattern.MatchString(snake)
+}
 
 func logPiiEffectivePattern(r *LogPiiRule) *regexp.Regexp {
 	if r != nil && r.PiiNamePattern != nil {
@@ -141,9 +156,16 @@ func logPiiHasLocalType(file *scanner.File, name string) bool {
 }
 
 func logPiiSensitiveArgument(file *scanner.File, call uint32, pattern *regexp.Regexp) uint32 {
-	for _, arg := range logPiiArgumentExpressions(file, call) {
+	args := logPiiArgumentExpressions(file, call)
+	for i, arg := range args {
 		if logPiiExpressionMentionsSensitiveIdentifier(file, arg, pattern) {
 			return arg
+		}
+		// The first argument of a multi-argument call is usually the log tag.
+		if i > 0 || len(args) == 1 {
+			if logPiiIsBareSensitiveReference(file, arg, pattern) {
+				return arg
+			}
 		}
 	}
 	return 0
@@ -183,7 +205,42 @@ func logPiiArgumentExpressions(file *scanner.File, call uint32) []uint32 {
 	}
 }
 
-var logPiiInterpolationNamePattern = regexp.MustCompile(`\$\{?\s*([A-Za-z_][A-Za-z0-9_]*)`)
+var (
+	logPiiSimpleInterpolation = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
+	logPiiBraceInterpolation  = regexp.MustCompile(`\$\{([^}]*)\}`)
+	logPiiIdentifier          = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	logPiiPropertyChain       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\??\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+)
+
+// logPiiInterpolatedNames returns every identifier read by a `$name` or
+// `${expr}` template entry, including selectors such as `user.password`.
+func logPiiInterpolatedNames(text string) []string {
+	var names []string
+	for _, m := range logPiiSimpleInterpolation.FindAllStringSubmatch(text, -1) {
+		names = append(names, m[1])
+	}
+	for _, m := range logPiiBraceInterpolation.FindAllStringSubmatch(text, -1) {
+		names = append(names, logPiiIdentifier.FindAllString(m[1], -1)...)
+	}
+	return names
+}
+
+// logPiiLoggedNames is logPiiInterpolatedNames, except that a plain property chain
+// such as `${tokenResult.errorMessage}` contributes only its last name, the value logged.
+func logPiiLoggedNames(text string) []string {
+	var names []string
+	for _, m := range logPiiSimpleInterpolation.FindAllStringSubmatch(text, -1) {
+		names = append(names, m[1])
+	}
+	for _, m := range logPiiBraceInterpolation.FindAllStringSubmatch(text, -1) {
+		ids := logPiiIdentifier.FindAllString(m[1], -1)
+		if logPiiPropertyChain.MatchString(strings.TrimSpace(m[1])) && len(ids) > 1 {
+			ids = ids[len(ids)-1:]
+		}
+		names = append(names, ids...)
+	}
+	return names
+}
 
 func logPiiExpressionMentionsSensitiveIdentifier(file *scanner.File, expr uint32, pattern *regexp.Regexp) bool {
 	if file == nil || expr == 0 || pattern == nil {
@@ -191,8 +248,8 @@ func logPiiExpressionMentionsSensitiveIdentifier(file *scanner.File, expr uint32
 	}
 	text := file.FlatNodeText(expr)
 	if flatContainsStringInterpolation(file, expr) {
-		for _, match := range logPiiInterpolationNamePattern.FindAllStringSubmatch(text, -1) {
-			if len(match) > 1 && pattern.MatchString(match[1]) {
+		for _, name := range logPiiLoggedNames(text) {
+			if logPiiNameMatches(pattern, name) {
 				return true
 			}
 		}
@@ -212,7 +269,7 @@ func logPiiConcatMentionsSensitiveIdentifier(file *scanner.File, expr uint32, pa
 		switch file.FlatType(idx) {
 		case "simple_identifier", "identifier":
 			name := file.FlatNodeText(idx)
-			if pattern.MatchString(name) {
+			if logPiiNameMatches(pattern, name) {
 				found = true
 			}
 		}
@@ -305,6 +362,38 @@ func looksLikeHardcodedBearerToken(token string) bool {
 
 func looksLikeHardcodedGcpServiceAccount(body string) bool {
 	trimmed := strings.TrimSpace(body)
-	return strings.Contains(body, `"type": "service_account"`) ||
-		strings.HasPrefix(trimmed, "-----BEGIN PRIVATE KEY-----")
+	if strings.HasPrefix(trimmed, "-----BEGIN PRIVATE KEY-----") {
+		return gcpPrivateKeyHasMaterial(strings.TrimPrefix(trimmed, "-----BEGIN PRIVATE KEY-----"))
+	}
+	// Only a JSON object counts; prose that quotes the type does not.
+	return strings.HasPrefix(trimmed, "{") && strings.Contains(body, `"type": "service_account"`)
+}
+
+// gcpPrivateKeyHasMaterial reports a PEM body with key bytes after the header,
+// so a bare `-----BEGIN PRIVATE KEY-----` delimiter constant is not a leaked key.
+func gcpPrivateKeyHasMaterial(rest string) bool {
+	rest = strings.ReplaceAll(rest, `\n`, "")
+	if end := strings.Index(rest, "-----END"); end >= 0 {
+		rest = rest[:end]
+	}
+	count := 0
+	for _, r := range rest {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '+' || r == '/' || r == '=' {
+			count++
+		}
+	}
+	return count >= 40
+}
+
+// logPiiIsBareSensitiveReference reports a message argument that is only a
+// variable or property reference such as `password` or `user.authToken`.
+func logPiiIsBareSensitiveReference(file *scanner.File, expr uint32, pattern *regexp.Regexp) bool {
+	switch file.FlatType(expr) {
+	case "simple_identifier", "identifier":
+		return logPiiNameMatches(pattern, file.FlatNodeText(expr))
+	case "navigation_expression":
+		segs := flatNavigationChainIdentifiers(file, expr)
+		return len(segs) > 0 && logPiiNameMatches(pattern, segs[len(segs)-1])
+	}
+	return false
 }

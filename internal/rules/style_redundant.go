@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -80,102 +81,6 @@ type UnnecessaryParenthesesRule struct {
 // context-dependent. Classified per roadmap/17.
 func (r *UnnecessaryParenthesesRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func unnParensIsIfConditionFlat(file *scanner.File, node, parent uint32) bool {
-	for i := 0; i < file.FlatChildCount(parent); i++ {
-		child := file.FlatChild(parent, i)
-		if child == 0 {
-			continue
-		}
-		if t := file.FlatType(child); t == "control_structure_body" || t == "{" {
-			return false
-		}
-		if child == node {
-			return true
-		}
-	}
-	return false
-}
-
-func unnParensIsWhenSubjectFlat(file *scanner.File, node, parent uint32) bool {
-	for i := 0; i < file.FlatChildCount(parent); i++ {
-		child := file.FlatChild(parent, i)
-		if child == 0 {
-			continue
-		}
-		if t := file.FlatType(child); t == "when_entry" || t == "{" {
-			return false
-		}
-		if child == node {
-			return true
-		}
-	}
-	return false
-}
-
-func unnParensInnerIsSafeFlat(file *scanner.File, inner uint32) bool {
-	switch file.FlatType(inner) {
-	case "simple_identifier", "integer_literal", "long_literal",
-		"real_literal", "boolean_literal", "character_literal",
-		"string_literal", "null_literal", "this_expression",
-		"super_expression", "call_expression", "navigation_expression",
-		"indexing_expression", "parenthesized_expression",
-		"object_literal", "lambda_literal", "when_expression",
-		"if_expression", "try_expression", "collection_literal":
-		return true
-	}
-	return false
-}
-
-// Binary operator node types in tree-sitter Kotlin.
-var unnParensBinaryExprTypes = map[string]bool{
-	"multiplicative_expression": true,
-	"additive_expression":       true,
-	"range_expression":          true,
-	"infix_expression":          true,
-	"elvis_expression":          true,
-	"check_expression":          true,
-	"comparison_expression":     true,
-	"equality_expression":       true,
-	"conjunction_expression":    true,
-	"disjunction_expression":    true,
-}
-
-// Precedence rank (higher = binds tighter).
-var unnParensBinaryPrecedence = map[string]int{
-	"disjunction_expression":    1,
-	"conjunction_expression":    2,
-	"equality_expression":       3,
-	"comparison_expression":     4,
-	"check_expression":          5,
-	"range_expression":          6,
-	"additive_expression":       7,
-	"multiplicative_expression": 8,
-	"infix_expression":          9,
-	"elvis_expression":          10,
-}
-
-func unnParensClarifyPrecedenceFlat(file *scanner.File, parenNode, inner uint32) bool {
-	if !unnParensBinaryExprTypes[file.FlatType(inner)] {
-		if file.FlatType(inner) == "prefix_expression" {
-			outerParent, ok := file.FlatParent(parenNode)
-			if ok && unnParensBinaryExprTypes[file.FlatType(outerParent)] {
-				return true
-			}
-		}
-		return false
-	}
-	outerParent, ok := file.FlatParent(parenNode)
-	for ok && file.FlatType(outerParent) == "parenthesized_expression" {
-		outerParent, ok = file.FlatParent(outerParent)
-	}
-	if !ok || !unnParensBinaryExprTypes[file.FlatType(outerParent)] {
-		return false
-	}
-	innerPrec := unnParensBinaryPrecedence[file.FlatType(inner)]
-	outerPrec := unnParensBinaryPrecedence[file.FlatType(outerParent)]
-	return innerPrec != outerPrec
-}
-
 // UnnecessaryInheritanceRule detects `: Any()`.
 type UnnecessaryInheritanceRule struct {
 	FlatDispatchBase
@@ -250,6 +155,102 @@ func isValidKotlinIdentifier(s string) bool {
 
 func isIdentChar(ch byte) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
+}
+
+// offsetInsideSourceComment reports whether a byte offset lies in a `//` or `/* */` comment. The parser
+// can lose comment context after earlier recovery and read KDoc text as code, so rules that look at
+// identifiers use the source text to tell.
+func offsetInsideSourceComment(file *scanner.File, offset uint32) bool {
+	ranges := filefacts.FileFact(fileFactsCache(), file, slotSourceCommentRanges, func() [][2]uint32 {
+		return sourceCommentRanges(file.Content)
+	})
+	for _, r := range ranges {
+		if offset >= r[0] && offset < r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceCommentRanges lexes Kotlin text just enough to find comment spans, skipping strings and chars.
+func sourceCommentRanges(src []byte) [][2]uint32 {
+	var ranges [][2]uint32
+	var scan func(i int, untilBrace bool) int
+	scanString := func(i int, raw bool) int {
+		for i < len(src) {
+			switch {
+			case !raw && src[i] == '\\':
+				i += 2
+			case raw && src[i] == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
+				return i + 3
+			case !raw && (src[i] == '"' || src[i] == '\n'):
+				return i + 1
+			case src[i] == '$' && i+1 < len(src) && src[i+1] == '{':
+				i = scan(i+2, true)
+			default:
+				i++
+			}
+		}
+		return i
+	}
+	scan = func(i int, untilBrace bool) int {
+		depth := 0
+		for i < len(src) {
+			c := src[i]
+			switch {
+			case c == '/' && i+1 < len(src) && src[i+1] == '/':
+				start := i
+				for i < len(src) && src[i] != '\n' {
+					i++
+				}
+				ranges = append(ranges, [2]uint32{uint32(start), uint32(i)})
+			case c == '/' && i+1 < len(src) && src[i+1] == '*':
+				start, nest := i, 0
+				for i < len(src) {
+					if src[i] == '/' && i+1 < len(src) && src[i+1] == '*' {
+						nest++
+						i += 2
+					} else if src[i] == '*' && i+1 < len(src) && src[i+1] == '/' {
+						nest--
+						i += 2
+						if nest == 0 {
+							break
+						}
+					} else {
+						i++
+					}
+				}
+				ranges = append(ranges, [2]uint32{uint32(start), uint32(i)})
+			case c == '"' && i+2 < len(src) && src[i+1] == '"' && src[i+2] == '"':
+				i = scanString(i+3, true)
+			case c == '"':
+				i = scanString(i+1, false)
+			case c == '\'':
+				i++
+				for i < len(src) && src[i] != '\'' && src[i] != '\n' {
+					if src[i] == '\\' {
+						i++
+					}
+					i++
+				}
+				i++
+			case untilBrace && c == '{':
+				depth++
+				i++
+			case untilBrace && c == '}':
+				if depth == 0 {
+					return i + 1
+				}
+				depth--
+				i++
+			default:
+				i++
+			}
+		}
+		return i
+	}
+	scan(0, false)
+	return ranges
 }
 
 func isInsideStringTemplateFlat(file *scanner.File, idx uint32) bool {
@@ -361,4 +362,78 @@ var nonNullFactoryCalls = []string{
 	"listOf(", "setOf(", "mapOf(",
 	"mutableListOf(", "mutableSetOf(", "mutableMapOf(",
 	"sequenceOf(", "emptyList(", "emptySet(", "emptyMap(",
+}
+
+// innerClassMayUseOuterInstance reports whether an inner class could need its
+// outer instance. Without type information it is conservative: any `this@X`
+// label, any mention of an outer member, sibling inner class or type
+// parameter name, and any outer class with supertypes (inherited members are
+// invisible here) count as a use.
+func innerClassMayUseOuterInstance(file *scanner.File, inner uint32) bool {
+	outer, ok := file.FlatParent(inner)
+	if !ok {
+		return true
+	}
+	outerBody := outer
+	outer, ok = file.FlatParent(outerBody)
+	if !ok || file.FlatType(outerBody) != "class_body" || file.FlatType(outer) != "class_declaration" {
+		return true
+	}
+	for child := file.FlatFirstChild(outer); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier", "delegation_specifiers", ":":
+			return true
+		}
+	}
+	names := make(map[string]bool)
+	addName := func(n string) {
+		if n != "" {
+			names[strings.Trim(n, "`")] = true
+		}
+	}
+	forEachDirectClassMemberFlat(file, outerBody, func(member uint32) {
+		switch file.FlatType(member) {
+		case "property_declaration":
+			file.FlatWalkNodes(member, "variable_declaration", func(v uint32) {
+				addName(extractIdentifierFlat(file, v))
+			})
+			addName(propertyDeclarationNameFlat(file, member))
+		case "function_declaration":
+			addName(extractIdentifierFlat(file, member))
+		case "class_declaration":
+			if member != inner && file.FlatHasModifier(member, "inner") {
+				addName(extractIdentifierFlat(file, member))
+			}
+		}
+	})
+	file.FlatWalkAllNodes(outer, func(n uint32) {
+		if p, ok := file.FlatParent(n); !ok || (p != outer && file.FlatType(p) != "primary_constructor" &&
+			file.FlatType(p) != "class_parameter" && file.FlatType(p) != "type_parameters" && file.FlatType(p) != "type_parameter") {
+			return
+		}
+		if t := file.FlatType(n); t == "simple_identifier" || t == "type_identifier" {
+			// Parameters and type parameters of nested classes belong to those classes, not to the outer one.
+			if owner, ok := flatEnclosingAncestor(file, n, "class_declaration"); ok && owner != outer {
+				return
+			}
+			addName(file.FlatNodeText(n))
+		}
+	})
+	used := false
+	file.FlatWalkAllNodes(inner, func(n uint32) {
+		if used {
+			return
+		}
+		switch file.FlatType(n) {
+		case "simple_identifier", "type_identifier":
+			if n != inner && names[strings.Trim(file.FlatNodeText(n), "`")] {
+				used = true
+			}
+		case "this_expression", "super_expression":
+			if strings.Contains(file.FlatNodeText(n), "@") {
+				used = true
+			}
+		}
+	})
+	return used
 }

@@ -111,9 +111,38 @@ func (r *TranslatableMarkupMismatchRule) checkResourceRoot(ctx *api.Context, res
 		variants = append(variants, variantDir{locale: locale, dir: filepath.Join(resRoot, name)})
 	}
 	sort.Slice(variants, func(i, j int) bool { return variants[i].locale < variants[j].locale })
-	for _, v := range variants {
-		records := map[string]stringMarkupRecord{}
-		collectStringMarkup(v.dir, records)
+	variantRecords := make([]map[string]stringMarkupRecord, len(variants))
+	// translationsStripped marks default markup that no translation keeps and every translation drops to
+	// plain text; that pattern comes from a translation pipeline that strips tags, not from one mistake.
+	translationsStripped := map[string]bool{}
+	for i, v := range variants {
+		variantRecords[i] = map[string]stringMarkupRecord{}
+		collectStringMarkup(v.dir, variantRecords[i])
+	}
+	for name, def := range defaults {
+		if !def.style.any() {
+			continue
+		}
+		stripped, seen := true, false
+		for _, records := range variantRecords {
+			if vs, ok := records[name]; ok {
+				seen = true
+				if vs.style.any() {
+					stripped = false
+				}
+			}
+		}
+		translationsStripped[name] = seen && stripped
+	}
+	// Like the other translation-consistency checks, report each string key once, on the first
+	// mismatching locale, and count the remaining locales that differ.
+	type mismatch struct {
+		rec    stringMarkupRecord
+		locale string
+	}
+	byName := map[string][]mismatch{}
+	for i, v := range variants {
+		records := variantRecords[i]
 		names := make([]string, 0, len(records))
 		for n := range records {
 			names = append(names, n)
@@ -121,20 +150,38 @@ func (r *TranslatableMarkupMismatchRule) checkResourceRoot(ctx *api.Context, res
 		sort.Strings(names)
 		for _, name := range names {
 			def, ok := defaults[name]
-			if !ok {
+			if !ok || translationsStripped[name] {
 				continue
 			}
 			vs := records[name]
-			if !def.style.any() && !vs.style.any() {
+			if !def.style.any() && !vs.style.md {
+				// A plain default is only a baseline for literal Markdown leaking in; extra HTML tags in a translation are not lost markup.
 				continue
 			}
 			if def.style.eq(vs.style) {
 				continue
 			}
-			ctx.Emit(baseFinding(vs.path, vs.line, r.BaseRule,
-				fmt.Sprintf("String `%s` markup style differs from default: `values/` uses %s; `values-%s/` uses %s.",
-					name, def.style.describe(), v.locale, vs.style.describe())))
+			byName[name] = append(byName[name], mismatch{rec: vs, locale: filepath.Base(v.dir)})
 		}
+	}
+	keys := make([]string, 0, len(byName))
+	for name := range byName {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		all := byName[name]
+		first := all[0]
+		msg := fmt.Sprintf("String `%s` markup style differs from default: `values/` uses %s; `%s/` uses %s.",
+			name, defaults[name].style.describe(), first.locale, first.rec.style.describe())
+		switch len(all) {
+		case 1:
+		case 2:
+			msg += " 1 other locale differs too."
+		default:
+			msg += fmt.Sprintf(" %d other locales differ too.", len(all)-1)
+		}
+		ctx.Emit(baseFinding(first.rec.path, first.rec.line, r.BaseRule, msg))
 	}
 }
 
@@ -187,7 +234,8 @@ func parseStringsXMLForMarkup(path string, data []byte, out map[string]stringMar
 			_ = skipXMLBody(dec)
 			continue
 		}
-		if strings.EqualFold(xmlLocalAttr(start.Attr, "translatable"), "false") {
+		if strings.EqualFold(xmlLocalAttr(start.Attr, "translatable"), "false") ||
+			strings.EqualFold(xmlLocalAttr(start.Attr, "formatted"), "false") {
 			_ = skipXMLBody(dec)
 			continue
 		}

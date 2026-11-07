@@ -37,12 +37,15 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	if projectDiagnostic(ctx, DiagnosticProjection{
 		RuleID:       "UnnecessarySafeCall",
 		FactoryNames: []string{"UNNECESSARY_SAFE_CALL"},
+		Accept: func(ctx *api.Context, _ oracle.Diagnostic) bool {
+			return !receiverIsLambdaAssignedLocal(ctx.File, ctx.File.FlatChild(ctx.Idx, 0))
+		},
 		Message: func(ctx *api.Context, _ oracle.Diagnostic) string {
 			recv := ""
 			if r0 := ctx.File.FlatChild(ctx.Idx, 0); r0 != 0 {
 				recv = strings.TrimSpace(ctx.File.FlatNodeText(r0))
 			}
-			return fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", recv)
+			return provenNonNullMessage(ctx.File, ctx.Idx, "?.", recv, "safe call")
 		},
 		Fix: func(ctx *api.Context, _ oracle.Diagnostic) *scanner.Fix {
 			op := flatNavigationSafeCallOperator(ctx.File, ctx.Idx)
@@ -56,6 +59,10 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 		return
 	}
 
+	// The compiler analyzed this file and reported nothing, so the name-based guess would only add false positives.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
 	// The navigation_expression has children: receiver, navigation_suffix
 	// The ?. operator is in the navigation_suffix
 	if file.FlatChildCount(idx) < 2 {
@@ -129,7 +136,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 		if resolved == nil || !resolved.Resolved || resolved.Kind == typeinfer.TypeGeneric || resolved.IsNullable() {
 			return
 		}
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		f := r.Finding(file, file.FlatRow(anchorOr(safeOp, idx))+1, file.FlatCol(anchorOr(safeOp, idx))+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable parameter '%s'.", name))
 		if fix := makeFix(); fix != nil {
 			f.Fix = fix
@@ -149,8 +156,8 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 				return // Actually nullable — safe call is needed
 			}
 			// Known non-null (possibly via smart cast) — flag
-			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Unnecessary safe call (?.) on non-nullable '%s'.", name))
+			f := r.Finding(file, file.FlatRow(anchorOr(safeOp, idx))+1, file.FlatCol(anchorOr(safeOp, idx))+1,
+				provenNonNullMessage(file, idx, "?.", name, "safe call"))
 			if fix := makeFix(); fix != nil {
 				f.Fix = fix
 			}
@@ -160,7 +167,7 @@ func (r *UnnecessarySafeCallRule) check(ctx *api.Context) {
 	}
 
 	if sameFileExplicitNonNullValueDeclaration(file, idx, name) {
-		f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		f := r.Finding(file, file.FlatRow(anchorOr(safeOp, idx))+1, file.FlatCol(anchorOr(safeOp, idx))+1,
 			fmt.Sprintf("Unnecessary safe call (?.) on non-nullable val '%s'.", name))
 		if fix := makeFix(); fix != nil {
 			f.Fix = fix

@@ -37,8 +37,7 @@ func (r *UseArrayLiteralsInAnnotationsRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UseArrayLiteralsInAnnotations",
 		RuleSet:       "style",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonOpinionated,
+		DefaultActive: true,
 		FixLevel:      "idiomatic",
 	}
 }
@@ -54,8 +53,13 @@ func (r *UseDataClassRule) Meta() api.RuleDescriptor {
 			api.BoolOption(api.BoolOptionSpec[UseDataClassRule]{
 				Name:        "allowVars",
 				Default:     false,
-				Description: "Allow classes with var properties.",
+				Description: "Do not report classes that have a var property (detekt's relaxation).",
 				Apply:       func(r *UseDataClassRule, v bool) { r.AllowVars = v },
+			}),
+			api.StringListOption(api.StringListOptionSpec[UseDataClassRule]{
+				Name:        "excludeAnnotatedClasses",
+				Description: "Annotation globs; classes with a matching annotation are not reported.",
+				Apply:       func(r *UseDataClassRule, v []string) { r.ExcludeAnnotatedClasses = v },
 			}),
 		},
 	}

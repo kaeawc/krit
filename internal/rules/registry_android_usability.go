@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,8 +24,10 @@ func registerAndroidUsabilityRules() {
 			NodeTypes:  []string{"call_expression", "simple_identifier", "user_type", "navigation_expression"},
 			Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Confidence: api.ConfidenceMedium, Implementation: r,
+			NeedsLibraryFacts: true,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				minSdk := projectMinSdk(ctx)
 				line := file.FlatRow(idx)
 				if nodeHasAncestorTypeFlat(file, idx, "import_header") {
 					return
@@ -39,8 +42,16 @@ func registerAndroidUsabilityRules() {
 				for api, level := range newAPITable {
 					key := strings.TrimSuffix(strings.TrimSuffix(api, "<"), "(")
 					if name == key {
-						ctx.EmitAt(line+1, 1,
-							api+" requires API "+strconv.Itoa(level)+"; verify that the call is guarded or the project minSdk is at least "+strconv.Itoa(level)+".")
+						// Nothing to report once the project minSdk covers the API, or when the call is a
+						// compat wrapper (ContextCompat.getColor) or a function this file declares itself.
+						if level <= minSdk || newAPICompatReceiver(file, idx, name) || fileDeclaresFunctionNamed(file, name) {
+							return
+						}
+						if !newAPICallTargetMatches(ctx, name) {
+							return
+						}
+						ctx.EmitAt(line+1, file.FlatCol(idx)+1,
+							key+" requires API "+strconv.Itoa(level)+"; verify that the call is guarded or the project minSdk is at least "+strconv.Itoa(level)+".")
 						return
 					}
 				}
@@ -57,10 +68,15 @@ func registerAndroidUsabilityRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"simple_identifier", "navigation_expression"}, Needs: api.NeedsTypeInfo, Confidence: api.ConfidenceMedium, Implementation: r,
+			NeedsLibraryFacts: true,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				minSdk := projectMinSdk(ctx)
 				line := file.FlatRow(idx)
 				if nodeHasAncestorTypeFlat(file, idx, "import_header") {
+					return
+				}
+				if newAPINestedAccessHandledByOuterNode(file, idx) {
 					return
 				}
 				if apiGuardedByVersionCheckFlat(file, idx) {
@@ -69,7 +85,10 @@ func registerAndroidUsabilityRules() {
 				ref := inlinedAPIReferenceNameFlat(file, idx)
 				for _, entry := range inlinedAPITable {
 					if ref == entry.Pattern || strings.HasSuffix(ref, "."+entry.Pattern) {
-						ctx.EmitAt(line+1, 1,
+						if entry.Level <= minSdk {
+							return
+						}
+						ctx.EmitAt(line+1, file.FlatCol(idx)+1,
 							"Constant "+entry.Pattern+" is inlined from API "+strconv.Itoa(entry.Level)+"; the value may be available at runtime but the constant was introduced in API "+strconv.Itoa(entry.Level)+".")
 						return
 					}
@@ -90,10 +109,14 @@ func registerAndroidUsabilityRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := extractIdentifierFlat(file, idx)
-				if !overrideMethodNames[name] || file.FlatHasModifier(idx, "override") {
+				paramCounts, known := overrideMethodNames[name]
+				if !known || file.FlatHasModifier(idx, "override") {
 					return
 				}
-				if !overrideEnclosingAndroidComponentFlat(file, idx) {
+				if count, _ := analyzeFunctionViewSignature(file, idx); !slices.Contains(paramCounts, count) {
+					return
+				}
+				if !overrideEnclosingAndroidComponentFlat(file, idx, name) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
@@ -123,20 +146,26 @@ func registerAndroidUsabilityRules() {
 		r := &UnusedResourcesRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "UnusedResources", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:  "UnusedResources", Brief: "Unused resources",
-			Category: ALCUnknown, ALSeverity: ALSWarning, Priority: 3,
+			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 3,
 			Origin: "AOSP Android Lint",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"navigation_expression"}, Confidence: r.Confidence(), Implementation: r,
-			Check: func(ctx *api.Context) {
-				resType, resName, ok := unusedResourceReferenceFlat(ctx.File, ctx.Idx)
-				if !ok {
-					return
-				}
-				ctx.EmitAt(ctx.File.FlatRow(ctx.Idx)+1, ctx.File.FlatCol(ctx.Idx)+1,
-					"Resource 'R."+resType+"."+resName+"' uses a test/temp naming pattern and may be unused.")
-			},
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &UnusedIdsRule{AndroidRule: AndroidRule{
+			BaseRule: BaseRule{RuleName: "UnusedIds", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:  "UnusedIds", Brief: "Unused id",
+			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 1,
+			Origin: "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
 		})
 	}
 }

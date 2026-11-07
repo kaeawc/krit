@@ -84,11 +84,18 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *api.Context) {
 	}
 
 	emitted := make(map[string]bool)
+	// Every way a file can reach a fixture (import, same package, qualified name) puts the fixture
+	// class's simple name in the file as an identifier, so a file without one needs no tree walk.
+	simpleNames := fixtureSimpleNames(fixturesByQualified)
 	for _, file := range parsedFiles {
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		if scanner.IsTestFile(filepath.ToSlash(file.Path)) || isTestFixturePath(file.Path) || isGeneratedSourcePath(file.Path) {
+		// A test-fixtures module is test code, so fixture-to-fixture references are fine.
+		if scanner.IsTestFile(filepath.ToSlash(file.Path)) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) || isGeneratedSourcePath(file.Path) {
+			continue
+		}
+		if !mentionsIdentifier(file.Content, simpleNames) {
 			continue
 		}
 
@@ -110,6 +117,46 @@ func (r *TestFixtureAccessedFromProductionRule) check(ctx *api.Context) {
 			r.emitTestFixtureAccess(ctx, file, idx, decl, confidence, emitted)
 		})
 	}
+}
+
+// fixtureSimpleNames is the set of last name segments of the fixtures' qualified names.
+func fixtureSimpleNames(fixtures map[string]testFixtureDeclaration) map[string]struct{} {
+	names := make(map[string]struct{}, len(fixtures))
+	for qualified := range fixtures {
+		simple := qualified
+		if i := strings.LastIndexByte(qualified, '.'); i >= 0 {
+			simple = qualified[i+1:]
+		}
+		names[simple] = struct{}{}
+	}
+	return names
+}
+
+// mentionsIdentifier reports whether content holds an identifier (a run of letters, digits, '_' and
+// '$', or any non-ASCII byte) equal to one of names. It over-reports inside comments and strings,
+// which only costs the caller a tree walk it would have done anyway.
+func mentionsIdentifier(content []byte, names map[string]struct{}) bool {
+	if len(names) == 0 {
+		return false
+	}
+	start := -1
+	for i := 0; i <= len(content); i++ {
+		isIdent := false
+		if i < len(content) {
+			c := content[i]
+			isIdent = c == '_' || c == '$' || c >= 0x80 || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		}
+		switch {
+		case isIdent && start < 0:
+			start = i
+		case !isIdent && start >= 0:
+			if _, ok := names[string(content[start:i])]; ok {
+				return true
+			}
+			start = -1
+		}
+	}
+	return false
 }
 
 func resolveFixtureAccessNode(ctx *api.Context, idx uint32, packageName string, fixtures map[string]testFixtureDeclaration, imports map[string]fixtureImportBinding, importedNames map[string]string, productionDeclarations map[string]bool) (testFixtureDeclaration, float64, bool) {
@@ -362,15 +409,27 @@ func fixtureByQualifiedReferenceText(file *scanner.File, idx uint32, fixtures ma
 	for current, ok := idx, true; ok; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
 		case "user_type", "navigation_expression", "call_expression", "object_creation_expression", "scoped_identifier", "scoped_type_identifier", "field_access", "method_invocation":
-			text := compactSourceReference(file.FlatNodeText(current))
-			for qualifiedName, decl := range fixtures {
-				if text == qualifiedName ||
-					strings.HasPrefix(text, qualifiedName+"<") ||
-					strings.HasPrefix(text, qualifiedName+"(") ||
-					strings.HasPrefix(text, qualifiedName+".") {
-					return decl, true
-				}
+			if decl, ok := fixtureByReferencePrefix(compactSourceReference(file.FlatNodeText(current)), fixtures); ok {
+				return decl, true
 			}
+		}
+	}
+	return testFixtureDeclaration{}, false
+}
+
+// fixtureByReferencePrefix returns the fixture whose qualified name is text, or text up to a following
+// '.', '<' or '('. Qualified names hold none of those boundary characters except '.', so each
+// prefix is looked up once instead of comparing text against every fixture.
+func fixtureByReferencePrefix(text string, fixtures map[string]testFixtureDeclaration) (testFixtureDeclaration, bool) {
+	for i := 0; i <= len(text); i++ {
+		if i < len(text) && text[i] != '.' && text[i] != '<' && text[i] != '(' {
+			continue
+		}
+		if decl, ok := fixtures[text[:i]]; ok {
+			return decl, true
+		}
+		if i < len(text) && text[i] != '.' {
+			break
 		}
 	}
 	return testFixtureDeclaration{}, false

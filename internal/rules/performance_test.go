@@ -85,39 +85,6 @@ fun bar() {
 	}
 }
 
-func TestSpreadOperator_Negative(t *testing.T) {
-	findings := runRuleByName(t, "SpreadOperator", `
-package test
-fun foo(vararg items: String) {}
-fun bar() {
-    foo(*arrayOf("a", "b"))
-}`)
-	if len(findings) != 0 {
-		t.Errorf("SpreadOperator should not flag *arrayOf(...), got %d findings", len(findings))
-	}
-}
-
-func TestSpreadOperator_NegativeArrayFactories(t *testing.T) {
-	cases := []string{
-		`foo(*arrayOf("a", "b"))`,
-		`takeInts(*intArrayOf(1, 2))`,
-		`foo(*arrayOfNulls<String>(2))`,
-		`foo(*emptyArray<String>())`,
-	}
-	for _, expr := range cases {
-		findings := runRuleByName(t, "SpreadOperator", `
-package test
-fun foo(vararg items: String) {}
-fun takeInts(vararg items: Int) {}
-fun bar() {
-    `+expr+`
-}`)
-		if len(findings) != 0 {
-			t.Errorf("SpreadOperator should not flag %s, got %d findings", expr, len(findings))
-		}
-	}
-}
-
 func TestSpreadOperator_NegativeForwardedVarargParameter(t *testing.T) {
 	findings := runRuleByName(t, "SpreadOperator", `
 package test
@@ -127,82 +94,6 @@ fun forward(vararg items: String) {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("SpreadOperator should not flag forwarded vararg parameter, got %d findings", len(findings))
-	}
-}
-
-func TestSpreadOperator_NegativeComputedCallResult(t *testing.T) {
-	findings := runRuleByName(t, "SpreadOperator", `
-package test
-fun foo(vararg items: String) {}
-fun buildItems(): Array<String> = arrayOf("a", "b")
-fun bar() {
-    foo(*buildItems())
-}`)
-	if len(findings) != 0 {
-		t.Errorf("SpreadOperator should not flag computed call results, got %d findings", len(findings))
-	}
-}
-
-func TestSpreadOperator_NegativeResolvedArrayFactoryCallTarget(t *testing.T) {
-	code := `
-package test
-import kotlin.arrayOf as makeArray
-fun foo(vararg items: String) {}
-fun bar() {
-    foo(*makeArray("a", "b"))
-}`
-	file := parseInline(t, code)
-	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
-	fake := oracle.NewFakeOracle()
-	fake.CallTargets[file.Path] = map[string]string{}
-	file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
-		if strings.Contains(file.FlatNodeText(idx), "makeArray") {
-			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
-			fake.CallTargets[file.Path][key] = "kotlin.arrayOf"
-		}
-	})
-	var findings []scanner.Finding
-	for _, r := range api.Registry {
-		if r.ID == "SpreadOperator" {
-			dispatcher := rules.NewDispatcher([]*api.Rule{r}, oracle.NewCompositeResolver(fake, resolver))
-			cols := dispatcher.Run(file)
-			findings = cols.Findings()
-			break
-		}
-	}
-	if len(findings) != 0 {
-		t.Errorf("SpreadOperator should not flag resolved kotlin.arrayOf alias, got %d findings", len(findings))
-	}
-}
-
-func TestSpreadOperator_NegativeNestedSqlBuilder(t *testing.T) {
-	// Spread inside a helper that is itself nested inside a SQL builder
-	// call should still be exempt — the parent walk must continue past
-	// non-builder call_expression ancestors.
-	cases := []string{
-		`select(helper(*ids))`,
-		`where("col = ?", helper(*ids))`,
-		`select(table, listOf(*ids))`,
-		`buildArgs(wrap(inner(*ids)))`,
-	}
-	for _, expr := range cases {
-		findings := runRuleByName(t, "SpreadOperator", `
-package test
-fun select(vararg parts: Any) {}
-fun where(clause: String, vararg parts: Any) {}
-fun buildArgs(vararg parts: Any) {}
-fun helper(vararg parts: Any): Array<Any> = arrayOf(*parts)
-fun wrap(vararg parts: Any): Array<Any> = arrayOf(*parts)
-fun inner(vararg parts: Any): Array<Any> = arrayOf(*parts)
-fun listOf(vararg parts: Any): Array<Any> = arrayOf(*parts)
-val table = "t"
-fun bar(ids: Array<Long>) {
-    `+expr+`
-}`)
-		if len(findings) != 0 {
-			t.Errorf("SpreadOperator should not flag %s (nested SQL builder), got %d findings", expr, len(findings))
-		}
 	}
 }
 
@@ -226,21 +117,21 @@ func TestUnnecessaryTemporaryInstantiation_Positive(t *testing.T) {
 	findings := runRuleByName(t, "UnnecessaryTemporaryInstantiation", `
 package test
 fun bar() {
-    val s = Integer.valueOf(42).toString()
+    val s = Integer(42).toString()
 }`)
-	if len(findings) == 0 {
-		t.Error("UnnecessaryTemporaryInstantiation should flag Integer.valueOf(x).toString()")
+	if len(findings) != 1 || findings[0].Message != "Avoid temporary objects when converting primitive types to `String`." {
+		t.Errorf("UnnecessaryTemporaryInstantiation should flag Integer(x).toString() with detekt's message, got %v", findings)
 	}
 }
 
-func TestUnnecessaryTemporaryInstantiation_QualifiedPositive(t *testing.T) {
+func TestUnnecessaryTemporaryInstantiation_QualifiedIsNotFlagged(t *testing.T) {
 	findings := runRuleByName(t, "UnnecessaryTemporaryInstantiation", `
 package test
 fun bar() {
-    val s = java.lang.Integer.parseInt("42").toString()
+    val s = java.lang.Integer(42).toString()
 }`)
-	if len(findings) == 0 {
-		t.Error("UnnecessaryTemporaryInstantiation should flag qualified wrapper conversions")
+	if len(findings) != 0 {
+		t.Errorf("detekt does not match a qualified wrapper constructor, got %v", findings)
 	}
 }
 
@@ -669,12 +560,12 @@ fun bar() {
 // --- UnnecessaryTypeCasting ---
 
 func TestUnnecessaryTypeCasting_Positive(t *testing.T) {
-	findings := runRuleByName(t, "UnnecessaryTypeCasting", `
+	findings := findingsFor(t, buildRuleIndex()["UnnecessaryTypeCasting"], parseInline(t, `
 package test
 fun bar() {
     val x: String = "hello"
     val y: String = x as String
-}`)
+}`))
 	if len(findings) == 0 {
 		t.Error("UnnecessaryTypeCasting should flag casting String to String")
 	}
@@ -738,5 +629,87 @@ fun f(value: Any?) {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("UnnecessaryTypeCasting should not rewrite nullable safe-cast targets, got %d findings", len(findings))
+	}
+}
+
+func TestSpreadOperator_IgnoresCommentLinesLexedAsSpread(t *testing.T) {
+	findings := runRuleByName(t, "SpreadOperator", `
+package test
+/**
+ * Matches paths like src/*.kt
+ * @see <a href="http://host/*">link</a>
+ * *bold* text
+ */
+fun a() = 1
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for comment text, got %v", findings)
+	}
+}
+
+func TestSpreadOperator_FlagsSpreadInCallArguments(t *testing.T) {
+	findings := runRuleByName(t, "SpreadOperator", `
+package test
+fun a(args: Array<String>) = listOf(1, *args)
+class X : Base(*arrayOf("a").copyOf())
+`)
+	if len(findings) == 0 {
+		t.Error("expected a finding for spread in call arguments")
+	}
+}
+
+func TestArrayPrimitive_NegativeParameterizedProviders(t *testing.T) {
+	findings := runRuleByName(t, "ArrayPrimitive", `
+package test
+
+import org.junit.runners.Parameterized
+
+class ValuesTest {
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters
+        fun data(): Collection<Array<Int>> = listOf(arrayOf(1, 2))
+
+        fun cartesianProduct(vararg inputs: Array<Int>): List<Array<Int>> = emptyList()
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestArrayPrimitive_NegativeGenericArgument(t *testing.T) {
+	findings := runRuleByName(t, "ArrayPrimitive", `
+package test
+
+val table: Map<String, Array<Int>> = emptyMap()
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Expected results come from running detekt 1.23.8 on the same sources: every spread is reported, array
+// factories and computed arrays included, except forwarding the enclosing function's own vararg parameter.
+func TestSpreadOperator_MatchesDetekt(t *testing.T) {
+	cases := []struct {
+		call string
+		want int
+	}{
+		{`g(*s)`, 1},
+		{`g(*arrayOf("a", "b"))`, 1},
+		{`g(*s.copyOf())`, 1},
+		{`g(*s, "x")`, 1},
+		{`g(*emptyArray())`, 1},
+		{`g(*x)`, 0},
+		{`g("a", *x)`, 0},
+	}
+	for _, tc := range cases {
+		code := "package test\nfun g(vararg x: String) {}\nfun f(vararg x: String, s: Array<String>) {\n    " + tc.call + "\n}\n"
+		got := runRuleByName(t, "SpreadOperator", code)
+		if len(got) != tc.want {
+			t.Errorf("%s: want %d findings, got %v", tc.call, tc.want, got)
+		}
 	}
 }

@@ -15,6 +15,8 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceHigh,
+			Needs:          api.NeedsResolver | api.NeedsOracleExprType,
+			Oracle:         &api.OracleFilter{Identifiers: []string{"!!"}},
 			Implementation: r,
 			Check:          r.check,
 		})
@@ -23,7 +25,7 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 		r := &MapGetWithNotNullAssertionRule{BaseRule: BaseRule{RuleName: "MapGetWithNotNullAssertionOperator", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects map[key]!! usage and suggests getValue() or safe alternatives."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
+			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic,
 			Needs: api.NeedsTypeInfo |
 				api.NeedsOracleCallTargets |
 				api.NeedsOracleSupertypes |

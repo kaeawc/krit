@@ -101,14 +101,6 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	if isAndroidTestSupportArtifactSource(file.Path) {
 		return
 	}
-	// Skip Gradle / Kotlin script files — script blocks commonly use
-	// `listFiles()!!`, `project.findProperty(...)!!`, and similar
-	// patterns where the alternative is more verbose boilerplate.
-	if strings.HasSuffix(file.Path, ".gradle.kts") ||
-		strings.HasSuffix(file.Path, ".main.kts") ||
-		strings.HasSuffix(file.Path, ".kts") {
-		return
-	}
 	// Skip @Preview / sample / fixture functions — these are UI tooling
 	// scaffolding with hand-crafted test data, and `!!` is used liberally
 	// to build fixtures without null-handling noise.
@@ -122,6 +114,16 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	if isNamedKClassSimpleNameLiteralReceiver(receiverText) {
 		return
 	}
+	// detekt reports only an operand typed NULLABLE: a platform type or a smart-cast operand is not.
+	// A type parameter with a nullable bound is marked non-null yet still nullable, so it stays reported.
+	known, nullable := oracleNullability(ctx, receiverIdx)
+	if known && !nullable &&
+		!(file.FlatType(receiverIdx) == "simple_identifier" && hasNullableGenericParamBoundFlat(file, idx, receiverText)) {
+		return
+	}
+	// The flow guards below approximate the compiler's smart casts. When the compiler recorded a nullable type
+	// the operand was not smart-cast (an unstable var), so the `!!` is required and they must not hide it.
+	compilerSaysNullable := known && nullable
 
 	// Skip proto-processor files: any Kotlin file importing Wire /
 	// protobuf packages is treated as a "proto processor". Generated fields
@@ -159,23 +161,28 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	// safe-call chain) is proven non-null by an enclosing `if (x != null)`
 	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
 	// rather than an unsafe assertion.
-	if nullflow.IsGuardedNonNull(file, idx, receiverIdx) {
+	if !compilerSaysNullable && nullflow.IsGuardedNonNull(file, idx, receiverIdx) {
 		return
 	}
 	// Early-return guard: `if (x == null) return` earlier in the same block
 	// proves non-null for any subsequent `x!!` in the same statements scope.
-	if nullflow.IsEarlyReturnGuarded(file, idx, receiverIdx, bodyAlwaysExitsFlat) {
+	if !compilerSaysNullable && nullflow.IsEarlyReturnGuarded(file, idx, receiverIdx, bodyAlwaysExitsFlat) {
+		return
+	}
+	// Precondition guard: `x ?: return`, `check(x != null)` or `requireNotNull(x)` earlier in a
+	// block proves non-null for properties the compiler cannot smart-cast.
+	if nullflow.IsPreconditionGuarded(file, idx, receiverIdx) {
 		return
 	}
 	// Same-expression short-circuit guard: `x != null && x!!.y` proves the
 	// right-hand `!!` safe without relying on Kotlin smart casts.
-	if nullflow.IsShortCircuitGuardedNonNull(file, idx, receiverIdx) {
+	if !compilerSaysNullable && nullflow.IsShortCircuitGuardedNonNull(file, idx, receiverIdx) {
 		return
 	}
 	// Same-block assignment guard: `if (x == null) x = create(); x!!.y` and
 	// `x = create(); x!!.y` prove simple mutable fields/locals non-null in
 	// the current statement sequence.
-	if nullflow.IsSameBlockAssignedNonNullBeforeUse(file, idx, receiverIdx, nil) {
+	if !compilerSaysNullable && nullflow.IsSameBlockAssignedNonNullBeforeUse(file, idx, receiverIdx, nil) {
 		return
 	}
 	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
@@ -192,8 +199,57 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 		return
 	}
 
-	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		"Not-null assertion operator (!!) used. Consider using safe calls (?.) instead."))
+	message := bangBangMessage(file, idx, receiverText)
+	if bangBangInsideRxMapper(file, idx) {
+		// A mapper cannot return null, so a safe call would only move the failure to RxJava's null check.
+		message = bangBangDetektMessage + " A mapper cannot return null, so consider requireNotNull() or checkNotNull() with a message instead."
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1, message))
+}
+
+// bangBangDetektMessage is detekt's UnsafeCallOnNullableType finding message; the shape-specific advice follows it.
+const bangBangDetektMessage = "Calling !! on a nullable type will throw a NullPointerException at runtime in case the value is null. It should be avoided."
+
+const bangBangPlainMessage = bangBangDetektMessage + " Prefer requireNotNull(x) { \"reason\" } or checkNotNull(x) { \"reason\" }; use a safe call (?.) only when null is a valid case."
+
+var bangBangColumnReadMarkers = []string{"getString(", "getInt(", "getLong(", "getBlob(", "getDouble(", "getFloat(", "getShort(", "getColumnIndex", "cursor."}
+
+// bangBangMessage picks advice by receiver shape. The codebase convention is a precondition call with a reason.
+func bangBangMessage(file *scanner.File, idx uint32, receiverText string) string {
+	if strings.HasPrefix(receiverText, "super.") {
+		return bangBangDetektMessage + " Use checkNotNull(x) { \"reason\" } to document why a platform-type call result cannot be null."
+	}
+	lower := strings.ToLower(receiverText)
+	for _, marker := range bangBangColumnReadMarkers {
+		if strings.Contains(lower, strings.ToLower(marker)) {
+			return bangBangDetektMessage + " Use requireNotNull(x) { \"reason\" } on a value read from a column or cursor so a missing value reports what was expected."
+		}
+	}
+	if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "value_argument" {
+		return bangBangDetektMessage + " Use requireNotNull(x) { \"reason\" } on a call argument to document the precondition."
+	}
+	return bangBangPlainMessage
+}
+
+// rxMapperOperators are RxJava operators whose lambda must return a non-null value.
+var rxMapperOperators = map[string]bool{
+	"map": true, "flatMap": true, "concatMap": true, "switchMap": true, "flatMapSingle": true,
+	"flatMapMaybe": true, "flatMapObservable": true, "flatMapPublisher": true, "scan": true,
+	"flatMapIterable": true, "concatMapSingle": true, "switchMapSingle": true,
+}
+
+// bangBangInsideRxMapper reports a `!!` whose nearest enclosing lambda is the argument of an RxJava mapper
+// operator in a file that imports RxJava.
+func bangBangInsideRxMapper(file *scanner.File, idx uint32) bool {
+	if !strings.Contains(string(file.Content), "import io.reactivex.") {
+		return false
+	}
+	lambda, ok := flatEnclosingAncestor(file, idx, "lambda_literal")
+	if !ok {
+		return false
+	}
+	call, ok := flatEnclosingAncestor(file, lambda, "call_expression")
+	return ok && rxMapperOperators[flatCallNameAny(file, call)]
 }
 
 // fileImportsProto returns true if the Kotlin file imports Wire or protobuf
@@ -324,7 +380,7 @@ func isIdiomaticNullAssertionReceiver(receiver string, file *scanner.File, recei
 	if isAndroidResourceReceiver(receiver) {
 		return true
 	}
-	if isWireProtobufReceiver(receiver) {
+	if isWireProtobufReceiver(receiver, file) {
 		return true
 	}
 	if isBundleOrParcelReceiver(receiver) {

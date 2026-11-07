@@ -6,6 +6,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // --- style_idiomatic.go rules ---
@@ -363,14 +364,16 @@ fun foo(lists: List<List<Int>>) {
 func TestUseLet_Positive(t *testing.T) {
 	findings := runRuleByName(t, "UseLet", `
 package test
-fun foo(x: String?) {
-    if (x != null) {
-        println(x)
-    }
+fun foo(x: String?): Int? {
+    return if (x != null) x.length else null
 }
 `)
-	if len(findings) == 0 {
-		t.Fatal("expected finding for null check without else")
+	if len(findings) != 1 {
+		t.Fatalf("expected finding for a null check with a null else, got %d", len(findings))
+	}
+	want := "Use `?.let {}` instead of if/else with a null block when checking for nullable values"
+	if findings[0].Message != want {
+		t.Errorf("message = %q, want %q", findings[0].Message, want)
 	}
 }
 
@@ -406,6 +409,45 @@ data class Person(val name: String, val age: Int)
 	}
 }
 
+func TestUseDataClass_FollowsDetektConditions(t *testing.T) {
+	findings := runRuleByName(t, "UseDataClass", `package test
+interface Marker
+class Plain(val x: Int)
+class WithMarker(val x: Int) : Marker
+class WithBase(val x: Int) : Base()
+class WithBodyProperty(val x: Int) {
+    val y = 1
+}
+class WithFunction(val x: Int) {
+    fun doIt() {}
+}
+class WithToString(val x: Int) {
+    override fun toString() = "x"
+}
+class NoConstructor {
+    val x = 1
+}
+class PlainParameter(val x: Int, y: Int)
+enum class E(val x: Int) { A(1) }
+`)
+	got := map[int]string{}
+	for _, f := range findings {
+		got[f.Line] = f.Message
+	}
+	for _, line := range []int{3, 4, 6, 12} {
+		if got[line] == "" {
+			t.Errorf("expected a finding on line %d, got %v", line, got)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("expected exactly 4 findings, got %v", got)
+	}
+	want := "The class Plain defines no functionality and only holds data. Consider converting it to a data class."
+	if got[3] != want {
+		t.Errorf("message = %q, want %q", got[3], want)
+	}
+}
+
 func TestUseDataClass_HonorsAllowVars(t *testing.T) {
 	// AllowVars was previously a dead config — exposed in metadata but
 	// never consulted. The check fired on classes whose primary
@@ -431,16 +473,15 @@ func TestUseDataClass_HonorsAllowVars(t *testing.T) {
 	codeWithVar := `package test
 class Person(var name: String, var age: Int)
 `
-	// Default (false): class with var properties is NOT a data-class
-	// candidate.
-	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) != 0 {
-		t.Fatalf("expected no findings under default AllowVars=false, got %d", len(findings))
+	// Default (false): like detekt, a class with var properties is still a data-class candidate.
+	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) != 1 {
+		t.Fatalf("expected a finding under default AllowVars=false, got %d", len(findings))
 	}
 
-	// Flipping to true brings the class back into scope.
+	// Flipping to true relaxes the rule for classes that have a var.
 	rule.AllowVars = true
-	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) == 0 {
-		t.Fatal("expected finding under AllowVars=true for class with var properties")
+	if findings := runRuleByName(t, "UseDataClass", codeWithVar); len(findings) != 0 {
+		t.Fatal("expected no finding under AllowVars=true for class with var properties")
 	}
 
 	// All-val classes still fire under either setting (existing behavior).
@@ -487,40 +528,20 @@ fun foo(c: Boolean): Int = when {
 	}
 }
 
-func TestUseIfInsteadOfWhen_FixTwoConditionsNoElse(t *testing.T) {
+func TestUseIfInsteadOfWhen_RequiresTwoEntriesWithAnElse(t *testing.T) {
+	// detekt reports only a binary when: one condition plus an else.
 	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
 package test
-fun foo(c: Boolean, d: Boolean) = when {
-    c -> 1
-    d -> 2
-}
-`)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Fix == nil {
-		t.Fatal("expected fix to be populated")
-	}
-	if !strings.Contains(findings[0].Fix.Replacement, "if (c) 1 else if (d) 2") {
-		t.Errorf("got %q", findings[0].Fix.Replacement)
-	}
-}
-
-func TestUseIfInsteadOfWhen_FixSingleEntry(t *testing.T) {
-	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
-package test
-fun foo(c: Boolean) {
+fun foo(c: Boolean, d: Boolean) {
+    when {
+        c -> 1
+        d -> 2
+    }
     when { c -> println("yes") }
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Fix == nil {
-		t.Fatal("expected fix to be populated")
-	}
-	if !strings.Contains(findings[0].Fix.Replacement, `if (c) println("yes")`) {
-		t.Errorf("got %q", findings[0].Fix.Replacement)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings without an else, got %v", findings)
 	}
 }
 
@@ -543,9 +564,7 @@ fun foo(x: Int): Int = when (x) {
 	}
 }
 
-func TestUseIfInsteadOfWhen_NoFixForMultiCondition(t *testing.T) {
-	// Comma-separated when_conditions (e.g. `1, 2 -> ...`) need
-	// disjunction synthesis — bail.
+func TestUseIfInsteadOfWhen_IgnoresMultiConditionEntries(t *testing.T) {
 	findings := runRuleByName(t, "UseIfInsteadOfWhen", `
 package test
 fun foo(c: Boolean, d: Boolean) = when {
@@ -553,11 +572,8 @@ fun foo(c: Boolean, d: Boolean) = when {
     else -> 2
 }
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Fix != nil {
-		t.Errorf("expected no fix for multi-condition entry, got %q", findings[0].Fix.Replacement)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for a comma-separated condition, got %v", findings)
 	}
 }
 
@@ -579,11 +595,7 @@ fun foo(x: Int) {
 }
 
 func TestUseIfInsteadOfWhen_HonorsIgnoreWhenContainingVariableDeclaration(t *testing.T) {
-	// IgnoreWhenContainingVariableDeclaration was previously a dead
-	// config — exposed in rule metadata but never consulted. With it
-	// set to true, when-expressions whose branches contain a property
-	// declaration are skipped, since they don't translate cleanly to
-	// `if` (each branch's local would need a different scope).
+	// With the option set, a `when` whose subject declares a variable is skipped, like detekt.
 	var rule *rules.UseIfInsteadOfWhenRule
 	for _, candidate := range api.Registry {
 		if candidate.ID == "UseIfInsteadOfWhen" {
@@ -602,17 +614,13 @@ func TestUseIfInsteadOfWhen_HonorsIgnoreWhenContainingVariableDeclaration(t *tes
 	defer func() { rule.IgnoreWhenContainingVariableDeclaration = original }()
 
 	codeWithDecl := `package test
-fun foo(x: Boolean) {
-    when {
-        x -> {
-            val msg = "yes"
-            println(msg)
-        }
+fun foo(x: Int) {
+    when (val y = x) {
+        1 -> println(y)
         else -> println("no")
     }
 }
 `
-	// Default (false): even with a declaration inside, the when fires.
 	if findings := runRuleByName(t, "UseIfInsteadOfWhen", codeWithDecl); len(findings) == 0 {
 		t.Fatal("expected finding under default IgnoreWhenContainingVariableDeclaration=false")
 	}
@@ -620,10 +628,9 @@ fun foo(x: Boolean) {
 	rule.IgnoreWhenContainingVariableDeclaration = true
 
 	if findings := runRuleByName(t, "UseIfInsteadOfWhen", codeWithDecl); len(findings) != 0 {
-		t.Fatalf("expected no findings under IgnoreWhenContainingVariableDeclaration=true with branch-local val, got %d", len(findings))
+		t.Fatalf("expected no findings under IgnoreWhenContainingVariableDeclaration=true with a subject variable, got %d", len(findings))
 	}
 
-	// A simple when with no declarations still fires under the flag.
 	codeNoDecl := `package test
 fun foo(x: Boolean) {
     when {
@@ -798,6 +805,23 @@ fun foo() {
 	}
 }
 
+func TestAlsoCouldBeApply_SingleStatementUsesDetektMessage(t *testing.T) {
+	findings := runRuleByName(t, "AlsoCouldBeApply", `
+package test
+fun foo(b: StringBuilder) {
+    b.also { it.append("a") }
+    b.also({ it.append("b") })
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected both single-statement also calls, got %d", len(findings))
+	}
+	want := "When an `also` block contains only `it`-started expressions, simplify it to the `apply` block."
+	if findings[0].Message != want {
+		t.Errorf("message = %q, want %q", findings[0].Message, want)
+	}
+}
+
 func TestAlsoCouldBeApply_PositiveAssignments(t *testing.T) {
 	findings := runRuleByName(t, "AlsoCouldBeApply", `
 package test
@@ -941,6 +965,21 @@ fun foo(x: String?) {
 	}
 }
 
+func TestEqualsNullCall_IgnoresStaticTwoArgHelpers(t *testing.T) {
+	findings := runRuleByName(t, "EqualsNullCall", `
+package test
+fun foo(a: String?, b: String?) {
+    println(Objects.equals(a, null))
+    println(Utils.equals(a, b))
+    println(a.equals(b))
+    println(a.equals("null"))
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
 func TestEqualsNullCall_Negative(t *testing.T) {
 	findings := runRuleByName(t, "EqualsNullCall", `
 package test
@@ -950,5 +989,310 @@ fun foo(x: String?) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestUseRequire_FlagsNonNegatedGuardAndBuildsNegatedFix(t *testing.T) {
+	src := `package test
+fun foo(x: Int, y: Int?) {
+    if (x > 3) throw IllegalArgumentException("too big")
+    if (y == null) throw IllegalArgumentException()
+}
+`
+	findings := runRuleByName(t, "UseRequire", src)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(findings))
+	}
+	apply := func(f scanner.Finding) string {
+		return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:]
+	}
+	if got := apply(findings[0]); !strings.Contains(got, "require(!(x > 3)) { \"too big\" }") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+	if got := apply(findings[1]); !strings.Contains(got, "require(y != null)\n") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}
+
+// TestUseCheckOrError_ReportsElseIfAndElseThrowsWithoutAFix follows detekt, which reports every throw of an
+// IllegalStateException with no argument or a string message. Only a lone `if` guard can be rewritten.
+func TestUseCheckOrError_ReportsElseIfAndElseThrowsWithoutAFix(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `
+package test
+fun foo(x: Int, e: Exception) {
+    if (x > 3) throw IllegalStateException("with cause", e)
+    if (x > 4) println() else if (x > 5) throw IllegalStateException("else-if")
+    if (x > 6) throw IllegalStateException("a") else println()
+}
+`)
+	if len(findings) != 2 || findings[0].Line != 5 || findings[1].Line != 6 {
+		t.Fatalf("expected findings on lines 5 and 6, got %v", findings)
+	}
+	for _, f := range findings {
+		if f.Fix != nil {
+			t.Errorf("line %d: an if with an else cannot become check(), got fix %v", f.Line, f.Fix)
+		}
+	}
+}
+
+func TestUseLet_OnlyReportsIfElseWithANullBranch(t *testing.T) {
+	findings := runRuleByName(t, "UseLet", `
+package test
+fun foo(a: String?, b: String?): Any? {
+    if (a != null) println(a)
+    if (a != null) { println(a) } else println()
+    val c = if (a == null) null else a.length
+    val d = if (a == null) { null } else { a.length }
+    val e = if (a != null) 1 else 0
+    val f = if (null == b) null else b.length
+    return if (a != null && b != null) 1 else null
+}
+`)
+	if len(findings) != 3 || findings[0].Line != 6 || findings[1].Line != 7 || findings[2].Line != 9 {
+		t.Fatalf("expected findings on lines 6, 7 and 9, got %v", findings)
+	}
+}
+
+func TestUseDataClass_SkipsPrivateConstructorAndInner(t *testing.T) {
+	findings := runRuleByName(t, "UseDataClass", `
+package test
+class Plain(val a: Int)
+class Hidden private constructor(val a: Int)
+class Outer {
+    inner class In(val a: Int)
+}
+@JvmInline value class V(val a: Int)
+`)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "Plain") {
+		t.Fatalf("expected only Plain, got %v", findings)
+	}
+}
+
+func TestUseOrEmpty_SkipsReceiversWhoseDeclaredTypeDiffers(t *testing.T) {
+	findings := runRuleByName(t, "UseOrEmpty", `
+package test
+class A(val set: Set<Int>?, val anyVal: Any?) {
+    fun f(str: String?, list: List<Int>?, any: Any?, other: Set<Int>?) {
+        val a = str ?: ""
+        val b = list ?: emptyList()
+        val c = any ?: ""
+        val d = other ?: emptyList()
+        val e = set ?: emptySet()
+        val g = anyVal ?: ""
+    }
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected str, list and set to be reported, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestEqualsNullCall_FixKeepsPrecedenceAndSkipsSafeCalls(t *testing.T) {
+	src := `package test
+fun f(a: Any?, b: Any?) {
+    if (a.equals(null)) {}
+    val c = !a.equals(null)
+    val d = b?.equals(null)
+}
+`
+	findings := runRuleByName(t, "EqualsNullCall", src)
+	if len(findings) != 3 {
+		t.Fatalf("expected three findings, got %d", len(findings))
+	}
+	apply := func(f scanner.Finding) string { return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:] }
+	if got := apply(findings[0]); !strings.Contains(got, "if (a == null) {}") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+	if got := apply(findings[1]); !strings.Contains(got, "val c = !(a == null)") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+	if findings[2].Fix != nil {
+		t.Error("b?.equals(null) has no plain == null equivalent")
+	}
+}
+
+func TestExplicitCollectionElementAccessMethod_SetOnlyAsStatementAndNamedArgs(t *testing.T) {
+	src := `package test
+fun f(l: MutableList<Int>, m: Map<String, Int>) {
+    l.set(0, 1)
+    val old = l.set(1, 2)
+    m.get(key = "a")
+}
+`
+	findings := runRuleByNameWithResolver(t, "ExplicitCollectionElementAccessMethod", src)
+	for _, f := range findings {
+		if strings.Contains(f.Message, "'set'") && f.Line == 4 {
+			t.Errorf("set() used as a value must not be reported")
+		}
+		if f.Fix != nil && strings.Contains(f.Fix.Replacement, "key =") {
+			t.Errorf("index operands cannot be named: %s", f.Fix.Replacement)
+		}
+	}
+}
+
+func TestUseAnyOrNoneInsteadOfFind_SafeCallFixKeepsNullSemantics(t *testing.T) {
+	src := `package test
+fun f(l: List<Int>?) {
+    val a = l?.find { it > 1 } != null
+    val b = l?.find { it > 1 } == null
+}
+`
+	findings := runRuleByName(t, "UseAnyOrNoneInsteadOfFind", src)
+	if len(findings) != 2 {
+		t.Fatalf("expected two findings, got %d", len(findings))
+	}
+	apply := func(f scanner.Finding) string { return src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:] }
+	if got := apply(findings[0]); !strings.Contains(got, "l?.any { it > 1 } == true") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+	if got := apply(findings[1]); !strings.Contains(got, "l?.none { it > 1 } ?: true") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}
+
+func TestUseEmptyCounterpart_FixKeepsTypeArguments(t *testing.T) {
+	src := `package test
+val a = listOf<String>()
+`
+	findings := runRuleByName(t, "UseEmptyCounterpart", src)
+	if len(findings) != 1 {
+		t.Fatalf("expected one finding, got %d", len(findings))
+	}
+	f := findings[0]
+	if got := src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:]; !strings.Contains(got, "emptyList<String>()") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}
+
+func TestUseCheckOrError_BlockBodyAndCauseArgument(t *testing.T) {
+	src := `package test
+fun f(a: Int, msg: String) {
+    if (a > 1) { throw IllegalStateException("m") }
+    if (a > 2) throw IllegalStateException(RuntimeException())
+    if (a > 3) throw IllegalStateException(msg)
+    if (a > 4) { println(); throw IllegalStateException("m") }
+}
+`
+	findings := runRuleByName(t, "UseCheckOrError", src)
+	if len(findings) != 3 || findings[0].Line != 3 || findings[1].Line != 5 || findings[2].Line != 6 {
+		t.Fatalf("expected findings on lines 3, 5 and 6, got %v", findings)
+	}
+	if findings[2].Fix != nil {
+		t.Errorf("a throw after another statement cannot be rewritten, got fix %v", findings[2].Fix)
+	}
+	f := findings[0]
+	if got := src[:f.Fix.StartByte] + f.Fix.Replacement + src[f.Fix.EndByte:]; !strings.Contains(got, `check(a <= 1) { "m" }`) && !strings.Contains(got, `check(!(a > 1)) { "m" }`) {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}
+
+func TestUseIfInsteadOfWhen_FollowsDetektShape(t *testing.T) {
+	flagged := map[string]string{
+		"subject with else":     "fun f(x: Int) = when (x) { 1 -> 1; else -> 2 }",
+		"subjectless with else": "fun f(x: Int) = when { x > 1 -> 1; else -> 2 }",
+	}
+	for name, src := range flagged {
+		if got := runRuleByName(t, "UseIfInsteadOfWhen", "package test\n"+src+"\n"); len(got) != 1 {
+			t.Errorf("%s: want 1 finding, got %d", name, len(got))
+		}
+	}
+	clean := map[string]string{
+		"two entries without else": "fun f(x: Int) = when (x) { 1 -> 1; 2 -> 2 }",
+		"one entry":                "fun f(x: Int) { when (x) { 1 -> println() } }",
+		"three entries":            "fun f(x: Int) = when (x) { 1 -> 1; 2 -> 2; else -> 3 }",
+		"several conditions":       "fun f(x: Int) = when (x) { 1, 2 -> 1; else -> 3 }",
+	}
+	for name, src := range clean {
+		if got := runRuleByName(t, "UseIfInsteadOfWhen", "package test\n"+src+"\n"); len(got) != 0 {
+			t.Errorf("%s: want no findings, got %d", name, len(got))
+		}
+	}
+}
+
+func TestPreferToOverPairSyntax_Positive(t *testing.T) {
+	findings := runRuleByName(t, "PreferToOverPairSyntax", `
+package test
+fun foo(a: Int, b: String) {
+    val p = Pair(a + 1, b)
+    val q = kotlin.Pair<Int, String>(a, b)
+    val r = Pair(first = a, second = b)
+    val s = Pair(Pair(1, 2), 3)
+    val t = Pair(a) { b }
+}
+`)
+	want := []string{
+		"`a + 1 to b`",
+		"`a to b`",
+		"`first = a to second = b`",
+		"`Pair(1, 2) to 3`",
+		"`1 to 2`",
+		"`a to { b }`",
+	}
+	if len(findings) != len(want) {
+		t.Fatalf("expected %d findings, got %d: %v", len(want), len(findings), findings)
+	}
+	for _, w := range want {
+		found := false
+		for _, f := range findings {
+			if strings.Contains(f.Message, w) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no finding with replacement %s", w)
+		}
+	}
+}
+
+func TestPreferToOverPairSyntax_Negative(t *testing.T) {
+	findings := runRuleByName(t, "PreferToOverPairSyntax", `
+package test
+import android.util.Pair as AndroidPair
+class Factory { fun Pair(a: Int, b: Int) = a + b }
+fun foo(a: Int, f: Factory) {
+    val infix = a to 1
+    val member = f.Pair(1, 2)
+    val ref = ::Pair
+    val android = AndroidPair(1, 2)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+func TestPreferToOverPairSyntax_LookalikeDeclarations(t *testing.T) {
+	for name, src := range map[string]string{
+		"own class":       "package test\nclass Pair<A, B>(val a: A, val b: B)\nfun foo() = Pair(1, 2)\n",
+		"own function":    "package test\nfun Pair(a: Int, b: Int) = a + b\nfun foo() = Pair(1, 2)\n",
+		"local class":     "package test\nfun foo() {\n    class Pair(val a: Int, val b: Int)\n    Pair(1, 2)\n}\n",
+		"explicit import": "package test\nimport android.util.Pair\nfun foo() = Pair(1, 2)\n",
+		"star import":     "package test\nimport androidx.core.util.*\nfun foo() = Pair(1, 2)\n",
+	} {
+		if findings := runRuleByName(t, "PreferToOverPairSyntax", src); len(findings) != 0 {
+			t.Errorf("%s: expected no findings, got %v", name, findings)
+		}
+	}
+}
+
+func TestPreferToOverPairSyntax_ImportAliasAndKotlinImport(t *testing.T) {
+	findings := runRuleByName(t, "PreferToOverPairSyntax", `
+package test
+import kotlin.Pair
+import kotlin.Pair as KPair
+fun foo() {
+    val a = Pair(1, 2)
+    val b = KPair(3, 4)
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %v", findings)
+	}
+}
+
+func TestPreferToOverPairSyntax_NoFix(t *testing.T) {
+	findings := runRuleByName(t, "PreferToOverPairSyntax", "package test\nfun foo() = Pair(1, 2)\n")
+	if len(findings) != 1 || findings[0].Fix != nil {
+		t.Fatalf("expected one finding without a fix, got %v", findings)
 	}
 }

@@ -89,11 +89,11 @@ func registerAndroidResourceLayoutRules() {
 	}
 	{
 		r := &ScrollViewCountResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "ScrollViewCountResource", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule:   BaseRule{RuleName: "ScrollViewCountResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "ScrollViewCount",
-			Brief:      "ScrollView with more than one child",
+			Brief:      "`ScrollView` can have only one child",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSWarning,
 			Priority:   7,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -137,7 +137,7 @@ func registerAndroidResourceLayoutRules() {
 	}
 	{
 		r := &OrientationResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "OrientationResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "OrientationResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "Orientation",
 			Brief:      "LinearLayout missing explicit orientation",
 			Category:   ALCCorrectness,
@@ -168,12 +168,76 @@ func registerAndroidResourceLayoutRules() {
 		})
 	}
 	{
+		r := &GridLayoutResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GridLayoutResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "GridLayout",
+			Brief:      "GridLayout validation",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   4,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &DeprecatedResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "DeprecatedResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "Deprecated",
+			Brief:      "Using deprecated resources",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSWarning,
+			Priority:   2,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &ChildInNonViewGroupResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ChildInNonViewGroupResource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "ChildInNonViewGroup",
+			Brief:      "Only view groups can have children",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
+		r := &EnforceUtf8ResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "EnforceUtf8Resource", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "EnforceUTF8",
+			Brief:      "Not using UTF-8 as the file encoding",
+			Category:   ALCI18N,
+			ALSeverity: ALSError,
+			Priority:   2,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &IncludeLayoutParamResourceRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "IncludeLayoutParamResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "IncludeLayoutParamResource", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "IncludeLayoutParam",
 			Brief:      "<include> with layout_width/height is ignored",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSWarning,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}

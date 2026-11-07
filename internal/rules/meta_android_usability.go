@@ -48,3 +48,12 @@ func (r *UnusedResourcesRule) Meta() api.RuleDescriptor {
 		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
+
+func (r *UnusedIdsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UnusedIds",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}

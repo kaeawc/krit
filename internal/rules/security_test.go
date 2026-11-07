@@ -1465,3 +1465,365 @@ class C {
 		t.Fatalf("expected 0 Java findings, got %d", len(findings))
 	}
 }
+
+func TestXmlExternalEntity_NegativeFactoryNotUsedToParse(t *testing.T) {
+	findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.dom.DOMSource
+import javax.xml.transform.stream.StreamResult
+
+class XmlBuilder {
+    fun create() = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument()
+
+    fun write(doc: org.w3c.dom.Document, out: java.io.OutputStream) {
+        val factory = TransformerFactory.newInstance()
+        factory.newTransformer().transform(DOMSource(doc), StreamResult(out))
+    }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d", len(findings))
+	}
+}
+
+func TestXmlExternalEntity_PositiveSaxParserParse(t *testing.T) {
+	findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+
+import javax.xml.parsers.SAXParserFactory
+
+class XmlLoader {
+    fun load(input: java.io.InputStream, handler: org.xml.sax.helpers.DefaultHandler) {
+        val factory = SAXParserFactory.newInstance()
+        factory.newSAXParser().parse(input, handler)
+    }
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+func TestLogPii_WholeWordNamesOnly(t *testing.T) {
+	findings := runRuleByName(t, "LogPii", `
+package fx
+
+import android.util.Log
+
+class A(private val user: User) {
+    fun f(expandedState: Int, company: String, span: Int, panel: String) {
+        Log.d("T", "x $expandedState")
+        Log.d("T", "x $company")
+        Log.d("T", "x ${span}")
+        Log.d("T", "x " + panel)
+        Log.d("TOKEN_TAG", "plain message")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogPii_CamelCaseSelectorsAndBareReferences(t *testing.T) {
+	findings := runRuleByName(t, "LogPii", `
+package fx
+
+import android.util.Log
+
+class A(private val user: User) {
+    fun f(accessToken: String, sessionID: String) {
+        Log.d("T", "a ${user.password}")
+        Log.d("T", "a $accessToken")
+        Log.d("T", "a " + user.authToken)
+        Log.d("T", sessionID)
+        Log.d("T", user.refreshToken)
+    }
+}
+`)
+	if len(findings) != 5 {
+		t.Fatalf("expected 5 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestWeakMessageDigest_ShaAliasForSha1(t *testing.T) {
+	findings := runRuleByName(t, "WeakMessageDigest", `
+package fx
+
+import java.security.MessageDigest
+
+class A {
+    fun f() = MessageDigest.getInstance("SHA")
+    fun g() = MessageDigest.getInstance("SHA-256")
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSqlInjectionRawQuery_SingleWordSchemaConstantIsStatic(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "SqlInjectionRawQuery", `
+package fx
+
+import android.database.sqlite.SQLiteDatabase
+
+private const val TABLE = "users"
+
+class J(private val db: SQLiteDatabase) {
+    fun constant() = db.rawQuery("SELECT * FROM $TABLE", null)
+    fun interpolated(name: String) = db.rawQuery("SELECT * FROM users WHERE name = '$name'", null)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the interpolated call, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestXmlExternalEntity_RecognisesStaxAndTransformerHardening(t *testing.T) {
+	findings := runRuleByName(t, "XmlExternalEntity", `
+package fx
+
+import java.io.InputStream
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.stream.XMLInputFactory
+import javax.xml.transform.Result
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.stream.StreamSource
+
+class K {
+    fun chained(s: InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(s)
+    fun staxExternalEntities(s: InputStream) {
+        val f = XMLInputFactory.newInstance()
+        f.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false)
+        f.createXMLStreamReader(s)
+    }
+    fun staxLiteralKey(s: InputStream) {
+        val f = XMLInputFactory.newInstance()
+        f.setProperty("javax.xml.stream.supportDTD", false)
+        f.createXMLStreamReader(s)
+    }
+    fun staxNewFactory(s: InputStream) {
+        val f = XMLInputFactory.newFactory()
+        f.createXMLStreamReader(s)
+    }
+    fun transformerAccess(r: Result) {
+        val f = TransformerFactory.newInstance()
+        f.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+        f.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "")
+        f.newTransformer().transform(StreamSource("x"), r)
+    }
+    fun transformerSecureProcessing(r: Result) {
+        val f = TransformerFactory.newInstance()
+        f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        f.newTransformer().transform(StreamSource("x"), r)
+    }
+    fun documentSecureProcessingIsNotEnough(s: InputStream) {
+        val f = DocumentBuilderFactory.newInstance()
+        f.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        f.newDocumentBuilder().parse(s)
+    }
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("expected chained, newFactory and document secure-processing findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestJacksonAndGson_ParameterReceiversAndRestrictedValidators(t *testing.T) {
+	jackson := runRuleByName(t, "JacksonDefaultTyping", `
+package fx
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.jsontype.BasicPolymorphicTypeValidator
+
+class K(private val injected: ObjectMapper) {
+    fun legacy(m: ObjectMapper) = m.enableDefaultTyping()
+    fun injectedLegacy() = injected.enableDefaultTyping()
+    fun restricted(m: ObjectMapper) = m.activateDefaultTyping(BasicPolymorphicTypeValidator.builder().allowIfSubType("com.example.").build())
+}
+`)
+	if len(jackson) != 2 {
+		t.Fatalf("expected 2 Jackson findings, got %d: %v", len(jackson), jackson)
+	}
+	gson := runRuleByName(t, "GsonPolymorphicFromJson", `
+package fx
+
+import com.google.gson.Gson
+
+class K(private val gson: Gson) {
+    fun param(g: Gson, s: String) = g.fromJson(s, Any::class.java)
+    fun typed(g: Gson, s: String) = g.fromJson(s, String::class.java)
+}
+`)
+	if len(gson) != 1 {
+		t.Fatalf("expected 1 Gson finding, got %d: %v", len(gson), gson)
+	}
+}
+
+func TestZipSlipUnchecked_RecognisesCanonicalFileAndGetterGuards(t *testing.T) {
+	findings := runRuleByName(t, "ZipSlipUnchecked", `
+package fx
+
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+
+class L {
+    fun unsafe(zip: ZipInputStream, dest: File) {
+        var e: ZipEntry? = zip.nextEntry
+        while (e != null) {
+            val out = File(dest, e.name)
+            e = zip.nextEntry
+        }
+    }
+    fun canonicalFile(zip: ZipInputStream, dest: File) {
+        var e: ZipEntry? = zip.nextEntry
+        while (e != null) {
+            val out = File(dest, e.name)
+            require(out.canonicalFile.toPath().startsWith(dest.canonicalFile.toPath()))
+            e = zip.nextEntry
+        }
+    }
+    fun getter(zip: ZipInputStream, dest: File) {
+        var e: ZipEntry? = zip.nextEntry
+        while (e != null) {
+            val out = File(dest, e.name)
+            if (!out.getCanonicalPath().startsWith(dest.getCanonicalPath())) throw SecurityException("x")
+            e = zip.nextEntry
+        }
+    }
+    fun dotDot(zip: ZipInputStream, dest: File) {
+        var e: ZipEntry? = zip.nextEntry
+        while (e != null) {
+            val name = e.name
+            if (name.contains("..")) throw SecurityException("x")
+            val out = File(dest, e.name)
+            e = zip.nextEntry
+        }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the unguarded extraction, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestXmlExternalEntity_IgnoresStaticParseOnOtherTypes(t *testing.T) {
+	findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+import javax.xml.parsers.DocumentBuilderFactory
+import android.net.Uri
+
+class Holder {
+    private val factory = DocumentBuilderFactory.newInstance()
+    fun uri(s: String) = Uri.parse(s)
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestXmlExternalEntity_HardenedPropertyInitializer(t *testing.T) {
+	findings := runRuleByName(t, "XmlExternalEntity", `
+package test
+import javax.xml.parsers.DocumentBuilderFactory
+
+class Holder {
+    private val applied = DocumentBuilderFactory.newInstance().apply {
+        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+    }
+    private val inInit = DocumentBuilderFactory.newInstance()
+    init {
+        inInit.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+    }
+    private val bare = DocumentBuilderFactory.newInstance()
+    fun a(s: java.io.InputStream) = applied.newDocumentBuilder().parse(s)
+    fun b(s: java.io.InputStream) = inInit.newDocumentBuilder().parse(s)
+    fun c(s: java.io.InputStream) = bare.newDocumentBuilder().parse(s)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (bare), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestLogPii_PropertyChainUsesLastSegment(t *testing.T) {
+	findings := runRuleByName(t, "LogPii", `
+package fx
+
+import android.util.Log
+
+class A(private val tokenResult: Result, private val user: User) {
+    fun f() {
+        Log.d("T", "done ${tokenResult.errorMessage}")
+        Log.d("T", "len ${user.password.length}")
+        Log.d("T", "bad ${user.password}")
+        Log.d("T", "partial ${user.password.substring(0, 3)}")
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (bad, partial), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSqlInjectionRawQuery_NumericValuesAreNotInjectable(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "SqlInjectionRawQuery", `
+package test
+
+import android.database.sqlite.SQLiteDatabase
+
+class Dao(private val db: SQLiteDatabase) {
+    fun byId(id: Long, flag: Boolean, name: String) {
+        db.rawQuery("SELECT * FROM t WHERE id = $id", null)
+        db.rawQuery("SELECT * FROM t WHERE id = " + id, null)
+        db.rawQuery("SELECT * FROM t WHERE ok = ${flag}", null)
+        db.rawQuery("SELECT * FROM t WHERE name = '$name'", null)
+        db.rawQuery("SELECT * FROM t WHERE id = $id AND name = '$name'", null)
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (the name interpolations), got %d: %v", len(findings), findings)
+	}
+}
+
+func TestXmlExternalEntity_ScriptsReadingLocalFilesAreSkipped(t *testing.T) {
+	const local = `
+import javax.xml.parsers.DocumentBuilderFactory
+import java.io.File
+
+fun load(file: File) {
+    val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+}
+`
+	file := parseInlineWithName(t, "tidy-reports.main.kts", local)
+	if findings := runRuleByNameOnFile(t, "XmlExternalEntity", file); len(findings) != 0 {
+		t.Fatalf("expected no findings for a local-file script, got %d", len(findings))
+	}
+	const network = `
+import javax.xml.parsers.DocumentBuilderFactory
+import java.net.URL
+
+fun load(url: String) {
+    val body = URL(url).readText()
+    val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(body.byteInputStream())
+}
+`
+	file = parseInlineWithName(t, "probe.main.kts", network)
+	findings := runRuleByNameOnFile(t, "XmlExternalEntity", file)
+	if len(findings) != 1 {
+		t.Fatalf("expected a finding for a script that fetches over the network, got %d", len(findings))
+	}
+	if findings[0].Confidence >= 0.6 {
+		t.Fatalf("script finding should have low confidence, got %v", findings[0].Confidence)
+	}
+	file = parseInlineWithName(t, "Loader.kt", local)
+	if findings := runRuleByNameOnFile(t, "XmlExternalEntity", file); len(findings) != 1 {
+		t.Fatalf("regular sources keep reporting, got %d", len(findings))
+	}
+}

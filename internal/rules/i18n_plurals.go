@@ -50,7 +50,7 @@ func (r *PluralsBuiltWithIfElseRule) check(ctx *api.Context) {
 		return
 	}
 
-	ctx.EmitAt(file.FlatRow(idx)+1, 1,
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Manual pluralization with if/else over count == 1. Use getQuantityString() or pluralStringResource() instead.")
 }
 
@@ -137,14 +137,13 @@ type PluralsMissingZeroRule struct {
 func (r *PluralsMissingZeroRule) Confidence() float64 { return api.ConfidenceHigher }
 
 // pluralsZeroFormLocales lists language tags where CLDR specifies a `zero`
-// plural category. Russian is included per the cluster spec even though
-// Russian's CLDR plural rules categorize n=0 under `many`.
+// plural category. Russian is excluded: its CLDR rules put n=0 under `many`,
+// so a `zero` item would never be selected.
 var pluralsZeroFormLocales = map[string]bool{
 	"ar":  true,
 	"cy":  true,
 	"lv":  true,
 	"prg": true,
-	"ru":  true,
 }
 
 func (r *PluralsMissingZeroRule) check(ctx *api.Context) {
@@ -197,9 +196,9 @@ func (r *PluralsMissingZeroRule) scanValuesDir(ctx *api.Context, dir, lang strin
 				continue
 			}
 			pluralName := p.Attr("name")
-			ctx.Emit(baseFinding(path, p.Line, r.BaseRule,
-				fmt.Sprintf("Plural `%s` in `values-%s/` is missing `<item quantity=\"zero\">`. CLDR specifies a zero form for `%s`.",
-					pluralName, lang, lang)))
+			ctx.Emit(baseFindingAt(path, p.Line, p.Col, r.BaseRule,
+				fmt.Sprintf("Plural `%s` in `%s/` is missing `<item quantity=\"zero\">`. CLDR specifies a zero form for `%s`.",
+					pluralName, filepath.Base(dir), lang)))
 		}
 	}
 }

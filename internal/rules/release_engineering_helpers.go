@@ -20,6 +20,24 @@ import (
 // expression — used to recognise commented-out code blocks.
 var commentedOutCallRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\.]*\s*\([^)]*\)\s*[;{]?$`)
 
+// commentedOutStatementRes anchor Kotlin statement shapes at the start of the comment body, so prose such
+// as "if the user cancels" or "return the cached value" is not mistaken for code.
+var commentedOutStatementRes = []*regexp.Regexp{
+	regexp.MustCompile(`^(?:(?:private|public|internal|protected|override|suspend|inline|const|lateinit|open)\s+)*(?:val|var|fun)\s+[A-Za-z_` + "`" + `][^\s]*\s*[:=(<.]`),
+	regexp.MustCompile(`^(?:if|while|for|when)\s*[({]`),
+	regexp.MustCompile(`^else\s*(?:\{|if\b)`),
+	regexp.MustCompile(`^return(?:@\w+)?(?:\s+[A-Za-z_]\w*)?\s*$`),
+	regexp.MustCompile(`^return(?:@\w+)?\s+(?:[\w.]+\s*\(|[\w]+\.\w|"|[0-9]|-?\w+\s*(?:[-+*/]|==|!=)\s*\S)`),
+	regexp.MustCompile(`^[A-Za-z_][\w.]*(?:\[[^\]]*\])?\s*(?:[-+*/]=(?:[^=]|$)|\+\+|--)`),
+	regexp.MustCompile(`^(?:import|package)\s+[\w.]+(?:\.\*)?$`),
+}
+
+// commentedOutOperatorRe matches an arithmetic operator between operands, as in `count + 1`.
+var commentedOutOperatorRe = regexp.MustCompile(`\S\s[-+*/%]\s\S`)
+
+// commentedOutAssignmentRe captures the right-hand side of a plain assignment.
+var commentedOutAssignmentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*\s*=\s*(.+)$`)
+
 // isPlausibleCommentedKotlin reports whether a single line looks like
 // commented-out Kotlin source rather than prose.
 func isPlausibleCommentedKotlin(line string) bool {
@@ -36,14 +54,18 @@ func isPlausibleCommentedKotlin(line string) bool {
 		return true
 	}
 
-	for _, marker := range []string{"val ", "var ", "fun ", "if ", "when ", "return "} {
-		if strings.Contains(body, marker) {
+	for _, re := range commentedOutStatementRes {
+		if re.MatchString(body) {
 			return true
 		}
 	}
 
-	if strings.Contains(body, " = ") && !strings.Contains(body, "==") {
-		return true
+	if m := commentedOutAssignmentRe.FindStringSubmatch(body); m != nil && !strings.HasPrefix(m[1], "=") {
+		// `x = foo(1)`, `x = "s"` and `x = y` read as code; `current = all events since the last sync` is prose.
+		rhs := strings.TrimSpace(m[1])
+		if strings.ContainsAny(rhs, "(\"'[") || !strings.Contains(rhs, " ") || commentedOutOperatorRe.MatchString(rhs) {
+			return true
+		}
 	}
 
 	return commentedOutCallRe.MatchString(body)
@@ -393,6 +415,18 @@ func isAndroidTestSupportArtifactSource(path string) bool {
 		"/espressomodule.kt",
 	} {
 		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTestFixtureModulePath reports whether a directory in path names a dedicated test or test-fixture module.
+func isTestFixtureModulePath(path string) bool {
+	segments := strings.Split(filepath.ToSlash(strings.ToLower(path)), "/")
+	for _, seg := range segments[:max(len(segments)-1, 0)] {
+		if strings.HasSuffix(seg, "-test") || strings.HasSuffix(seg, "-testing") ||
+			strings.HasSuffix(seg, "test-fixtures") || strings.HasSuffix(seg, "testfixtures") {
 			return true
 		}
 	}

@@ -256,3 +256,22 @@ func classHasAdapterLikeSupertypeFlat(file *scanner.File, class uint32) bool {
 	}
 	return found
 }
+
+// classIsRecyclerViewAdapterFlat reports a class that derives from RecyclerView.Adapter, not BaseAdapter or another Adapter type.
+func classIsRecyclerViewAdapterFlat(file *scanner.File, class uint32) bool {
+	if classExtendsAnyFlat(file, class, "androidx.recyclerview.widget.RecyclerView.Adapter",
+		"android.support.v7.widget.RecyclerView.Adapter", "RecyclerView.Adapter") {
+		return true
+	}
+	for child := file.FlatFirstChild(class); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "delegation_specifier", "superclass", "super_interfaces":
+			if strings.Contains(file.FlatNodeText(child), "BaseAdapter") {
+				return false
+			}
+		}
+	}
+	return fileImportsFQN(file, "androidx.recyclerview.widget.RecyclerView") ||
+		fileImportsFQN(file, "android.support.v7.widget.RecyclerView") ||
+		fileImportsFQN(file, "androidx.recyclerview.widget.RecyclerView.Adapter")
+}

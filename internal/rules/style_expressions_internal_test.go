@@ -50,7 +50,7 @@ func runStyleExpressionsRuleByName(t *testing.T, ruleName string, code string) [
 	return nil
 }
 
-func TestCountJumpExpressionsFlatSkipsNestedCallableBodies(t *testing.T) {
+func TestCountJumpExpressionsFlatSkipsNestedFunctionBodiesButCountsLambdas(t *testing.T) {
 	file := parseStyleExpressionsInline(t, `
 package test
 
@@ -71,11 +71,11 @@ fun outer(items: List<Int>): Int {
 `)
 	fn := firstStyleExpressionsFunction(t, file)
 
-	if got := countJumpExpressionsFlat(fn, file, "return", 100, nil); got != 2 {
-		t.Fatalf("expected only outer returns to be counted, got %d", got)
+	if got := countJumpExpressionsFlat(fn, file, "return", 100, nil); got != 3 {
+		t.Fatalf("expected the lambda and outer returns but not the anonymous function's, got %d", got)
 	}
-	if got := countJumpExpressionsFlat(fn, file, "throw", 100, nil); got != 1 {
-		t.Fatalf("expected only outer throws to be counted, got %d", got)
+	if got := countJumpExpressionsFlat(fn, file, "throw", 100, nil); got != 2 {
+		t.Fatalf("expected the lambda and outer throws but not the anonymous function's, got %d", got)
 	}
 }
 
@@ -98,8 +98,25 @@ fun outer(items: List<Int>) {
 	}
 }
 
-func TestThrowsCountIgnoresNestedCallableThrows(t *testing.T) {
+func TestThrowsCountIgnoresAnonymousFunctionThrowsButCountsLambdaThrows(t *testing.T) {
 	findings := runStyleExpressionsRuleByName(t, "ThrowsCount", `
+package test
+
+fun validate(items: List<Int>) {
+    if (items.isEmpty()) throw IllegalStateException("empty")
+    val callback = fun(value: Int) {
+        if (value == 0) throw IllegalArgumentException("zero")
+        if (value == 1) throw IllegalArgumentException("one")
+    }
+    items.forEach {
+        if (it < 0) throw IllegalStateException("negative")
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("anonymous function throws are not the outer function's, got %d", len(findings))
+	}
+	findings = runStyleExpressionsRuleByName(t, "ThrowsCount", `
 package test
 
 fun validate(items: List<Int>) {
@@ -108,13 +125,14 @@ fun validate(items: List<Int>) {
     items.forEach {
         if (it < 0) throw IllegalStateException("negative")
     }
-    val callback = fun(value: Int) {
-        if (value == 0) throw IllegalArgumentException("zero")
-    }
 }
 `)
-	if len(findings) != 0 {
-		t.Fatalf("expected no findings when only nested callable throws exceed the limit, got %d", len(findings))
+	if len(findings) != 1 {
+		t.Fatalf("a throw inside an inline lambda belongs to the function, got %d", len(findings))
+	}
+	want := "Too many throw statements in the function validate. The maximum number of allowed throw statements is 2."
+	if findings[0].Message != want {
+		t.Fatalf("message = %q, want %q", findings[0].Message, want)
 	}
 }
 

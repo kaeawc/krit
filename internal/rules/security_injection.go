@@ -86,14 +86,14 @@ func argumentIsUntrustedShape(file *scanner.File, expr uint32) sqlArgumentShape 
 		return sqlArgumentStatic
 	}
 	if flatContainsStringInterpolation(file, expr) {
-		if sqlInterpolationUsesOnlyStaticSchemaConstants(text) {
+		if sqlInterpolationUsesOnlyStaticSchemaConstants(text) || sqlInterpolationUsesOnlyNumericNames(file, expr, text) {
 			return sqlArgumentStatic
 		}
 		return sqlArgumentInterpolated
 	}
 	if operands := splitSQLConcatOperands(text); len(operands) > 1 {
 		for _, operand := range operands {
-			if !sqlStaticOperand(operand) {
+			if !sqlStaticOperand(operand) && !sqlNameHasPrimitiveType(file, expr, operand) {
 				return sqlArgumentComputed
 			}
 		}
@@ -198,6 +198,58 @@ func sqlInterpolationUsesOnlyStaticSchemaConstants(text string) bool {
 	return true
 }
 
+// sqlInterpolationUsesOnlyNumericNames reports a template whose every entry is a
+// plain name declared with a numeric or Boolean type, which cannot carry SQL.
+func sqlInterpolationUsesOnlyNumericNames(file *scanner.File, expr uint32, text string) bool {
+	names := logPiiInterpolatedNames(text)
+	if len(names) == 0 {
+		return false
+	}
+	for _, m := range sqlInterpolationIdentifierPattern.FindAllStringSubmatch(text, -1) {
+		if len(m) < 2 || strings.Contains(m[1], ".") {
+			return false
+		}
+	}
+	for _, name := range names {
+		if !sqlNameHasPrimitiveType(file, expr, name) {
+			return false
+		}
+	}
+	return true
+}
+
+var sqlPrimitiveTypeNames = map[string]bool{
+	"Int": true, "Long": true, "Short": true, "Byte": true, "Float": true, "Double": true, "Boolean": true,
+	"UInt": true, "ULong": true, "UShort": true, "UByte": true,
+}
+
+// sqlNameHasPrimitiveType reports a simple name whose same-file parameter, property
+// or local declaration has an explicit primitive type.
+func sqlNameHasPrimitiveType(file *scanner.File, use uint32, name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.ContainsAny(name, ".()[]\" +") {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found || file.FlatStartByte(decl) > file.FlatStartByte(use) {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "parameter", "class_parameter", "property_declaration", "variable_declaration":
+		default:
+			return
+		}
+		if extractIdentifierFlat(file, decl) != name || !declarationVisibleFromReference(file, decl, use) {
+			return
+		}
+		if typ, ok := file.FlatFindChild(decl, "user_type"); ok {
+			found = sqlPrimitiveTypeNames[strings.TrimSpace(file.FlatNodeText(typ))]
+		}
+	})
+	return found
+}
+
 func sqlLastIdentifierSegment(text string) string {
 	text = strings.TrimSpace(text)
 	text = strings.TrimSuffix(text, ")")
@@ -217,7 +269,7 @@ func sqlSchemaConstantName(name string) bool {
 	if strings.HasSuffix(name, "_TABLE") || strings.HasSuffix(name, "_COLUMN") || strings.HasSuffix(name, "_KEY") {
 		return true
 	}
-	return strings.ToUpper(name) == name && strings.ContainsAny(name, "_")
+	return strings.ToUpper(name) == name && strings.ToLower(name) != name
 }
 
 func sqlInjectionCallName(file *scanner.File, call uint32) string {

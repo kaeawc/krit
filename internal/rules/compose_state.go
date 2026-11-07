@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -101,6 +102,93 @@ func composeIsDirectStateComparisonFlat(file *scanner.File, expr uint32, delegat
 		}
 	}
 	return stateReads == 1
+}
+
+// composeBooleanStateDeclRe matches declarations of Boolean-valued state.
+var composeBooleanStateDeclRe = regexp.MustCompile(`mutableStateOf\(\s*(true|false)\b|\bBoolean\b`)
+
+// composeStateIsBooleanFlat reports whether the local state binding name holds a Boolean.
+func composeStateIsBooleanFlat(file *scanner.File, idx uint32, name string) bool {
+	return composeBooleanStateDeclRe.MatchString(composeStateDeclarationTextFlat(file, idx, name))
+}
+
+// composeRememberKeyedOnFlat reports whether an enclosing remember call is keyed on the value of stateName.
+// A key that is only the State holder never changes, so it does not make derivedStateOf redundant.
+func composeRememberKeyedOnFlat(file *scanner.File, idx uint32, stateName string, delegatedReads map[string]bool) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		if file.FlatType(cur) != "call_expression" {
+			continue
+		}
+		// With a trailing lambda the callee sits on the nested call.
+		name := flatCallExpressionName(file, cur)
+		if inner, ok := file.FlatFindChild(cur, "call_expression"); name == "" && ok {
+			name = flatCallExpressionName(file, inner)
+		}
+		if name != "remember" {
+			continue
+		}
+		args := flatCallKeyArguments(file, cur)
+		if args == 0 {
+			continue
+		}
+		found := false
+		file.FlatWalkNodes(args, "simple_identifier", func(ident uint32) {
+			if file.FlatNodeTextEquals(ident, stateName) && (delegatedReads[stateName] || composeIdentifierIsValueRead(file, ident)) {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// composeIdentifierIsValueRead reports whether ident is the receiver of a `.value` read.
+func composeIdentifierIsValueRead(file *scanner.File, ident uint32) bool {
+	parent, ok := file.FlatParent(ident)
+	if !ok || file.FlatType(parent) != "navigation_expression" {
+		return false
+	}
+	suffix, ok := file.FlatFindChild(parent, "navigation_suffix")
+	return ok && strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(suffix), ".")) == "value"
+}
+
+// composeComparedStateName returns the state binding read by a direct comparison.
+func composeComparedStateName(file *scanner.File, expr uint32, delegatedReads, stateHolders map[string]bool) string {
+	for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) || !composeIsStateReadOperandFlat(file, child, delegatedReads, stateHolders) {
+			continue
+		}
+		node := composeUnwrapParenthesizedFlat(file, child)
+		if file.FlatType(node) == "navigation_expression" {
+			return composeNavigationReceiverFlat(file, node)
+		}
+		return file.FlatNodeText(node)
+	}
+	return ""
+}
+
+// composeStateDeclarationTextFlat returns the source of the local property or parameter that declares name.
+func composeStateDeclarationTextFlat(file *scanner.File, idx uint32, name string) string {
+	currentFn := composeNearestAncestorFlat(file, idx, "function_declaration")
+	text := ""
+	if currentFn != 0 {
+		if params, _ := file.FlatFindChild(currentFn, "function_value_parameters"); params != 0 {
+			for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+				if file.FlatType(param) == "parameter" && composeParameterNameFlat(file, param) == name {
+					text = file.FlatNodeText(param)
+				}
+			}
+		}
+	}
+	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
+		if file.FlatStartByte(prop) < file.FlatStartByte(idx) && composeNearestAncestorFlat(file, prop, "function_declaration") == currentFn &&
+			composePropertyNameFlat(file, prop) == name {
+			text = file.FlatNodeText(prop)
+		}
+	})
+	return text
 }
 
 func composeIsStateReadOperandFlat(file *scanner.File, node uint32, delegatedReads, stateHolders map[string]bool) bool {

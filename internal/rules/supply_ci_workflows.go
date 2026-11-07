@@ -90,7 +90,7 @@ func gradleWrapperValidationFindings(data []byte) []gradleWorkflowFinding {
 				continue
 			}
 			uses := strings.ToLower(strings.TrimSpace(usesNode.Value))
-			if isGradleWrapperValidationAction(uses) {
+			if isGradleWrapperValidationAction(uses) || setupGradleValidatesWrappers(step, uses) {
 				seenValidation = true
 				continue
 			}
@@ -112,6 +112,16 @@ func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// setupGradleValidatesWrappers reports a setup-gradle step that validates the
+// wrapper itself through `with: validate-wrappers: true`.
+func setupGradleValidatesWrappers(step *yaml.Node, uses string) bool {
+	if !strings.HasPrefix(uses, "gradle/actions/setup-gradle@") {
+		return false
+	}
+	value := yamlMappingValue(yamlMappingValue(step, "with"), "validate-wrappers")
+	return value != nil && strings.EqualFold(strings.TrimSpace(value.Value), "true")
 }
 
 func isGradleBuildAction(uses string) bool {

@@ -1,11 +1,14 @@
 package rules
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/strutil"
 )
 
 // XMLExternalEntityRule detects XML parser factories created without obvious
@@ -51,8 +54,10 @@ var xxeFactoryReceivers = map[string]bool{
 	"SchemaFactory":          true,
 }
 
+var xxeFactoryCreationNames = map[string]bool{"newInstance": true, "newFactory": true}
+
 func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
-	if file == nil || call == 0 || javaAwareCallName(file, call) != "newInstance" {
+	if file == nil || call == 0 || !xxeFactoryCreationNames[javaAwareCallName(file, call)] {
 		return false
 	}
 	receiver := databaseCallReceiverName(file, call)
@@ -65,21 +70,80 @@ func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
 	return sourceImportsOrMentions(file, receiver)
 }
 
+var xxeParseCalls = map[string]bool{
+	"parse": true, "createXMLStreamReader": true, "createXMLEventReader": true,
+	"createFilteredReader": true, "newSchema": true,
+}
+
+// xmlExternalEntityUsedToParse reports whether the callable that creates the factory also parses XML with it.
+// Building documents or transforming a DOMSource reads no external input.
+func xmlExternalEntityUsedToParse(file *scanner.File, call uint32) bool {
+	scope := xxeFactoryScope(file, call)
+	callStart := file.FlatStartByte(call)
+	callEnd := file.FlatEndByte(call)
+	found := false
+	file.FlatWalkAllNodes(scope, func(n uint32) {
+		// A call chained on the factory, such as newInstance().newDocumentBuilder().parse(x), starts at the factory call.
+		chained := file.FlatStartByte(n) == callStart && file.FlatEndByte(n) > callEnd
+		if found || (file.FlatStartByte(n) <= callStart && !chained) {
+			return
+		}
+		switch file.FlatType(n) {
+		case "call_expression", "method_invocation":
+			name := javaAwareCallName(file, n)
+			if xxeParseCalls[name] && !xxeParseReceiverIsTypeName(file, n) {
+				found = true
+			} else if name == "transform" {
+				text := file.FlatNodeText(n)
+				found = strings.Contains(text, "StreamSource") || strings.Contains(text, "SAXSource")
+			}
+		}
+	})
+	return found
+}
+
+// xxeFactoryScope is the callable that creates the factory, or the enclosing
+// class when the factory is a property initializer, or the whole file.
+func xxeFactoryScope(file *scanner.File, call uint32) uint32 {
+	if scope, ok := flatEnclosingCallable(file, call); ok {
+		return scope
+	}
+	if cls, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration"); ok {
+		return cls
+	}
+	return 0
+}
+
+// xxeParseReceiverIsTypeName reports a parse call on a plain type name such as
+// `Uri.parse(s)` or `LocalDate.parse(s)`, which is not an XML parser instance.
+func xxeParseReceiverIsTypeName(file *scanner.File, call uint32) bool {
+	receiver := strings.TrimSpace(databaseCallReceiverName(file, call))
+	if receiver == "" {
+		return false
+	}
+	for _, r := range receiver {
+		if r != '.' && r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	last := receiver[strings.LastIndex(receiver, ".")+1:]
+	return last != "" && unicode.IsUpper(rune(last[0]))
+}
+
 // xxeFeatureHardening maps each XXE-related feature URL to the boolean
 // value that disables the unsafe behavior when passed to
 // `factory.setFeature(URL, BOOL)`.
 var xxeFeatureHardening = map[string]bool{
-	"http://apache.org/xml/features/disallow-doctype-decl":    true,
-	"http://xml.org/sax/features/external-general-entities":   false,
-	"http://xml.org/sax/features/external-parameter-entities": false,
+	"http://apache.org/xml/features/disallow-doctype-decl":           true,
+	"http://xml.org/sax/features/external-general-entities":          false,
+	"http://xml.org/sax/features/external-parameter-entities":        false,
+	"http://apache.org/xml/features/nonvalidating/load-external-dtd": false,
 }
 
 func xmlExternalEntityHasHardeningAfter(file *scanner.File, call uint32) bool {
-	scope, ok := flatEnclosingCallable(file, call)
-	if !ok {
-		return false
-	}
+	scope := xxeFactoryScope(file, call)
 	callStart := file.FlatStartByte(call)
+	factory := xxeFactoryName(file, call)
 	found := false
 	sawXInclude := false
 	sawExpandEntities := false
@@ -90,7 +154,7 @@ func xmlExternalEntityHasHardeningAfter(file *scanner.File, call uint32) bool {
 		}
 		switch file.FlatType(n) {
 		case "call_expression", "method_invocation":
-			if xxeCallIsHardening(file, n) {
+			if xxeCallIsHardening(file, n, factory) {
 				found = true
 			}
 		case "assignment":
@@ -112,36 +176,97 @@ func xmlExternalEntityHasHardeningAfter(file *scanner.File, call uint32) bool {
 // is one of the XXE-disabling setFeature / setProperty invocations with the
 // expected literal arguments. Match is AST-based so formatting, whitespace,
 // or interleaved comments do not break detection.
-func xxeCallIsHardening(file *scanner.File, call uint32) bool {
+func xxeCallIsHardening(file *scanner.File, call uint32, factory string) bool {
 	name := javaAwareCallName(file, call)
-	switch name {
-	case "setFeature":
-		urlExpr, valExpr := xxeCallTwoArgExprs(file, call)
-		if urlExpr == 0 || valExpr == 0 {
-			return false
-		}
-		url, ok := xxeLiteralStringContent(file, urlExpr)
-		if !ok {
-			return false
-		}
-		expected, known := xxeFeatureHardening[url]
+	if name != "setFeature" && name != "setProperty" && name != "setAttribute" {
+		return false
+	}
+	keyExpr, valExpr := xxeCallTwoArgExprs(file, call)
+	if keyExpr == 0 || valExpr == 0 {
+		return false
+	}
+	key := xxeConfigKey(file, keyExpr)
+	if key == "" {
+		return false
+	}
+	switch {
+	case name == "setFeature" && key == "FEATURE_SECURE_PROCESSING":
+		// Secure processing is the documented hardening for these two factories only.
+		got, ok := xxeLiteralBool(file, valExpr)
+		return ok && got && (factory == "TransformerFactory" || factory == "SchemaFactory")
+	case name == "setFeature":
+		expected, known := xxeFeatureHardening[key]
 		if !known {
 			return false
 		}
 		got, ok := xxeLiteralBool(file, valExpr)
 		return ok && got == expected
-	case "setProperty":
-		urlExpr, valExpr := xxeCallTwoArgExprs(file, call)
-		if urlExpr == 0 || valExpr == 0 {
-			return false
+	case xxeAccessExternalKeys[key]:
+		// ACCESS_EXTERNAL_DTD, _SCHEMA and _STYLESHEET are cleared with an empty string.
+		value, ok := xxeLiteralStringContent(file, valExpr)
+		if !ok {
+			text := strings.TrimSpace(file.FlatNodeText(valExpr))
+			return text == `""`
 		}
-		if !xxeExprIsSupportDTD(file, urlExpr) {
-			return false
-		}
+		return value == ""
+	case xxeXMLInputFactoryKeys[key]:
 		got, ok := xxeLiteralBool(file, valExpr)
 		return ok && !got
 	}
 	return false
+}
+
+// xxeAccessExternalKeys are the XMLConstants properties that restrict external access.
+var xxeAccessExternalKeys = map[string]bool{
+	"ACCESS_EXTERNAL_DTD":                                             true,
+	"ACCESS_EXTERNAL_SCHEMA":                                          true,
+	"ACCESS_EXTERNAL_STYLESHEET":                                      true,
+	"http://javax.xml.XMLConstants/property/accessExternalDTD":        true,
+	"http://javax.xml.XMLConstants/property/accessExternalSchema":     true,
+	"http://javax.xml.XMLConstants/property/accessExternalStylesheet": true,
+}
+
+// xxeXMLInputFactoryKeys are the StAX properties that disable DTDs or external entities.
+var xxeXMLInputFactoryKeys = map[string]bool{
+	"SUPPORT_DTD":                                   true,
+	"IS_SUPPORTING_EXTERNAL_ENTITIES":               true,
+	"javax.xml.stream.supportDTD":                   true,
+	"javax.xml.stream.isSupportingExternalEntities": true,
+}
+
+// xxeConfigKey returns a string literal's content, or the trailing identifier
+// of a constant reference such as XMLConstants.ACCESS_EXTERNAL_DTD.
+func xxeConfigKey(file *scanner.File, expr uint32) string {
+	if value, ok := xxeLiteralStringContent(file, expr); ok {
+		if strings.HasPrefix(value, "http://javax.xml.XMLConstants/feature/secure-processing") {
+			return "FEATURE_SECURE_PROCESSING"
+		}
+		return value
+	}
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "simple_identifier", "identifier":
+		return strings.TrimSpace(file.FlatNodeText(expr))
+	case "navigation_expression":
+		segs := flatNavigationChainIdentifiers(file, expr)
+		if len(segs) > 0 {
+			return segs[len(segs)-1]
+		}
+	case "field_access":
+		if count := file.FlatNamedChildCount(expr); count > 0 {
+			return strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(expr, count-1)))
+		}
+	}
+	return ""
+}
+
+// xxeFactoryName returns the simple factory type name of a factory creation call.
+func xxeFactoryName(file *scanner.File, call uint32) string {
+	receiver := databaseCallReceiverName(file, call)
+	if dot := strings.LastIndex(receiver, "."); dot >= 0 {
+		receiver = receiver[dot+1:]
+	}
+	return receiver
 }
 
 // xxeCallTwoArgExprs returns the first two positional argument expressions
@@ -199,30 +324,6 @@ func xxeLiteralBool(file *scanner.File, expr uint32) (bool, bool) {
 		return false, true
 	}
 	return false, false
-}
-
-// xxeExprIsSupportDTD reports whether the expression resolves to a
-// reference whose trailing identifier is `SUPPORT_DTD` (matching both
-// `XMLInputFactory.SUPPORT_DTD` and the fully-qualified variant), or the
-// bare `SUPPORT_DTD` constant.
-func xxeExprIsSupportDTD(file *scanner.File, expr uint32) bool {
-	expr = flatUnwrapParenExpr(file, expr)
-	switch file.FlatType(expr) {
-	case "simple_identifier", "identifier":
-		return file.FlatNodeTextEquals(expr, "SUPPORT_DTD")
-	case "navigation_expression":
-		return flatNavigationExpressionLastIdentifierEquals(file, expr, "SUPPORT_DTD")
-	case "field_access":
-		// Java: XMLInputFactory.SUPPORT_DTD parses as field_access whose last
-		// named child is the identifier.
-		count := file.FlatNamedChildCount(expr)
-		if count == 0 {
-			return false
-		}
-		last := file.FlatNamedChild(expr, count-1)
-		return file.FlatNodeTextEquals(last, "SUPPORT_DTD")
-	}
-	return false
 }
 
 // xxePropertyAssignmentName returns the trailing property name of a Kotlin
@@ -343,7 +444,24 @@ func jacksonDefaultTypingCall(file *scanner.File, idx uint32) bool {
 	if !jacksonFileImportsDatabind(file) {
 		return false
 	}
+	// activateDefaultTyping(validator) is the supported API; only a validator that allows every type is unsafe.
+	if name == "activateDefaultTyping" && !jacksonValidatorAllowsAnyType(okHTTPCallArgumentsText(file, idx)) {
+		return false
+	}
 	return jacksonDefaultTypingReceiverLooksMapper(file, idx)
+}
+
+// jacksonValidatorAllowsAnyType reports a PolymorphicTypeValidator argument
+// that trusts every type: LaissezFaireSubTypeValidator or an Object base type.
+func jacksonValidatorAllowsAnyType(args string) bool {
+	compact := strings.Join(strings.Fields(args), "")
+	return strings.Contains(compact, "LaissezFaire") ||
+		strings.Contains(compact, "allowIfBaseType(Object.class") ||
+		strings.Contains(compact, "allowIfSubType(Object.class") ||
+		strings.Contains(compact, "allowIfBaseType(Any::class") ||
+		strings.Contains(compact, "allowIfSubType(Any::class") ||
+		strings.Contains(compact, "allowIfBaseType(\"\")") ||
+		strings.Contains(compact, "allowIfSubType(\"\")")
 }
 
 func jacksonFileImportsDatabind(file *scanner.File) bool {
@@ -376,7 +494,8 @@ func jacksonDefaultTypingReceiverLooksMapper(file *scanner.File, idx uint32) boo
 	return receiverDeclaredFromCall(file, idx, "ObjectMapper") ||
 		receiverDeclaredFromCall(file, idx, "XmlMapper") ||
 		receiverDeclaredFromCall(file, idx, "JsonMapper") ||
-		jacksonReceiverDeclaredAsMapper(file, idx, receiver)
+		jacksonReceiverDeclaredAsMapper(file, idx, receiver) ||
+		receiverNameDeclaredWithType(file, receiver, "ObjectMapper", "XmlMapper", "JsonMapper")
 }
 
 func jacksonReceiverDeclaredAsMapper(file *scanner.File, call uint32, receiver string) bool {
@@ -448,7 +567,58 @@ func gsonFromJSONReceiverLooksGson(file *scanner.File, idx uint32) bool {
 	}
 	return receiverDeclaredFromCall(file, idx, "Gson") ||
 		receiverDeclaredFromCall(file, idx, "GsonBuilder") ||
-		gsonReceiverDeclaredAsGson(file, idx, receiver)
+		gsonReceiverDeclaredAsGson(file, idx, receiver) ||
+		receiverNameDeclaredWithType(file, receiver, "Gson")
+}
+
+// receiverNameDeclaredWithType reports whether the file declares a parameter,
+// property, or local named name whose declaration text mentions one of typeNames
+// as a whole word, such as `mapper: ObjectMapper` or `Gson gson`.
+func receiverNameDeclaredWithType(file *scanner.File, name string, typeNames ...string) bool {
+	if file == nil || name == "" {
+		return false
+	}
+	found := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "parameter", "class_parameter", "property_declaration", "variable_declaration",
+			"formal_parameter", "field_declaration", "local_variable_declaration", "spread_parameter":
+		default:
+			return
+		}
+		if extractIdentifierFlat(file, n) != name && !declaresNameInChildren(file, n, name) {
+			return
+		}
+		text := file.FlatNodeText(n)
+		for _, typeName := range typeNames {
+			if strutil.ContainsTokenWordBoundary(text, typeName) {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// declaresNameInChildren reports a Java declaration whose declarator or
+// identifier child is spelled name.
+func declaresNameInChildren(file *scanner.File, n uint32, name string) bool {
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "identifier":
+			if file.FlatNodeTextEquals(c, name) {
+				return true
+			}
+		case "variable_declarator":
+			if id, ok := file.FlatFindChild(c, "identifier"); ok && file.FlatNodeTextEquals(id, name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func gsonReceiverDeclaredAsGson(file *scanner.File, call uint32, receiver string) bool {
@@ -510,4 +680,12 @@ func gsonFromJSONPolymorphicTypeArg(text string) bool {
 	default:
 		return false
 	}
+}
+
+var xmlExternalEntityExternalInputPattern = regexp.MustCompile(`\b(URL|HttpURLConnection|HttpClient|OkHttpClient|openConnection|openStream|Socket|curl)\b`)
+
+// xmlExternalEntityScriptFetchesExternalInput reports a script that reads from the network, so its parsed XML
+// may not be repository-local.
+func xmlExternalEntityScriptFetchesExternalInput(file *scanner.File) bool {
+	return xmlExternalEntityExternalInputPattern.Match(file.Content)
 }

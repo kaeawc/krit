@@ -39,7 +39,7 @@ func registerNamingClassNaming() {
 	r := &ClassNamingRule{BaseRule: BaseRule{RuleName: "ClassNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects class names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[A-Z][a-zA-Z0-9]*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+		NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if scanner.IsTestFile(file.Path) {
@@ -53,7 +53,7 @@ func registerNamingClassNaming() {
 				return
 			}
 			if !r.Pattern.MatchString(name) {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Class name '%s' does not match pattern: %s", name, r.Pattern.String()))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Class and Object names should match the pattern: "+displayPattern(r.Pattern))
 			}
 		},
 	})
@@ -61,68 +61,42 @@ func registerNamingClassNaming() {
 
 func registerNamingFunctionNaming() {
 	r := &FunctionNamingRule{
-		BaseRule:              BaseRule{RuleName: "FunctionNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects function names that do not match the expected naming pattern."},
-		Pattern:               regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`),
-		AllowBacktickNames:    true,
-		IgnoreAnnotated:       DefaultIgnoreAnnotated,
-		CustomPreviewWildcard: true,
+		BaseRule: BaseRule{RuleName: "FunctionNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects function names that do not match the expected naming pattern."},
+		Pattern:  regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`),
 	}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if funInterfaceMisparsedAsFunction(file, idx) {
 				return
 			}
-			text := file.FlatNodeText(idx)
-			if strings.HasPrefix(strings.TrimLeft(text, " \t"), "fun interface ") ||
-				strings.Contains(text, " fun interface ") {
+			// detekt skips overrides, which keep the name their supertype chose, and factory functions named
+			// after their explicit return type. Everything else, backticks and interface members included,
+			// is checked.
+			if file.FlatHasModifier(idx, "override") || containingClassExcluded(file, idx, r.ExcludeClassPattern) {
 				return
 			}
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				c := file.FlatChild(idx, i)
-				if file.FlatType(c) == "interface" {
-					return
-				}
-			}
-			if HasIgnoredAnnotation(text, r.IgnoreAnnotated) ||
-				textHasCustomPreviewAnnotation(text, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
+			if HasIgnoredAnnotation(file.FlatNodeText(idx), r.IgnoreAnnotated) ||
+				(r.CustomPreviewWildcard || len(r.CustomPreviewPrefixes) > 0) &&
+					textHasCustomPreviewAnnotation(file.FlatNodeText(idx), customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
-			if name == "" {
+			if name == "" || r.Pattern.MatchString(name) {
 				return
 			}
-			if r.AllowBacktickNames && strings.HasPrefix(name, "`") {
+			if functionReturnTypeName(file, idx) == name {
 				return
 			}
-			operators := map[string]bool{
-				"get": true, "set": true, "invoke": true, "plus": true,
-				"minus": true, "times": true, "div": true, "rem": true,
-				"compareTo": true, "equals": true, "hashCode": true, "toString": true,
-			}
-			if operators[name] {
-				return
-			}
-			if !r.Pattern.MatchString(name) {
-				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' &&
-					functionDeclarationHasExplicitReturnTypeFlat(file, idx) {
-					return
-				}
-				if len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z' &&
-					isTopLevelFunctionFlat(file, idx) &&
-					functionHasExpressionBodyReturningCallFlat(file, idx) {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Function name '%s' does not match pattern: %s", name, r.Pattern.String()))
-			}
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Function names should match the pattern: "+displayPattern(r.Pattern))
 		},
 	})
 }
 
 func registerNamingVariableNaming() {
-	r := &VariableNamingRule{BaseRule: BaseRule{RuleName: "VariableNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects local variable names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
+	r := &VariableNamingRule{BaseRule: BaseRule{RuleName: "VariableNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects variable and member property names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`), PrivateVariablePattern: regexp.MustCompile(`^(_)?[a-z][A-Za-z0-9]*$`), IgnoreOverridden: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
@@ -135,17 +109,17 @@ func registerNamingVariableNaming() {
 			if name == "" || name == "_" {
 				return
 			}
-			if strings.HasPrefix(name, "`") {
+			if containingClassExcluded(file, idx, r.ExcludeClassPattern) || (r.IgnoreOverridden && file.FlatHasModifier(idx, "override")) {
 				return
 			}
 			if file.FlatHasModifier(idx, "private") && r.PrivateVariablePattern != nil {
 				if !r.PrivateVariablePattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Private variable name '%s' does not match pattern: %s", name, r.PrivateVariablePattern.String()))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Private variable names should match the pattern: "+displayPattern(r.PrivateVariablePattern))
 				}
 				return
 			}
 			if !r.Pattern.MatchString(name) {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Variable name '%s' does not match pattern: %s", name, r.Pattern.String()))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Variable names should match the pattern: "+displayPattern(r.Pattern))
 			}
 		},
 	})
@@ -158,7 +132,7 @@ func registerNamingPackageNaming() {
 	// version suffix (`coil3`, `androidx.core2`, `ktor3.client`). The JVM
 	// language spec allows digits and underscores in any package segment.
 	// as long as it starts with a letter.
-	r := &PackageNamingRule{BaseRule: BaseRule{RuleName: "PackageNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects package names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][a-zA-Z0-9_]*(\.[a-z][a-zA-Z0-9_]*)*$`)}
+	r := &PackageNamingRule{BaseRule: BaseRule{RuleName: "PackageNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects package names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z]+(\.[a-z][A-Za-z0-9]*)*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"package_header"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
@@ -182,7 +156,7 @@ func registerNamingPackageNaming() {
 				pkg = strings.TrimSpace(strings.TrimPrefix(text, "package "))
 			}
 			if pkg != "" && !r.Pattern.MatchString(pkg) {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Package name '%s' does not match pattern: %s", pkg, r.Pattern.String()))
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Package name should match the pattern: "+displayPattern(r.Pattern))
 			}
 		},
 	})
@@ -197,7 +171,7 @@ func registerNamingEnumNaming() {
 			idx, file := ctx.Idx, ctx.File
 			name := extractIdentifierFlat(file, idx)
 			if name != "" && !r.Pattern.MatchString(name) {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Enum entry '%s' does not match pattern: %s", name, r.Pattern.String()))
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Enum entry names should match the pattern: "+displayPattern(r.Pattern))
 			}
 		},
 	})
@@ -224,7 +198,7 @@ func registerNamingBooleanPropertyNaming() {
 				return
 			}
 			if !strings.HasPrefix(name, "is") && !strings.HasPrefix(name, "has") && !strings.HasPrefix(name, "are") {
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
+				f := r.Finding(file, declLine(file, idx), declCol(file, idx),
 					fmt.Sprintf("Boolean property '%s' should start with 'is', 'has', or 'are'", name))
 				for i := 0; i < file.FlatChildCount(idx); i++ {
 					child := file.FlatChild(idx, i)
@@ -249,32 +223,40 @@ func registerNamingConstructorParameterNaming() {
 	r := &ConstructorParameterNamingRule{BaseRule: BaseRule{RuleName: "ConstructorParameterNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects constructor val/var parameter names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"primary_constructor"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+		NodeTypes: []string{"primary_constructor", "secondary_constructor"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				paramNode := file.FlatChild(idx, i)
-				if file.FlatType(paramNode) != "class_parameter" {
-					continue
-				}
-				if !file.FlatHasChildOfType(paramNode, "binding_pattern_kind") {
-					continue
+			if containingClassExcluded(file, idx, r.ExcludeClassPattern) {
+				return
+			}
+			check := func(paramNode uint32) {
+				if namingParameterHasWireName(file, paramNode) || file.FlatHasModifier(paramNode, "override") {
+					return
 				}
 				name := extractIdentifierFlat(file, paramNode)
-				if strings.HasPrefix(name, "`") {
-					continue
-				}
-				if name == "" {
-					continue
+				if strings.HasPrefix(name, "`") || name == "" {
+					return
 				}
 				if file.FlatHasModifier(paramNode, "private") && r.PrivateParameterPattern != nil {
 					if !r.PrivateParameterPattern.MatchString(name) {
-						ctx.EmitAt(file.FlatRow(paramNode)+1, 1, fmt.Sprintf("Private constructor parameter name '%s' does not match pattern: %s", name, r.PrivateParameterPattern.String()))
+						ctx.EmitAt(file.FlatRow(paramNode)+1, file.FlatCol(paramNode)+1, "Constructor private parameter names should match the pattern: "+displayPattern(r.PrivateParameterPattern))
 					}
-					continue
+					return
 				}
 				if !r.Pattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(paramNode)+1, 1, fmt.Sprintf("Constructor parameter name '%s' does not match pattern: %s", name, r.Pattern.String()))
+					ctx.EmitAt(file.FlatRow(paramNode)+1, file.FlatCol(paramNode)+1, "Constructor parameter names should match the pattern: "+displayPattern(r.Pattern))
+				}
+			}
+			// detekt checks every constructor parameter, with or without val/var.
+			if file.FlatType(idx) == "secondary_constructor" {
+				if params, _ := file.FlatFindChild(idx, "function_value_parameters"); params != 0 {
+					walkFunctionParametersFlat(file, params, check)
+				}
+				return
+			}
+			for i := 0; i < file.FlatChildCount(idx); i++ {
+				if paramNode := file.FlatChild(idx, i); file.FlatType(paramNode) == "class_parameter" {
+					check(paramNode)
 				}
 			}
 		},
@@ -282,7 +264,7 @@ func registerNamingConstructorParameterNaming() {
 }
 
 func registerNamingForbiddenClassName() {
-	r := &ForbiddenClassNameRule{BaseRule: BaseRule{RuleName: "ForbiddenClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class names that match a configured list of disallowed names."}, ForbiddenNames: []string{"Manager", "Helper", "Util", "Utils"}}
+	r := &ForbiddenClassNameRule{BaseRule: BaseRule{RuleName: "ForbiddenClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class names that match a configured list of disallowed names."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
@@ -297,7 +279,7 @@ func registerNamingForbiddenClassName() {
 			}
 			name := extractIdentifierFlat(file, idx)
 			if name != "" && forbidden[name] {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Class name '%s' is forbidden", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Class name '%s' is forbidden", name))
 			}
 		},
 	})
@@ -310,12 +292,15 @@ func registerNamingFunctionNameMaxLength() {
 		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if scanner.IsTestFile(file.Path) {
+			if funInterfaceMisparsedAsFunction(file, idx) {
 				return
 			}
-			name := extractIdentifierFlat(file, idx)
-			if name != "" && len(name) > r.MaxLength {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Function name '%s' exceeds maximum length of %d (length: %d)", name, r.MaxLength, len(name)))
+			if file.FlatHasModifier(idx, "override") {
+				return
+			}
+			name := strings.Trim(extractIdentifierFlat(file, idx), "`")
+			if name != "" && nameLength(name) > r.MaxLength {
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Function names should be at most %d characters long.", r.MaxLength))
 			}
 		},
 	})
@@ -328,12 +313,15 @@ func registerNamingFunctionNameMinLength() {
 		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			name := extractIdentifierFlat(file, idx)
-			if isAllowedShortFunctionName(name) {
+			if funInterfaceMisparsedAsFunction(file, idx) {
 				return
 			}
-			if name != "" && len(name) < r.MinLength {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Function name '%s' is below minimum length of %d (length: %d)", name, r.MinLength, len(name)))
+			if file.FlatHasModifier(idx, "override") {
+				return
+			}
+			name := strings.Trim(extractIdentifierFlat(file, idx), "`")
+			if name != "" && nameLength(name) < r.MinLength {
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Function names should be at least %d characters long.", r.MinLength))
 			}
 		},
 	})
@@ -346,8 +334,12 @@ func registerNamingFunctionParameterNaming() {
 		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
+			if funInterfaceMisparsedAsFunction(file, idx) {
+				return
+			}
 			paramsNode, _ := file.FlatFindChild(idx, "function_value_parameters")
-			if paramsNode == 0 {
+			// An override cannot rename parameters; the supertype owns the names.
+			if paramsNode == 0 || file.FlatHasModifier(idx, "override") || containingClassExcluded(file, idx, r.ExcludeClassPattern) {
 				return
 			}
 			walkFunctionParametersFlat(file, paramsNode, func(paramNode uint32) {
@@ -355,8 +347,12 @@ func registerNamingFunctionParameterNaming() {
 				if strings.HasPrefix(name, "`") {
 					return
 				}
+				// A trailing underscore (`value_`) is the generated-adapter way to avoid a keyword clash.
+				if strings.HasSuffix(name, "_") && r.Pattern.MatchString(strings.TrimRight(name, "_")) {
+					return
+				}
 				if name != "" && !r.Pattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(paramNode)+1, 1, fmt.Sprintf("Function parameter name '%s' does not match pattern: %s", name, r.Pattern.String()))
+					ctx.EmitAt(file.FlatRow(paramNode)+1, file.FlatCol(paramNode)+1, "Function parameter names should match the pattern: "+displayPattern(r.Pattern))
 				}
 			})
 		},
@@ -389,7 +385,7 @@ func registerNamingInvalidPackageDeclaration() {
 			}
 			if r.RequireRootInDeclaration && r.RootPackage != "" {
 				if pkg != r.RootPackage && !strings.HasPrefix(pkg, r.RootPackage+".") {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Package declaration '%s' must start with the configured root package '%s'", pkg, r.RootPackage))
+					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("Package declaration '%s' must start with the configured root package '%s'", pkg, r.RootPackage))
 					return
 				}
 			}
@@ -415,7 +411,7 @@ func registerNamingInvalidPackageDeclaration() {
 			dirNorm := filepath.ToSlash(dir)
 			expectedNorm := filepath.ToSlash(expectedSuffix)
 			if !strings.HasSuffix(dirNorm, expectedNorm) {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Package declaration '%s' does not match the file's directory structure", pkg))
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "The package declaration does not match the actual file location.")
 			}
 		},
 	})
@@ -432,7 +428,7 @@ func registerNamingLambdaParameterNaming() {
 			if paramsNode == 0 {
 				return
 			}
-			file.FlatForEachChild(paramsNode, func(child uint32) {
+			check := func(child uint32) {
 				if file.FlatType(child) != "variable_declaration" && file.FlatType(child) != "simple_identifier" {
 					return
 				}
@@ -446,8 +442,16 @@ func registerNamingLambdaParameterNaming() {
 					return
 				}
 				if name != "" && !r.Pattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("Lambda parameter name '%s' does not match pattern: %s", name, r.Pattern.String()))
+					ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1, "Lambda parameter names should match the pattern: "+displayPattern(r.Pattern))
 				}
+			}
+			file.FlatForEachChild(paramsNode, func(child uint32) {
+				// Entries of a destructured parameter `{ (a, b) -> }` are named parameters too.
+				if file.FlatType(child) == "multi_variable_declaration" {
+					file.FlatForEachChild(child, check)
+					return
+				}
+				check(child)
 			})
 		},
 	})
@@ -467,9 +471,6 @@ func registerNamingMatchingDeclarationName() {
 		NodeTypes: []string{"source_file"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if strings.HasSuffix(file.Path, ".kts") {
-				return
-			}
 			type classDecl struct {
 				name string
 				idx  uint32
@@ -477,11 +478,13 @@ func registerNamingMatchingDeclarationName() {
 			var nonPrivateClasses []classDecl
 			var typeAliasNames []string
 			var firstDeclNode uint32
-			hasComposableFunc := false
-			hasExtensionFunc := false
+			totalClasses := 0
 			for i := 0; i < file.FlatChildCount(idx); i++ {
 				child := file.FlatChild(idx, i)
 				switch file.FlatType(child) {
+				case "ERROR", "lambda_literal", "call_expression", "prefix_expression", "infix_expression":
+					// Error recovery (e.g. on `fun interface`) can hide declarations as statements.
+					return
 				case "class_declaration", "object_declaration":
 					if firstDeclNode == 0 {
 						firstDeclNode = child
@@ -489,6 +492,7 @@ func registerNamingMatchingDeclarationName() {
 					if file.FlatHasModifier(child, "private") {
 						continue
 					}
+					totalClasses++
 					name := extractIdentifierFlat(file, child)
 					if name != "" {
 						nonPrivateClasses = append(nonPrivateClasses, classDecl{name, child})
@@ -505,25 +509,14 @@ func registerNamingMatchingDeclarationName() {
 					if firstDeclNode == 0 {
 						firstDeclNode = child
 					}
-					if flatHasAnnotationNamed(file, child, "Composable") {
-						hasComposableFunc = true
-					}
-					if isExtensionFunctionDeclFlat(file, child) {
-						hasExtensionFunc = true
-					}
 				case "property_declaration":
 					if firstDeclNode == 0 {
 						firstDeclNode = child
 					}
 				}
 			}
-			if len(nonPrivateClasses) != 1 {
-				return
-			}
-			if hasComposableFunc {
-				return
-			}
-			if hasExtensionFunc {
+			// detekt looks at the non-private classes and objects only; private helpers do not count.
+			if len(nonPrivateClasses) != 1 || totalClasses != 1 {
 				return
 			}
 			decl := nonPrivateClasses[0]
@@ -566,37 +559,64 @@ func registerNamingMatchingDeclarationName() {
 				return
 			}
 			if fileName != decl.name {
-				ctx.EmitAt(file.FlatRow(decl.idx)+1, 1, fmt.Sprintf("File name '%s' does not match the single top-level declaration '%s'", fileName, decl.name))
+				ctx.EmitAt(declLine(file, decl.idx), declCol(file, decl.idx), fmt.Sprintf("The file name '%s' does not match the name of the single top-level declaration '%s'.", fileName, decl.name))
 			}
 		},
 	})
 }
 
 func registerNamingMemberNameEqualsClassName() {
-	r := &MemberNameEqualsClassNameRule{BaseRule: BaseRule{RuleName: "MemberNameEqualsClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class members whose name is the same as the containing class name."}}
+	r := &MemberNameEqualsClassNameRule{BaseRule: BaseRule{RuleName: "MemberNameEqualsClassName", RuleSetName: "naming", Sev: "warning", Desc: "Detects class members whose name is the same as the containing class name."}, IgnoreOverridden: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+		NodeTypes: []string{"class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			className := extractIdentifierFlat(file, idx)
-			if className == "" {
+			const classMessage = "A member is named after the class. This might result in confusion. Either rename the member or change it to a constructor."
+			const objectMessage = "A member is named after the object. This might result in confusion. Please rename the member."
+			name, message := extractIdentifierFlat(file, idx), classMessage
+			companion := file.FlatType(idx) == "companion_object"
+			switch {
+			case file.FlatType(idx) == "class_declaration" && file.FlatHasChildOfType(idx, "interface"):
 				return
-			}
-			classBody, _ := file.FlatFindChild(idx, "class_body")
-			if classBody == 0 {
-				return
-			}
-			for i := 0; i < file.FlatChildCount(classBody); i++ {
-				child := file.FlatChild(classBody, i)
-				switch file.FlatType(child) {
-				case "function_declaration", "property_declaration":
-					memberName := extractIdentifierFlat(file, child)
-					if memberName == className {
-						ctx.EmitAt(file.FlatRow(child)+1, 1, fmt.Sprintf("Member '%s' has the same name as the containing class", memberName))
+			case companion:
+				// A companion's members are compared with the class that holds it.
+				name = ""
+				if p, ok := file.FlatParent(idx); ok {
+					if cls, ok := file.FlatParent(p); ok && file.FlatType(cls) == "class_declaration" {
+						name = extractIdentifierFlat(file, cls)
 					}
 				}
+			case file.FlatType(idx) == "object_declaration":
+				message = objectMessage
 			}
+			if name == "" {
+				return
+			}
+			body, _ := file.FlatFindChild(idx, "class_body")
+			if body == 0 {
+				body, _ = file.FlatFindChild(idx, "enum_class_body")
+			}
+			if body == 0 {
+				return
+			}
+			forEachDirectClassBodyNodeFlat(file, body, func(member uint32) {
+				t := file.FlatType(member)
+				if t != "function_declaration" && t != "property_declaration" {
+					return
+				}
+				if !strings.EqualFold(extractIdentifierFlat(file, member), name) {
+					return
+				}
+				if r.IgnoreOverridden && file.FlatHasModifier(member, "override") {
+					return
+				}
+				// A companion factory `fun Foo(): Foo` is the idiom the rule points to.
+				if companion && t == "function_declaration" && functionReturnTypeText(file, member) == name {
+					return
+				}
+				ctx.EmitAt(file.FlatRow(member)+1, file.FlatCol(member)+1, message)
+			})
 		},
 	})
 }
@@ -638,14 +658,14 @@ func registerNamingNonBooleanPropertyPrefixedWithIs() {
 			}
 			text := file.FlatNodeText(idx)
 			if strings.Contains(text, ": ") {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Non-Boolean property '%s' should not be prefixed with 'is'", name))
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Non-Boolean property '%s' should not be prefixed with 'is'", name))
 			}
 		},
 	})
 }
 
 func registerNamingObjectPropertyNaming() {
-	r := &ObjectPropertyNamingRule{BaseRule: BaseRule{RuleName: "ObjectPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects property names inside object declarations that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
+	r := &ObjectPropertyNamingRule{BaseRule: BaseRule{RuleName: "ObjectPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects property names inside object declarations that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Za-z][_A-Za-z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[A-Za-z][_A-Za-z0-9]*$`), PrivatePropertyPattern: regexp.MustCompile(`^(_)?[A-Za-z][_A-Za-z0-9]*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"object_declaration", "companion_object"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
@@ -670,15 +690,15 @@ func registerNamingObjectPropertyNaming() {
 				}
 				if file.FlatHasModifier(propNode, "const") {
 					if !r.ConstPattern.MatchString(name) {
-						ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object const property '%s' does not match pattern: %s", name, r.ConstPattern.String()))
+						ctx.EmitAt(declLine(file, propNode), declCol(file, propNode), "Object constant names should match the pattern: "+displayPattern(r.ConstPattern))
 					}
 				} else if file.FlatHasModifier(propNode, "private") && r.PrivatePropertyPattern != nil {
 					if !r.PrivatePropertyPattern.MatchString(name) {
-						ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object private property '%s' does not match pattern: %s", name, r.PrivatePropertyPattern.String()))
+						ctx.EmitAt(declLine(file, propNode), declCol(file, propNode), "Private object property names should match the pattern: "+displayPattern(r.PrivatePropertyPattern))
 					}
 				} else {
 					if !r.PropertyPattern.MatchString(name) {
-						ctx.EmitAt(file.FlatRow(propNode)+1, 1, fmt.Sprintf("Object property '%s' does not match pattern: %s", name, r.PropertyPattern.String()))
+						ctx.EmitAt(declLine(file, propNode), declCol(file, propNode), "Object property names should match the pattern: "+displayPattern(r.PropertyPattern))
 					}
 				}
 			})
@@ -687,7 +707,7 @@ func registerNamingObjectPropertyNaming() {
 }
 
 func registerNamingTopLevelPropertyNaming() {
-	r := &TopLevelPropertyNamingRule{BaseRule: BaseRule{RuleName: "TopLevelPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects top-level property names that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Za-z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)}
+	r := &TopLevelPropertyNamingRule{BaseRule: BaseRule{RuleName: "TopLevelPropertyNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects top-level property names that do not match the expected naming pattern."}, ConstPattern: regexp.MustCompile(`^[A-Z][_A-Z0-9]*$`), PropertyPattern: regexp.MustCompile(`^[A-Za-z][_A-Za-z0-9]*$`), PrivatePropertyPattern: regexp.MustCompile(`^_?[A-Za-z][_A-Za-z0-9]*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
@@ -707,15 +727,15 @@ func registerNamingTopLevelPropertyNaming() {
 			}
 			if file.FlatHasModifier(idx, "const") {
 				if !r.ConstPattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Top-level const property '%s' does not match pattern: %s", name, r.ConstPattern.String()))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Top level constant names should match the pattern: "+displayPattern(r.ConstPattern))
 				}
 			} else if file.FlatHasModifier(idx, "private") && r.PrivatePropertyPattern != nil {
 				if !r.PrivatePropertyPattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Top-level private property '%s' does not match pattern: %s", name, r.PrivatePropertyPattern.String()))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Private top level property names should match the pattern: "+displayPattern(r.PrivatePropertyPattern))
 				}
 			} else {
 				if !r.PropertyPattern.MatchString(name) {
-					ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Top-level property '%s' does not match pattern: %s", name, r.PropertyPattern.String()))
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Top level property names should match the pattern: "+displayPattern(r.PropertyPattern))
 				}
 			}
 		},
@@ -729,46 +749,128 @@ func registerNamingVariableMaxLength() {
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !file.FlatHasAncestorOfType(idx, "function_body") {
-				return
-			}
-			name := extractIdentifierFlat(file, idx)
-			if name != "" && len(name) > r.MaxLength {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Variable name '%s' exceeds maximum length of %d (length: %d)", name, r.MaxLength, len(name)))
+			name := strings.Trim(extractIdentifierFlat(file, idx), "`")
+			if name != "" && nameLength(name) > r.MaxLength {
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Variable names should be at most %d characters long.", r.MaxLength))
 			}
 		},
 	})
 }
 
 func registerNamingVariableMinLength() {
-	r := &VariableMinLengthRule{BaseRule: BaseRule{RuleName: "VariableMinLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects variable names that are shorter than the configured minimum length."}, MinLength: 2}
+	r := &VariableMinLengthRule{BaseRule: BaseRule{RuleName: "VariableMinLength", RuleSetName: "naming", Sev: "warning", Desc: "Detects variable names that are shorter than the configured minimum length."}, MinLength: 1}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if !file.FlatHasAncestorOfType(idx, "function_body") {
+			name := strings.Trim(extractIdentifierFlat(file, idx), "`")
+			if name == "" || name == "_" {
 				return
 			}
-			name := extractIdentifierFlat(file, idx)
-			if name == "" {
-				return
-			}
-			if name == "_" {
-				return
-			}
-			if len(name) < r.MinLength {
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, fmt.Sprintf("Variable name '%s' is below minimum length of %d (length: %d)", name, r.MinLength, len(name)))
+			if nameLength(name) < r.MinLength {
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Variable names should be at least %d characters long.", r.MinLength))
 			}
 		},
 	})
 }
 
-func isAllowedShortFunctionName(name string) bool {
-	switch name {
-	case "d", "e", "i", "v", "w":
-		return true
-	default:
+// displayPattern returns the pattern as the user wrote it, without the anchors the compiler added, as detekt
+// prints it in messages.
+func displayPattern(re *regexp.Regexp) string {
+	if re == nil {
+		return ""
+	}
+	p := strings.TrimSuffix(strings.TrimPrefix(re.String(), "^"), "$")
+	if strings.HasPrefix(p, "(?:") && strings.HasSuffix(p, ")") {
+		p = p[3 : len(p)-1]
+	}
+	return p
+}
+
+// containingClassExcluded reports a declaration whose nearest enclosing class or object has a name matching
+// the excludeClassPattern option.
+func containingClassExcluded(file *scanner.File, idx uint32, re *regexp.Regexp) bool {
+	if re == nil {
 		return false
 	}
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_declaration", "object_declaration", "companion_object":
+			name := extractIdentifierFlat(file, p)
+			return name != "" && re.MatchString(name)
+		}
+	}
+	return false
+}
+
+// functionReturnTypeName returns the referenced name of a plain (non-nullable) declared return type, the way
+// detekt's KtUserType.referencedName does: the last segment of a qualified name, without type arguments.
+func functionReturnTypeName(file *scanner.File, fn uint32) string {
+	text := functionReturnTypeText(file, fn)
+	if text == "" || strings.HasSuffix(text, "?") || strings.HasPrefix(text, "(") || strings.Contains(text, "->") {
+		return ""
+	}
+	if i := strings.IndexByte(text, '<'); i >= 0 {
+		text = text[:i]
+	}
+	text = strings.TrimSpace(text)
+	if i := strings.LastIndexByte(text, '.'); i >= 0 {
+		text = strings.TrimSpace(text[i+1:])
+	}
+	return strings.Trim(text, "`")
+}
+
+// functionReturnTypeText returns the text of the declared return type of a function, or "".
+func functionReturnTypeText(file *scanner.File, fn uint32) string {
+	seenParams := false
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		t := file.FlatType(c)
+		if t == "function_value_parameters" {
+			seenParams = true
+			continue
+		}
+		if !seenParams {
+			continue
+		}
+		switch t {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_reference", "dynamic_type":
+			return file.FlatNodeText(c)
+		case "function_body":
+			return ""
+		}
+	}
+	return ""
+}
+
+// nameLength is the length of a name in UTF-16 units, which is what Kotlin's String.length counts.
+func nameLength(name string) int {
+	n := 0
+	for _, r := range name {
+		if r >= 0x10000 {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+// funInterfaceMisparsedAsFunction reports a `fun interface X { ... }` that the grammar parses as a function
+// declaration with `interface` as its receiver type. Rules about functions must not treat it as one.
+func funInterfaceMisparsedAsFunction(file *scanner.File, idx uint32) bool {
+	if file.FlatType(idx) != "function_declaration" {
+		return false
+	}
+	for c := file.FlatFirstChild(idx); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			return false
+		case "user_type":
+			if strings.TrimSpace(file.FlatNodeText(c)) == "interface" {
+				return true
+			}
+		}
+	}
+	return false
 }

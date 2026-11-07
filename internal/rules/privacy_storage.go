@@ -2,13 +2,52 @@ package rules
 
 import (
 	"regexp"
+	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-var sensitiveStorageKeyPattern = regexp.MustCompile(`(?i)(token|secret|password|pin|auth|credential|private.?key)`)
+// The patterns match whole snake_case words. Names are split into words first
+// (see privacyWordMatch), so `pin` does not match `shipping` or `spinner`.
+var sensitiveStorageKeyPattern = regexp.MustCompile(`(?i)(^|_)(tokens?|secrets?|passwords?|passwd|pin|pins|auth|oauth|credentials?|private_?keys?|api_?keys?)(_|$)`)
 
-var sensitiveFileNamePattern = regexp.MustCompile(`(?i)(credential|token|secret|auth|password|private.?key)`)
+var sensitiveFileNamePattern = regexp.MustCompile(`(?i)(^|_)(credentials?|tokens?|secrets?|auth|oauth|passwords?|passwd|private_?keys?)(_|$)`)
+
+var privacyNonWordChars = regexp.MustCompile(`[^A-Za-z0-9]+`)
+
+// privacyWordMatch matches pattern against name as written and against name
+// split into lowercase snake_case words at camelCase and punctuation boundaries.
+func privacyWordMatch(pattern *regexp.Regexp, name string) bool {
+	if pattern.MatchString(name) {
+		return true
+	}
+	snake := logPiiCamelBoundary.ReplaceAllString(name, "${1}${3}_${2}${4}")
+	snake = privacyNonWordChars.ReplaceAllString(snake, "_")
+	return pattern.MatchString(snake)
+}
+
+// sensitiveStorageKeyBenignWords mark a key that names metadata about a secret
+// (its expiry, count or flag) rather than the secret itself.
+var sensitiveStorageKeyBenignWords = map[string]bool{
+	"expires": true, "expiry": true, "expiration": true, "expired": true, "expire": true,
+	"time": true, "timestamp": true, "at": true, "count": true, "counter": true, "attempts": true,
+	"enabled": true, "disabled": true, "visible": true, "shown": true, "hint": true, "type": true,
+	"state": true, "status": true, "version": true, "length": true, "label": true, "has": true, "is": true,
+}
+
+// sensitiveStorageKey reports whether a SharedPreferences key names a secret value.
+func sensitiveStorageKey(key string) bool {
+	if !privacyWordMatch(sensitiveStorageKeyPattern, key) {
+		return false
+	}
+	snake := logPiiCamelBoundary.ReplaceAllString(key, "${1}${3}_${2}${4}")
+	for _, w := range privacyNonWordChars.Split(strings.ToLower(snake), -1) {
+		if sensitiveStorageKeyBenignWords[w] {
+			return false
+		}
+	}
+	return true
+}
 
 // SharedPreferencesForSensitiveKeyRule flags putString/putInt/putLong calls
 // on SharedPreferences with a key literal matching sensitive patterns.
@@ -49,7 +88,7 @@ func (r *SharedPreferencesForSensitiveKeyRule) check(ctx *api.Context) {
 		return
 	}
 
-	if !sensitiveStorageKeyPattern.MatchString(body) {
+	if !sensitiveStorageKey(body) {
 		return
 	}
 
@@ -81,7 +120,7 @@ func (r *PlainFileWriteOfSensitiveRule) check(ctx *api.Context) {
 	}
 
 	receiverLiteral := sensitiveFileReceiverLiteral(ctx, idx)
-	if receiverLiteral == "" || !sensitiveFileNamePattern.MatchString(receiverLiteral) {
+	if receiverLiteral == "" || !privacyWordMatch(sensitiveFileNamePattern, receiverLiteral) {
 		return
 	}
 
@@ -147,7 +186,7 @@ func (r *LogOfSharedPreferenceReadRule) check(ctx *api.Context) {
 		if !ok {
 			return
 		}
-		if sensitiveStorageKeyPattern.MatchString(body) {
+		if sensitiveStorageKey(body) {
 			ctx.Emit(r.Finding(
 				file,
 				file.FlatRow(innerCall)+1,
@@ -160,7 +199,7 @@ func (r *LogOfSharedPreferenceReadRule) check(ctx *api.Context) {
 
 func isSharedPrefsPutMethod(name string) bool {
 	switch name {
-	case "putString", "putInt", "putLong", "putFloat", "putBoolean", "putStringSet":
+	case "putString", "putInt", "putStringSet":
 		return true
 	}
 	return false
@@ -168,7 +207,7 @@ func isSharedPrefsPutMethod(name string) bool {
 
 func isSharedPrefsGetMethod(name string) bool {
 	switch name {
-	case "getString", "getInt", "getLong", "getFloat", "getBoolean", "getStringSet":
+	case "getString", "getInt", "getStringSet":
 		return true
 	}
 	return false

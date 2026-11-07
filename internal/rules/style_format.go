@@ -66,7 +66,7 @@ func (r *NewLineAtEndOfFileRule) Confidence() float64 { return api.ConfidenceVer
 func (r *NewLineAtEndOfFileRule) check(ctx *api.Context) {
 	file := ctx.File
 	if len(file.Content) > 0 && file.Content[len(file.Content)-1] != '\n' {
-		f := r.Finding(file, len(file.Lines), 1, "File does not end with a newline.")
+		f := r.Finding(file, len(file.Lines), len(file.Lines[len(file.Lines)-1])+1, "File does not end with a newline.")
 		f.Fix = &scanner.Fix{
 			ByteMode:    true,
 			StartByte:   len(file.Content),
@@ -83,8 +83,117 @@ type SpacingAfterPackageAndImportsRule struct {
 	BaseRule
 }
 
+// rowCol converts a byte offset to a 1-based row and column.
+func spacingRowCol(file *scanner.File, offset int) (int, int) {
+	row := file.RowForByte(offset)
+	return row + 1, offset - file.LineOffset(row) + 1
+}
+
+// exactlyOneBlankLine reports whether gap is a line break, one empty line and a line break, with only blanks around.
+func exactlyOneBlankLine(gap string) bool {
+	return strings.Count(gap, "\n") == 2 && strings.TrimSpace(gap) == ""
+}
+
+// checkKotlin follows detekt's SpacingBetweenPackageAndImports: with imports present, one empty line must separate the
+// package declaration (or a comment before the imports) from them and the imports from a following class or object.
+func (r *SpacingAfterPackageAndImportsRule) checkKotlin(ctx *api.Context) {
+	file, idx := ctx.File, ctx.Idx
+	if file.FlatType(idx) != "import_header" {
+		return
+	}
+	// Run once, from the last import.
+	if next, ok := nextPreludeSibling(file, idx); ok && (file.FlatType(next) == "import_header" || file.FlatType(next) == "import_list") {
+		return
+	}
+	list, ok := file.FlatParent(idx)
+	if !ok || file.FlatType(list) != "import_list" {
+		return
+	}
+	first := file.FlatFirstChild(list)
+	for first != 0 && file.FlatType(first) != "import_header" {
+		first = file.FlatNextSib(first)
+	}
+	if first == 0 {
+		return
+	}
+	content := string(file.Content)
+	fix := func(start, end int, rep string) *scanner.Fix {
+		return &scanner.Fix{ByteMode: true, StartByte: start, EndByte: end, Replacement: rep}
+	}
+
+	// detekt only checks files that declare a package.
+	prev, hasPrev := file.FlatPrevSibling(list)
+	if !hasPrev {
+		return
+	}
+	hasPackage := false
+	for n, ok := prev, true; ok; n, ok = file.FlatPrevSibling(n) {
+		if file.FlatType(n) == "package_header" {
+			hasPackage = true
+			break
+		}
+	}
+	if !hasPackage {
+		return
+	}
+
+	// Package (or comment) to the first import.
+	if prev, ok := file.FlatPrevSibling(list); ok {
+		if t := file.FlatType(prev); t == "package_header" || t == "line_comment" || t == "multiline_comment" {
+			prevEnd, firstStart := int(preludeCodeEndByte(file, prev)), int(file.FlatStartByte(first))
+			if prevEnd < len(content) && content[prevEnd] == ';' {
+				prevEnd++
+			}
+			// A comment between the two is left alone.
+			if prevEnd <= firstStart && strings.TrimSpace(content[prevEnd:firstStart]) == "" && !exactlyOneBlankLine(content[prevEnd:firstStart]) {
+				row, col := spacingRowCol(file, prevEnd)
+				f := r.Finding(file, row, col, "There should be exactly one empty line in between the package declaration and the list of imports.")
+				f.Fix = fix(prevEnd, firstStart, "\n\n")
+				ctx.Emit(f)
+			}
+		}
+	}
+
+	// The last import to a following class or object.
+	var decl uint32
+	for n, ok := file.FlatNextSibling(list); ok; n, ok = file.FlatNextSibling(n) {
+		if isFlatCommentNode(file, n) {
+			continue
+		}
+		decl = n
+		break
+	}
+	if decl == 0 || (file.FlatType(decl) != "class_declaration" && file.FlatType(decl) != "object_declaration") {
+		return
+	}
+	importEnd := int(preludeCodeEndByte(file, idx))
+	// A trailing `;` belongs to the import.
+	if importEnd < len(content) && content[importEnd] == ';' {
+		importEnd++
+	}
+	rest := importEnd
+	for rest < len(content) && strings.ContainsRune(" \t\r\n", rune(content[rest])) {
+		rest++
+	}
+	if exactlyOneBlankLine(content[importEnd:rest]) {
+		return
+	}
+	name := extractIdentifierFlat(file, decl)
+	if name == "" {
+		name = "the class or object"
+	}
+	row, col := spacingRowCol(file, importEnd)
+	f := r.Finding(file, row, col, "There should be exactly one empty line in between the list of imports and the declaration of "+name+".")
+	f.Fix = fix(importEnd, rest, "\n\n")
+	ctx.Emit(f)
+}
+
 func (r *SpacingAfterPackageAndImportsRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
+	if file.Language != scanner.LangJava {
+		r.checkKotlin(ctx)
+		return
+	}
 
 	// Kotlin's import_list span includes trailing blank lines, so fire on
 	// the trailing import_header / package_header and climb out of the list
@@ -187,15 +296,45 @@ func (r *MaxChainedCallsOnSameLineRule) check(ctx *api.Context) {
 			}
 		}
 	}
+	if nodeType == "call_expression" || nodeType == "navigation_expression" {
+		for _, count := range kotlinChainRuns(file, idx) {
+			if count > r.MaxCalls {
+				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, maxChainedCallsMessage(count, r.MaxCalls)))
+			}
+		}
+		return
+	}
 	count, minRow, maxRow := chainStepCount(file, idx)
-	if count <= r.MaxCalls {
+	if count <= r.MaxCalls || minRow != maxRow {
 		return
 	}
-	if minRow != maxRow {
-		return
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, maxChainedCallsMessage(count, r.MaxCalls)))
+}
+
+func maxChainedCallsMessage(count, max int) string {
+	return fmt.Sprintf("%d chained calls on a single line; more than %d calls should be wrapped to a new line.", count, max)
+}
+
+// kotlinChainRuns splits a call chain at every selector that starts a new line and returns the call count of each
+// run. Like detekt, a run counts its receiver when that sits on the line of the run's first selector.
+func kotlinChainRuns(file *scanner.File, head uint32) []int {
+	links := cascadeLinks(file, head)
+	var runs []int
+	run := 0
+	for i, l := range links {
+		if l.wrapped && run > 0 {
+			runs = append(runs, run)
+			run = 0
+		}
+		if i == 0 && !l.wrapped {
+			run++ // the receiver
+		}
+		run++
 	}
-	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-		fmt.Sprintf("Line has %d chained calls, max allowed is %d.", count, r.MaxCalls)))
+	if run > 0 {
+		runs = append(runs, run)
+	}
+	return runs
 }
 
 // chainStepCount returns the number of `.foo` (or `?.foo`) steps in the
@@ -343,44 +482,86 @@ type CascadingCallWrappingRule struct {
 // Classified per roadmap/17.
 func (r *CascadingCallWrappingRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func (r *CascadingCallWrappingRule) check(ctx *api.Context) {
-	file := ctx.File
-	insideRawString := computeRawStringLines(file.Lines)
-	insideBlockComment := computeBlockCommentLines(file.Lines)
-	for i, line := range file.Lines {
-		if insideRawString[i] || insideBlockComment[i] {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		isDot := strings.HasPrefix(trimmed, ".")
-		isElvis := r.IncludeElvis && strings.HasPrefix(trimmed, "?:")
-		if (!isDot && !isElvis) || i == 0 {
-			continue
-		}
-		if insideRawString[i-1] || insideBlockComment[i-1] {
-			continue
-		}
-		prevTrimmed := strings.TrimSpace(file.Lines[i-1])
-		if strings.HasPrefix(prevTrimmed, ".") || (r.IncludeElvis && strings.HasPrefix(prevTrimmed, "?:")) {
-			continue // already wrapped
-		}
-		// `.` chain requires the previous line to have a `.`; the `?:`
-		// continuation only requires that the previous line is part of
-		// an expression (not a block opener).
-		if isDot && !strings.Contains(prevTrimmed, ".") {
-			continue
-		}
-		if strings.HasSuffix(prevTrimmed, "{") {
-			continue
-		}
-		indent := len(line) - len(strings.TrimLeft(line, " \t"))
-		prevIndent := len(file.Lines[i-1]) - len(strings.TrimLeft(file.Lines[i-1], " \t"))
-		if indent <= prevIndent {
-			msg := "Chained call should be indented from the previous line."
-			if isElvis {
-				msg = "Elvis-operator continuation should be indented from the previous line."
+// cascadeLink is one `.`/`?.` selector of a call chain.
+type cascadeLink struct {
+	op      uint32
+	wrapped bool
+}
+
+func cascadeEndRow(file *scanner.File, n uint32) int {
+	return file.FlatRow(n) + strings.Count(file.FlatNodeText(n), "\n")
+}
+
+// cascadeContinuesChain reports whether node is the receiver of its parent chain element.
+func cascadeContinuesChain(file *scanner.File, node uint32) bool {
+	p, ok := file.FlatParent(node)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(p) {
+	case "navigation_expression", "call_expression", "postfix_expression":
+		return file.FlatFirstChild(p) == node
+	}
+	return false
+}
+
+// cascadeLinks returns the selectors of the chain rooted at root in source order.
+func cascadeLinks(file *scanner.File, root uint32) []cascadeLink {
+	var links []cascadeLink
+	for cur := root; cur != 0; {
+		switch file.FlatType(cur) {
+		case "call_expression", "postfix_expression":
+			cur = file.FlatFirstChild(cur)
+		case "navigation_expression":
+			recv := file.FlatFirstChild(cur)
+			suffix, ok := file.FlatFindChild(cur, "navigation_suffix")
+			if recv == 0 || !ok || suffix == 0 {
+				return nil
 			}
-			ctx.Emit(r.Finding(file, i+1, 1, msg))
+			op := file.FlatFirstChild(suffix)
+			if op == 0 {
+				return nil
+			}
+			links = append(links, cascadeLink{op: op, wrapped: file.FlatRow(op) > cascadeEndRow(file, recv)})
+			cur = recv
+		default:
+			cur = 0
+		}
+	}
+	for i, j := 0, len(links)-1; i < j; i, j = i+1, j-1 {
+		links[i], links[j] = links[j], links[i]
+	}
+	return links
+}
+
+func (r *CascadingCallWrappingRule) check(ctx *api.Context) {
+	idx, file := ctx.Idx, ctx.File
+	switch file.FlatType(idx) {
+	case "elvis_expression":
+		if !r.IncludeElvis || file.FlatChildCount(idx) < 3 {
+			return
+		}
+		left, op := file.FlatChild(idx, 0), file.FlatChild(idx, 1)
+		wrapped := false
+		for _, l := range cascadeLinks(file, left) {
+			wrapped = wrapped || l.wrapped
+		}
+		if wrapped && file.FlatRow(op) == cascadeEndRow(file, left) {
+			ctx.Emit(r.Finding(file, file.FlatRow(op)+1, file.FlatCol(op)+1,
+				"Elvis operator should be wrapped to a new line because a preceding call in the chain is wrapped."))
+		}
+	default:
+		if cascadeContinuesChain(file, idx) {
+			return
+		}
+		sawWrapped := false
+		for _, l := range cascadeLinks(file, idx) {
+			if l.wrapped {
+				sawWrapped = true
+			} else if sawWrapped {
+				ctx.Emit(r.Finding(file, file.FlatRow(l.op)+1, file.FlatCol(l.op)+1,
+					"Chained call should be wrapped to a new line because a preceding call in the chain is wrapped."))
+			}
 		}
 	}
 }
@@ -472,36 +653,34 @@ type EqualsOnSignatureLineRule struct {
 func (r *EqualsOnSignatureLineRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *EqualsOnSignatureLineRule) check(ctx *api.Context) {
-	file := ctx.File
-	for i := 1; i < len(file.Lines); i++ {
-		trimmed := strings.TrimSpace(file.Lines[i])
-		if trimmed == "=" || strings.HasPrefix(trimmed, "= ") {
-			prevTrimmed := strings.TrimSpace(file.Lines[i-1])
-			if strings.HasPrefix(prevTrimmed, "fun ") || strings.Contains(prevTrimmed, " fun ") {
-				f := r.Finding(file, i+1, 1,
-					"'=' should be on the same line as the function signature.")
-				// Compute byte offsets: merge prev line with current line
-				merged := strings.TrimRight(file.Lines[i-1], " \t") + " " + trimmed
-				prevLineIdx := i - 1
-				byteStart := 0
-				for j := 0; j < prevLineIdx; j++ {
-					byteStart += len(file.Lines[j]) + 1
-				}
-				byteEnd := byteStart + len(file.Lines[i-1]) + 1 + len(file.Lines[i])
-				if i+1 < len(file.Lines) {
-					byteEnd++ // include the newline after current line
-				}
-				if byteEnd > len(file.Content) {
-					byteEnd = len(file.Content)
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   byteStart,
-					EndByte:     byteEnd,
-					Replacement: merged,
-				}
-				ctx.Emit(f)
-			}
-		}
+	idx, file := ctx.Idx, ctx.File
+	body, ok := file.FlatFindChild(idx, "function_body")
+	if !ok || body == 0 {
+		return
 	}
+	eq := file.FlatFirstChild(body)
+	if eq == 0 || !file.FlatNodeTextEquals(eq, "=") {
+		return
+	}
+	prev := uint32(0)
+	for c := file.FlatFirstChild(idx); c != 0 && c != body; c = file.FlatNextSib(c) {
+		prev = c
+	}
+	// A comment before the `=` would swallow it once joined onto the signature line.
+	if prev == 0 || isFlatCommentNode(file, prev) {
+		return
+	}
+	gapStart, gapEnd := int(file.FlatEndByte(prev)), int(file.FlatStartByte(eq))
+	if gapStart > gapEnd || gapEnd > len(file.Content) {
+		return
+	}
+	gap := string(file.Content[gapStart:gapEnd])
+	// Only a pure whitespace gap with a line break is safe to join; comments stay put.
+	if !strings.Contains(gap, "\n") || strings.TrimSpace(gap) != "" {
+		return
+	}
+	f := r.Finding(file, file.FlatRow(eq)+1, file.FlatCol(eq)+1,
+		"'=' should be on the same line as the function signature.")
+	f.Fix = &scanner.Fix{ByteMode: true, StartByte: gapStart, EndByte: gapEnd, Replacement: " "}
+	ctx.Emit(f)
 }

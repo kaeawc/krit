@@ -97,7 +97,7 @@ func (r *InjectDispatcherRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.StringListOption(api.StringListOptionSpec[InjectDispatcherRule]{
 				Name:        "dispatcherNames",
-				Default:     []string{"IO", "Default", "Unconfined", "Main"},
+				Default:     []string{"IO", "Default", "Unconfined"},
 				Description: "Dispatcher names to flag.",
 				Apply:       func(r *InjectDispatcherRule, v []string) { r.DispatcherNames = v },
 			}),
@@ -172,6 +172,13 @@ func (r *StateFlowMutableLeakRule) Meta() api.RuleDescriptor {
 		ID:            "StateFlowMutableLeak",
 		RuleSet:       "coroutines",
 		DefaultActive: true,
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[StateFlowMutableLeakRule]{
+				Name:        "testSupportClassNames",
+				Description: "Class-name substrings that mark a class as test support, so its public MutableStateFlow is not reported. Classes named Fake*, Test* or Mutable* and @VisibleForTesting code are always skipped.",
+				Apply:       func(r *StateFlowMutableLeakRule, v []string) { r.TestSupportClassNames = v },
+			}),
+		},
 	}
 }
 

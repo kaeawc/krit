@@ -60,6 +60,25 @@ func parameterTextSuppressesUnused(text string) bool {
 		(strings.Contains(text, `"unused"`) || strings.Contains(text, `"UNUSED_PARAMETER"`))
 }
 
+// unusedParameterTypeMayBeFunctionAlias reports whether the parameter is typed with a plain
+// named type that could be a typealias of a function type, so `receiver.name(args)` may invoke it.
+func unusedParameterTypeMayBeFunctionAlias(file *scanner.File, param uint32) bool {
+	for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "user_type" {
+			continue
+		}
+		text := file.FlatNodeText(c)
+		return !strings.ContainsAny(text, "<.") && !unusedParameterValueTypes[text]
+	}
+	return false
+}
+
+var unusedParameterValueTypes = map[string]bool{
+	"String": true, "CharSequence": true, "Int": true, "Long": true, "Short": true, "Byte": true,
+	"Float": true, "Double": true, "Boolean": true, "Char": true, "Any": true, "Unit": true,
+	"List": true, "Set": true, "Map": true, "Collection": true, "Iterable": true,
+}
+
 func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32, paramName string, paramIsFunctionType bool) (used bool, unknown bool) {
 	if file == nil || scope == 0 || paramIdx == 0 || paramName == "" {
 		return false, false
@@ -81,7 +100,8 @@ func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32,
 		}
 	}
 	if !used && !unknown {
-		used = unusedParameterMisparsedReferenceFlat(file, scope, paramIdx, paramName)
+		used = unusedParameterMisparsedReferenceFlat(file, scope, paramIdx, paramName) ||
+			softKeywordCallMentions(file, scope, paramName, 0)
 	}
 	if !used && !unknown && unusedParameterErrorSubtreeMentionsNameFlat(file, scope, paramName) {
 		unknown = true
@@ -96,7 +116,8 @@ func unusedParameterUsageFlat(file *scanner.File, scope uint32, paramIdx uint32,
 //     (`buffer::execute`, `screen::class`) parses as a type_identifier;
 //   - `!isReady` / `!inProgress` in a when condition lexes as the `!is` /
 //     `!in` operator glued to the rest of the name (`!is Ready`), producing
-//     a type_test or range_test instead of a negated identifier.
+//     a type_test or range_test instead of a negated identifier, and the
+//     names that follow it in the same condition become type identifiers.
 func unusedParameterMisparsedReferenceFlat(file *scanner.File, scope uint32, paramIdx uint32, name string) bool {
 	found := false
 	check := func(ref uint32) {
@@ -115,14 +136,25 @@ func unusedParameterMisparsedReferenceFlat(file *scanner.File, scope uint32, par
 		}
 		check(receiver)
 	})
-	for _, testType := range []string{"type_test", "range_test"} {
+	for _, testType := range []string{"type_test", "range_test", "check_expression"} {
 		if found {
 			break
 		}
 		file.FlatWalkNodes(scope, testType, func(test uint32) {
-			if misLexed, ok := misLexedNegatedIdentifierFlat(file, test); ok && misLexed == name {
+			misLexed, ok := misLexedNegatedIdentifierFlat(file, test)
+			if !ok {
+				return
+			}
+			if misLexed == name {
 				check(test)
 			}
+			// The rest of the condition (`!isReady && other`) parses as the
+			// operand type, so names after the operator are type identifiers.
+			file.FlatWalkNodes(test, "type_identifier", func(ref uint32) {
+				if file.FlatNodeTextEquals(ref, name) && file.FlatStartByte(ref) > file.FlatStartByte(test) {
+					check(ref)
+				}
+			})
 		})
 	}
 	return found
@@ -134,17 +166,17 @@ func unusedParameterMisparsedReferenceFlat(file *scanner.File, scope uint32, par
 // `!is Ready` and `!inProgress` as `!in Progress`, while Kotlin reads them as
 // the negated identifiers `isReady` and `inProgress`.
 func misLexedNegatedIdentifierFlat(file *scanner.File, test uint32) (string, bool) {
-	op := file.FlatFirstChild(test)
-	if op == 0 {
-		return "", false
+	// A test after a `return` or other leading operand is a check_expression with the operator second.
+	op, prefix := uint32(0), ""
+	for c := file.FlatFirstChild(test); c != 0 && op == 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "!is":
+			op, prefix = c, "is"
+		case "!in":
+			op, prefix = c, "in"
+		}
 	}
-	prefix := ""
-	switch file.FlatType(op) {
-	case "!is":
-		prefix = "is"
-	case "!in":
-		prefix = "in"
-	default:
+	if op == 0 {
 		return "", false
 	}
 	operand := file.FlatNextSib(op)
@@ -196,7 +228,7 @@ func unusedParameterInMisparsedDeclarationFlat(file *scanner.File, fn uint32) bo
 		// A Kotlin source file holds only declarations at the top level;
 		// scripts may hold statements, where a lambda can declare a local
 		// function legitimately.
-		return !strings.HasSuffix(file.Path, ".kts")
+		return !file.IsScript()
 	}
 	if top != fn {
 		return false
@@ -281,6 +313,69 @@ func unusedParameterErrorSubtreeMentionsNameFlat(file *scanner.File, scope uint3
 	return mentioned
 }
 
+// unusedParameterStrandedSiblingsMentionName reports whether the siblings that error recovery
+// split off a function containing an ERROR mention name. Part of such a body lands in sibling
+// nodes up to the next well-formed function, so the parameter's uses cannot be ruled out.
+func unusedParameterStrandedSiblingsMentionName(file *scanner.File, fn uint32, name string) bool {
+	if file == nil || fn == 0 || name == "" {
+		return false
+	}
+	// An ERROR nested in the body (not only a direct child) can also end the body early.
+	hasError := false
+	file.FlatWalkNodes(fn, "ERROR", func(uint32) { hasError = true })
+	// Recovery can also end the function early and leave the rest of its body as a following ERROR.
+	errorFollows := unusedParameterErrorFollows(file, fn)
+	if !hasError && !errorFollows {
+		return false
+	}
+	// Error recovery keeps only punctuation inside ERROR nodes, so search the source text.
+	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+	// The body can also run past the enclosing class, leaving statements as siblings of the class.
+	for cur := fn; cur != 0; {
+		for sib := file.FlatNextSib(cur); sib != 0; sib = file.FlatNextSib(sib) {
+			if unusedParameterEndsStrandedRegion(file, sib) {
+				return false
+			}
+			if word.MatchString(file.FlatNodeText(sib)) {
+				return true
+			}
+		}
+		parent, ok := file.FlatParent(cur)
+		if !ok || parent == 0 || file.FlatType(parent) != "class_body" {
+			return false
+		}
+		cur, ok = file.FlatParent(parent)
+		if !ok || file.FlatType(cur) != "class_declaration" {
+			return false
+		}
+	}
+	return false
+}
+
+// unusedParameterErrorFollows reports whether the first non-comment sibling after fn is an ERROR node.
+func unusedParameterErrorFollows(file *scanner.File, fn uint32) bool {
+	for sib := file.FlatNextSib(fn); sib != 0; sib = file.FlatNextSib(sib) {
+		switch file.FlatType(sib) {
+		case "line_comment", "multiline_comment":
+		default:
+			return file.FlatType(sib) == "ERROR"
+		}
+	}
+	return false
+}
+
+// unusedParameterEndsStrandedRegion reports whether sib is a well-formed declaration, which
+// ends the siblings that error recovery split off an earlier function.
+func unusedParameterEndsStrandedRegion(file *scanner.File, sib uint32) bool {
+	switch file.FlatType(sib) {
+	case "function_declaration":
+		return file.FlatHasChildOfType(sib, "function_body") && !file.FlatHasChildOfType(sib, "ERROR")
+	case "class_declaration", "object_declaration":
+		return !file.FlatHasChildOfType(sib, "ERROR")
+	}
+	return false
+}
+
 func unusedParameterResolveReferenceFlat(file *scanner.File, scope uint32, paramIdx uint32, ref uint32, paramName string, paramIsFunctionType bool) unusedParameterReferenceMatch {
 	if unusedParameterReferenceNameFlat(file, ref) != paramName {
 		return unusedParameterNoMatch
@@ -326,6 +421,10 @@ func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32, 
 	if file.FlatType(parent) == "navigation_suffix" {
 		return paramIsFunctionType && unusedParameterNavigationSuffixIsCallFlat(file, parent), true
 	}
+	if t := file.FlatType(parent); (t == "parameter" || t == "class_parameter" || t == "function_value_parameters") && unusedParameterFollowsDefaultEquals(file, ident) {
+		// A default value like `b: Int = a` reads `a`.
+		return true, true
+	}
 	switch file.FlatType(parent) {
 	case "parameter", "class_parameter", "variable_declaration",
 		"function_declaration", "class_declaration", "object_declaration",
@@ -348,6 +447,15 @@ func unusedParameterIdentifierIsReferenceFlat(file *scanner.File, ident uint32, 
 		}
 	}
 	return false, false
+}
+
+func unusedParameterFollowsDefaultEquals(file *scanner.File, ident uint32) bool {
+	for sib, ok := file.FlatPrevSibling(ident); ok && sib != 0; sib, ok = file.FlatPrevSibling(sib) {
+		if file.FlatType(sib) == "=" {
+			return true
+		}
+	}
+	return false
 }
 
 func unusedParameterNavigationSuffixIsCallFlat(file *scanner.File, idx uint32) bool {
@@ -406,6 +514,28 @@ func unusedParameterFunctionDeclaresNameFlat(file *scanner.File, fn uint32, name
 		}
 	}
 	return false
+}
+
+// unusedParameterShadowedByLambdaParameter reports whether a lambda in body declares an explicit parameter
+// named name and then reads that name, the usual reason an outer parameter looks unused.
+func unusedParameterShadowedByLambdaParameter(file *scanner.File, body uint32, name string) bool {
+	found := false
+	file.FlatWalkNodes(body, "lambda_literal", func(lambda uint32) {
+		if found {
+			return
+		}
+		params, ok := file.FlatFindChild(lambda, "lambda_parameters")
+		if !ok || !unusedParameterLambdaDeclaresNameFlat(file, lambda, name) {
+			return
+		}
+		file.FlatWalkNodes(lambda, "simple_identifier", func(ident uint32) {
+			if found || !file.FlatNodeTextEquals(ident, name) || unusedParameterNodeContainsFlat(file, params, ident) {
+				return
+			}
+			found = true
+		})
+	})
+	return found
 }
 
 func unusedParameterLambdaDeclaresNameFlat(file *scanner.File, lambda uint32, name string) bool {
@@ -476,6 +606,10 @@ func unusedParameterPriorLocalDeclarationShadowsFlat(file *scanner.File, body ui
 		switch file.FlatType(candidate) {
 		case "property_declaration":
 			if unusedParameterNodeContainsFlat(file, candidate, ref) {
+				return
+			}
+			// A member of an object literal does not shadow a captured parameter.
+			if parent, ok := file.FlatParent(candidate); ok && file.FlatType(parent) == "class_body" {
 				return
 			}
 			if unusedParameterDeclarationNodeHasNameFlat(file, candidate, name) &&
@@ -594,4 +728,34 @@ func hasSiblingOverloadFlat(file *scanner.File, idx uint32, name string) bool {
 		}
 	}
 	return false
+}
+
+// unusedParameterBodyIsStub reports whether a block body has no statements (blank or
+// comments only) or only a TODO()/error()/throw statement, so its parameters are not expected to be used.
+func unusedParameterBodyIsStub(file *scanner.File, body uint32) bool {
+	if !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(body)), "{") {
+		return false
+	}
+	stmts, ok := file.FlatFindChild(body, "statements")
+	if !ok || stmts == 0 {
+		return true
+	}
+	var only uint32
+	count := 0
+	for i := 0; i < file.FlatNamedChildCount(stmts); i++ {
+		c := file.FlatNamedChild(stmts, i)
+		if t := file.FlatType(c); t == "line_comment" || t == "multiline_comment" {
+			continue
+		}
+		only = c
+		count++
+	}
+	if count == 0 {
+		return true
+	}
+	if count != 1 {
+		return false
+	}
+	text := strings.TrimSpace(file.FlatNodeText(only))
+	return strings.HasPrefix(text, "TODO(") || strings.HasPrefix(text, "error(") || strings.HasPrefix(text, "throw ")
 }

@@ -45,8 +45,8 @@ func registerCommentsRules() {
 				if !deprecatedKDocTagRe.MatchString(text) {
 					return
 				}
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					"Use @Deprecated annotation instead of @deprecated KDoc tag.")
+				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+					"@deprecated tag block does not properly report deprecation in Kotlin, use @Deprecated annotation instead")
 				if fix := buildDeprecatedBlockTagFix(file, idx, text); fix != nil {
 					f.Fix = fix
 				}
@@ -65,15 +65,12 @@ func registerCommentsRules() {
 					return
 				}
 				if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"Private function should not have KDoc documentation.")
-					endByte := int(file.FlatEndByte(kdocIdx))
-					if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-						endByte++
-					}
+					f := r.Finding(file, declLine(file, idx), declCol(file, idx),
+						"The function "+extractIdentifierFlat(file, idx)+" has a comment. Prefer renaming the function giving it a more self-explanatory name.")
+					startByte, endByte := kdocRemovalRange(file, kdocIdx)
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(kdocIdx)),
+						StartByte:   startByte,
 						EndByte:     endByte,
 						Replacement: "",
 					}
@@ -93,15 +90,12 @@ func registerCommentsRules() {
 					return
 				}
 				if kdocIdx, ok := flatPrecedingKDoc(file, idx); ok {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						"Private property should not have KDoc documentation.")
-					endByte := int(file.FlatEndByte(kdocIdx))
-					if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-						endByte++
-					}
+					f := r.Finding(file, declLine(file, idx), declCol(file, idx),
+						"Private properties should be named in a self-explanatory manner without the need for a  comment.")
+					startByte, endByte := kdocRemovalRange(file, kdocIdx)
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
-						StartByte:   int(file.FlatStartByte(kdocIdx)),
+						StartByte:   startByte,
 						EndByte:     endByte,
 						Replacement: "",
 					}
@@ -111,7 +105,7 @@ func registerCommentsRules() {
 		})
 	}
 	{
-		r := &EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(`([.?!][ \t\n\r])|([.?!]$)`)}
+		r := &EndOfSentenceFormatRule{BaseRule: BaseRule{RuleName: "EndOfSentenceFormat", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc first sentences that do not end with proper punctuation."}, Pattern: regexp.MustCompile(endOfSentenceDefaultPattern)}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
@@ -123,19 +117,17 @@ func registerCommentsRules() {
 				if !flatIsKDoc(file, idx) {
 					return
 				}
-				text := flatKdocText(file, idx)
-				if text == "" {
+				paragraph := kdocFirstParagraph(file.FlatNodeText(idx))
+				if len(paragraph) == 0 || strings.HasPrefix(paragraph[0], "<") {
 					return
 				}
-				firstLine := strings.SplitN(text, "\n", 2)[0]
-				if strings.HasPrefix(firstLine, "@") {
+				// A sentence wrapped over several lines ends on a later line, so test the whole paragraph.
+				if r.Pattern.MatchString(strings.Join(paragraph, "\n")) {
 					return
 				}
-				if r.Pattern.MatchString(firstLine) {
-					return
-				}
-				f := r.Finding(file, file.FlatRow(idx)+1, 1,
-					"KDoc first sentence should end with proper punctuation.")
+				row, col := kdocSectionStart(file, idx)
+				f := r.Finding(file, row, col,
+					"The first sentence of this KDoc does not end with the correct punctuation.")
 				if insertAt := endOfSentenceInsertOffsetFlat(file, idx); insertAt >= 0 {
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
@@ -149,39 +141,38 @@ func registerCommentsRules() {
 		})
 	}
 	{
-		r := &KDocReferencesNonPublicPropertyRule{BaseRule: BaseRule{RuleName: "KDocReferencesNonPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects KDoc bracket references that point to non-public properties."}}
+		r := &KDocReferencesNonPublicPropertyRule{BaseRule: BaseRule{RuleName: "KDocReferencesNonPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects private and internal class properties that the class KDoc references."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"multiline_comment"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !flatIsKDoc(file, idx) {
+				kdoc, ok := flatPrecedingKDoc(file, idx)
+				if !ok {
 					return
 				}
-				text := file.FlatNodeText(idx)
-				matches := kdocRefRe.FindAllStringSubmatch(text, -1)
-				if len(matches) == 0 {
+				refs := map[string]bool{}
+				for _, m := range kdocRefRe.FindAllStringSubmatch(file.FlatNodeText(kdoc), -1) {
+					refs[m[1]] = true
+				}
+				if len(refs) == 0 {
 					return
 				}
-				nonPublic := make(map[string]bool)
-				file.FlatWalkNodes(0, "property_declaration", func(pidx uint32) {
-					if isPublicDeclarationFlat(file, pidx) {
+				body, _ := file.FlatFindChild(idx, "class_body")
+				if body == 0 {
+					return
+				}
+				forEachDirectClassBodyNodeFlat(file, body, func(member uint32) {
+					if file.FlatType(member) != "property_declaration" {
 						return
 					}
-					if name := extractIdentifierFlat(file, pidx); name != "" {
-						nonPublic[name] = true
+					name := extractIdentifierFlat(file, member)
+					if !refs[name] || !(file.FlatHasModifier(member, "private") || file.FlatHasModifier(member, "internal")) {
+						return
 					}
+					ctx.EmitAt(declLine(file, member), declCol(file, member),
+						"The property "+name+" is non-public and should not be referenced from KDoc comments.")
 				})
-				if len(nonPublic) == 0 {
-					return
-				}
-				for _, m := range matches {
-					name := m[1]
-					if nonPublic[name] {
-						ctx.EmitAt(file.FlatRow(idx)+1, 1,
-							"KDoc references non-public property \""+name+"\".")
-					}
-				}
 			},
 		})
 	}
@@ -204,98 +195,47 @@ func registerCommentsRules() {
 		})
 	}
 	{
-		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects @param tags in KDoc that do not match the actual function parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
+		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects functions and classes whose KDoc @param tags do not match their parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceVeryHigh, Fix: api.FixCosmetic, Implementation: r,
+			NodeTypes: []string{"function_declaration", "class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				prev, ok := flatPrecedingKDoc(file, idx)
 				if !ok {
 					return
 				}
-				kdoc := file.FlatNodeText(prev)
-				docParamIdx := paramTagRe.FindAllStringSubmatchIndex(kdoc, -1)
-				if len(docParamIdx) == 0 {
+				var tags []string
+				for _, m := range paramTagRe.FindAllStringSubmatch(file.FlatNodeText(prev), -1) {
+					tags = append(tags, m[1])
+				}
+				// detekt only compares when the documentation has @param tags.
+				if len(tags) == 0 {
 					return
 				}
-				summary := getFunctionDeclSummaryFlat(file, idx)
-				actualParams := make(map[string]bool)
-				orderedNames := make([]string, 0)
-				// Type parameters are declared `<T, R>` before the
-				// value-parameter list and conventionally documented in
-				// that order. Add them first when MatchTypeParameters is
-				// on so the order check sees the canonical sequence.
+				var expected []string
 				if r.MatchTypeParameters {
-					for _, name := range outdatedDocCollectTypeParameterNamesFlat(file, idx) {
-						actualParams[name] = true
-						orderedNames = append(orderedNames, name)
-					}
+					expected = append(expected, outdatedDocCollectTypeParameterNamesFlat(file, idx)...)
 				}
-				for _, param := range summary.params {
-					if param.name != "" {
-						actualParams[param.name] = true
-						orderedNames = append(orderedNames, param.name)
-					}
-				}
-				kdocStart := int(file.FlatStartByte(prev))
-				for _, m := range docParamIdx {
-					name := kdoc[m[2]:m[3]]
-					if actualParams[name] {
-						continue
-					}
-					f := r.Finding(file, file.FlatRow(prev)+1, 1,
-						"KDoc @param \""+name+"\" does not match any actual parameter.")
-					// Delete the full line containing this @param tag from the KDoc.
-					tagStart := m[0]
-					lineStart := tagStart
-					for lineStart > 0 && kdoc[lineStart-1] != '\n' {
-						lineStart--
-					}
-					lineEnd := m[1]
-					for lineEnd < len(kdoc) && kdoc[lineEnd] != '\n' {
-						lineEnd++
-					}
-					if lineEnd < len(kdoc) && kdoc[lineEnd] == '\n' {
-						lineEnd++
-					}
-					f.Fix = &scanner.Fix{
-						ByteMode:    true,
-						StartByte:   kdocStart + lineStart,
-						EndByte:     kdocStart + lineEnd,
-						Replacement: "",
-					}
-					ctx.Emit(f)
-				}
-				docParams := make([][]string, 0, len(docParamIdx))
-				for _, m := range docParamIdx {
-					docParams = append(docParams, []string{kdoc[m[0]:m[1]], kdoc[m[2]:m[3]]})
-				}
-				// MatchDeclarationsOrder: ensure the @param tags that
-				// reference real (or — when MatchTypeParameters is on —
-				// type) parameters appear in the same order as the
-				// declared parameters. A monotonic index walk catches
-				// out-of-order tags.
-				if r.MatchDeclarationsOrder && len(orderedNames) > 1 {
-					position := make(map[string]int, len(orderedNames))
-					for i, name := range orderedNames {
-						position[name] = i
-					}
-					prevIdx := -1
-					for _, dp := range docParams {
-						name := dp[1]
-						pos, ok := position[name]
-						if !ok {
-							continue
+				if file.FlatType(idx) == "function_declaration" {
+					if params, ok := file.FlatFindChild(idx, "function_value_parameters"); ok {
+						for _, p := range functionParamEntries(file, params, nil) {
+							expected = append(expected, paramName(file, p.node))
 						}
-						if pos < prevIdx {
-							ctx.EmitAt(file.FlatRow(prev)+1, 1,
-								"KDoc @param \""+name+"\" is out of declaration order.")
-							break
+					}
+				} else if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
+					// @param on a constructor property is outdated: such parameters are documented with @property.
+					for _, p := range classParamEntries(file, ctor, nil) {
+						if r.AllowParamOnConstructorProperties || !file.FlatHasChildOfType(p.node, "binding_pattern_kind") {
+							expected = append(expected, paramName(file, p.node))
 						}
-						prevIdx = pos
 					}
 				}
+				if outdatedDocMatches(tags, expected, r.MatchDeclarationsOrder) {
+					return
+				}
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
+					"Documentation of "+extractIdentifierFlat(file, idx)+" is outdated")
 			},
 		})
 	}
@@ -303,7 +243,7 @@ func registerCommentsRules() {
 		r := &UndocumentedPublicClassRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicClass", RuleSetName: "comments", Sev: "warning", Desc: "Detects public classes that are missing KDoc documentation."}, SearchInNestedClass: true, SearchInInnerClass: true, SearchInInnerObject: true, SearchInInnerInterface: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+			NodeTypes: []string{"class_declaration", "object_declaration", "companion_object"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if !isPublicDeclarationFlat(file, idx) {
@@ -318,11 +258,16 @@ func registerCommentsRules() {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
-				msg := "Public class is not documented with KDoc."
-				if name != "" {
-					msg = "Public class '" + name + "' is not documented with KDoc."
+				kind := "class"
+				if file.FlatType(idx) == "object_declaration" {
+					kind = "object"
 				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+				_ = kind
+				if name == "" {
+					name = "companion"
+				}
+				msg := name + " is missing required documentation."
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), msg)
 			},
 		})
 	}
@@ -340,11 +285,8 @@ func registerCommentsRules() {
 					return
 				}
 				name := extractIdentifierFlat(file, idx)
-				msg := "Public function is not documented with KDoc."
-				if name != "" {
-					msg = "Public function '" + name + "' is not documented with KDoc."
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+				msg := "The function " + name + " is missing documentation."
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), msg)
 			},
 		})
 	}
@@ -352,21 +294,46 @@ func registerCommentsRules() {
 		r := &UndocumentedPublicPropertyRule{BaseRule: BaseRule{RuleName: "UndocumentedPublicProperty", RuleSetName: "comments", Sev: "warning", Desc: "Detects public properties that are missing KDoc documentation."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+			NodeTypes: []string{"property_declaration", "class_parameter", "enum_entry"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !isPublicDeclarationFlat(file, idx) {
+				name := extractIdentifierFlat(file, idx)
+				if name == "" {
 					return
+				}
+				switch file.FlatType(idx) {
+				case "class_parameter":
+					// Only val/var parameters are properties, and the class KDoc may document them with @property.
+					if !file.FlatHasChildOfType(idx, "binding_pattern_kind") || !isPublicDeclarationFlat(file, idx) {
+						return
+					}
+					if ctor, ok := file.FlatParent(idx); ok {
+						if cls, ok := file.FlatParent(ctor); ok {
+							if !isPublicDeclarationFlat(file, cls) {
+								return
+							}
+							if kdoc, ok := flatPrecedingKDoc(file, cls); ok && kdocHasTag(file.FlatNodeText(kdoc), "property", name) {
+								return
+							}
+						}
+					}
+				case "enum_entry":
+					if cls, ok := flatEnclosingAncestor(file, idx, "class_declaration"); ok && !isPublicDeclarationFlat(file, cls) {
+						return
+					}
+				default:
+					if !isPublicDeclarationFlat(file, idx) {
+						return
+					}
+					// detekt reads a script's top-level properties as locals, which are never public API.
+					if parent, ok := file.FlatParent(idx); ok && file.IsScript() && file.FlatType(parent) == "source_file" {
+						return
+					}
 				}
 				if shouldSkipPublicDocumentationRule(file, idx) {
 					return
 				}
-				name := extractIdentifierFlat(file, idx)
-				msg := "Public property is not documented with KDoc."
-				if name != "" {
-					msg = "Public property '" + name + "' is not documented with KDoc."
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, 1, msg)
+				ctx.EmitAt(declLine(file, idx), declCol(file, idx), "The property "+name+" is missing documentation.")
 			},
 		})
 	}
@@ -416,28 +383,62 @@ func shouldSkipPublicDocumentationRule(file *scanner.File, idx uint32) bool {
 	if file == nil {
 		return true
 	}
-	if scanner.IsTestFile(file.Path) {
-		return true
-	}
-	if isGradleBuildScript(file.Path) {
-		return true
-	}
+	// Test sources are left out by the rules' default excludes, not here, and detekt has no DI exemption.
 	if file.FlatHasModifier(idx, "override") {
 		return true
 	}
-	if _, ok := flatPrecedingKDoc(file, idx); ok {
-		return true
+	_, ok := flatPrecedingKDoc(file, idx)
+	return ok
+}
+
+// kdocScopeNonPublicProperties returns the non-public properties of the class that holds the documented
+// declaration (or of the declaration itself when it is a class), or the file's top-level ones.
+func kdocScopeNonPublicProperties(file *scanner.File, documented uint32) map[string]bool {
+	out := map[string]bool{}
+	if documented == 0 {
+		return out
 	}
-	if deadCodeDeclarationHasDIAnnotation(file, idx) {
-		return true
-	}
-	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) == "source_file" {
-			break
+	owner := documented
+	switch file.FlatType(documented) {
+	case "class_declaration", "object_declaration":
+	default:
+		var ok bool
+		owner, ok = flatEnclosingAncestor(file, documented, "class_declaration", "object_declaration", "companion_object")
+		if !ok {
+			owner = 0
 		}
-		if deadCodeDeclarationHasDIAnnotation(file, parent) {
-			return true
+	}
+	nonPublicMods := func(n uint32) bool {
+		return file.FlatHasModifier(n, "private") || file.FlatHasModifier(n, "protected") || file.FlatHasModifier(n, "internal")
+	}
+	add := func(n uint32) {
+		if nonPublicMods(n) {
+			if name := extractIdentifierFlat(file, n); name != "" {
+				out[name] = true
+			}
 		}
 	}
-	return deadCodeByteInsideDIAnnotatedContainer(int(file.FlatStartByte(idx)), file)
+	if owner == 0 {
+		file.FlatForEachChild(0, func(n uint32) {
+			if file.FlatType(n) == "property_declaration" {
+				add(n)
+			}
+		})
+		return out
+	}
+	if ctor, ok := file.FlatFindChild(owner, "primary_constructor"); ok {
+		file.FlatForEachChild(ctor, func(n uint32) {
+			if file.FlatType(n) == "class_parameter" && file.FlatHasChildOfType(n, "binding_pattern_kind") {
+				add(n)
+			}
+		})
+	}
+	if body, ok := file.FlatFindChild(owner, "class_body"); ok {
+		file.FlatForEachChild(body, func(n uint32) {
+			if file.FlatType(n) == "property_declaration" {
+				add(n)
+			}
+		})
+	}
+	return out
 }

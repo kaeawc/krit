@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/oracle"
@@ -170,5 +171,82 @@ func TestUTF16ColumnToByteOffset(t *testing.T) {
 		if got := utf16ColumnToByteOffset([]byte(tc.line), tc.col); got != tc.want {
 			t.Errorf("utf16ColumnToByteOffset(%q, %d) = %d, want %d", tc.line, tc.col, got, tc.want)
 		}
+	}
+}
+
+func TestCompilerAnalyzedFile_SkipsHeuristicForUnnecessarySafeCall(t *testing.T) {
+	src := "fun check() {\n    val name: String = \"hello\"\n    val len = name?.length\n}\n"
+	run := func(analyzed bool) int {
+		file := parseInlineForInternalTest(t, src)
+		idx := firstFlatNodeOfType(t, file, "navigation_expression", "name?.length")
+		fake := oracle.NewFakeOracle()
+		fake.AnalyzedFiles[file.Path] = analyzed
+		collector := scanner.NewFindingCollector(0)
+		ctx := &api.Context{
+			File:      file,
+			Idx:       idx,
+			Resolver:  oracle.NewCompositeResolver(fake, typeinfer.NewResolver()),
+			Collector: collector,
+			Rule:      &api.Rule{ID: "UnnecessarySafeCall", Category: "potential-bugs", Sev: api.SeverityWarning},
+		}
+		(&UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall"}}).check(ctx)
+		return len(collector.Columns().Findings())
+	}
+	if got := run(true); got != 0 {
+		t.Fatalf("compiler-analyzed file with no diagnostic produced %d findings, want 0", got)
+	}
+}
+
+func TestProjectDiagnostic_DropsSmartCastVerdictOnAnotherModulesProperty(t *testing.T) {
+	src := "fun f(account: Account): String? {\n    if (account.profile != null) return account.profile?.name\n    return null\n}\n"
+	const decl = "/repo/lib/src/main/kotlin/Account.kt"
+	run := func(moduleOf func(string) string) int {
+		file := parseInlineForInternalTest(t, src)
+		idx := firstFlatNodeOfType(t, file, "navigation_expression", "account.profile?.name")
+		safe := strings.Index(string(file.Content), "?.")
+		fake := oracle.NewFakeOracle()
+		fake.Diagnostics[file.Path] = []oracle.Diagnostic{{
+			FactoryName:    "UNNECESSARY_SAFE_CALL",
+			Line:           2,
+			Col:            48,
+			StartByte:      safe,
+			EndByte:        safe + 2,
+			SmartCastDecls: []string{decl},
+		}}
+		resolver := oracle.NewCompositeResolver(fake, typeinfer.NewResolver())
+		if moduleOf != nil {
+			resolver.SetModuleOf(func(path string) string {
+				if path == file.Path {
+					return ":app"
+				}
+				return moduleOf(path)
+			})
+		}
+		collector := scanner.NewFindingCollector(0)
+		ctx := &api.Context{
+			File:      file,
+			Idx:       idx,
+			Resolver:  resolver,
+			Collector: collector,
+			Rule:      &api.Rule{ID: "UnnecessarySafeCall", Category: "potential-bugs", Sev: api.SeverityWarning},
+		}
+		(&UnnecessarySafeCallRule{BaseRule: BaseRule{RuleName: "UnnecessarySafeCall"}}).check(ctx)
+		return len(collector.Columns().Findings())
+	}
+	// Another module: a per-module build rejects the smart cast, and the heuristic stays silent on an analyzed file.
+	if got := run(func(string) string { return ":lib" }); got != 0 {
+		t.Fatalf("smart cast across modules produced %d findings, want 0", got)
+	}
+	// The same module, or a friend source set sharing its key, keeps the compiler's verdict.
+	if got := run(func(string) string { return ":app" }); got != 1 {
+		t.Fatalf("smart cast within the module produced %d findings, want 1", got)
+	}
+	// An unknown declaring module is unproven, so the smart-cast verdict is dropped.
+	if got := run(func(string) string { return "" }); got != 0 {
+		t.Fatalf("unknown declaring module produced %d findings, want 0", got)
+	}
+	// No module map behaves as a whole-repo compile.
+	if got := run(nil); got != 1 {
+		t.Fatalf("no module map produced %d findings, want 1", got)
 	}
 }

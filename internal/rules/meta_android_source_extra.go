@@ -57,6 +57,15 @@ func (r *MissingPermissionRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *InvalidUsesTagAttributeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "InvalidUsesTagAttribute",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *NfcTechWhitespaceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "NfcTechWhitespace",
@@ -105,6 +114,24 @@ func (r *RtlAwareRule) Meta() api.RuleDescriptor {
 func (r *RtlFieldAccessRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "RtlFieldAccess",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
+func (r *HardcodedRandomSeedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "HardcodedRandomSeed",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
+func (r *CutPasteIDRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "CutPasteId",
 		RuleSet:       "android-lint",
 		DefaultActive: false,
 		OptInReason:   api.OptInReasonAndroidOnly,

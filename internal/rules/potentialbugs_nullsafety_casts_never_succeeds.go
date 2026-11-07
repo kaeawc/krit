@@ -387,3 +387,24 @@ func unsafeCastTypesCompatible(exprType, targetType *typeinfer.ResolvedType) boo
 	}
 	return false
 }
+
+// unsafeCastBothSourceResolvedKotlin reports whether the cast source and target both resolve to
+// Kotlin stdlib types or classes declared in project Kotlin sources.
+func unsafeCastBothSourceResolvedKotlin(ctx *api.Context, cast unsafeCastExpressionParts) bool {
+	if ctx.File == nil || ctx.Resolver == nil {
+		return false
+	}
+	return unsafeCastTypeIsKotlinSourceResolved(ctx.Resolver, ctx.Resolver.ResolveFlatNode(cast.source, ctx.File)) &&
+		unsafeCastTypeIsKotlinSourceResolved(ctx.Resolver, ctx.Resolver.ResolveFlatNode(cast.target, ctx.File))
+}
+
+func unsafeCastTypeIsKotlinSourceResolved(resolver typeinfer.TypeResolver, t *typeinfer.ResolvedType) bool {
+	if t == nil || t.Kind == typeinfer.TypeUnknown || !t.Resolved {
+		return false
+	}
+	if strings.HasPrefix(unsafeCastTypeKey(t), "kotlin.") {
+		return true
+	}
+	info := unsafeCastClassInfoForType(resolver, t)
+	return info != nil && (strings.HasSuffix(info.File, ".kt") || strings.HasSuffix(info.File, ".kts"))
+}

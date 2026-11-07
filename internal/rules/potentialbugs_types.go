@@ -71,24 +71,29 @@ type WrongEqualsTypeParameterRule struct {
 
 func (r *WrongEqualsTypeParameterRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
-	if !file.FlatHasModifier(idx, "override") {
-		return
-	}
 	if extractIdentifierFlat(file, idx) != "equals" {
 		return
 	}
+	// An extension `fun Foo.equals(other: Foo)` is shadowed by the member and is not an overload of it.
+	if funHasReceiver(file, idx) {
+		return
+	}
+	isOverride := file.FlatHasModifier(idx, "override")
 	params, ok := file.FlatFindChild(idx, "function_value_parameters")
 	if !ok {
 		return
 	}
 	var firstParam uint32
+	paramCount := 0
 	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
 		if file.FlatType(child) == "parameter" {
-			firstParam = child
-			break
+			if firstParam == 0 {
+				firstParam = child
+			}
+			paramCount++
 		}
 	}
-	if firstParam == 0 {
+	if firstParam == 0 || paramCount != 1 {
 		return
 	}
 	var typeNode uint32
@@ -121,12 +126,15 @@ func (r *WrongEqualsTypeParameterRule) check(ctx *api.Context) {
 		return
 	}
 	f := r.Finding(file, file.FlatRow(firstParam)+1, file.FlatCol(firstParam)+1,
-		fmt.Sprintf("equals() parameter type is '%s' instead of 'Any?'. This does not properly override Any.equals().", typeText))
-	f.Fix = &scanner.Fix{
-		ByteMode:    true,
-		StartByte:   int(file.FlatStartByte(typeNode)),
-		EndByte:     int(file.FlatEndByte(typeNode)),
-		Replacement: "Any?",
+		fmt.Sprintf("equals() parameter type is '%s' instead of 'Any?'. This overloads Any.equals() instead of overriding it.", typeText))
+	// Retyping a plain overload would also need `override`, so only an `override` declaration gets the fix.
+	if isOverride {
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   int(file.FlatStartByte(typeNode)),
+			EndByte:     int(file.FlatEndByte(typeNode)),
+			Replacement: "Any?",
+		}
 	}
 	ctx.Emit(f)
 }
@@ -308,3 +316,177 @@ type ImplicitUnitReturnTypeRule struct {
 // produces noise on Compose codebases. Medium confidence keeps it off
 // default-strict gates without taking it out of the rule set.
 func (r *ImplicitUnitReturnTypeRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// doubleMutabilityVarIsCandidate drops vars that need to be vars: nullable lazy-init
+// holders, vars reassigned in the file, and vars other files can reassign.
+func doubleMutabilityVarIsCandidate(file *scanner.File, prop, varDecl uint32) bool {
+	if file.FlatHasChildOfType(varDecl, "nullable_type") {
+		return false
+	}
+	parent, ok := file.FlatParent(prop)
+	if !ok {
+		return false
+	}
+	isLocal := file.FlatType(parent) == "statements"
+	if !isLocal && !file.FlatHasModifier(prop, "private") {
+		return false
+	}
+	name := extractIdentifierFlat(file, varDecl)
+	if name == "" {
+		return false
+	}
+	// Members can be written from anywhere in the file, so scan the whole file for them.
+	scope := parent
+	if !isLocal {
+		scope = 0
+	}
+	return !(&VarCouldBeValRule{}).reassignedNamesFlat(scope, file)[name]
+}
+
+var sameInstanceReferenceNames = map[string]bool{"original": true, "previous": true}
+
+// looksLikeSameInstanceShortCircuit reports identity checks against `this`, an "original" reference,
+// or a call that receives the other operand (`transform(x) === x`).
+func looksLikeSameInstanceShortCircuit(file *scanner.File, left, right uint32) bool {
+	isCallTakingOther := func(call, other uint32) bool {
+		if file.FlatType(call) != "call_expression" {
+			return false
+		}
+		otherText := strings.TrimSpace(file.FlatNodeText(other))
+		if otherText == "" {
+			return false
+		}
+		found := false
+		file.FlatWalkNodes(call, "value_argument", func(arg uint32) {
+			if strings.TrimSpace(file.FlatNodeText(arg)) == otherText {
+				found = true
+			}
+		})
+		return found
+	}
+	for _, side := range []uint32{left, right} {
+		if file.FlatType(side) == "this_expression" {
+			return true
+		}
+		if file.FlatType(side) == "simple_identifier" && sameInstanceReferenceNames[file.FlatNodeText(side)] {
+			return true
+		}
+	}
+	return isCallTakingOther(left, right) || isCallTakingOther(right, left)
+}
+
+// funHasReceiver reports an extension function: a `.` token precedes the function name.
+func funHasReceiver(file *scanner.File, fn uint32) bool {
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case ".":
+			return true
+		case "function_value_parameters", "simple_identifier":
+			return false
+		}
+	}
+	return false
+}
+
+// implicitUnitExpression reports an expression whose type is Unit. An if or when is Unit when every branch is:
+// an empty block, `Unit`, or a last expression of Unit type. A missing else leaves the type unknown.
+func implicitUnitExpression(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	switch file.FlatType(expr) {
+	case "if_expression", "when_expression":
+		branches := 0
+		hasElse := file.FlatType(expr) == "if_expression" && file.FlatHasChildOfType(expr, "else")
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "when_entry":
+				if file.FlatHasChildOfType(c, "else") {
+					hasElse = true
+				}
+				body, ok := file.FlatFindChild(c, "control_structure_body")
+				if !ok || !implicitUnitBranch(ctx, body) {
+					return false
+				}
+				branches++
+			case "control_structure_body":
+				if !implicitUnitBranch(ctx, c) {
+					return false
+				}
+				branches++
+			}
+		}
+		return hasElse && branches > 0
+	}
+	rt := ctx.Resolver.ResolveFlatNode(expr, file)
+	return rt != nil && (rt.Kind == typeinfer.TypeUnit || rt.Name == "Unit" || rt.FQN == "kotlin.Unit")
+}
+
+func implicitUnitBranch(ctx *api.Context, body uint32) bool {
+	file := ctx.File
+	last := uint32(0)
+	for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "{", "}":
+		case "statements":
+			for s := file.FlatFirstChild(c); s != 0; s = file.FlatNextSib(s) {
+				if file.FlatIsNamed(s) && !isCommentNodeType(file.FlatType(s)) {
+					last = s
+				}
+			}
+		default:
+			if file.FlatIsNamed(c) && !isCommentNodeType(file.FlatType(c)) {
+				last = c
+			}
+		}
+	}
+	if last == 0 {
+		return true
+	}
+	if file.FlatType(last) == "simple_identifier" && file.FlatNodeText(last) == "Unit" {
+		return true
+	}
+	return implicitUnitExpression(ctx, last)
+}
+
+// functionParameterTypeTexts returns the declared type text of each parameter and whether the function has a
+// receiver type.
+func functionParameterTypeTexts(file *scanner.File, fn uint32) (types []string, hasReceiver bool) {
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case ".":
+			hasReceiver = true
+		case "function_value_parameters":
+			for p := file.FlatFirstChild(c); p != 0; p = file.FlatNextSib(p) {
+				if file.FlatType(p) != "parameter" {
+					continue
+				}
+				text := ""
+				for t := file.FlatFirstChild(p); t != 0; t = file.FlatNextSib(t) {
+					switch file.FlatType(t) {
+					case "user_type", "nullable_type", "function_type", "parenthesized_type":
+						text = strings.ReplaceAll(file.FlatNodeText(t), " ", "")
+					}
+				}
+				types = append(types, text)
+			}
+		}
+	}
+	return types, hasReceiver
+}
+
+// isDetektEqualsOverride matches detekt's isEqualsFunction: an `override fun equals(x: Any?)` without a receiver.
+func isDetektEqualsOverride(file *scanner.File, fn uint32) bool {
+	if extractIdentifierFlat(file, fn) != "equals" || !file.FlatHasModifier(fn, "override") {
+		return false
+	}
+	types, hasReceiver := functionParameterTypeTexts(file, fn)
+	return !hasReceiver && len(types) == 1 && (types[0] == "Any?" || types[0] == "kotlin.Any?")
+}
+
+// isDetektHashCodeOverride matches detekt's isHashCodeFunction: an `override fun hashCode()` without a receiver.
+func isDetektHashCodeOverride(file *scanner.File, fn uint32) bool {
+	if extractIdentifierFlat(file, fn) != "hashCode" || !file.FlatHasModifier(fn, "override") {
+		return false
+	}
+	types, hasReceiver := functionParameterTypeTexts(file, fn)
+	return !hasReceiver && len(types) == 0
+}

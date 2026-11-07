@@ -39,6 +39,10 @@ func SetRuleProfileLabels(enabled bool) func() {
 	}
 }
 
+// SetRuleTiming turns per-rule call timing on or off. It is on by default; with it off, RunStats keeps no
+// per-rule durations.
+func (d *Dispatcher) SetRuleTiming(enabled bool) { d.skipRuleTiming = !enabled }
+
 func runWithRuleProfileLabel(ruleID, family string, fn func()) {
 	if !ruleProfileLabelsEnabled.Load() {
 		fn()
@@ -62,6 +66,8 @@ func runWithRuleProfileLabel(ruleID, family string, fn func()) {
 // have been parsed. The main pipeline is expected to iterate
 // CrossFileRules()/ModuleAwareRules() after the per-file pass.
 type Dispatcher struct {
+	// skipRuleTiming stops RunColumnsWithStats from timing every rule call.
+	skipRuleTiming bool
 	// flatTypeRules is indexed by FlatNode.Type for O(1) flat dispatch.
 	flatTypeRules [][]*api.Rule
 	// allNodeRules is the set of node rules that declare nil NodeTypes
@@ -94,6 +100,9 @@ type Dispatcher struct {
 
 	typeResolver      typeinfer.TypeResolver
 	libraryFacts      *librarymodel.Facts
+	rtlMainsFor       func(path string) ([]api.RtlMainProject, bool)
+	describedViews    map[string]bool
+	resourceCodeRefs  *api.ResourceCodeRefs
 	javaSemanticFacts *javafacts.Facts
 	// fileFacts memoizes per-file derived facts (imports, declarations,
 	// references) shared by all rules running in this dispatcher. Lifetime
@@ -115,7 +124,7 @@ type Dispatcher struct {
 	// that do NOT apply to that language. Rules are static after
 	// construction so the map per language is computed once and reused
 	// for every file of that language.
-	languageExcluded sync.Map // scanner.Language -> map[string]bool
+	languageExcluded sync.Map // languageExcludedKey -> map[string]bool
 }
 
 // NewDispatcher constructs a Dispatcher from the supplied v2 rules.
@@ -205,6 +214,32 @@ func (d *Dispatcher) SetLibraryFacts(facts *librarymodel.Facts) {
 		return
 	}
 	d.libraryFacts = facts
+}
+
+// SetResourceCodeRefs records the resources source code refers to, for rules that look for unused resources.
+func (d *Dispatcher) SetResourceCodeRefs(refs *api.ResourceCodeRefs) {
+	if d == nil {
+		return
+	}
+	d.resourceCodeRefs = refs
+}
+
+// SetDescribedViewNames records the views whose content description is set from source, so
+// layout rules do not report a missing android:contentDescription on them.
+func (d *Dispatcher) SetDescribedViewNames(names map[string]bool) {
+	if d == nil {
+		return
+	}
+	d.describedViews = names
+}
+
+// SetRtlMainsResolver records how to find the main projects whose manifest and
+// SDK levels decide the RTL rules for a file.
+func (d *Dispatcher) SetRtlMainsResolver(fn func(path string) ([]api.RtlMainProject, bool)) {
+	if d == nil {
+		return
+	}
+	d.rtlMainsFor = fn
 }
 
 // SetJavaSemanticFacts wires optional javac-backed semantic facts into
@@ -396,6 +431,10 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	}
 
 	flatTypeRules := d.ensureFlatTypeIndex(d.collectAllRules())
+	timeRules := !d.skipRuleTiming
+	// Reused for every call in this file so the node and context do not escape to the heap per call.
+	var ctxScratch api.Context
+	var flatNode scanner.FlatNode
 
 	// Reuse the SuppressionFilter built in pipeline.Parse when present;
 	// otherwise (LSP/MCP ParseSingle path) build one lazily so single-
@@ -404,14 +443,14 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	start := time.Now()
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}
 	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
 
 	excludedRules := d.buildExcludedSet(file.Path)
-	for id := range d.excludedForLanguage(file.Language) {
+	for id := range d.excludedForFile(file) {
 		excludedRules[id] = true
 	}
 
@@ -468,7 +507,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 					continue
 				}
 				for _, flatIdx := range indices {
-					flatNode := tree.Node(flatIdx)
+					flatNode = tree.Node(flatIdx)
 					for _, r := range handlers {
 						if excludedRules[r.ID] {
 							continue
@@ -480,14 +519,19 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 						if !ok {
 							continue
 						}
-						t := time.Now()
+						var t time.Time
+						if timeRules {
+							t = time.Now()
+						}
 						runWithRuleProfileLabel(r.ID, "dispatch", func() {
-							safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+							safeCheckV2NodeColumnar(&ctxScratch, r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
 						})
-						elapsed := time.Since(t).Nanoseconds()
-						stats.DispatchRuleNs += elapsed
-						stats.DispatchRuleNsByRule[r.ID] += elapsed
-						stats.recordRule(r.ID, "dispatch", elapsed)
+						if timeRules {
+							elapsed := time.Since(t).Nanoseconds()
+							stats.DispatchRuleNs += elapsed
+							stats.DispatchRuleNsByRule[r.ID] += elapsed
+							stats.recordRule(r.ID, "dispatch", elapsed)
+						}
 					}
 				}
 			}
@@ -497,7 +541,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 			n := tree.Len()
 			for i := 0; i < n; i++ {
 				flatIdx := uint32(i)
-				flatNode := tree.Node(flatIdx)
+				flatNode = tree.Node(flatIdx)
 				var handlers []*api.Rule
 				if int(flatNode.Type) < len(flatTypeRules) {
 					handlers = flatTypeRules[flatNode.Type]
@@ -513,14 +557,19 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 					if !ok {
 						continue
 					}
-					t := time.Now()
+					var t time.Time
+					if timeRules {
+						t = time.Now()
+					}
 					runWithRuleProfileLabel(r.ID, "dispatch", func() {
-						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+						safeCheckV2NodeColumnar(&ctxScratch, r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
 					})
-					elapsed := time.Since(t).Nanoseconds()
-					stats.DispatchRuleNs += elapsed
-					stats.DispatchRuleNsByRule[r.ID] += elapsed
-					stats.recordRule(r.ID, "dispatch", elapsed)
+					if timeRules {
+						elapsed := time.Since(t).Nanoseconds()
+						stats.DispatchRuleNs += elapsed
+						stats.DispatchRuleNsByRule[r.ID] += elapsed
+						stats.recordRule(r.ID, "dispatch", elapsed)
+					}
 				}
 				for _, r := range d.allNodeRules {
 					if excludedRules[r.ID] {
@@ -530,14 +579,19 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 					if !ok {
 						continue
 					}
-					t := time.Now()
+					var t time.Time
+					if timeRules {
+						t = time.Now()
+					}
 					runWithRuleProfileLabel(r.ID, "dispatch", func() {
-						safeCheckV2NodeColumnar(r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
+						safeCheckV2NodeColumnar(&ctxScratch, r, flatIdx, &flatNode, file, collector, &stats, resolver, d.libraryFacts, javaFileFacts, javaSourceIndex, d.javaSemanticFacts, d.fileFacts)
 					})
-					elapsed := time.Since(t).Nanoseconds()
-					stats.DispatchRuleNs += elapsed
-					stats.DispatchRuleNsByRule[r.ID] += elapsed
-					stats.recordRule(r.ID, "dispatch", elapsed)
+					if timeRules {
+						elapsed := time.Since(t).Nanoseconds()
+						stats.DispatchRuleNs += elapsed
+						stats.DispatchRuleNsByRule[r.ID] += elapsed
+						stats.recordRule(r.ID, "dispatch", elapsed)
+					}
 				}
 			}
 		}
@@ -581,7 +635,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	start = time.Now()
 	if columns.Len() > 0 {
 		filtered := columns.FilterRows(func(row int) bool {
-			return !filter.IsSuppressed(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row))
+			return !filter.IsSuppressedAtColumn(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row), columns.ColumnAt(row))
 		})
 		columns = filtered
 	}
@@ -594,8 +648,9 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 }
 
 // safeCheckV2NodeColumnar invokes a rule with a Collector attached so
-// ctx.Emit routes findings directly into columnar storage.
-func safeCheckV2NodeColumnar(r *api.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex, javaSemanticFacts *javafacts.Facts, fileFacts *filefacts.Cache) {
+// ctx.Emit routes findings directly into columnar storage. It fills the caller's ctx scratch instead of
+// allocating a Context per call, so rules must not keep ctx after Check returns.
+func safeCheckV2NodeColumnar(ctx *api.Context, r *api.Rule, idx uint32, node *scanner.FlatNode, file *scanner.File, collector *scanner.FindingCollector, stats *RunStats, typeResolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaFileFacts *javafacts.JavaFileFacts, javaSourceIndex *javafacts.SourceIndex, javaSemanticFacts *javafacts.Facts, fileFacts *filefacts.Cache) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			line := 0
@@ -612,7 +667,7 @@ func safeCheckV2NodeColumnar(r *api.Rule, idx uint32, node *scanner.FlatNode, fi
 			})
 		}
 	}()
-	ctx := &api.Context{
+	*ctx = api.Context{
 		File:              file,
 		Node:              node,
 		Idx:               idx,
@@ -928,17 +983,24 @@ func (d *Dispatcher) RunGradle(file *scanner.File, cfg *android.BuildConfig) (sc
 // interface{} to avoid an import cycle from the api package back into
 // rules; the dispatcher itself takes a typed *manifest.Manifest.
 func (d *Dispatcher) RunManifest(file *scanner.File, m *manifest.Manifest) (scanner.FindingColumns, bool) {
-	return d.runProjectRuleSet(file, d.manifestRules, func(ctx *api.Context) {
+	cols, ok := d.runProjectRuleSet(file, d.manifestRules, func(ctx *api.Context) {
 		ctx.Manifest = m
 	})
+	var path string
+	var data []byte
+	if file != nil {
+		path, data = file.Path, file.Content
+	}
+	return filterManifestToolsIgnored(cols, m, path, data), ok
 }
 
 // RunResource runs every registered resource rule against a merged
 // ResourceIndex for a single res/ directory.
 func (d *Dispatcher) RunResource(file *scanner.File, idx *android.ResourceIndex) (scanner.FindingColumns, bool) {
-	return d.runProjectRuleSet(file, d.resourceRules, func(ctx *api.Context) {
+	cols, ok := d.runProjectRuleSet(file, d.resourceRules, func(ctx *api.Context) {
 		ctx.ResourceIndex = idx
 	})
+	return filterValuesToolsIgnored(filterLayoutToolsIgnored(cols, idx)), ok
 }
 
 // RunIcons runs every registered icon rule against an IconIndex for a
@@ -969,13 +1031,13 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 
 	filter := file.Suppression
 	if filter == nil {
-		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases())
+		filter = scanner.BuildSuppressionFilter(file, nil, allRuleExcludes(), "").WithRuleAliases(AllSuppressionAliases()).WithExcludedRules(ScriptPolicyExcludes(file))
 		file.Suppression = filter
 		file.SuppressionIdx = filter.Annotations()
 	}
 
 	excludedRules := d.buildExcludedSet(file.Path)
-	for id := range d.excludedForLanguage(file.Language) {
+	for id := range d.excludedForFile(file) {
 		excludedRules[id] = true
 	}
 
@@ -1027,7 +1089,7 @@ func (d *Dispatcher) RunResourceSource(file *scanner.File, idx *android.Resource
 	columns := *collector.Columns()
 	if columns.Len() > 0 {
 		columns = columns.FilterRows(func(row int) bool {
-			return !filter.IsSuppressed(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row))
+			return !filter.IsSuppressedAtColumn(columns.RuleAt(row), columns.RuleSetAt(row), columns.LineAt(row), columns.ColumnAt(row))
 		})
 	}
 	for _, e := range stats.Errors {
@@ -1046,7 +1108,7 @@ func (d *Dispatcher) runProjectRuleSet(file *scanner.File, ruleSet []*api.Rule, 
 		return scanner.FindingColumns{}, true
 	}
 	excluded := d.buildExcludedSet(file.Path)
-	langExcluded := d.excludedForLanguage(file.Language)
+	langExcluded := d.excludedForFile(file)
 	collector := scanner.NewFindingCollector(0)
 	stats := RunStats{}
 	cacheable := true
@@ -1083,7 +1145,7 @@ func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate fu
 	}()
 	collector := scanner.NewFindingCollector(0)
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
-	ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
+	ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts, RtlMainsFor: d.rtlMainsFor, DescribedViewNames: d.describedViews, ResourceCodeRefs: d.resourceCodeRefs}
 	if r.Needs.Has(api.NeedsResolver) {
 		if resolver, ok := d.resolveForRule(r); ok {
 			ctx.Resolver = resolver
@@ -1133,21 +1195,33 @@ func safeCheckV2ResourceNodeColumnar(r *api.Rule, idx uint32, node *scanner.Flat
 	r.Check(ctx)
 }
 
-// excludedForLanguage returns the set of rule IDs that do NOT apply to
-// the given file language. The result is cached per language — rules
-// are static after construction, so we amortize the collectAllRules +
-// filter scan across every file of that language.
-func (d *Dispatcher) excludedForLanguage(lang scanner.Language) map[string]bool {
-	if cached, ok := d.languageExcluded.Load(lang); ok {
+// languageExcludedKey identifies one cached exclusion set: the file's
+// language, its script kind and the script policy generation it was built for.
+type languageExcludedKey struct {
+	lang scanner.Language
+	kind scanner.ScriptKind
+	gen  uint64
+}
+
+// excludedForFile returns the set of rule IDs that do NOT apply to file: the
+// rules whose languages exclude the file's language, plus, for a Kotlin
+// script, the rules the script policy removes. The result is cached per
+// (language, script kind, policy generation) — rules are static after
+// construction, so the collectAllRules + filter scan is amortized across
+// every file of that shape.
+func (d *Dispatcher) excludedForFile(file *scanner.File) map[string]bool {
+	key := languageExcludedKey{lang: file.Language, kind: file.ScriptKind(), gen: scriptPolicyGen.Load()}
+	if cached, ok := d.languageExcluded.Load(key); ok {
 		return cached.(map[string]bool)
 	}
 	m := make(map[string]bool)
+	policy := currentScriptPolicy()
 	for _, r := range d.collectAllRules() {
-		if !api.RuleAppliesToLanguage(r, lang) {
+		if !api.RuleAppliesToLanguage(r, key.lang) || !ruleRunsOnScript(policy, r, key.kind) {
 			m[r.ID] = true
 		}
 	}
-	if actual, loaded := d.languageExcluded.LoadOrStore(lang, m); loaded {
+	if actual, loaded := d.languageExcluded.LoadOrStore(key, m); loaded {
 		return actual.(map[string]bool)
 	}
 	return m

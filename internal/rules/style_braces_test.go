@@ -64,7 +64,7 @@ func makeBracesWhenV2Rule(rule *BracesOnWhenStatementsRule) *api.Rule {
 		ID:         rule.RuleName,
 		Category:   rule.RuleSetName,
 		Sev:        api.Severity(rule.Sev),
-		NodeTypes:  []string{"when_entry"},
+		NodeTypes:  []string{"when_expression"},
 		Confidence: rule.Confidence(),
 		Check: func(ctx *api.Context) {
 			rule.check(ctx)
@@ -315,20 +315,24 @@ func applyFixes(src string, cols scanner.FindingColumns) string {
 	return string(out)
 }
 
-// TestBracesOnIfStatements_ExpressionPosition_NoFinding verifies the rule
-// skips expression-position ifs entirely. `val r = if (x) y else z` is an
-// expression, not a statement — "should use braces" does not apply, and
-// wrapping its body produces visually-broken output regardless of how the
-// fix derives its indentation.
-func TestBracesOnIfStatements_ExpressionPosition_NoFinding(t *testing.T) {
-	findings := runBracesIfRule(t, "always", "always", `
+// TestBracesOnIfStatements_ExpressionPosition_ReportsEachBranchWithoutFix follows detekt: an
+// expression-position if is checked like a statement, one finding per branch, but with no autofix.
+func TestBracesOnIfStatements_ExpressionPosition_ReportsEachBranchWithoutFix(t *testing.T) {
+	src := `
 package test
 fun example(x: Boolean): Int {
     val r = if (x) 1 else 2
     return r
-}`)
-	if findings.Len() != 0 {
-		t.Errorf("expected no findings for expression-position if, got %d", findings.Len())
+}`
+	findings := runBracesIfRule(t, "always", "always", src)
+	if findings.Len() != 2 {
+		t.Fatalf("expected one finding per branch, got %d", findings.Len())
+	}
+	if out := applyFixes(src, findings); out != src {
+		t.Errorf("expression-position ifs must not be rewritten, got:\n%s", out)
+	}
+	if got := findings.MessageAt(0); got != "Missing braces on this branch, add them." {
+		t.Errorf("unexpected message %q", got)
 	}
 }
 
@@ -386,5 +390,154 @@ fun example(x: Boolean) {
 	findings := d.Run(file)
 	if findings.Len() != 0 {
 		t.Fatalf("expected no findings for test sources, got %d", findings.Len())
+	}
+}
+
+// TestBuildBraceWrapFix_LineCommentBeforeWhenBody verifies the opening brace is
+// not appended to a line comment that sits between `->` and the body.
+func TestBuildBraceWrapFix_LineCommentBeforeWhenBody(t *testing.T) {
+	src := `package test
+fun example(x: Int) {
+    when {
+        x > 1 ->
+            // explain
+            // more
+            println("a")
+    }
+}
+`
+	findings := runBracesWhenRule(t, "always", "always", src)
+	if findings.Len() == 0 {
+		t.Fatal("expected finding for unbraced when branch")
+	}
+	out := applyFixes(src, findings)
+	want := "x > 1 -> {\n            // explain\n            // more\n            println(\"a\")\n        }"
+	if !strings.Contains(out, want) {
+		t.Errorf("brace must follow the arrow, not a comment. Output:\n%s", out)
+	}
+}
+
+func TestBracesOnIfStatements_NeverFlagsRedundantBracesNotMissingOnes(t *testing.T) {
+	missing := runBracesIfRule(t, "never", "always", `
+package test
+fun example(x: Boolean) {
+    if (x) foo()
+}`)
+	if missing.Len() != 0 {
+		t.Errorf("singleLine never must not ask for braces, got %d findings", missing.Len())
+	}
+	redundant := runBracesIfRule(t, "never", "always", `
+package test
+fun example(x: Boolean) {
+    if (x) { foo() }
+}`)
+	if redundant.Len() != 1 || !strings.Contains(redundant.MessageAt(0), "Extra braces exist") {
+		t.Errorf("expected one redundant-braces finding, got %d", redundant.Len())
+	}
+}
+
+func TestBracesOnWhenStatements_NecessaryKeepsMultiStatementBraces(t *testing.T) {
+	findings := runBracesWhenRule(t, "necessary", "necessary", `
+package test
+fun example(x: Int) {
+    when (x) {
+        1 -> { foo() }
+        2 -> {
+            bar()
+            bar()
+        }
+        else -> baz()
+    }
+}`)
+	if findings.Len() != 1 {
+		t.Errorf("expected only the single-statement braced branch, got %d findings", findings.Len())
+	}
+}
+
+// TestBuildBraceWrapFix_MultiConditionWhenEntryIndentsBody verifies the wrapped body
+// nests one step inside the branch when the arrow shares a line with the last condition.
+func TestBuildBraceWrapFix_MultiConditionWhenEntryIndentsBody(t *testing.T) {
+	src := `package test
+fun example(x: Int) {
+    when (x) {
+        1,
+        2 -> foo()
+        else -> bar()
+    }
+}
+`
+	findings := runBracesWhenRule(t, "always", "always", src)
+	if findings.Len() == 0 {
+		t.Fatal("expected finding for unbraced when branch")
+	}
+	out := applyFixes(src, findings)
+	want := "        2 -> {\n            foo()\n        }\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("expected body indented one step, got:\n%s", out)
+	}
+}
+
+func TestBracesOnIfStatements_NeverFlagsBracesNotMissingBraces(t *testing.T) {
+	findings := runBracesIfRule(t, "never", "always", `
+package test
+fun example(x: Int) {
+    if (x == 1) println(1)
+    if (x == 2) { println(2) }
+    if (x == 3) { println(3); println(4) }
+    if (x == 4) { // keep
+        println(5)
+    }
+    if (x == 5) println(1) else { println(2) }
+}`)
+	if findings.Len() != 3 {
+		t.Fatalf("expected 3 findings (the two single-line braced ifs and the braced else), got %d", findings.Len())
+	}
+	for i := 0; i < findings.Len(); i++ {
+		if !strings.Contains(findings.MessageAt(i), "Extra braces exist") {
+			t.Errorf("unexpected message %q", findings.MessageAt(i))
+		}
+	}
+}
+
+// TestBracesOnIfStatements_NeverKeepsDanglingElseBraces reports the braces like detekt but offers no
+// fix, because removing them would bind the else to the inner if.
+func TestBracesOnIfStatements_NeverKeepsDanglingElseBraces(t *testing.T) {
+	src := `
+package test
+fun example(x: Int, y: Int) {
+    if (x == 1) { if (y == 1) println(1) } else println(2)
+}`
+	findings := runBracesIfRule(t, "never", "never", src)
+	if findings.Len() != 1 {
+		t.Fatalf("expected the braces to be reported, got %d findings", findings.Len())
+	}
+	if out := applyFixes(src, findings); out != src {
+		t.Errorf("braces protect the else binding, got:\n%s", out)
+	}
+}
+
+func TestBracesOnIfStatements_AlwaysChecksElseBranch(t *testing.T) {
+	findings := runBracesIfRule(t, "always", "always", `
+package test
+fun example(x: Int) {
+    if (x == 1) { println(1) } else println(2)
+}`)
+	if findings.Len() != 1 {
+		t.Errorf("expected else branch without braces to be flagged, got %d", findings.Len())
+	}
+}
+
+func TestBracesOnWhenStatements_NeverFlagsUnnecessaryBraces(t *testing.T) {
+	findings := runBracesWhenRule(t, "never", "always", `
+package test
+fun example(x: Int) {
+    when (x) {
+        1 -> { println() }
+        2 -> println()
+        3 -> { println(); println() }
+    }
+}`)
+	if findings.Len() != 2 {
+		t.Errorf("expected both braced branches, got %d", findings.Len())
 	}
 }

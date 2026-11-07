@@ -13,12 +13,16 @@ const diHygieneRuleSet = "di-hygiene"
 var (
 	anvilContributesToToken      = []byte("ContributesTo")
 	anvilContributesBindingToken = []byte("ContributesBinding")
+	anvilContributesMultiToken   = []byte("ContributesMultibinding")
+	anvilContributesSubToken     = []byte("ContributesSubcomponent")
 	anvilMergeComponentToken     = []byte("MergeComponent")
 )
 
 func anvilMergeComponentMayMatch(content []byte) bool {
 	return bytes.Contains(content, anvilContributesToToken) ||
 		bytes.Contains(content, anvilContributesBindingToken) ||
+		bytes.Contains(content, anvilContributesMultiToken) ||
+		bytes.Contains(content, anvilContributesSubToken) ||
 		bytes.Contains(content, anvilMergeComponentToken)
 }
 
@@ -50,6 +54,8 @@ func anvilModifiersMayMatchFlat(file *scanner.File, idx uint32) bool {
 	segment := file.Content[int(file.FlatStartByte(mods)):int(file.FlatEndByte(mods))]
 	return bytes.Contains(segment, anvilContributesToToken) ||
 		bytes.Contains(segment, anvilContributesBindingToken) ||
+		bytes.Contains(segment, anvilContributesMultiToken) ||
+		bytes.Contains(segment, anvilContributesSubToken) ||
 		bytes.Contains(segment, anvilMergeComponentToken)
 }
 
@@ -99,12 +105,21 @@ func anvilAnnotationScopeFlat(file *scanner.File, idx uint32, annotationName str
 		return ""
 	}
 
-	scopeExpr := strings.TrimSpace(annotationText[openIdx+1 : closeIdx])
-	if eqIdx := strings.Index(scopeExpr, "="); eqIdx >= 0 {
-		scopeExpr = strings.TrimSpace(scopeExpr[eqIdx+1:])
-	}
-	if commaIdx := strings.Index(scopeExpr, ","); commaIdx >= 0 {
-		scopeExpr = scopeExpr[:commaIdx]
+	// The scope is the first positional argument or the argument named `scope` or `value`.
+	scopeExpr := ""
+	for i, arg := range splitAnnotationArguments(annotationText[openIdx+1 : closeIdx]) {
+		arg = strings.TrimSpace(arg)
+		if name, value, named := strings.Cut(arg, "="); named && isPlainIdentifier(strings.TrimSpace(name)) {
+			if n := strings.TrimSpace(name); n == "scope" || n == "value" {
+				scopeExpr = strings.TrimSpace(value)
+				break
+			}
+			continue
+		}
+		if i == 0 {
+			scopeExpr = arg
+			break
+		}
 	}
 	if classIdx := strings.Index(scopeExpr, "::class"); classIdx >= 0 {
 		scopeExpr = scopeExpr[:classIdx]
@@ -114,6 +129,45 @@ func anvilAnnotationScopeFlat(file *scanner.File, idx uint32, annotationName str
 		scopeExpr = scopeExpr[dotIdx+1:]
 	}
 	return scopeExpr
+}
+
+func isPlainIdentifier(s string) bool {
+	if s == "" || !isIdentStartByte(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isIdentByte(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// splitAnnotationArguments splits an argument list on commas that are outside brackets, parens and strings.
+func splitAnnotationArguments(s string) []string {
+	var parts []string
+	depth, start := 0, 0
+	inString := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case inString:
+			if c == '\\' {
+				i++
+			} else if c == '"' {
+				inString = false
+			}
+		case c == '"':
+			inString = true
+		case c == '(' || c == '[' || c == '<':
+			depth++
+		case c == ')' || c == ']' || c == '>':
+			depth--
+		case c == ',' && depth == 0:
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(parts, s[start:])
 }
 
 func findAnnotationTextFlat(file *scanner.File, idx uint32, annotationName string) string {
@@ -129,20 +183,12 @@ func findAnnotationTextFlat(file *scanner.File, idx uint32, annotationName strin
 }
 
 func findAnnotationTextInFlatParent(file *scanner.File, parent uint32, annotationName string) string {
-	target := "@" + annotationName
 	for i := 0; i < file.FlatChildCount(parent); i++ {
 		child := file.FlatChild(parent, i)
 		switch file.FlatType(child) {
 		case "annotation", "modifier":
 			text := strings.TrimSpace(file.FlatNodeText(child))
-			name := strings.TrimPrefix(text, "@")
-			if parenIdx := strings.Index(name, "("); parenIdx >= 0 {
-				name = name[:parenIdx]
-			}
-			if colonIdx := strings.Index(name, ":"); colonIdx >= 0 {
-				name = name[:colonIdx]
-			}
-			if name == annotationName || strings.HasPrefix(name, annotationName+".") || strings.Contains(text, target) {
+			if annotationTextListHasName(text, annotationName) {
 				return text
 			}
 		}

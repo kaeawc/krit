@@ -301,8 +301,8 @@ func metricNameHasUnitSuffix(name string, suffixes []string) bool {
 // throwableLikeInterpolation reports whether text contains a Kotlin string
 // interpolation (e.g. `$e` or `${error}`) of a throwable-looking identifier.
 func throwableLikeInterpolation(text string) bool {
-	for _, match := range throwableLikeIdentifierRe.FindAllString(text, -1) {
-		if strings.Contains(text, "$"+match) || strings.Contains(text, "${"+match) {
+	for _, match := range interpolationIdentifierRe.FindAllStringSubmatch(text, -1) {
+		if len(match) > 1 && throwableLikeIdentifierRe.FindString(match[1]) == match[1] {
 			return true
 		}
 	}

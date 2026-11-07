@@ -298,3 +298,25 @@ func unsafeCastTargetIsClipboardLike(t *typeinfer.ResolvedType, targetName strin
 		isClipboardServiceType(simpleTypeName(targetName)) ||
 		(t != nil && (isClipboardServiceType(t.Name) || isClipboardServiceType(t.FQN)))
 }
+
+// unsafeCastSourceIsPlatformCallFlat reports a call source whose type is a Java/SDK type or cannot be resolved from source.
+func unsafeCastSourceIsPlatformCallFlat(ctx *api.Context, source uint32) bool {
+	file := ctx.File
+	source = unsafeCastUnwrapExpressionFlat(file, source)
+	if source == 0 || file.FlatType(source) != "call_expression" {
+		return false
+	}
+	target := unsafeCastOracleCallTargetFlat(ctx, source)
+	if unsafeCastCallTargetIsPlatform(target) || strings.HasPrefix(target, "java.") || strings.HasPrefix(target, "javax.") {
+		return true
+	}
+	if ctx.Resolver == nil {
+		return true
+	}
+	t := ctx.Resolver.ResolveFlatNode(source, file)
+	if t == nil || t.Kind == typeinfer.TypeUnknown {
+		return true
+	}
+	fqn := t.FQN
+	return unsafeCastCallTargetIsPlatform(fqn) || strings.HasPrefix(fqn, "java.") || strings.HasPrefix(fqn, "javax.")
+}

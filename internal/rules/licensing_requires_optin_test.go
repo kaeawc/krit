@@ -85,3 +85,26 @@ fun usesIt() = Unit
 		}
 	}
 }
+
+func TestRequiresOptInPositionalArguments(t *testing.T) {
+	code := `
+package fx
+
+@RequiresOptIn("Experimental API", RequiresOptIn.Level.ERROR)
+annotation class PositionalApi
+
+@RequiresOptIn(level = RequiresOptIn.Level.WARNING)
+annotation class NoMessageApi
+
+@RequiresOptIn("Only a message")
+annotation class NoLevelApi
+`
+	noMessage := runRuleByName(t, "RequiresOptInWithoutMessage", code)
+	if len(noMessage) != 1 {
+		t.Fatalf("expected only NoMessageApi to lack a message, got %d: %v", len(noMessage), noMessage)
+	}
+	noLevel := runRuleByName(t, "RequiresOptInWithoutLevel", code)
+	if len(noLevel) != 1 {
+		t.Fatalf("expected only NoLevelApi to lack a level, got %d: %v", len(noLevel), noLevel)
+	}
+}

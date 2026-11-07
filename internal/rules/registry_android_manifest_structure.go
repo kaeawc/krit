@@ -75,7 +75,7 @@ func registerAndroidManifestStructureRules() {
 		r := &MipmapLauncherRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "MipmapLauncher", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "MipmapIcons",
-			Brief:      "Launcher icon should use @mipmap/ not @drawable/",
+			Brief:      "Use Mipmap Launcher Icons",
 			Category:   ALCUsability,
 			ALSeverity: ALSWarning,
 			Priority:   5,
@@ -91,7 +91,7 @@ func registerAndroidManifestStructureRules() {
 		r := &UniquePermissionRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "UniquePermission", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "UniquePermission",
-			Brief:      "Custom permission collides with system permission",
+			Brief:      "Permission names are not unique",
 			Category:   ALCSecurity,
 			ALSeverity: ALSError,
 			Priority:   6,
@@ -105,11 +105,11 @@ func registerAndroidManifestStructureRules() {
 	}
 	{
 		r := &SystemPermissionRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "SystemPermission", RuleSetName: androidRuleSet, Sev: "warning"},
+			BaseRule:   BaseRule{RuleName: "SystemPermission", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "SystemPermission",
-			Brief:      "Requesting dangerous system permission",
-			Category:   ALCSecurity,
-			ALSeverity: ALSWarning,
+			Brief:      "Requesting a permission only granted to system apps",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -170,7 +170,7 @@ func registerAndroidManifestStructureRules() {
 	{
 		r := &IntentFilterExportRequiredRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "IntentFilterExportRequired", RuleSetName: androidRuleSet, Sev: "error"},
-			IssueID:    "IntentFilterExportRequired",
+			IssueID:    "IntentFilterExportedReceiver",
 			Brief:      "Component with intent-filter missing android:exported (API 31+)",
 			Category:   ALCSecurity,
 			ALSeverity: ALSError,
@@ -205,7 +205,7 @@ func registerAndroidManifestStructureRules() {
 			IssueID:    "MultipleUsesSdk",
 			Brief:      "More than one <uses-sdk> element",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   6,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -253,7 +253,7 @@ func registerAndroidManifestStructureRules() {
 			IssueID:    "MockLocation",
 			Brief:      "ACCESS_MOCK_LOCATION in non-debug manifest",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSFatal,
 			Priority:   5,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -280,18 +280,18 @@ func registerAndroidManifestStructureRules() {
 		})
 	}
 	{
-		r := &InvalidUsesTagAttributeManifestRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "InvalidUsesTagAttributeManifest", RuleSetName: androidRuleSet, Sev: "error"},
-			IssueID:    "InvalidUsesTagAttribute",
+		r := &InvalidUsesFeatureRequiredManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "InvalidUsesFeatureRequiredManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			Brief:      "Invalid android:required value on <uses-feature>",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   5,
-			Origin:     "AOSP Android Lint",
+			Origin:     "Krit",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Aliases: []string{"InvalidUsesTagAttributeManifest"},
+			Needs:   api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}

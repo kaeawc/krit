@@ -208,3 +208,57 @@ fun debug() {
 		}
 	})
 }
+
+func TestSharedPreferencesForSensitiveKey_MatchesWholeWords(t *testing.T) {
+	findings := runRuleByName(t, "SharedPreferencesForSensitiveKey", `
+package test
+
+interface SharedPreferences {
+    interface Editor {
+        fun putString(key: String, value: String): Editor
+        fun apply()
+    }
+    fun edit(): Editor
+}
+
+fun save(prefs: SharedPreferences, v: String) {
+    prefs.edit().putString("shipping_address", v).apply()
+    prefs.edit().putString("spinner_selection", v).apply()
+    prefs.edit().putString("author_name", v).apply()
+    prefs.edit().putString("mapping_version", v).apply()
+    prefs.edit().putString("refreshToken", v).apply()
+    prefs.edit().putString("user_pin", v).apply()
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected refreshToken and user_pin only, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestSharedPreferencesForSensitiveKeyIgnoresMetadataKeys(t *testing.T) {
+	findings := runRuleByName(t, "SharedPreferencesForSensitiveKey", `
+package test
+
+interface SharedPreferences {
+    interface Editor {
+        fun putString(key: String, value: String): Editor
+        fun putLong(key: String, value: Long): Editor
+        fun putBoolean(key: String, value: Boolean): Editor
+        fun putInt(key: String, value: Int): Editor
+        fun apply()
+    }
+    fun edit(): Editor
+}
+
+fun save(prefs: SharedPreferences) {
+    prefs.edit().putLong("token_expires_at", 1L).apply()
+    prefs.edit().putBoolean("has_password", true).apply()
+    prefs.edit().putInt("auth_attempt_count", 1).apply()
+    prefs.edit().putString("token_type", "x").apply()
+    prefs.edit().putString("authToken", "x").apply()
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (authToken), got %d: %v", len(findings), findings)
+	}
+}

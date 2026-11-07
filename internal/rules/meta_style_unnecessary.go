@@ -28,7 +28,6 @@ func (r *UnnecessaryApplyRule) Meta() api.RuleDescriptor {
 		ID:            "UnnecessaryApply",
 		RuleSet:       "style",
 		DefaultActive: true,
-		FixLevel:      "idiomatic",
 	}
 }
 
@@ -75,7 +74,8 @@ func (r *UnnecessaryReversedRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnnecessaryReversed",
 		RuleSet:       "style",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
 		FixLevel:      "idiomatic",
 	}
 }

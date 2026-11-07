@@ -44,7 +44,7 @@ func TestOptInMarkerExposedPublicly_AdditionalMarkers(t *testing.T) {
 		t.Fatalf("baseline: an unconfigured project marker should not be flagged; got %d", n)
 	}
 
-	rules.ApplyConfig(loadTempConfig(t, "licensing:\n  OptInMarkerExposedPublicly:\n    additionalMarkers:\n      - InternalMyApi\n"))
+	rules.ApplyConfig(loadTempConfig(t, "libraries:\n  OptInMarkerExposedPublicly:\n    additionalMarkers:\n      - InternalMyApi\n"))
 	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", src)); n == 0 {
 		t.Fatal("with additionalMarkers configured, exposing the project marker on a public declaration should be flagged; got 0")
 	}
@@ -184,5 +184,92 @@ private fun privateApi() {
 		if f.Rule == "OptInMarkerExposedPublicly" {
 			t.Fatalf("did not expect finding for non-public declaration: %s", f.Message)
 		}
+	}
+}
+
+func TestOptInMarkerExposedPublicly_PositiveBareMarker(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+@ExperimentalCoroutinesApi
+fun exposed() {}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestOptInMarkerExposedPublicly_NegativeAcknowledged(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+interface Contract {
+    fun stream()
+}
+
+class Impl : Contract {
+    @ExperimentalCoroutinesApi
+    override fun stream() {}
+}
+
+/** Experimental: callers must opt in, the shape may change. */
+@ExperimentalCoroutinesApi
+fun documented() {}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class Opted {
+    @ExperimentalCoroutinesApi
+    fun inside() {}
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestOptInMarkerExposedPublicly_SupertypeWithSameMarker(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+@ExperimentalCoroutinesApi
+interface Marked
+
+@ExperimentalCoroutinesApi
+class Impl : Marked
+
+@ExperimentalCoroutinesApi
+class Gratuitous
+`)
+	// The marked interface and the gratuitous class are flagged; Impl is not.
+	if len(findings) != 2 || findings[0].Line != 4 || findings[1].Line != 10 {
+		t.Fatalf("expected findings on lines 4 and 10, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestOptInMarkerExposedPublicly_KDocNamesMarker(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+
+/** Requires ExperimentalCoroutinesApi because the flow type is not stable yet. */
+@ExperimentalCoroutinesApi
+fun documented() {}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestOptInMarkerExposedPublicly_MemberOfInternalClassIsHidden(t *testing.T) {
+	findings := runRuleByName(t, "OptInMarkerExposedPublicly", `
+package test
+internal class Hidden {
+    @ExperimentalCoroutinesApi fun member() {}
+}
+class Visible {
+    @ExperimentalCoroutinesApi fun member() {}
+}
+`)
+	if len(findings) != 1 {
+		t.Errorf("expected only the member of the public class, got %v", findings)
 	}
 }

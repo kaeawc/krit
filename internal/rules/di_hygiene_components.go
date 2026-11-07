@@ -54,6 +54,12 @@ func (r *DeadBindingsRule) check(ctx *api.Context) {
 			demand[t] = struct{}{}
 		}
 	}
+	// Lazy<Foo>, Provider<Foo> and Set<Foo> request Foo as well as the wrapper.
+	addDemandTypeTexts := func(texts []string) {
+		for _, text := range texts {
+			addDemandTypes(typeIdentifiersIn(text))
+		}
+	}
 
 	for _, file := range files {
 		if file == nil || file.FlatTree == nil {
@@ -67,7 +73,8 @@ func (r *DeadBindingsRule) check(ctx *api.Context) {
 				inComponent := isInsideComponentInterfaceFlat(file, idx)
 				if isProvides || isBinds {
 					ret := lastTypeSegment(extractFunctionReturnTypeNameFlat(file, idx))
-					if ret != "" {
+					// Multibinding contributions are consumed as part of the Set or Map they join.
+					if ret != "" && !diIsMultibindingContribution(file, idx) {
 						bindings = append(bindings, bindingCandidate{
 							file:    file,
 							idx:     idx,
@@ -75,27 +82,25 @@ func (r *DeadBindingsRule) check(ctx *api.Context) {
 							retType: ret,
 						})
 					}
-					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+					addDemandTypeTexts(functionValueParameterTypeTexts(file, idx))
 				}
 				if inComponent {
 					if ret := lastTypeSegment(extractFunctionReturnTypeNameFlat(file, idx)); ret != "" {
 						demand[ret] = struct{}{}
 					}
-					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+					addDemandTypeTexts(functionValueParameterTypeTexts(file, idx))
 				}
 			case "primary_constructor":
 				if hasAnnotationFlat(file, idx, "Inject") {
-					addDemandTypes(extractClassParameterTypeNamesFlat(file, idx))
+					addDemandTypeTexts(classParameterTypeTexts(file, idx))
 				}
 			case "secondary_constructor":
 				if hasAnnotationFlat(file, idx, "Inject") {
-					addDemandTypes(extractFunctionParameterTypeNamesFlat(file, idx))
+					addDemandTypeTexts(functionValueParameterTypeTexts(file, idx))
 				}
 			case "property_declaration":
 				if hasAnnotationFlat(file, idx, "Inject") {
-					if name := lastTypeSegment(extractPropertyTypeNameFlat(file, idx)); name != "" {
-						demand[name] = struct{}{}
-					}
+					addDemandTypes(typeIdentifiersIn(extractPropertyTypeNameFlat(file, idx)))
 				}
 			}
 		})
@@ -111,8 +116,8 @@ func (r *DeadBindingsRule) check(ctx *api.Context) {
 		}
 		ctx.Emit(r.Finding(
 			b.file,
-			b.file.FlatRow(b.idx)+1,
-			1,
+			declLine(b.file, b.idx),
+			declCol(b.file, b.idx),
 			fmt.Sprintf("@Provides/@Binds function '%s' returning '%s' is not requested by any @Inject site or component exposure in the project.", name, b.retType),
 		))
 	}
@@ -314,8 +319,8 @@ func (r *SubcomponentNotInstalledRule) check(ctx *api.Context) {
 		}
 		ctx.Emit(r.Finding(
 			sub.file,
-			sub.file.FlatRow(sub.idx)+1,
-			1,
+			declLine(sub.file, sub.idx),
+			declCol(sub.file, sub.idx),
 			fmt.Sprintf("@Subcomponent '%s' is never returned from any parent @Component or @Subcomponent method; the subcomponent is orphaned.", sub.name),
 		))
 	}
@@ -398,6 +403,7 @@ func (r *ComponentMissingModuleRule) check(ctx *api.Context) {
 		return
 	}
 	providersByType := make(map[string][]componentMissingModuleProvider)
+	moduleIncludes := make(map[string]map[string]struct{})
 	injectCtorParams := make(map[string][]string)
 	var components []componentMissingModuleComponent
 
@@ -412,6 +418,11 @@ func (r *ComponentMissingModuleRule) check(ctx *api.Context) {
 			}
 			if hasAnnotationFlat(file, idx, "Module") {
 				collectModuleProviders(file, idx, providersByType)
+				if name := extractIdentifierFlat(file, idx); name != "" {
+					if inc := annotationClassListAttr(findAnnotationTextFlat(file, idx, "Module"), "includes"); len(inc) > 0 {
+						moduleIncludes[name] = inc
+					}
+				}
 			}
 			if hasAnnotationFlat(file, idx, "Component") || hasAnnotationFlat(file, idx, "MergeComponent") {
 				components = append(components, collectComponentInfo(file, idx))
@@ -424,7 +435,7 @@ func (r *ComponentMissingModuleRule) check(ctx *api.Context) {
 	}
 
 	for _, ci := range components {
-		r.emitMissingModulesForComponent(ctx, ci, providersByType, injectCtorParams)
+		r.emitMissingModulesForComponent(ctx, ci, providersByType, moduleIncludes, injectCtorParams)
 	}
 }
 
@@ -511,11 +522,28 @@ func (r *ComponentMissingModuleRule) emitMissingModulesForComponent(
 	ctx *api.Context,
 	ci componentMissingModuleComponent,
 	providersByType map[string][]componentMissingModuleProvider,
+	moduleIncludes map[string]map[string]struct{},
 	injectCtorParams map[string][]string,
 ) {
 	if len(ci.modules) == 0 {
 		return
 	}
+	// `@Module(includes = [...])` brings in the included modules' bindings.
+	covered := make(map[string]struct{})
+	var addModule func(name string)
+	addModule = func(name string) {
+		if _, ok := covered[name]; ok {
+			return
+		}
+		covered[name] = struct{}{}
+		for inc := range moduleIncludes[name] {
+			addModule(inc)
+		}
+	}
+	for name := range ci.modules {
+		addModule(name)
+	}
+	ci.modules = covered
 	seen := make(map[string]struct{})
 	queue := append([]string{}, ci.returnTypes...)
 	emitted := make(map[string]struct{})
@@ -526,8 +554,19 @@ func (r *ComponentMissingModuleRule) emitMissingModulesForComponent(
 			continue
 		}
 		seen[t] = struct{}{}
-		for _, p := range providersByType[t] {
-			r.maybeEmitMissingModule(ctx, ci, p, emitted)
+		providers := providersByType[t]
+		// A listed module that provides the type covers it, whatever other modules also provide it.
+		coveredByListed := false
+		for _, p := range providers {
+			if _, listed := ci.modules[p.moduleName]; listed {
+				coveredByListed = true
+				break
+			}
+		}
+		for _, p := range providers {
+			if !coveredByListed {
+				r.maybeEmitMissingModule(ctx, ci, p, emitted)
+			}
 			queue = append(queue, p.paramTypes...)
 		}
 		queue = append(queue, injectCtorParams[t]...)
@@ -556,8 +595,8 @@ func (r *ComponentMissingModuleRule) maybeEmitMissingModule(
 	}
 	ctx.Emit(r.Finding(
 		ci.file,
-		ci.file.FlatRow(ci.idx)+1,
-		1,
+		declLine(ci.file, ci.idx),
+		declCol(ci.file, ci.idx),
 		fmt.Sprintf("@Component '%s' transitively requires bindings from '%s', which is not listed in `modules = [...]`.", compName, p.moduleName),
 	))
 }
@@ -565,21 +604,46 @@ func (r *ComponentMissingModuleRule) maybeEmitMissingModule(
 // parseComponentModulesAttr returns the set of simple module names listed in
 // `@Component(modules = [A::class, B::class])`. Empty if no modules attr.
 func parseComponentModulesAttr(file *scanner.File, idx uint32) map[string]struct{} {
-	out := make(map[string]struct{})
 	text := findAnnotationTextFlat(file, idx, "Component")
 	if text == "" {
 		text = findAnnotationTextFlat(file, idx, "MergeComponent")
 	}
-	if text == "" {
+	return annotationClassListAttr(text, "modules")
+}
+
+// annotationClassListAttr returns the simple class names in the `attr = [A::class, B::class]` argument of an
+// annotation's source text, or `attr = A::class` for a single class.
+func annotationClassListAttr(text, attr string) map[string]struct{} {
+	out := make(map[string]struct{})
+	at := -1
+	for from := 0; from < len(text); {
+		i := strings.Index(text[from:], attr)
+		if i < 0 {
+			break
+		}
+		i += from
+		before := i == 0 || !isIdentByte(text[i-1])
+		rest := strings.TrimSpace(text[i+len(attr):])
+		if before && strings.HasPrefix(rest, "=") {
+			at = len(text) - len(rest) + 1
+			break
+		}
+		from = i + len(attr)
+	}
+	if at < 0 {
 		return out
 	}
-	openIdx := strings.Index(text, "[")
-	closeIdx := strings.LastIndex(text, "]")
-	if openIdx < 0 || closeIdx <= openIdx {
-		return out
+	value := strings.TrimSpace(text[at:])
+	if strings.HasPrefix(value, "[") {
+		end := strings.Index(value, "]")
+		if end < 0 {
+			return out
+		}
+		value = value[1:end]
+	} else if comma := strings.IndexAny(value, ",)"); comma >= 0 {
+		value = value[:comma]
 	}
-	inner := text[openIdx+1 : closeIdx]
-	for _, part := range strings.Split(inner, ",") {
+	for _, part := range strings.Split(value, ",") {
 		part = strings.TrimSpace(part)
 		if i := strings.Index(part, "::"); i >= 0 {
 			part = strings.TrimSpace(part[:i])
@@ -600,4 +664,47 @@ func hasAnyInjectPrimaryConstructor(file *scanner.File, idx uint32) bool {
 		return false
 	}
 	return hasAnnotationFlat(file, ctor, "Inject")
+}
+
+// typeIdentifiersIn returns every simple type name mentioned in type text such as `Lazy<Set<pkg.Foo>>`.
+func typeIdentifiersIn(typeText string) []string {
+	var names []string
+	i := 0
+	for i < len(typeText) {
+		if !isIdentStartByte(typeText[i]) {
+			i++
+			continue
+		}
+		j := i
+		for j < len(typeText) && isIdentByte(typeText[j]) {
+			j++
+		}
+		// A package prefix such as `pkg.` is followed by another name; keep only the last segment of a dotted path.
+		if j >= len(typeText) || typeText[j] != '.' {
+			names = append(names, typeText[i:j])
+		}
+		i = j
+	}
+	return names
+}
+
+// classParameterTypeTexts returns the declared type text of each parameter of a primary constructor.
+func classParameterTypeTexts(file *scanner.File, ctor uint32) []string {
+	var texts []string
+	for child := file.FlatFirstChild(ctor); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "class_parameter" {
+			texts = append(texts, extractParameterTypeNameFlat(file, child))
+		}
+	}
+	return texts
+}
+
+// diIsMultibindingContribution reports a binding that joins a Set or Map multibinding.
+func diIsMultibindingContribution(file *scanner.File, fn uint32) bool {
+	for _, ann := range []string{"IntoSet", "IntoMap", "ElementsIntoSet", "Multibinds", "BindsOptionalOf"} {
+		if hasAnnotationFlat(file, fn, ann) {
+			return true
+		}
+	}
+	return false
 }

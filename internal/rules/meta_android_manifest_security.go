@@ -58,8 +58,23 @@ func (r *ExportedServiceManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "ExportedServiceManifest",
 		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
+		DefaultActive: true,
+	}
+}
+
+func (r *ExportedReceiverManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ExportedReceiverManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *ExportedContentProviderManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "ExportedContentProviderManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
 	}
 }
 
@@ -75,7 +90,8 @@ func (r *InsecureBaseConfigurationManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "InsecureBaseConfigurationManifest",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
@@ -125,13 +141,38 @@ func (r *UnsafeProtectedBroadcastReceiverManifestRule) Meta() api.RuleDescriptor
 	return api.RuleDescriptor{
 		ID:            "UnsafeProtectedBroadcastReceiverManifest",
 		RuleSet:       "android-lint",
-		DefaultActive: true,
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
 	}
 }
 
 func (r *UseCheckPermissionManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UseCheckPermissionManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *IllegalResourceRefManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "IllegalResourceRefManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *DeprecatedManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "DeprecatedManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
+func (r *GrantAllUrisRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "GrantAllUris",
 		RuleSet:       "android-lint",
 		DefaultActive: true,
 	}

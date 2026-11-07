@@ -432,7 +432,9 @@ func missingUseAssignedWithUseFlat(file *scanner.File, idx uint32) bool {
 	if !ok {
 		return false
 	}
-	return missingUseLaterCallOnVariableFlat(file, scope, parent, varName, "use")
+	// An explicit close() later in the scope, as in a finally block, also releases the resource.
+	return missingUseLaterCallOnVariableFlat(file, scope, parent, varName, "use") ||
+		missingUseLaterCallOnVariableFlat(file, scope, parent, varName, "close")
 }
 
 func missingUseLaterCallOnVariableFlat(file *scanner.File, scope uint32, declaration uint32, varName string, callee string) bool {

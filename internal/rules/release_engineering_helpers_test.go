@@ -25,6 +25,9 @@ func TestIsPlausibleCommentedKotlin(t *testing.T) {
 		{"return keyword", "// return result", true},
 		{"assignment", "// foo = 42", true},
 		{"equality is not assignment", "// x == y means equal", false},
+		{"prose containing if", "// we retry if the server is down", false},
+		{"prose containing return", "// the caller can return early", false},
+		{"prose assignment", "// current = all events since the last sync", false},
 		{"call expression", "// doStuff(arg)", true},
 		{"non-greedy regex on prose", "// see http://example.com for details", false},
 	}

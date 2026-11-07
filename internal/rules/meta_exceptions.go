@@ -95,20 +95,15 @@ func (r *SwallowedExceptionRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[SwallowedExceptionRule]{
 				Name:        "allowedExceptionNameRegex",
-				Default:     "^_$",
+				Default:     "_|(ignore|expected).*",
 				Description: "Regex for exception names allowed to be swallowed.",
 				Apply:       func(r *SwallowedExceptionRule, v *regexp.Regexp) { r.AllowedExceptionNameRegex = v },
 			}),
 			api.StringListOption(api.StringListOptionSpec[SwallowedExceptionRule]{
 				Name:        "ignoredExceptionTypes",
+				Default:     []string{"InterruptedException", "MalformedURLException", "NumberFormatException", "ParseException"},
 				Description: "Exception types allowed to be swallowed.",
 				Apply:       func(r *SwallowedExceptionRule, v []string) { r.IgnoredExceptionTypes = v },
-			}),
-			api.BoolOption(api.BoolOptionSpec[SwallowedExceptionRule]{
-				Name:        "loggingCountsAsHandling",
-				Default:     true,
-				Description: "Treat logging calls that include the caught exception as meaningful handling.",
-				Apply:       func(r *SwallowedExceptionRule, v bool) { r.LoggingCountsAsHandling = v },
 			}),
 		},
 	}

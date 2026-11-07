@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/experiment"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -26,7 +25,7 @@ func registerStyleWildcardImport() {
 	r := &WildcardImportRule{BaseRule: BaseRule{RuleName: "WildcardImport", RuleSetName: "style", Sev: "warning", Desc: "Detects wildcard import statements that should be replaced with explicit imports."}, ExcludeImports: []string{"java.util.*", "platform.**", "kotlinx.cinterop.*"}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+		NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Skip test files and test-fixture Kotlin sources. Fixtures routinely
@@ -44,22 +43,82 @@ func registerStyleWildcardImport() {
 					return
 				}
 			}
-			ctx.EmitAt(file.FlatRow(idx)+1, 1,
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				fmt.Sprintf("Wildcard import '%s' should be replaced with explicit imports.", imp))
 		},
 	})
+}
+
+// forbiddenCommentReasons holds detekt's default reasons; other markers get its generic message.
+var forbiddenCommentReasons = map[string]string{
+	"FIXME:":    "Forbidden FIXME todo marker in comment, please fix the problem.",
+	"STOPSHIP:": "Forbidden STOPSHIP todo marker in comment, please address the problem before shipping the code.",
+	"TODO:":     "Forbidden TODO todo marker in comment, please do the changes.",
+}
+
+func forbiddenCommentMessage(marker string) string {
+	if reason, ok := forbiddenCommentReasons[marker]; ok {
+		return reason
+	}
+	return "This comment contains '" + marker + "' that has been defined as forbidden."
+}
+
+// kdocDefaultSection returns the byte offset in a KDoc comment where its default section starts and
+// that section's text. Like detekt, tag sections (@param and so on) are not checked.
+func kdocDefaultSection(text string) (offset int, content string) {
+	offset = len("/**")
+	rest := text[offset:]
+	// A section that starts on the next line begins at its first non-blank character.
+	if first, _, hasNL := strings.Cut(rest, "\n"); hasNL && strings.TrimSpace(first) == "" {
+		skip := len(first) + 1
+		for skip < len(rest) && (rest[skip] == ' ' || rest[skip] == '\t') {
+			skip++
+		}
+		offset += skip
+	}
+	body := forbiddenCommentBody(text)
+	var kept []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "@") {
+			break
+		}
+		kept = append(kept, line)
+	}
+	return offset, strings.Join(kept, "\n")
 }
 
 func registerStyleForbiddenComment() {
 	r := &ForbiddenCommentRule{BaseRule: BaseRule{RuleName: "ForbiddenComment", RuleSetName: "style", Sev: "warning", Desc: "Detects comments containing forbidden markers like TODO, FIXME, or STOPSHIP."}, Comments: defaultForbiddenCommentMarkers}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"line_comment", "multiline_comment", "block_comment"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
+		NodeTypes: []string{"line_comment", "multiline_comment", "block_comment"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			// Justified string match: tree-sitter exposes comments as leaf text
 			// nodes, so marker detection has no AST body node to dispatch on.
-			text := forbiddenCommentBody(file.FlatNodeText(idx))
+			raw := file.FlatNodeText(idx)
+			text := forbiddenCommentBody(raw)
+			row, col := file.FlatRow(idx)+1, file.FlatCol(idx)+1
+			// detekt checks only the default section of a KDoc and reports at its start.
+			if strings.HasPrefix(raw, "/**") && !strings.HasPrefix(raw, "/**/") {
+				var offset int
+				offset, text = kdocDefaultSection(raw)
+				if n := strings.Count(raw[:offset], "\n"); n > 0 {
+					row += n
+					col = offset - strings.LastIndex(raw[:offset], "\n")
+				} else {
+					col += offset
+				}
+			}
+			// If the comment matches the allowed pattern, skip it.
+			if r.AllowedPatterns != nil && r.AllowedPatterns.MatchString(text) {
+				return
+			}
+			for _, value := range r.Values {
+				if strings.Contains(strings.ToLower(text), strings.ToLower(value)) {
+					ctx.EmitAt(row, col, "This comment contains '"+value+"' that has been defined as forbidden.")
+				}
+			}
 			markers := r.Comments
 			if len(markers) == 0 {
 				markers = defaultForbiddenCommentMarkers
@@ -69,13 +128,7 @@ func registerStyleForbiddenComment() {
 					if forbiddenCommentAllowedByDefault(text, marker) || markerOnlyInsideQuotedText(text, marker) {
 						continue
 					}
-					// If the comment matches the allowed pattern, skip it
-					if r.AllowedPatterns != nil && r.AllowedPatterns.MatchString(text) {
-						continue
-					}
-					ctx.EmitAt(file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Forbidden comment marker '%s' found.", marker))
-					return
+					ctx.EmitAt(row, col, forbiddenCommentMessage(marker))
 				}
 			}
 		},
@@ -105,14 +158,14 @@ func forbiddenCommentBody(text string) string {
 }
 
 func registerStyleForbiddenVoid() {
-	r := &ForbiddenVoidRule{BaseRule: BaseRule{RuleName: "ForbiddenVoid", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the Java Void type that should be replaced with Kotlin Unit."}}
+	r := &ForbiddenVoidRule{BaseRule: BaseRule{RuleName: "ForbiddenVoid", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of the Java Void type that should be replaced with Kotlin Unit."}, IgnoreIdioms: true}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"user_type"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"user_type"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			text := file.FlatNodeText(idx)
-			if text != "Void" {
+			if text != "Void" && text != "java.lang.Void" {
 				return
 			}
 			// Skip when used as a type argument to a Java-interop generic type.
@@ -127,7 +180,7 @@ func registerStyleForbiddenVoid() {
 					if r.IgnoreUsageInGenerics {
 						return
 					}
-					if outer, ok := file.FlatParent(p); ok {
+					if outer, ok := file.FlatParent(p); ok && r.IgnoreIdioms {
 						outerText := file.FlatNodeText(outer)
 						// Extract the outer type name (up to the first '<')
 						if i := strings.Index(outerText, "<"); i >= 0 {
@@ -148,7 +201,10 @@ func registerStyleForbiddenVoid() {
 					inFunctionParam = true
 				}
 				if file.FlatType(p) == "function_declaration" {
-					if inFunctionParam && file.FlatHasModifier(p, "override") {
+					if inFunctionParam && file.FlatHasModifier(p, "override") && (r.IgnoreIdioms || r.IgnoreOverridden) {
+						return
+					}
+					if r.IgnoreOverridden && file.FlatHasModifier(p, "override") {
 						return
 					}
 					break
@@ -158,7 +214,7 @@ func registerStyleForbiddenVoid() {
 				}
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				"Use 'Unit' instead of 'Void' in Kotlin.")
+				"'Void' should be replaced with 'Unit'.")
 			f.Fix = &scanner.Fix{
 				ByteMode:    true,
 				StartByte:   int(file.FlatStartByte(idx)),
@@ -174,17 +230,38 @@ func registerStyleForbiddenImport() {
 	r := &ForbiddenImportRule{BaseRule: BaseRule{RuleName: "ForbiddenImport", RuleSetName: "style", Sev: "warning", Desc: "Detects import statements matching configured forbidden patterns."}, Patterns: defaultForbiddenImports}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"import_header", "import_declaration"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			imp := importStatementPath(file, idx)
+			if i := strings.Index(imp, " as "); i >= 0 {
+				imp = strings.TrimSpace(imp[:i])
+			}
 			// Merge Patterns and ForbiddenImports
 			patterns := r.Patterns
 			if len(r.ForbiddenImports) > 0 {
 				patterns = r.ForbiddenImports
 			}
+			// detekt matches the imported name, which has no trailing `.*` for a wildcard import.
+			fqName := strings.TrimSuffix(imp, ".*")
+			matched := false
+			for _, p := range r.Imports {
+				if importGlobMatches(p, fqName) {
+					matched = true
+					break
+				}
+			}
+			for _, re := range r.ForbiddenPatterns {
+				if re != nil && re.MatchString(fqName) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				patterns = append(append([]string(nil), patterns...), imp)
+			}
 			for _, p := range patterns {
-				if strings.Contains(imp, p) {
+				if importMatchesLegacyPattern(imp, p) {
 					// Check allowed imports
 					allowed := false
 					for _, a := range r.AllowedImports {
@@ -196,13 +273,11 @@ func registerStyleForbiddenImport() {
 					if allowed {
 						continue
 					}
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Forbidden import '%s'.", strings.TrimSpace(imp)))
-					// Compute byte range to remove import line including trailing newline
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("The import `%s` has been forbidden in the detekt config.", strings.TrimSpace(fqName)))
+					// Removing the import leaves its uses unresolved, so this fix is semantic-level only.
 					impEnd := int(file.FlatEndByte(idx))
-					if impEnd < len(file.Content) && file.Content[impEnd] == '\n' {
-						impEnd++
-					}
+					impEnd = lineBreakEnd(file.Content, impEnd)
 					impStart := int(file.FlatStartByte(idx))
 					for impStart > 0 && file.Content[impStart-1] != '\n' {
 						impStart--
@@ -221,13 +296,38 @@ func registerStyleForbiddenImport() {
 	})
 }
 
+// standaloneStatementLines returns the byte range of the whole lines (with the final line break) covered by
+// a statement node, when the node is directly in a statement list and shares its lines with nothing else.
+func standaloneStatementLines(file *scanner.File, idx uint32) (start, end int, ok bool) {
+	if parent, found := file.FlatParent(idx); !found || file.FlatType(parent) != "statements" {
+		return 0, 0, false
+	}
+	start, end = int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))
+	for start > 0 && file.Content[start-1] != '\n' {
+		start--
+		if c := file.Content[start]; c != ' ' && c != '\t' {
+			return 0, 0, false
+		}
+	}
+	for end < len(file.Content) && file.Content[end] != '\n' {
+		if c := file.Content[end]; c != ' ' && c != '\t' && c != '\r' {
+			return 0, 0, false
+		}
+		end++
+	}
+	if end < len(file.Content) {
+		end++
+	}
+	return start, end, true
+}
+
 func registerStyleForbiddenMethodCall() {
 	r := &ForbiddenMethodCallRule{BaseRule: BaseRule{RuleName: "ForbiddenMethodCall", RuleSetName: "style", Sev: "warning", Desc: "Detects calls to methods that are configured as forbidden."}, Methods: defaultForbiddenMethods}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes:  []string{"call_expression"},
 		Needs:      api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-		Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			methodName, ok := forbiddenMethodCallMatch(ctx, idx, r.Methods)
@@ -235,22 +335,16 @@ func registerStyleForbiddenMethodCall() {
 				return
 			}
 			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Forbidden method call '%s'.", methodName))
-			// Auto-fix: remove the call statement using AST node byte offsets
-			startByte := int(file.FlatStartByte(idx))
-			endByte := int(file.FlatEndByte(idx))
-			// Expand to cover the full line (leading whitespace + trailing newline)
-			for startByte > 0 && file.Content[startByte-1] != '\n' {
-				startByte--
-			}
-			if endByte < len(file.Content) && file.Content[endByte] == '\n' {
-				endByte++
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   startByte,
-				EndByte:     endByte,
-				Replacement: "",
+				fmt.Sprintf("The method `%s` has been forbidden in the detekt config.", methodName))
+			// Auto-fix: remove the call only when it is a statement alone on its lines. Deleting a call that
+			// is a branch body, an argument or shares a line with other code would change or break the code.
+			if start, end, ok := standaloneStatementLines(file, idx); ok {
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   start,
+					EndByte:     end,
+					Replacement: "",
+				}
 			}
 			ctx.Emit(f)
 		},
@@ -261,22 +355,14 @@ func registerStyleForbiddenAnnotation() {
 	r := &ForbiddenAnnotationRule{BaseRule: BaseRule{RuleName: "ForbiddenAnnotation", RuleSetName: "style", Sev: "warning", Desc: "Detects usage of annotations that are configured as forbidden."}, Annotations: defaultForbiddenAnnotations}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"annotation"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"annotation"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			for _, ann := range r.Annotations {
 				if forbiddenAnnotationMatches(file, idx, ann) {
-					f := r.Finding(file, file.FlatRow(idx)+1, 1,
-						fmt.Sprintf("Forbidden annotation '%s'.", ann))
-					// Compute byte range to remove annotation line including trailing newline
-					annStart := int(file.FlatStartByte(idx))
-					for annStart > 0 && file.Content[annStart-1] != '\n' {
-						annStart--
-					}
-					annEnd := int(file.FlatEndByte(idx))
-					if annEnd < len(file.Content) && file.Content[annEnd] == '\n' {
-						annEnd++
-					}
+					f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+						fmt.Sprintf("The annotation `%s` has been forbidden in the detekt config.", ann))
+					annStart, annEnd := annotationRemovalRange(file, idx)
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
 						StartByte:   annStart,
@@ -309,7 +395,24 @@ func forbiddenAnnotationMatches(file *scanner.File, idx uint32, configured strin
 	if annotationQualifiedName(file, idx) == configured {
 		return true
 	}
-	return fileImportsFQN(file, configured)
+	if fileImportsFQN(file, configured) {
+		return true
+	}
+	// An unqualified annotation from a package every file imports (kotlin.Deprecated, java.lang.SuppressWarnings).
+	pkg := strings.TrimSuffix(configured, "."+simple)
+	// kotlin.* wins over java.lang.* for the same simple name, so an unqualified @Deprecated is kotlin.Deprecated.
+	kotlinShadowsJavaLang := pkg == "java.lang" && name == "Deprecated"
+	if annotationQualifiedName(file, idx) == name && implicitlyImportedPackages[pkg] && !kotlinShadowsJavaLang && importedFqName(file, name) == name {
+		return true
+	}
+	return false
+}
+
+// implicitlyImportedPackages are the packages Kotlin imports into every file on the JVM.
+var implicitlyImportedPackages = map[string]bool{
+	"kotlin": true, "kotlin.annotation": true, "kotlin.collections": true, "kotlin.comparisons": true,
+	"kotlin.io": true, "kotlin.ranges": true, "kotlin.sequences": true, "kotlin.text": true,
+	"kotlin.jvm": true, "java.lang": true,
 }
 
 func registerStyleForbiddenNamedParam() {
@@ -321,6 +424,10 @@ func registerStyleForbiddenNamedParam() {
 			idx, file := ctx.Idx, ctx.File
 			funcName := flatCallExpressionName(file, idx)
 			for _, method := range r.Methods {
+				// Entries may be fully qualified like the other Forbidden* options, so only the final segment is compared.
+				if i := strings.LastIndex(method, "."); i >= 0 {
+					method = method[i+1:]
+				}
 				if funcName == method {
 					_, args := flatCallExpressionParts(file, idx)
 					if args == 0 {
@@ -329,7 +436,7 @@ func registerStyleForbiddenNamedParam() {
 					for i := 0; i < file.FlatChildCount(args); i++ {
 						arg := file.FlatChild(args, i)
 						if file.FlatType(arg) == "value_argument" && flatHasValueArgumentLabel(file, arg) {
-							ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+							ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 								fmt.Sprintf("Named arguments should not be used in '%s' calls.", method))
 							return
 						}
@@ -367,16 +474,9 @@ func registerStyleForbiddenOptIn() {
 					return
 				}
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
+			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 				"@OptIn annotation found. Consider removing or handling the experimental API differently.")
-			optInStart := int(file.FlatStartByte(idx))
-			for optInStart > 0 && file.Content[optInStart-1] != '\n' {
-				optInStart--
-			}
-			optInEnd := int(file.FlatEndByte(idx))
-			if optInEnd < len(file.Content) && file.Content[optInEnd] == '\n' {
-				optInEnd++
-			}
+			optInStart, optInEnd := annotationRemovalRange(file, idx)
 			f.Fix = &scanner.Fix{
 				ByteMode:    true,
 				StartByte:   optInStart,
@@ -389,41 +489,52 @@ func registerStyleForbiddenOptIn() {
 }
 
 func registerStyleForbiddenSuppress() {
-	r := &ForbiddenSuppressRule{BaseRule: BaseRule{RuleName: "ForbiddenSuppress", RuleSetName: "style", Sev: "warning", Desc: "Detects @Suppress annotations that silence warnings instead of fixing the underlying issue."}}
+	r := &ForbiddenSuppressRule{BaseRule: BaseRule{RuleName: "ForbiddenSuppress", RuleSetName: "style", Sev: "warning", Desc: "Detects @Suppress annotations that silence a rule the configuration forbids suppressing."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"annotation"}, Confidence: api.ConfidenceHigher, Fix: api.FixSemantic, Implementation: r,
+		NodeTypes: []string{"annotation", "file_annotation"}, Confidence: api.ConfidenceHigher, Fix: api.FixSemantic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
-			if annotationFinalName(file, idx) != "Suppress" {
+			if len(r.Rules) == 0 {
 				return
 			}
-			// When specific rule names are configured, require the
-			// annotation to carry one of them as a string literal arg.
-			if len(r.Rules) > 0 {
-				want := make(map[string]bool, len(r.Rules))
-				for _, rule := range r.Rules {
-					want[rule] = true
-				}
-				if !annotationHasStringArgIn(file, idx, want) {
+			ctor, ok := file.FlatFindChild(idx, "constructor_invocation")
+			if !ok {
+				return
+			}
+			if name := annotationConstructorName(file, ctor); name != "Suppress" && name != "SuppressWarnings" {
+				return
+			}
+			forbidden := make(map[string]bool, len(r.Rules))
+			for _, rule := range r.Rules {
+				forbidden[rule] = true
+			}
+			var hits []string
+			file.FlatWalkNodes(ctor, "string_literal", func(lit uint32) {
+				if flatContainsStringInterpolation(file, lit) {
 					return
 				}
+				if content := stringLiteralContent(file, lit); forbidden[content] {
+					hits = append(hits, `"`+content+`"`)
+				}
+			})
+			if len(hits) == 0 {
+				return
 			}
-			f := r.Finding(file, file.FlatRow(idx)+1, 1,
-				"@Suppress annotation found. Consider fixing the underlying issue.")
-			suppressStart := int(file.FlatStartByte(idx))
-			for suppressStart > 0 && file.Content[suppressStart-1] != '\n' {
-				suppressStart--
+			noun := "rule"
+			if len(hits) > 1 {
+				noun = "rules"
 			}
-			suppressEnd := int(file.FlatEndByte(idx))
-			if suppressEnd < len(file.Content) && file.Content[suppressEnd] == '\n' {
-				suppressEnd++
-			}
-			f.Fix = &scanner.Fix{
-				ByteMode:    true,
-				StartByte:   suppressStart,
-				EndByte:     suppressEnd,
-				Replacement: "",
+			f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+				"Cannot @Suppress "+noun+" "+strings.Join(hits, ", ")+" due to the current configuration.")
+			if file.FlatType(idx) == "annotation" {
+				suppressStart, suppressEnd := annotationRemovalRange(file, idx)
+				f.Fix = &scanner.Fix{
+					ByteMode:    true,
+					StartByte:   suppressStart,
+					EndByte:     suppressEnd,
+					Replacement: "",
+				}
 			}
 			ctx.Emit(f)
 		},
@@ -438,6 +549,7 @@ func registerStyleMagicNumber() {
 		IgnorePropertyDeclaration: false,
 		IgnoreComposeUnits:        true,
 		IgnoreColorLiterals:       true,
+		IgnoreIdioms:              true,
 		IgnoreNumbers: []string{
 			"-1", "0", "1", "2",
 			"0f", "0.0f", "0.5f", "1f", "1.0f", "-1f",
@@ -491,37 +603,9 @@ func registerStyleMagicNumber() {
 			}
 
 			text := file.FlatNodeText(idx)
-			// Numeric literals written with underscore separators
-			// (e.g., 25_000L, 1_000_000) have explicit author-intended grouping;
-			// these aren't magic numbers, the author already made the value legible.
-			if strings.Contains(text, "_") {
+			if r.isIgnoredNumber(file, idx, text) {
 				return
 			}
-			if magicNumberIsBitOperationLiteral(file, idx) {
-				return
-			}
-			if magicNumberIsBinaryProtocolLiteral(file, idx) {
-				return
-			}
-			if magicNumberIsAndroidAPILevelLiteral(file, idx) {
-				return
-			}
-			if magicNumberIsHTTPStatusLiteral(file, idx) {
-				return
-			}
-			// Strip suffixes for comparison against ignore list
-			clean := strings.TrimRight(text, "fFdDlLuU")
-			clean = strings.ReplaceAll(clean, "_", "")
-			if r.ignoredNumberSet()[clean] {
-				return
-			}
-
-			var ancestorCtx *magicNumberAncestorContext
-			if experiment.Enabled("magic-number-ancestor-scan") {
-				ancestorCtx = buildMagicNumberAncestorContext(file, idx)
-			}
-
-			// --- Unconditional skips ---
 
 			// Skip numbers that are the expression-body of a function: fun maxSize() = 100
 			// In tree-sitter, this is integer_literal inside function_body which starts with "="
@@ -532,158 +616,17 @@ func registerStyleMagicNumber() {
 				}
 			}
 
-			// Skip: fun foo(): Int { return 42 } — number inside a jump_expression (return)
-			if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "jump_expression" {
-				pText := file.FlatNodeText(p)
-				if strings.HasPrefix(strings.TrimSpace(pText), "return") {
-					return
-				}
-			}
-
-			// Skip default parameter values in functions: fun foo(x: Int = 5000)
-			// Tree-sitter puts the literal as a sibling of `parameter` inside `function_value_parameters`.
-			if file.FlatHasAncestorOfType(idx, "function_value_parameters") {
-				return
-			}
-			// Skip default parameter values in constructors: class Foo(val x: Int = 42)
-			if file.FlatHasAncestorOfType(idx, "class_parameter") {
+			// Skip: fun foo(): Int { return 42 }, where the return is the only statement.
+			if magicNumberIsSoleReturn(file, idx) {
 				return
 			}
 
-			// Skip literals inside enum entry constructor arguments:
-			// `enum class Foo(val id: Int) { A(1), B(2) }` — the literals are the
-			// enum constant definitions, equivalent to named constants.
-			if file.FlatHasAncestorOfType(idx, "enum_entry") {
+			// Skip default parameter values: fun foo(x: Int = 5000), class Foo(val x: Int = 42).
+			if magicNumberIsParameterDefault(file, idx) {
 				return
 			}
-			// Skip literals that are the direct value of a when branch mapping an
-			// enum/constant to discrete numeric values — this is a lookup-table
-			// idiom, not a magic number. Example: `SIZE.LARGE -> 0.8f`.
-			if isWhenBranchValue(file, idx) {
-				return
-			}
-			// Skip literals inside array/list index access: `parts[1]`, `bytes[3]`.
-			// These are positional indices, not magic numbers.
-			if p, ok := file.FlatParent(idx); ok && file.FlatType(p) == "indexing_suffix" {
-				return
-			}
-			// Skip literals that are the RHS of a `.size` / `.length` / `.count`
-			// equality/comparison. These are intrinsic collection-cardinality
-			// checks (e.g. `parts.size == 7`, `daysEnabled.size == 7`), not
-			// extractable constants.
-			if isSizeCardinalityComparison(file, idx) {
-				return
-			}
-			// Skip regex-group accessor arguments: `matcher.group(3)`,
-			// `match.groupValues[1]`, etc. Regex capture indices are intrinsic
-			// to the pattern.
-			if experiment.Enabled("magic-number-skip-regex-group-indices") &&
-				isInsideRegexGroupAccessor(file, idx) {
-				return
-			}
-			// Skip SDK_INT comparisons: `Build.VERSION.SDK_INT < 24`, etc.
-			// API-level literals are semantic constants.
-			if isNearSdkIntComparison(file, idx) {
-				return
-			}
-			// Skip literals inside SDK-version annotations: @RequiresApi(26),
-			// @TargetApi(31), @ChecksSdkIntAtLeast(N), @RequiresExtension(N).
-			if isInsideSdkAnnotation(file, idx) {
-				return
-			}
-			// Skip literals that are the RHS of an ALL_CAPS named constant
-			// declaration (e.g., `private val MAX_SIZE = 1024`). Flagging these
-			// defeats the "extract to named constant" guidance.
-			if isInsideAllCapsConstantDecl(file, idx) {
-				return
-			}
-			// Skip literals inside database migration methods (`onUpgrade`,
-			// `onDowngrade`, `onCreate`) where version comparisons reference
-			// historical schema versions.
-			if isInsideDbMigrationMethod(file, idx) {
-				return
-			}
-			// Skip literals inside crypto/KDF calls — output lengths, key sizes
-			// are dictated by the algorithm, not arbitrary.
-			if magicNumberInsideNamedMethodCall(file, idx, cryptoMethods, ancestorCtx) {
-				return
-			}
-			// Skip hex literals (0x...) — hex notation is already self-documenting
-			// as a color/mask/byte pattern.
-			if strings.HasPrefix(text, "0x") || strings.HasPrefix(text, "0X") {
-				return
-			}
-			// Skip Bitmap/collection/cache builder constructors.
-			if magicNumberInsideNamedMethodCall(file, idx, bitmapBuilderMethods, ancestorCtx) {
-				return
-			}
-			// Skip HTTP status comparisons: `x.status == 200`, `code >= 500`.
-			if isHTTPStatusComparison(file, idx) {
-				return
-			}
-			// Skip literals inside Compose `Color(...)` calls — component values
-			// 0f-1f are semantic color channels, not magic numbers.
-			if magicNumberInsideComposeCall(file, idx, "Color", ancestorCtx) {
-				return
-			}
-			// Skip literals inside Compose/Canvas/Path/animator DSL methods where
-			// raw coordinates are inherent to the API.
-			if magicNumberInsideGeometryDslCall(file, idx, ancestorCtx) {
-				return
-			}
-			// Skip literals inside coordinate/size constructors like `PointF(x, y)`
-			// or setters like `point.set(x, y)`.
-			if magicNumberInsideNamedMethodCall(file, idx, coordinateConstructors, ancestorCtx) {
-				return
-			}
-			// Skip literals inside dimension/animation DSL calls.
-			if magicNumberInsideNamedMethodCall(file, idx, dimensionConversionMethods, ancestorCtx) ||
-				magicNumberInsideNamedMethodCall(file, idx, animationMethods, ancestorCtx) {
-				return
-			}
-			// Skip literals inside range expressions / IntRange constants
-			// (e.g., `0x0000..0x024F` Unicode ranges).
-			if file.FlatHasAncestorOfType(idx, "range_expression") {
-				return
-			}
-			// Skip literals that are part of a `to` infix expression used in a
-			// collection builder (mapOf lookup tables, version maps).
-			if isInsideToInfixMap(file, idx) {
-				return
-			}
-			// Skip literals inside preview/sample/fake/mock/stub functions — these
-			// are scaffolding for UI tooling, not production constants.
-			if isInsidePreviewOrSampleFunctionFlatWithConfig(file, idx, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
-				return
-			}
-			// Skip literals that are the duration argument of a call whose sibling
-			// is a `TimeUnit.X` reference (e.g., `Single.timer(200, TimeUnit.MILLISECONDS)`).
-			if magicNumberDurationLiteralWithTimeUnit(file, idx, ancestorCtx) {
-				return
-			}
-			// Skip literals that are arguments to java.math / java.time builder
-			// calls where the literal is documentational (BigDecimal.valueOf(3),
-			// Instant.ofEpochMilli(0), Duration.ofSeconds(30), etc.).
-			if magicNumberInsideNamedMethodCall(file, idx, jvmBuilderMethods, ancestorCtx) {
-				return
-			}
-			// Skip literals inside primitive-array builders `byteArrayOf(1, 2, 3)` —
-			// these are data payloads (test fixtures, magic bytes, handshake
-			// sequences), never meaningful constants to extract.
-			if magicNumberInsideNamedMethodCall(file, idx, primitiveArrayBuilders, ancestorCtx) {
-				return
-			}
-			// Skip HTTP status code literals inside exception constructor calls
-			// (e.g., `NonSuccessfulResponseCodeException(404)`). The exception
-			// type name together with the known HTTP status range is
-			// self-documenting.
-			if isHTTPStatusExceptionArg(file, idx) {
-				return
-			}
-			// Skip literals that are the RHS of an assignment to a semantic UI /
-			// animation / layout property — the property name itself documents
-			// the value (`duration = 250`, `textSize = 14f`, `elevation = 4f`).
-			if isSemanticPropertyAssignment(file, idx) {
+
+			if r.IgnoreIdioms && r.kritIdiom(file, idx, text) {
 				return
 			}
 
@@ -702,16 +645,13 @@ func registerStyleMagicNumber() {
 				}
 			}
 
-			line := file.Lines[file.FlatRow(idx)]
-			trimmed := strings.TrimSpace(line)
-
-			// Skip const declarations
-			if r.IgnoreConstantDeclaration && strings.Contains(trimmed, "const val") {
+			// Skip const declarations, including numbers nested in the initializer.
+			if r.IgnoreConstantDeclaration && magicNumberInConstProperty(file, idx) {
 				return
 			}
 
-			// Skip companion object properties (respects config flag)
-			if r.IgnoreCompanionObjectPropertyDeclaration && file.FlatHasAncestorOfType(idx, "companion_object") {
+			// Skip properties of a companion object (respects config flag)
+			if r.IgnoreCompanionObjectPropertyDeclaration && r.inCompanionProperty(file, idx) {
 				return
 			}
 
@@ -736,8 +676,7 @@ func registerStyleMagicNumber() {
 			if r.IgnoreNamedArgument && file.FlatHasAncestorOfType(idx, "value_argument") {
 				for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 					if file.FlatType(p) == "value_argument" {
-						argText := file.FlatNodeText(p)
-						if strings.Contains(argText, "=") {
+						if flatHasValueArgumentLabel(file, p) {
 							return
 						}
 						break
@@ -788,32 +727,8 @@ func registerStyleMagicNumber() {
 				}
 			}
 
-			// Skip color literals: hex numbers inside Color() calls or in color-named properties
-			if r.IgnoreColorLiterals && strings.HasPrefix(text, "0x") {
-				if strings.Contains(line, "Color(") {
-					return
-				}
-				lowerLine := strings.ToLower(trimmed)
-				if strings.Contains(lowerLine, "color") || strings.Contains(lowerLine, "background") ||
-					strings.Contains(lowerLine, "tint") || strings.Contains(lowerLine, "palette") {
-					return
-				}
-			}
-
-			// Skip Compose dimension units: N.dp, N.sp, N.px, N.em
-			if r.IgnoreComposeUnits {
-				endByte := int(file.FlatEndByte(idx))
-				if endByte+3 <= len(file.Content) {
-					after := string(file.Content[endByte:min(endByte+4, len(file.Content))])
-					if strings.HasPrefix(after, ".dp") || strings.HasPrefix(after, ".sp") ||
-						strings.HasPrefix(after, ".px") || strings.HasPrefix(after, ".em") {
-						return
-					}
-				}
-			}
-
 			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Magic number '%s'. Consider extracting it to a named constant.", text))
+				"This expression contains a magic number. Consider defining it to a well named constant.")
 		},
 	})
 }
@@ -848,4 +763,32 @@ func markerOnlyInsideQuotedText(text, marker string) bool {
 		return false
 	}
 	return found
+}
+
+// annotationRemovalRange returns the bytes to delete to drop one annotation:
+// its whole line when it stands alone on the line, otherwise only the
+// annotation and the blanks after it.
+func annotationRemovalRange(file *scanner.File, idx uint32) (int, int) {
+	start, end := int(file.FlatStartByte(idx)), int(file.FlatEndByte(idx))
+	lineStart := start
+	for lineStart > 0 && (file.Content[lineStart-1] == ' ' || file.Content[lineStart-1] == '\t') {
+		lineStart--
+	}
+	lineEnd := end
+	for lineEnd < len(file.Content) && (file.Content[lineEnd] == ' ' || file.Content[lineEnd] == '\t' || file.Content[lineEnd] == '\r') {
+		lineEnd++
+	}
+	aloneBefore := lineStart == 0 || file.Content[lineStart-1] == '\n'
+	aloneAfter := lineEnd >= len(file.Content) || file.Content[lineEnd] == '\n'
+	if aloneBefore && aloneAfter {
+		if lineEnd < len(file.Content) {
+			lineEnd++
+		}
+		return lineStart, lineEnd
+	}
+	blankEnd := end
+	for blankEnd < len(file.Content) && (file.Content[blankEnd] == ' ' || file.Content[blankEnd] == '\t') {
+		blankEnd++
+	}
+	return start, blankEnd
 }

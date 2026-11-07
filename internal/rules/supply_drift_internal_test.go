@@ -84,3 +84,48 @@ func writeSupplyDriftFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestMajorityKotlinJvmTarget_TieUsesHighestTarget(t *testing.T) {
+	tie := []moduleKotlinJvmTarget{{value: 11}, {value: 17}}
+	if got, strict := majorityKotlinJvmTarget(tie); got != 17 || strict {
+		t.Fatalf("tie: got (%d, %v), want (17, false)", got, strict)
+	}
+	majority := []moduleKotlinJvmTarget{{value: 11}, {value: 17}, {value: 11}}
+	if got, strict := majorityKotlinJvmTarget(majority); got != 11 || !strict {
+		t.Fatalf("majority: got (%d, %v), want (11, true)", got, strict)
+	}
+	same := []moduleKotlinJvmTarget{{value: 17}, {value: 17}}
+	if got, _ := majorityKotlinJvmTarget(same); got != 0 {
+		t.Fatalf("agreement: got %d, want 0", got)
+	}
+}
+
+func TestGradleWrapperValidationFindings_SetupGradleValidateWrappers(t *testing.T) {
+	workflow := []byte(`
+jobs:
+  validated:
+    steps:
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          validate-wrappers: true
+  unvalidated:
+    steps:
+      - uses: gradle/actions/setup-gradle@v4
+`)
+	if got := gradleWrapperValidationFindings(workflow); len(got) != 1 {
+		t.Fatalf("expected 1 finding for the unvalidated job, got %v", got)
+	}
+}
+
+func TestParseGradlePropertiesSeparators(t *testing.T) {
+	props := parseGradleProperties("a=1\nb = 2\nc: 3\nd 4\ne\t=\t5\nf=x=y\n")
+	want := map[string]string{"a": "1", "b": "2", "c": "3", "d": "4", "e": "5", "f": "x=y"}
+	if len(props) != len(want) {
+		t.Fatalf("got %d props: %v", len(props), props)
+	}
+	for _, p := range props {
+		if want[p.key] != p.value {
+			t.Errorf("%s = %q, want %q", p.key, p.value, want[p.key])
+		}
+	}
+}

@@ -27,7 +27,7 @@ func registerAndroidGradleRules() {
 		r := &StringIntegerRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "StringInteger", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "StringInteger",
-			Brief:      "String value where integer expected in Gradle DSL",
+			Brief:      "String should be int",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   6,
@@ -200,6 +200,21 @@ func registerAndroidGradleRules() {
 		})
 	}
 	{
+		r := &GroovySetterInKotlinDslRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "GroovySetterInKotlinDsl", RuleSetName: androidRuleSet, Sev: "error"},
+			Brief:      "Groovy-style setter in a Kotlin DSL script",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   6,
+			Origin:     "Krit",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &GradlePathRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "GradlePath", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "GradlePath",
@@ -232,28 +247,28 @@ func registerAndroidGradleRules() {
 		})
 	}
 	{
-		r := &GradleIdeErrorRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "GradleIdeError", RuleSetName: androidRuleSet, Sev: "error"},
-			IssueID:    "GradleIdeError",
-			Brief:      "Gradle IDE Support Issues",
+		r := &ApplyPluginInKotlinDslRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "ApplyPluginInKotlinDsl", RuleSetName: androidRuleSet, Sev: "error"},
+			Brief:      "Legacy apply plugin in a Kotlin DSL script",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   7,
-			Origin:     "AOSP Android Lint",
+			Origin:     "Krit",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			Needs: api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
+			Aliases: []string{"GradleIdeError"},
+			Needs:   api.NeedsGradle, AndroidDeps: uint32(AndroidDepGradle), Confidence: r.Confidence(), Implementation: r,
 			Check: r.check,
 		})
 	}
 	{
 		r := &AndroidGradlePluginVersionRule{AndroidRule: AndroidRule{
-			BaseRule:   BaseRule{RuleName: "AndroidGradlePluginVersion", RuleSetName: androidRuleSet, Sev: "error"},
+			BaseRule:   BaseRule{RuleName: "AndroidGradlePluginVersion", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "AndroidGradlePluginVersion",
 			Brief:      "AGP version too old",
 			Category:   ALCCorrectness,
-			ALSeverity: ALSError,
+			ALSeverity: ALSWarning,
 			Priority:   8,
 			Origin:     "AOSP Android Lint",
 		}}
@@ -283,7 +298,7 @@ func registerAndroidGradleRules() {
 		r := &StringIntegerRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "StringShouldBeInt", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "StringShouldBeInt",
-			Brief:      "String value where integer expected in Gradle DSL",
+			Brief:      "String should be int",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   6,

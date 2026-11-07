@@ -71,9 +71,9 @@ func registerAndroidIconsRules() {
 	})
 
 	registerAndroidIconRule(&ConvertToWebpRule{AndroidRule: AndroidRule{
-		BaseRule: BaseRule{RuleName: "ConvertToWebp", RuleSetName: androidRuleSet, Sev: "informational"},
+		BaseRule: BaseRule{RuleName: "ConvertToWebp", RuleSetName: androidRuleSet, Sev: "warning"},
 		IssueID:  "ConvertToWebp", Brief: "Large PNG could be smaller as WebP",
-		Category: ALCIcons, ALSeverity: ALSInformational, Priority: 3,
+		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
 		Origin: "AOSP Android Lint",
 	}}, func(ctx *api.Context) {
 		CheckConvertToWebp(ctx.IconIndex, ctx.Collector)

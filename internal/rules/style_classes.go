@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -185,6 +186,67 @@ func abstractClassCanBeInterfaceHasFrameworkClassAnnotation(file *scanner.File, 
 	return false
 }
 
+// abstractClassIsInjectionOrTestFixture reports abstract classes that frameworks require to stay classes:
+// Dagger modules and factories, and test base classes.
+func abstractClassIsInjectionOrTestFixture(file *scanner.File, idx uint32) bool {
+	if abstractClassCanBeInterfaceHasFrameworkClassAnnotation(file, idx) {
+		return true
+	}
+	if scanner.IsTestFile(file.Path) {
+		return true
+	}
+	if flatHasAnnotationNamed(file, idx, "RunWith") {
+		return true
+	}
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false
+	}
+	found := false
+	for _, kind := range []string{"function_declaration", "property_declaration"} {
+		file.FlatWalkNodes(body, kind, func(member uint32) {
+			if found {
+				return
+			}
+			if nested, ok := flatEnclosingAncestor(file, member, "class_declaration"); ok && nested != idx {
+				return
+			}
+			for _, name := range []string{"Rule", "ClassRule", "Test", "Before", "After", "BeforeClass", "AfterClass"} {
+				if flatHasAnnotationNamed(file, member, name) {
+					found = true
+					return
+				}
+			}
+		})
+	}
+	return found
+}
+
+// abstractClassHasClassOnlyConstruct reports members an interface cannot declare: constructors, init blocks, delegates, lateinit and non-public members.
+func abstractClassHasClassOnlyConstruct(file *scanner.File, idx uint32) bool {
+	if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok && file.FlatHasChildOfType(ctor, "class_parameter") {
+		return true
+	}
+	body, _ := file.FlatFindChild(idx, "class_body")
+	if body == 0 {
+		return false
+	}
+	found := false
+	for child := file.FlatFirstChild(body); child != 0 && !found; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "secondary_constructor", "anonymous_initializer":
+			found = true
+		case "property_declaration", "function_declaration":
+			found = file.FlatHasChildOfType(child, "property_delegate") ||
+				file.FlatHasModifier(child, "lateinit") ||
+				file.FlatHasModifier(child, "protected") ||
+				file.FlatHasModifier(child, "private") ||
+				file.FlatHasModifier(child, "internal")
+		}
+	}
+	return found
+}
+
 func abstractClassCanBeInterfaceHasDaggerBindMethods(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
@@ -214,6 +276,9 @@ func abstractClassCanBeInterfaceHasDaggerBindMethods(file *scanner.File, idx uin
 type DataClassShouldBeImmutableRule struct {
 	FlatDispatchBase
 	BaseRule
+	// ReportMutableCollections also reports a val whose type is a mutable collection. krit extension; detekt
+	// only reports var properties, so detekt's defaults set this to false.
+	ReportMutableCollections bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence — detecting
@@ -261,6 +326,7 @@ type DataClassContainsFunctionsRule struct {
 	FlatDispatchBase
 	BaseRule
 	ConversionFunctionPrefix []string
+	AllowOperators           bool
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Style/classes rule. Detection relies on modifier and declaration
@@ -268,19 +334,16 @@ type DataClassContainsFunctionsRule struct {
 // fallback path is heuristic. Classified per roadmap/17.
 func (r *DataClassContainsFunctionsRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// dataClassHasNonConversionFunctionFlat reports whether the class body
-// contains any function whose name does NOT start with one of the
-// configured conversion-function prefixes. Conversion functions like
-// `toJson()`, `toDto()` are idiomatic on data classes and excluded
-// from the violation. Empty `prefixes` disables the filter (any
-// function fires the rule).
-func dataClassHasNonConversionFunctionFlat(file *scanner.File, body uint32, prefixes []string) bool {
+// dataClassOffendingFunctionsFlat lists the direct member functions of a data class body that are
+// neither overrides, nor conversion functions (name starts with a configured prefix), nor allowed operators.
+func dataClassOffendingFunctionsFlat(file *scanner.File, body uint32, prefixes []string, allowOperators bool) []uint32 {
 	if body == 0 {
-		return false
+		return nil
 	}
-	found := false
-	file.FlatWalkNodes(body, "function_declaration", func(fn uint32) {
-		if found {
+	var out []uint32
+	// Only direct members count; companion, nested-class and local functions do not.
+	forEachDirectClassMemberFlat(file, body, func(fn uint32) {
+		if file.FlatType(fn) != "function_declaration" || file.FlatHasModifier(fn, "override") {
 			return
 		}
 		name := extractIdentifierFlat(file, fn)
@@ -288,13 +351,16 @@ func dataClassHasNonConversionFunctionFlat(file *scanner.File, body uint32, pref
 			return
 		}
 		for _, prefix := range prefixes {
-			if prefix != "" && strings.HasPrefix(name, prefix) {
+			if strings.HasPrefix(name, prefix) {
 				return
 			}
 		}
-		found = true
+		if allowOperators && file.FlatHasModifier(fn, "operator") {
+			return
+		}
+		out = append(out, fn)
 	})
-	return found
+	return out
 }
 
 // ProtectedMemberInFinalClassRule detects protected members in final classes.
@@ -452,6 +518,10 @@ var knownSAMInterfaces = map[string]bool{
 // It checks (1) known Java SAM interfaces, (2) "fun interface" in the same file,
 // and (3) oracle ClassHierarchy for interfaces with exactly one abstract method.
 func isSAMConvertible(name string, file *scanner.File, resolver typeinfer.TypeResolver) bool {
+	// A Kotlin interface declared in this file shadows library names and is only SAM-convertible as `fun interface`.
+	if declared, isFun := fileDeclaresKotlinInterface(file, name); declared {
+		return isFun
+	}
 	// Check known SAM interfaces (Java SAM + common Kotlin fun interfaces)
 	if knownSAMInterfaces[name] {
 		return true
@@ -523,16 +593,13 @@ func objectBodyContainsBareThisFlat(file *scanner.File, node uint32) bool {
 }
 
 // SerialVersionUIDInSerializableClassRule detects missing serialVersionUID.
-// With type inference: uses ClassHierarchy to verify the class actually implements
-// java.io.Serializable (could be transitive through a supertype).
+// Like detekt, it only looks at the declared supertype list for `Serializable`.
 type SerialVersionUIDInSerializableClassRule struct {
 	FlatDispatchBase
 	BaseRule
 }
 
-// Confidence reports a tier-2 (medium) base confidence — Serializable
-// detection uses supertype names; without resolver, falls back to matching
-// `Serializable` in the delegation list. Classified per roadmap/17.
+// Confidence reports a tier-2 (medium) base confidence. Classified per roadmap/17.
 func (r *SerialVersionUIDInSerializableClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func flatDirectChildrenOfType(file *scanner.File, idx uint32, nodeType string) []uint32 {
@@ -546,33 +613,65 @@ func flatDirectChildrenOfType(file *scanner.File, idx uint32, nodeType string) [
 	return out
 }
 
-// checksSerializable walks the class hierarchy to find java.io.Serializable.
-func checksSerializable(resolver typeinfer.TypeResolver, info *typeinfer.ClassInfo) bool {
-	visited := make(map[string]bool)
-	return checksSerializableRec(resolver, info, visited)
+// protectedMemberHasFixedVisibility reports members whose visibility is dictated by an override or a framework annotation.
+func protectedMemberHasFixedVisibility(file *scanner.File, member uint32) bool {
+	return file.FlatHasModifier(member, "override") ||
+		flatHasAnnotationNamed(file, member, "Implementation") ||
+		flatHasAnnotationNamed(file, member, "Override") ||
+		flatHasAnnotationNamed(file, member, "JvmStatic")
 }
 
-func checksSerializableRec(resolver typeinfer.TypeResolver, info *typeinfer.ClassInfo, visited map[string]bool) bool {
-	if visited[info.FQN] || visited[info.Name] {
+// fileDeclaresKotlinInterface reports whether the file declares `interface name`, and whether it is a `fun interface`.
+func fileDeclaresKotlinInterface(file *scanner.File, name string) (declared, isFun bool) {
+	re := regexp.MustCompile(`(?m)(\bfun\s+)?\binterface\s+` + regexp.QuoteMeta(name) + `\b`)
+	for _, m := range re.FindAllSubmatch(file.Content, -1) {
+		declared = true
+		if len(m[1]) > 0 {
+			isFun = true
+		}
+	}
+	return declared, isFun
+}
+
+// abstractClassHasSubtypes reports an abstract class that some class in the project extends; it is a
+// deliberate non-instantiable base, so the "make concrete" and "make interface" advice does not apply.
+func abstractClassHasSubtypes(resolver typeinfer.TypeResolver, file *scanner.File, idx uint32) bool {
+	finder, ok := resolver.(typeinfer.SubtypeFinder)
+	if !ok {
 		return false
 	}
-	visited[info.FQN] = true
-	visited[info.Name] = true
+	return finder.HasKnownSubtypes(extractIdentifierFlat(file, idx))
+}
 
-	for _, st := range info.Supertypes {
-		if st == "java.io.Serializable" || strings.HasSuffix(st, ".Serializable") || st == "Serializable" {
-			return true
+// abstractClassInheritsAbstractMember walks the supertype chain and reports an abstract member that no
+// nearer class implements. The second result is false when a supertype is unknown to the resolver.
+func abstractClassInheritsAbstractMember(resolver typeinfer.TypeResolver, supertypes []string, implemented, visited map[string]bool) (found, allResolved bool) {
+	allResolved = true
+	for _, st := range supertypes {
+		if visited[st] {
+			continue
 		}
-		// Check transitively
-		parts := strings.Split(st, ".")
-		stName := parts[len(parts)-1]
-		stInfo := resolver.ClassHierarchy(stName)
+		visited[st] = true
+		stInfo := resolver.ClassHierarchy(st[strings.LastIndex(st, ".")+1:])
 		if stInfo == nil {
 			stInfo = resolver.ClassHierarchy(st)
 		}
-		if stInfo != nil && checksSerializableRec(resolver, stInfo, visited) {
-			return true
+		if stInfo == nil {
+			return false, false
 		}
+		for _, m := range stInfo.Members {
+			if m.IsAbstract && !implemented[m.Name] {
+				return true, true
+			}
+			if !m.IsAbstract {
+				implemented[m.Name] = true
+			}
+		}
+		parentFound, parentResolved := abstractClassInheritsAbstractMember(resolver, stInfo.Supertypes, implemented, visited)
+		if parentFound {
+			return true, true
+		}
+		allResolved = allResolved && parentResolved
 	}
-	return false
+	return false, allResolved
 }

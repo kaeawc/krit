@@ -101,6 +101,7 @@ type VariableNamingRule struct {
 	Pattern                *regexp.Regexp
 	PrivateVariablePattern *regexp.Regexp
 	ExcludeClassPattern    *regexp.Regexp
+	IgnoreOverridden       bool
 }
 
 // Confidence holds the 0.95 dispatch default. Naming rule. Detection regex-matches the declared identifier, which is
@@ -108,16 +109,22 @@ type VariableNamingRule struct {
 // Classified per roadmap/17.
 func (r *VariableNamingRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
+// variableNamingIsFunctionLocalPropertyFlat reports a property detekt's VariableNaming checks: a local
+// variable or a member of a class. Top-level properties and everything inside an object, however deeply
+// nested, are left to TopLevelPropertyNaming and ObjectPropertyNaming. In a script the top level is the body of
+// the script, so its properties are local variables too.
 func variableNamingIsFunctionLocalPropertyFlat(file *scanner.File, idx uint32) bool {
+	checked := false
 	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
-		case "function_body":
-			return true
-		case "class_body", "class_declaration", "object_declaration", "companion_object":
+		case "object_declaration", "companion_object", "object_literal":
 			return false
+		case "function_body", "lambda_literal", "anonymous_initializer", "secondary_constructor", "getter", "setter",
+			"class_body", "enum_class_body":
+			checked = true
 		}
 	}
-	return false
+	return checked || file.IsScript()
 }
 
 // PackageNamingRule checks package names.
@@ -181,6 +188,39 @@ func isBooleanPropertyFlat(file *scanner.File, idx uint32) bool {
 	if eq := strings.Index(text, "="); eq >= 0 {
 		initializer := strings.TrimSpace(text[eq+1:])
 		return initializer == "true" || initializer == "false"
+	}
+	return false
+}
+
+// namingWireAnnotations map a field to an external schema name, so a snake_case Kotlin name mirrors the wire format.
+var namingWireAnnotations = []string{"SerialName", "SerializedName", "Json", "JsonProperty", "Element", "Attribute"}
+
+// namingSchemaClassAnnotations mark a class whose parameter names follow an external schema.
+var namingSchemaClassAnnotations = []string{"JsonClass", "Serializable", "JsonIgnoreProperties", "JsonInclude"}
+
+// namingClassLooksLikeExternalSchema reports a data class that mirrors an external schema, which
+// fixes its parameter names. primaryCtor is the primary_constructor node.
+func namingClassLooksLikeExternalSchema(file *scanner.File, primaryCtor uint32) bool {
+	cls, ok := file.FlatParent(primaryCtor)
+	if !ok || file.FlatType(cls) != "class_declaration" {
+		return false
+	}
+	for _, name := range namingSchemaClassAnnotations {
+		if hasAnnotationFlat(file, cls, name) {
+			return true
+		}
+	}
+	name := extractIdentifierFlat(file, cls)
+	return strings.HasSuffix(name, "Dto") || strings.HasSuffix(name, "DTO") || strings.HasSuffix(name, "Payload")
+}
+
+// namingParameterHasWireName reports a parameter carrying a serialization name annotation.
+func namingParameterHasWireName(file *scanner.File, param uint32) bool {
+	text := file.FlatNodeText(param)
+	for _, name := range namingWireAnnotations {
+		if strings.Contains(text, "@"+name) || strings.Contains(text, ":"+name+"(") || strings.Contains(text, "field:"+name) {
+			return true
+		}
 	}
 	return false
 }
@@ -509,4 +549,30 @@ func walkFunctionParametersFlat(file *scanner.File, idx uint32, visit func(uint3
 	file.FlatForEachChild(idx, func(child uint32) {
 		walkFunctionParametersFlat(file, child, visit)
 	})
+}
+
+// namingFunctionReturnsType reports a function whose explicit return type is typeName, ignoring nullability and type arguments.
+func namingFunctionReturnsType(file *scanner.File, fn uint32, typeName string) bool {
+	seenParams := false
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		t := file.FlatType(c)
+		if t == "function_value_parameters" {
+			seenParams = true
+			continue
+		}
+		if !seenParams {
+			continue
+		}
+		switch t {
+		case "user_type", "nullable_type", "type_reference":
+			text := strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(c)), "?")
+			if i := strings.Index(text, "<"); i >= 0 {
+				text = text[:i]
+			}
+			return text == typeName
+		case "function_body", "=", "{":
+			return false
+		}
+	}
+	return false
 }

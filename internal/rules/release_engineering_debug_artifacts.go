@@ -295,7 +295,7 @@ func printlnNonProductionPath(path string) bool {
 	if scanner.IsTestFile(path) || isGradleBuildScript(path) || printCallInToolingPath(path) {
 		return true
 	}
-	lower := strings.ToLower(path)
+	lower := scanner.LowerPath(path)
 	return strings.Contains(lower, "/samples/") ||
 		strings.Contains(lower, "/sample/") ||
 		strings.Contains(lower, "/demos/") ||

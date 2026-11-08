@@ -232,6 +232,7 @@ func parseDelegateExpression(ctx context.Context, parser *sitter.Parser, orig []
 	if err != nil || tree == nil {
 		return nil
 	}
+	defer tree.Close()
 	t := flattenTree(tree.RootNode())
 	var only uint32
 	for c := t.FirstChildren[0]; c != 0; c = t.NextSibs[c] {
@@ -265,6 +266,7 @@ func parseStandaloneAnnotation(ctx context.Context, parser *sitter.Parser, src [
 	if err != nil || tree == nil {
 		return nil
 	}
+	defer tree.Close()
 	t := flattenTree(tree.RootNode())
 	for c := t.FirstChildren[0]; c != 0; c = t.NextSibs[c] {
 		if nodeTypeName(t.Types[c]) != "class_declaration" {
@@ -377,6 +379,7 @@ func parseContextParameters(ctx context.Context, parser *sitter.Parser, orig []b
 	if err != nil || tree == nil {
 		return nil
 	}
+	defer tree.Close()
 	t := flattenTree(tree.RootNode())
 	if t.Flags[0]&flatNodeFlagError != 0 {
 		return nil

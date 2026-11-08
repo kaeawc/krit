@@ -96,6 +96,7 @@ func ParseXMLAST(ctx context.Context, data []byte) (*XMLNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}
+	defer tree.Close()
 	root := tree.RootNode()
 	if root == nil {
 		return nil, fmt.Errorf("empty xml parse tree")

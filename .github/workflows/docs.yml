@@ -2,7 +2,7 @@ name: Documentation
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'mkdocs.yml', 'README.md', 'CONTRIBUTING.md', '.github/workflows/docs.yml']
+    paths: ['docs/**', 'mkdocs.yml', 'cmd/krit-docgen/**', 'internal/docgen/**', 'internal/rules/**', 'tests/fixtures/**', 'config/detekt-defaults.yml', 'README.md', 'CONTRIBUTING.md', '.github/workflows/docs.yml']
   workflow_dispatch:
 
 permissions:
@@ -24,9 +24,16 @@ jobs:
         with:
           python-version: '3.11'
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
       - run: pip install mkdocs mkdocs-material
 
-      - run: mkdocs build
+      # Per-rule pages are generated, not committed (docs/rules/ is gitignored).
+      - run: go run ./cmd/krit-docgen
+
+      - run: mkdocs build --strict
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 

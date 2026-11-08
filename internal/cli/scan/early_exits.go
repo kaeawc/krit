@@ -355,6 +355,8 @@ type ListedRule struct {
 	Precision     string `json:"precision,omitempty"`
 	Maturity      string `json:"maturity,omitempty"`
 	Description   string `json:"description,omitempty"`
+	// DocsURL is the rule's documentation page on the krit docs site.
+	DocsURL string `json:"docsUrl,omitempty"`
 	// Scripts is where the rule runs among Kotlin script (.kts) files: all,
 	// standalone, gradle or none. See docs/kotlin-scripts.md.
 	Scripts string `json:"scripts,omitempty"`
@@ -525,6 +527,7 @@ func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.
 			Precision:     rules.V2RulePrecision(r).String(),
 			Maturity:      r.Maturity.String(),
 			Description:   r.Description,
+			DocsURL:       api.RuleDocsURL(r),
 			Scripts:       rules.DescribeScriptScope(r),
 		}
 		if lvl, ok := rules.GetV2FixLevel(r); ok {

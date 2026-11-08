@@ -1045,6 +1045,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	}
 	indexInput := IndexInput{
 		ParseResult:              parseResult,
+		Preparse:                 host.Preparse,
 		PrebuiltResolver:         host.PrebuiltResolver,
 		PrebuiltLibraryFacts:     host.PrebuiltLibraryFacts,
 		PrebuiltAndroidProject:   host.PrebuiltAndroidProject,
@@ -1232,7 +1233,17 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, allowResourceSource), allowCrossFile, allowResourceSource)
 	}
 	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
-	parseInput := ParseInput{
+	parseInput := projectParseInput(args, host, kotlinPaths, javaPaths, skipJavaCollection)
+	if parsed, ok := host.Preparse.Take(parseInput); ok {
+		return parsed, nil
+	}
+	return ParsePhase{Workers: args.Workers}.Run(ctx, parseInput)
+}
+
+// projectParseInput is the parse phase input for the given paths. The background parse
+// (StartPreparse) builds its input here too, so the two cannot drift apart.
+func projectParseInput(args ProjectArgs, host ProjectHostState, kotlinPaths, javaPaths []string, skipJavaCollection bool) ParseInput {
+	return ParseInput{
 		Config:              args.Config,
 		Paths:               args.Paths,
 		ActiveRules:         args.ActiveRules,
@@ -1247,10 +1258,6 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		ParseCache:          host.ParseCache,
 		ResidentFiles:       host.ResidentFiles,
 	}
-	if parsed, ok := host.Preparse.Take(parseInput); ok {
-		return parsed, nil
-	}
-	return ParsePhase{Workers: args.Workers}.Run(ctx, parseInput)
 }
 
 func allowWarmResourceSourceDelta(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) bool {

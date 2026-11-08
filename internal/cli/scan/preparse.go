@@ -15,22 +15,8 @@ func (r *runner) startPreparse(ctx context.Context) {
 		return
 	}
 	r.setupParseCachesOnce()
-	in := pipeline.ParseInput{
-		Config:      r.cfg,
-		Paths:       r.paths,
-		ActiveRules: r.activeRules,
-		// RunProjectAnalysis rebuilds these from the same flags.
-		IncludeGenerated:    *r.f.IncludeGenerated,
-		GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
-		KotlinPaths:         r.files,
-		JavaPaths:           r.allJavaPaths,
-		Workers:             *r.f.Jobs,
-		Reporter:            r.reporter,
-		Tracker:             r.tracker,
-		ParseCache:          r.sess.ParseCache,
-	}
-	r.preparse = pipeline.NewPreparseFuture(pipeline.ParsePhase{Workers: *r.f.Jobs}, in)
-	r.preparse.Start(ctx)
+	in := r.projectInput()
+	r.preparse = pipeline.StartPreparse(ctx, in.Args, in.Host)
 }
 
 // preparseEligible reports whether every file will be parsed after the oracle.

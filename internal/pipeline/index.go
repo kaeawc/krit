@@ -66,6 +66,8 @@ type IndexPhase struct {
 // When these are nil, IndexPhase builds fresh state.
 type IndexInput struct {
 	ParseResult
+	// Preparse, when set, may already hold this input's code index, built in the background.
+	Preparse *PreparseFuture
 	// PrebuiltResolver, when non-nil, is used as-is; no IndexFilesParallel
 	// call is made. When nil, IndexPhase builds one if any active rule
 	// declares NeedsResolver.
@@ -832,7 +834,7 @@ func (p IndexPhase) Run(ctx context.Context, in IndexInput) (IndexResult, error)
 		p.detectAndroidProject(in, &result)
 	})
 
-	if in.BuildCodeIndex {
+	if in.BuildCodeIndex && !in.Preparse.takeCodeIndex(in, &result) {
 		p.runCodeIndexBuild(ctx, in, &result)
 	}
 

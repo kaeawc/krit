@@ -5,9 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/perf"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func preparseFixture(t *testing.T) ParseInput {
+func preparseFixture(t *testing.T) (ProjectArgs, ProjectHostState) {
 	t.Helper()
 	dir := t.TempDir()
 	var paths []string
@@ -18,68 +22,127 @@ func preparseFixture(t *testing.T) ParseInput {
 		}
 		paths = append(paths, p)
 	}
-	return ParseInput{Paths: []string{dir}, KotlinPaths: paths, JavaPaths: []string{}, Workers: 2}
+	args := ProjectArgs{
+		Paths:       []string{dir},
+		KotlinPaths: paths,
+		JavaPaths:   []string{},
+		Workers:     2,
+		ActiveRules: []*api.Rule{{ID: "CrossFileRule", Needs: api.NeedsCrossFile}},
+	}
+	return args, ProjectHostState{}
 }
 
-func TestPreparseFutureServesMatchingInput(t *testing.T) {
-	in := preparseFixture(t)
-	f := NewPreparseFuture(ParsePhase{Workers: 2}, in)
-	f.Start(context.Background())
-	got, ok := f.Take(in)
+func parseInputFor(args ProjectArgs, host ProjectHostState) ParseInput {
+	return projectParseInput(args, host, args.KotlinPaths, args.JavaPaths, false)
+}
+
+func TestPreparseServesTheMatchingParseOnce(t *testing.T) {
+	args, host := preparseFixture(t)
+	f := StartPreparse(context.Background(), args, host)
+	got, ok := f.Take(parseInputFor(args, host))
 	if !ok {
 		t.Fatal("Take refused a matching input")
 	}
-	want, err := (ParsePhase{Workers: 2}).Run(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
+	if len(got.KotlinFiles) != 2 {
+		t.Fatalf("parsed %d files, want 2", len(got.KotlinFiles))
 	}
-	if len(got.KotlinFiles) != len(want.KotlinFiles) || len(got.KotlinFiles) != 2 {
-		t.Fatalf("parsed %d files, want %d", len(got.KotlinFiles), len(want.KotlinFiles))
-	}
-	if _, ok := f.Take(in); ok {
-		t.Fatal("a result must be taken only once")
+	if _, ok := f.Take(parseInputFor(args, host)); ok {
+		t.Fatal("a parse result must be taken only once")
 	}
 }
 
-func TestPreparseFutureRefusesOtherInput(t *testing.T) {
-	in := preparseFixture(t)
-	f := NewPreparseFuture(ParsePhase{Workers: 2}, in)
-	f.Start(context.Background())
+func TestPreparseRefusesADifferentParse(t *testing.T) {
+	args, host := preparseFixture(t)
+	f := StartPreparse(context.Background(), args, host)
 
-	fewer := in
-	fewer.KotlinPaths = in.KotlinPaths[:1]
+	fewer := parseInputFor(args, host)
+	fewer.KotlinPaths = args.KotlinPaths[:1]
 	if _, ok := f.Take(fewer); ok {
 		t.Fatal("Take served a different path list")
 	}
-	skip := in
+	skip := parseInputFor(args, host)
 	skip.SkipJavaCollection = true
 	if _, ok := f.Take(skip); ok {
 		t.Fatal("Take served a different Java collection mode")
 	}
-	if _, ok := f.Take(in); !ok {
+	if _, ok := f.Take(parseInputFor(args, host)); !ok {
 		t.Fatal("a refused request must not consume the result")
 	}
 }
 
-func TestPreparseFutureNeverStartedOrNil(t *testing.T) {
-	in := preparseFixture(t)
-	if _, ok := NewPreparseFuture(ParsePhase{}, in).Take(in); ok {
-		t.Fatal("Take waited on a future that was never started")
+func TestPreparseIsNilWhenTheParseCannotBePredicted(t *testing.T) {
+	args, host := preparseFixture(t)
+	thorough := args
+	thorough.TargetedResolution = true
+	if StartPreparse(context.Background(), thorough, host) != nil {
+		t.Fatal("thorough runs resolve their own rules, so the parse cannot be predicted")
 	}
-	var nilFuture *PreparseFuture
-	nilFuture.Start(context.Background())
-	if _, ok := nilFuture.Take(in); ok {
+	noPaths := args
+	noPaths.KotlinPaths = nil
+	if StartPreparse(context.Background(), noPaths, host) != nil {
+		t.Fatal("a run without collected Kotlin paths must not preparse")
+	}
+	var none *PreparseFuture
+	if _, ok := none.Take(parseInputFor(args, host)); ok {
 		t.Fatal("nil future served a result")
+	}
+	if none.takeCodeIndex(IndexInput{}, &IndexResult{}) {
+		t.Fatal("nil future served a code index")
 	}
 }
 
-func TestPreparseFutureFallsBackWhenParseFails(t *testing.T) {
-	in := preparseFixture(t)
-	f := NewPreparseFuture(ParsePhase{Workers: 2}, in)
+func TestPreparseFallsBackWhenTheParseFails(t *testing.T) {
+	args, host := preparseFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	f.Start(ctx)
-	if _, ok := f.Take(in); ok {
+	f := StartPreparse(ctx, args, host)
+	if _, ok := f.Take(parseInputFor(args, host)); ok {
 		t.Fatal("a failed background parse must not be served")
+	}
+}
+
+func TestPreparseServesTheCodeIndexForTheSameFiles(t *testing.T) {
+	args, host := preparseFixture(t)
+	f := StartPreparse(context.Background(), args, host)
+	parsed, ok := f.Take(parseInputFor(args, host))
+	if !ok {
+		t.Fatal("Take refused a matching input")
+	}
+	in := IndexInput{ParseResult: parsed, CrossFileJobsFlag: args.Workers, CrossFileJavaPaths: args.JavaPaths}
+
+	other := in
+	other.CrossFileJobsFlag = 7
+	if f.takeCodeIndex(other, &IndexResult{}) {
+		t.Fatal("served an index built with different settings")
+	}
+	reordered := in
+	reordered.ParseResult.KotlinFiles = append([]*scanner.File(nil), parsed.KotlinFiles...)
+	if f.takeCodeIndex(reordered, &IndexResult{}) {
+		t.Fatal("served an index for a different file slice")
+	}
+
+	var result IndexResult
+	in.CrossFileParentTracker = perf.New(true)
+	if !f.takeCodeIndex(in, &result) {
+		t.Fatal("did not serve the prebuilt code index")
+	}
+	if result.CodeIndex == nil {
+		t.Fatal("served a nil code index")
+	}
+	if f.takeCodeIndex(in, &IndexResult{}) {
+		t.Fatal("a code index must be served only once")
+	}
+}
+
+func TestPreparseSkipsTheCodeIndexWithoutCrossFileRules(t *testing.T) {
+	args, host := preparseFixture(t)
+	args.ActiveRules = nil
+	f := StartPreparse(context.Background(), args, host)
+	parsed, ok := f.Take(parseInputFor(args, host))
+	if !ok {
+		t.Fatal("Take refused a matching input")
+	}
+	if f.takeCodeIndex(IndexInput{ParseResult: parsed, CrossFileJobsFlag: args.Workers, CrossFileJavaPaths: args.JavaPaths}, &IndexResult{}) {
+		t.Fatal("served a code index nobody asked to build")
 	}
 }

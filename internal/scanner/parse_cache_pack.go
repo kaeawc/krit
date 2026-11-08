@@ -1,11 +1,12 @@
 package scanner
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -59,8 +60,9 @@ type parsePackHandle struct {
 	mu      sync.RWMutex
 	loaded  bool
 	missing bool
-	index   map[string]parsePackEntry
-	data    []byte
+	// index maps entry hashes to byte ranges in the pack file. Entry bytes are
+	// read from disk on demand so the handle does not pin the whole pack.
+	index map[string]parsePackEntry
 }
 
 type parsePackStore struct {
@@ -108,26 +110,73 @@ func (h *parsePackHandle) ensureLoaded() error {
 	if h.loaded {
 		return nil
 	}
-	data, err := os.ReadFile(h.path)
+	idx, err := readParsePackHeader(h.path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			h.loaded = true
 			h.missing = true
 			h.index = nil
-			h.data = nil
 			return nil
 		}
 		return err
 	}
-	idx, err := parseParsePackHeader(data)
-	if err != nil {
-		return err
-	}
-	h.data = data
 	h.index = idx
 	h.loaded = true
 	h.missing = false
 	return nil
+}
+
+// readParsePackHeader parses the index of the pack at path without reading
+// entry bytes into memory.
+func readParsePackHeader(path string) (map[string]parsePackEntry, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := uint64(info.Size())
+	r := bufio.NewReaderSize(f, 64<<10)
+	var fixed [parsePackHeaderFixed]byte
+	if _, err := io.ReadFull(r, fixed[:]); err != nil {
+		return nil, errParsePackCorrupt
+	}
+	if binary.LittleEndian.Uint32(fixed[0:4]) != parsePackMagic ||
+		binary.LittleEndian.Uint16(fixed[4:6]) != parsePackVersion {
+		return nil, errParsePackCorrupt
+	}
+	n := binary.LittleEndian.Uint32(fixed[6:10])
+	idx := make(map[string]parsePackEntry, min(n, uint32(size/parsePackEntryFixed)))
+	var keyLenBuf [2]byte
+	var tail [parsePackEntryFixed - 2]byte
+	var key []byte
+	for i := uint32(0); i < n; i++ {
+		if _, err := io.ReadFull(r, keyLenBuf[:]); err != nil {
+			return nil, errParsePackCorrupt
+		}
+		keyLen := int(binary.LittleEndian.Uint16(keyLenBuf[:]))
+		if cap(key) < keyLen {
+			key = make([]byte, keyLen)
+		}
+		key = key[:keyLen]
+		if _, err := io.ReadFull(r, key); err != nil {
+			return nil, errParsePackCorrupt
+		}
+		if _, err := io.ReadFull(r, tail[:]); err != nil {
+			return nil, errParsePackCorrupt
+		}
+		off := binary.LittleEndian.Uint64(tail[0:])
+		ln := binary.LittleEndian.Uint64(tail[8:])
+		crc := binary.LittleEndian.Uint32(tail[16:])
+		if off+ln > size {
+			return nil, errParsePackCorrupt
+		}
+		idx[string(key)] = parsePackEntry{offset: off, length: ln, crc: crc}
+	}
+	return idx, nil
 }
 
 func parseParsePackHeader(data []byte) (map[string]parsePackEntry, error) {
@@ -178,7 +227,17 @@ func (h *parsePackHandle) get(hash string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	blob := h.data[e.offset : e.offset+e.length]
+	f, err := os.Open(h.path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	blob := make([]byte, e.length)
+	if _, err := f.ReadAt(blob, int64(e.offset)); err != nil {
+		return nil, false
+	}
+	// A pack rewritten by another process since the header was read fails the
+	// checksum and reads as a miss.
 	if crc32.ChecksumIEEE(blob) != e.crc {
 		return nil, false
 	}
@@ -201,7 +260,7 @@ func (ps *parsePackStore) LoadEntry(hash string) (*parseCacheEntry, error) {
 		return nil, nil
 	}
 	var entry parseCacheEntry
-	if err := cacheutil.DecodeZstdGob(bytes.NewReader(data), &entry); err != nil {
+	if err := cacheutil.DecodeZstdGobBytes(data, &entry); err != nil {
 		return nil, errParsePackCorrupt
 	}
 	return &entry, nil
@@ -319,7 +378,6 @@ func (h *parsePackHandle) putMany(writes []parseEncodedEntryWrite) (bool, error)
 		delete(latest, key)
 	}
 	if len(latest) == 0 {
-		h.data = existingData
 		h.index = existingIndex
 		h.loaded = true
 		h.missing = false
@@ -347,7 +405,6 @@ func (h *parsePackHandle) putMany(writes []parseEncodedEntryWrite) (bool, error)
 	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
 		return false, err
 	}
-	h.data = buf
 	h.index = mustParsePackHeader(buf)
 	h.loaded = true
 	h.missing = false
@@ -394,7 +451,6 @@ func (h *parsePackHandle) removeMany(hashes []string) error {
 			h.loaded = true
 			h.missing = true
 			h.index = nil
-			h.data = nil
 			return nil
 		}
 		return err
@@ -405,7 +461,6 @@ func (h *parsePackHandle) removeMany(hashes []string) error {
 		h.loaded = true
 		h.missing = true
 		h.index = nil
-		h.data = nil
 		return nil
 	}
 
@@ -433,7 +488,6 @@ func (h *parsePackHandle) removeMany(hashes []string) error {
 		h.loaded = true
 		h.missing = true
 		h.index = nil
-		h.data = nil
 		return nil
 	}
 
@@ -441,7 +495,6 @@ func (h *parsePackHandle) removeMany(hashes []string) error {
 	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
 		return err
 	}
-	h.data = buf
 	h.index = mustParsePackHeader(buf)
 	h.loaded = true
 	h.missing = false

@@ -44,6 +44,11 @@ func DecodeZstdGob(r io.Reader, v any) error {
 	if err != nil {
 		return err
 	}
+	return DecodeZstdGobBytes(compressed, v)
+}
+
+// DecodeZstdGobBytes decodes a zstd(gob(v)) cache payload held in memory.
+func DecodeZstdGobBytes(compressed []byte, v any) error {
 	raw, err := zstdGobDecoder.DecodeAll(compressed, nil)
 	if err != nil {
 		return err

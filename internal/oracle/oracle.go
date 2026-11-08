@@ -59,6 +59,9 @@ type Oracle struct {
 	callTargetSuspend     map[string]map[uint64]bool                    // file path → (packed line:col → suspend callable marker)
 	callTargetAnnotations map[string]map[uint64][]string                // file path → (packed line:col → annotation FQNs on resolved symbol)
 
+	// exprTypes interns expression types during indexing; cleared afterwards.
+	exprTypes map[exprTypeKey]*typeinfer.ResolvedType
+
 	// absFileKeys memoizes fileKey's relative → absolute resolutions.
 	absFileKeys sync.Map
 
@@ -259,7 +262,7 @@ func (o *Oracle) indexFileExpressions(path string, file *File) {
 		if !ok {
 			continue
 		}
-		typ := makeResolvedType(et.Type, et.Nullable)
+		typ := o.internExprType(et.Type, et.Nullable)
 		if !sharedStart {
 			exprMap[key] = typ
 		}
@@ -343,6 +346,7 @@ func (o *Oracle) indexFiles(files map[string]*File) {
 // freeRawFileData zeroes per-file declaration and expression slices to reduce
 // memory after indexing. Dependencies and Diagnostics are intentionally retained.
 func (o *Oracle) freeRawFileData() {
+	o.exprTypes = nil
 	for _, f := range o.raw.Files {
 		f.Declarations = nil
 		f.Expressions = nil
@@ -619,6 +623,27 @@ func convertClassInfo(fqn string, cls *Class) *typeinfer.ClassInfo {
 // alone — its own nullability is trustworthy.
 func isErrorType(fqn string) bool {
 	return strings.HasPrefix(fqn, "<error>")
+}
+
+type exprTypeKey struct {
+	fqn      string
+	nullable bool
+}
+
+// internExprType returns one shared ResolvedType per distinct (type, nullable)
+// pair, since most expressions repeat a few thousand types. Callers treat
+// looked-up types as read-only. Only the sequential indexing pass calls it.
+func (o *Oracle) internExprType(fqn string, nullable bool) *typeinfer.ResolvedType {
+	key := exprTypeKey{fqn: fqn, nullable: nullable}
+	if t, ok := o.exprTypes[key]; ok {
+		return t
+	}
+	t := makeResolvedType(fqn, nullable)
+	if o.exprTypes == nil {
+		o.exprTypes = make(map[exprTypeKey]*typeinfer.ResolvedType)
+	}
+	o.exprTypes[key] = t
+	return t
 }
 
 func makeResolvedType(fqn string, nullable bool) *typeinfer.ResolvedType {

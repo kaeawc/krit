@@ -59,9 +59,6 @@ type Oracle struct {
 	callTargetSuspend     map[string]map[uint64]bool                    // file path → (packed line:col → suspend callable marker)
 	callTargetAnnotations map[string]map[uint64][]string                // file path → (packed line:col → annotation FQNs on resolved symbol)
 
-	// FQN reverse index, built once during Load.
-	index *Index
-
 	// absFileKeys memoizes fileKey's relative → absolute resolutions.
 	absFileKeys sync.Map
 
@@ -375,8 +372,6 @@ func Load(path string) (*Oracle, error) {
 	o.indexFiles(raw.Files)
 
 	o.buildSupertypeMap()
-
-	o.index = BuildIndex(o.raw)
 
 	o.freeRawFileData()
 

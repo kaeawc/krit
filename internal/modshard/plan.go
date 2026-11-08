@@ -24,6 +24,9 @@ type Unit struct {
 	Files int
 	// Sources lists the module's own source files (sorted), found once per run; nil means not listed yet.
 	Sources []string
+	// ContextDropped is set when a dependency without built output was left out of the compile because
+	// its sources exceed maxContextFiles; the module's facts are then incomplete.
+	ContextDropped bool
 }
 
 // builtJar returns the Gradle-built library jar of the module at projectPath, or "".
@@ -94,6 +97,7 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units 
 			}
 		}
 		contextBudget := maxContextFiles
+		contextDropped := false
 		for _, dep := range closures(spec.ID) {
 			jar := jarOf(projectOf(dep))
 			if jar == "" {
@@ -104,6 +108,8 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units 
 					if n := len(sourceFiles(roots)); n <= contextBudget {
 						contextBudget -= n
 						spec.ContextSourceRoots = append(spec.ContextSourceRoots, roots...)
+					} else {
+						contextDropped = true
 					}
 				}
 			}
@@ -118,7 +124,7 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units 
 		}
 		spec.DependsOn = []string{}
 		sources := sourceFiles(append(append([]string{}, spec.SourceRoots...), spec.GeneratedSourceRoots...))
-		units = append(units, Unit{Spec: spec, Files: len(sources), Sources: sources})
+		units = append(units, Unit{Spec: spec, Files: len(sources), Sources: sources, ContextDropped: contextDropped})
 	}
 	sort.Slice(units, func(i, j int) bool { return units[i].Spec.ID < units[j].Spec.ID })
 	return units, len(missingProjects)
@@ -264,4 +270,29 @@ func sourceRootOf(file string) string {
 		}
 	}
 	return filepath.Dir(file)
+}
+
+// NeedsIsolation reports whether some project has several of its source sets among the units. Those
+// are the units the whole-repository compile merges, so a declaration present in two of them is
+// reported as a redeclaration there and not here.
+func NeedsIsolation(units []Unit) bool {
+	seen := map[string]bool{}
+	for _, u := range units {
+		project := projectOf(u.Spec.ID)
+		if seen[project] {
+			return true
+		}
+		seen[project] = true
+	}
+	return false
+}
+
+// incompleteContext returns the ID of the first unit that left a dependency out, or "".
+func incompleteContext(units []Unit) string {
+	for _, u := range units {
+		if u.ContextDropped {
+			return u.Spec.ID
+		}
+	}
+	return ""
 }

@@ -253,8 +253,14 @@ files.
 Unscanned test and androidTest source sets and unrelated model projects are
 not added as context. Source sets explicitly covered by the scan paths remain
 included; scanning main, test and androidTest together can still produce
-cross-source-set redeclarations until the default scan uses isolated
-compilations. Missing projects or roots cannot be supplied from `projectDeps`
+cross-source-set redeclarations in the default scan. Set
+`KRIT_MODULE_SHARDS=isolate` to compile each scanned source set on its own
+instead: a test or androidTest set sees its project's main (a built jar, or its
+sources as context) but never a sibling set, so the compiler stops reporting
+redeclarations between them. The run applies only when a project has several
+scanned source sets and every set has its full dependency context (at most
+3000 unbuilt dependency files); otherwise the default compile runs. Per-set
+facts are cached by content, so only edited sets recompile. Missing projects or roots cannot be supplied from `projectDeps`
 alone; their source sets must be present in the exported model.
 Source-root matching resolves symlinks on both sides, falling back to absolute
 paths when resolution fails. If no source set matches any scan path, Krit falls

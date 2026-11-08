@@ -47,6 +47,10 @@ type Input struct {
 	// module runs the checkers over its own requested files in the same compile, and Result.Check
 	// holds the merged response.
 	CheckRequest []byte
+	// Isolate runs only when it separates source sets of one project that the whole-repository compile
+	// merges (redeclarations between them), and only when every unit has its full dependency context.
+	// Otherwise the run does not apply and the caller keeps the whole-repository compile.
+	Isolate bool
 	// Logf receives verbose progress lines; may be nil.
 	Logf func(format string, args ...any)
 }
@@ -99,6 +103,10 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		res.Reason = "no modules under the scan paths"
 		return res, nil
 	}
+	if reason := isolationDeclined(in, units); reason != "" {
+		res.Reason = reason
+		return res, nil
+	}
 	if err := os.MkdirAll(in.CacheDir, 0o755); err != nil {
 		return res, err
 	}
@@ -144,6 +152,20 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// isolationDeclined says why an Isolate run does not apply, or "" when it does (or is not Isolate).
+func isolationDeclined(in Input, units []Unit) string {
+	if !in.Isolate {
+		return ""
+	}
+	if !NeedsIsolation(units) {
+		return "no project has several scanned source sets"
+	}
+	if id := incompleteContext(units); id != "" {
+		return "dependency sources of " + id + " exceed the context limit"
+	}
+	return ""
 }
 
 // residualState carries the run's units and coverage through the residual pass.

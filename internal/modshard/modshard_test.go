@@ -367,3 +367,51 @@ func TestUnitKeyChangesWithClasspathDirectoryContents(t *testing.T) {
 		t.Error("adding a class inside a classpath directory must change the key")
 	}
 }
+
+func TestPlanGivesAnUnbuiltMainToItsTestSetAsContext(t *testing.T) {
+	model, root := fixtureModel(t)
+	if err := os.RemoveAll(filepath.Join(root, "lib", "build")); err != nil {
+		t.Fatal(err)
+	}
+	units, _ := Plan(model, root, []string{filepath.Join(root, "lib")})
+	for _, u := range units {
+		if u.Spec.Kind == "test" {
+			want := filepath.Join(root, "lib", "src", "main", "kotlin")
+			if !contains(u.Spec.ContextSourceRoots, want) || u.ContextDropped {
+				t.Fatalf("test set should compile main as context: %+v", u)
+			}
+			return
+		}
+	}
+	t.Fatal("no test unit planned")
+}
+
+func TestNeedsIsolationRequiresSeveralSourceSetsOfOneProject(t *testing.T) {
+	model, root := fixtureModel(t)
+	all, _ := Plan(model, root, []string{root})
+	if !NeedsIsolation(all) {
+		t.Error(":lib has main and test, so isolation applies")
+	}
+	app, _ := Plan(model, root, []string{filepath.Join(root, "app")})
+	if NeedsIsolation(app) {
+		t.Error("a single source set has nothing to isolate from")
+	}
+}
+
+func TestIsolationDeclinedWhenContextWasDropped(t *testing.T) {
+	model, root := fixtureModel(t)
+	units, _ := Plan(model, root, []string{root})
+	if got := isolationDeclined(Input{Isolate: true}, units); got != "" {
+		t.Fatalf("complete context should apply, got %q", got)
+	}
+	units[0].ContextDropped = true
+	if got := isolationDeclined(Input{Isolate: true}, units); got == "" {
+		t.Error("dropped context should decline")
+	}
+	if got := isolationDeclined(Input{}, units); got != "" {
+		t.Errorf("without Isolate nothing is declined, got %q", got)
+	}
+	if got := isolationDeclined(Input{Isolate: true}, units[:1]); got == "" {
+		t.Error("a single unit should decline")
+	}
+}

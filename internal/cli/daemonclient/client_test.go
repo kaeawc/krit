@@ -259,3 +259,29 @@ func TestClient_NilSafety(t *testing.T) {
 		t.Errorf("Shutdown on nil client should be a no-op, got %v", err)
 	}
 }
+
+func TestClient_AnalyzeProjectStreamRequestsStreaming(t *testing.T) {
+	socketDir, srv := startEchoDaemon(t, t.TempDir())
+	var sawStream bool
+	srv.Register(daemon.VerbAnalyzeProject, func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args daemon.AnalyzeProjectArgs
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, err
+		}
+		sawStream = args.StreamVerbose
+		daemon.StreamSinkFrom(ctx).Send("verbose: live\n")
+		return daemon.AnalyzeProjectResult{Findings: json.RawMessage(`{}`), VerboseOutput: "verbose: rest\n"}, nil
+	})
+	c := &Client{socketPath: filepath.Join(socketDir, "d.sock")}
+	var live string
+	res, err := c.AnalyzeProjectStream(daemon.AnalyzeProjectArgs{Verbose: true}, func(s string) { live += s })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawStream || live != "verbose: live\n" || res.VerboseOutput != "verbose: rest\n" {
+		t.Fatalf("sawStream=%v live=%q rest=%q", sawStream, live, res.VerboseOutput)
+	}
+	if _, err := c.AnalyzeProject(daemon.AnalyzeProjectArgs{Verbose: true}); err != nil || sawStream {
+		t.Fatalf("plain AnalyzeProject must not request streaming: err=%v saw=%v", err, sawStream)
+	}
+}

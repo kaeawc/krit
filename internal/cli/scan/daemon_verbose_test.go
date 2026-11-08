@@ -69,3 +69,35 @@ func TestRunDaemonAnalyzeForwardsVerboseOutput(t *testing.T) {
 		})
 	}
 }
+
+type streamingVerboseClient struct {
+	verboseDaemonClient
+}
+
+func (c *streamingVerboseClient) AnalyzeProjectStream(args daemon.AnalyzeProjectArgs, onVerbose func(string)) (daemon.AnalyzeProjectResult, error) {
+	c.args = args
+	onVerbose("verbose: live\n")
+	return c.result, nil
+}
+
+func TestRunDaemonAnalyzeStreamsVerboseBeforeSummary(t *testing.T) {
+	client := &streamingVerboseClient{verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+		Findings: []byte(`{"rules":[],"line":[]}`), VerboseOutput: "verbose: rest\n",
+	}}}
+	f := freshScanFlags(t)
+	*f.Verbose = true
+	redirectStdout(t)
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Stderr = original; _ = reader.Close(); _ = writer.Close() })
+	os.Stderr = writer
+	handled, _ := runDaemonAnalyze(client, f, []string{newRoot(t)})
+	_ = writer.Close()
+	stderr, _ := io.ReadAll(reader)
+	if !handled || !strings.HasPrefix(string(stderr), "info: using daemon\nverbose: live\nverbose: rest\ninfo: Found") {
+		t.Fatalf("handled=%v stderr=%q", handled, stderr)
+	}
+}

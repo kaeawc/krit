@@ -72,6 +72,12 @@ func Available(socketPath string) bool { return Probe(socketPath) == nil }
 // Data field of the Response into out (which may be nil). It returns the
 // daemon's error string as a Go error when OK=false.
 func Call(socketPath, verb string, args any, out any) error {
+	return CallStream(socketPath, verb, args, out, nil)
+}
+
+// CallStream is Call that also hands each streamed progress frame the
+// daemon sends before its response to onStream. A nil onStream drops them.
+func CallStream(socketPath, verb string, args any, out any, onStream func(string)) error {
 	conn, err := dialVerified(socketPath, 2*time.Second)
 	if err != nil {
 		return fmt.Errorf("daemon: dial %s: %w", socketPath, err)
@@ -96,9 +102,9 @@ func Call(socketPath, verb string, args any, out any) error {
 		return fmt.Errorf("daemon: write: %w", err)
 	}
 	reader := bufio.NewReader(conn)
-	line, err := reader.ReadBytes('\n')
+	line, err := readFinalLine(reader, onStream)
 	if err != nil {
-		return fmt.Errorf("daemon: read: %w", err)
+		return err
 	}
 	// Fast path for analyze-project's giant 30 MB envelope: a hand-
 	// rolled byte scanner extracts Findings (json.RawMessage) and
@@ -126,4 +132,22 @@ func Call(socketPath, verb string, args any, out any) error {
 		return nil
 	}
 	return json.Unmarshal(resp.Data, out)
+}
+
+// readFinalLine reads response lines, passing stream frames to onStream,
+// and returns the first line that is not a frame.
+func readFinalLine(reader *bufio.Reader, onStream func(string)) ([]byte, error) {
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return nil, fmt.Errorf("daemon: read: %w", err)
+		}
+		text, ok := decodeStreamFrame(line)
+		if !ok {
+			return line, nil
+		}
+		if onStream != nil {
+			onStream(text)
+		}
+	}
 }

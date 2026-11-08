@@ -85,6 +85,36 @@ tasks.shadowJar {
         into("META-INF")
     }
     mergeServiceFiles()
+    // The oracle only runs the JVM frontend and backend. Drop the JS, Wasm and Native code generators and
+    // the native libraries of platforms the krit CLI is not released for (it falls back to pure Java).
+    exclude(
+        "org/jetbrains/kotlin/ir/backend/js/**",
+        "org/jetbrains/kotlin/js/parser/**",
+        "org/jetbrains/kotlin/js/backend/**",
+        "org/jetbrains/kotlin/js/inline/**",
+        "org/jetbrains/kotlin/js/translate/**",
+        "org/jetbrains/kotlin/backend/wasm/**",
+        "org/jetbrains/kotlin/wasm/ir/**",
+        "org/jetbrains/kotlin/backend/konan/**",
+        "org/jetbrains/kotlin/buildtools/api/js/**",
+        "org/jetbrains/kotlin/buildtools/api/wasm/**",
+        "com/sun/jna/sunos-*/**",
+        "com/sun/jna/freebsd-*/**",
+        "com/sun/jna/openbsd-*/**",
+        "com/sun/jna/aix-*/**",
+        "com/sun/jna/android-*/**",
+        "com/sun/jna/linux-ppc*/**",
+        "com/sun/jna/linux-mips*/**",
+        "com/sun/jna/linux-s390x/**",
+        "com/sun/jna/linux-riscv64/**",
+        "com/sun/jna/linux-arm/**",
+        "com/sun/jna/linux-armel/**",
+        "com/sun/jna/linux-x86/**",
+        "com/sun/jna/win32-x86/**",
+        "net/jpountz/util/linux/ppc64le/**",
+        "net/jpountz/util/linux/s390x/**",
+        "net/jpountz/util/linux/i386/**",
+    )
     manifest {
         attributes(
             "Main-Class" to "dev.jasonpearson.krit.fir.MainKt",

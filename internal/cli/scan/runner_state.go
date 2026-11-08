@@ -262,12 +262,26 @@ func loadScanConfig(f *scanFlags) *config.Config {
 	// passed without --config.
 	cfg, cfgErr := config.LoadAndMergeDefaultsWith(detektLoadOptions(f), userCfgPath, flag.Args()...)
 	if cfgErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: config: %v\n", cfgErr)
+		if fatalConfigError(*f.Config, os.Stderr, cfgErr) {
+			os.Exit(2)
+		}
 	}
 	if cfg == nil {
 		cfg = config.NewConfig()
 	}
 	return cfg
+}
+
+// fatalConfigError reports a config load failure on w and returns true when
+// the run must stop. A config the user named with --config must load; an
+// auto-detected one falls back to defaults with a warning.
+func fatalConfigError(explicitPath string, w io.Writer, err error) bool {
+	if explicitPath != "" {
+		fmt.Fprintf(w, "error: config: %v\n", err)
+		return true
+	}
+	fmt.Fprintf(w, "warning: config: %v\n", err)
+	return false
 }
 
 // detektLoadOptions maps the --detekt-config / --no-detekt-config flags to

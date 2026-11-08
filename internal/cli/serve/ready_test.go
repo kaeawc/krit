@@ -38,3 +38,22 @@ func TestReadyLineLabelsModuleKotlinFileCount(t *testing.T) {
 		})
 	}
 }
+
+func TestReadyLineCountsRepoFilesWithoutModuleGraph(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"src", "lib", "build"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeKotlinFile(t, root, "src/A.kt", "class A\n")
+	writeKotlinFile(t, root, "lib/B.kt", "class B\n")
+	writeKotlinFile(t, root, "build/Generated.kt", "class G\n")
+	state := newDaemonState(root)
+	if err := state.warm(); err != nil {
+		t.Fatal(err)
+	}
+	if line := state.readyLine(""); !strings.Contains(line, "(2 Kotlin files, 0 modules") {
+		t.Fatalf("ready line=%q", line)
+	}
+}

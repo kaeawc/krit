@@ -104,6 +104,7 @@ func PathsWithToken(token, jarPath, workload string) (configPath, cachePath, ski
 	}
 	// The "krit-types-" prefix predates krit-fir; it is kept so existing AOT
 	// caches stay valid instead of being orphaned and rebuilt.
+	PruneStaleCaches(cacheDir, token[:cacheKeyHashLen])
 	base := "krit-types-" + token[:cacheKeyHashLen]
 	if workload != "" {
 		base += "-" + workload

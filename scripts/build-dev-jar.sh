@@ -13,6 +13,7 @@ source_hash="$(go run ./cmd/krit-dev-jar-hash "$tool")"
 target_dir="${KRIT_DEV_JAR_DIR:-$HOME/.krit/jars/dev}/$source_hash"
 target="$target_dir/$tool.jar"
 if [[ -f "$target" ]]; then
+  touch "$target_dir"
   echo "$target"
   exit 0
 fi

@@ -55,22 +55,23 @@ func isClassLikeSymbol(kind string) bool {
 func (idx *CodeIndex) externalReferenceFiles(name, declaringFile string, ignoreCommentRefs bool) []string {
 	idx.refMu.RLock()
 	defer idx.refMu.RUnlock()
-	var source map[string]bool
 	if ignoreCommentRefs {
-		source = idx.nonCommentRefFilesByName[name]
-	} else {
-		source = idx.refFilesByName[name]
+		return sortedFilesExcluding(idx.nonCommentRefCountByNameFile[name], declaringFile)
 	}
+	return sortedFilesExcluding(idx.refFilesByName[name], declaringFile)
+}
+
+// sortedFilesExcluding returns the sorted keys of source other than skip, or
+// nil when source is empty.
+func sortedFilesExcluding[V any](source map[string]V, skip string) []string {
 	if len(source) == 0 {
 		return nil
 	}
-
 	files := make([]string, 0, len(source))
 	for file := range source {
-		if file == declaringFile {
-			continue
+		if file != skip {
+			files = append(files, file)
 		}
-		files = append(files, file)
 	}
 	sort.Strings(files)
 	return files

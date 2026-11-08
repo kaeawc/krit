@@ -179,7 +179,6 @@ func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
 	if len(idx.References) == 0 {
 		idx.refCountByName = make(map[string]int)
 		idx.refFilesByName = make(map[string]map[string]bool)
-		idx.nonCommentRefFilesByName = make(map[string]map[string]bool)
 		idx.nonCommentRefCountByNameFile = make(map[string]map[string]int)
 		return
 	}
@@ -200,15 +199,13 @@ func (idx *CodeIndex) buildReferenceLookups(addToBloom bool) {
 
 	idx.refCountByName = make(map[string]int, len(aggs))
 	idx.refFilesByName = make(map[string]map[string]bool, len(aggs))
-	idx.nonCommentRefFilesByName = make(map[string]map[string]bool, len(aggs))
 	idx.nonCommentRefCountByNameFile = make(map[string]map[string]int, len(aggs))
 
 	for i := range aggs {
 		agg := &aggs[i]
 		idx.refCountByName[agg.name] = agg.count
 		idx.refFilesByName[agg.name] = agg.files
-		if len(agg.nonCommentFiles) > 0 {
-			idx.nonCommentRefFilesByName[agg.name] = agg.nonCommentFiles
+		if len(agg.nonCommentCounts) > 0 {
 			idx.nonCommentRefCountByNameFile[agg.name] = agg.nonCommentCounts
 		}
 		if addToBloom {
@@ -221,7 +218,6 @@ type referenceAggregate struct {
 	name             string
 	count            int
 	files            map[string]bool
-	nonCommentFiles  map[string]bool
 	nonCommentCounts map[string]int
 }
 
@@ -235,11 +231,9 @@ func (a *referenceAggregate) add(ref Reference) {
 	if ref.InComment {
 		return
 	}
-	if a.nonCommentFiles == nil {
-		a.nonCommentFiles = make(map[string]bool, 1)
+	if a.nonCommentCounts == nil {
 		a.nonCommentCounts = make(map[string]int, 1)
 	}
-	a.nonCommentFiles[ref.File] = true
 	a.nonCommentCounts[ref.File]++
 }
 
@@ -252,9 +246,6 @@ func (idx *CodeIndex) addReferenceLookup(ref Reference) {
 	}
 	if idx.refFilesByName == nil {
 		idx.refFilesByName = make(map[string]map[string]bool)
-	}
-	if idx.nonCommentRefFilesByName == nil {
-		idx.nonCommentRefFilesByName = make(map[string]map[string]bool)
 	}
 	if idx.nonCommentRefCountByNameFile == nil {
 		idx.nonCommentRefCountByNameFile = make(map[string]map[string]int)
@@ -271,12 +262,6 @@ func (idx *CodeIndex) addReferenceLookup(ref Reference) {
 	}
 	files[ref.File] = true
 	if !ref.InComment {
-		ncFiles := idx.nonCommentRefFilesByName[ref.Name]
-		if ncFiles == nil {
-			ncFiles = make(map[string]bool, 1)
-			idx.nonCommentRefFilesByName[ref.Name] = ncFiles
-		}
-		ncFiles[ref.File] = true
 		counts := idx.nonCommentRefCountByNameFile[ref.Name]
 		if counts == nil {
 			counts = make(map[string]int, 1)
@@ -306,12 +291,6 @@ func (idx *CodeIndex) removeReferenceLookup(ref Reference) {
 	}
 	if ref.InComment {
 		return
-	}
-	if files := idx.nonCommentRefFilesByName[ref.Name]; files != nil {
-		delete(files, ref.File)
-		if len(files) == 0 {
-			delete(idx.nonCommentRefFilesByName, ref.Name)
-		}
 	}
 	if counts := idx.nonCommentRefCountByNameFile[ref.Name]; counts != nil {
 		delete(counts, ref.File)
@@ -451,7 +430,7 @@ func (idx *CodeIndex) IsReferencedOutsideFileExcludingComments(name, file string
 	if idx.refBloom == nil || !idx.refBloom.TestString(name) {
 		return false
 	}
-	files := idx.nonCommentRefFilesByName[name]
+	files := idx.nonCommentRefCountByNameFile[name]
 	if files == nil {
 		return false
 	}

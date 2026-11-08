@@ -96,6 +96,10 @@ func cachedJDKMajorVersion() int {
 // launchers so they use the same Leyden support detection.
 func CachedJDKMajorVersion() int { return cachedJDKMajorVersion() }
 
+// LauncherMajorVersion returns the major version of the given java launcher, probing each binary
+// once. AOT flags must be chosen from the JVM that runs, which JAVA_HOME can make differ from PATH.
+func LauncherMajorVersion(javaPath string) int { return PreflightJavaMajorVersion(javaPath) }
+
 // jdkMajorVersion parses the major version from the output of "java -version".
 // Returns 0 on any error; callers should treat 0 as "unknown, fall back to
 // compatible behavior".
@@ -272,7 +276,7 @@ func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) 
 	if err != nil {
 		token = ""
 	}
-	return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", cachedJDKMajorVersion(), verbose, reporter().Verbosef)
+	return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", LauncherMajorVersion(javaPath), verbose, reporter().Verbosef)
 }
 
 // appendStartupCacheArgs prefers Project Leyden AOT (JDK 25+) and falls

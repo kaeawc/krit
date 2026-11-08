@@ -188,6 +188,9 @@ type ProjectHostState struct {
 	// applies the same verdict as the in-process scan. Setting it turns off
 	// the bundle-output shortcuts, which would replay pre-pass bytes.
 	FindingsPostPass func(ParseResult, []scanner.Finding) []scanner.Finding
+	// Preparse, when set, is a background parse started while the oracle ran.
+	// The parse phase uses it only when its own parse would be identical.
+	Preparse *PreparseFuture
 	// StartFindingsPass starts work after parsing, before Go dispatch. The
 	// returned pass is finished at the FindingsPostPass boundary.
 	StartFindingsPass func(context.Context, ParseResult) (PendingFindingsPass, error)
@@ -1229,7 +1232,7 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 			ParsedSourceBlockReason(args.ActiveRules, allowCrossFile, allowResourceSource), allowCrossFile, allowResourceSource)
 	}
 	skipJavaCollection := len(javaPaths) == 0 && allowCrossFile
-	return ParsePhase{Workers: args.Workers}.Run(ctx, ParseInput{
+	parseInput := ParseInput{
 		Config:              args.Config,
 		Paths:               args.Paths,
 		ActiveRules:         args.ActiveRules,
@@ -1243,7 +1246,11 @@ func runProjectParsePhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		Tracker:             host.Tracker,
 		ParseCache:          host.ParseCache,
 		ResidentFiles:       host.ResidentFiles,
-	})
+	}
+	if parsed, ok := host.Preparse.Take(parseInput); ok {
+		return parsed, nil
+	}
+	return ParsePhase{Workers: args.Workers}.Run(ctx, parseInput)
 }
 
 func allowWarmResourceSourceDelta(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan) bool {

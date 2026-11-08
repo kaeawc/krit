@@ -33,6 +33,7 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		Reporter:               r.reporter,
 		Tracker:                r.tracker,
 		ParseCache:             r.sess.ParseCache,
+		Preparse:               r.preparse,
 		PrebuiltResolver:       r.resolver,
 		PrebuiltLibraryFacts:   r.sess.LibraryFacts,
 		PrebuiltAndroidProject: r.sess.AndroidProject,

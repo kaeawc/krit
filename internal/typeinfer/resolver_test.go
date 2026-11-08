@@ -488,7 +488,7 @@ func TestSmartCast_ScopeTable_Basic(t *testing.T) {
 	parent.Declare("x", &ResolvedType{Name: "String", FQN: "kotlin.String", Kind: TypeNullable, Nullable: true})
 
 	child := parent.NewScope()
-	child.SmartCasts["x"] = true
+	child.SetSmartCast("x")
 
 	// In parent scope, x should be nullable
 	got := parent.Lookup("x")
@@ -657,7 +657,7 @@ func TestSmartCast_NotAppliedOutsideScope(t *testing.T) {
 
 	// Create a child scope that has the smart cast (simulating if-body)
 	child := parent.NewScope()
-	child.SmartCasts["x"] = true
+	child.SetSmartCast("x")
 
 	// Parent should still see x as nullable
 	got := parent.Lookup("x")

@@ -225,6 +225,33 @@ func buildJVMBaseArgs() []string {
 	}
 }
 
+// buildOneShotJVMArgs returns the JVM flags for a one-shot oracle compile, a batch job with no pause
+// target. The parallel collector costs less CPU than G1 on the compiler's allocation pattern, and the
+// larger initial heap, code cache and metaspace avoid the full collections their growth triggers.
+// A garbage collector named in extra (KRIT_ORACLE_EXTRA_JVM_ARGS) replaces the default one.
+func buildOneShotJVMArgs(extra []string) []string {
+	args := []string{
+		"-XX:InitialRAMPercentage=6",
+		"-XX:ReservedCodeCacheSize=512m",
+		"-XX:MetaspaceSize=256m",
+		"-Djava.awt.headless=true",
+	}
+	if !namesCollector(extra) {
+		args = append([]string{"-XX:+UseParallelGC"}, args...)
+	}
+	return args
+}
+
+// namesCollector reports whether args select a garbage collector.
+func namesCollector(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-XX:+Use") && strings.HasSuffix(a, "GC") {
+			return true
+		}
+	}
+	return false
+}
+
 // appendAppCDSArgs appends AppCDS flags to args and returns the result.
 //
 // Mutually exclusive with Leyden AOT: on JDK 25+ where Project Leyden

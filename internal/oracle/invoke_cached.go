@@ -815,7 +815,7 @@ func runOracleOneShot(
 	// the first call this writes the per-jar `.aotconf` / `.jsa`
 	// under ~/.krit/cache/; subsequent one-shot calls reuse them
 	// and cut JVM startup cost roughly in half.
-	args := buildJVMBaseArgs()
+	args := buildOneShotJVMArgs(configuredExtraJVMArgs(opts))
 	args = appendOneShotStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,

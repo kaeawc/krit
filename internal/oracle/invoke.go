@@ -257,11 +257,8 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	// the same Leyden AOT / AppCDS startup-cache acceleration. On
 	// the first call this writes the per-jar `.aotconf` / `.jsa`
 	// under ~/.krit/cache/; subsequent one-shot calls reuse them.
-	// G1 + StringDeduplication + Xms1g come from buildJVMBaseArgs:
-	// G1 is the default GC on JDK 21+, dedup is a consistent
-	// 10-15% win on FQN-heavy FIR state, and -Xms1g avoids early
-	// heap-grow pauses without capping with -Xmx.
-	args := buildJVMBaseArgs()
+	// buildOneShotJVMArgs picks batch-oriented GC and sizing flags.
+	args := buildOneShotJVMArgs(configuredExtraJVMArgs(opts))
 	args = appendOneShotStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,

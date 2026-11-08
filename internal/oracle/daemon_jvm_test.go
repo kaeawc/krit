@@ -168,3 +168,22 @@ func TestStartupCacheArgsFollowTheLauncherVersion(t *testing.T) {
 		t.Fatalf("a JDK 21 launcher got AOT flags because PATH has JDK 25: %v", args)
 	}
 }
+
+func TestBuildOneShotJVMArgsUsesTheParallelCollector(t *testing.T) {
+	args := buildOneShotJVMArgs(nil)
+	if !containsFlag(args, "-XX:+UseParallelGC") {
+		t.Fatalf("one-shot compile should run on the parallel collector: %v", args)
+	}
+	for _, a := range args {
+		if a == "-XX:+UseG1GC" || strings.HasPrefix(a, "-Xms") || strings.HasPrefix(a, "-Xmx") {
+			t.Fatalf("unexpected flag %q: the heap size must scale with the machine: %v", a, args)
+		}
+	}
+}
+
+func TestBuildOneShotJVMArgsLeavesTheCollectorToTheCaller(t *testing.T) {
+	args := buildOneShotJVMArgs([]string{"-XX:+UseG1GC", "-Xmx2g"})
+	if containsFlag(args, "-XX:+UseParallelGC") {
+		t.Fatalf("a collector chosen by the caller must not be combined with another: %v", args)
+	}
+}

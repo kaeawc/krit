@@ -42,16 +42,18 @@ import (
 // the perfTiming JSON tree is part of the stable output schema. Re-arrange
 // with care.
 type runner struct {
-	f               *scanFlags
-	cfg             *config.Config
-	paths           []string
-	effectiveFormat string
-	maxFixLevel     rules.FixLevel
-	depthPreset     DepthPreset
-	start           time.Time
-	tracker         perf.Tracker
-	cpuProfileFile  *os.File
-	trackedFiles    trackedfiles.Index
+	// baselineSuppressed is the count of findings --baseline removed; nil without a baseline.
+	baselineSuppressed *int
+	f                  *scanFlags
+	cfg                *config.Config
+	paths              []string
+	effectiveFormat    string
+	maxFixLevel        rules.FixLevel
+	depthPreset        DepthPreset
+	start              time.Time
+	tracker            perf.Tracker
+	cpuProfileFile     *os.File
+	trackedFiles       trackedfiles.Index
 
 	// sess owns the long-lived caches, parse caches, project model, and
 	// oracle daemon. One-shot CLI builds a fresh sess in scan.Run; the
@@ -820,9 +822,11 @@ func (r *runner) applyBaselinesAndDiff() (handled bool, code int) {
 			beforeCount := r.allColumns.Len()
 			filtered := scanner.FilterColumnsByBaseline(r.allColumns, baseline, r.basePath)
 			r.allColumns = &filtered
+			suppressed := beforeCount - r.allColumns.Len()
+			r.baselineSuppressed = &suppressed
 			if *r.f.Verbose {
 				fmt.Fprintf(os.Stderr, "verbose: Baseline suppressed %d of %d findings\n",
-					beforeCount-r.allColumns.Len(), beforeCount)
+					suppressed, beforeCount)
 			}
 		}
 
@@ -1025,21 +1029,22 @@ func (r *runner) outputPhase() int {
 				},
 			},
 		},
-		Writer:           r.w,
-		Format:           r.effectiveFormat,
-		BasePath:         r.basePath,
-		AbsolutePaths:    *r.f.AbsolutePaths,
-		StartTime:        r.start,
-		Version:          Version,
-		ExperimentNames:  experiment.Current().Names(),
-		JSONCompact:      *r.f.Output != "",
-		PerfTimings:      perfSnap.Timings,
-		PerfRuleStats:    r.perfRuleStats,
-		CacheStats:       r.cacheStats,
-		Caches:           perfSnap.Caches,
-		CacheBudget:      perfSnap.Budget,
-		WarningsAsErrors: warningsAsErrors,
-		MinConfidence:    *r.f.MinConfidence,
+		Writer:             r.w,
+		BaselineSuppressed: r.baselineSuppressed,
+		Format:             r.effectiveFormat,
+		BasePath:           r.basePath,
+		AbsolutePaths:      *r.f.AbsolutePaths,
+		StartTime:          r.start,
+		Version:            Version,
+		ExperimentNames:    experiment.Current().Names(),
+		JSONCompact:        *r.f.Output != "",
+		PerfTimings:        perfSnap.Timings,
+		PerfRuleStats:      r.perfRuleStats,
+		CacheStats:         r.cacheStats,
+		Caches:             perfSnap.Caches,
+		CacheBudget:        perfSnap.Budget,
+		WarningsAsErrors:   warningsAsErrors,
+		MinConfidence:      *r.f.MinConfidence,
 	})
 	if outErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", outErr)

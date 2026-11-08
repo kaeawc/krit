@@ -129,6 +129,11 @@ func AppendCachedArgs(args []string, javaPath, jarPath, workload string, jdkMajo
 	return appendArgs(args, javaPath, jarPath, buildid.JarToken(jarPath), workload, jdkMajor, verbose, logf, false)
 }
 
+// AppendCachedArgsWithToken is AppendCachedArgs for a caller that already hashed the jar.
+func AppendCachedArgsWithToken(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any)) ([]string, bool) {
+	return appendArgs(args, javaPath, jarPath, token, workload, jdkMajor, verbose, logf, false)
+}
+
 func appendArgs(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any), record bool) ([]string, bool) {
 	if jdkMajor < 25 {
 		return args, false

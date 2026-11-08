@@ -262,7 +262,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	// 10-15% win on FQN-heavy FIR state, and -Xms1g avoids early
 	// heap-grow pauses without capping with -Xmx.
 	args := buildJVMBaseArgs()
-	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
+	args = appendOneShotStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
 		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),

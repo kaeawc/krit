@@ -816,7 +816,7 @@ func runOracleOneShot(
 	// under ~/.krit/cache/; subsequent one-shot calls reuse them
 	// and cut JVM startup cost roughly in half.
 	args := buildJVMBaseArgs()
-	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
+	args = appendOneShotStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
 		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),

@@ -271,12 +271,16 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 // `-Xlog:aot=off` is gated on the same JDK 25+ check because older JDKs
 // reject the unknown tag with an `[error][logging] Invalid tag 'aot'`
 // line on stdout, which itself corrupts the daemon handshake.
-func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) ([]string, bool) {
+func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose, record bool) ([]string, bool) {
 	token, err := hashutil.HashFile(jarPath)
 	if err != nil {
 		token = ""
 	}
-	return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", LauncherMajorVersion(javaPath), verbose, reporter().Verbosef)
+	jdkMajor := LauncherMajorVersion(javaPath)
+	if record {
+		return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", jdkMajor, verbose, reporter().Verbosef)
+	}
+	return jvmaot.AppendCachedArgsWithToken(args, javaPath, jarPath, token, "", jdkMajor, verbose, reporter().Verbosef)
 }
 
 // appendStartupCacheArgs prefers Project Leyden AOT (JDK 25+) and falls
@@ -284,8 +288,24 @@ func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) 
 // mutually exclusive on the JVM command line — combining them aborts
 // VM init with `Option AOTConfiguration cannot be used at the same time
 // with -Xshare:auto, ...`.
+//
+// The launcher must finalize a recorded profile when the JVM exits
+// (jvmaot.FinalizeRecording), so only persistent daemons use this; a
+// one-shot launch uses appendOneShotStartupCacheArgs.
 func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose bool) []string {
-	args, addedAOT := appendLeydenAOTArgs(args, javaPath, jarPath, verbose)
+	return appendStartupCache(args, javaPath, jarPath, verbose, true)
+}
+
+// appendOneShotStartupCacheArgs is appendStartupCacheArgs for a JVM whose
+// launcher never finalizes a recording: it uses a valid AOT cache but never
+// records a profile, which would otherwise leave a large unfinished profile
+// and the build lock behind on every run.
+func appendOneShotStartupCacheArgs(args []string, javaPath, jarPath string, verbose bool) []string {
+	return appendStartupCache(args, javaPath, jarPath, verbose, false)
+}
+
+func appendStartupCache(args []string, javaPath, jarPath string, verbose, record bool) []string {
+	args, addedAOT := appendLeydenAOTArgs(args, javaPath, jarPath, verbose, record)
 	if addedAOT {
 		return args
 	}

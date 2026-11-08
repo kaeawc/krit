@@ -271,7 +271,7 @@ func decodeShardNameTable(r *codecReader) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		names[i] = string(b)
+		names[i] = internBytes(b)
 	}
 	return names, nil
 }

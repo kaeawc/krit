@@ -237,7 +237,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	var javaPath string
 	if err := trackOracle(tracker, "javaLookup", func() error {
 		var err error
-		javaPath, err = exec.LookPath("java")
+		javaPath, err = JavaPath()
 		if err != nil {
 			return fmt.Errorf("java not found in PATH: %w", err)
 		}

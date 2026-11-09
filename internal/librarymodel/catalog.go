@@ -262,14 +262,6 @@ func (c *catalogDiscoveryCache) FindVersionCatalogSourcesForGradlePath(gradlePat
 	return ordered, true
 }
 
-func FindVersionCatalogPathForGradlePath(gradlePath string) (string, bool) {
-	catalogPaths, ok := FindVersionCatalogPathsForGradlePath(gradlePath)
-	if !ok {
-		return "", false
-	}
-	return catalogPaths[0], true
-}
-
 func FindVersionCatalogPathsForGradlePath(gradlePath string) ([]string, bool) {
 	sources, ok := FindVersionCatalogSourcesForGradlePath(gradlePath)
 	if !ok {

@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -146,5 +147,74 @@ func TestWriteVerboseOutputEscapesAndOmitsEmpty(t *testing.T) {
 	}
 	if got.VerboseOutput != message {
 		t.Fatalf("output=%q, want %q", got.VerboseOutput, message)
+	}
+}
+
+func TestVerboseBufferStreamsUntilSealed(t *testing.T) {
+	var wire bytes.Buffer
+	sink := daemon.NewStreamSink(bufio.NewWriter(&wire))
+	reporter := newVerboseReporter(true)
+	reporter.Verbosef("early\n")
+	attachSink := reporter.Verbose.(*verboseBuffer)
+	attachSink.attachSink(sink)
+	reporter.Verbosef("live\n")
+	sink.Seal()
+	reporter.Verbosef("late\n")
+
+	want := "{\"stream\":\"early\\n\"}\n{\"stream\":\"live\\n\"}\n"
+	if wire.String() != want {
+		t.Fatalf("streamed=%q, want %q", wire.String(), want)
+	}
+	var out bytes.Buffer
+	if err := writeVerboseOutput(&out, reporter); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != `,"verbose_output":"late\n"` {
+		t.Fatalf("remainder=%q", out.String())
+	}
+}
+
+func TestAnalyzeProject_StreamsVerboseOutputBeforeEnvelope(t *testing.T) {
+	state := newDaemonState(t.TempDir())
+	t.Cleanup(state.workspace.FlushBackgroundSaves)
+	writeKotlinFile(t, state.root, "Sample.kt", "package demo\n\nclass Sample\n")
+	var wire bytes.Buffer
+	writer := bufio.NewWriter(&wire)
+	ctx := daemon.WithStreamSink(context.Background(), daemon.NewStreamSink(writer))
+	request, err := json.Marshal(daemon.AnalyzeProjectArgs{Verbose: true, StreamVerbose: true, NoFir: true, NoTypeOracle: true, NoCache: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := handleAnalyzeProject(ctx, state, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.(daemon.RawResponseWriter).WriteRawResponse(ctx, writer); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSuffix(wire.Bytes(), []byte("\n")), []byte("\n"))
+	if len(lines) < 2 {
+		t.Fatalf("expected stream frames plus a response, got %q", wire.String())
+	}
+	streamed := ""
+	for _, line := range lines[:len(lines)-1] {
+		var frame struct {
+			Stream string `json:"stream"`
+		}
+		if err := json.Unmarshal(line, &frame); err != nil || frame.Stream == "" {
+			t.Fatalf("bad frame %q: %v", line, err)
+		}
+		streamed += frame.Stream
+	}
+	assertVerbosePhasesOnce(t, streamed)
+	var got daemon.AnalyzeProjectResult
+	if handled, err := daemon.ScanAnalyzeProjectResponse(lines[len(lines)-1], &got); err != nil || !handled {
+		t.Fatalf("final line not a response: handled=%v err=%v", handled, err)
+	}
+	if strings.Contains(got.VerboseOutput, "phase") && strings.Contains(streamed, got.VerboseOutput) && got.VerboseOutput != "" {
+		t.Fatalf("streamed text repeated in response: %q", got.VerboseOutput)
 	}
 }

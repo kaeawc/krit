@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cli/clishared"
@@ -109,9 +110,20 @@ type daemonProjectClient interface {
 	AnalyzeProject(daemon.AnalyzeProjectArgs) (daemon.AnalyzeProjectResult, error)
 }
 
+// streamingProjectClient is the optional client capability to receive
+// verbose output while the daemon scans.
+type streamingProjectClient interface {
+	AnalyzeProjectStream(daemon.AnalyzeProjectArgs, func(string)) (daemon.AnalyzeProjectResult, error)
+}
+
 func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) (bool, int) {
 	start := time.Now()
-	res, err := client.AnalyzeProject(buildDaemonAnalyzeArgs(f, paths))
+	announce := sync.OnceFunc(func() {
+		if !*f.Quiet {
+			fmt.Fprintln(os.Stderr, "info: using daemon")
+		}
+	})
+	res, err := analyzeViaDaemon(client, f, buildDaemonAnalyzeArgs(f, paths), announce)
 	if err != nil {
 		if daemonclient.IsBinaryHashMismatch(err) {
 			fmt.Fprintf(os.Stderr, "warning: krit daemon rejected request (%v); falling back to in-process. Restart it with: krit daemon restart\n", err)
@@ -131,9 +143,7 @@ func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) 
 		return false, 0
 	}
 
-	if !*f.Quiet {
-		fmt.Fprintln(os.Stderr, "info: using daemon")
-	}
+	announce()
 	if *f.Verbose {
 		fmt.Fprint(os.Stderr, res.VerboseOutput)
 	}
@@ -145,6 +155,19 @@ func runDaemonAnalyze(client daemonProjectClient, f *scanFlags, paths []string) 
 		return true, code
 	}
 	return true, writeDaemonFindings(f, res, start)
+}
+
+// analyzeViaDaemon streams verbose output to stderr when -v is set and the
+// client supports it. announce runs before the first streamed text.
+func analyzeViaDaemon(client daemonProjectClient, f *scanFlags, args daemon.AnalyzeProjectArgs, announce func()) (daemon.AnalyzeProjectResult, error) {
+	streamer, ok := client.(streamingProjectClient)
+	if !ok || !*f.Verbose {
+		return client.AnalyzeProject(args)
+	}
+	return streamer.AnalyzeProjectStream(args, func(text string) {
+		announce()
+		fmt.Fprint(os.Stderr, text)
+	})
 }
 
 // dispatchDaemonShortCircuits handles the per-flag post-response

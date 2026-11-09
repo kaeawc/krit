@@ -441,7 +441,9 @@ func redirectStdout(t *testing.T) func() string {
 		t.Fatalf("pipe: %v", err)
 	}
 	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = orig })
+	// Cleanup references r so GC can't finalize (close) the read end while
+	// callers ignore the returned func, which would break writes.
+	t.Cleanup(func() { os.Stdout = orig; _ = w.Close(); _ = r.Close() })
 	return func() string {
 		_ = w.Close()
 		buf, _ := io.ReadAll(r)

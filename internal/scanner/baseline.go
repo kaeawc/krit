@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
-	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // Baseline represents a set of suppressed finding IDs loaded from a Krit
@@ -155,33 +154,6 @@ func LoadBaselineJSON(path string) (*Baseline, error) {
 		b.CurrentIssues[id] = true
 	}
 	return b, nil
-}
-
-// WriteBaselineJSON writes a Baseline to a JSON file.  The output is sorted
-// for stable diffs.  Atomically replaces any existing file.
-func WriteBaselineJSON(path string, b *Baseline) error {
-	ms := make([]string, 0, len(b.ManuallySuppressed))
-	ci := make([]string, 0, len(b.CurrentIssues))
-	for id := range b.ManuallySuppressed {
-		ms = append(ms, id)
-	}
-	for id := range b.CurrentIssues {
-		ci = append(ci, id)
-	}
-	sort.Strings(ms)
-	sort.Strings(ci)
-	bj := baselineJSON{
-		ManuallySuppressed: ms,
-		CurrentIssues:      ci,
-	}
-	data, err := json.MarshalIndent(bj, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return fsutil.WriteFileAtomic(path, append(data, '\n'), 0o644)
 }
 
 // Contains checks if a finding ID is in the baseline (either section).

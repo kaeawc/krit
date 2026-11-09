@@ -189,65 +189,6 @@ func IsResolvedCall(ctx *api.Context, call uint32, fqNames ...string) bool {
 	return qualifiedNameMatchesAny(target.QualifiedName, fqNames...)
 }
 
-// ResolveReference returns the terminal identifier and the nearest enclosing
-// owner for a reference-like node. It intentionally does not treat substrings
-// in comments or string literals as references.
-func ResolveReference(ctx *api.Context, ref uint32) (SymbolRef, bool) {
-	if ctx.File == nil {
-		return SymbolRef{}, false
-	}
-	file := ctx.File
-	name := referenceName(file, ref)
-	if name == "" {
-		return SymbolRef{}, false
-	}
-	out := SymbolRef{Name: name, Node: ref, Owner: enclosingOwner(file, ref)}
-	if ctx.Resolver != nil {
-		if fqn := ctx.Resolver.ResolveImport(name, file); fqn != "" {
-			out.QualifiedName = fqn
-			out.Resolved = true
-			return out, true
-		}
-	}
-	if ctx.CodeIndex != nil {
-		var matched *scanner.Symbol
-		for i := range ctx.CodeIndex.Symbols {
-			sym := &ctx.CodeIndex.Symbols[i]
-			if sym.Name != name || sym.File != file.Path {
-				continue
-			}
-			node, ok := nodeForSymbol(file, *sym)
-			if !ok || !SameEnclosingOwner(file, node, ref) {
-				continue
-			}
-			if matched != nil {
-				return out, true
-			}
-			matched = sym
-			out.Node = node
-			out.Owner = enclosingOwner(file, node)
-			out.Resolved = true
-		}
-	}
-	return out, true
-}
-
-// SameDeclaration reports whether ref structurally points at decl. Resolved
-// data is preferred when available, with same-file declaration matching as the
-// conservative fallback.
-func SameDeclaration(ctx *api.Context, decl uint32, ref uint32) bool {
-	if ctx.File == nil || decl == 0 || ref == 0 {
-		return false
-	}
-	if sameNodeRange(ctx.File, decl, ref) {
-		return true
-	}
-	if sym, ok := ResolveReference(ctx, ref); ok && sym.Resolved && sym.Node != ref {
-		return sameNodeRange(ctx.File, decl, sym.Node)
-	}
-	return SameFileDeclarationMatch(ctx, decl, ref)
-}
-
 // SameEnclosingOwner reports whether both nodes belong to the same enclosing
 // class/object/interface owner. Top-level nodes share owner 0.
 func SameEnclosingOwner(file *scanner.File, a uint32, b uint32) bool {
@@ -296,40 +237,6 @@ func IsNullableExpression(ctx *api.Context, expr uint32) (bool, bool) {
 		return typ.Nullable, true
 	}
 	return false, false
-}
-
-// IsSupportedIsNullOrEmptyReceiver reports whether expr is a string,
-// collection, array, or map receiver supported by isNullOrEmpty.
-func IsSupportedIsNullOrEmptyReceiver(ctx *api.Context, expr uint32) bool {
-	typ, ok := ExpressionType(ctx, expr)
-	if !ok {
-		return false
-	}
-	return typeNameIn(typ.Type,
-		"kotlin.String", "String",
-		"kotlin.collections.Collection", "Collection",
-		"kotlin.collections.List", "List",
-		"kotlin.collections.Set", "Set",
-		"kotlin.collections.Map", "Map",
-		"kotlin.collections.MutableCollection", "MutableCollection",
-		"kotlin.collections.MutableList", "MutableList",
-		"kotlin.collections.MutableSet", "MutableSet",
-		"kotlin.collections.MutableMap", "MutableMap",
-		"kotlin.Array", "Array",
-	)
-}
-
-// IsMapLikeReceiver reports whether expr resolves to a Kotlin or Java map.
-func IsMapLikeReceiver(ctx *api.Context, expr uint32) bool {
-	typ, ok := ExpressionType(ctx, expr)
-	if !ok {
-		return false
-	}
-	return typeNameIn(typ.Type,
-		"kotlin.collections.Map", "Map",
-		"kotlin.collections.MutableMap", "MutableMap",
-		"java.util.Map", "java.util.MutableMap",
-	)
 }
 
 // EvalConst evaluates simple literal constants and same-file constant refs.
@@ -449,53 +356,6 @@ func DominatingTypeFacts(ctx *api.Context, node uint32) []TypeFact {
 	return facts
 }
 
-// EnclosingPermissionGuards returns obvious enclosing permission guards.
-func EnclosingPermissionGuards(ctx *api.Context, call uint32) []PermissionGuard {
-	if ctx.File == nil || call == 0 {
-		return nil
-	}
-	file := ctx.File
-	var guards []PermissionGuard
-	for body, ok := file.FlatParent(call); ok; body, ok = file.FlatParent(body) {
-		if file.FlatType(body) != "control_structure_body" {
-			continue
-		}
-		parent, ok := file.FlatParent(body)
-		if !ok || file.FlatType(parent) != "if_expression" {
-			continue
-		}
-		cond, thenBody, elseBody := ifParts(file, parent)
-		if cond == 0 || (body != thenBody && body != elseBody) {
-			continue
-		}
-		positiveBody := body == thenBody
-		for _, guard := range permissionGuardsInCondition(ctx, cond) {
-			guard.Positive = guard.Positive == positiveBody
-			guards = append(guards, guard)
-		}
-	}
-	return guards
-}
-
-// EnclosingCaughtExceptionHandlers returns enclosing catch handlers.
-func EnclosingCaughtExceptionHandlers(ctx *api.Context, call uint32) []ExceptionHandler {
-	if ctx.File == nil || call == 0 {
-		return nil
-	}
-	file := ctx.File
-	var out []ExceptionHandler
-	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
-		switch file.FlatType(cur) {
-		case "catch_block", "catch_clause":
-			name, typ := catchParameter(file, cur)
-			out = append(out, ExceptionHandler{Node: cur, ParamName: name, TypeName: typ})
-		case "function_declaration", "class_declaration", "object_declaration":
-			return out
-		}
-	}
-	return out
-}
-
 // TryCaughtExceptionHandlers returns the catch clauses of every try whose body contains call, innermost first.
 // Unlike EnclosingCaughtExceptionHandlers it ignores calls made inside a catch or finally block.
 func TryCaughtExceptionHandlers(ctx *api.Context, call uint32) []ExceptionHandler {
@@ -550,51 +410,6 @@ func OracleCallTarget(ctx *api.Context, idx uint32) string {
 		return flat.LookupCallTargetFlat(ctx.File, idx)
 	}
 	return lookup.LookupCallTarget(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
-}
-
-// OracleCallTargetSuspend resolves suspend-call evidence for a FlatNode.
-func OracleCallTargetSuspend(ctx *api.Context, idx uint32) (bool, bool) {
-	if ctx.Resolver == nil || ctx.File == nil {
-		return false, false
-	}
-	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-		lookup := cr.Oracle()
-		if flat, ok := lookup.(flatOracleLookup); ok {
-			return flat.LookupCallTargetSuspendFlat(ctx.File, idx)
-		}
-		return lookup.LookupCallTargetSuspend(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
-	}
-	return false, false
-}
-
-// OracleCallTargetAnnotations returns annotations on the resolved call target.
-func OracleCallTargetAnnotations(ctx *api.Context, idx uint32) []string {
-	if ctx.Resolver == nil || ctx.File == nil {
-		return nil
-	}
-	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-		lookup := cr.Oracle()
-		if flat, ok := lookup.(flatOracleLookup); ok {
-			return flat.LookupCallTargetAnnotationsFlat(ctx.File, idx)
-		}
-		return lookup.LookupCallTargetAnnotations(ctx.File.Path, ctx.File.FlatRow(idx)+1, ctx.File.FlatCol(idx)+1)
-	}
-	return nil
-}
-
-// OracleDiagnosticsForFlatRange returns compiler diagnostics inside a FlatNode.
-func OracleDiagnosticsForFlatRange(ctx *api.Context, idx uint32) []oracle.Diagnostic {
-	if ctx.Resolver == nil || ctx.File == nil {
-		return nil
-	}
-	if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-		lookup := cr.Oracle()
-		if flat, ok := lookup.(flatOracleLookup); ok {
-			return flat.LookupDiagnosticsForFlatRange(ctx.File, idx)
-		}
-		return lookup.LookupDiagnostics(ctx.File.Path)
-	}
-	return nil
 }
 
 func callExpressionParts(file *scanner.File, idx uint32) (uint32, uint32) {
@@ -875,13 +690,6 @@ func qualifiedPath(file *scanner.File, idx uint32) string {
 	}
 }
 
-func nodeForSymbol(file *scanner.File, sym scanner.Symbol) (uint32, bool) {
-	if file == nil || sym.StartByte < 0 || sym.EndByte <= sym.StartByte {
-		return 0, false
-	}
-	return file.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte))
-}
-
 func propertyInitializer(file *scanner.File, decl uint32) uint32 {
 	seenEquals := false
 	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
@@ -1040,24 +848,6 @@ func isCheckParts(file *scanner.File, node uint32) (expr uint32, typ uint32, pos
 	return expr, typ, positive, seenOperator && expr != 0 && typ != 0
 }
 
-func permissionGuardsInCondition(ctx *api.Context, cond uint32) []PermissionGuard {
-	file := ctx.File
-	var guards []PermissionGuard
-	file.FlatWalkNodes(cond, "call_expression", func(call uint32) {
-		localCtx := &api.Context{File: file, Resolver: ctx.Resolver, CodeIndex: ctx.CodeIndex}
-		target, ok := ResolveCallTarget(localCtx, call)
-		if !ok || target.CalleeName != "checkSelfPermission" {
-			return
-		}
-		for _, arg := range target.Arguments {
-			if val, ok := EvalConst(localCtx, arg.Node); ok && val.Kind == "string" {
-				guards = append(guards, PermissionGuard{Node: call, Permission: val, Positive: true})
-			}
-		}
-	})
-	return guards
-}
-
 func catchParameter(file *scanner.File, catchNode uint32) (string, string) {
 	var name, typ string
 	file.FlatWalkAllNodes(catchNode, func(node uint32) {
@@ -1076,12 +866,6 @@ func catchParameter(file *scanner.File, catchNode uint32) (string, string) {
 		}
 	})
 	return name, typ
-}
-
-func sameNodeRange(file *scanner.File, a uint32, b uint32) bool {
-	return file != nil && a != 0 && b != 0 &&
-		file.FlatStartByte(a) == file.FlatStartByte(b) &&
-		file.FlatEndByte(a) == file.FlatEndByte(b)
 }
 
 func simpleCallableName(qn string) string {

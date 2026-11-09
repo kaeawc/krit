@@ -737,12 +737,6 @@ func ScanLayoutResourcesWithStatsWorkers(resDir string, maxWorkers int) (*Resour
 	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, true, false, true, ValuesScanEvery)
 }
 
-// ScanValuesResourcesWithStatsWorkers scans only values resource directories from
-// an Android res/ directory.
-func ScanValuesResourcesWithStatsWorkers(resDir string, maxWorkers int) (*ResourceIndex, ResourceScanStats, error) {
-	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, false, true, false, ValuesScanEvery)
-}
-
 func ScanValuesResourcesWithStatsKindsWorkers(resDir string, maxWorkers int, kinds ValuesScanKind) (*ResourceIndex, ResourceScanStats, error) {
 	return scanResourceDirWithStatsWorkers(resDir, maxWorkers, false, true, false, kinds)
 }

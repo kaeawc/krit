@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -911,19 +910,6 @@ func TestCleanStaleDaemon_WithLivePIDButBrokenPort(t *testing.T) {
 // Integration test with real daemon (skipped without krit-fir.jar)
 // ===========================================================================
 
-// resetJDKVersionProbe drops the process-wide `java -version` probe so a real
-// daemon launch sees the real JDK. Earlier tests in the package put a fake
-// java on PATH; a probe cached from it would add JDK 25-only launch flags.
-func resetJDKVersionProbe(t *testing.T) {
-	t.Helper()
-	jdkVersionOnce = sync.Once{}
-	jdkVersionCache = 0
-	t.Cleanup(func() {
-		jdkVersionOnce = sync.Once{}
-		jdkVersionCache = 0
-	})
-}
-
 func findKritFirJar() string {
 	// KRIT_FIR_JAR first, then the worktree's Gradle output.
 	candidates := []string{
@@ -947,7 +933,6 @@ func TestIntegration_RealDaemon(t *testing.T) {
 	if jarPath == "" {
 		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
-	resetJDKVersionProbe(t)
 
 	d, err := StartDaemon(jarPath, nil, nil, false)
 	if err != nil {
@@ -970,7 +955,6 @@ func TestIntegration_RealDaemonWithPort(t *testing.T) {
 	if jarPath == "" {
 		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
-	resetJDKVersionProbe(t)
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -1005,7 +989,6 @@ func TestIntegration_ConnectOrStartDaemon(t *testing.T) {
 	if jarPath == "" {
 		t.Skip("krit-fir.jar not found — skipping real daemon integration test")
 	}
-	resetJDKVersionProbe(t)
 
 	tmpHome := t.TempDir()
 	origHome := os.Getenv("HOME")

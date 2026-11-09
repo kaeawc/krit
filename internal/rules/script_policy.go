@@ -100,12 +100,6 @@ func currentScriptPolicy() *ScriptPolicy {
 	return &currentScriptPolicyState().policy
 }
 
-// RuleRunsOnScript reports whether r runs on a script of kind k under the
-// active policy. It is true for ScriptNone.
-func RuleRunsOnScript(r *api.Rule, k scanner.ScriptKind) bool {
-	return ruleRunsOnScript(currentScriptPolicy(), r, k)
-}
-
 func ruleRunsOnScript(p *ScriptPolicy, r *api.Rule, k scanner.ScriptKind) bool {
 	if k == scanner.ScriptNone || r == nil {
 		return true

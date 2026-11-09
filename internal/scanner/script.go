@@ -42,11 +42,6 @@ func ScriptKindOf(path string) ScriptKind {
 	}
 }
 
-// IsKotlinScriptPath reports whether path names a Kotlin script (.kts).
-func IsKotlinScriptPath(path string) bool {
-	return ScriptKindOf(path) != ScriptNone
-}
-
 // ScriptKind returns the script kind of a Kotlin-language file. Gradle-language
 // files and non-script files report ScriptNone, so callers can gate script
 // policy on the result alone.

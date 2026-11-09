@@ -295,22 +295,3 @@ func ScanProfileWithProgress(
 		Findings: buildFindingsMap(raw.Findings),
 	}, nil
 }
-
-// ScanAllProfiles scans the target with every profile in ProfileNames
-// sequentially. Returns a map keyed by profile name. The sequential
-// execution lets krit's incremental cache warm up — the first scan
-// parses every file, the rest only re-evaluate rules.
-func ScanAllProfiles(ctx context.Context, opts ScanOptions) (map[string]*ScanResult, error) {
-	results := make(map[string]*ScanResult, len(ProfileNames))
-	for _, profile := range ProfileNames {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		res, err := ScanProfile(ctx, opts, profile)
-		if err != nil {
-			return nil, err
-		}
-		results[profile] = res
-	}
-	return results, nil
-}

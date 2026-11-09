@@ -159,20 +159,6 @@ func IsDefaultActive(name string) bool {
 	return !DefaultInactive[name]
 }
 
-// IsExperimental reports whether a rule's Maturity is MaturityExperimental.
-// Returns false for stable, deprecated, or unknown rule IDs.
-func IsExperimental(name string) bool {
-	ensureDefaultInactive()
-	return experimentalRules[name]
-}
-
-// IsDeprecated reports whether a rule's Maturity is MaturityDeprecated.
-// Returns false for stable, experimental, or unknown rule IDs.
-func IsDeprecated(name string) bool {
-	ensureDefaultInactive()
-	return deprecatedRules[name]
-}
-
 // ExpandWithRelated mutates disabledSet in place, adding every rule ID
 // that appears in the RelatedRules metadata of any rule already in the
 // set. The expansion is non-transitive: only one hop is followed. A
@@ -200,15 +186,6 @@ func ExpandWithRelated(disabledSet map[string]bool, registry []*api.Rule) {
 			disabledSet[related] = true
 		}
 	}
-}
-
-// IsNoisy reports whether a rule's effective Noisiness is NoisinessNoisy
-// (declared on Rule or derived from Precision). Used by the "strict"
-// preset to skip noisy rules; returns false for rules outside the
-// registry.
-func IsNoisy(name string) bool {
-	ensureDefaultInactive()
-	return noisyRules[name]
 }
 
 // ActiveRulesV2 filters api.Registry using config-driven activation.

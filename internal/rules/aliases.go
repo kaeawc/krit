@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,7 +28,7 @@ func AllSuppressionAliases() map[string][]string {
 		}
 		aliases := append(append([]string(nil), r.Aliases...), LintSuppressionAliases(r)...)
 		for _, name := range detektNames[r.ID] {
-			if !containsString(aliases, name) {
+			if !slices.Contains(aliases, name) {
 				aliases = append(aliases, name)
 			}
 		}
@@ -57,15 +58,6 @@ func detektNamesByRule() map[string][]string {
 		sort.Strings(names)
 	}
 	return out
-}
-
-func containsString(list []string, s string) bool {
-	for _, have := range list {
-		if have == s {
-			return true
-		}
-	}
-	return false
 }
 
 // extraLintAliases lists Android lint issue IDs that name a rule whose ID cannot be derived.

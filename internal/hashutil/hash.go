@@ -104,12 +104,6 @@ var activeHasher ContentHasher = xxh3Hasher{}
 // Hasher().New() instead of importing a specific algorithm.
 func Hasher() ContentHasher { return activeHasher }
 
-// SetContentHasher swaps the active hasher. Intended for benchmarks and
-// future algorithm experiments; production code should leave the default
-// (xxh3-256) in place. The swap is NOT safe for concurrent use — call it
-// during process init or from a test's SetUp before any hashing runs.
-func SetContentHasher(h ContentHasher) { activeHasher = h }
-
 // HasherName returns the Name() of the active ContentHasher. Embedded
 // in cache version tokens so an algorithm swap auto-invalidates every
 // cache that keys on content hash.

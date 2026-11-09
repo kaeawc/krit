@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -87,7 +88,7 @@ func Analyze(root, since string) (Report, error) {
 		if file == nil {
 			continue
 		}
-		rel := relPath(root, file.Path)
+		rel := fsutil.RelSlash(root, file.Path)
 		c := churn[rel]
 		if c == 0 {
 			if abs, err := filepath.Abs(file.Path); err == nil {
@@ -165,12 +166,4 @@ func fileComplexity(lines []string) int {
 		return 1
 	}
 	return complexity
-}
-
-func relPath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
 }

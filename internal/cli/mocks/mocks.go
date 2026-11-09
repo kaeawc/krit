@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/strutil"
 )
 
@@ -123,7 +124,7 @@ func scanFile(root, path, text string) []Mock {
 		mock := Mock{
 			Name:       name,
 			TargetType: strings.Trim(target, "?"),
-			File:       relPath(root, path),
+			File:       fsutil.RelSlash(root, path),
 			Line:       lineAt(text, offset),
 			Library:    library,
 		}
@@ -251,11 +252,4 @@ func isTestPath(path string) bool {
 		}
 	}
 	return false
-}
-
-func relPath(root, path string) string {
-	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(rel)
-	}
-	return filepath.ToSlash(path)
 }

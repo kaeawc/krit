@@ -75,28 +75,6 @@ func aotCachePath(jarPath string) (string, error) {
 	return jarCachePath(jarPath, ".aot")
 }
 
-var (
-	jdkVersionOnce  sync.Once
-	jdkVersionCache int
-)
-
-// cachedJDKMajorVersion returns the major version of the java binary in PATH,
-// caching the result after the first call to avoid repeated subprocess spawns.
-func cachedJDKMajorVersion() int {
-	jdkVersionOnce.Do(func() {
-		javaPath, err := exec.LookPath("java")
-		if err != nil {
-			return
-		}
-		jdkVersionCache = jdkMajorVersion(javaPath)
-	})
-	return jdkVersionCache
-}
-
-// CachedJDKMajorVersion exposes the oracle's java -version probe to other JVM
-// launchers so they use the same Leyden support detection.
-func CachedJDKMajorVersion() int { return cachedJDKMajorVersion() }
-
 // LauncherMajorVersion returns the major version of the given java launcher, probing each binary
 // once. AOT flags must be chosen from the JVM that runs, which JAVA_HOME can make differ from PATH.
 func LauncherMajorVersion(javaPath string) int { return PreflightJavaMajorVersion(javaPath) }

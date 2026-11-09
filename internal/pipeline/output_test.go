@@ -447,10 +447,3 @@ func TestOutputPhase_Run_FiltersParseErrorRegions(t *testing.T) {
 		t.Fatalf("valid run emitted verbose output %q", verbose.String())
 	}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

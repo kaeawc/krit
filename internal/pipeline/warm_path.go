@@ -128,16 +128,6 @@ func RulesNeedProjectModel(activeRules []*api.Rule) bool {
 	return false
 }
 
-func ModuleOnlyRules(activeRules []*api.Rule) []*api.Rule {
-	out := make([]*api.Rule, 0, len(activeRules))
-	for _, ru := range activeRules {
-		if ru != nil && ru.Needs.Has(api.NeedsModuleIndex) {
-			out = append(out, ru)
-		}
-	}
-	return out
-}
-
 func ClassifyCrossFileNeeds(activeRules []*api.Rule) (hasIndexBacked, hasParsedFiles, hasModuleAware bool) {
 	for _, ru := range activeRules {
 		if ru == nil {

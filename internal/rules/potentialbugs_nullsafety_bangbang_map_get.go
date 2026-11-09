@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/analyzers/nullflow"
@@ -336,24 +337,15 @@ func mapTypesCompatible(want, got typeinfer.ResolvedType) bool {
 	if mapTypeArgIsWildcard(want) {
 		return true
 	}
-	wantName := simpleTypeName(firstNonEmpty(want.FQN, want.Name))
-	gotName := simpleTypeName(firstNonEmpty(got.FQN, got.Name))
+	wantName := simpleTypeName(cmp.Or(want.FQN, want.Name))
+	gotName := simpleTypeName(cmp.Or(got.FQN, got.Name))
 	if wantName == "" || gotName == "" {
 		return false
 	}
 	if wantName == gotName {
 		return true
 	}
-	return typeinfer.MapJavaToKotlin(firstNonEmpty(got.FQN, got.Name)) == firstNonEmpty(want.FQN, want.Name)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
+	return typeinfer.MapJavaToKotlin(cmp.Or(got.FQN, got.Name)) == cmp.Or(want.FQN, want.Name)
 }
 
 func mapMemberType(ctx *api.Context, owner *typeinfer.ResolvedType, member string) *typeinfer.ResolvedType {

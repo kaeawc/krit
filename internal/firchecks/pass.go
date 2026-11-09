@@ -248,6 +248,8 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	result, err := outcome.result, outcome.err
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
+		// Always visible: the result holds only Go findings, which looks complete.
+		reporter().Warnf("warning: --fir checker failed (%v); results contain Go-only findings\n", err)
 		if verbose {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}

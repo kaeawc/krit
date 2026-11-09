@@ -20,6 +20,8 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+
+	"github.com/kaeawc/krit/internal/diag"
 )
 
 const verdictRule = "InjectDispatcher"
@@ -97,6 +99,25 @@ func TestStartPassCheckerErrorKeepsGoAndReportsVerbose(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "verbose: FIR checker error: daemon gone") {
 		t.Fatalf("missing verbose error: %s", output.String())
+	}
+}
+
+func TestStartPassCheckerErrorWarnsWithoutVerbose(t *testing.T) {
+	var warned bytes.Buffer
+	SetReporter(&diag.Reporter{Warning: &warned})
+	t.Cleanup(func() { SetReporter(nil) })
+	checker := NewFakeFirChecker()
+	checker.Err = errors.New("daemon gone")
+	base := []scanner.Finding{{File: "A.kt", Line: 1, Rule: verdictRule}}
+	got, err := StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"},
+	}).Finish(base)
+	if err != nil || !reflect.DeepEqual(got, base) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if !strings.Contains(warned.String(), "Go-only findings") || !strings.Contains(warned.String(), "daemon gone") {
+		t.Fatalf("missing warning: %q", warned.String())
 	}
 }
 

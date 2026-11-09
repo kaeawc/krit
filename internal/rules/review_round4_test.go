@@ -305,17 +305,67 @@ class CastTest {
     }
 
     @Test
-    fun resultIsLoadedSafely() {
-        val result = load()
-        result as? Loaded
-    }
-
-    @Test
     fun expressionBody() = load() as Loaded
 }
 `)
 	if len(findings) != 0 {
 		t.Fatalf("a trailing cast fails on the wrong type, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_SafeCastIsNotAnAssertion(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class SafeCastTest {
+    @Test
+    fun resultIsLoadedSafely() {
+        val result = load()
+        result as? Loaded
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("a safe cast never throws, so the test has no check, got %d", len(findings))
+	}
+}
+
+func TestTestWithoutAssertion_CastInsideRunTestCountsAsAssertion(t *testing.T) {
+	findings := runRuleByName(t, "TestWithoutAssertion", `
+package test
+
+import org.junit.Test
+
+class RunnerCastTest {
+    @Test
+    fun expressionBodyRunTest() = runTest {
+        val result = load()
+        result as Loaded
+    }
+
+    @Test
+    fun blockBodyRunBlocking() {
+        runBlocking {
+            val result = load()
+            result.inner as Inner
+        }
+    }
+
+    @Test
+    fun runTestWithoutCheck() = runTest {
+        load()
+    }
+
+    @Test
+    fun unknownWrapperCast() = withContext {
+        load() as Loaded
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("only runner-wrapped trailing casts count, got %d", len(findings))
 	}
 }
 

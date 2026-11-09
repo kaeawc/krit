@@ -169,14 +169,6 @@ func treeSitterDepVersion() string {
 	return tsDepVersion
 }
 
-// GrammarVersion returns the Kotlin grammar identifier. Kept for
-// back-compat with callers that pre-date per-language keys; new code
-// should prefer KotlinGrammarVersion / JavaGrammarVersion so the
-// intent is explicit.
-func GrammarVersion() string {
-	return KotlinGrammarVersion()
-}
-
 // kotlinTreeRepairRevision changes when a pre-parse rewrite or tree repair
 // changes the trees ParseKotlinFlat returns, so cached trees are not reused.
 const kotlinTreeRepairRevision = 1

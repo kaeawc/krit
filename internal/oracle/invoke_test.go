@@ -601,6 +601,30 @@ func TestRunOracleProcess_GracePeriodKillsAfterOutputWritten(t *testing.T) {
 	}
 }
 
+func TestRunOracleProcess_GrowingOutputExtendsGracePeriod(t *testing.T) {
+	sh := shBinary(t)
+	outputPath := filepath.Join(t.TempDir(), "types.json")
+
+	// Fake oracle: write the output in pieces with pauses longer than the grace
+	// period. A file still growing must not be force-killed and left truncated.
+	script := `printf '{"a":' > "$0"; sleep 1; printf '1,' >> "$0"; sleep 1; printf '"b":2}' >> "$0"`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := runOracleProcess(ctx, sh,
+		[]string{"-c", script, outputPath},
+		outputPath, 10*time.Second, 1200*time.Millisecond); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	body, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"a":1,"b":2}` {
+		t.Fatalf("output = %q, want the complete output", body)
+	}
+}
+
 func TestRunOracleProcess_PreexistingOutputDoesNotStartGracePeriod(t *testing.T) {
 	sh := shBinary(t)
 	tmp := t.TempDir()

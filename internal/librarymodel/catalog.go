@@ -1,6 +1,7 @@
 package librarymodel
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -114,7 +115,7 @@ func ParseSettingsVersionCatalogContent(content string) VersionCatalog {
 	}
 	content = stripGradleComments(content)
 	for _, match := range settingsLibraryRe.FindAllStringSubmatch(content, -1) {
-		version := firstNonEmpty(match[4], match[5])
+		version := cmp.Or(match[4], match[5])
 		catalog.Libraries[match[1]] = CatalogLibrary{
 			Group:   match[2],
 			Name:    match[3],
@@ -124,7 +125,7 @@ func ParseSettingsVersionCatalogContent(content string) VersionCatalog {
 	for _, match := range settingsPluginRe.FindAllStringSubmatch(content, -1) {
 		catalog.Plugins[match[1]] = CatalogPlugin{
 			ID:      match[2],
-			Version: firstNonEmpty(match[3], match[4]),
+			Version: cmp.Or(match[3], match[4]),
 		}
 	}
 	return catalog
@@ -260,31 +261,6 @@ func (c *catalogDiscoveryCache) FindVersionCatalogSourcesForGradlePath(gradlePat
 	}
 	normalizeCatalogSourceKinds(ordered)
 	return ordered, true
-}
-
-func FindVersionCatalogPathForGradlePath(gradlePath string) (string, bool) {
-	catalogPaths, ok := FindVersionCatalogPathsForGradlePath(gradlePath)
-	if !ok {
-		return "", false
-	}
-	return catalogPaths[0], true
-}
-
-func FindVersionCatalogPathsForGradlePath(gradlePath string) ([]string, bool) {
-	sources, ok := FindVersionCatalogSourcesForGradlePath(gradlePath)
-	if !ok {
-		return nil, false
-	}
-	paths := make([]string, 0, len(sources))
-	seen := make(map[string]bool)
-	for _, source := range sources {
-		if source.Kind == CatalogSourceSettingsProgrammatic || seen[source.Path] {
-			continue
-		}
-		seen[source.Path] = true
-		paths = append(paths, source.Path)
-	}
-	return paths, len(paths) > 0
 }
 
 func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource, bool) {
@@ -915,15 +891,6 @@ func knownOrPresentLatest(version string) VersionedPresence {
 		return KnownVersion(normalizeVersion(version))
 	}
 	return PresentAssumeLatestStable()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func parsePositiveInt(value string, fallback int) int {

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -121,7 +122,7 @@ func Analyze(root, base string) (Report, error) {
 		}
 		impacts = append(impacts, SymbolImpact{
 			Symbol:        symbolName(sym),
-			File:          relPath(root, sym.File),
+			File:          fsutil.RelSlash(root, sym.File),
 			Line:          sym.Line,
 			ConsumerFiles: len(consumers),
 			Modules:       modules,
@@ -239,12 +240,4 @@ func absPath(path string) string {
 		return filepath.ToSlash(path)
 	}
 	return filepath.ToSlash(abs)
-}
-
-func relPath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
 }

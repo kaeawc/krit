@@ -98,6 +98,13 @@ tasks.shadowJar {
         "org/jetbrains/kotlin/backend/konan/**",
         "org/jetbrains/kotlin/buildtools/api/js/**",
         "org/jetbrains/kotlin/buildtools/api/wasm/**",
+        "org/jetbrains/kotlin/fir/analysis/js/**",
+        "org/jetbrains/kotlin/fir/analysis/native/**",
+        "org/jetbrains/kotlin/fir/analysis/wasm/**",
+        "org/jetbrains/kotlin/fir/analysis/web/**",
+        "org/jetbrains/kotlin/cli/pipeline/web/**",
+        // Nothing outside this package references the JNA platform helpers (Win32/COM/X11 bindings).
+        "com/sun/jna/platform/**",
         "com/sun/jna/sunos-*/**",
         "com/sun/jna/freebsd-*/**",
         "com/sun/jna/openbsd-*/**",
@@ -114,6 +121,26 @@ tasks.shadowJar {
         "net/jpountz/util/linux/ppc64le/**",
         "net/jpountz/util/linux/s390x/**",
         "net/jpountz/util/linux/i386/**",
+        // JLine and Jansi terminal natives for platforms the krit CLI is not released for (it ships
+        // linux/darwin amd64+arm64 and windows amd64); the libraries fall back to a dumb terminal.
+        "com/sun/jna/win32-aarch64/**",
+        "org/jline/nativ/FreeBSD/**",
+        "org/jline/nativ/Windows/arm64/**",
+        "org/jline/nativ/Windows/x86/**",
+        "org/jline/nativ/Linux/arm/**",
+        "org/jline/nativ/Linux/armv6/**",
+        "org/jline/nativ/Linux/armv7/**",
+        "org/jline/nativ/Linux/ppc64/**",
+        "org/jline/nativ/Linux/x86/**",
+        "org/jline/nativ/Mac/x86/**",
+        "org/fusesource/jansi/internal/native/FreeBSD/**",
+        "org/fusesource/jansi/internal/native/Windows/x86/**",
+        "org/fusesource/jansi/internal/native/Linux/arm/**",
+        "org/fusesource/jansi/internal/native/Linux/armv6/**",
+        "org/fusesource/jansi/internal/native/Linux/armv7/**",
+        "org/fusesource/jansi/internal/native/Linux/ppc64/**",
+        "org/fusesource/jansi/internal/native/Linux/x86/**",
+        "org/fusesource/jansi/internal/native/Mac/x86/**",
     )
     manifest {
         attributes(

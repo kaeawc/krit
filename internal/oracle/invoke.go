@@ -389,6 +389,7 @@ func runOracleProcessMeasured(
 	defer ticker.Stop()
 
 	var outputSeenAt time.Time
+	var lastSeen os.FileInfo
 	result := oracleProcessResult{OutputPath: outputPath}
 	for {
 		select {
@@ -405,6 +406,12 @@ func runOracleProcessMeasured(
 			return result, nil
 		case <-ticker.C:
 			if !outputSeenAt.IsZero() {
+				// A file still growing is a write in progress, not a finished output
+				// waiting on a slow exit. Restart the grace window so it is never cut short.
+				if fi, err := os.Stat(outputPath); err == nil && !sameOracleFile(lastSeen, fi) {
+					lastSeen, outputSeenAt = fi, time.Now()
+					continue
+				}
 				if time.Since(outputSeenAt) >= graceExit {
 					if verbose {
 						reporter().Verbosef("verbose: krit-fir wrote output but subprocess did not exit within %s grace period; force-killing\n", graceExit)
@@ -417,7 +424,7 @@ func runOracleProcessMeasured(
 				continue
 			}
 			if fi, err := os.Stat(outputPath); err == nil && fi.Size() > 0 && !sameOracleFile(preStart, fi) {
-				outputSeenAt = time.Now()
+				lastSeen, outputSeenAt = fi, time.Now()
 				if verbose {
 					reporter().Verbosef("verbose: krit-fir wrote %d bytes to %s; waiting up to %s for clean exit\n", fi.Size(), outputPath, graceExit)
 				}

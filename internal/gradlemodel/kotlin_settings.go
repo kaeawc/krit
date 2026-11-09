@@ -1,6 +1,7 @@
 package gradlemodel
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"sort"
@@ -207,16 +208,6 @@ var kotlinFlagAllowlist = map[string]kotlinFlagKind{
 	"-Xtype-enhancement-improvements-strict-mode":    flagBoolean,
 	"-Xunrestricted-builder-inference":               flagBoolean,
 	"-Xwhen-guards":                                  flagBoolean,
-}
-
-// KotlinFlagAllowlist returns the allowlisted flag names, sorted.
-func KotlinFlagAllowlist() []string {
-	names := make([]string, 0, len(kotlinFlagAllowlist))
-	for name := range kotlinFlagAllowlist {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // protectedKotlinArgs are arguments krit owns: output, classpath, plugin, JDK,
@@ -427,7 +418,7 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 
 	// Free compiler arguments are appended after the DSL values by Gradle, so a
 	// -language-version there wins.
-	language := firstNonEmpty(parsed.languageVersion, opts.LanguageVersion)
+	language := cmp.Or(parsed.languageVersion, opts.LanguageVersion)
 	switch {
 	case language != "" && !versionRe.MatchString(language):
 		s.Notes = append(s.Notes, fmt.Sprintf("languageVersion %q is not a major.minor version; ignored", language))
@@ -446,7 +437,7 @@ func ResolveKotlinSettings(opts *KotlinOptions) KotlinSettings {
 	}
 	s.LanguageVersion = language
 
-	api := firstNonEmpty(parsed.apiVersion, opts.APIVersion)
+	api := cmp.Or(parsed.apiVersion, opts.APIVersion)
 	switch {
 	case api != "" && !versionRe.MatchString(api):
 		s.Notes = append(s.Notes, fmt.Sprintf("apiVersion %q is not a major.minor version; ignored", api))
@@ -606,15 +597,6 @@ func intersect(sets []KotlinSettings, get func(KotlinSettings) []string) []strin
 		}
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func sortedUnique(in []string) []string {

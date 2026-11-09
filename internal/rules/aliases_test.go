@@ -2,6 +2,7 @@ package rules
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"testing"
 
@@ -116,7 +117,7 @@ func TestAllSuppressionAliases_IncludesDetektStyleNames(t *testing.T) {
 	}
 	got := AllSuppressionAliases()
 	for rule, detekt := range want {
-		if !containsString(got[rule], detekt) {
+		if !slices.Contains(got[rule], detekt) {
 			t.Errorf("aliases for %s = %v, want %s", rule, got[rule], detekt)
 		}
 	}

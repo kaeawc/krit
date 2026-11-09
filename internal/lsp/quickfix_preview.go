@@ -103,10 +103,10 @@ func buildUnifiedPreviewDiff(label, before, after string) string {
 		return ""
 	}
 
-	oldStart := maxInt(prefix-quickFixPreviewContextLines, 0)
-	newStart := maxInt(prefix-quickFixPreviewContextLines, 0)
-	oldEnd := minInt(len(beforeLines)-suffix+quickFixPreviewContextLines, len(beforeLines))
-	newEnd := minInt(len(afterLines)-suffix+quickFixPreviewContextLines, len(afterLines))
+	oldStart := max(prefix-quickFixPreviewContextLines, 0)
+	newStart := max(prefix-quickFixPreviewContextLines, 0)
+	oldEnd := min(len(beforeLines)-suffix+quickFixPreviewContextLines, len(beforeLines))
+	newEnd := min(len(afterLines)-suffix+quickFixPreviewContextLines, len(afterLines))
 
 	oldChangedStart := prefix
 	oldChangedEnd := len(beforeLines) - suffix
@@ -123,16 +123,16 @@ func buildUnifiedPreviewDiff(label, before, after string) string {
 		formatUnifiedRange(newStart+1, newEnd-newStart),
 	)
 
-	for _, line := range beforeLines[oldStart:minInt(oldChangedStart, oldEnd)] {
+	for _, line := range beforeLines[oldStart:min(oldChangedStart, oldEnd)] {
 		writeUnifiedDiffLine(&sb, ' ', line)
 	}
-	for _, line := range beforeLines[maxInt(oldChangedStart, oldStart):minInt(oldChangedEnd, oldEnd)] {
+	for _, line := range beforeLines[max(oldChangedStart, oldStart):min(oldChangedEnd, oldEnd)] {
 		writeUnifiedDiffLine(&sb, '-', line)
 	}
-	for _, line := range afterLines[maxInt(newChangedStart, newStart):minInt(newChangedEnd, newEnd)] {
+	for _, line := range afterLines[max(newChangedStart, newStart):min(newChangedEnd, newEnd)] {
 		writeUnifiedDiffLine(&sb, '+', line)
 	}
-	for _, line := range beforeLines[maxInt(oldChangedEnd, oldStart):oldEnd] {
+	for _, line := range beforeLines[max(oldChangedEnd, oldStart):oldEnd] {
 		writeUnifiedDiffLine(&sb, ' ', line)
 	}
 
@@ -151,7 +151,7 @@ func diffLines(content string) []string {
 }
 
 func commonPrefixLen(a, b []string) int {
-	limit := minInt(len(a), len(b))
+	limit := min(len(a), len(b))
 	for i := 0; i < limit; i++ {
 		if a[i] != b[i] {
 			return i
@@ -161,7 +161,7 @@ func commonPrefixLen(a, b []string) int {
 }
 
 func commonSuffixLen(a, b []string) int {
-	limit := minInt(len(a), len(b))
+	limit := min(len(a), len(b))
 	for i := 0; i < limit; i++ {
 		if a[len(a)-1-i] != b[len(b)-1-i] {
 			return i
@@ -183,18 +183,4 @@ func writeUnifiedDiffLine(sb *strings.Builder, prefix byte, line string) {
 	if !strings.HasSuffix(line, "\n") {
 		sb.WriteByte('\n')
 	}
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

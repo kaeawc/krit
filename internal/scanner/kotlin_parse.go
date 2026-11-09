@@ -26,6 +26,7 @@ func ParseKotlinFlat(ctx context.Context, parser *sitter.Parser, content []byte)
 	if err != nil {
 		return nil, err
 	}
+	defer tree.Close()
 	ft := normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 	if chains := findMisparsedAnnotationChains(ft, src); len(chains) > 0 {
 		var spans [][2]uint32
@@ -34,6 +35,7 @@ func ParseKotlinFlat(ctx context.Context, parser *sitter.Parser, content []byte)
 		}
 		tree2, err := parser.ParseCtx(ctx, nil, blankSpans(src, spans))
 		if err == nil {
+			defer tree2.Close()
 			ft2 := normalizeExplicitBackingFields(flattenTree(tree2.RootNode()), content)
 			ft = graftAnnotatedDeclarations(ctx, parser, src, ft, ft2, chains)
 		}

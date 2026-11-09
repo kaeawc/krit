@@ -99,7 +99,7 @@ func isTestSupportFile(path string) bool {
 	if scanner.IsTestFile(path) {
 		return true
 	}
-	lower := strings.ToLower(path)
+	lower := scanner.LowerPath(path)
 	return strings.Contains(lower, "-testing/") ||
 		strings.Contains(lower, "/testing/") ||
 		strings.Contains(lower, "/test-utils/") ||

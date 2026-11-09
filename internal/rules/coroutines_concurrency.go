@@ -670,7 +670,7 @@ func flatNodeInsideCallNamed(file *scanner.File, idx uint32, name string) bool {
 
 // pathIsSampleOrPlayground reports whether path is under a sample or playground source tree.
 func pathIsSampleOrPlayground(path string) bool {
-	lower := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	lower := scanner.LowerSlashPath(path)
 	for _, seg := range []string{"/sample/", "/samples/", "/playground/"} {
 		if strings.Contains(lower, seg) {
 			return true

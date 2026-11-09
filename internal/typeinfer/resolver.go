@@ -143,18 +143,32 @@ type ScopeTable struct {
 	EndByte         uint32                   // byte offset where this scope ends
 }
 
-// NewScope creates a child scope.
+// NewScope creates a child scope. Only Entries is allocated up front; the
+// smart-cast and entry-start maps are created on first write because most
+// scopes never need them.
 func (s *ScopeTable) NewScope() *ScopeTable {
 	child := &ScopeTable{
-		Parent:          s,
-		Entries:         make(map[string]*ResolvedType),
-		EntryStarts:     make(map[string]uint32),
-		SmartCasts:      make(map[string]bool),
-		SmartCastStarts: make(map[string]uint32),
-		SmartCastTypes:  make(map[string]*ResolvedType),
+		Parent:  s,
+		Entries: make(map[string]*ResolvedType),
 	}
 	s.Children = append(s.Children, child)
 	return child
+}
+
+// SetSmartCast marks name as known non-null throughout this scope.
+func (s *ScopeTable) SetSmartCast(name string) {
+	if s.SmartCasts == nil {
+		s.SmartCasts = make(map[string]bool)
+	}
+	s.SmartCasts[name] = true
+}
+
+// SetSmartCastType records that name is narrowed to typ throughout this scope.
+func (s *ScopeTable) SetSmartCastType(name string, typ *ResolvedType) {
+	if s.SmartCastTypes == nil {
+		s.SmartCastTypes = make(map[string]*ResolvedType)
+	}
+	s.SmartCastTypes[name] = typ
 }
 
 // NewScopeForNode creates a child scope with byte range from the given node.

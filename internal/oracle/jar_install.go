@@ -111,7 +111,8 @@ func FindBackendJar(b Backend, scanPaths []string) string {
 	}
 	// Development builds share a content-addressed jar across worktrees.
 	// Keep release-installed candidates ahead of this additive lookup.
-	if devPath := devjar.CachePath(base, scanPaths); devPath != "" {
+	devPath := devjar.CachePath(base, scanPaths)
+	if devPath != "" {
 		candidates = append(candidates, devPath)
 	}
 
@@ -143,6 +144,9 @@ func FindBackendJar(b Backend, scanPaths []string) string {
 
 	for _, path := range candidates {
 		if _, err := os.Stat(path); err == nil {
+			if path == devPath {
+				devjar.MarkUsed(path)
+			}
 			return path
 		}
 	}

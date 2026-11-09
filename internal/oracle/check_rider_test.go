@@ -40,6 +40,7 @@ exit 0
 	if err := os.WriteFile(filepath.Join(dir, "java"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("JAVA_HOME", "")
 	return argsFile

@@ -271,7 +271,7 @@ func testingQualityRuleShouldRunInFile(file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	lower := strings.ToLower(file.Path)
+	lower := scanner.LowerPath(file.Path)
 	return isTestSupportFile(file.Path) ||
 		strings.HasSuffix(lower, "test.kt") ||
 		(strings.Contains(lower, "/tests/fixtures/") && strings.Contains(lower, "/testing-quality/"))

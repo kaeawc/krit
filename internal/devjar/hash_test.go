@@ -1,9 +1,11 @@
 package devjar
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSourceHashTracksInputs(t *testing.T) {
@@ -147,5 +149,43 @@ func TestCacheDirHonorsOverride(t *testing.T) {
 	t.Setenv("HOME", home)
 	if got, want := CacheDir(), filepath.Join(home, ".krit", "jars", "dev"); got != want {
 		t.Fatalf("CacheDir() without override = %q, want %q", got, want)
+	}
+}
+
+func TestMarkUsedPrunesOldJarsAndKeepsUsed(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	var used string
+	for i := 0; i < 9; i++ {
+		dir := filepath.Join(root, fmt.Sprintf("hash%d", i))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		jar := filepath.Join(dir, "krit-fir.jar")
+		if err := os.WriteFile(jar, []byte("jar"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, old.Add(time.Duration(i)*time.Hour), old.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			used = jar
+		}
+	}
+	MarkUsed(used)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	// hash0 was just used; the 5 newest others plus it survive, plus the prune stamp.
+	if len(names) != 7 {
+		t.Fatalf("entries = %v", names)
+	}
+	if _, err := os.Stat(used); err != nil {
+		t.Fatal(err)
 	}
 }

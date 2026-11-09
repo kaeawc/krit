@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/groovy"
@@ -237,15 +238,16 @@ func ParseKotlinFileCached(ctx context.Context, path string, pc *ParseCache) (*F
 	}
 
 	if tree, ok := pc.Load(path, content); ok {
-		return newKotlinFileFromFlatTree(path, content, tree), nil
+		return newKotlinFileFromFlatTreeLines(path, content, tree, splitSourceLinesOwned(content)), nil
 	}
 
 	parser := GetKotlinParser()
 	defer PutKotlinParser(parser)
-	file, err := ParseKotlinFile(ctx, parser, path, content)
+	ft, err := ParseKotlinFlat(ctx, parser, content)
 	if err != nil {
 		return nil, err
 	}
+	file := newKotlinFileFromFlatTreeLines(path, content, ft, splitSourceLinesOwned(content))
 	if file.FlatTree != nil {
 		_ = pc.SaveAsync(path, content, file.FlatTree)
 	}
@@ -253,11 +255,15 @@ func ParseKotlinFileCached(ctx context.Context, path string, pc *ParseCache) (*F
 }
 
 func newKotlinFileFromFlatTree(path string, content []byte, tree *FlatTree) *File {
+	return newKotlinFileFromFlatTreeLines(path, content, tree, splitSourceLines(content))
+}
+
+func newKotlinFileFromFlatTreeLines(path string, content []byte, tree *FlatTree, lines []string) *File {
 	return &File{
 		Path:     internString(path),
 		Language: LangKotlin,
 		Content:  content,
-		Lines:    splitSourceLines(content),
+		Lines:    lines,
 		FlatTree: tree,
 	}
 }
@@ -308,6 +314,7 @@ func ParseGradleScript(ctx context.Context, path string, content []byte, metadat
 		defer PutGroovyParser(parser)
 		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
 			file.FlatTree = flattenTree(tree.RootNode())
+			tree.Close()
 		}
 	}
 	return file
@@ -627,10 +634,11 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 
 	var lines []string
 	if opts.buildLines {
-		lines = splitSourceLines(content)
+		lines = splitSourceLinesOwned(content)
 	}
 	var flatTree *FlatTree
 	if tree != nil {
+		defer tree.Close()
 		flattenStart := time.Now()
 		flatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 		if opts.perf != nil {
@@ -668,7 +676,7 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 func newJavaFileFromFlatTreeWithOptions(path string, content []byte, tree *FlatTree, buildLines bool) *File {
 	var lines []string
 	if buildLines {
-		lines = splitSourceLines(content)
+		lines = splitSourceLinesOwned(content)
 	}
 	return &File{
 		Path:     internString(path),
@@ -907,7 +915,22 @@ func ReadLines(path string) ([]string, error) {
 // text, so line-based rules see `package a` instead of `\ufeffpackage a`. LineOffset works on Content,
 // so offsets are unaffected.
 func splitSourceLines(content []byte) []string {
-	lines := strings.Split(string(content), "\n")
+	return splitSourceText(string(content))
+}
+
+// splitSourceLinesOwned is splitSourceLines without the copy of content: the
+// lines alias content. Only call it when the File being built is the sole owner
+// of content and nothing mutates it afterwards, as with a buffer just read from
+// disk. It avoids holding every source file in memory twice.
+func splitSourceLinesOwned(content []byte) []string {
+	if len(content) == 0 {
+		return splitSourceText("")
+	}
+	return splitSourceText(unsafe.String(unsafe.SliceData(content), len(content)))
+}
+
+func splitSourceText(text string) []string {
+	lines := strings.Split(text, "\n")
 	if len(lines) > 0 {
 		lines[0] = strings.TrimPrefix(lines[0], "\ufeff")
 	}

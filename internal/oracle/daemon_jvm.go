@@ -40,6 +40,7 @@ func jarCachePath(jarPath, suffix string) (string, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return "", err
 	}
+	jvmaot.PruneStaleCaches(cacheDir, hash)
 	return filepath.Join(cacheDir, "krit-types-"+hash+suffix), nil
 }
 
@@ -95,6 +96,10 @@ func cachedJDKMajorVersion() int {
 // CachedJDKMajorVersion exposes the oracle's java -version probe to other JVM
 // launchers so they use the same Leyden support detection.
 func CachedJDKMajorVersion() int { return cachedJDKMajorVersion() }
+
+// LauncherMajorVersion returns the major version of the given java launcher, probing each binary
+// once. AOT flags must be chosen from the JVM that runs, which JAVA_HOME can make differ from PATH.
+func LauncherMajorVersion(javaPath string) int { return PreflightJavaMajorVersion(javaPath) }
 
 // jdkMajorVersion parses the major version from the output of "java -version".
 // Returns 0 on any error; callers should treat 0 as "unknown, fall back to
@@ -221,6 +226,33 @@ func buildJVMBaseArgs() []string {
 	}
 }
 
+// buildOneShotJVMArgs returns the JVM flags for a one-shot oracle compile, a batch job with no pause
+// target. The parallel collector costs less CPU than G1 on the compiler's allocation pattern, and the
+// larger initial heap, code cache and metaspace avoid the full collections their growth triggers.
+// A garbage collector named in extra (KRIT_ORACLE_EXTRA_JVM_ARGS) replaces the default one.
+func buildOneShotJVMArgs(extra []string) []string {
+	args := []string{
+		"-XX:InitialRAMPercentage=6",
+		"-XX:ReservedCodeCacheSize=512m",
+		"-XX:MetaspaceSize=256m",
+		"-Djava.awt.headless=true",
+	}
+	if !namesCollector(extra) {
+		args = append([]string{"-XX:+UseParallelGC"}, args...)
+	}
+	return args
+}
+
+// namesCollector reports whether args select a garbage collector.
+func namesCollector(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-XX:+Use") && strings.HasSuffix(a, "GC") {
+			return true
+		}
+	}
+	return false
+}
+
 // appendAppCDSArgs appends AppCDS flags to args and returns the result.
 //
 // Mutually exclusive with Leyden AOT: on JDK 25+ where Project Leyden
@@ -267,12 +299,16 @@ func appendAppCDSArgs(args []string, jarPath string, verbose bool) []string {
 // `-Xlog:aot=off` is gated on the same JDK 25+ check because older JDKs
 // reject the unknown tag with an `[error][logging] Invalid tag 'aot'`
 // line on stdout, which itself corrupts the daemon handshake.
-func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) ([]string, bool) {
+func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose, record bool) ([]string, bool) {
 	token, err := hashutil.HashFile(jarPath)
 	if err != nil {
 		token = ""
 	}
-	return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", cachedJDKMajorVersion(), verbose, reporter().Verbosef)
+	jdkMajor := LauncherMajorVersion(javaPath)
+	if record {
+		return jvmaot.AppendArgsWithToken(args, javaPath, jarPath, token, "", jdkMajor, verbose, reporter().Verbosef)
+	}
+	return jvmaot.AppendCachedArgsWithToken(args, javaPath, jarPath, token, "", jdkMajor, verbose, reporter().Verbosef)
 }
 
 // appendStartupCacheArgs prefers Project Leyden AOT (JDK 25+) and falls
@@ -280,8 +316,24 @@ func appendLeydenAOTArgs(args []string, javaPath, jarPath string, verbose bool) 
 // mutually exclusive on the JVM command line — combining them aborts
 // VM init with `Option AOTConfiguration cannot be used at the same time
 // with -Xshare:auto, ...`.
+//
+// The launcher must finalize a recorded profile when the JVM exits
+// (jvmaot.FinalizeRecording), so only persistent daemons use this; a
+// one-shot launch uses appendOneShotStartupCacheArgs.
 func appendStartupCacheArgs(args []string, javaPath, jarPath string, verbose bool) []string {
-	args, addedAOT := appendLeydenAOTArgs(args, javaPath, jarPath, verbose)
+	return appendStartupCache(args, javaPath, jarPath, verbose, true)
+}
+
+// appendOneShotStartupCacheArgs is appendStartupCacheArgs for a JVM whose
+// launcher never finalizes a recording: it uses a valid AOT cache but never
+// records a profile, which would otherwise leave a large unfinished profile
+// and the build lock behind on every run.
+func appendOneShotStartupCacheArgs(args []string, javaPath, jarPath string, verbose bool) []string {
+	return appendStartupCache(args, javaPath, jarPath, verbose, false)
+}
+
+func appendStartupCache(args []string, javaPath, jarPath string, verbose, record bool) []string {
+	args, addedAOT := appendLeydenAOTArgs(args, javaPath, jarPath, verbose, record)
 	if addedAOT {
 		return args
 	}

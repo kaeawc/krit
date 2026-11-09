@@ -75,7 +75,7 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // bytes times many rows); interning collapses that to uint32 indexes
 // and a de-duplicated string list.
 // v4: embedded the assembled lookup maps (symbolsByName, refCountByName,
-// refFilesByName, nonCommentRefFilesByName,
+// refFilesByName,
 // nonCommentRefCountByNameFile) plus the serialized bloom filter so a
 // warm hit can skip the lookup-map rebuild phase entirely.
 // v5: force rebuild after the FlatFindChild sentinel-collision fix (see
@@ -384,9 +384,11 @@ func packLookup(idx *CodeIndex, p *cachePayload) packedLookup {
 	}
 
 	// nonCommentRefFilesByName
-	out.NCRefFilesKeys = make([]uint32, 0, len(idx.nonCommentRefFilesByName))
-	out.NCRefFilesValues = make([][]uint32, 0, len(idx.nonCommentRefFilesByName))
-	for name, files := range idx.nonCommentRefFilesByName {
+	// The on-disk format still stores this set; it equals the key set of
+	// nonCommentRefCountByNameFile, so derive it from there.
+	out.NCRefFilesKeys = make([]uint32, 0, len(idx.nonCommentRefCountByNameFile))
+	out.NCRefFilesValues = make([][]uint32, 0, len(idx.nonCommentRefCountByNameFile))
+	for name, files := range idx.nonCommentRefCountByNameFile {
 		vals := make([]uint32, 0, len(files))
 		for f := range files {
 			vals = append(vals, intr.intern(f))
@@ -674,24 +676,22 @@ func (p cachePayload) unpackRefFiles(idx *CodeIndex, getStr func(uint32) (string
 	return true
 }
 
-func (p cachePayload) unpackNCRefFiles(idx *CodeIndex, getStr func(uint32) (string, bool)) bool {
+// unpackNCRefFiles only validates the stored non-comment file sets. The lookup
+// keeps them as the key set of nonCommentRefCountByNameFile instead of a
+// second map per name.
+func (p cachePayload) unpackNCRefFiles(getStr func(uint32) (string, bool)) bool {
 	if len(p.Lookup.NCRefFilesKeys) != len(p.Lookup.NCRefFilesValues) {
 		return false
 	}
 	for i, nameIdx := range p.Lookup.NCRefFilesKeys {
-		name, ok := getStr(nameIdx)
-		if !ok {
+		if _, ok := getStr(nameIdx); !ok {
 			return false
 		}
-		set := make(map[string]bool, len(p.Lookup.NCRefFilesValues[i]))
 		for _, fIdx := range p.Lookup.NCRefFilesValues[i] {
-			f, ok := getStr(fIdx)
-			if !ok {
+			if _, ok := getStr(fIdx); !ok {
 				return false
 			}
-			set[f] = true
 		}
-		idx.nonCommentRefFilesByName[name] = set
 	}
 	return true
 }
@@ -751,7 +751,6 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 		symbolsByFQN:                 make(map[string]Symbol),
 		refCountByName:               make(map[string]int, len(p.Lookup.RefCountKeys)),
 		refFilesByName:               make(map[string]map[string]bool, len(p.Lookup.RefFilesKeys)),
-		nonCommentRefFilesByName:     make(map[string]map[string]bool, len(p.Lookup.NCRefFilesKeys)),
 		nonCommentRefCountByNameFile: make(map[string]map[string]int, len(p.Lookup.NCRefCountKeys)),
 	}
 
@@ -764,7 +763,7 @@ func (p cachePayload) unpackFull() (*CodeIndex, bool) {
 	if !p.unpackRefFiles(idx, getStr) {
 		return nil, false
 	}
-	if !p.unpackNCRefFiles(idx, getStr) {
+	if !p.unpackNCRefFiles(getStr) {
 		return nil, false
 	}
 	if !p.unpackNCRefCounts(idx, getStr) {

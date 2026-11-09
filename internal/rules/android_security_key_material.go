@@ -331,7 +331,7 @@ func prngFromSystemTimeCryptoFile(file *scanner.File) bool {
 }
 
 func prngFromSystemTimeTestPath(path string) bool {
-	path = strings.ToLower(filepath.ToSlash(path))
+	path = filepath.ToSlash(scanner.LowerPath(path))
 	if strings.Contains(path, "/tests/fixtures/") {
 		return false
 	}

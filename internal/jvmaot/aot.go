@@ -104,6 +104,7 @@ func PathsWithToken(token, jarPath, workload string) (configPath, cachePath, ski
 	}
 	// The "krit-types-" prefix predates krit-fir; it is kept so existing AOT
 	// caches stay valid instead of being orphaned and rebuilt.
+	PruneStaleCaches(cacheDir, token[:cacheKeyHashLen])
 	base := "krit-types-" + token[:cacheKeyHashLen]
 	if workload != "" {
 		base += "-" + workload
@@ -127,6 +128,11 @@ func AppendArgsWithToken(args []string, javaPath, jarPath, token, workload strin
 // process, must not record: it would hold the build lock and leave nothing.
 func AppendCachedArgs(args []string, javaPath, jarPath, workload string, jdkMajor int, verbose bool, logf func(string, ...any)) ([]string, bool) {
 	return appendArgs(args, javaPath, jarPath, buildid.JarToken(jarPath), workload, jdkMajor, verbose, logf, false)
+}
+
+// AppendCachedArgsWithToken is AppendCachedArgs for a caller that already hashed the jar.
+func AppendCachedArgsWithToken(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any)) ([]string, bool) {
+	return appendArgs(args, javaPath, jarPath, token, workload, jdkMajor, verbose, logf, false)
 }
 
 func appendArgs(args []string, javaPath, jarPath, token, workload string, jdkMajor int, verbose bool, logf func(string, ...any), record bool) ([]string, bool) {

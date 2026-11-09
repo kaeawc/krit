@@ -72,8 +72,7 @@ type CodeIndex struct {
 	symbolsByFQN                 map[string]Symbol
 	refCountByName               map[string]int
 	refFilesByName               map[string]map[string]bool // name -> set of files referencing it
-	nonCommentRefFilesByName     map[string]map[string]bool // name -> set of files with non-comment references
-	nonCommentRefCountByNameFile map[string]map[string]int  // name -> file -> non-comment ref count
+	nonCommentRefCountByNameFile map[string]map[string]int  // name -> file -> non-comment ref count; keys are the files with non-comment references
 
 	// declsByFile maps a file path to the multiset of symbol names and
 	// FQNs it declares (name -> declaration count). It is the forward
@@ -109,7 +108,7 @@ type CodeIndex struct {
 	refBloom *bloom.BloomFilter
 
 	// refMu guards refCountByName, refFilesByName,
-	// nonCommentRefFilesByName, nonCommentRefCountByNameFile, and
+	// nonCommentRefCountByNameFile, and
 	// refBloom against concurrent mutation. Add/remove lookup helpers
 	// take the write lock; the read accessors (MayHaveReference,
 	// ReferenceFiles, ReferenceCount, IsReferencedOutsideFile,

@@ -247,7 +247,7 @@ func testingQualityIsDeviceJourneyFile(file *scanner.File) bool {
 	if fileFactsCache().Imports(file).HasAnyPrefix("androidx.test.uiautomator", "androidx.benchmark.macro") {
 		return true
 	}
-	path := strings.ToLower(strings.ReplaceAll(file.Path, "\\", "/"))
+	path := scanner.LowerSlashPath(file.Path)
 	if !strings.Contains(path, "/benchmark/") && !strings.Contains(path, "/macrobenchmark/") {
 		return false
 	}
@@ -258,7 +258,7 @@ func testingQualityIsAndroidInstrumentedTestFile(file *scanner.File) bool {
 	if file == nil {
 		return false
 	}
-	path := strings.ToLower(file.Path)
+	path := scanner.LowerPath(file.Path)
 	return strings.Contains(path, "/src/androidtest/") ||
 		strings.Contains(path, "/src/androidinstrumentedtest/") ||
 		strings.Contains(path, "/src/androidcommontest/") ||

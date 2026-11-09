@@ -88,9 +88,6 @@ func TestBuildCodeIndexWithBloom_DirectAggregationMatchesLazy(t *testing.T) {
 	if !reflect.DeepEqual(got.refFilesByName, want.refFilesByName) {
 		t.Fatalf("refFilesByName mismatch:\ngot  %#v\nwant %#v", got.refFilesByName, want.refFilesByName)
 	}
-	if !reflect.DeepEqual(got.nonCommentRefFilesByName, want.nonCommentRefFilesByName) {
-		t.Fatalf("nonCommentRefFilesByName mismatch:\ngot  %#v\nwant %#v", got.nonCommentRefFilesByName, want.nonCommentRefFilesByName)
-	}
 	if !reflect.DeepEqual(got.nonCommentRefCountByNameFile, want.nonCommentRefCountByNameFile) {
 		t.Fatalf("nonCommentRefCountByNameFile mismatch:\ngot  %#v\nwant %#v", got.nonCommentRefCountByNameFile, want.nonCommentRefCountByNameFile)
 	}
@@ -116,7 +113,6 @@ func buildCodeIndexWithBloomLazyForTest(symbols []Symbol, refs []Reference, preb
 		symbolsByFQN:                 make(map[string]Symbol),
 		refCountByName:               make(map[string]int),
 		refFilesByName:               make(map[string]map[string]bool),
-		nonCommentRefFilesByName:     make(map[string]map[string]bool),
 		nonCommentRefCountByNameFile: make(map[string]map[string]int),
 	}
 
@@ -146,10 +142,6 @@ func buildCodeIndexWithBloomLazyForTest(symbols []Symbol, refs []Reference, preb
 		}
 		idx.refFilesByName[ref.Name][ref.File] = true
 		if !ref.InComment {
-			if idx.nonCommentRefFilesByName[ref.Name] == nil {
-				idx.nonCommentRefFilesByName[ref.Name] = make(map[string]bool)
-			}
-			idx.nonCommentRefFilesByName[ref.Name][ref.File] = true
 			if idx.nonCommentRefCountByNameFile[ref.Name] == nil {
 				idx.nonCommentRefCountByNameFile[ref.Name] = make(map[string]int)
 			}

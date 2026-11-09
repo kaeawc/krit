@@ -223,10 +223,10 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 			if file.FlatType(child) == "control_structure_body" {
 				childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
 				for _, v := range nullVars {
-					childScope.SmartCasts[v] = true
+					childScope.SetSmartCast(v)
 				}
 				for varName, typ := range isChecks {
-					childScope.SmartCastTypes[varName] = typ
+					childScope.SetSmartCastType(varName, typ)
 				}
 				flatForEachRelevantScopeChild(file, child, func(gc uint32) {
 					r.buildScopesFlat(gc, file, childScope, it)
@@ -243,7 +243,7 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 		flatForEachRelevantScopeChild(file, idx, func(child uint32) {
 			if file.FlatType(child) == "control_structure_body" {
 				childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-				childScope.SmartCasts[varName] = true
+				childScope.SetSmartCast(varName)
 				flatForEachRelevantScopeChild(file, child, func(gc uint32) {
 					r.buildScopesFlat(gc, file, childScope, it)
 				})
@@ -264,7 +264,7 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 			flatForEachRelevantScopeChild(file, idx, func(child uint32) {
 				if file.FlatType(child) == "control_structure_body" {
 					childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-					childScope.SmartCastTypes[isVarName] = targetType
+					childScope.SetSmartCastType(isVarName, targetType)
 					flatForEachRelevantScopeChild(file, child, func(gc uint32) {
 						r.buildScopesFlat(gc, file, childScope, it)
 					})
@@ -275,7 +275,7 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 			return
 		}
 		if r.ifBodyIsEarlyReturnFlat(idx, file) {
-			scope.SmartCastTypes[isVarName] = targetType
+			scope.SetSmartCastType(isVarName, targetType)
 		}
 	}
 
@@ -303,7 +303,7 @@ func (r *defaultResolver) buildWhenExpressionScopesFlat(idx uint32, file *scanne
 			if file.FlatType(body) == "control_structure_body" || file.FlatType(body) == "statements" {
 				childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(body), end: file.FlatEndByte(body)})
 				if targetType != nil && targetType.Kind != TypeUnknown {
-					childScope.SmartCastTypes[subjectName] = targetType
+					childScope.SetSmartCastType(subjectName, targetType)
 				}
 				flatForEachRelevantScopeChild(file, body, func(inner uint32) {
 					r.buildScopesFlat(inner, file, childScope, it)

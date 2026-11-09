@@ -54,7 +54,7 @@ var (
 )
 
 func init() {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithLowerEncoderMem(true))
 	if err != nil {
 		panic(fmt.Sprintf("init shard zstd encoder: %v", err))
 	}

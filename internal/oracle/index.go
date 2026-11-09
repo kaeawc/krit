@@ -334,11 +334,6 @@ func (idx *Index) TypeAtExpression(exprID string) (TypeInfo, bool) {
 	return t, ok
 }
 
-// Index returns the FQN reverse index. Built once during Load.
-func (o *Oracle) Index() *Index {
-	return o.index
-}
-
 func parseTypeInfo(raw string, nullable bool) TypeInfo {
 	raw = strings.TrimSpace(raw)
 	if strings.HasSuffix(raw, "?") {

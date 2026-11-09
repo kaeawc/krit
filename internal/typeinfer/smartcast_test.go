@@ -134,7 +134,7 @@ func TestSmartCast_IsCheckScopeTable(t *testing.T) {
 	parent.Declare("x", &ResolvedType{Name: "Any", FQN: "kotlin.Any", Kind: TypePrimitive})
 
 	child := parent.NewScope()
-	child.SmartCastTypes["x"] = &ResolvedType{Name: "String", FQN: "kotlin.String", Kind: TypePrimitive}
+	child.SetSmartCastType("x", &ResolvedType{Name: "String", FQN: "kotlin.String", Kind: TypePrimitive})
 
 	// In parent scope, x should be Any
 	got := parent.Lookup("x")

@@ -59,8 +59,8 @@ type Oracle struct {
 	callTargetSuspend     map[string]map[uint64]bool                    // file path → (packed line:col → suspend callable marker)
 	callTargetAnnotations map[string]map[uint64][]string                // file path → (packed line:col → annotation FQNs on resolved symbol)
 
-	// FQN reverse index, built once during Load.
-	index *Index
+	// exprTypes interns expression types during indexing; cleared afterwards.
+	exprTypes map[exprTypeKey]*typeinfer.ResolvedType
 
 	// absFileKeys memoizes fileKey's relative → absolute resolutions.
 	absFileKeys sync.Map
@@ -75,14 +75,33 @@ type Oracle struct {
 }
 
 type expressionRange struct {
-	start, end int
+	start, end int32
 	typ        *typeinfer.ResolvedType
 	target     string
 	resolved   bool
 	suspend    bool
-	ann        []string
+	// extra holds the rarely set slices so the common range stays small.
+	extra *expressionRangeExtra
+}
+
+type expressionRangeExtra struct {
+	ann []string
 	// smartCastDecls are the files whose properties the smart cast behind typ relies on.
 	smartCastDecls []string
+}
+
+func (r *expressionRange) annotations() []string {
+	if r.extra == nil {
+		return nil
+	}
+	return r.extra.ann
+}
+
+func (r *expressionRange) smartCastDecls() []string {
+	if r.extra == nil {
+		return nil
+	}
+	return r.extra.smartCastDecls
 }
 
 // Stats is a snapshot of Oracle lookup hit/miss counters.
@@ -247,6 +266,24 @@ func (o *Oracle) BlobHash(path string) string {
 }
 
 // indexFileExpressions indexes all expression/call-target entries for one file.
+func newExpressionRange(et *ExpressionType, typ *typeinfer.ResolvedType) expressionRange {
+	rng := expressionRange{
+		start:    int32(et.StartByte),
+		end:      int32(et.EndByte),
+		typ:      typ,
+		target:   et.CallTarget,
+		resolved: et.CallTargetResolved,
+		suspend:  et.CallTargetSuspend,
+	}
+	if len(et.Annotations) > 0 || len(et.SmartCastDecls) > 0 {
+		rng.extra = &expressionRangeExtra{
+			ann:            append([]string(nil), et.Annotations...),
+			smartCastDecls: append([]string(nil), et.SmartCastDecls...),
+		}
+	}
+	return rng
+}
+
 func (o *Oracle) indexFileExpressions(path string, file *File) {
 	if len(file.Expressions) == 0 {
 		return
@@ -262,21 +299,13 @@ func (o *Oracle) indexFileExpressions(path string, file *File) {
 		if !ok {
 			continue
 		}
-		typ := makeResolvedType(et.Type, et.Nullable)
+		typ := o.internExprType(et.Type, et.Nullable)
 		if !sharedStart {
 			exprMap[key] = typ
 		}
 		if et.EndByte > et.StartByte {
-			ranges = append(ranges, expressionRange{
-				start:          et.StartByte,
-				end:            et.EndByte,
-				typ:            typ,
-				target:         et.CallTarget,
-				resolved:       et.CallTargetResolved,
-				suspend:        et.CallTargetSuspend,
-				ann:            append([]string(nil), et.Annotations...),
-				smartCastDecls: append([]string(nil), et.SmartCastDecls...),
-			})
+			rng := newExpressionRange(et, typ)
+			ranges = append(ranges, rng)
 		}
 		if sharedStart {
 			continue
@@ -346,6 +375,7 @@ func (o *Oracle) indexFiles(files map[string]*File) {
 // freeRawFileData zeroes per-file declaration and expression slices to reduce
 // memory after indexing. Dependencies and Diagnostics are intentionally retained.
 func (o *Oracle) freeRawFileData() {
+	o.exprTypes = nil
 	for _, f := range o.raw.Files {
 		f.Declarations = nil
 		f.Expressions = nil
@@ -375,8 +405,6 @@ func Load(path string) (*Oracle, error) {
 	o.indexFiles(raw.Files)
 
 	o.buildSupertypeMap()
-
-	o.index = BuildIndex(o.raw)
 
 	o.freeRawFileData()
 
@@ -626,6 +654,27 @@ func isErrorType(fqn string) bool {
 	return strings.HasPrefix(fqn, "<error>")
 }
 
+type exprTypeKey struct {
+	fqn      string
+	nullable bool
+}
+
+// internExprType returns one shared ResolvedType per distinct (type, nullable)
+// pair, since most expressions repeat a few thousand types. Callers treat
+// looked-up types as read-only. Only the sequential indexing pass calls it.
+func (o *Oracle) internExprType(fqn string, nullable bool) *typeinfer.ResolvedType {
+	key := exprTypeKey{fqn: fqn, nullable: nullable}
+	if t, ok := o.exprTypes[key]; ok {
+		return t
+	}
+	t := makeResolvedType(fqn, nullable)
+	if o.exprTypes == nil {
+		o.exprTypes = make(map[exprTypeKey]*typeinfer.ResolvedType)
+	}
+	o.exprTypes[key] = t
+	return t
+}
+
 func makeResolvedType(fqn string, nullable bool) *typeinfer.ResolvedType {
 	if isErrorType(fqn) {
 		// Unresolved type: report unknown nullability so nullability-based
@@ -705,7 +754,7 @@ func (o *Oracle) LookupExpressionFlat(file *scanner.File, idx uint32) *typeinfer
 // a stable smart cast behind LookupExpressionFlat's type relies on.
 func (o *Oracle) LookupExpressionSmartCastDeclsFlat(file *scanner.File, idx uint32) []string {
 	if fact := o.lookupRangeFact(file, idx); fact != nil && fact.typ != nil {
-		return fact.smartCastDecls
+		return fact.smartCastDecls()
 	}
 	return nil
 }
@@ -734,8 +783,8 @@ func (o *Oracle) LookupCallTargetAnnotationsFlat(file *scanner.File, idx uint32)
 		return nil
 	}
 	if fact := o.lookupRangeFact(file, idx); fact != nil {
-		if len(fact.ann) > 0 {
-			return append([]string(nil), fact.ann...)
+		if ann := fact.annotations(); len(ann) > 0 {
+			return append([]string(nil), ann...)
 		}
 		if fact.spans(file, idx) {
 			return nil
@@ -804,7 +853,7 @@ func (o *Oracle) LookupCallTargetSuspendFlat(file *scanner.File, idx uint32) (bo
 // spans reports whether the fact covers exactly the node. The line:col fallback must not answer
 // for such a node: its key can hold another expression starting at the same position.
 func (r *expressionRange) spans(file *scanner.File, idx uint32) bool {
-	return r.start == int(file.FlatStartByte(idx)) && r.end == int(file.FlatEndByte(idx))
+	return int(r.start) == int(file.FlatStartByte(idx)) && int(r.end) == int(file.FlatEndByte(idx))
 }
 
 func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRange {
@@ -824,15 +873,16 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 	bestSpan := -1
 	for i := range ranges {
 		r := &ranges[i]
-		if r.start < start || r.end > end {
+		rStart, rEnd := int(r.start), int(r.end)
+		if rStart < start || rEnd > end {
 			continue
 		}
-		if r.start == start && r.end == end {
+		if rStart == start && rEnd == end {
 			return r
 		}
 		// A fact for a part of the node speaks for the node only when the rest is a wrapper such as
 		// `!!`, `?` or parentheses. A call argument or index key is a different expression.
-		if !onlyWrapperBytes(file.Content, start, r.start) || !onlyWrapperBytes(file.Content, r.end, end) {
+		if !onlyWrapperBytes(file.Content, start, rStart) || !onlyWrapperBytes(file.Content, rEnd, end) {
 			continue
 		}
 		// Prefer the LARGEST contained fact — the sub-expression closest to
@@ -842,7 +892,7 @@ func (o *Oracle) lookupRangeFact(file *scanner.File, idx uint32) *expressionRang
 		// redundant-null-safety rules read `getX(arg)!!` / `m[k]!!` /
 		// `x as? T` as non-null (the argument/key/source type) and emit false
 		// positives, discarding the correctly-resolved nullable outer type.
-		span := r.end - r.start
+		span := rEnd - rStart
 		if span > bestSpan {
 			best = r
 			bestSpan = span

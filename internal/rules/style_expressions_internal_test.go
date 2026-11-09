@@ -136,6 +136,44 @@ fun validate(items: List<Int>) {
 	}
 }
 
+func TestThrowsCountSkipsExpressionBodiedFunctions(t *testing.T) {
+	findings := runStyleExpressionsRuleByName(t, "ThrowsCount", `
+package test
+
+fun pick(kind: Int): String =
+    when (kind) {
+        0 -> "a"
+        1 -> throw IllegalStateException("one")
+        2 -> throw IllegalStateException("two")
+        else -> throw IllegalArgumentException("other")
+    }
+
+fun wrap(block: () -> Unit) = run {
+    if (true) throw IllegalStateException("a")
+    if (false) throw IllegalStateException("b")
+    throw IllegalStateException("c")
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expression-bodied functions are not checked by detekt, got %d", len(findings))
+	}
+	findings = runStyleExpressionsRuleByName(t, "ThrowsCount", `
+package test
+
+fun pick(kind: Int): String {
+    return when (kind) {
+        0 -> "a"
+        1 -> throw IllegalStateException("one")
+        2 -> throw IllegalStateException("two")
+        else -> throw IllegalArgumentException("other")
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("block-bodied function with three throws must still be reported, got %d", len(findings))
+	}
+}
+
 func TestReturnCountIgnoresNestedCallableReturns(t *testing.T) {
 	findings := runStyleExpressionsRuleByName(t, "ReturnCount", `
 package test

@@ -114,6 +114,10 @@ func registerStyleThrowsCount() {
 			if rawThrows <= r.Max {
 				return
 			}
+			// detekt reads only block bodies, so `fun f() = expr` is never counted.
+			if !functionHasBlockBody(file, idx) {
+				return
+			}
 			count := rawThrows
 			excludeGuards := r.ExcludeGuardClauses || experiment.Enabled("throws-count-exclude-guard-clauses")
 			if excludeGuards {

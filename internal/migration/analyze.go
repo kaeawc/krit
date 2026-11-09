@@ -2,11 +2,11 @@ package migration
 
 import (
 	"context"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -87,7 +87,7 @@ func Analyze(opts Options) (Report, error) {
 			}
 			seen[key] = true
 			report.Suggestions = append(report.Suggestions, Suggestion{
-				File:      relPath(root, ref.File),
+				File:      fsutil.RelSlash(root, ref.File),
 				Line:      ref.Line,
 				Column:    columnFor(line, ref.Name),
 				Symbol:    entry.Symbol,
@@ -179,12 +179,4 @@ func columnFor(line, token string) int {
 		return i + 1
 	}
 	return 1
-}
-
-func relPath(root, path string) string {
-	rel, err := filepath.Rel(root, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(path)
-	}
-	return filepath.ToSlash(rel)
 }

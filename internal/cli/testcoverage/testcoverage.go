@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/strutil"
 )
@@ -112,7 +113,7 @@ func checkTestClassCoverage(root string, sym scanner.Symbol, file *scanner.File,
 		return []Finding{{
 			Test:   sym.Name,
 			Target: target.Name,
-			File:   relPath(root, sym.File),
+			File:   fsutil.RelSlash(root, sym.File),
 			Line:   sym.Line,
 			Kind:   "class",
 		}}
@@ -137,7 +138,7 @@ func checkMemberCoverage(root string, sym scanner.Symbol, file *scanner.File, ta
 		findings = append(findings, Finding{
 			Test:   sym.Name + "." + testFn.Name,
 			Target: target.Name + "." + member.Name,
-			File:   relPath(root, testFn.File),
+			File:   fsutil.RelSlash(root, testFn.File),
 			Line:   testFn.Line,
 			Kind:   "member",
 		})
@@ -258,11 +259,4 @@ func isTestPath(path string) bool {
 		}
 	}
 	return false
-}
-
-func relPath(root, path string) string {
-	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(rel)
-	}
-	return filepath.ToSlash(path)
 }

@@ -61,6 +61,35 @@ nav:
   - Module sharding: module-sharding.md
   - Kotlin scripts: kotlin-scripts.md
   - Rules: rules.md
+  - Rule reference:
+    - Categories: rules/categories.md
+    - a11y: rules/a11y/index.md
+    - android-lint: rules/android-lint/index.md
+    - architecture: rules/architecture/index.md
+    - comments: rules/comments/index.md
+    - complexity: rules/complexity/index.md
+    - compose: rules/compose/index.md
+    - coroutines: rules/coroutines/index.md
+    - database: rules/database/index.md
+    - dead-code: rules/dead-code/index.md
+    - di-hygiene: rules/di-hygiene/index.md
+    - empty-blocks: rules/empty-blocks/index.md
+    - exceptions: rules/exceptions/index.md
+    - i18n: rules/i18n/index.md
+    - libraries: rules/libraries/index.md
+    - licensing: rules/licensing/index.md
+    - naming: rules/naming/index.md
+    - observability: rules/observability/index.md
+    - performance: rules/performance/index.md
+    - potential-bugs: rules/potential-bugs/index.md
+    - precompile: rules/precompile/index.md
+    - privacy: rules/privacy/index.md
+    - release-engineering: rules/release-engineering/index.md
+    - resource-cost: rules/resource-cost/index.md
+    - security: rules/security/index.md
+    - style: rules/style/index.md
+    - supply-chain: rules/supply-chain/index.md
+    - testing-quality: rules/testing-quality/index.md
   - Kotlin toolchain migration rules: kotlin-gradle-migration-rules.md
   - Suggested fixes: suggested-fixes.md
   - Rule Scope: rule-scope.md

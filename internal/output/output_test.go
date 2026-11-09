@@ -977,8 +977,8 @@ func TestFormatSARIF_HelpURI(t *testing.T) {
 	if len(rulesOut) == 0 {
 		t.Fatal("expected at least one rule in driver")
 	}
-	if rulesOut[0].HelpURI != "https://krit.dev/rules/MagicNumber" {
-		t.Errorf("expected helpUri https://krit.dev/rules/MagicNumber, got %q", rulesOut[0].HelpURI)
+	if rulesOut[0].HelpURI != "https://kaeawc.github.io/krit/rules/style/magic-number/" {
+		t.Errorf("expected helpUri https://kaeawc.github.io/krit/rules/style/magic-number/, got %q", rulesOut[0].HelpURI)
 	}
 }
 

@@ -1107,7 +1107,7 @@ func countKotlinUnder(dir string) int {
 	total := 0
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // skip-and-continue: an unreadable entry is not counted
 		}
 		if d.IsDir() {
 			if path != dir && skippedWalkDirs[d.Name()] {

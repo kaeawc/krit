@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kaeawc/krit/internal/diag"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,6 +20,8 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+
+	"github.com/kaeawc/krit/internal/diag"
 )
 
 const verdictRule = "InjectDispatcher"

@@ -158,7 +158,7 @@ func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntr
 	if err := json.Unmarshal(data, &entry); err != nil {
 		// A corrupt entry is a miss; remove it so it is rewritten.
 		os.Remove(path)
-		return nil, nil
+		return nil, nil //nolint:nilerr // a corrupt entry is a cache miss, not a failure
 	}
 	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath || entry.ClosureFingerprint != fingerprint {
 		os.Remove(path)

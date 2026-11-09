@@ -851,7 +851,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	var early *earlyAndroid
 	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData, &early)
 	if err != nil {
-		early.wait()
+		_, _, _ = early.wait() // drain the early Android phase; the dispatch error wins
 		return ProjectAnalysisResult{}, err
 	}
 	phaseTimings.Dispatch = dispatchTimes.dispatchMs
@@ -1836,7 +1836,7 @@ func loadBundleManifest(host ProjectHostState, key string) (scanner.FindingsBund
 // androidPhase step.
 func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool, early *earlyAndroid) error {
 	if bundleHit {
-		early.wait()
+		_, _, _ = early.wait() // drain the early Android phase; the dispatch error wins
 		return nil
 	}
 	if early.started() {

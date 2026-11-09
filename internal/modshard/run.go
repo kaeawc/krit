@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -737,6 +738,8 @@ type mergeMarker struct {
 	ID    string `json:"id"`
 	Size  int64  `json:"size"`
 	MTime int64  `json:"mtime"`
+	// CoveredSum is the SHA-256 of the covered list, so a torn or stale list is a miss.
+	CoveredSum string `json:"coveredSum"`
 }
 
 func readMergeMarker(markerPath, coveredPath, output, id string) (map[string]bool, bool) {
@@ -750,7 +753,7 @@ func readMergeMarker(markerPath, coveredPath, output, id string) (map[string]boo
 		return nil, false
 	}
 	list, err := os.ReadFile(coveredPath)
-	if err != nil {
+	if err != nil || m.CoveredSum != coveredChecksum(list) {
 		return nil, false
 	}
 	covered := map[string]bool{}
@@ -772,9 +775,17 @@ func writeMergeMarker(markerPath, coveredPath, output, id string, covered map[st
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	if os.WriteFile(coveredPath, []byte(strings.Join(paths, "\n")), 0o644) != nil {
+	list := []byte(strings.Join(paths, "\n"))
+	// Drop the marker first so a crash between the two writes leaves a miss, not a mismatched pair.
+	_ = os.Remove(markerPath)
+	if fsutil.WriteFileAtomic(coveredPath, list, 0o644) != nil {
 		return
 	}
-	data, _ := json.Marshal(mergeMarker{ID: id, Size: info.Size(), MTime: info.ModTime().UnixNano()})
-	_ = os.WriteFile(markerPath, data, 0o644)
+	data, _ := json.Marshal(mergeMarker{ID: id, Size: info.Size(), MTime: info.ModTime().UnixNano(), CoveredSum: coveredChecksum(list)})
+	_ = fsutil.WriteFileAtomic(markerPath, data, 0o644)
+}
+
+func coveredChecksum(list []byte) string {
+	sum := sha256.Sum256(list)
+	return hex.EncodeToString(sum[:])
 }

@@ -415,3 +415,23 @@ func TestIsolationDeclinedWhenContextWasDropped(t *testing.T) {
 		t.Error("a single unit should decline")
 	}
 }
+
+func TestMergeCachedTreatsATornCoveredListAsAMiss(t *testing.T) {
+	dir := t.TempDir()
+	data, _ := json.Marshal(map[string]any{"version": 1, "kotlinVersion": "2.4", "files": map[string]any{"/a/A.kt": map[string]any{}, "/b/B.kt": map[string]any{}}, "dependencies": map[string]any{}})
+	if err := os.WriteFile(filepath.Join(dir, "k1.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := Input{CacheDir: dir, OutputPath: filepath.Join(dir, "oracle.json")}
+	units := []Unit{{Spec: firchecks.ModuleSpec{ID: "one"}}}
+	if _, err := mergeCached(in, units, []string{"k1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(in.OutputPath+".covered", []byte("/a/A.kt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	covered, err := mergeCached(in, units, []string{"k1"})
+	if err != nil || !covered["/a/A.kt"] || !covered["/b/B.kt"] {
+		t.Fatalf("torn covered list must trigger a re-merge: %v %v", covered, err)
+	}
+}

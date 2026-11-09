@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -291,5 +292,45 @@ func TestFreshEntriesForIdenticalContentStayPerPath(t *testing.T) {
 	got := assembleFromCache(hits)
 	if want := map[string]string{broken: "Unresolved reference 'helper'."}; !reflect.DeepEqual(got.ErrorFiles, want) {
 		t.Fatalf("ErrorFiles = %v, want %v", got.ErrorFiles, want)
+	}
+}
+
+func TestLoadCacheEntry_CorruptEntryIsRemovedMiss(t *testing.T) {
+	cacheDir, _ := CacheDir(t.TempDir())
+	path := entryPath(cacheDir, "/src/A.kt", "h", "")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"v":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := LoadCacheEntry(cacheDir, "/src/A.kt", "h", "")
+	if err != nil || entry != nil {
+		t.Fatalf("want clean miss, got %v, %v", entry, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("corrupt entry should be removed, stat err=%v", err)
+	}
+}
+
+func TestWriteCacheEntry_LeavesNoTempFilesAndIsReadable(t *testing.T) {
+	cacheDir, _ := CacheDir(t.TempDir())
+	e := &FirCacheEntry{V: FirCacheVersion, ContentHash: "h", FilePath: "/src/A.kt"}
+	if err := WriteCacheEntry(cacheDir, e); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(entryPath(cacheDir, "/src/A.kt", "h", ""))
+	items, _ := os.ReadDir(dir)
+	for _, it := range items {
+		if strings.HasSuffix(it.Name(), ".tmp") {
+			t.Fatalf("leftover temp file %s", it.Name())
+		}
+	}
+	info, err := os.Stat(entryPath(cacheDir, "/src/A.kt", "h", ""))
+	if err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("stat=%v err=%v", info, err)
+	}
+	if got, err := LoadCacheEntry(cacheDir, "/src/A.kt", "h", ""); err != nil || got == nil {
+		t.Fatalf("load: %v %v", got, err)
 	}
 }

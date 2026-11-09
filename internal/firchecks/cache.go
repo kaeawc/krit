@@ -17,6 +17,7 @@ package firchecks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -164,13 +165,41 @@ func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntr
 	}
 	var entry FirCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
-		return nil, fmt.Errorf("unmarshal fir cache entry: %w", err)
+		// A corrupt entry is a miss; remove it so it is rewritten.
+		os.Remove(path)
+		return nil, nil
 	}
 	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath || entry.ClosureFingerprint != fingerprint {
 		os.Remove(path)
 		return nil, nil
 	}
 	return &entry, nil
+}
+
+// writeFileRename writes data to a temp file and renames it into place, so a
+// concurrent reader or a crash never sees a truncated entry. It skips fsync
+// because entries are rebuilt on a miss.
+func writeFileRename(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".entry-*.tmp")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if err := errors.Join(werr, cerr); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Chmod(name, 0o644); err != nil {
+		os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 // WriteCacheEntry writes a cache entry to disk.
@@ -186,7 +215,7 @@ func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
 	if err != nil {
 		return fmt.Errorf("marshal fir cache entry: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := writeFileRename(path, data); err != nil {
 		return fmt.Errorf("write fir cache entry: %w", err)
 	}
 	firCacheWrites.Add(1)

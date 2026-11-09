@@ -39,14 +39,24 @@ func blobHashWithSchemaVersion(f *File, schemaVersion int) string {
 		expressions = f.Expressions
 		diagnostics = append([]*Diagnostic(nil), f.Diagnostics...)
 	}
-	sort.Slice(declarations, func(i, j int) bool {
-		a, b := declarationSortKey(declarations[i]), declarationSortKey(declarations[j])
-		return bytes.Compare(a, b) < 0
+	// Encode each declaration once; the sort key and the framed record both
+	// derive from the same canonical bytes.
+	type declarationRecord struct {
+		key       []byte
+		canonical []byte
+	}
+	declarationRecords := make([]declarationRecord, len(declarations))
+	for i, declaration := range declarations {
+		canonical := canonicalDeclaration(declaration)
+		declarationRecords[i] = declarationRecord{key: declarationSortKeyFor(declaration, canonical), canonical: canonical}
+	}
+	sort.Slice(declarationRecords, func(i, j int) bool {
+		return bytes.Compare(declarationRecords[i].key, declarationRecords[j].key) < 0
 	})
 	writeBlobToken(h.Write, "declarations")
-	writeBlobInt(h.Write, len(declarations))
-	for _, declaration := range declarations {
-		writeBlobBytes(h.Write, canonicalDeclaration(declaration))
+	writeBlobInt(h.Write, len(declarationRecords))
+	for _, record := range declarationRecords {
+		writeBlobBytes(h.Write, record.canonical)
 	}
 
 	type expressionRecord struct {
@@ -138,14 +148,14 @@ func writeBlobStrings(write blobWriter, values []string, sortValues bool) {
 	}
 }
 
-func declarationSortKey(c *Class) []byte {
+func declarationSortKeyFor(c *Class, canonical []byte) []byte {
 	if c == nil {
 		return nil
 	}
-	var out bytes.Buffer
+	out := bytes.NewBuffer(make([]byte, 0, len(c.FQN)+len(c.Kind)+len(canonical)+24))
 	writeBlobToken(out.Write, c.FQN)
 	writeBlobToken(out.Write, c.Kind)
-	writeBlobBytes(out.Write, canonicalDeclaration(c))
+	writeBlobBytes(out.Write, canonical)
 	return out.Bytes()
 }
 
@@ -167,13 +177,14 @@ func canonicalDeclaration(c *Class) []byte {
 	writeBlobInt(out.Write, c.Line)
 	writeBlobInt(out.Write, c.Column)
 
-	members := append([]*Member(nil), c.Members...)
-	sort.Slice(members, func(i, j int) bool {
-		return bytes.Compare(canonicalMember(members[i]), canonicalMember(members[j])) < 0
-	})
+	members := make([][]byte, len(c.Members))
+	for i, member := range c.Members {
+		members[i] = canonicalMember(member)
+	}
+	sort.Slice(members, func(i, j int) bool { return bytes.Compare(members[i], members[j]) < 0 })
 	writeBlobInt(out.Write, len(members))
 	for _, member := range members {
-		writeBlobBytes(out.Write, canonicalMember(member))
+		writeBlobBytes(out.Write, member)
 	}
 	return out.Bytes()
 }

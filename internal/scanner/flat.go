@@ -22,6 +22,11 @@ var (
 	// the table only grows during parsing, so the snapshot is stable by the
 	// time any rule calls FlatType(). Writes hold nodeTypeMu.
 	nodeTypeSnapshot atomic.Pointer[[]string]
+
+	// nodeTypeIndexSnapshot is an immutable copy of nodeTypeIndex, replaced on
+	// each new type. Readers skip the RWMutex, whose shared counter contends
+	// across cores during parallel dispatch.
+	nodeTypeIndexSnapshot atomic.Pointer[map[string]uint16]
 )
 
 // FlatNode is a value-type view of a single flattened node. The canonical
@@ -722,12 +727,9 @@ func saturateUint16(v uint32) uint16 {
 }
 
 func internNodeType(nodeType string) uint16 {
-	nodeTypeMu.RLock()
-	if idx, ok := nodeTypeIndex[nodeType]; ok {
-		nodeTypeMu.RUnlock()
+	if idx, ok := lookupNodeType(nodeType); ok {
 		return idx
 	}
-	nodeTypeMu.RUnlock()
 
 	nodeTypeMu.Lock()
 	defer nodeTypeMu.Unlock()
@@ -740,6 +742,11 @@ func internNodeType(nodeType string) uint16 {
 	idx := uint16(len(NodeTypeTable))
 	NodeTypeTable = append(NodeTypeTable, nodeType)
 	nodeTypeIndex[nodeType] = idx
+	indexCopy := make(map[string]uint16, len(nodeTypeIndex))
+	for k, v := range nodeTypeIndex {
+		indexCopy[k] = v
+	}
+	nodeTypeIndexSnapshot.Store(&indexCopy)
 	// Publish a snapshot for lock-free reads during dispatch. The slice header
 	// is copied so readers always see a consistent (ptr, len, cap) triple even
 	// if a future append reallocates the backing array.
@@ -758,10 +765,11 @@ func NodeTypeTableSize() int {
 }
 
 func lookupNodeType(nodeType string) (uint16, bool) {
-	nodeTypeMu.RLock()
-	defer nodeTypeMu.RUnlock()
-	idx, ok := nodeTypeIndex[nodeType]
-	return idx, ok
+	if p := nodeTypeIndexSnapshot.Load(); p != nil {
+		idx, ok := (*p)[nodeType]
+		return idx, ok
+	}
+	return 0, false
 }
 
 // LookupFlatNodeType resolves a node type string to its flattened type ID.

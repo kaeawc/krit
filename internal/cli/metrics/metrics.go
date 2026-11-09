@@ -2,6 +2,7 @@ package metricscli
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -70,7 +71,7 @@ func runLog(args []string, version string, stdout, stderr io.Writer) int {
 	}
 	record := metrics.Record{
 		Timestamp:  time.Now().UTC(),
-		Version:    firstNonEmpty(report.Version, version),
+		Version:    cmp.Or(report.Version, version),
 		Commit:     currentGitCommit(),
 		Targets:    append([]string(nil), targets...),
 		Summary:    report.Summary,
@@ -192,15 +193,6 @@ func splitRuleArg(args []string) (positional, flags []string) {
 
 func hasFlagValue(arg, prefix string) bool {
 	return len(arg) > len(prefix) && arg[:len(prefix)] == prefix
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func currentGitCommit() string {

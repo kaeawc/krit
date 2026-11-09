@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/proc"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -68,7 +69,7 @@ func SelectTests(root string, files []*scanner.File, changedPaths []string) []st
 	for name := range changedNames {
 		for path := range idx.ReferenceFiles(name) {
 			if isTestPath(path) {
-				selected[relPath(root, path)] = true
+				selected[fsutil.RelSlash(root, path)] = true
 			}
 		}
 	}
@@ -154,11 +155,4 @@ func isTestPath(path string) bool {
 		}
 	}
 	return false
-}
-
-func relPath(root, path string) string {
-	if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(rel)
-	}
-	return filepath.ToSlash(path)
 }

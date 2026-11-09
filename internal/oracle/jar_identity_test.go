@@ -71,6 +71,7 @@ func TestConnectOrStartDaemon_ReplacedJarIsNotReused(t *testing.T) {
 	before := len(fake.conns)
 	fake.mu.Unlock()
 	replaceTestJar(t, jar)
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	d, err = ConnectOrStartDaemon(jar, sources, nil, false)
 	if d != nil || err == nil || !strings.Contains(err.Error(), "java not found") {
@@ -147,6 +148,7 @@ func TestDaemonRetiresLegacyAndPreservesOtherInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 	_, _ = ConnectOrStartDaemon(jar, sources, nil, false)
 	if isProcessAlive(legacyPID) {
@@ -195,6 +197,7 @@ exec sleep 60
 	if err := os.WriteFile(filepath.Join(dir, "java"), []byte(script), 0755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", dir)
 }
 

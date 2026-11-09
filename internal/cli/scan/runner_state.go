@@ -98,6 +98,10 @@ type runner struct {
 	// Parse phase
 	parseResult pipeline.ParseResult
 	pendingFIR  pipeline.PendingFindingsPass
+	// preparse is the background parse started while the oracle runs, or nil.
+	preparse *pipeline.PreparseFuture
+	// parseCachesReady is set once setupParseCaches has run.
+	parseCachesReady bool
 	// firChecker is the --fir pass's checker, built once so the oracle's
 	// krit-fir compilation can run the pass's check (firchecks.Prefetch).
 	firChecker        *firchecks.ProductionFirChecker
@@ -660,6 +664,16 @@ func (r *runner) setupAndroidProviders() {
 		deps := pipeline.CollectAndroidDependenciesV2(r.activeRules)
 		r.androidProviders = pipeline.NewAndroidProjectProviders(r.sess.AndroidProject, deps, *r.f.Jobs)
 	})
+}
+
+// setupParseCachesOnce runs setupParseCaches at most once, so a background
+// parse started before the oracle and the later setup share one set of caches.
+func (r *runner) setupParseCachesOnce() {
+	if r.parseCachesReady {
+		return
+	}
+	r.parseCachesReady = true
+	r.setupParseCaches()
 }
 
 // setupParseCaches creates parseCache, xmlParseCache, and resourceCache

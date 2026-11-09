@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -797,7 +796,7 @@ func runOracleOneShot(
 	var javaPath string
 	if err := trackOracle(tracker, "javaLookup", func() error {
 		var err error
-		javaPath, err = exec.LookPath("java")
+		javaPath, err = JavaPath()
 		if err != nil {
 			return fmt.Errorf("java not found in PATH: %w", err)
 		}
@@ -816,8 +815,8 @@ func runOracleOneShot(
 	// the first call this writes the per-jar `.aotconf` / `.jsa`
 	// under ~/.krit/cache/; subsequent one-shot calls reuse them
 	// and cut JVM startup cost roughly in half.
-	args := buildJVMBaseArgs()
-	args = appendStartupCacheArgs(args, javaPath, jarPath, verbose)
+	args := buildOneShotJVMArgs(configuredExtraJVMArgs(opts))
+	args = appendOneShotStartupCacheArgs(args, javaPath, jarPath, verbose)
 	args = append(args,
 		"-jar", jarPath,
 		"--sources", strings.Join(AbsolutePaths(sourceDirs), ","),

@@ -80,7 +80,7 @@ func TestAppendLeydenAOTArgs_ReportsAddition(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	jar := writeTempJar(t)
 
-	args, addedAOT := appendLeydenAOTArgs(nil, "java", jar, false)
+	args, addedAOT := appendLeydenAOTArgs(nil, "java", jar, false, true)
 	added := len(args) > 0
 
 	if added != addedAOT {
@@ -124,5 +124,66 @@ func TestLeydenAOTSkipSentinel(t *testing.T) {
 	}
 	if leydenAOTCreateSkipped(skipPath, 26) {
 		t.Fatal("skip reported true for corrupt sentinel; should be permissive")
+	}
+}
+
+// fakeJava25 writes a launcher that reports JDK 25, the first with Leyden AOT.
+func fakeJava25(t *testing.T) string {
+	t.Helper()
+	java := filepath.Join(t.TempDir(), "java")
+	if err := os.WriteFile(java, []byte("#!/bin/sh\necho 'openjdk version \"25.0.1\" 2025-10-21' >&2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return java
+}
+
+// A one-shot launcher never finalizes a recording, so it must not start one: the unfinished profile
+// and its build lock would stay behind on every run.
+func TestOneShotStartupCacheArgsNeverRecord(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := writeTempJar(t)
+	java := fakeJava25(t)
+
+	oneShot := appendOneShotStartupCacheArgs(nil, java, jar, false)
+	if containsFlag(oneShot, "-XX:AOTMode") || containsFlag(oneShot, "-XX:AOTConfiguration") {
+		t.Fatalf("one-shot launch records an AOT profile: %v", oneShot)
+	}
+	persistent := appendStartupCacheArgs(nil, java, jar, false)
+	if !containsFlag(persistent, "-XX:AOTMode") {
+		t.Fatalf("persistent launch lost its recording: %v", persistent)
+	}
+}
+
+// The AOT decision follows the launcher that runs, not the first java on PATH.
+func TestStartupCacheArgsFollowTheLauncherVersion(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	jar := writeTempJar(t)
+	old := filepath.Join(t.TempDir(), "java")
+	if err := os.WriteFile(old, []byte("#!/bin/sh\necho 'openjdk version \"21.0.3\" 2024-04-16' >&2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(fakeJava25(t))+string(os.PathListSeparator)+os.Getenv("PATH"))
+	args := appendOneShotStartupCacheArgs(nil, old, jar, false)
+	if containsFlag(args, "-XX:AOTCache") || containsFlag(args, "-XX:AOTMode") || containsFlag(args, "-Xlog:aot=off") {
+		t.Fatalf("a JDK 21 launcher got AOT flags because PATH has JDK 25: %v", args)
+	}
+}
+
+func TestBuildOneShotJVMArgsUsesTheParallelCollector(t *testing.T) {
+	args := buildOneShotJVMArgs(nil)
+	if !containsFlag(args, "-XX:+UseParallelGC") {
+		t.Fatalf("one-shot compile should run on the parallel collector: %v", args)
+	}
+	for _, a := range args {
+		if a == "-XX:+UseG1GC" || strings.HasPrefix(a, "-Xms") || strings.HasPrefix(a, "-Xmx") {
+			t.Fatalf("unexpected flag %q: the heap size must scale with the machine: %v", a, args)
+		}
+	}
+}
+
+func TestBuildOneShotJVMArgsLeavesTheCollectorToTheCaller(t *testing.T) {
+	args := buildOneShotJVMArgs([]string{"-XX:+UseG1GC", "-Xmx2g"})
+	if containsFlag(args, "-XX:+UseParallelGC") {
+		t.Fatalf("a collector chosen by the caller must not be combined with another: %v", args)
 	}
 }

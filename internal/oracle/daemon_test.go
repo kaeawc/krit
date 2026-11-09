@@ -1479,3 +1479,19 @@ func TestAotCachePath_KeyedByHash(t *testing.T) {
 		t.Errorf("aotCachePath and aotConfigPath should differ, both %q", p)
 	}
 }
+
+func TestLauncherMajorVersion_UsesTheGivenLauncher(t *testing.T) {
+	for _, tc := range []struct {
+		banner string
+		want   int
+	}{{`openjdk version "25.0.1" 2025-10-21`, 25}, {`openjdk version "21.0.3" 2024-04-16`, 21}} {
+		dir := t.TempDir()
+		java := filepath.Join(dir, "java")
+		if err := os.WriteFile(java, []byte("#!/bin/sh\necho '"+tc.banner+"' >&2\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := LauncherMajorVersion(java); got != tc.want {
+			t.Errorf("LauncherMajorVersion(%q) = %d, want %d", tc.banner, got, tc.want)
+		}
+	}
+}

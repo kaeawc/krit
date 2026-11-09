@@ -238,7 +238,7 @@ func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, ta
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
 
-	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.CachedJDKMajorVersion(), verbose, mode)
+	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.LauncherMajorVersion(javaPath), verbose, mode)
 	if t := firstTarget(target); t.JvmTarget != "" {
 		args = append(args, "--jvm-target", t.JvmTarget)
 	}

@@ -328,12 +328,13 @@ func (r *runner) run(ctx context.Context) (int, error) {
 		return code, nil
 	}
 	r.bootstrapResolver()
+	r.startPreparse(ctx)
 	if code, err := r.runOracleIndex(); err != nil {
 		return code, err
 	}
 	r.printVerboseBanner()
 	r.setupAndroidProviders()
-	r.setupParseCaches()
+	r.setupParseCachesOnce()
 
 	if code, err := r.runProjectAnalysis(ctx); err != nil {
 		return code, err

@@ -21,6 +21,7 @@ func isolateDaemonRegistry(t *testing.T) {
 // ConnectOrStartDaemon never launches a JVM. Start any helper process first.
 func noJava(t *testing.T) {
 	t.Helper()
+	t.Setenv("JAVA_HOME", "")
 	t.Setenv("PATH", t.TempDir())
 }
 

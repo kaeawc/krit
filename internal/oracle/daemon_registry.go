@@ -615,7 +615,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	// The daemon does not run in the caller's directory; the AOT/CDS
 	// startup-cache args and -jar must name the same absolute jar.
 	jarPath = AbsolutePath(jarPath)
-	javaPath, err := exec.LookPath("java")
+	javaPath, err := JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}
@@ -1000,7 +1000,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	// than trusting a daemon that may be running the old artifact.
 	srcHash := daemonRegistryKeyKT(jarPath, sourceDirs, kt, classpath...)
 
-	javaPath, err := exec.LookPath("java")
+	javaPath, err := JavaPath()
 	if err != nil {
 		return nil, fmt.Errorf("java not found in PATH: %w", err)
 	}

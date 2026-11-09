@@ -430,7 +430,9 @@ fun handleRequestLine(trimmed: String, session: AnalysisSession, startTime: Long
                 } else {
                     activeSession.configurePersistence(BundleStore.trustedRoot(request.incrementalDir))
                     activeSession.check(request.id, request.files, request.rules.toSet(), request.ruleConfigs,
-                        request.testFiles, request.scanPaths, request.sdkLevels)
+                        request.testFiles, request.scanPaths, request.sdkLevels,
+                        // No bundle directory (--no-cache, no repo): nothing would keep the recording.
+                        incremental = request.incrementalDir != null)
                 }
                 withWarnings(buildCheckResponse(result), activeSession, request.jvmTarget, result.warnings)
             }

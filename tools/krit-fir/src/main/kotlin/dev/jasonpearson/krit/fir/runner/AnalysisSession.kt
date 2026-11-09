@@ -349,7 +349,10 @@ class AnalysisSession(
         testFiles: Set<String> = emptySet(),
         scanPaths: Map<String, String> = emptyMap(),
         sdkLevels: Map<String, SdkLevels> = emptyMap(),
+        // False: the caller will not persist or reuse the incremental state, so skip recording it.
+        incremental: Boolean = true,
     ): BatchResult {
+        if (!incremental) return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, record = false)
         if (plannerEnabled) return planner.serve(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels, fullCompile = null)
         return checkCompilation(id, files, enabledRules, ruleConfigs, testFiles, scanPaths, sdkLevels)
     }

@@ -292,6 +292,25 @@ class IncrementalRecordingTest {
 
     // ---- recording changes no verdict --------------------------------------------------------------------
 
+    @Test fun aCheckThatOptsOutOfIncrementalRecordsNothingAndKeepsTheVerdict() {
+        write("Api.kt", "package p\n\nfun protocolProbe() {}\n")
+        write("Use.kt", "package p\n\nfun a() { protocolProbe() }\n")
+        val files = allFiles().map { FileRef(it) }
+        val rules = setOf("ProtocolProbe")
+
+        val recording = newSession(record = true)
+        val on = recording.check(1, files, rules)
+        val optedOut = newSession(record = true)
+        val off = optedOut.check(1, files, rules, incremental = false)
+
+        assertTrue(on.findings.isNotEmpty(), on.toString())
+        assertEquals(on.normalized(), off.normalized())
+        assertEquals(on.errorFiles, off.errorFiles)
+        assertEquals(allFiles().size, recording.incrementalState.files().size)
+        assertEquals(emptySet(), optedOut.incrementalState.files())
+        assertEquals(0, optedOut.incrementalState.generation)
+    }
+
     @Test fun recordingDoesNotChangeFindingsErrorFilesOrRuleErrors() {
         write("Api.kt", "package p\n\nfun protocolProbe() {}\nfun throwingProbeReport() {}\nfun throwingProbeCrash() {}\n")
         write("ThrowsInCall.kt", "package p\n\nfun a() { throwingProbeReport(); throwingProbeCrash(); protocolProbe() }\n")

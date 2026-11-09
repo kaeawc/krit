@@ -5,6 +5,12 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- The oracle JVMs (one-shot and persistent) now launch from `JAVA_HOME` first, like the FIR
+  daemon and the preflight check, and Leyden AOT eligibility is decided from the JDK that
+  actually runs. Before, a `JAVA_HOME` JDK 25+ with an older `java` on `PATH` never used the
+  AOT cache, and the reverse passed AOT flags an older JDK rejects.
+- One-shot oracle launches on a JDK 25+ no longer start an AOT profile recording that nothing
+  finalizes. Each run used to leave an unfinished profile of 100+ MB and the build lock behind.
 - `SerialVersionUIDInSerializableClass` (Go and FIR) now follows detekt 1.23.8: it fires only
   when a declared supertype entry's text is exactly `Serializable`. Qualified
   `java.io.Serializable`, `Externalizable`, and classes that are Serializable only
@@ -135,6 +141,11 @@ All notable changes to Krit will be documented in this file.
   `tools/lintdata`; see `tools/lintdata/README.md`.
 
 ### Changed
+- Cold `--fir` scans start parsing, and building the cross-file code index, while the oracle
+  JVM compiles, instead of after it. The phases take the background result only when their
+  input is identical, so findings do not change.
+- One-shot oracle compiles run on the parallel collector with a larger initial heap, code cache
+  and metaspace threshold, which cuts JVM CPU time by roughly a tenth on a large Android project.
 - RTL layout rules decide when they apply the way Lint 32.4.1 does, checked
   against its command line on synthetic projects (supportsRtl unset, true or
   false by targetSdk, minSdk, app or library). An app with `supportsRtl` unset

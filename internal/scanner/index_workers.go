@@ -17,11 +17,7 @@ import (
 // Name handles the case where two declarations share a short name
 // in different packages but produce the same `Symbol.Name`.
 func SortIndexSymbols(symbols []Symbol) {
-	sort.SliceStable(symbols, func(i, j int) bool {
-		a, b := symbols[i], symbols[j]
-		if a.File != b.File {
-			return a.File < b.File
-		}
+	sortByFileRuns(symbols, func(s *Symbol) string { return s.File }, func(a, b *Symbol) bool {
 		if a.StartByte != b.StartByte {
 			return a.StartByte < b.StartByte
 		}
@@ -37,16 +33,64 @@ func SortIndexSymbols(symbols []Symbol) {
 // sufficient because the rule consumers care about source position,
 // not exact column.
 func SortIndexReferences(refs []Reference) {
-	sort.SliceStable(refs, func(i, j int) bool {
-		a, b := refs[i], refs[j]
-		if a.File != b.File {
-			return a.File < b.File
-		}
+	sortByFileRuns(refs, func(r *Reference) string { return r.File }, func(a, b *Reference) bool {
 		if a.Line != b.Line {
 			return a.Line < b.Line
 		}
 		return a.Name < b.Name
 	})
+}
+
+// fileRun is a contiguous slice of items that share one file.
+type fileRun struct {
+	file       string
+	start, end int
+}
+
+// sortByFileRuns stably sorts items by (file, within), the same order a stable
+// comparison sort gives. Index jobs append one file's items contiguously, so
+// when each file forms a single run it sorts the runs by file and each run by
+// within. Otherwise it falls back to a stable sort over the whole slice.
+func sortByFileRuns[T any](items []T, fileOf func(*T) string, within func(a, b *T) bool) {
+	if len(items) < 2 {
+		return
+	}
+	var runs []fileRun
+	seen := make(map[string]struct{})
+	unique := true
+	for i := 0; i < len(items); {
+		f := fileOf(&items[i])
+		j := i + 1
+		for j < len(items) && fileOf(&items[j]) == f {
+			j++
+		}
+		if _, dup := seen[f]; dup {
+			unique = false
+			break
+		}
+		seen[f] = struct{}{}
+		runs = append(runs, fileRun{file: f, start: i, end: j})
+		i = j
+	}
+	if !unique {
+		sort.SliceStable(items, func(i, j int) bool {
+			if fi, fj := fileOf(&items[i]), fileOf(&items[j]); fi != fj {
+				return fi < fj
+			}
+			return within(&items[i], &items[j])
+		})
+		return
+	}
+	sort.Slice(runs, func(i, j int) bool { return runs[i].file < runs[j].file })
+	out := make([]T, 0, len(items))
+	for _, r := range runs {
+		run := items[r.start:r.end]
+		if !sort.SliceIsSorted(run, func(i, j int) bool { return within(&run[i], &run[j]) }) {
+			sort.SliceStable(run, func(i, j int) bool { return within(&run[i], &run[j]) })
+		}
+		out = append(out, run...)
+	}
+	copy(items, out)
 }
 
 // shardJob is one file's contribution task, uniform across Kotlin,

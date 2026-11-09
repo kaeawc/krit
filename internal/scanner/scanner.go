@@ -314,6 +314,7 @@ func ParseGradleScript(ctx context.Context, path string, content []byte, metadat
 		defer PutGroovyParser(parser)
 		if tree, err := parser.ParseCtx(ctx, nil, content); err == nil && tree != nil {
 			file.FlatTree = flattenTree(tree.RootNode())
+			tree.Close()
 		}
 	}
 	return file
@@ -637,6 +638,7 @@ func parseJavaFileCached(ctx context.Context, path string, pc *ParseCache, opts 
 	}
 	var flatTree *FlatTree
 	if tree != nil {
+		defer tree.Close()
 		flattenStart := time.Now()
 		flatTree = normalizeExplicitBackingFields(flattenTree(tree.RootNode()), content)
 		if opts.perf != nil {

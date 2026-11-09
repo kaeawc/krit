@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -202,6 +203,67 @@ type androidResourceTimings struct {
 	iconScanDur     time.Duration
 	iconWaitDur     time.Duration
 	iconRulesDur    time.Duration
+}
+
+// resourceDirResult holds one resDir's output so dirs can run concurrently
+// and be merged in order.
+type resourceDirResult struct {
+	collector *scanner.FindingCollector
+	bundle    *scanner.FindingCollector
+	t         androidResourceTimings
+	stats     resourceCacheStats
+	idx       *android.ResourceIndex
+	cacheable bool
+}
+
+// add accumulates o into t; max fields take the larger value.
+func (t *androidResourceTimings) add(o *androidResourceTimings) {
+	t.scanDur += o.scanDur
+	t.waitDur += o.waitDur
+	t.layoutScanDur += o.layoutScanDur
+	t.valuesScanDur += o.valuesScanDur
+	t.drawableScanDur += o.drawableScanDur
+	t.valuesReadDur += o.valuesReadDur
+	t.valuesParseDur += o.valuesParseDur
+	t.valuesIndexDur += o.valuesIndexDur
+	t.mergeDur += o.mergeDur
+	t.maxLayoutDur = max(t.maxLayoutDur, o.maxLayoutDur)
+	t.maxValuesDur = max(t.maxValuesDur, o.maxValuesDur)
+	t.maxDrawableDur = max(t.maxDrawableDur, o.maxDrawableDur)
+	t.rulesDur += o.rulesDur
+	t.sourceRulesDur += o.sourceRulesDur
+	t.iconScanDur += o.iconScanDur
+	t.iconWaitDur += o.iconWaitDur
+	t.iconRulesDur += o.iconRulesDur
+}
+
+// forEachParallel runs fn(0..n-1) on up to workers goroutines and waits.
+func forEachParallel(n, workers int, fn func(i int)) {
+	if workers > n {
+		workers = n
+	}
+	if workers <= 1 {
+		for i := 0; i < n; i++ {
+			fn(i)
+		}
+		return
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= n {
+					return
+				}
+				fn(i)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // scanLayoutDir scans the layout resources for one resDir and accumulates
@@ -1114,18 +1176,8 @@ func (p AndroidPhase) runResourceSubphase(in AndroidInput, resourceDeps rules.An
 		if needResources && androidFindingsCacheable {
 			resourceBundleCollector = scanner.NewFindingCollector(len(in.Project.ResDirs) * 8)
 		}
-		resourceBundleCacheable := true
-		for _, resDir := range in.Project.ResDirs {
-			var resDirFP string
-			if needResources && androidFindingsCacheable {
-				resDirFP = resDirFPs.fingerprint(resDir)
-			}
-			mergedIdx, resultCacheable := p.runResourceDir(in, resDir, resDirFP, resourceDeps, valueKinds, needIcons, needResourceSource, providers, collector, resourceBundleCollector, &t, &resourceStats)
-			resourceBundleCacheable = resourceBundleCacheable && resultCacheable
-			if mergedIdx != nil {
-				resourceSourceIndexes = append(resourceSourceIndexes, mergedIdx)
-			}
-		}
+		var resourceBundleCacheable bool
+		resourceSourceIndexes, resourceBundleCacheable = p.runResourceDirs(in, resourceDeps, valueKinds, needResources && androidFindingsCacheable, needIcons, needResourceSource, providers, collector, resourceBundleCollector, &resDirFPs, &t, &resourceStats)
 		if resourceBundleCollector != nil && resourceBundleCacheable {
 			mergedResourceFP := mergedResourceIndexFingerprintWith(in.Project.ResDirs, &resDirFPs)
 			in.CacheWriter.Save(in.CacheDir, in.resourceBundleKey(mergedResourceFP, resourceDeps, valueKinds), *resourceBundleCollector.Columns())
@@ -1158,6 +1210,48 @@ func (p AndroidPhase) runResourceSubphase(in AndroidInput, resourceDeps rules.An
 	perf.AddEntry(resourceTracker, "iconScanCPU", t.iconScanDur)
 	perf.AddEntry(resourceTracker, "iconRuleChecks", t.iconRulesDur)
 	resourceTracker.End()
+}
+
+// runResourceDirs runs every resDir concurrently and merges results in resDir
+// order. It returns the merged indexes for resource-source rules and whether
+// every dir's findings are cacheable.
+func (p AndroidPhase) runResourceDirs(in AndroidInput, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, fingerprint, needIcons, needResourceSource bool, providers *AndroidProjectProviders, collector, resourceBundleCollector *scanner.FindingCollector, resDirFPs *resDirFingerprints, t *androidResourceTimings, resourceStats *resourceCacheStats) ([]*android.ResourceIndex, bool) {
+	resourceBundleCacheable := true
+	var resourceSourceIndexes []*android.ResourceIndex
+	resDirs := in.Project.ResDirs
+	fps := make([]string, len(resDirs))
+	if fingerprint {
+		for i, resDir := range resDirs {
+			fps[i] = resDirFPs.fingerprint(resDir)
+		}
+	}
+	results := make([]resourceDirResult, len(resDirs))
+	runOne := func(i int) {
+		r := &results[i]
+		r.collector = scanner.NewFindingCollector(8)
+		if resourceBundleCollector != nil {
+			r.bundle = scanner.NewFindingCollector(8)
+		}
+		r.idx, r.cacheable = p.runResourceDir(in, resDirs[i], fps[i], resourceDeps, valueKinds, needIcons, needResourceSource, providers, r.collector, r.bundle, &r.t, &r.stats)
+	}
+	forEachParallel(len(resDirs), runtime.NumCPU(), runOne)
+	// Merge in resDir order so output matches the serial loop.
+	for i := range results {
+		r := &results[i]
+		collector.AppendColumns(r.collector.Columns())
+		if resourceBundleCollector != nil {
+			resourceBundleCollector.AppendColumns(r.bundle.Columns())
+		}
+		t.add(&r.t)
+		resourceStats.hits += r.stats.hits
+		resourceStats.misses += r.stats.misses
+		resourceStats.skips += r.stats.skips
+		resourceBundleCacheable = resourceBundleCacheable && r.cacheable
+		if r.idx != nil {
+			resourceSourceIndexes = append(resourceSourceIndexes, r.idx)
+		}
+	}
+	return resourceSourceIndexes, resourceBundleCacheable
 }
 
 func (p AndroidPhase) tryWarmResourceSubphase(in AndroidInput, resourceDeps rules.AndroidDataDependency, valueKinds android.ValuesScanKind, needResources, needIcons, needResourceSource, cacheable bool, resDirFPs *resDirFingerprints, collector *scanner.FindingCollector, resourceTracker perf.Tracker) bool {
@@ -1719,16 +1813,35 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 		}
 	}
 
+	// The subphases are independent, so run them concurrently into their own
+	// collectors and append in manifest, resource, gradle order for stable output.
+	var manifestCol, resourceCol, gradleCol *scanner.FindingCollector
+	var wg sync.WaitGroup
 	if needs.manifest {
-		p.runManifestSubphase(in, collector, tracker)
+		manifestCol = scanner.NewFindingCollector(len(in.Project.ManifestPaths) * 4)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.runManifestSubphase(in, manifestCol, tracker)
+		}()
 	}
-
-	if needs.resources || needs.icons {
-		p.runResourceSubphase(in, resourceDeps, valueKinds, needs.resources, needs.icons, providers, collector, tracker)
-	}
-
 	if needs.gradle {
-		p.runGradleSubphase(in, collector, tracker)
+		gradleCol = scanner.NewFindingCollector(len(in.Project.GradlePaths) * 4)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.runGradleSubphase(in, gradleCol, tracker)
+		}()
+	}
+	if needs.resources || needs.icons {
+		resourceCol = scanner.NewFindingCollector(len(in.Project.ResDirs) * 8)
+		p.runResourceSubphase(in, resourceDeps, valueKinds, needs.resources, needs.icons, providers, resourceCol, tracker)
+	}
+	wg.Wait()
+	for _, c := range []*scanner.FindingCollector{manifestCol, resourceCol, gradleCol} {
+		if c != nil {
+			collector.AppendColumns(c.Columns())
+		}
 	}
 
 	cols := *collector.Columns()

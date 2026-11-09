@@ -124,7 +124,7 @@ func indexFixtures(fsys fs.FS) fixtureIndex {
 	for _, kind := range []string{"positive", "negative"} {
 		_ = fs.WalkDir(fsys, kind, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
-				return nil
+				return nil //nolint:nilerr // skip-and-continue: an unreadable fixture is left out of the index
 			}
 			ext := path.Ext(p)
 			for _, e := range fixtureExts {

@@ -116,7 +116,7 @@ func TestPreparseServesTheCodeIndexForTheSameFiles(t *testing.T) {
 		t.Fatal("served an index built with different settings")
 	}
 	reordered := in
-	reordered.ParseResult.KotlinFiles = append([]*scanner.File(nil), parsed.KotlinFiles...)
+	reordered.KotlinFiles = append([]*scanner.File(nil), parsed.KotlinFiles...)
 	if f.takeCodeIndex(reordered, &IndexResult{}) {
 		t.Fatal("served an index for a different file slice")
 	}

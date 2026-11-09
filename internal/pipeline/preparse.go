@@ -153,7 +153,7 @@ func (f *PreparseFuture) takeCodeIndex(in IndexInput, result *IndexResult) bool 
 		return false
 	}
 	b := f.built
-	if !b.ok || !sameFiles(in.KotlinFiles, b.kotlinFiles) || !sameFiles(in.ParseResult.JavaFiles, b.javaFiles) {
+	if !b.ok || !sameFiles(in.KotlinFiles, b.kotlinFiles) || !sameFiles(in.JavaFiles, b.javaFiles) {
 		return false
 	}
 	result.CodeIndex = b.result.CodeIndex

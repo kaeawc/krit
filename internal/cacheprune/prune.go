@@ -50,6 +50,17 @@ func Prune(dir string, opts Options) []string {
 	if err != nil {
 		return nil
 	}
+	groups := collectGroups(dir, entries, opts, now)
+	keys := sortedKeys(groups)
+	removed := removeStale(groups, keys, opts, now)
+	if opts.Interval > 0 {
+		_ = os.WriteFile(stamp, nil, 0o600)
+		_ = os.Chtimes(stamp, now(), now())
+	}
+	return removed
+}
+
+func collectGroups(dir string, entries []os.DirEntry, opts Options, now func() time.Time) map[string]*group {
 	groups := map[string]*group{}
 	for _, entry := range entries {
 		key, ok := opts.GroupOf(entry.Name())
@@ -74,6 +85,10 @@ func Prune(dir string, opts Options) []string {
 			g.locked = true
 		}
 	}
+	return groups
+}
+
+func sortedKeys(groups map[string]*group) []string {
 	keys := make([]string, 0, len(groups))
 	for key := range groups {
 		keys = append(keys, key)
@@ -85,6 +100,10 @@ func Prune(dir string, opts Options) []string {
 		}
 		return keys[i] < keys[j]
 	})
+	return keys
+}
+
+func removeStale(groups map[string]*group, keys []string, opts Options, now func() time.Time) []string {
 	protected := map[string]bool{}
 	for _, key := range opts.Protect {
 		protected[key] = true
@@ -100,10 +119,6 @@ func Prune(dir string, opts Options) []string {
 				removed = append(removed, path)
 			}
 		}
-	}
-	if opts.Interval > 0 {
-		_ = os.WriteFile(stamp, nil, 0o600)
-		_ = os.Chtimes(stamp, now(), now())
 	}
 	return removed
 }

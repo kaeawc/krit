@@ -560,21 +560,44 @@ func testingQualityCountInheritanceInFile(file *scanner.File, className string, 
 
 // testingQualityBodyEndsWithCast reports a test whose last statement is a throwing check: a cast, `!!`, or a check/require call.
 func testingQualityBodyEndsWithCast(file *scanner.File, body uint32) bool {
-	last := uint32(0)
-	if statements, ok := file.FlatFindChild(body, "statements"); ok {
-		file.FlatForEachChild(statements, func(child uint32) {
-			if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
-				last = child
-			}
-		})
-	} else {
-		file.FlatForEachChild(body, func(child uint32) {
-			if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
-				last = child
-			}
-		})
+	last := testingQualityLastStatement(file, body)
+	// `runTest { ...; x as T }` runs the lambda in place, so its last statement is the test's last statement.
+	for depth := 0; last != 0 && depth < 3 && file.FlatType(last) == "call_expression" && testingQualityRunnerCalls[flatCallNameAny(file, last)]; depth++ {
+		lambda := flatCallTrailingLambda(file, last)
+		if lambda == 0 {
+			return false
+		}
+		last = testingQualityLastStatement(file, lambda)
 	}
 	return last != 0 && testingQualityIsThrowingCheck(file, last)
+}
+
+// testingQualityRunnerCalls run their trailing lambda exactly once, in place.
+var testingQualityRunnerCalls = map[string]bool{"runTest": true, "runBlocking": true, "runBlockingTest": true}
+
+// testingQualityLastStatement returns the last non-comment named child of a function body or lambda.
+func testingQualityLastStatement(file *scanner.File, parent uint32) uint32 {
+	if statements, ok := file.FlatFindChild(parent, "statements"); ok {
+		parent = statements
+	}
+	last := uint32(0)
+	file.FlatForEachChild(parent, func(child uint32) {
+		if file.FlatIsNamed(child) && !isFlatCommentNode(file, child) {
+			last = child
+		}
+	})
+	return last
+}
+
+// testingQualityIsSafeCast reports whether an as_expression uses the `as?` operator token.
+func testingQualityIsSafeCast(file *scanner.File, node uint32) bool {
+	safe := false
+	file.FlatForEachChild(node, func(child uint32) {
+		if !file.FlatIsNamed(child) && file.FlatNodeText(child) == "as?" {
+			safe = true
+		}
+	})
+	return safe
 }
 
 var testingQualityThrowingCheckCalls = map[string]bool{
@@ -585,7 +608,8 @@ var testingQualityThrowingCheckCalls = map[string]bool{
 func testingQualityIsThrowingCheck(file *scanner.File, node uint32) bool {
 	switch file.FlatType(node) {
 	case "as_expression":
-		return true
+		// A safe cast yields null on a wrong type instead of throwing.
+		return !testingQualityIsSafeCast(file, node)
 	case "postfix_expression":
 		return strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(node)), "!!")
 	case "call_expression":

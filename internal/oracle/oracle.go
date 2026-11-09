@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -463,7 +464,7 @@ func (o *Oracle) indexClass(fqn string, cls *Class) {
 		for _, raw := range cls.Supertypes {
 			// A supertype such as `Result<Nothing>` names the same parent as `Result<T>`, so key on the bare name.
 			st := stripTypeArguments(raw)
-			if containsString(o.sealedVariants[st], simpleName) {
+			if slices.Contains(o.sealedVariants[st], simpleName) {
 				continue
 			}
 			o.sealedVariants[st] = append(o.sealedVariants[st], simpleName)
@@ -582,15 +583,6 @@ func stripTypeArguments(name string) string {
 		return name[:i]
 	}
 	return name
-}
-
-func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // LookupEnumEntries returns known enum entries.

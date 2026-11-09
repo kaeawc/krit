@@ -1379,7 +1379,7 @@ func (p IndexPhase) buildOracleFilterListPath(in IndexInput, oracleRules []*api.
 		default:
 			in.logf("verbose: Oracle filter: %d/%d files (%.1f%% of corpus) fingerprint=%s\n",
 				summary.MarkedFiles, summary.TotalFiles,
-				100*float64(summary.MarkedFiles)/float64(maxIntLocal(summary.TotalFiles, 1)),
+				100*float64(summary.MarkedFiles)/float64(max(summary.TotalFiles, 1)),
 				summary.Fingerprint)
 		}
 	}
@@ -1893,17 +1893,6 @@ func phaseWorkerCount(phase string, maxWorkers, workItems int) int {
 		workers = phaseCap
 	}
 	return workers
-}
-
-// maxIntLocal avoids a division-by-zero in the oracle filter's verbose
-// reporting when the file set is empty. Named maxIntLocal so it doesn't
-// collide with the identical helper in cmd/krit/main.go during
-// incremental migration.
-func maxIntLocal(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // boolMetric maps a bool to the 0/1 int64 metric form perf.AddEntryDetails

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -39,7 +40,7 @@ func (r *WrongRegionResourceRule) check(ctx *api.Context) {
 			continue
 		}
 		relevant := lintRelevantRegions[loc.language]
-		if len(relevant) == 0 || containsString(relevant, loc.region) || !lintValidRegions[loc.region] {
+		if len(relevant) == 0 || slices.Contains(relevant, loc.region) || !lintValidRegions[loc.region] {
 			continue
 		}
 		sorted := append([]string(nil), relevant...)

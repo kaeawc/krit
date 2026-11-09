@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -118,7 +119,7 @@ func (h *testingQualityProjectHelpers) callMatches(file *scanner.File, call uint
 		if d.path == file.Path {
 			continue
 		}
-		if receiverKnown && !d.extension && d.owner != "" && !containsString(receiverTypes, d.owner) {
+		if receiverKnown && !d.extension && d.owner != "" && !slices.Contains(receiverTypes, d.owner) {
 			continue
 		}
 		candidates = append(candidates, d)
@@ -169,7 +170,7 @@ func (h *testingQualityProjectHelpers) receiverTypes(file *scanner.File, call ui
 func testingQualityDeclaredTypes(file *scanner.File) map[string][]string {
 	out := make(map[string][]string)
 	add := func(name, typ string) {
-		if name != "" && typ != "" && !containsString(out[name], typ) {
+		if name != "" && typ != "" && !slices.Contains(out[name], typ) {
 			out[name] = append(out[name], typ)
 		}
 	}

@@ -85,8 +85,8 @@ func buildFunctionCodeLenses(uri string, file *scanner.File, idx *scanner.CodeIn
 		title := fmt.Sprintf("complexity=%d | %d consumers", complexity, consumers)
 		lenses = append(lenses, CodeLens{
 			Range: Range{
-				Start: Position{Line: uint32(maxInt(sym.Line-1, 0)), Character: 0},
-				End:   Position{Line: uint32(maxInt(sym.Line-1, 0)), Character: 0},
+				Start: Position{Line: uint32(max(sym.Line-1, 0)), Character: 0},
+				End:   Position{Line: uint32(max(sym.Line-1, 0)), Character: 0},
 			},
 			Command: &Command{
 				Title:   title,

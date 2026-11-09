@@ -54,6 +54,7 @@ func TestRunDispatchOrLoadBundle_PreloadedSkipsStoreLoad(t *testing.T) {
 		scanner.RunFingerprint{Version: "v1"},
 		true, // bundleEnabled
 		deltaManifestData{},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("runDispatchOrLoadBundle: %v", err)
@@ -95,6 +96,7 @@ func TestRunDispatchOrLoadBundle_NoPreloadHitsStoreLoad(t *testing.T) {
 		scanner.RunFingerprint{Version: "v1"},
 		true,
 		deltaManifestData{},
+		nil,
 	)
 	if store.loadCalls < 1 {
 		t.Errorf("nil WarmCrossFindings must drive at least one Load; got loadCalls=%d", store.loadCalls)
@@ -138,6 +140,7 @@ func TestRunDispatchOrLoadBundle_AnalysisCacheCrossFindingsDoNotShortCircuit(t *
 		scanner.RunFingerprint{Version: "v1"},
 		true,
 		deltaManifestData{},
+		nil,
 	)
 	if hit {
 		t.Errorf("non-bundle WarmCrossFindings must NOT short-circuit; got hit=true (would emit cross-only findings and drop per-file)")

@@ -848,15 +848,17 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
 	perf.AddEntry(host.Tracker, "buildManifestData", time.Since(manifestStart))
 
-	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData)
+	var early *earlyAndroid
+	dispatchResult, crossFileResult, bundleHit, dispatchTimes, err := runDispatchOrLoadBundle(ctx, args, host, indexResult, parseResult, runFP, bundleEnabled, manifestData, &early)
 	if err != nil {
+		early.wait()
 		return ProjectAnalysisResult{}, err
 	}
 	phaseTimings.Dispatch = dispatchTimes.dispatchMs
 	phaseTimings.CrossFile = dispatchTimes.crossFileMs
 
 	androidStart := time.Now()
-	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit); err != nil {
+	if err := runAndroidPhaseAndMerge(ctx, args, host, indexResult, &crossFileResult, bundleHit, early); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
 	emitProjectAnalysisDiagnostics(host.Reporter, crossFileResult.Stats.Errors, dispatchResult.Stats.Errors, parseResult.ParseErrors)
@@ -1832,13 +1834,63 @@ func loadBundleManifest(host ProjectHostState, key string) (scanner.FindingsBund
 // A nil/empty project, no Android-needing rules, or a dispatcher-less
 // run returns without mutating the findings. Mirrors the CLI runner's
 // androidPhase step.
-func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool) error {
+func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult, crossFileResult *CrossFileResult, bundleHit bool, early *earlyAndroid) error {
 	if bundleHit {
+		early.wait()
 		return nil
 	}
+	if early.started() {
+		res, ran, err := early.wait()
+		if err != nil || !ran {
+			return err
+		}
+		mergeAndroidResult(args, crossFileResult, res)
+		return nil
+	}
+	res, ran, err := runAndroidPhase(ctx, args, host, indexResult)
+	if err != nil || !ran {
+		return err
+	}
+	mergeAndroidResult(args, crossFileResult, res)
+	return nil
+}
+
+// earlyAndroid runs the Android phase on its own goroutine while dispatch and
+// cross-file analysis run, since it only reads the index result. A nil value
+// means the phase runs afterwards as usual.
+type earlyAndroid struct {
+	done chan struct{}
+	res  AndroidResult
+	ran  bool
+	err  error
+}
+
+// startEarlyAndroid starts the phase and returns a handle to wait on.
+func startEarlyAndroid(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult) *earlyAndroid {
+	e := &earlyAndroid{done: make(chan struct{})}
+	go func() {
+		defer close(e.done)
+		e.res, e.ran, e.err = runAndroidPhase(ctx, args, host, indexResult)
+	}()
+	return e
+}
+
+func (e *earlyAndroid) started() bool { return e != nil && e.done != nil }
+
+// wait blocks until the phase finishes. It is a no-op on a nil handle.
+func (e *earlyAndroid) wait() (AndroidResult, bool, error) {
+	if !e.started() {
+		return AndroidResult{}, false, nil
+	}
+	<-e.done
+	return e.res, e.ran, e.err
+}
+
+// runAndroidPhase runs AndroidPhase and reports whether it ran at all.
+func runAndroidPhase(ctx context.Context, args ProjectArgs, host ProjectHostState, indexResult IndexResult) (AndroidResult, bool, error) {
 	project := indexResult.AndroidProject
 	if project == nil || project.IsEmpty() {
-		return nil
+		return AndroidResult{}, false, nil
 	}
 	dispatcher := rules.NewDispatcher(args.ActiveRules, indexResult.Resolver)
 	dispatcher.SetLibraryFacts(indexResult.LibraryFacts)
@@ -1877,8 +1929,12 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 		androidTracker.End()
 	}
 	if err != nil {
-		return fmt.Errorf("android: %w", err)
+		return AndroidResult{}, true, fmt.Errorf("android: %w", err)
 	}
+	return res, true, nil
+}
+
+func mergeAndroidResult(args ProjectArgs, crossFileResult *CrossFileResult, res AndroidResult) {
 	crossFileResult.Stats.Errors = append(crossFileResult.Stats.Errors, res.Stats.Errors...)
 	rules.SortDispatchErrors(crossFileResult.Stats.Errors)
 	// Replace, don't append: on the delta / affected-set replay paths the prior
@@ -1892,7 +1948,6 @@ func runAndroidPhaseAndMerge(ctx context.Context, args ProjectArgs, host Project
 	merged.AppendColumns(&base)
 	merged.AppendColumns(&res.Findings)
 	crossFileResult.Findings = *merged.Columns()
-	return nil
 }
 
 // emitProjectAnalysisDiagnostics reports failures that happen after the
@@ -1976,6 +2031,7 @@ func runDispatchOrLoadBundle(
 	runFP scanner.RunFingerprint,
 	bundleEnabled bool,
 	manifest deltaManifestData,
+	early **earlyAndroid,
 ) (DispatchResult, CrossFileResult, bool, dispatchTimings, error) {
 	// Each bundle-cache layer gets its own perf scope so --perf can
 	// show where a warm "nothing structurally changed" analyze spends
@@ -2069,6 +2125,9 @@ func runDispatchOrLoadBundle(
 			recordDispatchPath("cacheHitAffectedSetBundle")
 			return asD, asC, false, dispatchTimings{}, nil
 		}
+	}
+	if early != nil {
+		*early = startEarlyAndroid(ctx, args, host, indexResult)
 	}
 	dispatchStart := time.Now()
 	d, err := DispatchPhase{}.Run(ctx, indexResult)

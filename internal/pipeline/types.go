@@ -477,6 +477,10 @@ type OutputInput struct {
 	// BaselinePath, when non-empty, is the path to a baseline file
 	// used to suppress known findings.
 	BaselinePath string
+	// BaselineSuppressed, when non-nil, is the count of findings a baseline
+	// already removed before this phase. OutputPhase sets it itself when it
+	// applies BaselinePath.
+	BaselineSuppressed *int
 	// DiffRef, when non-empty, is a git ref (e.g. "main",
 	// "origin/main") used to restrict findings to files changed
 	// since that ref.

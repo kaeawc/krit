@@ -203,6 +203,55 @@ func TestOutputPhase_Run_BaselineFilter(t *testing.T) {
 	}
 }
 
+func summaryBaselineSuppressed(t *testing.T, raw []byte) (int, bool) {
+	t.Helper()
+	var report struct {
+		Summary struct {
+			BaselineSuppressed *int `json:"baselineSuppressed"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, raw)
+	}
+	if report.Summary.BaselineSuppressed == nil {
+		return 0, false
+	}
+	return *report.Summary.BaselineSuppressed, true
+}
+
+func TestOutputPhase_Run_BaselineSuppressedCountInJSON(t *testing.T) {
+	baselinePath := filepath.Join(t.TempDir(), "baseline.xml")
+	xml := `<?xml version="1.0" ?>
+<SmellBaseline><ManuallySuppressedIssues>
+<ID>RuleX:foo.kt:$RuleX$trouble brewing</ID>
+</ManuallySuppressedIssues><CurrentIssues></CurrentIssues></SmellBaseline>`
+	if err := os.WriteFile(baselinePath, []byte(xml), 0644); err != nil {
+		t.Fatalf("write baseline: %v", err)
+	}
+	for _, compact := range []bool{false, true} {
+		in, buf := twoFindingsInput(t, "json")
+		in.BaselinePath = baselinePath
+		in.Paths = nil
+		in.JSONCompact = compact
+		if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {
+			t.Fatalf("Run error: %v", err)
+		}
+		if got, ok := summaryBaselineSuppressed(t, buf.Bytes()); !ok || got != 1 {
+			t.Errorf("compact=%v baselineSuppressed = %d (present=%v), want 1", compact, got, ok)
+		}
+	}
+}
+
+func TestOutputPhase_Run_NoBaselineOmitsSuppressedCount(t *testing.T) {
+	in, buf := twoFindingsInput(t, "json")
+	if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if _, ok := summaryBaselineSuppressed(t, buf.Bytes()); ok {
+		t.Errorf("baselineSuppressed present without a baseline:\n%s", buf.String())
+	}
+}
+
 func TestOutputPhase_Run_EmptyFindings_SuccessTrue(t *testing.T) {
 	empty := scanner.FindingColumns{}
 	var buf bytes.Buffer

@@ -58,8 +58,11 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 		if err != nil {
 			return OutputResult{}, fmt.Errorf("load baseline %s: %w", in.BaselinePath, err)
 		}
+		before := columns.Len()
 		filtered := scanner.FilterColumnsByBaseline(columns, baseline, basePath)
 		columns = &filtered
+		suppressed := before - columns.Len()
+		in.BaselineSuppressed = &suppressed
 	}
 
 	// Git-diff filtering: restrict findings to files changed since DiffRef.
@@ -95,11 +98,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 
 	switch in.Format {
 	case "json":
-		jsonFormatter := output.FormatJSONColumns
-		if in.JSONCompact {
-			jsonFormatter = output.FormatJSONColumnsCompact
-		}
-		if err := jsonFormatter(
+		if err := output.FormatJSONColumnsWithOptions(
 			in.Writer,
 			reported,
 			in.Version,
@@ -112,6 +111,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
+			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed},
 			in.PerfRuleStats,
 		); err != nil {
 			return OutputResult{}, fmt.Errorf("format json: %w", err)

@@ -91,6 +91,9 @@ type JSONSummary struct {
 	ByRuleSet map[string]int `json:"byRuleSet"`
 	ByRule    map[string]int `json:"byRule"`
 	Fixable   int            `json:"fixable"`
+	// BaselineSuppressed is the number of findings a baseline removed. It is
+	// present (possibly 0) only when a baseline was applied.
+	BaselineSuppressed *int `json:"baselineSuppressed,omitempty"`
 }
 
 // FormatJSONColumns writes columnar findings as JSON with two-space
@@ -105,7 +108,7 @@ func FormatJSONColumns(w io.Writer, columns *scanner.FindingColumns, version str
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, true,
-		perfRuleStats...)
+		nil, perfRuleStats...)
 }
 
 // FormatJSONColumnsCompact writes columnar findings as JSON with no
@@ -123,7 +126,30 @@ func FormatJSONColumnsCompact(w io.Writer, columns *scanner.FindingColumns, vers
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, false,
-		perfRuleStats...)
+		nil, perfRuleStats...)
+}
+
+// JSONOptions carries optional report fields for FormatJSONColumnsWithOptions.
+type JSONOptions struct {
+	// Compact selects the single-line encoding used by the daemon.
+	Compact bool
+	// BaselineSuppressed, when non-nil, is reported as summary.baselineSuppressed.
+	BaselineSuppressed *int
+}
+
+// FormatJSONColumnsWithOptions is FormatJSONColumns with extra report options.
+func FormatJSONColumnsWithOptions(w io.Writer, columns *scanner.FindingColumns, version string,
+	fileCount, ruleCount int, start time.Time,
+	perfTimings []perf.TimingEntry, activeRules []*api.Rule,
+	experiments []string,
+	cacheStats *cache.Stats,
+	caches []cacheutil.NamedCacheStats,
+	cacheBudget *cacheutil.BudgetReport,
+	opts JSONOptions,
+	perfRuleStats ...[]rules.RuleExecutionStat) error {
+	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
+		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, !opts.Compact,
+		opts.BaselineSuppressed, perfRuleStats...)
 }
 
 func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version string,
@@ -134,6 +160,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	caches []cacheutil.NamedCacheStats,
 	cacheBudget *cacheutil.BudgetReport,
 	indent bool,
+	baselineSuppressed *int,
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
 
 	cols := normalizedFindingColumns(columns)
@@ -163,6 +190,8 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 		ByRuleSet: byRuleSet,
 		ByRule:    byRule,
 		Fixable:   fixableCount,
+
+		BaselineSuppressed: baselineSuppressed,
 	}
 	var perfRuleStatsArg []rules.RuleExecutionStat
 	if len(perfRuleStats) > 0 {

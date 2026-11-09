@@ -1952,8 +1952,8 @@ func recordOracleRuleNeedProfile(activeRules []*api.Rule, tracker perf.Tracker) 
 }
 
 // runModuleShards produces the oracle by analyzing modules independently on worker JVMs, when the
-// KRIT_MODULE_SHARDS environment variable asks for it (its value is the worker count, or "auto")
-// and the repository has the Gradle build outputs that needs. It returns the oracle path, or ""
+// KRIT_MODULE_SHARDS environment variable asks for it (its value is the worker count, "auto", or
+// "isolate", which also needs several scanned source sets in one project and complete context) and the repository has the Gradle build outputs that needs. It returns the oracle path, or ""
 // to let the caller run the whole-repository compile.
 func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []string, jarPath, outputPath string, tracker perf.Tracker) string {
 	setting := os.Getenv("KRIT_MODULE_SHARDS")
@@ -1961,6 +1961,7 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 		return ""
 	}
 	workers, _ := strconv.Atoi(setting)
+	isolate := setting == "isolate"
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
 		return ""
@@ -1990,6 +1991,7 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 			JarPath:      jarPath,
 			JavaPath:     javaPath,
 			Workers:      workers,
+			Isolate:      isolate,
 			CacheDir:     filepath.Join(repoDir, ".krit", "module-facts"),
 			OutputPath:   outputPath,
 			Required:     required,

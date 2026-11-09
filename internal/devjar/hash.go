@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/kaeawc/krit/internal/cacheprune"
 )
 
 // SourceHash hashes build inputs by relative path and contents. The shared
@@ -138,4 +141,31 @@ func CachePath(tool string, scanPaths []string) string {
 		return ""
 	}
 	return filepath.Join(dir, hash, tool+".jar")
+}
+
+const (
+	// keepDevJars is how many recently used development jars always survive.
+	keepDevJars = 6
+	// minDevJarAge keeps jars used within three days, since rebuilding one runs Gradle.
+	minDevJarAge = 72 * time.Hour
+	// pruneInterval limits the directory scan to once a day.
+	pruneInterval = 24 * time.Hour
+)
+
+// MarkUsed records that the cached jar at jarPath was used and removes
+// development jars that have not been used recently. Both steps are best effort.
+func MarkUsed(jarPath string) {
+	entry := filepath.Dir(jarPath)
+	root := filepath.Dir(entry)
+	now := time.Now()
+	_ = os.Chtimes(entry, now, now)
+	cacheprune.Prune(root, cacheprune.Options{
+		Keep:     keepDevJars,
+		MinAge:   minDevJarAge,
+		Interval: pruneInterval,
+		Protect:  []string{filepath.Base(entry)},
+		GroupOf: func(name string) (string, bool) {
+			return name, len(name) > 0 && name[0] != '.'
+		},
+	})
 }

@@ -40,6 +40,7 @@ func jarCachePath(jarPath, suffix string) (string, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return "", err
 	}
+	jvmaot.PruneStaleCaches(cacheDir, hash)
 	return filepath.Join(cacheDir, "krit-types-"+hash+suffix), nil
 }
 

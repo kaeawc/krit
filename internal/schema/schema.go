@@ -2,7 +2,8 @@ package schema
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -253,7 +254,7 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 	props[config.PluginRulesKey] = jsonschema.Object(map[string]*jsonschema.Schema{}).
 		WithDescription("Per-plugin-rule configuration for rules loaded from --custom-rule-jars. Keyed by rule ID (matching @KritRuleInfo.id); each entry takes {active: bool, options: {...}}.")
 
-	for _, setName := range sortedKeys(bySet) {
+	for _, setName := range slices.Sorted(maps.Keys(bySet)) {
 		setMetas := bySet[setName]
 		ruleProps := map[string]*jsonschema.Schema{
 			"active":   jsonschema.Boolean(fmt.Sprintf("Enable or disable the entire %s ruleset.", setName)).WithDefault(true),
@@ -333,15 +334,6 @@ func optionSchema(opt OptionMeta) *jsonschema.Schema {
 		s.Default = opt.Default
 	}
 	return s
-}
-
-func sortedKeys(m map[string][]RuleMeta) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // KnownRuleSets returns the set of known ruleset names from the registry.

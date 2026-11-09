@@ -2,10 +2,11 @@ package rules
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -306,7 +307,7 @@ func findRootProjectDependencyBlocks(content string, allowed map[string]bool) []
 			depth = 0
 		}
 		if inDependencies && depth <= dependenciesDepth {
-			configs := sortedGradleConfigurations(blockConfigs)
+			configs := slices.Sorted(maps.Keys(blockConfigs))
 			if len(configs) > 0 {
 				blocks = append(blocks, rootProjectDependencyBlock{
 					line:           blockLine,
@@ -395,7 +396,7 @@ func collectRootDependencyConfigsAST(file *scanner.File, lambda uint32, allowed 
 		}
 		found[name] = true
 	})
-	return sortedGradleConfigurations(found)
+	return slices.Sorted(maps.Keys(found))
 }
 
 // rootDependencyKotlinHelpers are receiver-less Kotlin functions that can appear as statements in a
@@ -478,13 +479,4 @@ func leadingGradleIdentifier(line string) string {
 		}
 	}
 	return line
-}
-
-func sortedGradleConfigurations(configs map[string]bool) []string {
-	out := make([]string, 0, len(configs))
-	for cfg := range configs {
-		out = append(out, cfg)
-	}
-	sort.Strings(out)
-	return out
 }

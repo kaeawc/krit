@@ -3,7 +3,9 @@ package editorconfigdrift
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -137,8 +139,8 @@ func (s *driftSummary) addTrailingWhitespaceDrift(lines []string, ec *config.Edi
 
 func (s *driftSummary) lines() []string {
 	var lines []string
-	for _, configured := range sortedNestedIntKeys(s.indentSize) {
-		for _, observed := range sortedInts(s.indentSize[configured]) {
+	for _, configured := range slices.Sorted(maps.Keys(s.indentSize)) {
+		for _, observed := range slices.Sorted(maps.Keys(s.indentSize[configured])) {
 			lines = append(lines, fmt.Sprintf(".editorconfig says indent_size=%d; %d files use %d-space indentation.", configured, s.indentSize[configured][observed], observed))
 		}
 	}
@@ -148,7 +150,7 @@ func (s *driftSummary) lines() []string {
 	if s.indentSpaces > 0 {
 		lines = append(lines, fmt.Sprintf(".editorconfig says indent_style=tab; %d files use space indentation.", s.indentSpaces))
 	}
-	for _, max := range sortedInts(s.longLineFiles) {
+	for _, max := range slices.Sorted(maps.Keys(s.longLineFiles)) {
 		lines = append(lines, fmt.Sprintf(".editorconfig says max_line_length=%d; %d files exceed it on %d lines.", max, s.longLineFiles[max], s.longLineCounts[max]))
 	}
 	if s.invalidUTF8 > 0 {
@@ -222,22 +224,4 @@ func countTrailingWhitespaceLines(lines []string) int {
 		}
 	}
 	return count
-}
-
-func sortedInts(m map[int]int) []int {
-	keys := make([]int, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Ints(keys)
-	return keys
-}
-
-func sortedNestedIntKeys(m map[int]map[int]int) []int {
-	keys := make([]int, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Ints(keys)
-	return keys
 }

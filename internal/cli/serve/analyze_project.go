@@ -55,7 +55,7 @@ func (s *daemonState) pingOracleDaemonFor(args daemon.AnalyzeProjectArgs) {
 	s.pingOracleDaemon()
 }
 
-func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMessage) (any, error) {
+func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawMessage) (any, error) {
 	var args daemon.AnalyzeProjectArgs
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
@@ -126,6 +126,7 @@ func handleAnalyzeProject(_ context.Context, state *daemonState, raw json.RawMes
 		state.analyzeMu.Unlock()
 		return nil, err
 	}
+	streamVerboseOutput(ctx, state, args, in.Host.Reporter)
 	in.Host.SourceSetClean = !cold && len(dirty) == 0
 	dropStalePrepopulatedPaths(&in, cold, dirty)
 	if !cold {
@@ -245,8 +246,10 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 
 	cpuProfile, profileWarnings := startDaemonCPUProfile(r.cpuProfilePath)
 
-	hw := &analyzeRespWriter{out: w, head: []byte(`{"ok":true,"data":{"findings":`)}
+	sink := daemon.StreamSinkFrom(ctx)
+	hw := &analyzeRespWriter{out: w, head: []byte(`{"ok":true,"data":{"findings":`), onHead: sink.Seal}
 	res, err := pipeline.RunProjectStreaming(ctx, r.in, hw)
+	sink.Seal()
 	stopDaemonCPUProfile(cpuProfile)
 	profileWarnings = append(profileWarnings, writeDaemonMemProfile(r.memProfilePath)...)
 	if err != nil {
@@ -422,6 +425,9 @@ type analyzeRespWriter struct {
 	head        []byte
 	headWritten bool
 	heldNewline bool
+	// onHead runs just before the head is written, so streamed frames
+	// stop before the envelope starts.
+	onHead func()
 }
 
 func (w *analyzeRespWriter) Write(p []byte) (int, error) {
@@ -429,6 +435,9 @@ func (w *analyzeRespWriter) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 	if !w.headWritten {
+		if w.onHead != nil {
+			w.onHead()
+		}
 		if _, err := w.out.Write(w.head); err != nil {
 			return 0, err
 		}

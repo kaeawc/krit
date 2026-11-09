@@ -44,6 +44,9 @@ func TestListRulesJSONMatchesRegistry(t *testing.T) {
 		if got.DefaultActive != rules.IsDefaultActive(r.ID) {
 			t.Errorf("%s: defaultActive=%v, want %v", r.ID, got.DefaultActive, rules.IsDefaultActive(r.ID))
 		}
+		if want := api.RuleDocsURL(r); got.DocsURL != want || !strings.HasPrefix(want, api.DocsSiteURL+"rules/") {
+			t.Errorf("%s: docsUrl=%q, want %q under the docs site", r.ID, got.DocsURL, want)
+		}
 		lvl, fixable := rules.GetV2FixLevel(r)
 		if got.Fixable != fixable || (fixable && got.FixLevel != lvl.String()) {
 			t.Errorf("%s: fixable=%v fixLevel=%q, want %v %q", r.ID, got.Fixable, got.FixLevel, fixable, lvl.String())

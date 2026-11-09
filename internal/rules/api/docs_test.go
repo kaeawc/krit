@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDocsURLDerivation(t *testing.T) {
 	tests := []struct {
@@ -18,14 +21,14 @@ func TestDocsURLDerivation(t *testing.T) {
 		{
 			name:     "derived from default base",
 			resolver: DefaultDocsResolver{},
-			rule:     &Rule{ID: "MagicNumber"},
-			want:     "https://krit.dev/rules/MagicNumber",
+			rule:     &Rule{ID: "MagicNumber", Category: "style"},
+			want:     "https://kaeawc.github.io/krit/rules/style/magic-number/",
 		},
 		{
 			name:     "custom base URL",
 			resolver: DefaultDocsResolver{BaseURL: "https://docs.example.com/r/"},
 			rule:     &Rule{ID: "MagicNumber"},
-			want:     "https://docs.example.com/r/MagicNumber",
+			want:     "https://docs.example.com/r/other/magic-number/",
 		},
 		{
 			name:     "nil rule returns empty",
@@ -60,8 +63,60 @@ func TestRuleDocsURL_UsesPackageResolver(t *testing.T) {
 	prev := SetDocsResolver(DefaultDocsResolver{BaseURL: "https://fake.test/rules/"})
 	t.Cleanup(func() { SetDocsResolver(prev) })
 
-	got := RuleDocsURL(&Rule{ID: "R1"})
-	if want := "https://fake.test/rules/R1"; got != want {
+	got := RuleDocsURL(&Rule{ID: "R1", Category: "style"})
+	if want := "https://fake.test/rules/style/r1/"; got != want {
 		t.Errorf("RuleDocsURL() = %q, want %q", got, want)
+	}
+}
+
+func TestDocsSlug(t *testing.T) {
+	for in, want := range map[string]string{
+		"MagicNumber":         "magic-number",
+		"XMLParser":           "xml-parser",
+		"UnusedImport":        "unused-import",
+		"untested_public_api": "untested-public-api",
+		"android-lint":        "android-lint",
+		"Utf8Handling":        "utf8-handling",
+		"ID":                  "id",
+	} {
+		if got := DocsSlug(in); got != want {
+			t.Errorf("DocsSlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRuleDocsURLFor(t *testing.T) {
+	got := RuleDocsURLFor("potential-bugs", "UnsafeCast")
+	if want := "https://kaeawc.github.io/krit/rules/potential-bugs/unsafe-cast/"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if RuleDocsURLFor("style", "") != "" {
+		t.Error("empty ID must give empty URL")
+	}
+}
+
+func TestRuleDocsURLByID(t *testing.T) {
+	saved := Registry
+	t.Cleanup(func() { Registry = saved })
+	Registry = []*Rule{{ID: "NewName", Category: "naming", Aliases: []string{"OldName"}}}
+	want := "https://kaeawc.github.io/krit/rules/naming/new-name/"
+	for _, id := range []string{"NewName", "OldName"} {
+		if got := RuleDocsURLByID(id); got != want {
+			t.Errorf("RuleDocsURLByID(%q) = %q, want %q", id, got, want)
+		}
+	}
+	if got := RuleDocsURLByID("Nope"); got != "" {
+		t.Errorf("unknown ID gave %q", got)
+	}
+}
+
+func TestRegistryDocsURLsUnique(t *testing.T) {
+	seen := map[string]string{}
+	for _, r := range Registry {
+		u := strings.ToLower(RuleDocsURL(r))
+		if prev, ok := seen[u]; ok {
+			t.Errorf("%s and %s share docs URL %s", prev, r.ID, u)
+		}
+		seen[u] = r.ID
 	}
 }

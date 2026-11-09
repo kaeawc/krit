@@ -373,6 +373,11 @@ type AnalyzeProjectArgs struct {
 	// NoFirDaemon mirrors --no-fir-daemon: run the FIR checkers one-shot
 	// instead of through the persistent krit-fir daemon.
 	NoFirDaemon bool `json:"no_fir_daemon,omitempty"`
+	// StreamVerbose asks the daemon to send Verbose output as stream
+	// frames while the scan runs. Text it cannot stream still arrives in
+	// AnalyzeProjectResult.VerboseOutput, and a daemon that predates the
+	// field returns all of it there.
+	StreamVerbose bool `json:"stream_verbose,omitempty"`
 }
 
 // AnalyzeProjectResult is the response payload. Findings is the raw

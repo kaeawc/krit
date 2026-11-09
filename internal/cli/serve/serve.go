@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -1036,7 +1037,7 @@ func (s *daemonState) warm() error {
 	}
 	s.mu.Lock()
 	s.graph = graph
-	s.files = countModuleFiles(graph)
+	s.files = countKotlinFiles(s.root, graph)
 	s.mu.Unlock()
 	return nil
 }
@@ -1063,8 +1064,23 @@ func (s *daemonState) fileCount() int {
 }
 
 func (s *daemonState) readyLine(watcherLine string) string {
-	return fmt.Sprintf("krit daemon: ready (%d module Kotlin files, %d modules, warm in %.1fs%s)",
-		s.fileCount(), s.moduleCount(), s.warmDuration.Seconds(), watcherLine)
+	label := "module Kotlin files"
+	if s.moduleCount() == 0 {
+		label = "Kotlin files"
+	}
+	return fmt.Sprintf("krit daemon: ready (%d %s, %d modules, warm in %.1fs%s)",
+		s.fileCount(), label, s.moduleCount(), s.warmDuration.Seconds(), watcherLine)
+}
+
+// countKotlinFiles estimates how many Kotlin files the repo holds for the
+// ready line. It counts module source roots, or walks the repo root when
+// there is no module graph (no settings file) so the count is not a
+// misleading 0.
+func countKotlinFiles(root string, graph *module.Graph) int {
+	if graph == nil || len(graph.Modules) == 0 {
+		return countKotlinUnder(root)
+	}
+	return countModuleFiles(graph)
 }
 
 func countModuleFiles(graph *module.Graph) int {
@@ -1078,14 +1094,32 @@ func countModuleFiles(graph *module.Graph) int {
 			roots = []string{filepath.Join(m.Dir, "src", "main", "kotlin")}
 		}
 		for _, r := range roots {
-			_ = filepath.Walk(r, func(_ string, info os.FileInfo, err error) error {
-				if err == nil && info != nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".kt") {
-					total++
-				}
-				return nil
-			})
+			total += countKotlinUnder(r)
 		}
 	}
+	return total
+}
+
+// skippedWalkDirs are directories the fallback count never enters.
+var skippedWalkDirs = map[string]bool{".git": true, ".gradle": true, ".krit": true, "build": true, "node_modules": true}
+
+func countKotlinUnder(dir string) int {
+	total := 0
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // skip-and-continue: an unreadable entry is not counted
+		}
+		if d.IsDir() {
+			if path != dir && skippedWalkDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".kt") {
+			total++
+		}
+		return nil
+	})
 	return total
 }
 

@@ -11,6 +11,11 @@ if [[ ! -f "$MKDOCS" ]]; then
   exit 1
 fi
 
+# Per-rule pages under docs/rules/ are generated, so build them first.
+if command -v go >/dev/null 2>&1; then
+  (cd "$ROOT" && go run ./cmd/krit-docgen >/dev/null)
+fi
+
 errors=0
 
 # Extract .md file references from nav section of mkdocs.yml

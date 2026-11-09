@@ -554,14 +554,24 @@ func (c *Client) AnalyzeBuffers(args daemon.AnalyzeBuffersArgs) (daemon.AnalyzeB
 // daemon-side hash mismatch surfaces as an error that
 // IsBinaryHashMismatch matches.
 func (c *Client) AnalyzeProject(args daemon.AnalyzeProjectArgs) (daemon.AnalyzeProjectResult, error) {
+	return c.AnalyzeProjectStream(args, nil)
+}
+
+// AnalyzeProjectStream is AnalyzeProject that delivers verbose output to
+// onVerbose as the daemon produces it. It sets args.StreamVerbose when
+// onVerbose is non-nil and args.Verbose is true. Whatever a daemon did not
+// stream, including all of it from a daemon that predates streaming, is
+// still in the result's VerboseOutput.
+func (c *Client) AnalyzeProjectStream(args daemon.AnalyzeProjectArgs, onVerbose func(string)) (daemon.AnalyzeProjectResult, error) {
 	if c == nil {
 		return daemon.AnalyzeProjectResult{}, errors.New("daemonclient: nil client")
 	}
 	if args.ClientBinaryHash == "" {
 		args.ClientBinaryHash = currentBinaryHash()
 	}
+	args.StreamVerbose = args.Verbose && onVerbose != nil
 	var result daemon.AnalyzeProjectResult
-	if err := daemon.Call(c.socketPath, daemon.VerbAnalyzeProject, args, &result); err != nil {
+	if err := daemon.CallStream(c.socketPath, daemon.VerbAnalyzeProject, args, &result, onVerbose); err != nil {
 		return daemon.AnalyzeProjectResult{}, err
 	}
 	return result, nil

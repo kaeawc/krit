@@ -244,8 +244,7 @@ func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string,
 	// prior analyze. Rules-config changes invalidate the whole resident
 	// cache (via WorkspaceState.InvalidateAll), so a non-nil Suppression
 	// can be trusted for the current run — rebuilding it would walk the
-	// flat tree for every file, costing ~50µs each (~700ms on a 13k-file
-	// corpus).
+	// flat tree for every file, which adds up on a large corpus.
 	if f.Suppression != nil && f.SuppressionIdx != nil {
 		return
 	}

@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 
@@ -163,7 +165,7 @@ func buildSuggestions(root string, co *Codeowners, changedRel []string) suggesti
 			}
 		}
 		if files := directByTeam[owner]; len(files) > 0 {
-			t.DirectFiles = sortedKeys(files)
+			t.DirectFiles = slices.Sorted(maps.Keys(files))
 			t.Score += len(files)
 		}
 		t.Best = bestForTeam(t, callerTotal)
@@ -330,13 +332,4 @@ func displaySymbol(fqn string) string {
 		return fqn
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }

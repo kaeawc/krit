@@ -2,9 +2,10 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	shippedconfig "github.com/kaeawc/krit/config"
@@ -174,7 +175,7 @@ func translateDetekt(raw map[string]interface{}) (map[string]interface{}, []stri
 	var notes []string
 	view := registryView
 
-	for _, section := range sortedKeys(raw) {
+	for _, section := range slices.Sorted(maps.Keys(raw)) {
 		body, ok := raw[section].(map[string]interface{})
 		if !ok {
 			notes = append(notes, fmt.Sprintf("detekt section %q ignored: not a ruleset", section))
@@ -191,7 +192,7 @@ func translateDetekt(raw map[string]interface{}) (map[string]interface{}, []stri
 		}
 		// Renamed names go first so a rule configured under both names keeps the krit name's value.
 		for _, pass := range []bool{true, false} {
-			for _, rule := range sortedKeys(body) {
+			for _, rule := range slices.Sorted(maps.Keys(body)) {
 				if ruleGenericKeys[rule] {
 					continue
 				}
@@ -226,7 +227,7 @@ func translateRule(out map[string]interface{}, view RegistryView, section, rule,
 			return append(notes, fmt.Sprintf("detekt %s.%s ignored: no krit rule %s", section, rule, target))
 		}
 	}
-	for _, key := range sortedKeys(opts) {
+	for _, key := range slices.Sorted(maps.Keys(opts)) {
 		val := opts[key]
 		if ruleGenericKeys[key] {
 			setNested(out, val, set, target, key)
@@ -278,15 +279,6 @@ func setNested(m map[string]interface{}, v interface{}, path ...string) {
 		cur = next
 	}
 	cur[path[len(path)-1]] = v
-}
-
-func sortedKeys(m map[string]interface{}) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // canonicalizeAliases rewrites rule option aliases (for example `threshold`)

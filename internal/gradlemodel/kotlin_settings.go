@@ -209,16 +209,6 @@ var kotlinFlagAllowlist = map[string]kotlinFlagKind{
 	"-Xwhen-guards":                                  flagBoolean,
 }
 
-// KotlinFlagAllowlist returns the allowlisted flag names, sorted.
-func KotlinFlagAllowlist() []string {
-	names := make([]string, 0, len(kotlinFlagAllowlist))
-	for name := range kotlinFlagAllowlist {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 // protectedKotlinArgs are arguments krit owns: output, classpath, plugin, JDK,
 // module-identity, friend-path and HMPP fragment settings. A model can never
 // set them. The valued ones consume the following token in split form.

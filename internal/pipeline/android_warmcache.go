@@ -8,28 +8,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// HasWarmResourceSourceBundle reports whether the Android findings cache can
-// cover resource-backed source rules without parsed source files.
-func HasWarmResourceSourceBundle(cacheDir string, sourcePaths, resDirs []string, ruleHash, libraryFactsFP, javaSemanticFactsFP string) bool {
-	if cacheDir == "" || ruleHash == "" || len(sourcePaths) == 0 {
-		return false
-	}
-	sourceSetFP, ok := resourceSourceSetFingerprintFromPaths(sourcePaths)
-	if !ok {
-		return false
-	}
-	key := scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
-		Kind:                scanner.AndroidFindingsKindResourceSourceBundle,
-		RuleHash:            ruleHash,
-		LibraryFactsFP:      libraryFactsFP,
-		JavaSemanticFactsFP: javaSemanticFactsFP,
-		InputFP:             sourceSetFP,
-		Extra:               mergedResourceIndexFingerprint(resDirs),
-	})
-	_, ok = scanner.LoadAndroidFindings(cacheDir, key)
-	return ok
-}
-
 // HasWarmResourceSourceBundleWithHashes is the same cache probe as
 // HasWarmResourceSourceBundle, but reuses hashes already validated by the
 // incremental findings cache.

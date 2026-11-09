@@ -89,15 +89,6 @@ type FirCacheStats struct {
 	Writes int64
 }
 
-// Stats returns a snapshot of the cache hit/miss/write counters.
-func Stats() FirCacheStats {
-	return FirCacheStats{
-		Hits:   firCacheHits.Load(),
-		Misses: firCacheMisses.Load(),
-		Writes: firCacheWrites.Load(),
-	}
-}
-
 // CacheDir returns (and creates) {repoDir}/.krit/fir-cache.
 func CacheDir(repoDir string) (string, error) {
 	dir := filepath.Join(repoDir, ".krit", "fir-cache")
@@ -345,13 +336,6 @@ func classifyFilesQuiet(cacheDir string, files []string, fingerprint string) (hi
 		hits = append(hits, entry)
 	}
 	return hits, misses
-}
-
-// WriteFreshEntries writes cache entries for each file analyzed in a
-// CheckResponse. Crash markers from resp.Crashed are written as poison
-// entries.
-func WriteFreshEntries(cacheDir string, files []string, resp *CheckResponse) int {
-	return WriteFreshEntriesForFingerprint(cacheDir, files, resp, "")
 }
 
 // WriteFreshEntriesForFingerprint writes fresh cache entries and records the

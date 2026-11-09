@@ -262,23 +262,6 @@ func (c *catalogDiscoveryCache) FindVersionCatalogSourcesForGradlePath(gradlePat
 	return ordered, true
 }
 
-func FindVersionCatalogPathsForGradlePath(gradlePath string) ([]string, bool) {
-	sources, ok := FindVersionCatalogSourcesForGradlePath(gradlePath)
-	if !ok {
-		return nil, false
-	}
-	paths := make([]string, 0, len(sources))
-	seen := make(map[string]bool)
-	for _, source := range sources {
-		if source.Kind == CatalogSourceSettingsProgrammatic || seen[source.Path] {
-			continue
-		}
-		seen[source.Path] = true
-		paths = append(paths, source.Path)
-	}
-	return paths, len(paths) > 0
-}
-
 func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource, bool) {
 	if absPath, err := filepath.Abs(gradlePath); err == nil {
 		gradlePath = absPath

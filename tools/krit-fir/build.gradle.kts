@@ -103,6 +103,8 @@ tasks.shadowJar {
         "org/jetbrains/kotlin/fir/analysis/wasm/**",
         "org/jetbrains/kotlin/fir/analysis/web/**",
         "org/jetbrains/kotlin/cli/pipeline/web/**",
+        // Nothing outside this package references the JNA platform helpers (Win32/COM/X11 bindings).
+        "com/sun/jna/platform/**",
         "com/sun/jna/sunos-*/**",
         "com/sun/jna/freebsd-*/**",
         "com/sun/jna/openbsd-*/**",

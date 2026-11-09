@@ -6,12 +6,6 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// FindingColumnsToDiagnostics converts columnar findings to LSP diagnostics.
-// Without the document content, finding columns are used as character offsets.
-func FindingColumnsToDiagnostics(columns *scanner.FindingColumns) []Diagnostic {
-	return FindingColumnsToDiagnosticsInContent(columns, nil)
-}
-
 // FindingColumnsToDiagnosticsInContent converts columnar findings to LSP diagnostics and maps their byte
 // columns to the UTF-16 character offsets LSP requires, using the content the findings were computed from.
 func FindingColumnsToDiagnosticsInContent(columns *scanner.FindingColumns, content []byte) []Diagnostic {

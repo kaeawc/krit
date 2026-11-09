@@ -174,36 +174,6 @@ func walkKotlinRoot(root string, ignoreMatchers map[string]*fileignore.Matcher) 
 	return out, nil
 }
 
-// InvokeCached is the cache-aware variant of Invoke. It walks sourceDirs,
-// classifies .kt files into hits and misses via the on-disk cache, runs
-// krit-fir only on misses (with --files + --cache-deps-out), writes new
-// cache entries, and assembles the final oracle JSON at outputPath.
-//
-// filterListPath (optional, "" = no filter) is a path to a newline-separated
-// list of absolute .kt paths produced by the rule-classification pre-scan.
-// When present, it narrows the universe of files the cache classifies —
-// files not in the filter are neither looked up nor analyzed, since no
-// enabled rule cares about them. Rule filtering and per-file caching thus
-// compose: filter narrows first, cache dedupes what remains.
-//
-// Returns the output path on success. If no files were discovered or the
-// cache can't be created, the function falls back to a plain Invoke so
-// the caller still gets a complete oracle.
-// InvokeCached is the cache-aware variant of Invoke.
-// s is the optional unified store; when non-nil, oracle cache entries are
-// read from and written to s instead of the legacy cacheDir file layout.
-func InvokeCached(
-	jarPath string,
-	sourceDirs []string,
-	repoDir string,
-	outputPath string,
-	filterListPath string,
-	verbose bool,
-	s *store.FileStore,
-) (string, error) {
-	return InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, outputPath, filterListPath, verbose, s, InvocationOptions{})
-}
-
 // applyOracleFilter intersects ktFiles with the filter list at filterListPath.
 // Returns the filtered slice; on any read error returns ktFiles unchanged.
 func applyOracleFilter(ktFiles []string, filterListPath string, tracker perf.Tracker, verbose bool) []string {

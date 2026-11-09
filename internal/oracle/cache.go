@@ -1237,13 +1237,6 @@ func storeScope(scope []string) (Backend, []string) {
 	return backendForApproximation(approximation), storeScanPaths(scope[0], "")
 }
 
-// ClassifyFilesWithStore is like ClassifyFiles but reads from s instead of
-// the legacy cacheDir layout.  Falls back to ClassifyFiles(cacheDir, paths)
-// when s is nil.
-func ClassifyFilesWithStore(s *store.FileStore, cacheDir string, paths []string) (hits []*CacheEntry, misses []string) {
-	return ClassifyFilesWithStoreApproximation(s, cacheDir, paths, "")
-}
-
 // ClassifyFilesWithStoreApproximation is ClassifyFilesWithStore plus the
 // approximation requirement of ClassifyFilesWithApproximation.
 func ClassifyFilesWithStoreApproximation(s *store.FileStore, cacheDir string, paths []string, approximation string) (hits []*CacheEntry, misses []string) {

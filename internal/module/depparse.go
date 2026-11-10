@@ -1,9 +1,13 @@
 package module
 
 import (
+	"errors"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -33,14 +37,17 @@ func ParseDependencies(graph *Graph, module *Module) error {
 	return nil
 }
 
-// ParseAllDependencies parses dependencies for every module in the graph.
+// ParseAllDependencies parses dependencies for every module in the graph, in
+// module-path order so Consumers is deterministic. A module whose build file
+// cannot be read is skipped and reported in the joined error; the rest still parse.
 func ParseAllDependencies(graph *Graph) error {
-	for _, m := range graph.Modules {
-		if err := ParseDependencies(graph, m); err != nil {
-			return err
+	var errs []error
+	for _, path := range slices.Sorted(maps.Keys(graph.Modules)) {
+		if err := ParseDependencies(graph, graph.Modules[path]); err != nil {
+			errs = append(errs, fmt.Errorf("module %s: %w", path, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // readBuildFile reads the build file from the given directory.

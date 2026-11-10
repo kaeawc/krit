@@ -1,6 +1,6 @@
 {
   "project": "../../playground/android-app/",
-  "findings_count": 68,
+  "findings_count": 70,
   "findings": [
     {
       "rule": "CoarseFineLocation",
@@ -9,6 +9,14 @@
       "line": 5,
       "col": 0,
       "message": "If you need access to FINE location, you must request both `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`"
+    },
+    {
+      "rule": "PermissionImpliesUnsupportedChromeOsHardwareManifest",
+      "ruleSet": "android-lint",
+      "file": "src/main/AndroidManifest.xml",
+      "line": 6,
+      "col": 0,
+      "message": "Permission exists without corresponding hardware `\u003cuses-feature android:name=\"android.hardware.camera\" android:required=\"false\" /\u003e` tag"
     },
     {
       "rule": "AllowBackupManifest",
@@ -537,6 +545,14 @@
       "line": 26,
       "col": 0,
       "message": "This text field does not specify an `inputType`"
+    },
+    {
+      "rule": "PluralsCandidateResource",
+      "ruleSet": "android-lint",
+      "file": "src/main/res/values/strings.xml",
+      "line": 8,
+      "col": 0,
+      "message": "Formatting %d followed by words (\"items\"): This should probably be a plural rather than a string"
     },
     {
       "rule": "TypographyEllipsis",

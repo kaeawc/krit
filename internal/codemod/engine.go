@@ -12,6 +12,8 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/kotlin"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 type Edit struct {
@@ -224,7 +226,7 @@ func ApplyEdits(edits []Edit) (applied int, filesModified int, err error) {
 		if string(buf) == string(content) {
 			continue
 		}
-		if err := os.WriteFile(path, buf, 0644); err != nil {
+		if err := fsutil.WriteFileAtomicKeepMode(path, buf, 0o644); err != nil {
 			return applied, filesModified, err
 		}
 		filesModified++

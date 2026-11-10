@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -603,16 +604,9 @@ func sortedUnique(in []string) []string {
 	if len(in) == 0 {
 		return nil
 	}
-	out := append([]string(nil), in...)
-	sort.Strings(out)
-	n := 0
-	for i, v := range out {
-		if i == 0 || v != out[i-1] {
-			out[n] = v
-			n++
-		}
-	}
-	return out[:n]
+	out := slices.Clone(in)
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // SourceSetKotlinSettings is the resolved settings of one source set, keyed so

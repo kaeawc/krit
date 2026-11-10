@@ -83,6 +83,9 @@ func registerAndroidCorrectnessDefaultLocale() {
 						return
 					}
 				}
+				if !defaultLocaleFormatArgReportable(file, defaultLocaleKotlinFormatArg(file, args), idx) {
+					return
+				}
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, defaultLocaleFormatMessage)
 			}
 		},
@@ -1057,7 +1060,7 @@ func checkDefaultLocaleJava(ctx *api.Context, idx uint32) {
 		if len(args) == 0 {
 			return
 		}
-		if javaExprMentionsLocale(file, args[0]) {
+		if javaExprMentionsLocale(file, args[0]) || !defaultLocaleFormatArgReportable(file, args[0], idx) {
 			return
 		}
 		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, defaultLocaleFormatMessage)

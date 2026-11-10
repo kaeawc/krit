@@ -1,8 +1,6 @@
 package rules
 
 import (
-	"strings"
-
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -136,22 +134,8 @@ func registerAndroidRules() {
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"string_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatContainsStringInterpolation(file, idx) {
-					return
-				}
-				// A path embedded in prose or a URL (`see /sdcard/ in docs`) is not a hardcoded path.
-				content := strings.TrimPrefix(stringLiteralContent(file, idx), "file://")
-				switch {
-				case strings.HasPrefix(content, "/sdcard"), strings.HasPrefix(content, "/mnt/sdcard"):
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Do not hardcode \"/sdcard/\"; use `Environment.getExternalStorageDirectory().getPath()` instead")
-				case strings.HasPrefix(content, "/data/data/"), strings.HasPrefix(content, "/data/user/"):
-					ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-						"Do not hardcode \"/data/\"; use `Context.getFilesDir().getPath()` instead")
-				}
-			},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			Check:     func(ctx *api.Context) { checkSdCardPath(ctx) },
 		})
 	}
 	{

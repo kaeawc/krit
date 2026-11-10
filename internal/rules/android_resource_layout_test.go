@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1469,15 +1470,89 @@ func TestObsoleteLayoutParams_OnlyKnownNonLinearParents(t *testing.T) {
 		})
 		return len(runResourceRule(r, idx))
 	}
-	for _, parent := range []string{"RadioGroup", "TableRow", "androidx.appcompat.widget.LinearLayoutCompat", "com.example.RowLayout", "com.google.android.material.button.MaterialButtonToggleGroup"} {
+	for _, parent := range []string{"RadioGroup", "TableRow", "TableLayout", "androidx.appcompat.widget.LinearLayoutCompat", "com.example.RowLayout", "com.google.android.material.button.MaterialButtonToggleGroup"} {
 		if n := run(parent); n != 0 {
 			t.Errorf("%s may be a LinearLayout, got %d findings", parent, n)
 		}
 	}
-	for _, parent := range []string{"FrameLayout", "RelativeLayout", "androidx.constraintlayout.widget.ConstraintLayout"} {
+	// Lint treats any dotted (custom) parent as possibly valid.
+	for _, parent := range []string{"FrameLayout", "RelativeLayout", "ScrollView", "GridLayout", "Foo"} {
 		if n := run(parent); n != 1 {
 			t.Errorf("%s ignores layout_weight, got %d findings", parent, n)
 		}
+	}
+}
+
+func TestObsoleteLayoutParams_AttributeFamilies(t *testing.T) {
+	r := findResourceRule(t, "ObsoleteLayoutParamsResource")
+	run := func(parent, attr string) []string {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: parent, Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "TextView", Line: 2, Attributes: map[string]string{"android:" + attr: "1"}}},
+		})
+		return findingMessages(runResourceRule(r, idx))
+	}
+	for _, tc := range []struct{ parent, attr, want string }{
+		{"FrameLayout", "layout_alignParentLeft", "Invalid layout param in a `FrameLayout`: `layout_alignParentLeft`"},
+		{"LinearLayout", "layout_below", "Invalid layout param in a `LinearLayout`: `layout_below`"},
+		{"LinearLayout", "layout_column", "Invalid layout param in a `LinearLayout`: `layout_column`"},
+		{"RelativeLayout", "layout_columnSpan", "Invalid layout param in a `RelativeLayout`: `layout_columnSpan`"},
+		{"FrameLayout", "layout_x", "Invalid layout param in a `FrameLayout`: `layout_x`"},
+		{"TableLayout", "layout_span", "Invalid layout param in a `TableLayout`: `layout_span`"},
+		{"TableRow", "layout_row", "Invalid layout param in a `TableRow`: `layout_row`"},
+	} {
+		if got := run(tc.parent, tc.attr); len(got) != 1 || got[0] != tc.want {
+			t.Errorf("%s %s: got %v, want %q", tc.parent, tc.attr, got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ parent, attr string }{
+		{"RelativeLayout", "layout_below"}, {"AbsoluteLayout", "layout_x"}, {"GridLayout", "layout_row"},
+		{"TableRow", "layout_column"}, {"TableRow", "layout_span"}, {"RadioGroup", "layout_weight"},
+		{"FrameLayout", "layout_gravity"}, {"FrameLayout", "layout_marginLeft"}, {"FrameLayout", "layout_marginHorizontal"},
+		{"com.example.Layout", "layout_below"}, {"view", "layout_below"}, {"DialerFilter", "layout_above"},
+	} {
+		if got := run(tc.parent, tc.attr); len(got) != 0 {
+			t.Errorf("%s %s should be clean, got %v", tc.parent, tc.attr, got)
+		}
+	}
+}
+
+func TestObsoleteLayoutParams_IncludedRootsAndMerge(t *testing.T) {
+	r := findResourceRule(t, "ObsoleteLayoutParamsResource")
+	weight := map[string]string{"android:layout_weight": "1"}
+	incl := func(name string) *android.View {
+		return &android.View{Type: "include", Line: 2, Attributes: map[string]string{"layout": "@layout/" + name}}
+	}
+	layout := func(name, dir string, root *android.View) *android.Layout {
+		return &android.Layout{Name: name, FilePath: "app/src/main/res/" + dir + "/" + name + ".xml", RootView: root}
+	}
+	build := func(parents ...string) []string {
+		idx := &android.ResourceIndex{Layouts: map[string]*android.Layout{}, LayoutConfigs: map[string]map[string]*android.Layout{}}
+		add := func(l *android.Layout, config string) {
+			idx.Layouts[l.Name] = l
+			if idx.LayoutConfigs[l.Name] == nil {
+				idx.LayoutConfigs[l.Name] = map[string]*android.Layout{}
+			}
+			idx.LayoutConfigs[l.Name][config] = l
+		}
+		add(layout("row", "layout", &android.View{Type: "TextView", Line: 1, Attributes: weight, AttrPos: map[string]android.XMLPos{"android:layout_weight": {Line: 1, Col: 5}}}), "")
+		add(layout("pair", "layout", &android.View{Type: "merge", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
+			{Type: "TextView", Line: 2, Attributes: weight, AttrPos: map[string]android.XMLPos{"android:layout_weight": {Line: 2, Col: 5}}}}}), "")
+		for i, p := range parents {
+			add(layout(fmt.Sprintf("host%d", i), "layout", &android.View{Type: p, Line: 1, Attributes: map[string]string{},
+				Children: []*android.View{incl("row"), incl("pair")}}), "")
+		}
+		return findingMessages(runResourceRule(r, idx))
+	}
+	if got := build(); len(got) != 0 {
+		t.Errorf("layouts nobody includes are not judged, got %v", got)
+	}
+	got := build("FrameLayout")
+	if len(got) != 2 || !strings.Contains(got[0], "Invalid layout param '`layout_weight`' (included from within a `FrameLayout` in `layout/host0.xml`)") {
+		t.Errorf("included in a FrameLayout only: got %v", got)
+	}
+	if got := build("FrameLayout", "LinearLayout"); len(got) != 0 {
+		t.Errorf("one valid including parent is enough, got %v", got)
 	}
 }
 

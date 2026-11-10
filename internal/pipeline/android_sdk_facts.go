@@ -42,6 +42,7 @@ func sdkLevelsFingerprint(project *android.Project) string {
 		return ""
 	}
 	sort.Strings(probes)
+	android.WarmSDKLevels(probes)
 	var resolver android.SDKLevelResolver
 	var b strings.Builder
 	for _, probe := range probes {

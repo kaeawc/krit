@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -168,19 +169,7 @@ func buildGradlePayload(profile *librarymodel.ProjectProfile) *oracle.PluginGrad
 
 // uniqueStrings collapses consecutive duplicates in a sorted slice in
 // place. Callers must sort first.
-func uniqueStrings(in []string) []string {
-	if len(in) < 2 {
-		return in
-	}
-	w := 1
-	for r := 1; r < len(in); r++ {
-		if in[r] != in[r-1] {
-			in[w] = in[r]
-			w++
-		}
-	}
-	return in[:w]
-}
+func uniqueStrings(in []string) []string { return slices.Compact(in) }
 
 // buildManifestPayload parses the first AndroidManifest.xml the
 // AndroidProject detector found and projects it into the narrow wire

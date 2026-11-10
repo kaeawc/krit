@@ -1016,8 +1016,8 @@ fun f(s: String, c: Char) {
     String.format("%d", 1)
 }
 `)
-		if len(findings) != 4 {
-			t.Fatalf("expected 4 findings (format %%s, java.lang.String.format, toUpperCase, format), got %v", findings)
+		if len(findings) != 3 {
+			t.Fatalf("expected 3 findings (java.lang.String.format, toUpperCase, format; %%s is locale-neutral), got %v", findings)
 		}
 	})
 	t.Run("java", func(t *testing.T) {
@@ -1036,8 +1036,76 @@ class C {
   }
 }
 `)
-		if len(findings) != 4 {
+		if len(findings) != 3 {
 			t.Fatalf("expected 3 findings, got %v", findings)
+		}
+	})
+}
+
+func TestDefaultLocale_FormatFilters(t *testing.T) {
+	t.Run("java", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "DefaultLocale", `
+package test;
+import android.util.Log;
+class C {
+  static final String FMT = "%d x";
+  void f(String fmt, String s) {
+    String.format("%s", s);
+    String.format("%d", 1);
+    String.format("%5.2f", 1.0);
+    String.format("%x", 1);
+    String.format("%%", 1);
+    String.format("plain");
+    String.format(fmt, s);
+    String.format(FMT, 1);
+    String.format("a" + "%d", 1);
+    Log.d("t", String.format("%d", 1));
+    throw new IllegalStateException(String.format("%d", 1));
+  }
+}
+`)
+		var lines []int
+		for _, f := range findings {
+			lines = append(lines, f.Line)
+		}
+		want := []int{8, 9, 14, 15}
+		if len(lines) != len(want) {
+			t.Fatalf("expected findings on lines %v, got %v", want, lines)
+		}
+		for i := range want {
+			if lines[i] != want[i] {
+				t.Fatalf("expected findings on lines %v, got %v", want, lines)
+			}
+		}
+	})
+	t.Run("kotlin", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "DefaultLocale", `
+package test
+import android.util.Log
+const val FMT = "%d x"
+fun f(fmt: String, s: String) {
+    String.format("%s", s)
+    String.format("%d", 1)
+    String.format("plain")
+    String.format(fmt, s)
+    String.format(FMT, 1)
+    String.format(format = "%f", 1.0)
+    Log.d("t", String.format("%d", 1))
+    if (s.isEmpty()) throw IllegalStateException(String.format("%d", 1))
+}
+`)
+		var lines []int
+		for _, f := range findings {
+			lines = append(lines, f.Line)
+		}
+		want := []int{7, 10, 11}
+		if len(lines) != len(want) {
+			t.Fatalf("expected findings on lines %v, got %v", want, lines)
+		}
+		for i := range want {
+			if lines[i] != want[i] {
+				t.Fatalf("expected findings on lines %v, got %v", want, lines)
+			}
 		}
 	})
 }

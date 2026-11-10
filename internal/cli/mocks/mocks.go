@@ -83,7 +83,7 @@ func Scan(root string) (Report, error) {
 			}
 			return nil
 		}
-		if !isTestPath(path) || (!strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".java")) {
+		if !fsutil.IsBasicTestPath(path) || (!strings.HasSuffix(path, ".kt") && !strings.HasSuffix(path, ".java")) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -242,14 +242,4 @@ func lineAt(text string, offset int) int {
 		return 1
 	}
 	return strings.Count(text[:offset], "\n") + 1
-}
-
-func isTestPath(path string) bool {
-	slash := filepath.ToSlash(path)
-	for _, marker := range []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/testFixtures/"} {
-		if strings.Contains(slash, marker) {
-			return true
-		}
-	}
-	return false
 }

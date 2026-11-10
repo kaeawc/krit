@@ -81,8 +81,17 @@ func ctorGapForHit(content []byte, hit int) []int {
 	}
 	depth := 0
 	cur := ls
+	var comments []int
 	for n := 0; n < maxCtorGapLines && cur > 0; n++ {
 		ps, line := previousLine(content, cur)
+		lineEnd := ps + len(line)
+		if c := lineCommentStart(line); c >= 0 {
+			// Blanking the break would otherwise pull the next line into the comment.
+			comments = appendRange(comments, ps+c, lineEnd)
+			line = line[:c]
+		} else if c == -2 {
+			return nil
+		}
 		trimmed := bytes.TrimSpace(line)
 		if bytes.HasSuffix(trimmed, []byte("*/")) {
 			// A block comment between the header and the constructor.
@@ -93,7 +102,7 @@ func ctorGapForHit(content []byte, hit int) []int {
 			cur = start
 			continue
 		}
-		if bytes.Contains(trimmed, []byte("//")) || bytes.Contains(trimmed, []byte("/*")) || bytes.HasPrefix(trimmed, []byte("*")) {
+		if bytes.Contains(trimmed, []byte("/*")) || bytes.HasPrefix(trimmed, []byte("*")) {
 			return nil
 		}
 		depth += bytes.Count(trimmed, []byte(")")) - bytes.Count(trimmed, []byte("("))
@@ -102,12 +111,29 @@ func ctorGapForHit(content []byte, hit int) []int {
 			cur = ps
 			continue
 		case ctorClassHeaderRe.Match(trimmed):
-			return lineBreaksIn(content, ps+len(line), ls)
+			return append(lineBreaksIn(content, lineEnd, ls), comments...)
 		default:
 			return nil
 		}
 	}
 	return nil
+}
+
+// lineCommentStart returns the offset of a "//" comment in line, -1 when there is none, and -2 when a quote
+// precedes it so the "//" may sit inside a string.
+func lineCommentStart(line []byte) int {
+	c := bytes.Index(line, []byte("//"))
+	if c >= 0 && bytes.ContainsAny(line[:c], "\"'") {
+		return -2
+	}
+	return c
+}
+
+func appendRange(out []int, from, to int) []int {
+	for i := from; i < to; i++ {
+		out = append(out, i)
+	}
+	return out
 }
 
 // ctorGapPrefixAllowed reports whether the text before a constructor hit on its line may

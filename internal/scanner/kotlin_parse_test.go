@@ -132,9 +132,37 @@ func TestSecondaryConstructorInBodyUntouched(t *testing.T) {
 	if got := ctorGapBreaks([]byte(src)); got != nil {
 		t.Fatalf("unexpected rewrite %v", got)
 	}
-	src2 := "class Foo // trailing\n@Inject\nconstructor(val a: A) {}\n"
+	src2 := "class Foo\n\"x\" // a\n@Inject\nconstructor(val a: A) {}\n"
 	if got := ctorGapBreaks([]byte(src2)); got != nil {
-		t.Fatalf("comment gap rewritten %v", got)
+		t.Fatalf("unrelated gap rewritten %v", got)
+	}
+	src3 := "class Foo\n@Named(\"a//b\") // c\nconstructor(val a: A) {}\n"
+	if got := ctorGapBreaks([]byte(src3)); got != nil {
+		t.Fatalf("string containing // rewritten %v", got)
+	}
+}
+
+func TestCtorGapWithLineComments(t *testing.T) {
+	cases := map[string]string{
+		"trailing":  "class Foo // trailing\n@Inject\nconstructor(val a: A) {\n  fun x() {}\n}\n\nfun top() {}\n",
+		"own line":  "class Foo\n// Explains the constructor.\n@Suppress(\"LongParameterList\")\ninternal constructor(val a: A) {\n  fun x() {}\n}\n\nfun top() {}\n",
+		"on annot":  "class Foo\n@Inject // why\n// more\nconstructor(val a: A) {\n  fun x() {}\n}\n\nfun top() {}\n",
+		"crlf":      "class Foo\r\n// note\r\n@Inject\r\nconstructor(val a: A) {\r\n  fun x() {}\r\n}\r\n\r\nfun top() {}\r\n",
+		"companion": "class Foo\n// note\ninternal constructor(val a: A) {\n  companion object { const val K = 1 }\n}\n\nfun top() {}\n",
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			ft, content := parseSynthetic(t, src)
+			if hasMisparse(ft) {
+				t.Fatalf("top level = %v", topLevelTypes(ft))
+			}
+			if got := topLevelTypes(ft); strings.Join(got, ",") != "class_declaration,function_declaration" {
+				t.Fatalf("top level = %v", got)
+			}
+			if len(content) != len(src) {
+				t.Fatalf("content length changed")
+			}
+		})
 	}
 }
 

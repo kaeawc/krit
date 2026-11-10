@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -190,15 +191,4 @@ func packageOfFQN(fqn string) string {
 	return fqn[:last]
 }
 
-func dedupeStrings(in []string) []string {
-	if len(in) == 0 {
-		return in
-	}
-	out := in[:1]
-	for _, s := range in[1:] {
-		if s != out[len(out)-1] {
-			out = append(out, s)
-		}
-	}
-	return out
-}
+func dedupeStrings(in []string) []string { return slices.Compact(in) }

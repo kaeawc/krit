@@ -238,3 +238,24 @@ func TestSyncCalled(t *testing.T) {
 		t.Errorf("tempfile still present after successful write: %v", matches)
 	}
 }
+
+func TestWriteFileAtomicKeepMode(t *testing.T) {
+	dir := t.TempDir()
+	existing := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(existing, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomicKeepMode(existing, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(existing); info.Mode().Perm() != 0o600 {
+		t.Fatalf("existing mode = %v, want 0600", info.Mode().Perm())
+	}
+	fresh := filepath.Join(dir, "b.txt")
+	if err := WriteFileAtomicKeepMode(fresh, []byte("x"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(fresh); info.Mode().Perm() != 0o640 {
+		t.Fatalf("new mode = %v, want 0640", info.Mode().Perm())
+	}
+}

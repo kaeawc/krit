@@ -79,7 +79,7 @@ func buildProductionIndex(idx *scanner.CodeIndex) productionIndex {
 		membersByOwner: make(map[string][]scanner.Symbol),
 	}
 	for _, sym := range idx.Symbols {
-		if isTestPath(sym.File) || sym.Language != scanner.LangKotlin {
+		if fsutil.IsBasicTestPath(sym.File) || sym.Language != scanner.LangKotlin {
 			continue
 		}
 		if sym.Kind == "class" && sym.Name != "" && sym.Visibility != "private" {
@@ -158,7 +158,7 @@ func StaticFindings(root string, files []*scanner.File) []Finding {
 
 	var findings []Finding
 	for _, sym := range idx.Symbols {
-		if sym.Kind != "class" || !isTestPath(sym.File) {
+		if sym.Kind != "class" || !fsutil.IsBasicTestPath(sym.File) {
 			continue
 		}
 		file := filesByPath[sym.File]
@@ -249,14 +249,4 @@ func symbolText(file *scanner.File, sym scanner.Symbol) string {
 
 func tokenInText(text, token string) bool {
 	return strutil.ContainsTokenWordBoundary(text, token)
-}
-
-func isTestPath(path string) bool {
-	slash := filepath.ToSlash(path)
-	for _, marker := range []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/testFixtures/"} {
-		if strings.Contains(slash, marker) {
-			return true
-		}
-	}
-	return false
 }

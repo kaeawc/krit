@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 16, 18, 22, 24x2, 27, 33, 40, 43, 48, 52, 56, 60, 62, 64, 66, 68, 71, 79, 81, 83
-// Positives for DefaultLocale, each reported by the Go rule too: the static
+// go-lines: 14, 20, 26, 29, 35, 42, 45, 50, 54, 58, 62, 64, 66, 68, 70, 73, 81, 83, 85
+// Positives for DefaultLocale, reported by the Go rule too except where noted: the static
 // String.format without a Locale, and the no-argument String.toLowerCase() /
 // toUpperCase(). K2 rejects the stdlib toLowerCase() / toUpperCase() as
 // DEPRECATION_ERROR, so those calls only compile with the error suppressed;
@@ -13,6 +13,8 @@ import java.util.Date
 class Formatter {
     fun decimal(value: Double): String = <!DefaultLocale!>String.format("%.2f", value)<!>
 
+    // Go follows Lint and skips formats without a d, e, f, g, t or T conversion
+    // (this one, `%s`); FIR reports every default-locale format call.
     fun patternOnly(): String = <!DefaultLocale!>String.format("progress %% done")<!>
 
     fun date(): String = <!DefaultLocale!>String.format("%tF", Date())<!>

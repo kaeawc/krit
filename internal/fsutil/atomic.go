@@ -25,6 +25,15 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	})
 }
 
+// WriteFileAtomicKeepMode is WriteFileAtomic for rewriting a file in place. An existing file
+// keeps its permission bits; a new file gets defaultPerm.
+func WriteFileAtomicKeepMode(path string, data []byte, defaultPerm os.FileMode) error {
+	if info, err := os.Stat(path); err == nil {
+		defaultPerm = info.Mode().Perm()
+	}
+	return WriteFileAtomic(path, data, defaultPerm)
+}
+
 // WriteFileAtomicStream is like WriteFileAtomic but streams into a caller-provided
 // callback. Used for gob/json encoders that want to write directly into the
 // tempfile without materialising the full payload.

@@ -52,7 +52,7 @@ func SelectTests(root string, files []*scanner.File, changedPaths []string) []st
 	changedSet := changedPathSet(root, changedPaths)
 	changedNames := make(map[string]bool)
 	for _, sym := range idx.Symbols {
-		if sym.Language != scanner.LangKotlin || isTestPath(sym.File) {
+		if sym.Language != scanner.LangKotlin || fsutil.IsBasicTestPath(sym.File) {
 			continue
 		}
 		if !changedSet[filepath.Clean(sym.File)] {
@@ -68,7 +68,7 @@ func SelectTests(root string, files []*scanner.File, changedPaths []string) []st
 	selected := make(map[string]bool)
 	for name := range changedNames {
 		for path := range idx.ReferenceFiles(name) {
-			if isTestPath(path) {
+			if fsutil.IsBasicTestPath(path) {
 				selected[fsutil.RelSlash(root, path)] = true
 			}
 		}
@@ -145,14 +145,4 @@ func scanKotlinFiles(root string) ([]*scanner.File, error) {
 		return nil
 	})
 	return out, err
-}
-
-func isTestPath(path string) bool {
-	slash := filepath.ToSlash(path)
-	for _, marker := range []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/testFixtures/"} {
-		if strings.Contains(slash, marker) {
-			return true
-		}
-	}
-	return false
 }

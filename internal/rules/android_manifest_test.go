@@ -1235,7 +1235,7 @@ func TestManifestOrderManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("uses-feature and supports-screens after application use Lint's message", func(t *testing.T) {
+	t.Run("only the first misplaced tag is reported, with Lint's message", func(t *testing.T) {
 		m := &rules.Manifest{
 			Path: "AndroidManifest.xml",
 			Elements: []rules.ManifestElement{
@@ -1246,7 +1246,7 @@ func TestManifestOrderManifest(t *testing.T) {
 			},
 		}
 		findings := runManifestRule(r, m)
-		if len(findings) != 2 || findings[0].Message != "`<uses-feature>` tag appears after `<application>` tag" {
+		if len(findings) != 1 || findings[0].Message != "`<uses-feature>` tag appears after `<application>` tag" {
 			t.Fatalf("got %+v", findings)
 		}
 	})
@@ -3636,4 +3636,69 @@ func TestExportedFlagFollowsLint(t *testing.T) {
 			t.Errorf("%s: launchable but not exported: %+v", ruleName, got)
 		}
 	}
+}
+
+func TestUnsupportedChromeOsHardwareManifestLintForms(t *testing.T) {
+	r := findManifestRule(t, "UnsupportedChromeOsHardwareManifest")
+	run := func(f rules.ManifestUsesFeature) int {
+		return len(runManifestRule(r, &rules.Manifest{Path: "AndroidManifest.xml", UsesFeatures: []rules.ManifestUsesFeature{f}}))
+	}
+	// Lint matches feature names by prefix, so sub-features are covered.
+	if got := run(rules.ManifestUsesFeature{Name: "android.hardware.touchscreen.multitouch", Line: 3}); got != 1 {
+		t.Fatalf("touchscreen.multitouch: expected 1 finding, got %d", got)
+	}
+	// Lint parses android:required as a boolean, so a reference counts as false.
+	if got := run(rules.ManifestUsesFeature{Name: "android.hardware.nfc", Required: "@bool/needs_nfc", Line: 3}); got != 0 {
+		t.Fatalf("reference required: expected 0 findings, got %d", got)
+	}
+}
+
+func TestPermissionImpliesUnsupportedChromeOsHardwareManifest(t *testing.T) {
+	r := findManifestRule(t, "PermissionImpliesUnsupportedChromeOsHardwareManifest")
+	run := func(perms []rules.ManifestUsesPermission, feats ...rules.ManifestUsesFeature) []string {
+		var msgs []string
+		m := &rules.Manifest{Path: "AndroidManifest.xml", UsesPermissionEntries: perms, UsesFeatures: feats}
+		for _, f := range runManifestRule(r, m) {
+			msgs = append(msgs, f.Message)
+		}
+		return msgs
+	}
+	telephony := "Permission exists without corresponding hardware `<uses-feature android:name=\"android.hardware.telephony\" android:required=\"false\" />` tag"
+	perm := func(name string, line int) rules.ManifestUsesPermission {
+		return rules.ManifestUsesPermission{Name: name, Line: line}
+	}
+
+	t.Run("telephony permission without a feature triggers", func(t *testing.T) {
+		got := run([]rules.ManifestUsesPermission{perm("android.permission.READ_SMS", 4), perm("android.permission.INTERNET", 5)})
+		if len(got) != 1 || got[0] != telephony {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("camera permission without a feature triggers", func(t *testing.T) {
+		if got := run([]rules.ManifestUsesPermission{perm("android.permission.CAMERA", 4)}); len(got) != 1 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("any declaration of the feature silences it, whatever its required value", func(t *testing.T) {
+		got := run([]rules.ManifestUsesPermission{perm("android.permission.CALL_PHONE", 4)},
+			rules.ManifestUsesFeature{Name: "android.hardware.telephony", Required: "true", Line: 6})
+		if len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("camera.any silences the camera permission but camera.front does not", func(t *testing.T) {
+		camera := []rules.ManifestUsesPermission{perm("android.permission.CAMERA", 4)}
+		if got := run(camera, rules.ManifestUsesFeature{Name: "android.hardware.camera.any", Line: 6}); len(got) != 0 {
+			t.Fatalf("camera.any: got %v", got)
+		}
+		if got := run(camera, rules.ManifestUsesFeature{Name: "android.hardware.camera.front", Line: 6}); len(got) != 1 {
+			t.Fatalf("camera.front: got %v", got)
+		}
+	})
+	t.Run("permissions Lint does not map are clean", func(t *testing.T) {
+		got := run([]rules.ManifestUsesPermission{perm("android.permission.RECORD_AUDIO", 4), perm("android.permission.BLUETOOTH", 5)})
+		if len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
 }

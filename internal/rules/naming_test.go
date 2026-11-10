@@ -97,6 +97,26 @@ fun example() {
 	}
 }
 
+func TestVariableNaming_IgnoresCompanionConstAfterCommentedConstructorGap(t *testing.T) {
+	findings := runRuleByName(t, "VariableNaming", `
+package test
+
+class Holder
+// Keeps the constructor off the class line.
+@Suppress("LongParameterList")
+internal constructor(private val size: Int) {
+  companion object {
+    private const val MAX_SIZE = 100
+  }
+}
+`)
+	for _, f := range findings {
+		if f.Rule == "VariableNaming" {
+			t.Errorf("companion const is ObjectPropertyNaming territory, got: %s", f.Message)
+		}
+	}
+}
+
 func TestVariableNaming_HonorsPrivateVariablePattern(t *testing.T) {
 	// PrivateVariablePattern was previously a dead config — exposed in
 	// metadata but never consulted by the check. The Kotlin compiler

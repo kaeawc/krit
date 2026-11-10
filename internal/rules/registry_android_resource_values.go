@@ -265,6 +265,22 @@ func registerAndroidResourceValuesRules() {
 		})
 	}
 	{
+		r := &PluralsCandidateResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "PluralsCandidateResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "PluralsCandidate",
+			Brief:      "Potential Plurals",
+			Category:   ALCMessages,
+			ALSeverity: ALSWarning,
+			Priority:   7,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &StringFormatTrivialResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "StringFormatTrivialResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "StringFormatTrivial",

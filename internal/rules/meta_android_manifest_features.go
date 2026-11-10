@@ -71,6 +71,14 @@ func (r *PermissionImpliesUnsupportedHardwareManifestRule) Meta() api.RuleDescri
 	}
 }
 
+func (r *PermissionImpliesUnsupportedChromeOsHardwareManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "PermissionImpliesUnsupportedChromeOsHardwareManifest",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
 func (r *RtlEnabledManifestRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "RtlEnabledManifest",

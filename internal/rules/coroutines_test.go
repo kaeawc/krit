@@ -3501,11 +3501,18 @@ class Iter {
 func TestSleepInsteadOfDelay_MatchesDetektShapes(t *testing.T) {
 	flagged := map[string]string{
 		"qualified call":     "suspend fun a() { java.lang.Thread.sleep(10) }",
-		"callable reference": "suspend fun a() { val f = Thread::sleep }",
+		"callable reference": "suspend fun a() { run(Thread::sleep) }",
 		"flow builder":       "fun a() = flow<Int> { Thread.sleep(10) }",
 		"callbackFlow":       "fun a() = callbackFlow<Int> { Thread.sleep(10) }",
 		"runTest":            "fun a() = runTest { Thread.sleep(10) }",
 		"split across lines": "suspend fun a() { Thread\n        .sleep(10) }",
+		"launch with args":   "fun a(s: CoroutineScope) { s.launch(Dispatchers.IO) { Thread.sleep(10) } }",
+		"withContext":        "suspend fun a() { withContext(Dispatchers.IO) { Thread.sleep(10) } }",
+		"suspend builder":    "fun a() { val f = suspend { Thread.sleep(10) } }",
+		"run in suspend":     "suspend fun a() { run { Thread.sleep(10) } }",
+		"let in suspend":     "suspend fun a() { 1.let { Thread.sleep(10) } }",
+		"forEach in suspend": "suspend fun a() { listOf(1).forEach { Thread.sleep(10) } }",
+		"nested inline":      "fun a(s: CoroutineScope) { s.launch { run { Thread.sleep(10) } } }",
 	}
 	for name, src := range flagged {
 		if got := runRuleByName(t, "SleepInsteadOfDelay", "package test\n"+src+"\n"); len(got) != 1 {
@@ -3521,6 +3528,10 @@ func TestSleepInsteadOfDelay_MatchesDetektShapes(t *testing.T) {
 		"other class":        "suspend fun a() { MyThread.sleep(10) }",
 		"unqualified sleep":  "suspend fun a() { sleep(10) }",
 		"non-sleep callable": "suspend fun a() { val f = Thread::yield }",
+		"stored reference":   "suspend fun a() { val f = Thread::sleep }",
+		"thread builder":     "suspend fun a() { thread { Thread.sleep(10) } }",
+		"runnable lambda":    "suspend fun a() { val r = Runnable { Thread.sleep(10) } }",
+		"plain run":          "fun a() { run { Thread.sleep(10) } }",
 	}
 	for name, src := range clean {
 		if got := runRuleByName(t, "SleepInsteadOfDelay", "package test\n"+src+"\n"); len(got) != 0 {
@@ -3760,5 +3771,70 @@ object Registry {
 `)
 	if len(findings) != 1 {
 		t.Fatalf("only the plain var should be reported, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestRedundantSuspendModifier_CoroutineContextReadIsSuspend(t *testing.T) {
+	suspends := map[string]string{
+		"bare read":      "suspend fun f() { coroutineContext }",
+		"indexed":        "suspend fun f() = coroutineContext[Job]",
+		"member of it":   "suspend fun f() = coroutineContext.isActive",
+		"qualified read": "suspend fun f() { kotlin.coroutines.coroutineContext }",
+	}
+	for name, decl := range suspends {
+		t.Run(name, func(t *testing.T) {
+			if got := runRuleByName(t, "RedundantSuspendModifier", "package test\n"+decl+"\n"); len(got) != 0 {
+				t.Fatalf("want no findings, got %v", got)
+			}
+		})
+	}
+	plain := map[string]string{
+		"scope member read":   "suspend fun f(scope: CoroutineScope) { scope.coroutineContext }",
+		"nested function use": "suspend fun f(): Int { fun g() = coroutineContext; return 1 }",
+	}
+	for name, decl := range plain {
+		t.Run(name, func(t *testing.T) {
+			if got := runRuleByName(t, "RedundantSuspendModifier", "package test\n"+decl+"\n"); len(got) != 1 {
+				t.Fatalf("want 1 finding, got %v", got)
+			}
+		})
+	}
+}
+
+func TestRedundantSuspendModifier_TODOIsNotSuspend(t *testing.T) {
+	got := runRuleByName(t, "RedundantSuspendModifier", "package test\nsuspend fun f(): Int = TODO()\n")
+	if len(got) != 1 {
+		t.Fatalf("want 1 finding, got %v", got)
+	}
+}
+
+func TestRedundantSuspendModifier_StaticJavaCallIsProvenNonSuspend(t *testing.T) {
+	run := func(body string) []scanner.Finding {
+		file := parseInline(t, "package test\nsuspend fun f(repo: Repo) {\n    "+body+"\n}\n")
+		resolver := typeinfer.NewResolver()
+		resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+		fake := oracle.NewFakeOracle()
+		fake.CallTargets[file.Path] = map[string]string{}
+		fake.CallTargetSuspend[file.Path] = map[string]bool{}
+		file.FlatWalkNodes(0, "call_expression", func(idx uint32) {
+			key := fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
+			fake.CallTargets[file.Path][key] = "java.lang.Thread.sleep"
+			fake.CallTargetSuspend[file.Path][key] = false
+		})
+		composite := oracle.NewCompositeResolver(fake, resolver)
+		for _, r := range api.Registry {
+			if r.ID == "RedundantSuspendModifier" {
+				cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+				return cols.Findings()
+			}
+		}
+		t.Fatal("RedundantSuspendModifier not registered")
+		return nil
+	}
+	if got := run("Thread.sleep(1)"); len(got) != 1 {
+		t.Errorf("static Java call: want 1 finding, got %v", got)
+	}
+	if got := run("source.items().sleep(1)"); len(got) != 0 {
+		t.Errorf("chained call must stay conservative, got %v", got)
 	}
 }

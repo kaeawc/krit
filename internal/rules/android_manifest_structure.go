@@ -622,6 +622,7 @@ type ManifestOrderManifestRule struct {
 }
 
 // manifestOrderTags are the root children Lint expects before <application>.
+// Lint reports only the first misplaced one per manifest, even when it is suppressed.
 var manifestOrderTags = map[string]bool{
 	"uses-permission": true, "permission": true, "permission-tree": true, "permission-group": true,
 	"uses-sdk": true, "uses-configuration": true, "uses-feature": true, "supports-screens": true,
@@ -638,6 +639,7 @@ func (r *ManifestOrderManifestRule) check(ctx *api.Context) {
 		case seenApplication && manifestOrderTags[elem.Tag] && elem.ParentTag == "manifest":
 			ctx.Emit(baseFinding(m.Path, elem.Line, r.BaseRule,
 				fmt.Sprintf("`<%s>` tag appears after `<application>` tag", elem.Tag)))
+			return
 		}
 	}
 }

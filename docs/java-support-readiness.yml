@@ -147,6 +147,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_security_test.go
+  ApplySharedPref:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_apply_shared_pref_test.go
   BroadcastReceiverExportedFlagMissing:
     status: supported
     fixtures:
@@ -166,6 +170,10 @@ rules:
   ExplicitBackingFieldCandidate:
     status: not-applicable
     reason: "Targets Kotlin 2.4 explicit backing fields (`field = ...`); Java has no such construct."
+  InvalidWakeLockTag:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_wakelock_tag_test.go
   PreferToOverPairSyntax:
     status: not-applicable
     reason: "Targets the Kotlin kotlin.Pair constructor and the infix `to` function; Java has neither."
@@ -399,6 +407,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_security_calls_test.go
+  SdCardPath:
+    status: supported
+    fixtures:
+      - internal/rules/android_sdcard_path_test.go
   SecureRandom:
     status: supported
     fixtures:

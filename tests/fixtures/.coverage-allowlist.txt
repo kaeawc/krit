@@ -197,7 +197,9 @@ negative OverdrawResource
 negative PackageDependencyCycle
 negative ParcelCreator
 negative PermissionImpliesUnsupportedHardwareManifest
+negative PermissionImpliesUnsupportedChromeOsHardwareManifest
 negative PinSetExpiry
+negative PluralsCandidateResource
 negative PluralsMissingZero
 negative Proguard
 negative ProtectedPermissionsManifest
@@ -481,7 +483,9 @@ positive OverdrawResource
 positive PackageDependencyCycle
 positive ParcelCreator
 positive PermissionImpliesUnsupportedHardwareManifest
+positive PermissionImpliesUnsupportedChromeOsHardwareManifest
 positive PinSetExpiry
+positive PluralsCandidateResource
 positive PluralsMissingZero
 positive Proguard
 positive ProtectedPermissionsManifest

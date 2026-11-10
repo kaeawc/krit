@@ -13,6 +13,8 @@ func registerAndroidLintPortRules() {
 	registerWorldFilePermissions()
 	registerX509TrustManager()
 	registerWakelockTimeout()
+	registerInvalidWakeLockTag()
+	registerApplySharedPref()
 	registerSuspiciousImport()
 	registerPropertyFileRules()
 	registerManifestPermissionRules()
@@ -103,6 +105,18 @@ func registerWakelockTimeout() {
 	r := &WakelockTimeoutRule{AndroidRule: lintAndroidRule("WakelockTimeout", "Using wakeLock without timeout", ALCPerformance, ALSWarning, 9)}
 	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check, lintCallNodeTypes,
 		api.NeedsTypeInfo|api.NeedsOracleCallTargets, &api.JavaFactProfile{ReceiverTypesForCallees: []string{"acquire"}})
+}
+
+func registerInvalidWakeLockTag() {
+	r := &InvalidWakeLockTagRule{AndroidRule: lintAndroidRule("InvalidWakeLockTag", "Invalid Wake Lock Tag", ALCCorrectness, ALSWarning, 6)}
+	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check, lintCallNodeTypes,
+		api.NeedsTypeInfo|api.NeedsOracleCallTargets, &api.JavaFactProfile{ReceiverTypesForCallees: []string{"newWakeLock"}})
+}
+
+func registerApplySharedPref() {
+	r := &ApplySharedPrefRule{AndroidRule: lintAndroidRule("ApplySharedPref", "Use `apply()` on `SharedPreferences`", ALCPerformance, ALSWarning, 6)}
+	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check, lintCallNodeTypes,
+		api.NeedsTypeInfo|api.NeedsOracleCallTargets, &api.JavaFactProfile{ReceiverTypesForCallees: []string{"edit"}})
 }
 
 func registerSuspiciousImport() {

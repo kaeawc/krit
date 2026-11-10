@@ -96,6 +96,14 @@ func (r *StringFormatMatchesResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *PluralsCandidateResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "PluralsCandidateResource",
+		RuleSet:       "android-lint",
+		DefaultActive: true,
+	}
+}
+
 func (r *StringFormatTrivialResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "StringFormatTrivialResource",

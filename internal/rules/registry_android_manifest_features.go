@@ -106,6 +106,22 @@ func registerAndroidManifestFeaturesRules() {
 		})
 	}
 	{
+		r := &PermissionImpliesUnsupportedChromeOsHardwareManifestRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "PermissionImpliesUnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "error"},
+			IssueID:    "PermissionImpliesUnsupportedChromeOsHardware",
+			Brief:      "Permission Implies Unsupported Chrome OS Hardware",
+			Category:   ALCCorrectness,
+			ALSeverity: ALSError,
+			Priority:   5,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsManifest, AndroidDeps: uint32(AndroidDepManifest), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &UnsupportedChromeOsHardwareManifestRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "UnsupportedChromeOsHardwareManifest", RuleSetName: androidRuleSet, Sev: "error"},
 			IssueID:    "UnsupportedChromeOsHardware",

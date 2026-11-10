@@ -257,38 +257,8 @@ type ObsoleteLayoutParamsResourceRule struct {
 func (r *ObsoleteLayoutParamsResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *ObsoleteLayoutParamsResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	var findings []scanner.Finding
-	for _, layout := range idx.AllLayouts() {
-		checkObsoleteParams(layout.RootView, layout.FilePath, r.BaseRule, &findings)
-	}
-	for _, f := range findings {
+	for _, f := range obsoleteLayoutParamFindings(ctx.ResourceIndex.AllLayouts(), r.BaseRule) {
 		ctx.Emit(f)
-	}
-}
-
-// nonLinearWeightParents lists framework layouts that ignore layout_weight on their children.
-var nonLinearWeightParents = map[string]bool{
-	"FrameLayout": true, "RelativeLayout": true, "GridLayout": true, "ConstraintLayout": true,
-	"CoordinatorLayout": true, "ScrollView": true, "HorizontalScrollView": true, "NestedScrollView": true,
-	"CardView": true, "MaterialCardView": true, "DrawerLayout": true, "AbsoluteLayout": true,
-}
-
-func checkObsoleteParams(v *android.View, path string, rule BaseRule, findings *[]scanner.Finding) {
-	if v == nil || resourceToolsIgnoreMatches(v, "ObsoleteLayoutParam") {
-		return
-	}
-	// Only parents known not to read layout_weight; RadioGroup, TableRow and app-defined layouts may extend LinearLayout.
-	nonLinear := nonLinearWeightParents[frameworkViewName(v.Type)]
-	for _, child := range v.Children {
-		if nonLinear {
-			if child.Attributes["android:layout_weight"] != "" && !resourceToolsIgnoreMatches(child, "ObsoleteLayoutParam") {
-				*findings = append(*findings, baseFindingAtAttr(path, child, "android:layout_weight", rule,
-					fmt.Sprintf("`android:layout_weight` on `%s` is only valid inside `LinearLayout`. "+
-						"Parent is `%s`.", child.Type, v.Type)))
-			}
-		}
-		checkObsoleteParams(child, path, rule, findings)
 	}
 }
 

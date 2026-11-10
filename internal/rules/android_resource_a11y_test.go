@@ -1,6 +1,9 @@
 package rules_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -114,6 +117,7 @@ func TestLabelForResource(t *testing.T) {
 					Line: 3,
 					Attributes: map[string]string{
 						"android:labelFor": "@+id/email",
+						"android:text":     "Email",
 					},
 				},
 				{
@@ -1045,22 +1049,92 @@ func TestMissingContentDescriptionResource_FollowsLint(t *testing.T) {
 	}
 }
 
-func TestLabelForResource_LabelAnywhereAndTextInputLayout(t *testing.T) {
+func labelForRun(t *testing.T, kids ...*android.View) []string {
+	t.Helper()
+	return labelForRunAt(t, "res/layout/main.xml", kids...)
+}
+
+func labelForRunAt(t *testing.T, path string, kids ...*android.View) []string {
+	t.Helper()
 	r := findResourceRule(t, "LabelForResource")
-	edit := &android.View{Type: "EditText", ID: "@+id/name", Line: 5, Attributes: map[string]string{}}
-	label := &android.View{Type: "TextView", Line: 9, Attributes: map[string]string{"android:labelFor": "@id/name"}}
-	root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{
-		{Type: "LinearLayout", Line: 2, Attributes: map[string]string{}, Children: []*android.View{edit}},
-		{Type: "LinearLayout", Line: 8, Attributes: map[string]string{}, Children: []*android.View{label}},
-	}}
-	if n := len(runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root))); n != 0 {
-		t.Errorf("label in a different container should satisfy labelFor, got %d", n)
+	root := &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: kids}
+	var msgs []string
+	for _, f := range runResourceRule(r, indexWithLayout("main", path, root)) {
+		msgs = append(msgs, fmt.Sprintf("%d:%s", f.Line, strings.TrimPrefix(f.Message, "Missing accessibility label: ")))
 	}
-	til := &android.View{Type: "com.google.android.material.textfield.TextInputLayout", Line: 2, Attributes: map[string]string{"android:hint": "Name"},
-		Children: []*android.View{{Type: "EditText", ID: "@+id/e", Line: 3, Attributes: map[string]string{}}}}
-	root = &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}, Children: []*android.View{til}}
-	if n := len(runResourceRule(r, indexWithLayout("main", "res/layout/main.xml", root))); n != 0 {
-		t.Errorf("EditText inside TextInputLayout should be clean, got %d", n)
+	return msgs
+}
+
+func labelForEdit(tag, id string, line int, attrs map[string]string) *android.View {
+	if attrs == nil {
+		attrs = map[string]string{}
+	}
+	return &android.View{Type: tag, ID: id, Line: line, Attributes: attrs}
+}
+
+func TestLabelForResource_LabelAnywhere(t *testing.T) {
+	edit := labelForEdit("EditText", "@+id/name", 5, nil)
+	label := &android.View{Type: "TextView", Line: 9, Attributes: map[string]string{"android:labelFor": "@id/name", "android:text": "Name"}}
+	nested := func(v *android.View) *android.View {
+		return &android.View{Type: "LinearLayout", Line: 2, Attributes: map[string]string{}, Children: []*android.View{v}}
+	}
+	if got := labelForRun(t, nested(edit), nested(label)); len(got) != 0 {
+		t.Errorf("label in a different container should satisfy labelFor, got %v", got)
+	}
+}
+
+// Lint's LabelForDetector has no TextInputLayout, contentDescription or importantForAccessibility exemption.
+func TestLabelForResource_OnlyHintAndLabelForCount(t *testing.T) {
+	either := "provide either a view with an `android:labelFor` that references this view or provide an `android:hint`"
+	til := &android.View{Type: "com.google.android.material.textfield.TextInputLayout", Line: 2,
+		Attributes: map[string]string{"android:hint": "Name"},
+		Children:   []*android.View{labelForEdit("EditText", "@+id/e", 3, nil)}}
+	cases := []struct {
+		name string
+		kids []*android.View
+		want []string
+	}{
+		{"inside TextInputLayout", []*android.View{til}, []string{"3:" + either}},
+		{"contentDescription only", []*android.View{labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:contentDescription": "x"})}, []string{"3:" + either}},
+		{"hidden from accessibility", []*android.View{labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:importantForAccessibility": "no"})}, []string{"3:" + either}},
+		{"no id", []*android.View{labelForEdit("EditText", "", 3, nil)}, []string{"3:" + either}},
+		{"AutoCompleteTextView", []*android.View{labelForEdit("AutoCompleteTextView", "@+id/e", 3, nil)}, []string{"3:" + either}},
+		{"AppCompatEditText is not visited", []*android.View{labelForEdit("androidx.appcompat.widget.AppCompatEditText", "@+id/e", 3, nil)}, nil},
+		{"hint only", []*android.View{labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:hint": "h"})}, nil},
+		{"empty hint", []*android.View{labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:hint": ""})}, []string{"3:Empty `android:hint` attribute"}},
+		{"hint and label", []*android.View{
+			labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:hint": "h"}),
+			labelForEdit("TextView", "", 4, map[string]string{"android:labelFor": "@id/e", "android:text": "t"}),
+		}, []string{"3:" + either + ", but not both"}},
+		{"label without text", []*android.View{
+			labelForEdit("EditText", "@+id/e", 3, nil),
+			labelForEdit("TextView", "", 4, map[string]string{"android:labelFor": "@id/e"}),
+		}, []string{"4:when using `android:labelFor`, you must also define an `android:text` or an `android:contentDescription`"}},
+		{"labelFor on a Button needs no text", []*android.View{
+			labelForEdit("EditText", "@+id/e", 3, nil),
+			labelForEdit("Button", "", 4, map[string]string{"android:labelFor": "@id/e"}),
+		}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := labelForRun(t, tc.kids...)
+			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Lint's end-of-file loop returns at the first consistent field, so later fields are not checked.
+func TestLabelForResource_StopsAtFirstConsistentField(t *testing.T) {
+	got := labelForRun(t,
+		labelForEdit("EditText", "@+id/a", 3, nil),
+		labelForEdit("EditText", "@+id/b", 4, map[string]string{"android:hint": "h"}),
+		labelForEdit("EditText", "@+id/c", 5, nil),
+		labelForEdit("TextView", "", 6, map[string]string{"android:labelFor": "@id/z", "android:text": "t"}),
+	)
+	if len(got) != 1 || !strings.HasPrefix(got[0], "3:") {
+		t.Errorf("only the field before the first consistent one is reported, got %v", got)
 	}
 }
 
@@ -1249,5 +1323,38 @@ func TestHardcodedValuesResource_FollowsLintAttributesAndSamples(t *testing.T) {
 	menu := indexWithMenu("m", "res/menu/m.xml", view("item", map[string]string{"android:title": "Literal"}))
 	if n := count(menu); n != 1 {
 		t.Errorf("menu title: expected 1 finding, got %d", n)
+	}
+}
+
+func TestLabelForResource_MinSdkBelow17(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-sdk android:minSdkVersion="14"/></manifest>`
+	if err := os.WriteFile(filepath.Join(dir, "AndroidManifest.xml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "res", "layout", "main.xml")
+	hint := "where minSdk < 17, you should provide an `android:hint`"
+	cases := []struct {
+		name string
+		kids []*android.View
+		want []string
+	}{
+		{"no hint, no label", []*android.View{labelForEdit("EditText", "@+id/e", 3, nil)}, []string{"3:" + hint}},
+		{"label without hint", []*android.View{
+			labelForEdit("EditText", "@+id/e", 3, nil),
+			labelForEdit("TextView", "", 4, map[string]string{"android:labelFor": "@id/e", "android:text": "t"}),
+		}, []string{"3:" + hint}},
+		{"hint and label are not reported", []*android.View{
+			labelForEdit("EditText", "@+id/e", 3, map[string]string{"android:hint": "h"}),
+			labelForEdit("TextView", "", 4, map[string]string{"android:labelFor": "@id/e", "android:text": "t"}),
+		}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := labelForRunAt(t, path, tc.kids...)
+			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

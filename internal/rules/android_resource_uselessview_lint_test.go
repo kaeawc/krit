@@ -104,3 +104,21 @@ func TestWebViewLayoutLintParity(t *testing.T) {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// Lint's UselessViewDetector.CONTAINERS includes the scroll views, so an empty one is a useless leaf.
+func TestUselessLeafScrollViews(t *testing.T) {
+	files := map[string]string{"layout/sv.xml": `<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+  <ScrollView android:layout_width="match_parent" android:layout_height="wrap_content"/>
+  <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"/>
+  <ScrollView android:id="@+id/keep" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+</FrameLayout>
+`}
+	got := resourceFindings(t, "UselessLeafResource", files)
+	want := []string{
+		"layout/sv.xml:02 This `ScrollView` view is unnecessary (no children, no `background`, no `id`, no `style`)",
+		"layout/sv.xml:03 This `HorizontalScrollView` view is unnecessary (no children, no `background`, no `id`, no `style`)",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

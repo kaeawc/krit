@@ -121,6 +121,7 @@ static uintptr_t krit_language_id(TSNode root) { return (uintptr_t)ts_tree_langu
 import "C"
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -213,6 +214,8 @@ func flattenTree(root *sitter.Node) *FlatTree {
 	); rc != 0 {
 		panic("scanner: out of memory flattening tree")
 	}
+	// Only the C handle crossed cgo, so keep the Go tree from being finalized mid-call.
+	runtime.KeepAlive(root)
 
 	// Types holds raw grammar symbols until mapped to interned type IDs.
 	cache := symbolTypesFor(node)

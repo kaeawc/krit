@@ -75,3 +75,20 @@ func TestResolveSDKLevels(t *testing.T) {
 		t.Errorf("a file with no directory resolves nothing, got %+v", got)
 	}
 }
+
+func TestWarmSDKLevelsKeepsResolveResults(t *testing.T) {
+	root := t.TempDir()
+	writeSDKFile(t, root, "app/build.gradle.kts", "android { defaultConfig { minSdk = 21\n targetSdk = 34 } }")
+	a := writeSDKFile(t, root, "app/src/main/kotlin/A.kt", "")
+	b := writeSDKFile(t, root, "lib/src/main/kotlin/B.kt", "")
+	want := (&SDKLevelResolver{}).Resolve(a)
+	WarmSDKLevels([]string{a, b, a})
+	got := (&SDKLevelResolver{}).Resolve(a)
+	if got != want || got.TargetSdk != 34 {
+		t.Fatalf("Resolve after warm = %+v, want %+v", got, want)
+	}
+	if lib := (&SDKLevelResolver{}).Resolve(b); !lib.IsZero() {
+		t.Fatalf("lib levels = %+v, want zero", lib)
+	}
+	WarmSDKLevels(nil)
+}

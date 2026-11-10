@@ -370,6 +370,17 @@ type PermissionImpliesUnsupportedHardwareManifestRule struct {
 }
 
 // ---------------------------------------------------------------------------
+// Rule: PermissionImpliesUnsupportedChromeOsHardwareManifestRule
+// ---------------------------------------------------------------------------
+
+// PermissionImpliesUnsupportedChromeOsHardwareManifestRule detects camera and telephony permissions
+// without a matching <uses-feature> declaration, which Google Play treats as a hardware requirement.
+type PermissionImpliesUnsupportedChromeOsHardwareManifestRule struct {
+	ManifestBase
+	AndroidRule
+}
+
+// ---------------------------------------------------------------------------
 // Rule: UnsupportedChromeOsHardwareManifestRule
 // ---------------------------------------------------------------------------
 
@@ -384,6 +395,7 @@ type UnsupportedChromeOsHardwareManifestRule struct {
 
 // chromeOsUnsupportedFeatures lists features Lint reports as unavailable on some Chrome OS devices.
 var chromeOsUnsupportedFeatures = map[string]bool{
+	"android.hardware.camera":                                   true,
 	"android.hardware.camera.autofocus":                         true,
 	"android.hardware.camera.capability.manual_post_processing": true,
 	"android.hardware.camera.capability.manual_sensor":          true,
@@ -423,18 +435,73 @@ var chromeOsUnsupportedFeatures = map[string]bool{
 	"android.software.sip.voip":                                 true,
 }
 
-// isChromeOsUnsupportedFeature also matches every android.hardware.camera feature, like Lint.
+// isChromeOsUnsupportedFeature matches by prefix like Lint, so touchscreen.multitouch and camera.* count too.
 func isChromeOsUnsupportedFeature(name string) bool {
-	return chromeOsUnsupportedFeatures[name] || strings.HasPrefix(name, "android.hardware.camera")
+	for prefix := range chromeOsUnsupportedFeatures {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// chromeOsImpliedHardware is ChromeOsDetector.getImpliedUnsupportedHardware.
+var chromeOsImpliedHardware = map[string]string{
+	"android.permission.CAMERA":                 "android.hardware.camera",
+	"android.permission.CALL_PHONE":             "android.hardware.telephony",
+	"android.permission.CALL_PRIVILEGED":        "android.hardware.telephony",
+	"android.permission.MODIFY_PHONE_STATE":     "android.hardware.telephony",
+	"android.permission.PROCESS_OUTGOING_CALLS": "android.hardware.telephony",
+	"android.permission.READ_SMS":               "android.hardware.telephony",
+	"android.permission.RECEIVE_SMS":            "android.hardware.telephony",
+	"android.permission.RECEIVE_MMS":            "android.hardware.telephony",
+	"android.permission.WRITE_SMS":              "android.hardware.telephony",
+	"android.permission.WRITE_APN_SETTINGS":     "android.hardware.telephony",
+	"android.permission.SEND_SMS":               "android.hardware.telephony",
+	"android.permission.RECEIVE_WAP_PUSH":       "android.hardware.telephony",
+}
+
+// chromeOsLibraryManifest mirrors the NotLibraryProject constraint Lint puts on both Chrome OS hardware checks.
+func chromeOsLibraryManifest(m *Manifest) bool {
+	gi := lookupManifestGradleInfo(m.Path)
+	return gi.found && gi.isLibrary && !gi.isApplication
+}
+
+func (r *PermissionImpliesUnsupportedChromeOsHardwareManifestRule) check(ctx *api.Context) {
+	m := ctx.Manifest
+	if chromeOsLibraryManifest(m) {
+		return
+	}
+	declared := map[string]bool{}
+	for _, f := range m.UsesFeatures {
+		if isChromeOsUnsupportedFeature(f.Name) {
+			declared[f.Name] = true
+		}
+	}
+	for _, perm := range m.UsesPermissionEntries {
+		feature, implied := chromeOsImpliedHardware[perm.Name]
+		if !implied || declared[feature] {
+			continue
+		}
+		if feature == "android.hardware.camera" && declared["android.hardware.camera.any"] {
+			continue
+		}
+		ctx.Emit(baseFinding(m.Path, perm.Line, r.BaseRule,
+			"Permission exists without corresponding hardware `<uses-feature android:name=\""+feature+"\" android:required=\"false\" />` tag"))
+	}
 }
 
 func (r *UnsupportedChromeOsHardwareManifestRule) check(ctx *api.Context) {
 	m := ctx.Manifest
+	if chromeOsLibraryManifest(m) {
+		return
+	}
 	for _, f := range m.UsesFeatures {
 		if !isChromeOsUnsupportedFeature(f.Name) {
 			continue
 		}
-		if strings.EqualFold(f.Required, "false") {
+		// Lint parses android:required as a boolean, so references and placeholders count as false.
+		if f.Required != "" && !strings.EqualFold(f.Required, "true") {
 			continue
 		}
 		ctx.Emit(baseFinding(m.Path, f.Line, r.BaseRule,

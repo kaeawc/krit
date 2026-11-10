@@ -1826,8 +1826,8 @@ func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, resu
 	moduleTracker.TrackVoid("moduleDiscovery", func() {
 		graph, modErr = module.DiscoverModules(ctx, scanRoot)
 	})
-	if modErr != nil && in.Verbose {
-		in.logf("verbose: Module discovery error: %v\n", modErr)
+	if modErr != nil {
+		in.warnf("warning: module discovery failed, module-aware rules are skipped: %v\n", modErr)
 	}
 	result.Graph = graph
 
@@ -1839,9 +1839,7 @@ func (p IndexPhase) runModuleIndexBuild(ctx context.Context, in IndexInput, resu
 		if moduleNeeds.NeedsDependencies {
 			moduleTracker.TrackVoid("moduleDependencies", func() {
 				if err := module.ParseAllDependencies(graph); err != nil {
-					if in.Verbose {
-						in.logf("verbose: Module dependency parse error: %v\n", err)
-					}
+					in.warnf("warning: some module dependencies could not be read: %v\n", err)
 				}
 			})
 		}

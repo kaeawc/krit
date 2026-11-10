@@ -36,6 +36,14 @@ func (r *WakelockTimeoutRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "WakelockTimeout", RuleSet: "android-lint", DefaultActive: true}
 }
 
+func (r *InvalidWakeLockTagRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidWakeLockTag", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ApplySharedPrefRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ApplySharedPref", RuleSet: "android-lint", DefaultActive: true}
+}
+
 func (r *SuspiciousImportRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "SuspiciousImport", RuleSet: "android-lint", DefaultActive: true}
 }

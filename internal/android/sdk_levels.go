@@ -3,6 +3,7 @@ package android
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 )
@@ -32,6 +33,36 @@ func ResolveSDKLevels(sourcePath string) SDKLevels {
 // must not outlive the pass.
 type SDKLevelResolver struct {
 	byDir map[string]SDKLevels
+}
+
+// WarmSDKLevels reads the SDK declarations of every directory the given source paths resolve through, in
+// parallel, so later Resolve calls hit the memo. It changes no result.
+func WarmSDKLevels(sourcePaths []string) {
+	seen := map[string]bool{}
+	var dirs []string
+	for _, p := range sourcePaths {
+		for _, dir := range ancestorDirs(filepath.Dir(p)) {
+			if seen[dir] {
+				break
+			}
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	var wg sync.WaitGroup
+	jobs := make(chan string)
+	for range min(runtime.GOMAXPROCS(0), len(dirs)) {
+		wg.Go(func() {
+			for dir := range jobs {
+				sdkLevelsDeclaredIn(dir)
+			}
+		})
+	}
+	for _, dir := range dirs {
+		jobs <- dir
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 // Resolve returns ResolveSDKLevels(sourcePath).

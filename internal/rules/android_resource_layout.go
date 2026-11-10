@@ -142,8 +142,8 @@ func (r *UselessParentResourceRule) Confidence() float64 { return api.Confidence
 
 // uselessViewContainers is UselessViewDetector.CONTAINERS.
 var uselessViewContainers = map[string]bool{
-	"AbsoluteLayout": true, "FrameLayout": true, "GridLayout": true, "GridView": true, "ImageSwitcher": true,
-	"LinearLayout": true, "RadioGroup": true, "RelativeLayout": true, "SlidingDrawer": true, "StackView": true,
+	"AbsoluteLayout": true, "FrameLayout": true, "GridLayout": true, "GridView": true, "HorizontalScrollView": true, "ImageSwitcher": true,
+	"LinearLayout": true, "RadioGroup": true, "RelativeLayout": true, "ScrollView": true, "SlidingDrawer": true, "StackView": true,
 	"TableLayout": true, "TableRow": true, "TextSwitcher": true, "ViewAnimator": true, "ViewFlipper": true,
 	"ViewSwitcher": true,
 }

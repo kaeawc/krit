@@ -89,6 +89,8 @@ var commonNonSuspendCallees = map[string]bool{
 	"emptyList": true, "emptySet": true, "emptyMap": true,
 	"Pair": true, "Triple": true,
 	"String": true, "Int": true, "Long": true, "Float": true, "Double": true,
+	"TODO": true, "arrayListOf": true, "hashMapOf": true, "hashSetOf": true, "sequenceOf": true,
+	"emptyArray": true, "maxOf": true, "minOf": true, "lazy": true,
 }
 
 // walkCallsRespectingScope walks descendants of root, invoking fn on every
@@ -165,7 +167,7 @@ type SleepInsteadOfDelayRule struct {
 
 // coroutineBuilders are functions whose trailing lambda runs in a suspend context.
 var coroutineBuilders = map[string]bool{
-	"launch": true, "async": true, "runBlocking": true,
+	"launch": true, "async": true, "runBlocking": true, "suspend": true,
 	"withContext": true, "coroutineScope": true, "supervisorScope": true,
 	"withTimeout": true, "withTimeoutOrNull": true,
 	// Builders whose block parameter has a suspend function type.
@@ -184,35 +186,52 @@ func isInsideSuspendContextFlat(file *scanner.File, idx uint32) bool {
 		case "function_declaration":
 			return hasSuspendModifierFlat(file, p)
 		case "lambda_literal":
-			if isCoroutineBuilderLambdaFlat(file, p) {
+			name := lambdaCalleeNameFlat(file, p)
+			if coroutineBuilders[name] {
 				return true
 			}
-			return false
+			// An inline lambda runs in the caller's context, so keep looking outward.
+			if !inlineLambdaFunctions[name] {
+				return false
+			}
 		}
 	}
 	return false
 }
 
-func isCoroutineBuilderLambdaFlat(file *scanner.File, lambdaNode uint32) bool {
+// inlineLambdaFunctions are stdlib inline functions whose lambda runs in the caller's context, so a
+// blocking call in it still blocks the enclosing coroutine.
+var inlineLambdaFunctions = map[string]bool{
+	"run": true, "let": true, "apply": true, "also": true, "with": true, "use": true,
+	"takeIf": true, "takeUnless": true, "repeat": true, "synchronized": true, "runCatching": true,
+	"forEach": true, "forEachIndexed": true, "map": true, "mapIndexed": true, "mapNotNull": true,
+	"filter": true, "filterNot": true, "filterIndexed": true, "flatMap": true, "onEach": true,
+	"fold": true, "reduce": true, "any": true, "all": true, "none": true, "count": true,
+	"first": true, "firstOrNull": true, "find": true, "last": true, "lastOrNull": true,
+	"withLock": true, "measureTimeMillis": true, "measureNanoTime": true, "buildString": true,
+}
+
+// lambdaCalleeNameFlat returns the name of the call a lambda literal is the trailing lambda of, or "".
+func lambdaCalleeNameFlat(file *scanner.File, lambdaNode uint32) string {
 	parent, ok := file.FlatParent(lambdaNode)
 	if !ok {
-		return false
+		return ""
 	}
 	if file.FlatType(parent) == "annotated_lambda" {
 		parent, ok = file.FlatParent(parent)
 		if !ok {
-			return false
+			return ""
 		}
 	}
 	if file.FlatType(parent) != "call_suffix" {
-		return false
+		return ""
 	}
 	callExpr, ok := file.FlatParent(parent)
 	if !ok || file.FlatType(callExpr) != "call_expression" {
-		return false
+		return ""
 	}
-	calleeName := flatCallExpressionName(file, callExpr)
-	return coroutineBuilders[calleeName]
+	// `f(args) { }` nests the call `f(args)` under the outer call that owns the lambda.
+	return flatCallNameAny(file, callExpr)
 }
 
 // SuspendFunWithFlowReturnTypeRule detects suspend fun returning Flow.
@@ -616,6 +635,58 @@ func nameIsCoroutineScope(ctx *api.Context, at uint32, name string, seen map[str
 			if short == "CoroutineScope" || nameIsCoroutineScope(ctx, at, short, seen) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// isCallArgumentFlat reports whether the node is directly a value argument of a call.
+func isCallArgumentFlat(file *scanner.File, idx uint32) bool {
+	parent, ok := file.FlatParent(idx)
+	return ok && file.FlatType(parent) == "value_argument"
+}
+
+// isStaticJavaCallFlat reports a call like `Thread.sleep(1)` whose receiver is a plain class path and whose
+// resolved target is a Java member.
+func isStaticJavaCallFlat(file *scanner.File, call uint32, target string) bool {
+	if !strings.HasPrefix(target, "java.") && !strings.HasPrefix(target, "javax.") {
+		return false
+	}
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatType(navExpr) != "navigation_expression" {
+		return false
+	}
+	return !strings.ContainsAny(file.FlatNodeText(navExpr), "()[]{}<>")
+}
+
+// readsSuspendCoroutineContextFlat reports a read of the suspend `kotlin.coroutines.coroutineContext` property in
+// the function body. A `scope.coroutineContext` member read is not suspend.
+func readsSuspendCoroutineContextFlat(file *scanner.File, body uint32) bool {
+	found := false
+	file.FlatWalkNodes(body, "simple_identifier", func(id uint32) {
+		if found || !file.FlatNodeTextEquals(id, "coroutineContext") || insideNestedDeclarationFlat(file, body, id) {
+			return
+		}
+		parent, ok := file.FlatParent(id)
+		if !ok {
+			return
+		}
+		if file.FlatType(parent) == "navigation_suffix" {
+			nav, _ := file.FlatParent(parent)
+			found = strings.Join(strings.Fields(file.FlatNodeText(nav)), "") == "kotlin.coroutines.coroutineContext"
+			return
+		}
+		found = true
+	})
+	return found
+}
+
+// insideNestedDeclarationFlat reports whether a function, class or object declared inside root encloses the node.
+func insideNestedDeclarationFlat(file *scanner.File, root, node uint32) bool {
+	for p, ok := file.FlatParent(node); ok && p != root; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration", "anonymous_function", "class_declaration", "object_declaration", "object_literal":
+			return true
 		}
 	}
 	return false

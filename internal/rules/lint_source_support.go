@@ -394,6 +394,12 @@ func (p *lintEvalParser) resolveLocal(name string) (int64, bool) {
 // lintConstantInitializer returns the initializer node of the declaration of name visible from scope, or 0 when the
 // name is not declared in the file, is mutable, or is assigned again.
 func lintConstantInitializer(file *scanner.File, scope uint32, name string) uint32 {
+	return lintInitializerOf(file, scope, name, false)
+}
+
+// lintInitializerOf is lintConstantInitializer that can also accept a mutable declaration, which still resolves when
+// nothing in the file assigns it again (Lint's ConstantEvaluator follows such variables).
+func lintInitializerOf(file *scanner.File, scope uint32, name string, allowMutable bool) uint32 {
 	fn, hasFn := flatEnclosingCallable(file, scope)
 	var local, member uint32
 	var localRoot uint32
@@ -401,6 +407,7 @@ func lintConstantInitializer(file *scanner.File, scope uint32, name string) uint
 		if init == 0 {
 			return
 		}
+		mutable = mutable && !allowMutable
 		inFn := hasFn && file.FlatStartByte(decl) >= file.FlatStartByte(fn) && file.FlatEndByte(decl) <= file.FlatEndByte(fn)
 		if inFn {
 			if file.FlatStartByte(decl) < file.FlatStartByte(scope) && !mutable {

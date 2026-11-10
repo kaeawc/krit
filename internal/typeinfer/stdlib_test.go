@@ -780,3 +780,31 @@ func TestIsKnownValueType(t *testing.T) {
 		})
 	}
 }
+
+func TestStdlibSpecDecoding(t *testing.T) {
+	cases := []struct {
+		spec     string
+		name     string
+		fqn      string
+		kind     TypeKind
+		nullable bool
+		argIdx   int
+	}{
+		{"pInt", "Int", "kotlin.Int", TypePrimitive, false, -1},
+		{"cList", "List", "kotlin.collections.List", TypeClass, false, -1},
+		{"cAny!@1", "Any", "kotlin.Any", TypeClass, true, 1},
+		{"u", "Unit", "kotlin.Unit", TypeUnit, false, -1},
+		{"?!", "", "", TypeUnknown, true, -1},
+	}
+	for _, tc := range cases {
+		m := sm(tc.spec)
+		rt := m.ReturnType
+		if rt.Name != tc.name || rt.FQN != tc.fqn || rt.Kind != tc.kind || m.Nullable != tc.nullable || m.ReturnTypeArgIndex != tc.argIdx {
+			t.Errorf("sm(%q) = %+v nullable=%v idx=%d", tc.spec, *rt, m.Nullable, m.ReturnTypeArgIndex)
+		}
+	}
+	got := stdlibSpecs("a=pInt b=cList!")
+	if len(got) != 2 || got["a"].ReturnType.Name != "Int" || !got["b"].Nullable {
+		t.Errorf("stdlibSpecs decoded %v", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -17,7 +18,7 @@ func (s *Server) goToTestCodeActions(uri string, pos Position) []CodeAction {
 		return nil
 	}
 	currentFile, ok := s.getDocumentFlatFile(uri)
-	if !ok || isLSPTestPath(uriToPath(uri)) {
+	if !ok || fsutil.IsBasicTestPath(uriToPath(uri)) {
 		return nil
 	}
 	name := identifierAtPositionFlat(currentFile, pos)
@@ -82,7 +83,7 @@ func symbolAtCurrentFile(idx *scanner.CodeIndex, path, name string, currentFile 
 	cursorOffset := filePositionToByteOffset(currentFile, pos)
 	var fallback *scanner.Symbol
 	for _, sym := range idx.SymbolsNamed(name) {
-		if filepath.Clean(sym.File) != path || isLSPTestPath(sym.File) {
+		if filepath.Clean(sym.File) != path || fsutil.IsBasicTestPath(sym.File) {
 			continue
 		}
 		candidate := sym
@@ -106,7 +107,7 @@ func testLocationsForSymbol(idx *scanner.CodeIndex, target scanner.Symbol) []Loc
 	testFiles := make(map[string]bool)
 	for _, name := range referenceNamesForGoToTest(target) {
 		for path := range idx.ReferenceFiles(name) {
-			if isLSPTestPath(path) && filepath.Clean(path) != filepath.Clean(target.File) {
+			if fsutil.IsBasicTestPath(path) && filepath.Clean(path) != filepath.Clean(target.File) {
 				testFiles[path] = true
 			}
 		}
@@ -231,14 +232,4 @@ func isTestDeclarationKind(kind string) bool {
 	default:
 		return false
 	}
-}
-
-func isLSPTestPath(path string) bool {
-	normalized := filepath.ToSlash(path)
-	for _, marker := range []string{"/test/", "/androidTest/", "/commonTest/", "/jvmTest/", "/testFixtures/"} {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
 }

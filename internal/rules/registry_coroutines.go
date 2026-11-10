@@ -354,7 +354,8 @@ func registerCoroutinesRedundantSuspendModifier() {
 							hasSuspendCall = true
 							return false
 						}
-						provenNonSuspend = !chainMaybeSuspend
+						// A static call on a Java class has no overload that could be suspend, and no chain to mix up.
+						provenNonSuspend = !chainMaybeSuspend || isStaticJavaCallFlat(file, callIdx, oracleLookupCallTargetFlat(oracleLookup, file, callIdx))
 						if provenNonSuspend {
 							// The compiler resolved this call to a function that is not suspend, so the coroutines
 							// package prefix and the name lists below do not apply.
@@ -416,6 +417,10 @@ func registerCoroutinesRedundantSuspendModifier() {
 				}
 				return true
 			})
+			// Reading `coroutineContext` is a suspend intrinsic with no call expression.
+			if !hasSuspendCall && readsSuspendCoroutineContextFlat(file, body) {
+				hasSuspendCall = true
+			}
 			// `for (x in channel)` calls the suspend `hasNext` without a call expression.
 			if !hasSuspendCall {
 				switch forLoopSuspendVerdict(ctx, body) {
@@ -471,8 +476,8 @@ func registerCoroutinesSleepInsteadOfDelay() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) == "callable_reference" {
-				// detekt also reports a reference to the function: `Thread::sleep`.
-				if !isThreadSleepSpelling(file.FlatNodeText(idx), "::") || !isInsideSuspendContextFlat(file, idx) {
+				// detekt also reports a reference passed as an argument, such as `run(Thread::sleep)`, not a stored one.
+				if !isThreadSleepSpelling(file.FlatNodeText(idx), "::") || !isCallArgumentFlat(file, idx) || !isInsideSuspendContextFlat(file, idx) {
 					return
 				}
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, sleepInsteadOfDelayMessage))

@@ -3,6 +3,7 @@ package module
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -205,5 +206,35 @@ dependencies {
 	}
 	if consumers[0] != ":app" {
 		t.Errorf("expected :app as consumer of :lib, got %q", consumers[0])
+	}
+}
+
+func TestParseAllDependencies_UnreadableBuildFileDoesNotStopOthers(t *testing.T) {
+	root := t.TempDir()
+	graph := NewModuleGraph(root)
+	for _, name := range []string{"a", "b", "c"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		graph.Modules[":"+name] = &Module{Path: ":" + name, Dir: dir}
+	}
+	// A directory named like the build file makes ReadFile fail with a non-NotExist error.
+	if err := os.Mkdir(filepath.Join(root, "b", "build.gradle.kts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "c"} {
+		body := "dependencies {\n  implementation(project(\":b\"))\n}\n"
+		if err := os.WriteFile(filepath.Join(root, name, "build.gradle.kts"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := ParseAllDependencies(graph)
+	if err == nil || !strings.Contains(err.Error(), "module :b") {
+		t.Fatalf("expected error naming :b, got %v", err)
+	}
+	if got := graph.Consumers[":b"]; len(got) != 2 || got[0] != ":a" || got[1] != ":c" {
+		t.Fatalf("consumers of :b = %v, want [:a :c]", got)
 	}
 }

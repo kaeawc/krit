@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -114,8 +115,9 @@ func (r *MissingContentDescriptionResourceRule) check(ctx *api.Context) {
 // LabelForResource
 // ---------------------------------------------------------------------------
 
-// LabelForResourceRule detects EditText views without a corresponding
-// labelFor from a sibling view, which is needed for accessibility.
+// LabelForResourceRule mirrors Lint's LabelForDetector: an EditText, AutoCompleteTextView or
+// MultiAutoCompleteTextView needs an android:hint or a labelFor view, but not both, and a
+// TextView that labels another view needs its own text or contentDescription.
 type LabelForResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -126,59 +128,106 @@ type LabelForResourceRule struct {
 // via structural checks. Classified per roadmap/17.
 func (r *LabelForResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// labelForFieldTags are the tags LabelForDetector.getApplicableElements visits.
+var labelForFieldTags = map[string]bool{"EditText": true, "AutoCompleteTextView": true, "MultiAutoCompleteTextView": true}
+
+const (
+	labelForPrefix       = "Missing accessibility label: "
+	labelForEitherMsg    = "provide either a view with an `android:labelFor` that references this view or provide an `android:hint`"
+	labelForBothMsg      = labelForEitherMsg + ", but not both"
+	labelForPreJBMR1Msg  = "where minSdk < 17, you should provide an `android:hint`"
+	labelForNeedsTextMsg = "when using `android:labelFor`, you must also define an `android:text` or an `android:contentDescription`"
+	labelForMinSdk       = 17
+)
+
 func (r *LabelForResourceRule) check(ctx *api.Context) {
-	idx := ctx.ResourceIndex
-	var findings []scanner.Finding
-	for _, layout := range idx.AllLayouts() {
-		targets := make(map[string]bool)
-		walkViews(layout.RootView, func(v *android.View) {
-			if lf := v.Attributes["android:labelFor"]; lf != "" {
-				targets[strings.TrimPrefix(strings.TrimPrefix(lf, "@+id/"), "@id/")] = true
+	projectMin := 0
+	if facts := librarymodel.EnsureFacts(ctx.LibraryFacts); facts != nil {
+		projectMin = facts.Profile.MinSdkVersion
+	}
+	for _, layout := range ctx.ResourceIndex.AllLayouts() {
+		// An unknown minSdk counts as modern.
+		minSdk := resourceModuleMinSdk(layout.FilePath)
+		if minSdk == 0 {
+			minSdk = projectMin
+		}
+		var fields []*android.View
+		labels := map[string]bool{}
+		var findings []scanner.Finding
+		var walk func(v *android.View, ignored bool)
+		walk = func(v *android.View, ignored bool) {
+			if v == nil {
+				return
 			}
-		})
-		checkLabelFor(layout.RootView, nil, targets, layout.FilePath, r.BaseRule, &findings)
-	}
-	for _, f := range findings {
-		ctx.Emit(f)
+			ignored = ignored || resourceToolsIgnoreMatches(v, "LabelFor")
+			if target, ok := v.Attributes["android:labelFor"]; ok {
+				labels[target] = true
+				if v.Type == "TextView" && !ignored && v.Attributes["android:text"] == "" && v.Attributes["android:contentDescription"] == "" {
+					findings = append(findings, baseFindingAtAttr(layout.FilePath, v, "android:labelFor", r.BaseRule, labelForPrefix+labelForNeedsTextMsg))
+				}
+			}
+			if labelForFieldTags[v.Type] && !ignored {
+				if hint, ok := v.Attributes["android:hint"]; ok && hint == "" {
+					findings = append(findings, baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule, "Empty `android:hint` attribute"))
+				}
+				fields = append(fields, v)
+			}
+			for _, child := range v.Children {
+				walk(child, ignored)
+			}
+		}
+		walk(layout.RootView, false)
+		for _, v := range fields {
+			msg, stop := labelForFieldMessage(v, labels, minSdk)
+			if stop {
+				break
+			}
+			if msg != "" {
+				findings = append(findings, baseFindingAt(layout.FilePath, v.Line, v.Col, r.BaseRule, labelForPrefix+msg))
+			}
+		}
+		for _, f := range findings {
+			ctx.Emit(f)
+		}
 	}
 }
 
-func checkLabelFor(v, parent *android.View, labelForTargets map[string]bool, path string, rule BaseRule, findings *[]scanner.Finding) {
-	if v == nil || resourceToolsIgnoreMatches(v, "LabelFor") {
-		return
+// labelForFieldMessage returns the report for a text field, or "" when the hint and label are
+// consistent. stop is true for a well-formed field: Lint returns from its end-of-file loop there,
+// so it never checks the fields after it.
+func labelForFieldMessage(v *android.View, labels map[string]bool, minSdk int) (msg string, stop bool) {
+	_, hasHint := v.Attributes["android:hint"]
+	labelled := labelForIsLabelled(v.ID, labels)
+	oldSdk := minSdk != 0 && minSdk < labelForMinSdk
+	switch {
+	case hasHint && labelled:
+		if oldSdk {
+			return "", false
+		}
+		return labelForBothMsg, false
+	case !hasHint && !labelled:
+		if oldSdk {
+			return labelForPreJBMR1Msg, false
+		}
+		return labelForEitherMsg, false
+	case labelled && oldSdk:
+		return labelForPreJBMR1Msg, false
 	}
-	switch frameworkViewName(v.Type) {
-	case "EditText", "AppCompatEditText":
-		checkLabelForEditText(v, parent, labelForTargets, path, rule, findings)
-	}
-	for _, child := range v.Children {
-		checkLabelFor(child, v, labelForTargets, path, rule, findings)
-	}
+	return "", true
 }
 
-// checkLabelForEditText reports an EditText that nothing labels. A label view may sit anywhere in the layout.
-func checkLabelForEditText(v, parent *android.View, labelForTargets map[string]bool, path string, rule BaseRule, findings *[]scanner.Finding) {
-	// A TextInputLayout parent supplies the label.
-	if parent != nil && frameworkViewName(parent.Type) == "TextInputLayout" {
-		return
+// labelForIsLabelled reports whether some labelFor names the id, in either @id/ or @+id/ form.
+func labelForIsLabelled(id string, labels map[string]bool) bool {
+	if labels[id] {
+		return true
 	}
-	// The hint serves as the accessibility label, and a hidden view needs none.
-	if v.Attributes["android:hint"] != "" || v.Attributes["android:contentDescription"] != "" ||
-		v.Attributes["android:importantForAccessibility"] == "no" {
-		return
+	if name, ok := strings.CutPrefix(id, "@+id/"); ok {
+		return labels["@id/"+name]
 	}
-	if v.ID == "" {
-		*findings = append(*findings, baseFindingAt(path, v.Line, v.Col, rule,
-			fmt.Sprintf("`%s` has no `android:id`, so no label can reference it via `labelFor`. "+
-				"Add an id and a corresponding label for accessibility.", v.Type)))
-		return
+	if name, ok := strings.CutPrefix(id, "@id/"); ok {
+		return labels["@+id/"+name]
 	}
-	id := strings.TrimPrefix(strings.TrimPrefix(v.ID, "@+id/"), "@id/")
-	if !labelForTargets[id] {
-		*findings = append(*findings, baseFindingAt(path, v.Line, v.Col, rule,
-			fmt.Sprintf("No view has `android:labelFor` pointing to `%s`. "+
-				"Add a label for accessibility.", v.ID)))
-	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

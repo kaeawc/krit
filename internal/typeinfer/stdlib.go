@@ -1,5 +1,7 @@
 package typeinfer
 
+import "strings"
+
 // StdlibMethod describes a known stdlib method's return type.
 type StdlibMethod struct {
 	ReturnType         *ResolvedType
@@ -30,6 +32,42 @@ func stdlibUnit() *ResolvedType {
 	return &ResolvedType{Name: "Unit", FQN: "kotlin.Unit", Kind: TypeUnit, Resolved: true}
 }
 
+// sm decodes one compact method spec: a kind letter (p primitive, c class,
+// u Unit, ? unknown), the type name for p and c, then "!" for a nullable
+// result and "@N" for the receiver type-argument index.
+func sm(spec string) *StdlibMethod {
+	m := &StdlibMethod{ReturnTypeArgIndex: -1}
+	if i := strings.IndexByte(spec, '@'); i >= 0 {
+		m.ReturnTypeArgIndex = int(spec[i+1] - '0')
+		spec = spec[:i]
+	}
+	if strings.HasSuffix(spec, "!") {
+		m.Nullable = true
+		spec = strings.TrimSuffix(spec, "!")
+	}
+	switch spec[0] {
+	case 'p':
+		m.ReturnType = stdlibPrimitive(spec[1:])
+	case 'c':
+		m.ReturnType = stdlibClass(spec[1:])
+	case 'u':
+		m.ReturnType = stdlibUnit()
+	default:
+		m.ReturnType = &ResolvedType{Kind: TypeUnknown}
+	}
+	return m
+}
+
+// stdlibSpecs decodes space-separated "method=spec" pairs (see sm).
+func stdlibSpecs(pairs string) map[string]*StdlibMethod {
+	out := make(map[string]*StdlibMethod)
+	for _, pair := range strings.Fields(pairs) {
+		name, spec, _ := strings.Cut(pair, "=")
+		out[name] = sm(spec)
+	}
+	return out
+}
+
 // StdlibMethods maps "ReceiverType.methodName" -> return type info.
 // The receiver type uses simple names (String, List, Map, etc.).
 // For collection types, List/Collection/Iterable/MutableList share entries.
@@ -41,35 +79,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.String methods
 	// -------------------------------------------------------------------------
-	stringMethods := map[string]*StdlibMethod{
-		"toInt":        {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"toLong":       {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"toFloat":      {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"toDouble":     {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"toByte":       {ReturnType: stdlibPrimitive("Byte"), ReturnTypeArgIndex: -1},
-		"toShort":      {ReturnType: stdlibPrimitive("Short"), ReturnTypeArgIndex: -1},
-		"toIntOrNull":  {ReturnType: stdlibPrimitive("Int"), Nullable: true, ReturnTypeArgIndex: -1},
-		"toLongOrNull": {ReturnType: stdlibPrimitive("Long"), Nullable: true, ReturnTypeArgIndex: -1},
-		"lowercase":    {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"uppercase":    {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"trim":         {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"trimIndent":   {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"trimMargin":   {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"replace":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"reversed":     {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"length":       {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"isEmpty":      {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isBlank":      {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isNotEmpty":   {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isNotBlank":   {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"startsWith":   {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"endsWith":     {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"contains":     {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"toByteArray":  {ReturnType: stdlibClass("ByteArray"), ReturnTypeArgIndex: -1},
-		"split":        {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"toCharArray":  {ReturnType: stdlibClass("CharArray"), ReturnTypeArgIndex: -1},
-		"toRegex":      {ReturnType: stdlibClass("Regex"), ReturnTypeArgIndex: -1},
-	}
+	stringMethods := stdlibSpecs("toInt=pInt toLong=pLong toFloat=pFloat toDouble=pDouble toByte=pByte toShort=pShort toIntOrNull=pInt! toLongOrNull=pLong! lowercase=pString uppercase=pString trim=pString trimIndent=pString trimMargin=pString replace=pString reversed=pString length=pInt isEmpty=pBoolean isBlank=pBoolean isNotEmpty=pBoolean isNotBlank=pBoolean startsWith=pBoolean endsWith=pBoolean contains=pBoolean toByteArray=cByteArray split=cList toCharArray=cCharArray toRegex=cRegex")
 	for method, info := range stringMethods {
 		StdlibMethods["String."+method] = info
 	}
@@ -77,51 +87,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.collections.List / Collection / Iterable methods
 	// -------------------------------------------------------------------------
-	collectionMethods := map[string]*StdlibMethod{
-		"map":                {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"filter":             {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"filterNot":          {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"filterNotNull":      {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"flatMap":            {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"first":              {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"last":               {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"single":             {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"firstOrNull":        {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"lastOrNull":         {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"singleOrNull":       {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"find":               {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"findLast":           {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"any":                {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"all":                {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"none":               {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"count":              {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"size":               {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"isEmpty":            {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isNotEmpty":         {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"toList":             {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"toMutableList":      {ReturnType: stdlibClass("MutableList"), ReturnTypeArgIndex: -1},
-		"toSet":              {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"sorted":             {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"sortedBy":           {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"sortedWith":         {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"sortedDescending":   {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"sortedByDescending": {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"reversed":           {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"distinct":           {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"distinctBy":         {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"take":               {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"drop":               {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"takeWhile":          {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"dropWhile":          {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"takeLast":           {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"dropLast":           {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"zip":                {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"associate":          {ReturnType: stdlibClass("Map"), ReturnTypeArgIndex: -1},
-		"groupBy":            {ReturnType: stdlibClass("Map"), ReturnTypeArgIndex: -1},
-		"joinToString":       {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"forEach":            {ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1},
-		"sumOf":              {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-	}
+	collectionMethods := stdlibSpecs("map=cList filter=cList filterNot=cList filterNotNull=cList flatMap=cList first=cAny@0 last=cAny@0 single=cAny@0 firstOrNull=cAny!@0 lastOrNull=cAny!@0 singleOrNull=cAny!@0 find=cAny!@0 findLast=cAny!@0 any=pBoolean all=pBoolean none=pBoolean count=pInt size=pInt isEmpty=pBoolean isNotEmpty=pBoolean toList=cList toMutableList=cMutableList toSet=cSet sorted=cList sortedBy=cList sortedWith=cList sortedDescending=cList sortedByDescending=cList reversed=cList distinct=cList distinctBy=cList take=cList drop=cList takeWhile=cList dropWhile=cList takeLast=cList dropLast=cList zip=cList associate=cMap groupBy=cMap joinToString=pString forEach=u sumOf=pInt")
 	for _, receiver := range []string{"List", "Collection", "Iterable", "MutableList", "ArrayList", "Set", "MutableSet", "HashSet", "LinkedHashSet"} {
 		for method, info := range collectionMethods {
 			StdlibMethods[receiver+"."+method] = info
@@ -131,19 +97,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.collections.Map methods
 	// -------------------------------------------------------------------------
-	mapMethods := map[string]*StdlibMethod{
-		"get":           {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 1},
-		"getValue":      {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 1},
-		"getOrDefault":  {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 1},
-		"getOrElse":     {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 1},
-		"keys":          {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"values":        {ReturnType: stdlibClass("Collection"), ReturnTypeArgIndex: -1},
-		"entries":       {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"containsKey":   {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"containsValue": {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isEmpty":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"size":          {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-	}
+	mapMethods := stdlibSpecs("get=cAny!@1 getValue=cAny@1 getOrDefault=cAny@1 getOrElse=cAny@1 keys=cSet values=cCollection entries=cSet containsKey=pBoolean containsValue=pBoolean isEmpty=pBoolean size=pInt")
 	for _, receiver := range []string{"Map", "MutableMap", "HashMap", "LinkedHashMap"} {
 		for method, info := range mapMethods {
 			StdlibMethods[receiver+"."+method] = info
@@ -153,31 +107,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.sequences.Sequence methods
 	// -------------------------------------------------------------------------
-	seqMethods := map[string]*StdlibMethod{
-		"map":                {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"filter":             {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"flatMap":            {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"sorted":             {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"sortedBy":           {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"sortedWith":         {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"sortedDescending":   {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"sortedByDescending": {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"distinct":           {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"distinctBy":         {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"drop":               {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"dropWhile":          {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"take":               {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"takeWhile":          {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"zip":                {ReturnType: stdlibClass("Sequence"), ReturnTypeArgIndex: -1},
-		"toList":             {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"toSet":              {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"first":              {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"firstOrNull":        {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"count":              {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"any":                {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"all":                {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"none":               {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-	}
+	seqMethods := stdlibSpecs("map=cSequence filter=cSequence flatMap=cSequence sorted=cSequence sortedBy=cSequence sortedWith=cSequence sortedDescending=cSequence sortedByDescending=cSequence distinct=cSequence distinctBy=cSequence drop=cSequence dropWhile=cSequence take=cSequence takeWhile=cSequence zip=cSequence toList=cList toSet=cSet first=cAny@0 firstOrNull=cAny!@0 count=pInt any=pBoolean all=pBoolean none=pBoolean")
 	for method, info := range seqMethods {
 		StdlibMethods["Sequence."+method] = info
 	}
@@ -185,36 +115,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.Int methods
 	// -------------------------------------------------------------------------
-	intMethods := map[string]*StdlibMethod{
-		"toString":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"toLong":        {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"toFloat":       {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"toDouble":      {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"toShort":       {ReturnType: stdlibPrimitive("Short"), ReturnTypeArgIndex: -1},
-		"toByte":        {ReturnType: stdlibPrimitive("Byte"), ReturnTypeArgIndex: -1},
-		"toChar":        {ReturnType: stdlibPrimitive("Char"), ReturnTypeArgIndex: -1},
-		"coerceIn":      {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"coerceAtLeast": {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"coerceAtMost":  {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"compareTo":     {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"plus":          {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"minus":         {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"times":         {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"div":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"rem":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"mod":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"inc":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"dec":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"unaryMinus":    {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"unaryPlus":     {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"shl":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"shr":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"ushr":          {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"and":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"or":            {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"xor":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"inv":           {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-	}
+	intMethods := stdlibSpecs("toString=pString toLong=pLong toFloat=pFloat toDouble=pDouble toShort=pShort toByte=pByte toChar=pChar coerceIn=pInt coerceAtLeast=pInt coerceAtMost=pInt compareTo=pInt plus=pInt minus=pInt times=pInt div=pInt rem=pInt mod=pInt inc=pInt dec=pInt unaryMinus=pInt unaryPlus=pInt shl=pInt shr=pInt ushr=pInt and=pInt or=pInt xor=pInt inv=pInt")
 	for method, info := range intMethods {
 		StdlibMethods["Int."+method] = info
 	}
@@ -222,36 +123,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.Long methods
 	// -------------------------------------------------------------------------
-	longMethods := map[string]*StdlibMethod{
-		"toString":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"toInt":         {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"toFloat":       {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"toDouble":      {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"toShort":       {ReturnType: stdlibPrimitive("Short"), ReturnTypeArgIndex: -1},
-		"toByte":        {ReturnType: stdlibPrimitive("Byte"), ReturnTypeArgIndex: -1},
-		"toChar":        {ReturnType: stdlibPrimitive("Char"), ReturnTypeArgIndex: -1},
-		"coerceIn":      {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"coerceAtLeast": {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"coerceAtMost":  {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"compareTo":     {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"plus":          {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"minus":         {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"times":         {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"div":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"rem":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"mod":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"inc":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"dec":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"unaryMinus":    {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"unaryPlus":     {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"shl":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"shr":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"ushr":          {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"and":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"or":            {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"xor":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"inv":           {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-	}
+	longMethods := stdlibSpecs("toString=pString toInt=pInt toFloat=pFloat toDouble=pDouble toShort=pShort toByte=pByte toChar=pChar coerceIn=pLong coerceAtLeast=pLong coerceAtMost=pLong compareTo=pInt plus=pLong minus=pLong times=pLong div=pLong rem=pLong mod=pLong inc=pLong dec=pLong unaryMinus=pLong unaryPlus=pLong shl=pLong shr=pLong ushr=pLong and=pLong or=pLong xor=pLong inv=pLong")
 	for method, info := range longMethods {
 		StdlibMethods["Long."+method] = info
 	}
@@ -259,30 +131,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.Double methods
 	// -------------------------------------------------------------------------
-	doubleMethods := map[string]*StdlibMethod{
-		"toString":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"toInt":         {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"toLong":        {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"toFloat":       {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"toByte":        {ReturnType: stdlibPrimitive("Byte"), ReturnTypeArgIndex: -1},
-		"toShort":       {ReturnType: stdlibPrimitive("Short"), ReturnTypeArgIndex: -1},
-		"coerceIn":      {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"coerceAtLeast": {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"coerceAtMost":  {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"compareTo":     {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"plus":          {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"minus":         {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"times":         {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"div":           {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"rem":           {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"inc":           {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"dec":           {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"unaryMinus":    {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"unaryPlus":     {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"isNaN":         {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isInfinite":    {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isFinite":      {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-	}
+	doubleMethods := stdlibSpecs("toString=pString toInt=pInt toLong=pLong toFloat=pFloat toByte=pByte toShort=pShort coerceIn=pDouble coerceAtLeast=pDouble coerceAtMost=pDouble compareTo=pInt plus=pDouble minus=pDouble times=pDouble div=pDouble rem=pDouble inc=pDouble dec=pDouble unaryMinus=pDouble unaryPlus=pDouble isNaN=pBoolean isInfinite=pBoolean isFinite=pBoolean")
 	for method, info := range doubleMethods {
 		StdlibMethods["Double."+method] = info
 	}
@@ -290,30 +139,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.Float methods
 	// -------------------------------------------------------------------------
-	floatMethods := map[string]*StdlibMethod{
-		"toString":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"toInt":         {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"toLong":        {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"toDouble":      {ReturnType: stdlibPrimitive("Double"), ReturnTypeArgIndex: -1},
-		"toByte":        {ReturnType: stdlibPrimitive("Byte"), ReturnTypeArgIndex: -1},
-		"toShort":       {ReturnType: stdlibPrimitive("Short"), ReturnTypeArgIndex: -1},
-		"coerceIn":      {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"coerceAtLeast": {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"coerceAtMost":  {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"compareTo":     {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"plus":          {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"minus":         {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"times":         {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"div":           {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"rem":           {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"inc":           {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"dec":           {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"unaryMinus":    {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"unaryPlus":     {ReturnType: stdlibPrimitive("Float"), ReturnTypeArgIndex: -1},
-		"isNaN":         {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isInfinite":    {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isFinite":      {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-	}
+	floatMethods := stdlibSpecs("toString=pString toInt=pInt toLong=pLong toDouble=pDouble toByte=pByte toShort=pShort coerceIn=pFloat coerceAtLeast=pFloat coerceAtMost=pFloat compareTo=pInt plus=pFloat minus=pFloat times=pFloat div=pFloat rem=pFloat inc=pFloat dec=pFloat unaryMinus=pFloat unaryPlus=pFloat isNaN=pBoolean isInfinite=pBoolean isFinite=pBoolean")
 	for method, info := range floatMethods {
 		StdlibMethods["Float."+method] = info
 	}
@@ -321,14 +147,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// kotlin.Boolean methods
 	// -------------------------------------------------------------------------
-	boolMethods := map[string]*StdlibMethod{
-		"toString":  {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"compareTo": {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"not":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"and":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"or":        {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"xor":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-	}
+	boolMethods := stdlibSpecs("toString=pString compareTo=pInt not=pBoolean and=pBoolean or=pBoolean xor=pBoolean")
 	for method, info := range boolMethods {
 		StdlibMethods["Boolean."+method] = info
 	}
@@ -336,32 +155,17 @@ func init() {
 	// -------------------------------------------------------------------------
 	// Android Context methods
 	// -------------------------------------------------------------------------
-	StdlibMethods["Context.getString"] = &StdlibMethod{ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1}
-	StdlibMethods["Context.getResources"] = &StdlibMethod{ReturnType: stdlibClass("Resources"), ReturnTypeArgIndex: -1}
-	StdlibMethods["Context.getSystemService"] = &StdlibMethod{ReturnType: stdlibClass("Any"), Nullable: true, ReturnTypeArgIndex: -1}
-	StdlibMethods["Context.getPackageName"] = &StdlibMethod{ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1}
-	StdlibMethods["Context.getApplicationContext"] = &StdlibMethod{ReturnType: stdlibClass("Context"), ReturnTypeArgIndex: -1}
-	StdlibMethods["Context.startActivity"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
+	StdlibMethods["Context.getString"] = sm("pString")
+	StdlibMethods["Context.getResources"] = sm("cResources")
+	StdlibMethods["Context.getSystemService"] = sm("cAny!")
+	StdlibMethods["Context.getPackageName"] = sm("pString")
+	StdlibMethods["Context.getApplicationContext"] = sm("cContext")
+	StdlibMethods["Context.startActivity"] = sm("u")
 
 	// -------------------------------------------------------------------------
 	// java.io.File methods
 	// -------------------------------------------------------------------------
-	fileMethods := map[string]*StdlibMethod{
-		"exists":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isFile":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"isDirectory":  {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"readText":     {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"readLines":    {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"writeText":    {ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1},
-		"delete":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"mkdirs":       {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-		"getName":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"getPath":      {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-		"getParent":    {ReturnType: stdlibPrimitive("String"), Nullable: true, ReturnTypeArgIndex: -1},
-		"length":       {ReturnType: stdlibPrimitive("Long"), ReturnTypeArgIndex: -1},
-		"listFiles":    {ReturnType: stdlibClass("Array"), Nullable: true, ReturnTypeArgIndex: -1},
-		"absolutePath": {ReturnType: stdlibPrimitive("String"), ReturnTypeArgIndex: -1},
-	}
+	fileMethods := stdlibSpecs("exists=pBoolean isFile=pBoolean isDirectory=pBoolean readText=pString readLines=cList writeText=u delete=pBoolean mkdirs=pBoolean getName=pString getPath=pString getParent=pString! length=pLong listFiles=cArray! absolutePath=pString")
 	for method, info := range fileMethods {
 		StdlibMethods["File."+method] = info
 	}
@@ -369,15 +173,7 @@ func init() {
 	// -------------------------------------------------------------------------
 	// Set-specific methods (not shared with List)
 	// -------------------------------------------------------------------------
-	setSpecificMethods := map[string]*StdlibMethod{
-		"intersect":    {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"union":        {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"subtract":     {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"plus":         {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"minus":        {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"toMutableSet": {ReturnType: stdlibClass("MutableSet"), ReturnTypeArgIndex: -1},
-		"contains":     {ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1},
-	}
+	setSpecificMethods := stdlibSpecs("intersect=cSet union=cSet subtract=cSet plus=cSet minus=cSet toMutableSet=cMutableSet contains=pBoolean")
 	for _, receiver := range []string{"Set", "MutableSet", "HashSet", "LinkedHashSet"} {
 		for method, info := range setSpecificMethods {
 			StdlibMethods[receiver+"."+method] = info
@@ -389,82 +185,41 @@ func init() {
 	// -------------------------------------------------------------------------
 	// MutableList
 	for _, receiver := range []string{"MutableList", "ArrayList"} {
-		StdlibMethods[receiver+".add"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".remove"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".removeAt"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0}
-		StdlibMethods[receiver+".set"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0}
-		StdlibMethods[receiver+".clear"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".addAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".removeAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".retainAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".subList"] = &StdlibMethod{ReturnType: stdlibClass("MutableList"), ReturnTypeArgIndex: -1}
+		StdlibMethods[receiver+".add"] = sm("pBoolean")
+		StdlibMethods[receiver+".remove"] = sm("pBoolean")
+		StdlibMethods[receiver+".removeAt"] = sm("cAny@0")
+		StdlibMethods[receiver+".set"] = sm("cAny@0")
+		StdlibMethods[receiver+".clear"] = sm("u")
+		StdlibMethods[receiver+".addAll"] = sm("pBoolean")
+		StdlibMethods[receiver+".removeAll"] = sm("pBoolean")
+		StdlibMethods[receiver+".retainAll"] = sm("pBoolean")
+		StdlibMethods[receiver+".subList"] = sm("cMutableList")
 	}
 
 	// MutableSet
 	for _, receiver := range []string{"MutableSet", "HashSet", "LinkedHashSet"} {
-		StdlibMethods[receiver+".add"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".remove"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".clear"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".addAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".removeAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".retainAll"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
+		StdlibMethods[receiver+".add"] = sm("pBoolean")
+		StdlibMethods[receiver+".remove"] = sm("pBoolean")
+		StdlibMethods[receiver+".clear"] = sm("u")
+		StdlibMethods[receiver+".addAll"] = sm("pBoolean")
+		StdlibMethods[receiver+".removeAll"] = sm("pBoolean")
+		StdlibMethods[receiver+".retainAll"] = sm("pBoolean")
 	}
 
 	// MutableMap
 	for _, receiver := range []string{"MutableMap", "HashMap", "LinkedHashMap"} {
-		StdlibMethods[receiver+".put"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 1}
-		StdlibMethods[receiver+".remove"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 1}
-		StdlibMethods[receiver+".clear"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".putAll"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-		StdlibMethods[receiver+".getOrPut"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 1}
-		StdlibMethods[receiver+".putIfAbsent"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 1}
+		StdlibMethods[receiver+".put"] = sm("cAny!@1")
+		StdlibMethods[receiver+".remove"] = sm("cAny!@1")
+		StdlibMethods[receiver+".clear"] = sm("u")
+		StdlibMethods[receiver+".putAll"] = sm("u")
+		StdlibMethods[receiver+".getOrPut"] = sm("cAny@1")
+		StdlibMethods[receiver+".putIfAbsent"] = sm("cAny!@1")
 	}
 
 	// -------------------------------------------------------------------------
 	// kotlinx.coroutines.flow.Flow methods
 	// -------------------------------------------------------------------------
-	flowMethods := map[string]*StdlibMethod{
-		"map":                  {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"filter":               {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"filterNot":            {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"filterNotNull":        {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"flatMapConcat":        {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"flatMapMerge":         {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"flatMapLatest":        {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"transform":            {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"onEach":               {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"onStart":              {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"onCompletion":         {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"catch":                {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"retry":                {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"retryWhen":            {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"take":                 {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"takeWhile":            {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"drop":                 {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"dropWhile":            {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"distinctUntilChanged": {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"debounce":             {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"sample":               {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"conflate":             {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"buffer":               {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"flowOn":               {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"combine":              {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"zip":                  {ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1},
-		"collect":              {ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1},
-		"collectLatest":        {ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1},
-		"first":                {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"firstOrNull":          {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"single":               {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"singleOrNull":         {ReturnType: stdlibType("Any", TypeClass), Nullable: true, ReturnTypeArgIndex: 0},
-		"toList":               {ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1},
-		"toSet":                {ReturnType: stdlibClass("Set"), ReturnTypeArgIndex: -1},
-		"count":                {ReturnType: stdlibPrimitive("Int"), ReturnTypeArgIndex: -1},
-		"fold":                 {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: -1},
-		"reduce":               {ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0},
-		"stateIn":              {ReturnType: stdlibClass("StateFlow"), ReturnTypeArgIndex: -1},
-		"shareIn":              {ReturnType: stdlibClass("SharedFlow"), ReturnTypeArgIndex: -1},
-		"launchIn":             {ReturnType: stdlibClass("Job"), ReturnTypeArgIndex: -1},
-	}
+	flowMethods := stdlibSpecs("map=cFlow filter=cFlow filterNot=cFlow filterNotNull=cFlow flatMapConcat=cFlow flatMapMerge=cFlow flatMapLatest=cFlow transform=cFlow onEach=cFlow onStart=cFlow onCompletion=cFlow catch=cFlow retry=cFlow retryWhen=cFlow take=cFlow takeWhile=cFlow drop=cFlow dropWhile=cFlow distinctUntilChanged=cFlow debounce=cFlow sample=cFlow conflate=cFlow buffer=cFlow flowOn=cFlow combine=cFlow zip=cFlow collect=u collectLatest=u first=cAny@0 firstOrNull=cAny!@0 single=cAny@0 singleOrNull=cAny!@0 toList=cList toSet=cSet count=pInt fold=cAny reduce=cAny@0 stateIn=cStateFlow shareIn=cSharedFlow launchIn=cJob")
 	for _, receiver := range []string{"Flow", "StateFlow", "SharedFlow", "MutableStateFlow", "MutableSharedFlow"} {
 		for method, info := range flowMethods {
 			StdlibMethods[receiver+"."+method] = info
@@ -472,34 +227,34 @@ func init() {
 	}
 
 	// StateFlow/SharedFlow specific properties
-	StdlibMethods["StateFlow.value"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0}
-	StdlibMethods["MutableStateFlow.value"] = &StdlibMethod{ReturnType: stdlibType("Any", TypeClass), ReturnTypeArgIndex: 0}
-	StdlibMethods["SharedFlow.replayCache"] = &StdlibMethod{ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1}
-	StdlibMethods["MutableSharedFlow.replayCache"] = &StdlibMethod{ReturnType: stdlibClass("List"), ReturnTypeArgIndex: -1}
-	StdlibMethods["MutableSharedFlow.emit"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-	StdlibMethods["MutableSharedFlow.tryEmit"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
-	StdlibMethods["MutableStateFlow.compareAndSet"] = &StdlibMethod{ReturnType: stdlibPrimitive("Boolean"), ReturnTypeArgIndex: -1}
+	StdlibMethods["StateFlow.value"] = sm("cAny@0")
+	StdlibMethods["MutableStateFlow.value"] = sm("cAny@0")
+	StdlibMethods["SharedFlow.replayCache"] = sm("cList")
+	StdlibMethods["MutableSharedFlow.replayCache"] = sm("cList")
+	StdlibMethods["MutableSharedFlow.emit"] = sm("u")
+	StdlibMethods["MutableSharedFlow.tryEmit"] = sm("pBoolean")
+	StdlibMethods["MutableStateFlow.compareAndSet"] = sm("pBoolean")
 
 	// -------------------------------------------------------------------------
 	// kotlinx.coroutines methods
 	// -------------------------------------------------------------------------
-	StdlibMethods["CoroutineScope.launch"] = &StdlibMethod{ReturnType: stdlibClass("Job"), ReturnTypeArgIndex: -1}
-	StdlibMethods["CoroutineScope.async"] = &StdlibMethod{ReturnType: stdlibClass("Deferred"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.withContext"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.delay"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.runBlocking"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.coroutineScope"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.supervisorScope"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.yield"] = &StdlibMethod{ReturnType: stdlibUnit(), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.withTimeout"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.withTimeoutOrNull"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, Nullable: true, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.flow"] = &StdlibMethod{ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.flowOf"] = &StdlibMethod{ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.channelFlow"] = &StdlibMethod{ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.callbackFlow"] = &StdlibMethod{ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.emptyFlow"] = &StdlibMethod{ReturnType: stdlibClass("Flow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.MutableStateFlow"] = &StdlibMethod{ReturnType: stdlibClass("MutableStateFlow"), ReturnTypeArgIndex: -1}
-	StdlibMethods["_.MutableSharedFlow"] = &StdlibMethod{ReturnType: stdlibClass("MutableSharedFlow"), ReturnTypeArgIndex: -1}
+	StdlibMethods["CoroutineScope.launch"] = sm("cJob")
+	StdlibMethods["CoroutineScope.async"] = sm("cDeferred")
+	StdlibMethods["_.withContext"] = sm("?")
+	StdlibMethods["_.delay"] = sm("u")
+	StdlibMethods["_.runBlocking"] = sm("?")
+	StdlibMethods["_.coroutineScope"] = sm("?")
+	StdlibMethods["_.supervisorScope"] = sm("?")
+	StdlibMethods["_.yield"] = sm("u")
+	StdlibMethods["_.withTimeout"] = sm("?")
+	StdlibMethods["_.withTimeoutOrNull"] = sm("?!")
+	StdlibMethods["_.flow"] = sm("cFlow")
+	StdlibMethods["_.flowOf"] = sm("cFlow")
+	StdlibMethods["_.channelFlow"] = sm("cFlow")
+	StdlibMethods["_.callbackFlow"] = sm("cFlow")
+	StdlibMethods["_.emptyFlow"] = sm("cFlow")
+	StdlibMethods["_.MutableStateFlow"] = sm("cMutableStateFlow")
+	StdlibMethods["_.MutableSharedFlow"] = sm("cMutableSharedFlow")
 
 	// -------------------------------------------------------------------------
 	// Kotlin scope functions
@@ -507,9 +262,9 @@ func init() {
 	// let/run return the lambda result (unknown without full inference)
 	// apply/also return the receiver — handled specially in resolve.go
 	// with is a top-level function that returns the lambda result
-	StdlibMethods["_.let"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.run"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
-	StdlibMethods["_.with"] = &StdlibMethod{ReturnType: &ResolvedType{Kind: TypeUnknown}, ReturnTypeArgIndex: -1}
+	StdlibMethods["_.let"] = sm("?")
+	StdlibMethods["_.run"] = sm("?")
+	StdlibMethods["_.with"] = sm("?")
 
 	// -------------------------------------------------------------------------
 	// Nothing-returning top-level functions

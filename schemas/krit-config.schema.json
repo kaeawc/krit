@@ -718,6 +718,39 @@
             }
           }
         },
+        "ApplySharedPref": {
+          "description": "Use `apply()` on `SharedPreferences` [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ApplySharedPref (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "Assert": {
           "description": "Assertions are unreliable on Android [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -4491,6 +4524,39 @@
             }
           }
         },
+        "InvalidWakeLockTag": {
+          "description": "Invalid Wake Lock Tag [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidWakeLockTag (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "KeyboardInaccessibleWidget": {
           "description": "Keyboard inaccessible widget [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -6591,6 +6657,39 @@
             }
           }
         },
+        "PermissionImpliesUnsupportedChromeOsHardwareManifest": {
+          "description": "Permission Implies Unsupported Chrome OS Hardware [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable PermissionImpliesUnsupportedChromeOsHardwareManifest (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "PermissionImpliesUnsupportedHardwareManifest": {
           "description": "Permission Implies Unsupported Hardware [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -6666,6 +6765,39 @@
               "description": "Enable PluralsCandidate (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "PluralsCandidateResource": {
+          "description": "Potential Plurals [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable PluralsCandidateResource (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -23722,7 +23854,7 @@
           }
         },
         "DatabaseQueryOnMainThread": {
-          "description": "Detects SQLiteDatabase query calls in code with positive main-thread evidence. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "description": "Detects SQLiteDatabase query calls in code with positive main-thread evidence. [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, parsed-files]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -27826,7 +27958,7 @@
           }
         },
         "SerialVersionUIDInSerializableClass": {
-          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects Serializable classes that are missing a serialVersionUID field. [fixable: semantic] [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -30884,7 +31016,7 @@
           }
         },
         "TestWithoutAssertion": {
-          "description": "Detects @Test functions that contain no assertion or verification calls. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
+          "description": "Detects @Test functions that contain no assertion or verification calls. [precision: project-structure-aware] [noisiness: normal] [capabilities: concurrent, cross-file]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

@@ -129,6 +129,9 @@ func unreachableHasSyntacticCause(ctx *api.Context, resolver *oracle.CompositeRe
 	if file.FlatType(node) == "jump_expression" && jumpOperandNeverCompletes(file, resolver, node) {
 		return true
 	}
+	if declarationInitializerNeverCompletes(file, resolver, node) || doWhileConditionUnreachable(file, resolver, node, offset) {
+		return true
+	}
 	for prev, ok := file.FlatPrevSibling(node); ok; prev, ok = file.FlatPrevSibling(prev) {
 		if !file.FlatIsNamed(prev) {
 			continue
@@ -140,6 +143,22 @@ func unreachableHasSyntacticCause(ctx *api.Context, resolver *oracle.CompositeRe
 		return statementNeverCompletes(file, resolver, prev)
 	}
 	return false
+}
+
+// declarationInitializerNeverCompletes covers the compiler marking a `val x = <expression that never completes>`
+// declaration itself as dead, as it does for the statements after it.
+func declarationInitializerNeverCompletes(file *scanner.File, resolver *oracle.CompositeResolver, node uint32) bool {
+	return file.FlatType(node) == "property_declaration" && statementNeverCompletes(file, resolver, node)
+}
+
+// doWhileConditionUnreachable covers `do { break } while (cond)`: the compiler marks the condition dead when the
+// body always jumps.
+func doWhileConditionUnreachable(file *scanner.File, resolver *oracle.CompositeResolver, node uint32, offset uint32) bool {
+	if file.FlatType(node) != "do_while_statement" {
+		return false
+	}
+	body, ok := file.FlatFindChild(node, "control_structure_body")
+	return ok && offset >= file.FlatEndByte(body) && statementNeverCompletes(file, resolver, body)
 }
 
 func jumpOperandNeverCompletes(file *scanner.File, resolver *oracle.CompositeResolver, jump uint32) bool {

@@ -65,6 +65,7 @@ negative DeprecatedResource
 negative DeviceAdminManifest
 negative DisableBaselineAlignmentResource
 negative DuplicateActivityManifest
+negative DuplicateDefinition
 negative DuplicateIdsResource
 negative DuplicateIncludedIdsResource
 negative DuplicateUsesFeatureManifest
@@ -79,6 +80,7 @@ negative ExportedReceiverManifest
 negative ExportedServiceManifest
 negative ExportedWithoutPermission
 negative ExtraTextResource
+negative ExtraTranslation
 negative FullBackupContentManifest
 negative GifUsage
 negative GoogleApiKeyInResources
@@ -163,6 +165,7 @@ negative MipmapLauncher
 negative MissingApplicationIconManifest
 negative MissingBackupPin
 negative MissingContentDescriptionResource
+negative MissingDefaultResource
 negative MissingExportedFlag
 negative MissingGradleChecksums
 negative MissingIdResource
@@ -171,6 +174,7 @@ negative MissingLeanbackSupportManifest
 negative MissingPrefixResource
 negative MissingQuantityResource
 negative MissingRegisteredManifest
+negative MissingTranslation
 negative MissingTvBanner
 negative MissingVersionManifest
 negative MockLocationManifest
@@ -196,8 +200,8 @@ negative OssLicensesNotIncludedInAndroid
 negative OverdrawResource
 negative PackageDependencyCycle
 negative ParcelCreator
-negative PermissionImpliesUnsupportedHardwareManifest
 negative PermissionImpliesUnsupportedChromeOsHardwareManifest
+negative PermissionImpliesUnsupportedHardwareManifest
 negative PinSetExpiry
 negative PluralsCandidateResource
 negative PluralsMissingZero
@@ -274,6 +278,7 @@ negative UnsafeProtectedBroadcastReceiverManifest
 negative UnsupportedChromeOsHardwareManifest
 negative UnsupportedTvHardware
 negative UntestedPublicApi
+negative Untranslatable
 negative UnusedAttributeResource
 negative UnusedIds
 negative UnusedNamespaceResource
@@ -351,6 +356,7 @@ positive DeprecatedResource
 positive DeviceAdminManifest
 positive DisableBaselineAlignmentResource
 positive DuplicateActivityManifest
+positive DuplicateDefinition
 positive DuplicateIdsResource
 positive DuplicateIncludedIdsResource
 positive DuplicateUsesFeatureManifest
@@ -365,6 +371,7 @@ positive ExportedReceiverManifest
 positive ExportedServiceManifest
 positive ExportedWithoutPermission
 positive ExtraTextResource
+positive ExtraTranslation
 positive FullBackupContentManifest
 positive GifUsage
 positive GoogleApiKeyInResources
@@ -449,6 +456,7 @@ positive MipmapLauncher
 positive MissingApplicationIconManifest
 positive MissingBackupPin
 positive MissingContentDescriptionResource
+positive MissingDefaultResource
 positive MissingExportedFlag
 positive MissingGradleChecksums
 positive MissingIdResource
@@ -457,6 +465,7 @@ positive MissingLeanbackSupportManifest
 positive MissingPrefixResource
 positive MissingQuantityResource
 positive MissingRegisteredManifest
+positive MissingTranslation
 positive MissingTvBanner
 positive MissingVersionManifest
 positive MockLocationManifest
@@ -482,8 +491,8 @@ positive OssLicensesNotIncludedInAndroid
 positive OverdrawResource
 positive PackageDependencyCycle
 positive ParcelCreator
-positive PermissionImpliesUnsupportedHardwareManifest
 positive PermissionImpliesUnsupportedChromeOsHardwareManifest
+positive PermissionImpliesUnsupportedHardwareManifest
 positive PinSetExpiry
 positive PluralsCandidateResource
 positive PluralsMissingZero
@@ -560,6 +569,7 @@ positive UnsafeProtectedBroadcastReceiverManifest
 positive UnsupportedChromeOsHardwareManifest
 positive UnsupportedTvHardware
 positive UntestedPublicApi
+positive Untranslatable
 positive UnusedAttributeResource
 positive UnusedIds
 positive UnusedNamespaceResource

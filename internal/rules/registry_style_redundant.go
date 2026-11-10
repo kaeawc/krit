@@ -19,6 +19,7 @@ func registerStyleRedundantRules() {
 	registerStyleUnnecessaryInnerClass()
 	registerStyleOptionalUnit()
 	registerStyleUnnecessaryBackticks()
+	registerStyleUnnecessaryAnnotationUseSiteTarget()
 	registerStyleUselessCallOnNotNull()
 }
 
@@ -704,6 +705,10 @@ func registerStyleUselessCallOnNotNull() {
 // uselessCallReceiverType resolves the receiver's type. When the compiler analyzed the file only its fact
 // counts, because the name-based fallback guesses wrong for properties declared in other modules.
 func uselessCallReceiverType(ctx *api.Context, receiver uint32) *typeinfer.ResolvedType {
+	// Detekt reads the declared type, so a name declared nullable is not useless even when smart-cast non-null here.
+	if ctx.File.FlatType(receiver) == "simple_identifier" && identifierDeclaredNullable(ctx.File, receiver) {
+		return nil
+	}
 	if !compilerAnalyzedFile(ctx) {
 		return ctx.Resolver.ResolveFlatNode(receiver, ctx.File)
 	}
@@ -751,4 +756,26 @@ func uselessOfNotNullIdentifierIsNonNull(file *scanner.File, name string) bool {
 		})
 	}
 	return found && !nullable
+}
+
+// identifierDeclaredNullable reports whether the function around the identifier declares a parameter or variable
+// of that name with an explicit nullable type.
+func identifierDeclaredNullable(file *scanner.File, ident uint32) bool {
+	scope, ok := flatEnclosingAncestor(file, ident, "function_declaration")
+	if !ok {
+		return false
+	}
+	name := file.FlatNodeText(ident)
+	nullable := false
+	for _, kind := range []string{"parameter", "variable_declaration"} {
+		file.FlatWalkNodes(scope, kind, func(decl uint32) {
+			if nullable || !file.FlatHasChildOfType(decl, "nullable_type") {
+				return
+			}
+			if id, ok := file.FlatFindChild(decl, "simple_identifier"); ok && file.FlatNodeTextEquals(id, name) {
+				nullable = true
+			}
+		})
+	}
+	return nullable
 }

@@ -125,6 +125,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"OptInMarkerExposedPublicly":              {Status: api.LanguageSupportNotApplicable, Reason: "@OptIn is a Kotlin-only construct; Java has no equivalent annotation."},
 		"ProcessBuilderShellArg":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/security_test.go"}},
 		"PrngFromSystemTime":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
+		"StaticFieldLeak":                         {Status: api.LanguageSupportPending, Reason: "Kotlin property, class and object coverage only; Java static fields and inner classes still need implementation."},
 		"Recycle":                                 {Status: api.LanguageSupportPending, Reason: "Kotlin property_declaration coverage only; Java local variable declarations are not inspected yet."},
 		"RecyclerAdapterStableIdsDefault":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"RecyclerAdapterWithoutDiffUtil":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},

@@ -31,6 +31,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/iterutil"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -362,7 +363,7 @@ func writeSkippedPoisonEntries(
 			}
 		}
 		// Each entry hashes one file and writes one store key, so workers do not share state.
-		forEachParallel(pending, func(p string) {
+		iterutil.ForEachParallel(pending, func(p string) {
 			hash, herr := ContentHash(p)
 			if herr != nil {
 				return
@@ -1139,31 +1140,4 @@ func pruneLegacyScopes(root, keepName string, limit int) {
 		}
 		_ = os.RemoveAll(filepath.Join(root, old.name))
 	}
-}
-
-// forEachParallel runs fn for every item on a bounded pool of workers and waits for all of them.
-func forEachParallel(items []string, fn func(string)) {
-	workers := min(runtime.GOMAXPROCS(0), len(items))
-	if workers <= 1 {
-		for _, item := range items {
-			fn(item)
-		}
-		return
-	}
-	var wg sync.WaitGroup
-	next := make(chan string)
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for item := range next {
-				fn(item)
-			}
-		}()
-	}
-	for _, item := range items {
-		next <- item
-	}
-	close(next)
-	wg.Wait()
 }

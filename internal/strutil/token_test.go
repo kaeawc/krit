@@ -1,6 +1,7 @@
 package strutil
 
 import (
+	"reflect"
 	"regexp"
 	"testing"
 )
@@ -57,5 +58,15 @@ func BenchmarkContainsTokenWordBoundaryRegex(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		re := regexp.MustCompile(`(^|[^A-Za-z0-9_])` + regexp.QuoteMeta("bar") + `([^A-Za-z0-9_]|$)`)
 		_ = re.MatchString(text)
+	}
+}
+
+func TestUniqueTrimmed(t *testing.T) {
+	if got := UniqueTrimmed(nil); got != nil {
+		t.Fatalf("nil input: got %v", got)
+	}
+	got := UniqueTrimmed([]string{" b ", "a", "", "b", "  ", "a", "c"})
+	if want := []string{"b", "a", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

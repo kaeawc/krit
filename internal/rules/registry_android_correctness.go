@@ -163,7 +163,7 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 			if args := flatCallKeyArguments(file, idx); args != 0 && file.FlatNamedChildCount(args) > 0 {
 				return // `edit(n)` on a Collection/Array — not SharedPreferences.edit().
 			}
-			if ancestorFinalizesEditor(file, idx) {
+			if ancestorFinalizesEditor(file, idx) || ancestorScopeLambdaFinalizes(file, idx, commitOrApplyNames, editorFinalizeCallShape) {
 				return
 			}
 			// The KTX `edit { ... }` overload applies the changes itself.
@@ -179,7 +179,7 @@ func registerAndroidCorrectnessCommitPrefEdits() {
 			}
 			if editorVar := initializerAssignedName(file, idx); editorVar != "" &&
 				(functionHasReceiverCallAfter(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape) ||
-					variableEscapes(file, fn, editorVar)) {
+					localVarFinalized(file, fn, idx, editorVar, commitOrApplyNames, editorFinalizeCallShape, 0)) {
 				return
 			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.

@@ -1008,7 +1008,7 @@ func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 	if ancestorCallNameMatches(file, call, "show") {
 		return true
 	}
-	if ancestorApplyLambdaShowsToast(file, call) {
+	if ancestorScopeLambdaFinalizes(file, call, showCallName, nil) {
 		return true
 	}
 	if toastResultEscapes(file, call) {
@@ -1019,7 +1019,8 @@ func toastMakeTextIsShown(file *scanner.File, call uint32) bool {
 		return false
 	}
 	if fn, ok := flatEnclosingFunction(file, call); ok {
-		return functionHasReceiverCallAfter(file, fn, call, toastVar, showCallName, nil)
+		return functionHasReceiverCallAfter(file, fn, call, toastVar, showCallName, nil) ||
+			localVarFinalized(file, fn, call, toastVar, showCallName, nil, 0)
 	}
 	if cls, ok := flatEnclosingAncestor(file, call, "class_declaration", "object_declaration"); ok {
 		return classHasReceiverShowCall(file, cls, toastVar)
@@ -1062,38 +1063,4 @@ func classHasReceiverShowCall(file *scanner.File, cls uint32, receiverName strin
 		}
 	})
 	return found
-}
-
-func ancestorApplyLambdaShowsToast(file *scanner.File, idx uint32) bool {
-	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		switch file.FlatType(parent) {
-		case "call_expression":
-			scopeName := flatCallExpressionName(file, parent)
-			// apply/run expose the toast as `this`; also/let expose it as `it` or a named parameter.
-			implicitThis := scopeName == "apply" || scopeName == "run"
-			if !implicitThis && scopeName != "also" && scopeName != "let" {
-				continue
-			}
-			lambda := flatCallTrailingLambda(file, parent)
-			if lambda == 0 {
-				continue
-			}
-			found := false
-			file.FlatWalkNodes(lambda, "call_expression", func(call uint32) {
-				if found || flatCallExpressionName(file, call) != "show" {
-					return
-				}
-				receiver := flatReceiverNameFromCall(file, call)
-				if (implicitThis && receiver == "") || (!implicitThis && receiver == "it") {
-					found = true
-				}
-			})
-			if found {
-				return true
-			}
-		case "function_declaration", "source_file":
-			return false
-		}
-	}
-	return false
 }

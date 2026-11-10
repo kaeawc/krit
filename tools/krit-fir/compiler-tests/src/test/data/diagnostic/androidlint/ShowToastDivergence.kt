@@ -1,15 +1,15 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 31, 58, 63, 82, 88, 119, 123, 131, 137, 145, 187, 193
+// go-lines: 20, 63, 88, 119, 123, 131, 137, 145, 187, 193
 // Divergence (precision): every toast below is shown, so the message ("called
 // without .show()") is false of the code and FIR does not report it. Go
 // reports each one: it only sees a `show` call that encloses the makeText
-// call, a receiverless `show()` in an enclosing `apply` lambda, or a `show`
-// call on the bare name of the property the call initializes, in the same
-// function (or class, for a member without an enclosing function). A toast
-// shown in the lambda of another scope function, through `!!` or a cast,
-// through another variable, after an assignment (also of an `if` or elvis
-// holding the call), as a parameter's default value, from outside that
-// function or class, or in a getter or top-level lambda is shown all the same.
+// call, or a `show` call on the bare name of the property the call
+// initializes, in the same function (or class, for a member without an
+// enclosing function). It follows apply, run, also and let lambdas, `!!`,
+// local aliases and escapes of the variable. A toast shown after an
+// assignment (also of an `if` or elvis holding the call), as a parameter's
+// default value, from outside that function or class, or in a getter or
+// top-level lambda is shown all the same.
 package test.showtoast.divergence
 
 import android.content.Context

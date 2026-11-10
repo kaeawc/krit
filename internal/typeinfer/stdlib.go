@@ -298,74 +298,51 @@ func LookupStdlibMethod(receiverType, methodName string) *StdlibMethod {
 // ---------------------------------------------------------------------------
 
 // KnownInterfaces maps interface FQN -> known implementors.
-var KnownInterfaces = map[string][]string{
-	"java.io.Serializable": {
-		"java.lang.Number", "java.lang.String", "java.lang.Enum",
-		"java.util.ArrayList", "java.util.HashMap", "java.util.HashSet",
-		"java.util.LinkedList", "java.util.TreeMap", "java.util.TreeSet",
-		"kotlin.Pair", "kotlin.Triple",
-		"java.util.Date", "java.util.Calendar",
-		"java.math.BigDecimal", "java.math.BigInteger",
-		"java.io.File", "java.net.URL", "java.net.URI",
-	},
-	"java.io.Closeable": {
-		"java.io.InputStream", "java.io.OutputStream",
-		"java.io.FileInputStream", "java.io.FileOutputStream",
-		"java.io.BufferedReader", "java.io.BufferedWriter",
-		"java.io.InputStreamReader", "java.io.OutputStreamWriter",
-		"java.io.PrintWriter", "java.io.PrintStream",
-		"java.net.Socket", "java.net.ServerSocket",
-		"java.sql.Connection", "java.sql.Statement", "java.sql.ResultSet",
-		"java.util.Scanner",
-	},
-	"android.os.Parcelable": {
-		"android.os.Bundle", "android.content.Intent",
-		"android.net.Uri", "android.graphics.Bitmap",
-	},
-}
+var KnownInterfaces = decodeListMap(`
+		android.os.Parcelable=android.os.Bundle,android.content.Intent,android.net.Uri,android.graphics.Bitmap
+		java.io.Closeable=java.io.InputStream,java.io.OutputStream,java.io.FileInputStream,java.io.FileOutputStream,java.io.BufferedReader,java.io.BufferedWriter,java.io.InputStreamReader,java.io.OutputStreamWriter,java.io.PrintWriter,java.io.PrintStream,java.net.Socket,java.net.ServerSocket,java.sql.Connection,java.sql.Statement,java.sql.ResultSet,java.util.Scanner
+		java.io.Serializable=java.lang.Number,java.lang.String,java.lang.Enum,java.util.ArrayList,java.util.HashMap,java.util.HashSet,java.util.LinkedList,java.util.TreeMap,java.util.TreeSet,kotlin.Pair,kotlin.Triple,java.util.Date,java.util.Calendar,java.math.BigDecimal,java.math.BigInteger,java.io.File,java.net.URL,java.net.URI
+	`)
 
 // ---------------------------------------------------------------------------
 // Known class hierarchies (Android/Java framework types)
 // ---------------------------------------------------------------------------
 
 // KnownClassHierarchy maps FQN -> ordered list of supertypes (nearest first).
-var KnownClassHierarchy = map[string][]string{
-	// Android components
-	"android.app.Activity":                     {"android.content.ContextWrapper", "android.content.Context"},
-	"androidx.fragment.app.FragmentActivity":   {"android.app.Activity", "android.content.ContextWrapper", "android.content.Context"},
-	"androidx.appcompat.app.AppCompatActivity": {"androidx.fragment.app.FragmentActivity", "android.app.Activity"},
-	"android.app.Application":                  {"android.content.ContextWrapper", "android.content.Context"},
-	"android.app.Service":                      {"android.content.ContextWrapper", "android.content.Context"},
-	"android.content.BroadcastReceiver":        {},
-	"android.content.ContentProvider":          {},
-	// Views
-	"android.view.ViewGroup":                                  {"android.view.View"},
-	"android.widget.LinearLayout":                             {"android.view.ViewGroup", "android.view.View"},
-	"android.widget.FrameLayout":                              {"android.view.ViewGroup", "android.view.View"},
-	"android.widget.RelativeLayout":                           {"android.view.ViewGroup", "android.view.View"},
-	"android.widget.TextView":                                 {"android.view.View"},
-	"android.widget.ImageView":                                {"android.view.View"},
-	"android.widget.Button":                                   {"android.widget.TextView", "android.view.View"},
-	"android.widget.EditText":                                 {"android.widget.TextView", "android.view.View"},
-	"android.widget.AutoCompleteTextView":                     {"android.widget.EditText", "android.widget.TextView", "android.view.View"},
-	"android.widget.MultiAutoCompleteTextView":                {"android.widget.AutoCompleteTextView", "android.widget.EditText", "android.widget.TextView", "android.view.View"},
-	"android.widget.CheckBox":                                 {"android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"android.widget.CompoundButton":                           {"android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"android.widget.RadioButton":                              {"android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"android.widget.Switch":                                   {"android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"android.widget.ToggleButton":                             {"android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.AppCompatTextView":             {"android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.AppCompatButton":               {"androidx.appcompat.widget.AppCompatTextView", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.AppCompatEditText":             {"android.widget.EditText", "androidx.appcompat.widget.AppCompatTextView", "android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.AppCompatCheckBox":             {"android.widget.CheckBox", "android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.AppCompatRadioButton":          {"android.widget.RadioButton", "android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"androidx.appcompat.widget.SwitchCompat":                  {"android.widget.CompoundButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	"com.google.android.material.textfield.TextInputEditText": {"androidx.appcompat.widget.AppCompatEditText", "android.widget.EditText", "android.widget.TextView", "android.view.View"},
-	"com.google.android.material.button.MaterialButton":       {"androidx.appcompat.widget.AppCompatButton", "android.widget.Button", "android.widget.TextView", "android.view.View"},
-	// Java
-	"java.lang.Exception":        {"java.lang.Throwable"},
-	"java.lang.RuntimeException": {"java.lang.Exception", "java.lang.Throwable"},
-}
+var KnownClassHierarchy = decodeListMap(`
+		android.app.Activity=android.content.ContextWrapper,android.content.Context
+		android.app.Application=android.content.ContextWrapper,android.content.Context
+		android.app.Service=android.content.ContextWrapper,android.content.Context
+		android.content.BroadcastReceiver=
+		android.content.ContentProvider=
+		android.view.ViewGroup=android.view.View
+		android.widget.AutoCompleteTextView=android.widget.EditText,android.widget.TextView,android.view.View
+		android.widget.Button=android.widget.TextView,android.view.View
+		android.widget.CheckBox=android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		android.widget.CompoundButton=android.widget.Button,android.widget.TextView,android.view.View
+		android.widget.EditText=android.widget.TextView,android.view.View
+		android.widget.FrameLayout=android.view.ViewGroup,android.view.View
+		android.widget.ImageView=android.view.View
+		android.widget.LinearLayout=android.view.ViewGroup,android.view.View
+		android.widget.MultiAutoCompleteTextView=android.widget.AutoCompleteTextView,android.widget.EditText,android.widget.TextView,android.view.View
+		android.widget.RadioButton=android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		android.widget.RelativeLayout=android.view.ViewGroup,android.view.View
+		android.widget.Switch=android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		android.widget.TextView=android.view.View
+		android.widget.ToggleButton=android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		androidx.appcompat.app.AppCompatActivity=androidx.fragment.app.FragmentActivity,android.app.Activity
+		androidx.appcompat.widget.AppCompatButton=androidx.appcompat.widget.AppCompatTextView,android.widget.Button,android.widget.TextView,android.view.View
+		androidx.appcompat.widget.AppCompatCheckBox=android.widget.CheckBox,android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		androidx.appcompat.widget.AppCompatEditText=android.widget.EditText,androidx.appcompat.widget.AppCompatTextView,android.widget.TextView,android.view.View
+		androidx.appcompat.widget.AppCompatRadioButton=android.widget.RadioButton,android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		androidx.appcompat.widget.AppCompatTextView=android.widget.TextView,android.view.View
+		androidx.appcompat.widget.SwitchCompat=android.widget.CompoundButton,android.widget.Button,android.widget.TextView,android.view.View
+		androidx.fragment.app.FragmentActivity=android.app.Activity,android.content.ContextWrapper,android.content.Context
+		com.google.android.material.button.MaterialButton=androidx.appcompat.widget.AppCompatButton,android.widget.Button,android.widget.TextView,android.view.View
+		com.google.android.material.textfield.TextInputEditText=androidx.appcompat.widget.AppCompatEditText,android.widget.EditText,android.widget.TextView,android.view.View
+		java.lang.Exception=java.lang.Throwable
+		java.lang.RuntimeException=java.lang.Exception,java.lang.Throwable
+	`)
 
 // simpleNameOf extracts the simple class name from a fully-qualified name.
 func simpleNameOf(fqn string) string {
@@ -418,88 +395,71 @@ func IsKnownSubtype(typeFQN, supertypeFQN string) bool {
 // ---------------------------------------------------------------------------
 
 // ExceptionAncestors maps exception class name -> ordered list of supertypes.
-var ExceptionAncestors = map[string][]string{
-	// Root types
-	"Throwable":        {},
-	"Exception":        {"Throwable"},
-	"RuntimeException": {"Exception", "Throwable"},
-	"Error":            {"Throwable"},
-
-	// Checked Exception subtypes
-	"IOException":                  {"Exception", "Throwable"},
-	"FileNotFoundException":        {"IOException", "Exception", "Throwable"},
-	"InterruptedException":         {"Exception", "Throwable"},
-	"TimeoutException":             {"Exception", "Throwable"},
-	"ParseException":               {"Exception", "Throwable"},
-	"CloneNotSupportedException":   {"Exception", "Throwable"},
-	"ReflectiveOperationException": {"Exception", "Throwable"},
-	"ClassNotFoundException":       {"ReflectiveOperationException", "Exception", "Throwable"},
-	"NoSuchMethodException":        {"ReflectiveOperationException", "Exception", "Throwable"},
-	"NoSuchFieldException":         {"ReflectiveOperationException", "Exception", "Throwable"},
-	"URISyntaxException":           {"Exception", "Throwable"},
-	"GeneralSecurityException":     {"Exception", "Throwable"},
-	"NoSuchAlgorithmException":     {"GeneralSecurityException", "Exception", "Throwable"},
-	"InvalidKeyException":          {"GeneralSecurityException", "Exception", "Throwable"},
-	"CertificateException":         {"GeneralSecurityException", "Exception", "Throwable"},
-
-	// IOException subtypes
-	"SocketException":        {"IOException", "Exception", "Throwable"},
-	"ConnectException":       {"SocketException", "IOException", "Exception", "Throwable"},
-	"InterruptedIOException": {"IOException", "Exception", "Throwable"},
-	// java.net.SocketTimeoutException extends InterruptedIOException, not
-	// SocketException.
-	"SocketTimeoutException": {"InterruptedIOException", "IOException", "Exception", "Throwable"},
-	"MalformedURLException":  {"IOException", "Exception", "Throwable"},
-	"UnknownHostException":   {"IOException", "Exception", "Throwable"},
-	"EOFException":           {"IOException", "Exception", "Throwable"},
-	"SSLException":           {"IOException", "Exception", "Throwable"},
-	"SSLHandshakeException":  {"SSLException", "IOException", "Exception", "Throwable"},
-
-	// RuntimeException subtypes
-	"NullPointerException":            {"RuntimeException", "Exception", "Throwable"},
-	"IllegalArgumentException":        {"RuntimeException", "Exception", "Throwable"},
-	"IllegalStateException":           {"RuntimeException", "Exception", "Throwable"},
-	"CancellationException":           {"IllegalStateException", "RuntimeException", "Exception", "Throwable"},
-	"NumberFormatException":           {"IllegalArgumentException", "RuntimeException", "Exception", "Throwable"},
-	"IndexOutOfBoundsException":       {"RuntimeException", "Exception", "Throwable"},
-	"ArrayIndexOutOfBoundsException":  {"IndexOutOfBoundsException", "RuntimeException", "Exception", "Throwable"},
-	"StringIndexOutOfBoundsException": {"IndexOutOfBoundsException", "RuntimeException", "Exception", "Throwable"},
-	"ClassCastException":              {"RuntimeException", "Exception", "Throwable"},
-	"TypeCastException":               {"ClassCastException", "RuntimeException", "Exception", "Throwable"},
-	"UnsupportedOperationException":   {"RuntimeException", "Exception", "Throwable"},
-	"ConcurrentModificationException": {"RuntimeException", "Exception", "Throwable"},
-	"NoSuchElementException":          {"RuntimeException", "Exception", "Throwable"},
-	"ArithmeticException":             {"RuntimeException", "Exception", "Throwable"},
-	"SecurityException":               {"RuntimeException", "Exception", "Throwable"},
-	"NegativeArraySizeException":      {"RuntimeException", "Exception", "Throwable"},
-
-	// Kotlin-specific
-	"KotlinNullPointerException":           {"NullPointerException", "RuntimeException", "Exception", "Throwable"},
-	"UninitializedPropertyAccessException": {"RuntimeException", "Exception", "Throwable"},
-
-	// Error subtypes
-	"VirtualMachineError":         {"Error", "Throwable"},
-	"OutOfMemoryError":            {"VirtualMachineError", "Error", "Throwable"},
-	"StackOverflowError":          {"VirtualMachineError", "Error", "Throwable"},
-	"LinkageError":                {"Error", "Throwable"},
-	"ExceptionInInitializerError": {"LinkageError", "Error", "Throwable"},
-	"NoClassDefFoundError":        {"LinkageError", "Error", "Throwable"},
-	"NotImplementedError":         {"Error", "Throwable"},
-	"AssertionError":              {"Error", "Throwable"},
-
-	// kotlinx.coroutines
-	"TimeoutCancellationException": {"CancellationException", "IllegalStateException", "RuntimeException", "Exception", "Throwable"},
-
-	// Android-specific
-	"AndroidException":          {"Exception", "Throwable"},
-	"ActivityNotFoundException": {"RuntimeException", "Exception", "Throwable"},
-	"RemoteException":           {"AndroidException", "Exception", "Throwable"},
-	"DeadObjectException":       {"RemoteException", "AndroidException", "Exception", "Throwable"},
-	"JSONException":             {"Exception", "Throwable"},
-	"SQLiteException":           {"RuntimeException", "Exception", "Throwable"},
-	"SQLiteConstraintException": {"SQLiteException", "RuntimeException", "Exception", "Throwable"},
-	"BadParcelableException":    {"RuntimeException", "Exception", "Throwable"},
-}
+var ExceptionAncestors = decodeListMap(`
+		ActivityNotFoundException=RuntimeException,Exception,Throwable
+		AndroidException=Exception,Throwable
+		ArithmeticException=RuntimeException,Exception,Throwable
+		ArrayIndexOutOfBoundsException=IndexOutOfBoundsException,RuntimeException,Exception,Throwable
+		AssertionError=Error,Throwable
+		BadParcelableException=RuntimeException,Exception,Throwable
+		CancellationException=IllegalStateException,RuntimeException,Exception,Throwable
+		CertificateException=GeneralSecurityException,Exception,Throwable
+		ClassCastException=RuntimeException,Exception,Throwable
+		ClassNotFoundException=ReflectiveOperationException,Exception,Throwable
+		CloneNotSupportedException=Exception,Throwable
+		ConcurrentModificationException=RuntimeException,Exception,Throwable
+		ConnectException=SocketException,IOException,Exception,Throwable
+		DeadObjectException=RemoteException,AndroidException,Exception,Throwable
+		EOFException=IOException,Exception,Throwable
+		Error=Throwable
+		Exception=Throwable
+		ExceptionInInitializerError=LinkageError,Error,Throwable
+		FileNotFoundException=IOException,Exception,Throwable
+		GeneralSecurityException=Exception,Throwable
+		IOException=Exception,Throwable
+		IllegalArgumentException=RuntimeException,Exception,Throwable
+		IllegalStateException=RuntimeException,Exception,Throwable
+		IndexOutOfBoundsException=RuntimeException,Exception,Throwable
+		InterruptedException=Exception,Throwable
+		InterruptedIOException=IOException,Exception,Throwable
+		InvalidKeyException=GeneralSecurityException,Exception,Throwable
+		JSONException=Exception,Throwable
+		KotlinNullPointerException=NullPointerException,RuntimeException,Exception,Throwable
+		LinkageError=Error,Throwable
+		MalformedURLException=IOException,Exception,Throwable
+		NegativeArraySizeException=RuntimeException,Exception,Throwable
+		NoClassDefFoundError=LinkageError,Error,Throwable
+		NoSuchAlgorithmException=GeneralSecurityException,Exception,Throwable
+		NoSuchElementException=RuntimeException,Exception,Throwable
+		NoSuchFieldException=ReflectiveOperationException,Exception,Throwable
+		NoSuchMethodException=ReflectiveOperationException,Exception,Throwable
+		NotImplementedError=Error,Throwable
+		NullPointerException=RuntimeException,Exception,Throwable
+		NumberFormatException=IllegalArgumentException,RuntimeException,Exception,Throwable
+		OutOfMemoryError=VirtualMachineError,Error,Throwable
+		ParseException=Exception,Throwable
+		ReflectiveOperationException=Exception,Throwable
+		RemoteException=AndroidException,Exception,Throwable
+		RuntimeException=Exception,Throwable
+		SQLiteConstraintException=SQLiteException,RuntimeException,Exception,Throwable
+		SQLiteException=RuntimeException,Exception,Throwable
+		SSLException=IOException,Exception,Throwable
+		SSLHandshakeException=SSLException,IOException,Exception,Throwable
+		SecurityException=RuntimeException,Exception,Throwable
+		SocketException=IOException,Exception,Throwable
+		SocketTimeoutException=InterruptedIOException,IOException,Exception,Throwable
+		StackOverflowError=VirtualMachineError,Error,Throwable
+		StringIndexOutOfBoundsException=IndexOutOfBoundsException,RuntimeException,Exception,Throwable
+		Throwable=
+		TimeoutCancellationException=CancellationException,IllegalStateException,RuntimeException,Exception,Throwable
+		TimeoutException=Exception,Throwable
+		TypeCastException=ClassCastException,RuntimeException,Exception,Throwable
+		URISyntaxException=Exception,Throwable
+		UninitializedPropertyAccessException=RuntimeException,Exception,Throwable
+		UnknownHostException=IOException,Exception,Throwable
+		UnsupportedOperationException=RuntimeException,Exception,Throwable
+		VirtualMachineError=Error,Throwable
+	`)
 
 // KnownValueTypes lists types where referential equality (===) is almost
 // certainly wrong and structural equality (==) should be used instead.
@@ -562,4 +522,20 @@ func IsSubtypeOfException(a, b string) bool {
 		}
 	}
 	return false
+}
+
+// decodeListMap decodes whitespace-separated "key=a,b,c" entries into a
+// map of ordered lists. An empty value yields an empty non-nil list.
+func decodeListMap(spec string) map[string][]string {
+	fields := strings.Fields(spec)
+	out := make(map[string][]string, len(fields))
+	for _, f := range fields {
+		key, vals, _ := strings.Cut(f, "=")
+		if vals == "" {
+			out[key] = []string{}
+			continue
+		}
+		out[key] = strings.Split(vals, ",")
+	}
+	return out
 }

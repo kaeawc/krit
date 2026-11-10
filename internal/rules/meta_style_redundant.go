@@ -44,6 +44,15 @@ func (r *RedundantVisibilityModifierRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *UnnecessaryAnnotationUseSiteTargetRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "UnnecessaryAnnotationUseSiteTarget",
+		RuleSet:       "style",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonOpinionated,
+	}
+}
+
 func (r *UnnecessaryBackticksRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnnecessaryBackticks",

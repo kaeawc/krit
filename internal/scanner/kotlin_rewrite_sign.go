@@ -3,11 +3,12 @@ package scanner
 // A `+` or `-` that starts a line never continues the statement above: Kotlin ends the statement at the
 // line break, so `a` / `+ b` is `a; +b`. The grammar joins them into one additive expression, so a ';'
 // ends the previous line. Inside parentheses and brackets line breaks are not significant and the
-// operator stays binary.
+// operator stays binary. A `(` that starts a line is the same: Kotlin reads `f()` / `(x).g()` as two
+// statements, and the grammar reads the parentheses as a second call suffix of `f()`.
 
 // signLineContext is what the rewrite needs to know about a line that starts with `+` or `-`.
 type signLineContext struct {
-	// enclosing maps the offset of such a sign to the innermost open bracket, or 0 outside brackets.
+	// enclosing maps the offset of such a sign or `(` to the innermost open bracket, or 0 outside brackets.
 	enclosing map[int]byte
 	// headClose holds the offsets of `)` that close an if, while, for, when or catch head.
 	headClose map[int]bool
@@ -66,9 +67,9 @@ func (r *kotlinRewriter) signContext() *signLineContext {
 	return b.ctx
 }
 
-// recordLeadingSign records the innermost open bracket for a `+` or `-` that starts a line at i.
+// recordLeadingSign records the innermost open bracket for a `+`, `-` or `(` that starts a line at i.
 func (b *signContextBuilder) recordLeadingSign(i int, c byte) {
-	if (c != '+' && c != '-') || !b.r.isCode(i) {
+	if (c != '+' && c != '-' && c != '(') || !b.r.isCode(i) {
 		return
 	}
 	var top byte
@@ -139,4 +140,39 @@ func (r *kotlinRewriter) rewriteLeadingSign(ls, p int) {
 		return
 	}
 	r.terminatePrevious(ls)
+}
+
+// parenContinuationWords end a line that still expects an operand: the standard infix functions and a
+// constructor keyword whose parameters follow on the next line.
+var parenContinuationWords = map[string]bool{
+	"constructor": true, "to": true, "and": true, "or": true, "xor": true, "shl": true, "shr": true, "ushr": true,
+	"until": true, "downTo": true, "step": true, "zip": true,
+}
+
+// rewriteLeadingParen ends the statement above a line that starts with `(`, such as `(x as T).run()`.
+func (r *kotlinRewriter) rewriteLeadingParen(ls, p int) {
+	if !r.isCode(p) {
+		return
+	}
+	// Most lines that start with `(` follow an operator or a comma, so check the previous byte before the
+	// whole-file bracket scan.
+	prev := r.lastCodeSkippingComments(ls)
+	if prev < 0 || !canEndStatement(r.orig[prev]) {
+		return
+	}
+	ctx := r.signContext()
+	if top, ok := ctx.enclosing[p]; !ok || top == '(' || top == '[' || top == 'T' || ctx.headClose[prev] {
+		return
+	}
+	if isIdentByte(r.orig[prev]) {
+		if w := r.wordBefore(prev + 1); signContinuationWords[w] || parenContinuationWords[w] {
+			return
+		}
+	}
+	r.terminatePrevious(ls)
+}
+
+// canEndStatement reports whether a statement can end with the byte c.
+func canEndStatement(c byte) bool {
+	return isIdentByte(c) || c == ')' || c == ']' || c == '}' || c == '"' || c == '\'' || c == '!'
 }

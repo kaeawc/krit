@@ -11,6 +11,7 @@ import "bytes"
 //     `if`, a member access), so a ';' ends the previous line.
 //   - `is X if cond ->` (when guard) becomes `is X , cond ->`.
 //   - `{ [a, b] -> ...` (square-bracket destructuring) uses parentheses.
+//   - `(x).f()` on its own line is a new statement, not a call suffix of the line above.
 
 var guardStopWords = map[string]bool{
 	"val": true, "var": true, "return": true, "else": true, "fun": true, "throw": true, "for": true,
@@ -75,6 +76,8 @@ func (r *kotlinRewriter) rewriteLeadingToken(ls, p, le int) {
 		}
 	case '+', '-':
 		r.rewriteLeadingSign(ls, p)
+	case '(':
+		r.rewriteLeadingParen(ls, p)
 	case '.':
 		if startsFractionLiteral(line) {
 			r.terminatePrevious(ls)

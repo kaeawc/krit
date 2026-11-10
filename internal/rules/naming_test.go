@@ -36,12 +36,14 @@ class MyClass
 	}
 }
 
-func TestClassNaming_SkipsBacktickQuoted(t *testing.T) {
-	findings := runRuleByName(t, "ClassNaming", "package test\nclass `my test class`\n")
-	for _, f := range findings {
-		if f.Rule == "ClassNaming" {
-			t.Errorf("ClassNaming should skip backtick-quoted names, got: %s", f.Message)
-		}
+func TestClassNaming_ChecksBacktickQuotedNameWithoutBackticks(t *testing.T) {
+	flagged := runRuleByName(t, "ClassNaming", "package test\nclass `my test class`\nobject `lowerObject`\n")
+	if len(flagged) != 2 {
+		t.Errorf("expected both backtick-quoted names to be flagged, got %d findings", len(flagged))
+	}
+	clean := runRuleByName(t, "ClassNaming", "package test\nclass `Valid`\n")
+	if len(clean) != 0 {
+		t.Errorf("ClassNaming should accept a backtick-quoted PascalCase name, got %d findings", len(clean))
 	}
 }
 
@@ -2315,5 +2317,25 @@ func TestFunctionNaming_FactoryFunctionExemptions(t *testing.T) {
 				t.Fatalf("got %d findings, want %d: %v", len(findings), tc.want, findings)
 			}
 		})
+	}
+}
+
+// detekt's FunctionMinLength and FunctionMaxLength skip operators and never descend into function bodies.
+func TestNaming_FunctionNameLength_SkipsOperatorsAndLocalFunctions(t *testing.T) {
+	longName := strings.Repeat("a", 31)
+	cases := []struct {
+		rule string
+		src  string
+		want int
+	}{
+		{"FunctionNameMinLength", "package test\nfun outer() {\n    fun x() {}\n    val o = object { fun y() {} }\n}\n", 0},
+		{"FunctionNameMinLength", "package test\nclass C {\n    operator fun a() {}\n    fun b() {}\n}\n", 1},
+		{"FunctionNameMaxLength", "package test\nfun outer() {\n    fun " + longName + "() {}\n}\n", 0},
+		{"FunctionNameMaxLength", "package test\nclass C {\n    operator fun " + longName + "() {}\n    fun " + longName + "x() {}\n}\n", 1},
+	}
+	for _, tc := range cases {
+		if got := runRuleByName(t, tc.rule, tc.src); len(got) != tc.want {
+			t.Errorf("%s: got %d findings, want %d for\n%s", tc.rule, len(got), tc.want, tc.src)
+		}
 	}
 }

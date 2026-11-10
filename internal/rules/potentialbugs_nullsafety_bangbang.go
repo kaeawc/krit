@@ -125,35 +125,13 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	// the operand was not smart-cast (an unstable var), so the `!!` is required and they must not hide it.
 	compilerSaysNullable := known && nullable
 
-	// Skip proto-processor files: any Kotlin file importing Wire /
-	// protobuf packages is treated as a "proto processor". Generated fields
-	// are often nullable by type but required at runtime, and `!!` is the
-	// idiomatic unwrap.
-	// Skip only pure dotted field-chain receivers (2+ segments, no
-	// parentheses), preserving checks on single-identifier locals and
-	// method-call chains.
-	normalized := strings.ReplaceAll(receiverText, "!!", "")
-	normalized = strings.TrimPrefix(normalized, "this.")
-	if fileImportsProto(file) && isDottedFieldChain(normalized) {
+	// detekt reports every operand whose compiler type is nullable, so the name-based idiom skips only apply
+	// when the compiler gave no verdict.
+	if !compilerSaysNullable && bangBangIdiomaticReceiverSkipped(file, receiverIdx, receiverText) {
 		return
 	}
-	// Skip idiomatic Android patterns where !! is the canonical way to
-	// consume platform-typed APIs:
-	//   - Bundle.getX(...)!!, requireArguments().getX()!!
-	//   - Parcel.readX()!! in Parcelable constructors
-	//   - Intent.getX(...)!! / Intent.extras!!
-	//
-	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! / foo.get(k)!!
-	// is the sibling rule's concern.
+	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! / foo.get(k)!! is the sibling rule's concern.
 	if strings.HasSuffix(receiverText, "]") {
-		return
-	}
-	if isIdiomaticNullAssertionReceiver(receiverText, file, receiverIdx) {
-		return
-	}
-	// Normalize the receiver so that `dialog!!.window` and `this.window`
-	// match the plain `window` in the allowlist.
-	if normalized != receiverText && isIdiomaticNullAssertionReceiver(normalized, file, receiverIdx) {
 		return
 	}
 
@@ -205,6 +183,22 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 		message = bangBangDetektMessage + " A mapper cannot return null, so consider requireNotNull() or checkNotNull() with a message instead."
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1, message))
+}
+
+// bangBangIdiomaticReceiverSkipped reports receivers whose `!!` is the canonical way to consume a platform-style
+// Android, proto or compiler API: Bundle/Parcel/Intent getters, view bindings, fragment lifecycle accessors and
+// Wire or KSP lookups.
+func bangBangIdiomaticReceiverSkipped(file *scanner.File, receiverIdx uint32, receiverText string) bool {
+	// Generated proto fields are nullable by type but required at runtime; only pure dotted field chains are skipped.
+	normalized := strings.TrimPrefix(strings.ReplaceAll(receiverText, "!!", ""), "this.")
+	if fileImportsProto(file) && isDottedFieldChain(normalized) {
+		return true
+	}
+	if isIdiomaticNullAssertionReceiver(receiverText, file, receiverIdx) {
+		return true
+	}
+	// Normalize the receiver so that `dialog!!.window` and `this.window` match the plain `window` in the allowlist.
+	return normalized != receiverText && isIdiomaticNullAssertionReceiver(normalized, file, receiverIdx)
 }
 
 // bangBangDetektMessage is detekt's UnsafeCallOnNullableType finding message; the shape-specific advice follows it.

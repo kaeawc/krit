@@ -313,10 +313,11 @@ func registerComplexityRules() {
 				if args == 0 {
 					return
 				}
-				unnamed := 0
+				unnamed, total := 0, 0
 				for i := 0; i < file.FlatChildCount(args); i++ {
 					child := file.FlatChild(args, i)
 					if file.FlatType(child) == "value_argument" {
+						total++
 						isNamed := false
 						for j := 0; j < file.FlatChildCount(child); j++ {
 							childPart := file.FlatChild(child, j)
@@ -333,12 +334,13 @@ func registerComplexityRules() {
 						}
 					}
 				}
-				if unnamed > r.AllowedArguments {
+				// detekt counts named arguments toward the limit and reports when any argument is unnamed.
+				if total > r.AllowedArguments && unnamed > 0 {
 					if flatCallForwardsEnclosingFunctionParameters(file, idx, args) || namedArgumentsVarargCalls[extractCallNameFlat(file, idx)] {
 						return
 					}
 					ctx.EmitAt(callLine(file, idx), callCol(file, idx),
-						fmt.Sprintf("Function call has %d unnamed arguments (allowed: %d). Use named arguments.", unnamed, r.AllowedArguments))
+						fmt.Sprintf("This function call has %d arguments. To call a function with more than %d arguments you should set the name of each argument.", total, r.AllowedArguments))
 				}
 			},
 		})

@@ -94,6 +94,22 @@ var rewriteCases = []struct {
 		},
 	},
 	{
+		name: "declarations after a closing brace on one line",
+		src:  "class N { fun x() {} fun y() {} private val z = 1 class In { fun w() {} } }\nfun top1() {} fun top2() {}\n",
+		check: func(t *testing.T, ft *FlatTree, src []byte) {
+			got := nodeTexts(ft, src, "function_declaration")
+			want := []string{"fun x() {}", "fun y() {}", "fun w() {}", "fun top1() {}", "fun top2() {}"}
+			if len(got) != len(want) {
+				t.Fatalf("function_declaration = %q, want %q", got, want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Errorf("function_declaration[%d] = %q, want %q", i, got[i], want[i])
+				}
+			}
+		},
+	},
+	{
 		name: "binary literal",
 		src:  "val a = 0b101\nval b = 0B1_0\nfun g() {}\n",
 		check: func(t *testing.T, ft *FlatTree, src []byte) {
@@ -435,6 +451,7 @@ func TestKotlinRewriteLeavesNonCodeAlone(t *testing.T) {
 		"val t = \"a ${1 + 2} b\" + \"fun interface\"\n",
 		"fun `fun interface`() {}\n",
 		"val c = '\"' // \" 0..<1\n",
+		"val d = \"} fun x\" // } val y\nval e = \"${1} val\"\n",
 	}
 	for _, src := range cases {
 		out, rw := rewriteKotlin([]byte(src))
@@ -504,5 +521,45 @@ func TestKotlinRewriteContextParametersNode(t *testing.T) {
 	}
 	if fns := nodeTexts(ft, src, "function_declaration"); len(fns) != 2 || !strings.HasPrefix(fns[0], "context(table") {
 		t.Errorf("function_declaration = %q", fns)
+	}
+}
+
+func TestKotlinRewriteLeadingParenStartsStatement(t *testing.T) {
+	starts := []string{
+		"fun b() {\n  println(1)\n  (0..10).forEach { println(it) }\n}\n",
+		"fun b() {\n  val x = foo\n  (x as Bar).run()\n}\n",
+		"fun b() {\n  foo { }\n  (x).foo()\n}\n",
+		"fun b() {\n  a = b\n  (c as D).e() // tail\n}\n",
+		"fun b() {\n  bar() // note\n  (c as D).e()\n}\n",
+	}
+	for _, src := range starts {
+		ft, b := parseSynthetic(t, src)
+		if hasErrors(ft) {
+			t.Fatalf("parse has errors: %q: %s", src, sexp(ft))
+		}
+		if got := nodeTexts(ft, b, "call_expression"); len(got) == 0 {
+			t.Fatalf("no calls: %q", src)
+		}
+		for _, call := range nodeTexts(ft, b, "call_expression") {
+			if strings.Contains(call, ")\n  (") || strings.Contains(call, "}\n  (") {
+				t.Errorf("call spans the line break in %q: %q", src, call)
+			}
+		}
+	}
+	continues := []string{
+		"fun b() {\n  if (c)\n    (x).foo()\n}\n",
+		"fun b() {\n  while (c)\n    (x).foo()\n}\n",
+		"fun b() {\n  foo(a,\n    (b).c())\n}\n",
+		"fun b() {\n  val v = a +\n    (b).c()\n}\n",
+		"fun b() {\n  val v = foo(a\n    (b))\n}\n",
+		"fun b() {\n  val v = if (c) a else\n    (b).c()\n}\n",
+		"fun b() {\n  val v = a to\n    (b).c()\n}\n",
+		"fun b() {\n  val v = a shl\n    (b)\n}\n",
+	}
+	for _, src := range continues {
+		out, _ := rewriteKotlin([]byte(src))
+		if string(out) != src {
+			t.Errorf("rewrote a continuation:\n%q\n%q", src, out)
+		}
 	}
 }

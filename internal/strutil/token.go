@@ -50,3 +50,22 @@ func isIdentByte(b byte) bool {
 	}
 	return false
 }
+
+// UniqueTrimmed trims each value, drops empties and duplicates, and keeps first-seen
+// order. It reuses values' backing array and returns nil for empty input.
+func UniqueTrimmed(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(values))
+	out := values[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}

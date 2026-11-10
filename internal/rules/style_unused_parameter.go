@@ -699,37 +699,6 @@ func unusedParameterNodeContainsFlat(file *scanner.File, outer uint32, inner uin
 		file.FlatEndByte(inner) <= file.FlatEndByte(outer)
 }
 
-func hasSiblingOverloadFlat(file *scanner.File, idx uint32, name string) bool {
-	if file == nil || idx == 0 || name == "" {
-		return false
-	}
-	parent, ok := file.FlatParent(idx)
-	for ok && file.FlatType(parent) != "class_body" && file.FlatType(parent) != "source_file" &&
-		file.FlatType(parent) != "class_member_declarations" {
-		parent, ok = file.FlatParent(parent)
-	}
-	if !ok {
-		return false
-	}
-	// Linear sibling walk via FirstChild/NextSib. The previous form used
-	// FlatNamedChild(parent, i) in a for-i loop, which is O(k) per call and
-	// O(N²) across the iteration. For files with many siblings under one
-	// parent (generated code, Dagger modules with lots of @Binds methods)
-	// this was a latent quadratic.
-	for sib := file.FlatFirstChild(parent); sib != 0; sib = file.FlatNextSib(sib) {
-		if !file.FlatIsNamed(sib) || sib == idx {
-			continue
-		}
-		if file.FlatType(sib) != "function_declaration" {
-			continue
-		}
-		if extractIdentifierFlat(file, sib) == name {
-			return true
-		}
-	}
-	return false
-}
-
 // unusedParameterBodyIsStub reports whether a block body has no statements (blank or
 // comments only) or only a TODO()/error()/throw statement, so its parameters are not expected to be used.
 func unusedParameterBodyIsStub(file *scanner.File, body uint32) bool {

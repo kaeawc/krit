@@ -2235,3 +2235,47 @@ func TestNestedBlockDepth_DoesNotDescendIntoOtherCalls(t *testing.T) {
 		t.Fatalf("with(x) { } nests, so depth 5 is reported, got %d", len(got))
 	}
 }
+
+// detekt orders logical operators by the operator token, so a parenthesized left operand of the same
+// operator is not a new sequence but a parenthesized right operand is.
+func TestCognitiveComplexMethod_ParenthesizedOperandOrder(t *testing.T) {
+	build := func(expr string) string {
+		var b strings.Builder
+		b.WriteString("package test\nfun f(x: Int, a: Boolean, b: Boolean, c: Boolean): Boolean {\n")
+		for i := 1; i <= 13; i++ {
+			fmt.Fprintf(&b, "    if (x > %d) println()\n", i)
+		}
+		b.WriteString("    return " + expr + "\n}\n")
+		return b.String()
+	}
+	// 13 ifs score 13, so the limit of 15 is reached only when the expression scores 2.
+	for _, expr := range []string{"(a && b) && c", "((a || b)) || c", "!(a && b) && c", "a && b && c"} {
+		if got := runRuleByName(t, "CognitiveComplexMethod", build(expr)); len(got) != 0 {
+			t.Errorf("%s scores 1, got %v", expr, got)
+		}
+	}
+	for _, expr := range []string{"a && (b && c)", "a || (b || c)", "(a || b) && c"} {
+		if got := runRuleByName(t, "CognitiveComplexMethod", build(expr)); len(got) != 1 {
+			t.Errorf("%s scores 2, got %v", expr, got)
+		}
+	}
+}
+
+// detekt counts named arguments toward the limit and reports a call with any unnamed argument.
+func TestNamedArguments_MixedNamedAndPositional(t *testing.T) {
+	decl := "package test\nfun g(a: Int, b: Int, c: Int, d: Int) {}\nfun f() {\n    "
+	cases := []struct {
+		call string
+		want int
+	}{
+		{"g(1, 2, 3, d = 4)", 1},
+		{"g(1, b = 2, c = 3, d = 4)", 1},
+		{"g(a = 1, b = 2, c = 3, d = 4)", 0},
+		{"g(1, 2, c = 3)", 0},
+	}
+	for _, tc := range cases {
+		if got := runRuleByName(t, "NamedArguments", decl+tc.call+"\n}\n"); len(got) != tc.want {
+			t.Errorf("%s: got %d findings, want %d", tc.call, len(got), tc.want)
+		}
+	}
+}

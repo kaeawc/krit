@@ -2,6 +2,7 @@ package rules_test
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/rules"
@@ -261,8 +262,37 @@ fun test() {
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding for rethrow-only last catch, got %d", len(findings))
 	}
-	if findings[0].Line != 7 {
-		t.Fatalf("expected finding on line 7, got %d", findings[0].Line)
+	// detekt reports the rethrow itself, not the catch keyword.
+	if findings[0].Line != 8 {
+		t.Fatalf("expected finding on line 8, got %d", findings[0].Line)
+	}
+}
+
+// detekt reports every rethrow-only catch that is followed only by other rethrow-only catches, and a
+// catch whose first statement is the rethrow even when more statements follow.
+func TestExc_RethrowCaughtException_MatchesDetekt(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []int
+	}{
+		{"all rethrow", "} catch (e: IOException) {\n        throw e\n    } catch (e: IllegalStateException) {\n        throw e\n    }", []int{5, 7}},
+		{"handled later", "} catch (e: IOException) {\n        throw e\n    } catch (e: IllegalStateException) {\n        log(e)\n    }", nil},
+		{"handled after chain", "} catch (e: IOException) {\n        throw e\n    } catch (e: IllegalStateException) {\n        throw e\n    } catch (e: Exception) {\n        log(e)\n    }", nil},
+		{"first statement", "} catch (e: IOException) {\n        throw e\n        log(e)\n    }", []int{5}},
+		{"after other statement", "} catch (e: IOException) {\n        log(e)\n        throw e\n    }", nil},
+		{"comment first", "} catch (e: IOException) {\n        // keep\n        throw e\n    }", []int{6}},
+		{"parenthesized", "} catch (e: IOException) {\n        throw (e)\n    }", nil},
+	}
+	for _, tc := range cases {
+		findings := runRuleByName(t, "RethrowCaughtException", "fun test() {\n    try {\n        doWork()\n    "+tc.body+"\n}\n")
+		var got []int
+		for _, f := range findings {
+			got = append(got, f.Line)
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: lines = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

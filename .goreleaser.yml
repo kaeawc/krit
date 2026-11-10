@@ -28,6 +28,7 @@ builds:
     main: ./cmd/krit
     binary: krit
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
@@ -44,6 +45,7 @@ builds:
     main: ./cmd/krit-lsp
     binary: krit-lsp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
@@ -60,6 +62,7 @@ builds:
     main: ./cmd/krit-mcp
     binary: krit-mcp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [linux]
@@ -83,6 +86,7 @@ builds:
     main: ./cmd/krit
     binary: krit
     env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
       - -linkmode=external -extldflags=-static
@@ -92,6 +96,7 @@ builds:
     main: ./cmd/krit-lsp
     binary: krit-lsp
     env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
       - -linkmode=external -extldflags=-static
@@ -101,6 +106,7 @@ builds:
     main: ./cmd/krit-mcp
     binary: krit-mcp
     env: [CGO_ENABLED=1, CC=zigcc-musl-amd64]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
       - -linkmode=external -extldflags=-static
@@ -114,6 +120,7 @@ builds:
     main: ./cmd/krit
     binary: krit
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [darwin]
@@ -122,6 +129,7 @@ builds:
     main: ./cmd/krit-lsp
     binary: krit-lsp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [darwin]
@@ -130,6 +138,7 @@ builds:
     main: ./cmd/krit-mcp
     binary: krit-mcp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [darwin]
@@ -142,6 +151,7 @@ builds:
     main: ./cmd/krit
     binary: krit
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [windows]
@@ -150,6 +160,7 @@ builds:
     main: ./cmd/krit-lsp
     binary: krit-lsp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [windows]
@@ -158,6 +169,7 @@ builds:
     main: ./cmd/krit-mcp
     binary: krit-mcp
     env: [CGO_ENABLED=1]
+    flags: [-trimpath]
     ldflags:
       - -s -w -X main.version={{.Version}}
     goos: [windows]

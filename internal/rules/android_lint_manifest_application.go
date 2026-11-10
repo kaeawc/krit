@@ -80,12 +80,13 @@ func (r *RedundantLabelRule) check(ctx *api.Context) {
 	if app == nil {
 		return
 	}
-	appLabel, ok := app.Attr("android:label")
-	if !ok {
-		return
+	// Lint reads the application label with DOM getAttributeNS, which returns "" when absent, so an empty activity label matches.
+	appLabel := ""
+	if attr, ok := app.Attr("android:label"); ok {
+		appLabel = attr.Value
 	}
 	for _, activity := range app.ChildrenByTag("activity") {
-		if label, ok := activity.Attr("android:label"); ok && label.Value == appLabel.Value {
+		if label, ok := activity.Attr("android:label"); ok && label.Value == appLabel {
 			emitManifestAtAttr(ctx, label, "Redundant label can be removed")
 		}
 	}

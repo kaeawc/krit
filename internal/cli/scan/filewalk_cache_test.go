@@ -478,3 +478,22 @@ func TestFilewalkFilters_Hash(t *testing.T) {
 		t.Errorf("different filter should produce different hash")
 	}
 }
+
+func TestSaveFilewalkCacheLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 2; i++ {
+		if err := saveFilewalkCache(dir, &filewalkPayload{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want only the cache file, got %v", entries)
+	}
+	if _, ok := loadFilewalkCache(dir); !ok {
+		t.Fatal("saved cache did not load")
+	}
+}

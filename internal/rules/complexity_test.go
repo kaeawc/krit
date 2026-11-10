@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,9 +23,9 @@ func TestLongMethod_Positive(t *testing.T) {
 	for i := 1; i <= 60; i++ {
 		b.WriteString("    val x")
 		b.WriteString(strings.Repeat("0", 0))
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -40,9 +41,9 @@ func TestLongMethod_Negative(t *testing.T) {
 	b.WriteString("package test\nfun process() {\n")
 	for i := 1; i <= 57; i++ {
 		b.WriteString("    val x")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -59,9 +60,9 @@ func TestLongMethod_Suppressed(t *testing.T) {
 	b.WriteString("fun process() {\n")
 	for i := 1; i <= 60; i++ {
 		b.WriteString("    val x")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -83,9 +84,9 @@ func TestLongMethod_TripleQuoteInLineComment(t *testing.T) {
 	b.WriteString("    // see: \"\"\" in docs\n")
 	for i := 1; i <= 70; i++ {
 		b.WriteString("    val x")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -103,9 +104,9 @@ func TestLongMethod_TripleQuoteInBlockComment(t *testing.T) {
 	b.WriteString("    /* literal \"\"\" inside block comment */\n")
 	for i := 1; i <= 70; i++ {
 		b.WriteString("    val x")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -122,7 +123,7 @@ func TestLongMethod_RawStringContentCounted(t *testing.T) {
 	b.WriteString("    val s = \"\"\"\n")
 	for i := 1; i <= 70; i++ {
 		b.WriteString("        line ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("    \"\"\"\n")
@@ -143,9 +144,9 @@ func TestCyclomaticComplexMethod_Positive(t *testing.T) {
 	b.WriteString("package test\nfun complex(x: Int): Int {\n    var r = 0\n")
 	for i := 1; i <= 15; i++ {
 		b.WriteString("    if (x > ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("    return r\n}\n")
@@ -161,9 +162,9 @@ func TestCyclomaticComplexMethod_Negative(t *testing.T) {
 	b.WriteString("package test\nfun simple(x: Int): Int {\n    var r = 0\n")
 	for i := 1; i <= 13; i++ {
 		b.WriteString("    if (x > ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("    return r\n}\n")
@@ -178,16 +179,16 @@ func TestCyclomaticComplexMethod_CountsElvisButNotSafeCall(t *testing.T) {
 		var b strings.Builder
 		b.WriteString("package test\nfun load(a: A?): Int {\n")
 		for i := 1; i <= 19; i++ {
-			b.WriteString("    val x" + itoa(i) + " = " + use(i) + "\n")
+			b.WriteString("    val x" + strconv.Itoa(i) + " = " + use(i) + "\n")
 		}
 		b.WriteString("    return x1\n}\n")
 		return b.String()
 	}
-	elvis := build(func(i int) string { return "a?.v" + itoa(i) + " ?: error(\"missing\")" })
+	elvis := build(func(i int) string { return "a?.v" + strconv.Itoa(i) + " ?: error(\"missing\")" })
 	if findings := runRuleByName(t, "CyclomaticComplexMethod", elvis); len(findings) != 1 {
 		t.Fatalf("19 elvis operators give complexity 20, which detekt reports, got %d findings", len(findings))
 	}
-	safe := build(func(i int) string { return "a?.v" + itoa(i) })
+	safe := build(func(i int) string { return "a?.v" + strconv.Itoa(i) })
 	if findings := runRuleByName(t, "CyclomaticComplexMethod", safe); len(findings) != 0 {
 		t.Fatalf("safe calls are not decision points, got %d findings", len(findings))
 	}
@@ -204,9 +205,9 @@ func TestCyclomaticComplexMethod_CompatibleSimpleWhenEntriesCount(t *testing.T) 
 	b.WriteString("package test\nfun classify(x: Int): String = when (x) {\n")
 	for i := 1; i <= 16; i++ {
 		b.WriteString("    ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" -> \"v")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\"\n")
 	}
 	b.WriteString("    else -> \"other\"\n}\n")
@@ -244,9 +245,9 @@ func TestCyclomaticComplexMethod_HonorsIgnoreSingleWhenExpression(t *testing.T) 
 	b.WriteString("package test\nfun classify(x: Int): String = when (x) {\n")
 	for i := 1; i <= 16; i++ {
 		b.WriteString("    ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" -> \"v")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\"\n")
 	}
 	b.WriteString("    else -> \"other\"\n}\n")
@@ -331,7 +332,7 @@ func TestCyclomaticComplexMethod_NestingFunctionsAddOnePerCallWithLambda(t *test
 	var d strings.Builder
 	d.WriteString("package test\nfun process(items: List<Int>): Int {\n  var r = 0\n  items.map { item ->\n")
 	for i := 1; i <= 14; i++ {
-		d.WriteString("    if (item > " + itoa(i) + ") r += " + itoa(i) + "\n")
+		d.WriteString("    if (item > " + strconv.Itoa(i) + ") r += " + strconv.Itoa(i) + "\n")
 	}
 	d.WriteString("  }\n  return r\n}\n")
 	rule.AllowedComplexity = 14
@@ -345,7 +346,7 @@ func TestCyclomaticComplexMethod_NestedFunctionsCountForTheOuterFunction(t *test
 	var b strings.Builder
 	b.WriteString("package test\nfun outer() {\n  fun helper(x: Int): Int {\n    var r = 0\n")
 	for i := 1; i <= 14; i++ {
-		b.WriteString("    if (x > " + itoa(i) + ") r += " + itoa(i) + "\n")
+		b.WriteString("    if (x > " + strconv.Itoa(i) + ") r += " + strconv.Itoa(i) + "\n")
 	}
 	b.WriteString("    return r\n  }\n  helper(1)\n}\n")
 	findings := runRuleByName(t, "CyclomaticComplexMethod", b.String())
@@ -358,7 +359,7 @@ func TestCyclomaticComplexMethod_FunctionsInObjectLiteralsAreNotCounted(t *testi
 	var b strings.Builder
 	b.WriteString("package test\nfun outer() = object : Runnable {\n  override fun run() {\n")
 	for i := 1; i <= 20; i++ {
-		b.WriteString("    if (x > " + itoa(i) + ") foo()\n")
+		b.WriteString("    if (x > " + strconv.Itoa(i) + ") foo()\n")
 	}
 	b.WriteString("  }\n}\n")
 	if findings := runRuleByName(t, "CyclomaticComplexMethod", b.String()); len(findings) != 0 {
@@ -481,7 +482,7 @@ func TestTooManyFunctions_Positive(t *testing.T) {
 	b.WriteString("package test\n")
 	for i := 1; i <= 12; i++ {
 		b.WriteString("fun fn")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("() {}\n")
 	}
 	findings := runRuleByName(t, "TooManyFunctions", b.String())
@@ -496,7 +497,7 @@ func TestTooManyFunctions_Negative(t *testing.T) {
 	b.WriteString("package test\n")
 	for i := 1; i <= 10; i++ {
 		b.WriteString("fun fn")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("() {}\n")
 	}
 	findings := runRuleByName(t, "TooManyFunctions", b.String())
@@ -515,7 +516,7 @@ func TestTooManyFunctions_CompatibleOverriddenFunctionsCount(t *testing.T) {
 	b.WriteString("package test\n")
 	for i := 1; i <= 12; i++ {
 		b.WriteString("override fun fn")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("() {}\n")
 	}
 	findings := runRuleByName(t, "TooManyFunctions", b.String())
@@ -554,7 +555,7 @@ func TestTooManyFunctions_FunInterfaceMembersNotCountedAsTopLevel(t *testing.T) 
 	b.WriteString("package test\nfun interface Handler {\n    fun a(): Int\n")
 	for i := 1; i <= 12; i++ {
 		b.WriteString("    fun fn")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("() {}\n")
 	}
 	b.WriteString("}\n")
@@ -570,7 +571,7 @@ func TestTooManyFunctions_ClassMembersAreNotTopLevel(t *testing.T) {
 	b.WriteString("package test\nclass Holder {\n")
 	for i := 1; i <= 12; i++ {
 		b.WriteString("    fun fn")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("() {}\n")
 	}
 	b.WriteString("}\n")
@@ -588,9 +589,9 @@ func TestLargeClass_Positive(t *testing.T) {
 	b.WriteString("package test\nclass BigService {\n")
 	for i := 1; i <= 600; i++ {
 		b.WriteString("    val field")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -606,9 +607,9 @@ func TestLargeClass_Negative(t *testing.T) {
 	b.WriteString("package test\nclass SmallService {\n")
 	for i := 1; i <= 597; i++ {
 		b.WriteString("    val field")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(" = ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("}\n")
@@ -749,9 +750,9 @@ func TestCognitiveComplexMethod_Positive(t *testing.T) {
 	b.WriteString("package test\nfun cognitive(x: Int): Int {\n    var r = 0\n")
 	for i := 1; i <= 15; i++ {
 		b.WriteString("    if (x > ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("    return r\n}\n")
@@ -767,9 +768,9 @@ func TestCognitiveComplexMethod_Negative(t *testing.T) {
 	b.WriteString("package test\nfun cognitive(x: Int): Int {\n    var r = 0\n")
 	for i := 1; i <= 14; i++ {
 		b.WriteString("    if (x > ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString(") r += ")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("\n")
 	}
 	b.WriteString("    return r\n}\n")
@@ -854,7 +855,7 @@ func TestComplexInterface_Positive(t *testing.T) {
 	b.WriteString("package test\ninterface BigApi {\n")
 	for i := 1; i <= 11; i++ {
 		b.WriteString("    fun method")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("()\n")
 	}
 	b.WriteString("}\n")
@@ -869,7 +870,7 @@ func TestComplexInterface_Negative(t *testing.T) {
 	b.WriteString("package test\ninterface SmallApi {\n")
 	for i := 1; i <= 9; i++ {
 		b.WriteString("    fun method")
-		b.WriteString(itoa(i))
+		b.WriteString(strconv.Itoa(i))
 		b.WriteString("()\n")
 	}
 	b.WriteString("}\n")
@@ -881,7 +882,7 @@ func TestComplexInterface_Negative(t *testing.T) {
 	b.Reset()
 	b.WriteString("package test\ninterface BigApi {\n    val p: Int\n")
 	for i := 1; i <= 9; i++ {
-		b.WriteString("    fun method" + itoa(i) + "()\n")
+		b.WriteString("    fun method" + strconv.Itoa(i) + "()\n")
 	}
 	b.WriteString("}\n")
 	findings = runRuleByName(t, "ComplexInterface", b.String())
@@ -1135,7 +1136,7 @@ func TestMethodOverloading_Positive(t *testing.T) {
 				b.WriteString(", ")
 			}
 			b.WriteString("a")
-			b.WriteString(itoa(j))
+			b.WriteString(strconv.Itoa(j))
 			b.WriteString(": Int")
 		}
 		b.WriteString(") {}\n")
@@ -1156,7 +1157,7 @@ func TestMethodOverloading_Negative(t *testing.T) {
 				b.WriteString(", ")
 			}
 			b.WriteString("a")
-			b.WriteString(itoa(j))
+			b.WriteString(strconv.Itoa(j))
 			b.WriteString(": Int")
 		}
 		b.WriteString(") {}\n")
@@ -1189,7 +1190,7 @@ func TestMethodOverloading_NestedClassesAreSeparateScopes(t *testing.T) {
 				b.WriteString(", ")
 			}
 			b.WriteString("a")
-			b.WriteString(itoa(j))
+			b.WriteString(strconv.Itoa(j))
 			b.WriteString(": Int")
 		}
 		b.WriteString(") {}\n")
@@ -1202,7 +1203,7 @@ func TestMethodOverloading_NestedClassesAreSeparateScopes(t *testing.T) {
 				b.WriteString(", ")
 			}
 			b.WriteString("b")
-			b.WriteString(itoa(j))
+			b.WriteString(strconv.Itoa(j))
 			b.WriteString(": Int")
 		}
 		b.WriteString(") {}\n")
@@ -1620,9 +1621,9 @@ func BenchmarkCyclomaticComplexMethod_EarlyExit(b *testing.B) {
 	src.WriteString("package test\nfun complex(x: Int): Int {\n    var r = 0\n")
 	for i := 0; i < 300; i++ {
 		src.WriteString("    if (x > ")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString(") r += ")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString("\n")
 	}
 	src.WriteString("    return r\n}\n")
@@ -1652,7 +1653,7 @@ func BenchmarkNestedBlockDepth_EarlyExit(b *testing.B) {
 	for i := 0; i < 200; i++ {
 		src.WriteString(strings.Repeat("    ", i+1))
 		src.WriteString("if (x > ")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString(") {\n")
 	}
 	src.WriteString(strings.Repeat("    ", 201))
@@ -1691,7 +1692,7 @@ func BenchmarkNestedBlockDepth_ElseIfChain(b *testing.B) {
 		} else {
 			src.WriteString("    else if (x == ")
 		}
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString(") { println(x) }\n")
 	}
 	src.WriteString("    else { println(x) }\n")
@@ -1721,19 +1722,19 @@ func BenchmarkTooManyFunctions_HeavyFile(b *testing.B) {
 	src.WriteString("package test\n")
 	for i := 0; i < 80; i++ {
 		src.WriteString("fun top")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString("() {}\n")
 	}
 	src.WriteString("class Outer {\n")
 	for i := 0; i < 40; i++ {
 		src.WriteString("    fun inner")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString("() {}\n")
 	}
 	src.WriteString("    class Nested {\n")
 	for i := 0; i < 20; i++ {
 		src.WriteString("        fun nested")
-		src.WriteString(itoa(i))
+		src.WriteString(strconv.Itoa(i))
 		src.WriteString("() {}\n")
 	}
 	src.WriteString("    }\n}\n")
@@ -1755,27 +1756,6 @@ func BenchmarkTooManyFunctions_HeavyFile(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = d.Run(file)
 	}
-}
-
-// itoa is a simple int-to-string helper to avoid importing strconv.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	if neg {
-		s = "-" + s
-	}
-	return s
 }
 
 func TestNamedArguments_Positive(t *testing.T) {
@@ -1895,7 +1875,7 @@ func TestLongParameterList_OnlyOverridesAndDataClassesAreExempt(t *testing.T) {
 func kotlinBody(n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
-		b.WriteString("    val x" + itoa(i) + " = " + itoa(i) + "\n")
+		b.WriteString("    val x" + strconv.Itoa(i) + " = " + strconv.Itoa(i) + "\n")
 	}
 	return b.String()
 }
@@ -1924,7 +1904,7 @@ func TestLongMethod_ExpressionBodyCountsExpressionLines(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("package test\nfun process() =\n    listOf(\n")
 	for i := 0; i < 58; i++ {
-		b.WriteString("        " + itoa(i) + ",\n")
+		b.WriteString("        " + strconv.Itoa(i) + ",\n")
 	}
 	b.WriteString("    )\n")
 	// 1 (listOf) + 58 + 1 = 60 expression lines.
@@ -2046,7 +2026,7 @@ func TestCyclomaticComplexMethod_FlatWhenOfSimpleEntriesCountsOnce(t *testing.T)
 	var b strings.Builder
 	b.WriteString("package test\nfun label(x: Int): String {\n    val prefix = \"p\"\n    return prefix + when (x) {\n")
 	for i := 1; i <= 30; i++ {
-		b.WriteString("        " + itoa(i) + " -> \"v" + itoa(i) + "\"\n")
+		b.WriteString("        " + strconv.Itoa(i) + " -> \"v" + strconv.Itoa(i) + "\"\n")
 	}
 	b.WriteString("        else -> \"other\"\n    }\n}\n")
 	if findings := runRuleByName(t, "CyclomaticComplexMethod", b.String()); len(findings) != 0 {

@@ -153,3 +153,16 @@ func TestParseXMLAST_TextContent(t *testing.T) {
 		t.Fatalf("text = %q, want %q", msg.Text, "Hello World")
 	}
 }
+
+func TestParseXMLAST_TextConcatenatesCharDataSegments(t *testing.T) {
+	root, err := ParseXMLAST(t.Context(), []byte("<a>one<b/>two<c/>three</a>"))
+	if err != nil {
+		t.Fatalf("ParseXMLAST failed: %v", err)
+	}
+	if root.Text != "onetwothree" {
+		t.Fatalf("root text = %q, want onetwothree", root.Text)
+	}
+	if len(root.Children) != 2 {
+		t.Fatalf("children = %d, want 2", len(root.Children))
+	}
+}

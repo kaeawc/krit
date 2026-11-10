@@ -392,14 +392,6 @@ func (pc *XMLParseCache) HasWrites() bool {
 	return stats.Queued > 0 || stats.Completed > 0 || pc.lastWriteSec.Load() > 0
 }
 
-// LRUStats returns the current LRU snapshot.
-func (pc *XMLParseCache) LRUStats() cacheutil.LRUStats {
-	if pc == nil || pc.lru == nil {
-		return cacheutil.LRUStats{}
-	}
-	return pc.lru.Stats()
-}
-
 // Stats returns a unified snapshot. Counter fields are running totals
 // for the current process; Entries and Bytes come from the LRU sidecar.
 func (pc *XMLParseCache) Stats() cacheutil.CacheStats {

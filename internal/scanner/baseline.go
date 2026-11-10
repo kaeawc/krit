@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // Baseline represents a set of suppressed finding IDs loaded from a Krit
@@ -284,7 +285,7 @@ func WriteBaselineIDsXML(path string, ids []string) error {
 		return err
 	}
 	header := []byte(xml.Header)
-	return os.WriteFile(path, append(header, data...), 0644)
+	return fsutil.WriteFileAtomic(path, append(header, data...), 0o644)
 }
 
 // FilterByBaseline removes findings that are in the baseline.

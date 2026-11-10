@@ -72,9 +72,10 @@ func (r *WrongRegionResourceRule) check(ctx *api.Context) {
 type folderLocale struct{ language, region string }
 
 var (
-	folderMccRe    = regexp.MustCompile(`^mcc\d{3}$`)
-	folderMncRe    = regexp.MustCompile(`^mnc\d{1,3}$`)
-	folderRegionRe = regexp.MustCompile(`^r(?:[A-Z]{2}|\d{3})$`)
+	folderMccRe = regexp.MustCompile(`^mcc\d{3}$`)
+	folderMncRe = regexp.MustCompile(`^mnc\d{1,3}$`)
+	// Lint's LocaleQualifier accepts a region letter pair in either case, so values-es-rla parses as region LA.
+	folderRegionRe = regexp.MustCompile(`^r(?:[A-Za-z]{2}|\d{3})$`)
 	folderLangRe   = regexp.MustCompile(`^[a-z]{2,3}$`)
 )
 
@@ -118,7 +119,7 @@ func parseFolderLocale(folder string) (folderLocale, bool) {
 			found = true
 			i++
 			if i < len(tokens) && folderRegionRe.MatchString(tokens[i]) {
-				loc.region = tokens[i][1:]
+				loc.region = strings.ToUpper(tokens[i][1:])
 				i++
 			}
 		}

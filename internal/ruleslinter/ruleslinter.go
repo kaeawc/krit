@@ -12,10 +12,10 @@
 // that manages its own worker-local
 // finding-collector concurrency (calls scanner.MergeCollectors, spawns
 // goroutines with `go`, or uses sync.WaitGroup) must declare
-// NeedsConcurrent in Meta(); conversely, a rule declaring
-// NeedsConcurrent whose body contains none of those signals is flagged
-// as declared-but-unused. The signal set is intentionally narrow — see
-// scanBodyUsage below — and errs toward false negatives over false
+// NeedsConcurrent in Meta(). A rule may also declare NeedsConcurrent
+// without those signals when it only reads immutable phase inputs and is
+// safe to run beside other rules. The signal set is intentionally narrow
+// — see scanBodyUsage below — and errs toward false negatives over false
 // positives.
 //
 // A third gate enforces Fix-declaration fidelity: a rule that declares
@@ -575,13 +575,6 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 			RuleID:   reg.ID,
 			Position: pos,
 			Message:  "uses concurrent finding collector but does not declare NeedsConcurrent in Meta()",
-		})
-	}
-	if declaresConcurrent && !usage.concurrent {
-		out = append(out, Violation{
-			RuleID:   reg.ID,
-			Position: pos,
-			Message:  "declares NeedsConcurrent in Meta() but does not use concurrent state (goroutines, sync.WaitGroup, or scanner.MergeCollectors)",
 		})
 	}
 	if reg.FixLevel != "" && reg.FixLevel != "FixNone" && !usage.fixAssigned {

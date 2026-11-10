@@ -20,17 +20,6 @@ func NodeText(node *sitter.Node, content []byte) string {
 	return string(NodeBytes(node, content))
 }
 
-func ForEachChild(node *sitter.Node, fn func(child *sitter.Node)) {
-	if node == nil {
-		return
-	}
-	for i := 0; i < int(node.ChildCount()); i++ {
-		if child := node.Child(i); child != nil {
-			fn(child)
-		}
-	}
-}
-
 func FindChild(node *sitter.Node, childType string) *sitter.Node {
 	for i := 0; i < int(node.ChildCount()); i++ {
 		if node.Child(i).Type() == childType {

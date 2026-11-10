@@ -680,3 +680,22 @@ func TestFilterColumnsByBaseline_DetektBudgetIsPerCall(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteBaselineIDsXMLReplacesAtomically(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "baseline.xml")
+	if err := os.WriteFile(path, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteBaselineIDsXML(path, []string{"A:b.kt:1"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "A:b.kt:1") {
+		t.Fatalf("baseline not replaced: %q err=%v", data, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("leftover temp files: %v", entries)
+	}
+}

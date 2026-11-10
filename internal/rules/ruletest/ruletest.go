@@ -15,11 +15,11 @@
 //     bitfield must be zero (or contain only NeedsLinePass /
 //     NeedsAggregate / NeedsConcurrent, none of which require external
 //     facts).
-//   - LintWithResolver / LintWithResolverJava — adds a source-level
+//   - LintWithResolver — adds a source-level
 //     typeinfer.TypeResolver indexed over the file. Allowed for rules
 //     declaring NeedsResolver. NeedsOracle is rejected; use the oracle
 //     helpers instead.
-//   - LintWithFakeOracle / LintWithFakeOracleJava — adds a CompositeResolver
+//   - LintWithFakeOracle — adds a CompositeResolver
 //     that wraps the supplied FakeOracle in front of the source-level
 //     resolver. Allowed for rules declaring NeedsResolver and / or
 //     NeedsOracle.
@@ -90,17 +90,6 @@ func LintWithResolver(t *testing.T, ruleID, src string) []scanner.Finding {
 	return runDispatcher(t, rule, file, resolver)
 }
 
-// LintWithResolverJava is the Java counterpart to LintWithResolver.
-func LintWithResolverJava(t *testing.T, ruleID, src string) []scanner.Finding {
-	t.Helper()
-	rule := requireRule(t, ruleID)
-	enforceTier(t, rule, "LintWithResolverJava", api.NeedsResolver)
-	file := writeAndParseJava(t, src)
-	resolver := typeinfer.NewResolver()
-	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
-	return runDispatcher(t, rule, file, resolver)
-}
-
 // LintWithFakeOracle parses src as Kotlin and runs ruleID with a
 // CompositeResolver that consults fake before falling back to the
 // source-level TypeResolver. Use for rules declaring NeedsOracle (and
@@ -117,16 +106,6 @@ func LintWithFakeOracle(t *testing.T, ruleID, src string, fake *oracle.FakeOracl
 	rule := requireRule(t, ruleID)
 	enforceTier(t, rule, "LintWithFakeOracle", api.NeedsResolver|api.NeedsOracle)
 	file := writeAndParseKotlin(t, src)
-	resolver := makeOracleResolver(file, fake)
-	return runDispatcher(t, rule, file, resolver)
-}
-
-// LintWithFakeOracleJava is the Java counterpart to LintWithFakeOracle.
-func LintWithFakeOracleJava(t *testing.T, ruleID, src string, fake *oracle.FakeOracle) []scanner.Finding {
-	t.Helper()
-	rule := requireRule(t, ruleID)
-	enforceTier(t, rule, "LintWithFakeOracleJava", api.NeedsResolver|api.NeedsOracle)
-	file := writeAndParseJava(t, src)
 	resolver := makeOracleResolver(file, fake)
 	return runDispatcher(t, rule, file, resolver)
 }

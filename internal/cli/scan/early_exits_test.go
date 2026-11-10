@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"strings"
 	"testing"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -61,7 +62,7 @@ func TestInitStarterConfigContents(t *testing.T) {
 		"UnsafeCast:",
 	}
 	for _, want := range wantSubstrings {
-		if !contains(initStarterConfig, want) {
+		if !strings.Contains(initStarterConfig, want) {
 			t.Fatalf("initStarterConfig missing %q", want)
 		}
 	}
@@ -95,13 +96,4 @@ func TestRunOutputTypesFlagNoOpWhenEmpty(t *testing.T) {
 	// work. If this ever calls os.Exit, the test process dies and `go test`
 	// reports the panic — which is the assertion.
 	runOutputTypesFlag(outputTypesOpts{OutputPath: ""})
-}
-
-func contains(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return true
-		}
-	}
-	return false
 }

@@ -83,3 +83,20 @@ func TestRedundantLabelLintParity(t *testing.T) {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+func TestRedundantLabelEmptyLabelWithoutApplicationLabel(t *testing.T) {
+	for name, appAttrs := range map[string]string{"no application label": "", "empty application label": ` android:label=""`} {
+		xml := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.synth">
+  <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>
+  <application` + appAttrs + ` android:allowBackup="true">
+    <activity android:name=".A" android:label=""/>
+    <activity android:name=".B" android:label="@string/other"/>
+    <activity android:name=".C"/>
+  </application>
+</manifest>
+`
+		if got, want := manifestRulePositions(t, "RedundantLabel", xml), "4:33"; got != want {
+			t.Fatalf("%s: positions = %s, want %s", name, got, want)
+		}
+	}
+}

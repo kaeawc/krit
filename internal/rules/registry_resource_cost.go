@@ -256,7 +256,7 @@ func registerResourceCostRules() {
 		r := &DatabaseQueryOnMainThreadRule{BaseRule: BaseRule{RuleName: "DatabaseQueryOnMainThread", RuleSetName: "resource-cost", Sev: "warning", Desc: "Detects SQLiteDatabase query calls in code with positive main-thread evidence."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			Needs: api.NeedsParsedFiles, Confidence: api.ConfidenceMedium, Implementation: r,
+			Needs: api.NeedsParsedFiles | api.NeedsConcurrent, Confidence: api.ConfidenceMedium, Implementation: r,
 			NeedsLibraryFacts: true,
 			Check:             r.checkParsedFiles,
 		})

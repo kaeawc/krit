@@ -127,7 +127,7 @@ func TestRunConcurrentCrossRules_FindingEquivalence(t *testing.T) {
 		workers := workers
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			dst := scanner.NewFindingCollector(0)
-			runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, workers, nil, nil, false)
+			runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, workers, nil, false)
 			got := *dst.Columns()
 
 			if got.Len() != serialCols.Len() {
@@ -154,7 +154,7 @@ func TestRunConcurrentCrossRules_RecoversFromPanics(t *testing.T) {
 	}))
 	rules := []*api.Rule{good, bad, good, bad}
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, 4, nil, nil, false)
+	runConcurrentCrossRules(context.Background(), rules, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	if got := dst.Columns().Len(); got != 2 {
 		t.Fatalf("Len=%d want 2 (two Good invocations survive two Bad panics)", got)
 	}
@@ -174,7 +174,7 @@ func TestRunConcurrentCrossRules_HonoursContextCancel(t *testing.T) {
 		}))
 	}
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(ctx, rules, nil, nil, nil, nil, nil, dst, 4, nil, nil, false)
+	runConcurrentCrossRules(ctx, rules, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	// We allow up to one rule per worker to observe the cancelled ctx
 	// after dispatch; the critical property is that not all rules run.
 	if int(ran.Load()) >= len(rules) {
@@ -190,7 +190,7 @@ func TestRunConcurrentCrossRules_SingleRuleFallsBackToSerial(t *testing.T) {
 		ctx.EmitAt(1, 1, "solo")
 	}))
 	dst := scanner.NewFindingCollector(0)
-	runConcurrentCrossRules(context.Background(), []*api.Rule{r}, nil, nil, nil, nil, nil, dst, 4, nil, nil, false)
+	runConcurrentCrossRules(context.Background(), []*api.Rule{r}, nil, nil, nil, nil, nil, dst, 4, nil, false)
 	if got := dst.Columns().Len(); got != 1 {
 		t.Fatalf("Len=%d want 1", got)
 	}
@@ -218,7 +218,7 @@ func TestRunConcurrentCrossRules_PanicRecordedInErrors(t *testing.T) {
 			}
 			dst := scanner.NewFindingCollector(0)
 			var errs []rules.DispatchError
-			runConcurrentCrossRules(context.Background(), ruleSet, nil, nil, nil, nil, nil, dst, 4, nil, &errs, false)
+			runConcurrentCrossRules(context.Background(), ruleSet, nil, nil, nil, nil, nil, dst, 4, &errs, false)
 			if len(errs) != tc.n {
 				t.Fatalf("errs=%d want %d (%v)", len(errs), tc.n, errs)
 			}
@@ -283,4 +283,39 @@ func findingColumnsEqual(a, b *scanner.FindingColumns) bool {
 
 func fingerprint(f scanner.Finding) string {
 	return fmt.Sprintf("%s|%d|%d|%s|%s|%s", f.File, f.Line, f.Col, f.Rule, f.RuleSet, f.Message)
+}
+
+// TestRunCrossRuleSet_SerialAndConcurrentOverlap checks that serial and concurrent rules both emit and that
+// panics from either family are recorded when they run beside each other.
+func TestRunCrossRuleSet_SerialAndConcurrentOverlap(t *testing.T) {
+	emit := func(id string, needs api.Capabilities) *api.Rule {
+		return api.FakeRule(id, api.WithNeeds(needs), api.WithCheck(func(ctx *api.Context) {
+			ctx.Emit(scanner.Finding{File: id + ".kt", Line: 1, Col: 1, Message: id})
+		}))
+	}
+	boom := api.FakeRule("SerialBoom", api.WithNeeds(api.NeedsCrossFile), api.WithCheck(func(*api.Context) { panic("boom") }))
+	active := []*api.Rule{
+		emit("SerialA", api.NeedsCrossFile),
+		boom,
+		emit("ConcA", api.NeedsCrossFile|api.NeedsConcurrent),
+		emit("ConcB", api.NeedsCrossFile|api.NeedsConcurrent),
+		emit("ConcC", api.NeedsParsedFiles|api.NeedsConcurrent),
+	}
+	dst := scanner.NewFindingCollector(0)
+	var result CrossFileResult
+	CrossFilePhase{Workers: 2}.runCrossRuleSet(context.Background(), DispatchResult{ActiveRules: active}, nil, nil, nil, dst, nil, &result)
+
+	cols := dst.Columns()
+	got := make(map[string]bool)
+	for _, f := range cols.Findings() {
+		got[f.Message] = true
+	}
+	for _, id := range []string{"SerialA", "ConcA", "ConcB", "ConcC"} {
+		if !got[id] {
+			t.Errorf("missing finding from %s (got %v)", id, got)
+		}
+	}
+	if len(result.Stats.Errors) != 1 || result.Stats.Errors[0].RuleName != "SerialBoom" {
+		t.Errorf("errors=%v, want one SerialBoom panic", result.Stats.Errors)
+	}
 }

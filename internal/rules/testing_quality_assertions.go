@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"path"
 	"strings"
 
@@ -432,9 +433,9 @@ func testingQualityIsConstructionDoesNotThrowTest(file *scanner.File, idx, body 
 	if class == 0 {
 		return false
 	}
-	classText := file.FlatNodeText(class)
-	if !strings.Contains(classText, "assertFailsWith") && !strings.Contains(classText, "assertThrows") &&
-		!strings.Contains(classText, "assertFails(") {
+	classText := file.FlatNodeBytes(class)
+	if !bytes.Contains(classText, []byte("assertFailsWith")) && !bytes.Contains(classText, []byte("assertThrows")) &&
+		!bytes.Contains(classText, []byte("assertFails(")) {
 		return false
 	}
 	var statements uint32

@@ -926,6 +926,18 @@ func TestWrongRegionResource(t *testing.T) {
 		}
 	})
 
+	t.Run("lowercase region letters are read as the uppercase region", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/values-de-rus/main.xml", &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "de (German) with US (United States)") {
+			t.Fatalf("got %+v", findings)
+		}
+		idx = indexWithLayout("main", "res/values-en-rus/main.xml", &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}})
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("en-rus: expected 0 findings, got %d", len(findings))
+		}
+	})
+
 	t.Run("regions Lint does not know for a language are not judged", func(t *testing.T) {
 		for _, folder := range []string{"values-en-rUK", "values-es-rUS", "values-en-rEN", "values-xx-rYY"} {
 			idx := indexWithLayout("main", "res/"+folder+"/main.xml", &android.View{Type: "LinearLayout", Line: 1, Attributes: map[string]string{}})

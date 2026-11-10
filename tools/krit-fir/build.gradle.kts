@@ -141,6 +141,29 @@ tasks.shadowJar {
         "org/fusesource/jansi/internal/native/Linux/ppc64/**",
         "org/fusesource/jansi/internal/native/Linux/x86/**",
         "org/fusesource/jansi/internal/native/Mac/x86/**",
+        // Kotlin K1 (PSI-to-IR, CFG), build-tools, javac, REPL and klib ABI code that the K2 JVM pipeline never
+        // reaches (no static reference from the launcher, service files or other bundled classes).
+        "org/jetbrains/kotlin/psi2ir/**",
+        "org/jetbrains/kotlin/buildtools/**",
+        "org/jetbrains/kotlin/build/**",
+        "org/jetbrains/kotlin/javac/**",
+        "org/jetbrains/kotlin/library/abi/**",
+        "org/jetbrains/kotlin/incremental/classpathDiff/**",
+        "org/jetbrains/kotlin/cli/common/repl/**",
+        "org/jetbrains/kotlin/cfg/pseudocode/**",
+        "org/jetbrains/kotlin/checkers/**",
+        "org/jetbrains/kotlin/descriptors/runtime/**",
+        "it/unimi/dsi/fastutil/shorts/**",
+        "it/unimi/dsi/fastutil/chars/**",
+        "it/unimi/dsi/fastutil/floats/**",
+        "it/unimi/dsi/fastutil/booleans/**",
+        // klib IR serialization and implementation and native binary options and diagnostics: the JVM
+        // pipeline never reaches them (no static reference from the launcher, service files, or other bundled
+        // classes). IR lowerings stay because bundled compiler plugins (Compose etc.) call into them.
+        "org/jetbrains/kotlin/backend/common/serialization/**",
+        "org/jetbrains/kotlin/library/impl/**",
+        "org/jetbrains/kotlin/config/nativeBinaryOptions/**",
+        "org/jetbrains/kotlin/resolve/konan/diagnostics/**",
     )
     manifest {
         attributes(

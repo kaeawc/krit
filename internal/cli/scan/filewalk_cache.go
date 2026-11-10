@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fileignore"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/trackedfiles"
 )
 
@@ -148,7 +149,7 @@ func saveFilewalkCache(cacheDir string, p *filewalkPayload) error {
 	var buf bytes.Buffer
 	buf.Write(hdr[:])
 	buf.Write(encoded)
-	return os.WriteFile(filewalkIndexPath(cacheDir), buf.Bytes(), 0o644)
+	return fsutil.WriteFileAtomic(filewalkIndexPath(cacheDir), buf.Bytes(), 0o644)
 }
 
 // CollectFilesCached returns every path under roots whose basename matches

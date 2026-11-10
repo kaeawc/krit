@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -61,11 +62,11 @@ func TestMoveFileNoReplaceConcurrentCreateLosesNoData(t *testing.T) {
 	const N = 16
 	srcs := make([]string, N)
 	for i := 0; i < N; i++ {
-		srcs[i] = filepath.Join(dir, "src", "f"+itoa(i)+".kt")
+		srcs[i] = filepath.Join(dir, "src", "f"+strconv.Itoa(i)+".kt")
 		if err := os.MkdirAll(filepath.Dir(srcs[i]), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(srcs[i], []byte("from-"+itoa(i)), 0o644); err != nil {
+		if err := os.WriteFile(srcs[i], []byte("from-"+strconv.Itoa(i)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -111,20 +112,6 @@ func TestMoveFileNoReplaceConcurrentCreateLosesNoData(t *testing.T) {
 	if !strings.HasPrefix(string(data), "from-") {
 		t.Errorf("dst content does not look like a winner: %q", string(data))
 	}
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b [20]byte
-	pos := len(b)
-	for i > 0 {
-		pos--
-		b[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	return string(b[pos:])
 }
 
 func readSource(t *testing.T, path string) string {

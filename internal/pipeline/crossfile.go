@@ -121,9 +121,21 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 		ruleTracker = ruleTracker.Serial("crossRules")
 	}
 	serialRules, concurrentRules := splitConcurrentCrossRules(in.ActiveRules)
+	// Concurrent rules run beside the serial ones into their own collector and error slice, merged after the join.
+	var concWG sync.WaitGroup
+	var concCollector *scanner.FindingCollector
+	var concErrs []rules.DispatchError
+	if len(concurrentRules) > 0 && ctx.Err() == nil {
+		concCollector = scanner.NewFindingCollector(0)
+		concWG.Add(1)
+		go func() {
+			defer concWG.Done()
+			runConcurrentCrossRules(ctx, concurrentRules, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, concCollector, p.Workers, &concErrs, in.Thorough)
+		}()
+	}
 	for _, r := range serialRules {
 		if ctx.Err() != nil {
-			return
+			break
 		}
 		ruleID := ""
 		if r != nil {
@@ -152,8 +164,10 @@ func (p CrossFilePhase) runCrossRuleSet(ctx context.Context, in DispatchResult, 
 			call()
 		}
 	}
-	if len(concurrentRules) > 0 && ctx.Err() == nil {
-		runConcurrentCrossRules(ctx, concurrentRules, codeIndex, parsedFiles, in.Resolver, in.LibraryFacts, javaSourceIndex, crossCollector, p.Workers, ruleTracker, &result.Stats.Errors, in.Thorough)
+	concWG.Wait()
+	if concCollector != nil {
+		scanner.MergeCollectors(crossCollector, concCollector)
+		result.Stats.Errors = append(result.Stats.Errors, concErrs...)
 	}
 	if ruleTracker != nil {
 		ruleTracker.End()
@@ -600,7 +614,7 @@ const concurrentCrossRuleThreshold = 2
 // owner re-sorts the full columnar result by file/line before output
 // (see applySuppressionColumns + result.Findings path). Rule panics are
 // recovered per-rule so one broken rule does not take down the phase.
-func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, dst *scanner.FindingCollector, workers int, tracker perf.Tracker, errs *[]rules.DispatchError, thorough bool) {
+func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex *scanner.CodeIndex, parsedFiles []*scanner.File, resolver typeinfer.TypeResolver, libraryFacts *librarymodel.Facts, javaSourceIndex *javafacts.SourceIndex, dst *scanner.FindingCollector, workers int, errs *[]rules.DispatchError, thorough bool) {
 	if len(ruleSet) == 0 {
 		return
 	}
@@ -620,15 +634,7 @@ func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			ruleID := r.ID
-			call := func() {
-				runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, dst, errs, thorough)
-			}
-			if tracker != nil {
-				tracker.TrackVoid(ruleID, call)
-			} else {
-				call()
-			}
+			runConcurrentCrossRule(r, codeIndex, parsedFiles, resolver, libraryFacts, javaSourceIndex, dst, errs, thorough)
 		}
 		return
 	}

@@ -828,10 +828,8 @@ func init() {
 	}
 }
 
-func TestAnalyzeSource_FlagsDeclaredButUnusedNeedsConcurrent(t *testing.T) {
-	// NeedsConcurrent is declared but the body contains none of the
-	// concurrent-state signals — the declaration is a lie and must be
-	// removed (or the body must actually use the capability).
+func TestAnalyzeSource_AcceptsNeedsConcurrentWithoutOwnConcurrency(t *testing.T) {
+	// A read-only rule may declare NeedsConcurrent so the phase runs it beside other rules.
 	src := `package rules
 
 import api "github.com/kaeawc/krit/internal/rules/api"
@@ -848,11 +846,8 @@ func init() {
 }
 `
 	violations := analyzeSource(t, "falseconcurrent.go", src)
-	if len(violations) != 1 {
-		t.Fatalf("want 1 violation, got %d: %v", len(violations), violations)
-	}
-	if !strings.Contains(violations[0].Message, "declares NeedsConcurrent") {
-		t.Fatalf("want declared-but-unused message, got %q", violations[0].Message)
+	if len(violations) != 0 {
+		t.Fatalf("want 0 violations, got %d: %v", len(violations), violations)
 	}
 }
 

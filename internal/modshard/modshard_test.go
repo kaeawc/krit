@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -99,11 +100,11 @@ func TestPlanTurnsProjectDependenciesIntoBuiltJarsAndDropsEdges(t *testing.T) {
 	}
 	jar := filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")
 	app := byID[":app:release"].Spec
-	if len(app.DependsOn) != 0 || !contains(app.Classpath, jar) {
+	if len(app.DependsOn) != 0 || !slices.Contains(app.Classpath, jar) {
 		t.Errorf("app should see :lib as a jar and have no module edges: %+v", app)
 	}
 	test := byID[":lib:releaseUnitTest"].Spec
-	if !contains(test.Classpath, jar) || !contains(test.Friends, jar) {
+	if !slices.Contains(test.Classpath, jar) || !slices.Contains(test.Friends, jar) {
 		t.Errorf("a test module should see its main jar on the classpath and as a friend: %+v", test)
 	}
 	if len(Shards(units, 2)) != 2 {
@@ -187,15 +188,6 @@ func TestUnitKeyChangesWithSourceContentAndClasspath(t *testing.T) {
 	}
 }
 
-func contains(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
-}
-
 func TestPruneRemovesOldUnreferencedFactsOnly(t *testing.T) {
 	dir := t.TempDir()
 	old := time.Now().Add(-30 * 24 * time.Hour)
@@ -246,10 +238,10 @@ func TestPlanCompilesUnbuiltDependenciesFromSourceAsContext(t *testing.T) {
 			continue
 		}
 		libSources := filepath.Join(root, "lib", "src", "main", "kotlin")
-		if !contains(u.Spec.ContextSourceRoots, libSources) {
+		if !slices.Contains(u.Spec.ContextSourceRoots, libSources) {
 			t.Fatalf("app should compile :lib's sources as context, got %v", u.Spec.ContextSourceRoots)
 		}
-		if contains(u.Spec.SourceRoots, libSources) {
+		if slices.Contains(u.Spec.SourceRoots, libSources) {
 			t.Fatal("context roots must not become the module's own roots")
 		}
 		return
@@ -377,7 +369,7 @@ func TestPlanGivesAnUnbuiltMainToItsTestSetAsContext(t *testing.T) {
 	for _, u := range units {
 		if u.Spec.Kind == "test" {
 			want := filepath.Join(root, "lib", "src", "main", "kotlin")
-			if !contains(u.Spec.ContextSourceRoots, want) || u.ContextDropped {
+			if !slices.Contains(u.Spec.ContextSourceRoots, want) || u.ContextDropped {
 				t.Fatalf("test set should compile main as context: %+v", u)
 			}
 			return

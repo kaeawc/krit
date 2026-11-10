@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -62,10 +63,10 @@ class MyAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {}`)
 		}
 	}
 	for _, class := range facts.Classes {
-		if class.QualifiedName == "test.MyHandler" && contains(class.Supertypes, "android.os.Handler") {
+		if class.QualifiedName == "test.MyHandler" && slices.Contains(class.Supertypes, "android.os.Handler") {
 			sawHandler = true
 		}
-		if class.QualifiedName == "test.MyAdapter" && contains(class.Supertypes, "androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>") {
+		if class.QualifiedName == "test.MyAdapter" && slices.Contains(class.Supertypes, "androidx.recyclerview.widget.RecyclerView.Adapter<androidx.recyclerview.widget.RecyclerView.ViewHolder>") {
 			sawAdapter = true
 		}
 	}
@@ -82,13 +83,4 @@ func writeFile(t *testing.T, path string, data string) {
 	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

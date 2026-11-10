@@ -7,6 +7,7 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -57,26 +58,12 @@ func BenchmarkContentHasher(b *testing.B) {
 func sizeLabel(n int) string {
 	switch {
 	case n >= 1<<20:
-		return (itoa(n>>20) + "MB")
+		return (strconv.Itoa(n>>20) + "MB")
 	case n >= 1<<10:
-		return (itoa(n>>10) + "KB")
+		return (strconv.Itoa(n>>10) + "KB")
 	default:
-		return itoa(n) + "B"
+		return strconv.Itoa(n) + "B"
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[pos:])
 }
 
 // TestContentHasherCollisionAudit hashes every Go, Kotlin, and Markdown

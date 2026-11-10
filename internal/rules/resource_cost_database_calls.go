@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -389,13 +390,13 @@ func databaseFunctionOwnerLooksDatabaseTable(file *scanner.File, fn uint32, owne
 		if name == "" || !strings.HasSuffix(owner, name) {
 			continue
 		}
-		header := file.FlatNodeText(current)
-		if bodyIdx := strings.Index(header, "{"); bodyIdx >= 0 {
+		header := file.FlatNodeBytes(current)
+		if bodyIdx := bytes.IndexByte(header, '{'); bodyIdx >= 0 {
 			header = header[:bodyIdx]
 		}
-		return strings.Contains(header, "DatabaseTable") ||
-			strings.Contains(header, "SQLiteOpenHelper") ||
-			strings.Contains(header, "DatabaseOpenHelper") ||
+		return bytes.Contains(header, []byte("DatabaseTable")) ||
+			bytes.Contains(header, []byte("SQLiteOpenHelper")) ||
+			bytes.Contains(header, []byte("DatabaseOpenHelper")) ||
 			strings.HasSuffix(name, "Table") ||
 			strings.HasSuffix(name, "Tables") ||
 			strings.HasSuffix(name, "Database")

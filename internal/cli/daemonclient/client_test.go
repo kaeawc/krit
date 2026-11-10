@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func startEchoDaemon(t *testing.T, root string) (string, *daemon.Server) {
 			return nil, err
 		}
 		return daemon.AnalyzeBufferResult{
-			Findings: json.RawMessage(`{"path":"` + args.Path + `","len":` + itoa(len(args.Content)) + `}`),
+			Findings: json.RawMessage(`{"path":"` + args.Path + `","len":` + strconv.Itoa(len(args.Content)) + `}`),
 			CacheHit: false,
 		}, nil
 	})
@@ -54,30 +55,6 @@ func startEchoDaemon(t *testing.T, root string) (string, *daemon.Server) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return socketDir, srv
-}
-
-// itoa is the smallest possible integer-to-string used to build a
-// JSON test fixture without pulling strconv into a hot test path.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }
 
 func TestDiscover_FindsRunningDaemon(t *testing.T) {

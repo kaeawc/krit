@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/firchecks"
@@ -131,7 +132,7 @@ func TestOracleDaemonRelativeRequestKeepsCallerSpelling(t *testing.T) {
 					}
 				}
 			}
-			if entry := deps.Files[relB]; entry == nil || !contains(entry.DepPaths, relA) {
+			if entry := deps.Files[relB]; entry == nil || !slices.Contains(entry.DepPaths, relA) {
 				t.Fatalf("CacheDeps.Files[%q] = %+v, want an edge to %q; keys: %v", relB, entry, relA, keys(deps.Files))
 			}
 			if len(deps.Crashed) != 0 {
@@ -201,15 +202,6 @@ func keys[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	return out
-}
-
-func contains(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 func lookedUpDiagnostic(diags []oracle.Diagnostic, factory string) bool {

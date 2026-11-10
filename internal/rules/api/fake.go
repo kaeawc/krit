@@ -69,24 +69,9 @@ func WithOracle(f *OracleFilter) FakeOption {
 	return func(r *Rule) { r.Oracle = f }
 }
 
-// WithLibraryFacts marks the fake rule as reading project library facts.
-func WithLibraryFacts() FakeOption {
-	return func(r *Rule) { r.NeedsLibraryFacts = true }
-}
-
 // WithMaturity sets the rule's lifecycle stage.
 func WithMaturity(m Maturity) FakeOption {
 	return func(r *Rule) { r.Maturity = m }
-}
-
-// WithPrecision sets the rule's evidence tier override.
-func WithPrecision(p Precision) FakeOption {
-	return func(r *Rule) { r.Precision = p }
-}
-
-// WithStability sets the rule's output-shape stability commitment.
-func WithStability(s Stability) FakeOption {
-	return func(r *Rule) { r.Stability = s }
 }
 
 // FakeContext creates a minimal context for testing with the given file.
@@ -96,20 +81,6 @@ func FakeContext(file *scanner.File) *Context {
 		File:      file,
 		Collector: scanner.NewFindingCollector(0),
 	}
-}
-
-// FakeContextWithNode creates a context for testing with a specific node index.
-func FakeContextWithNode(file *scanner.File, idx uint32) *Context {
-	ctx := &Context{
-		File:      file,
-		Idx:       idx,
-		Collector: scanner.NewFindingCollector(0),
-	}
-	if file.FlatTree != nil && int(idx) < file.FlatTree.Len() {
-		node := file.FlatTree.Node(idx)
-		ctx.Node = &node
-	}
-	return ctx
 }
 
 // ContextFindings drains the context's collector and returns findings as a slice.

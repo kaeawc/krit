@@ -3006,8 +3006,8 @@ func TestTestWithoutAssertion_UsesLocalASTOnly(t *testing.T) {
 	if rule == nil {
 		t.Fatal("TestWithoutAssertion rule is not registered")
 	}
-	if rule.Needs != api.NeedsCrossFile {
-		t.Fatalf("TestWithoutAssertion should need only the cross-file index, got needs %v", rule.Needs)
+	if rule.Needs != api.NeedsCrossFile|api.NeedsConcurrent {
+		t.Fatalf("TestWithoutAssertion should need only the cross-file index (and run concurrently), got needs %v", rule.Needs)
 	}
 	if rule.Oracle != nil {
 		t.Fatal("TestWithoutAssertion should not declare oracle metadata")

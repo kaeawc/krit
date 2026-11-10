@@ -3,6 +3,8 @@ package librarymodel
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/buildid"
@@ -93,5 +95,39 @@ func TestProjectProfileCache_MissesAcrossBuilds(t *testing.T) {
 	buildid.OverrideTokenForTest(t, "rev:build-b")
 	if _, ok := LoadProjectProfileCache(cacheDir, []string{buildPath}); ok {
 		t.Fatal("a profile written by another build must miss: the Gradle parsing code may have changed")
+	}
+}
+
+func TestProjectProfileCache_ConcurrentSavesLeaveValidEntry(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := ProjectProfileCacheDir(root)
+	buildPath := filepath.Join(root, "build.gradle.kts")
+	writeTestFile(t, buildPath, "android {\n    compileSdk = 35\n}\n")
+	paths := []string{buildPath}
+	profile := ProfileFromGradlePaths(paths)
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := SaveProjectProfileCache(cacheDir, paths, profile); err != nil {
+				t.Errorf("SaveProjectProfileCache: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if _, ok := LoadProjectProfileCache(cacheDir, paths); !ok {
+		t.Fatal("expected cache hit after concurrent saves")
+	}
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("leftover temp file %s", e.Name())
+		}
 	}
 }

@@ -158,7 +158,7 @@ func buildXMLNode(node *sitter.Node, src []byte) (*XMLNode, error) {
 		return out, nil
 	}
 	// A text run is character data and entity references up to the next element.
-	var run strings.Builder
+	var run, charData strings.Builder
 	runLine, runCol := 0, 0
 	flush := func() {
 		raw := run.String()
@@ -199,7 +199,7 @@ func buildXMLNode(node *sitter.Node, src []byte) (*XMLNode, error) {
 		}
 		text := child.Content(src)
 		if child.Type() == "CharData" {
-			out.Text += text
+			charData.WriteString(text)
 		} else {
 			text = html.UnescapeString(text)
 		}
@@ -210,6 +210,7 @@ func buildXMLNode(node *sitter.Node, src []byte) (*XMLNode, error) {
 		run.WriteString(text)
 	}
 	flush()
+	out.Text = charData.String()
 
 	return out, nil
 }

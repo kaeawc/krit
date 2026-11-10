@@ -482,7 +482,7 @@ func registerTestingQualityTestWithoutAssertion() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		// Cross-file so assertion helpers declared in other test-support files are visible.
-		Needs: api.NeedsCrossFile, Confidence: api.ConfidenceMedium, Implementation: r,
+		Needs: api.NeedsCrossFile | api.NeedsConcurrent, Confidence: api.ConfidenceMedium, Implementation: r,
 		Check: r.check,
 	})
 }

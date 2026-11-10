@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/module"
@@ -77,10 +78,10 @@ func TestModuleDeadCode_TrulyDead(t *testing.T) {
 
 	found := false
 	for _, f := range findings {
-		if f.Rule == "ModuleDeadCode" && contains(f.Message, "unusedHelper") && contains(f.Message, "truly-dead") {
+		if f.Rule == "ModuleDeadCode" && strings.Contains(f.Message, "unusedHelper") && strings.Contains(f.Message, "truly-dead") {
 			t.Logf("got expected finding: %s", f.Message)
 		}
-		if contains(f.Message, "unusedHelper") {
+		if strings.Contains(f.Message, "unusedHelper") {
 			found = true
 		}
 	}
@@ -115,7 +116,7 @@ func TestModuleDeadCode_CouldBeInternal(t *testing.T) {
 
 	found := false
 	for _, f := range findings {
-		if contains(f.Message, "sharedUtil") && contains(f.Message, "internal") {
+		if strings.Contains(f.Message, "sharedUtil") && strings.Contains(f.Message, "internal") {
 			found = true
 		}
 	}
@@ -152,9 +153,9 @@ fun Section() {}
 	findings := api.ContextFindings(ctx)
 	found := false
 	for _, f := range findings {
-		if contains(f.Message, "Section") {
+		if strings.Contains(f.Message, "Section") {
 			found = true
-			if contains(f.Message, "not used by any module") {
+			if strings.Contains(f.Message, "not used by any module") {
 				t.Fatalf("expected same-file reference to avoid truly-dead classification, got: %s", f.Message)
 			}
 		}
@@ -192,7 +193,7 @@ func TestModuleDeadCode_UsedByConsumer(t *testing.T) {
 	findings := api.ContextFindings(ctx)
 
 	for _, f := range findings {
-		if contains(f.Message, "greet") {
+		if strings.Contains(f.Message, "greet") {
 			t.Errorf("greet should NOT be flagged (used by :app consumer), but got: %s", f.Message)
 		}
 	}
@@ -237,13 +238,13 @@ fun callApi(api: JavaApi) {
 	findings := api.ContextFindings(ctx)
 
 	for _, f := range findings {
-		if contains(f.Message, "usedFromKotlin") {
+		if strings.Contains(f.Message, "usedFromKotlin") {
 			t.Fatalf("usedFromKotlin should be protected by Kotlin consumer reference, got: %s", f.Message)
 		}
 	}
 	foundUnused := false
 	for _, f := range findings {
-		if contains(f.Message, "trulyUnused") {
+		if strings.Contains(f.Message, "trulyUnused") {
 			foundUnused = true
 		}
 	}
@@ -293,13 +294,13 @@ public class UseProfile {
 	findings := api.ContextFindings(ctx)
 
 	for _, f := range findings {
-		if contains(f.Message, "displayName") {
+		if strings.Contains(f.Message, "displayName") {
 			t.Fatalf("displayName should be protected by Java getter reference, got: %s", f.Message)
 		}
 	}
 	foundUnused := false
 	for _, f := range findings {
-		if contains(f.Message, "unusedName") {
+		if strings.Contains(f.Message, "unusedName") {
 			foundUnused = true
 		}
 	}
@@ -343,13 +344,13 @@ public class CustomWidget {
 	findings := api.ContextFindings(ctx)
 
 	for _, f := range findings {
-		if contains(f.Message, "CustomWidget") || contains(f.Message, "onCreate") {
+		if strings.Contains(f.Message, "CustomWidget") || strings.Contains(f.Message, "onCreate") {
 			t.Fatalf("expected XML/lifecycle Java entries to be skipped, got: %s", f.Message)
 		}
 	}
 	foundHelper := false
 	for _, f := range findings {
-		if contains(f.Message, "helper") {
+		if strings.Contains(f.Message, "helper") {
 			foundHelper = true
 		}
 	}
@@ -382,7 +383,7 @@ func TestModuleDeadCode_PublishedModuleSkip(t *testing.T) {
 	findings := api.ContextFindings(ctx)
 
 	for _, f := range findings {
-		if contains(f.Message, "publicApi") {
+		if strings.Contains(f.Message, "publicApi") {
 			t.Errorf("publicApi in published module should be skipped, but got: %s", f.Message)
 		}
 	}
@@ -462,14 +463,14 @@ fun unusedHelper(): Int = 42
 
 	for _, f := range findings {
 		for _, generated := range []string{"MetroService", "ApplicationContext", "ApplicationModule", "provideInitializer"} {
-			if contains(f.Message, generated) {
+			if strings.Contains(f.Message, generated) {
 				t.Fatalf("expected generated DI symbol %s to be skipped, got finding: %s", generated, f.Message)
 			}
 		}
 	}
 	foundPlainUnused := false
 	for _, f := range findings {
-		if contains(f.Message, "unusedHelper") {
+		if strings.Contains(f.Message, "unusedHelper") {
 			foundPlainUnused = true
 		}
 	}
@@ -528,31 +529,18 @@ fun unusedHelper(): Int = 42
 
 	for _, f := range findings {
 		for _, generated := range []string{"MetroService", "ApplicationContext", "ApplicationModule", "provideInitializer"} {
-			if contains(f.Message, generated) {
+			if strings.Contains(f.Message, generated) {
 				t.Fatalf("expected generated DI symbol %s to be skipped, got finding: %s", generated, f.Message)
 			}
 		}
 	}
 	foundPlainUnused := false
 	for _, f := range findings {
-		if contains(f.Message, "unusedHelper") {
+		if strings.Contains(f.Message, "unusedHelper") {
 			foundPlainUnused = true
 		}
 	}
 	if !foundPlainUnused {
 		t.Fatal("expected ordinary unusedHelper to remain flagged")
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
-}
-
-func containsImpl(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

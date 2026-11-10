@@ -121,15 +121,6 @@ func NewResourceIndexCacheWithCap(repoDir string, capBytes int64) (*ResourceInde
 	return c, nil
 }
 
-// Root returns the on-disk root directory for the resource cache.
-// Exposed for diagnostics and tests.
-func (c *ResourceIndexCache) Root() string {
-	if c == nil {
-		return ""
-	}
-	return c.root
-}
-
 func (c *ResourceIndexCache) entryPath(fingerprint string) string {
 	return cacheutil.ShardedEntryPath(c.entriesDir, fingerprint, resourceCacheExt)
 }
@@ -477,14 +468,6 @@ func (c *ResourceIndexCache) Stats() cacheutil.CacheStats {
 	out.Evictions = c.evictions.Load()
 	out.LastWriteUnix = c.lastWriteSec.Load()
 	return out
-}
-
-// LRUStats returns the raw LRU snapshot for --perf / tests.
-func (c *ResourceIndexCache) LRUStats() cacheutil.LRUStats {
-	if c == nil || c.lru == nil {
-		return cacheutil.LRUStats{}
-	}
-	return c.lru.Stats()
 }
 
 // valuesDirFile pairs a values/*.xml path with its content bytes.

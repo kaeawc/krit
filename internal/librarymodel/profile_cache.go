@@ -11,6 +11,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -120,12 +121,8 @@ func SaveProjectProfileCache(cacheDir string, paths []string, profile ProjectPro
 		return err
 	}
 	path := projectProfileCachePath(cacheDir, paths)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	// A fixed temp name let concurrent scans overwrite each other's partial file.
+	if err := fsutil.WriteFileAtomic(path, data, 0o644); err != nil {
 		return err
 	}
 	projectProfileCacheBytes.Store(int64(len(data)))

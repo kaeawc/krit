@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -69,7 +70,7 @@ func sourceFindings(data map[string]any) int {
 			continue
 		}
 		file, _ := m["file"].(string)
-		if !contains(file, "/test/") {
+		if !strings.Contains(file, "/test/") {
 			total++
 		}
 	}
@@ -211,16 +212,4 @@ func metric(m map[string]any, key string) any {
 		return v
 	}
 	return "?"
-}
-
-func contains(s, substr string) bool {
-	if substr == "" {
-		return true
-	}
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

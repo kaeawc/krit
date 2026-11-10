@@ -31,8 +31,8 @@ func jarCachePath(jarPath, suffix string) (string, error) {
 	hash := full[:cacheKeyHashLen]
 
 	cacheDir := filepath.Join(os.TempDir(), "krit-cache")
-	if home, err := os.UserHomeDir(); err == nil {
-		candidate := filepath.Join(home, ".krit", "cache")
+	if kritHome, err := fsutil.UserStateDir(); err == nil {
+		candidate := filepath.Join(kritHome, "cache")
 		if err := os.MkdirAll(candidate, 0755); err == nil && cacheDirWritable(candidate) {
 			cacheDir = candidate
 		}

@@ -110,7 +110,7 @@ func DefaultDir(repoDir string) string {
 	if repoDir == "" {
 		repoDir = "."
 	}
-	return filepath.Join(repoDir, ".krit", "cache")
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), "cache")
 }
 
 // FileEntry holds cached analysis results for a single file.

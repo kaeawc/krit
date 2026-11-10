@@ -61,7 +61,7 @@ func TypeIndexCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", typeIndexCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), typeIndexCacheDirName)
 }
 
 func ClearTypeIndexCache(dir string) error {

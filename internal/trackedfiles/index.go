@@ -277,7 +277,7 @@ func CacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", trackedFilesCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), trackedFilesCacheDirName)
 }
 
 func ClearCache(dir string) error {

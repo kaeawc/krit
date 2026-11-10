@@ -14,6 +14,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/env"
 	"github.com/kaeawc/krit/internal/fileignore"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // invokeTimeout returns the max wall-clock duration allowed for a krit-fir
@@ -157,7 +158,7 @@ func CachePath(scanPaths []string) string {
 	if projectDir == "" {
 		return ""
 	}
-	return filepath.Join(projectDir, ".krit", "types.json")
+	return filepath.Join(fsutil.ProjectStateDir(projectDir), "types.json")
 }
 
 // stderrTailSize is the maximum number of stderr bytes retained to attach to

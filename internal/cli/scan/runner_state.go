@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
@@ -410,7 +411,7 @@ func (r *runner) collectFiles() (int, error) {
 		repoDir := oracle.FindRepoDir(r.paths)
 		cacheDir := ""
 		if repoDir != "" {
-			cacheDir = filepath.Join(repoDir, ".krit", filewalkCacheDirName)
+			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), filewalkCacheDirName)
 		}
 		filters := FilewalkFilters{
 			Extensions: []string{".kt", ".kts", ".java"},

@@ -129,7 +129,7 @@ func CrossFileCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", crossFileCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), crossFileCacheDirName)
 }
 
 // contentHashForFile returns the content hash of f using the shared

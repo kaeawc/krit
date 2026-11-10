@@ -1983,7 +1983,7 @@ func (p IndexPhase) runModuleShards(in IndexInput, scanPaths, sourceDirs []strin
 			JavaPath:     javaPath,
 			Workers:      workers,
 			Isolate:      isolate,
-			CacheDir:     filepath.Join(repoDir, ".krit", "module-facts"),
+			CacheDir:     filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts"),
 			OutputPath:   outputPath,
 			Required:     required,
 			CheckRequest: checkRequest,

@@ -67,7 +67,7 @@ func CrossFindingsCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", crossFindingsCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), crossFindingsCacheDirName)
 }
 
 // ClearCrossFindingsCache removes the on-disk cross-findings cache. Safe

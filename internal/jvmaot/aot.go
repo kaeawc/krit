@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/buildid"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 const cacheKeyHashLen = 12
@@ -93,8 +94,8 @@ func PathsWithToken(token, jarPath, workload string) (configPath, cachePath, ski
 		return "", "", "", fmt.Errorf("identify JVM jar %q: %s", jarPath, token)
 	}
 	cacheDir := filepath.Join(os.TempDir(), "krit-cache")
-	if home, homeErr := os.UserHomeDir(); homeErr == nil {
-		candidate := filepath.Join(home, ".krit", "cache")
+	if kritHome, homeErr := fsutil.UserStateDir(); homeErr == nil {
+		candidate := filepath.Join(kritHome, "cache")
 		if os.MkdirAll(candidate, 0o755) == nil {
 			cacheDir = candidate
 		}

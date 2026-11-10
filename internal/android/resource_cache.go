@@ -87,7 +87,7 @@ func NewResourceIndexCacheWithCap(repoDir string, capBytes int64) (*ResourceInde
 	if repoDir == "" {
 		return nil, errors.New("android: NewResourceIndexCache requires a non-empty repoDir")
 	}
-	root := filepath.Join(repoDir, ".krit", resourceCacheDirName)
+	root := filepath.Join(fsutil.ProjectStateDir(repoDir), resourceCacheDirName)
 	vd := cacheutil.VersionedDir{
 		Root:       root,
 		EntriesDir: resourceCacheEntries,
@@ -795,7 +795,7 @@ func ClearResourceIndexCache(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
-	dir := filepath.Join(repoDir, ".krit", resourceCacheDirName)
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), resourceCacheDirName)
 	if c := activeResourceCache.Load(); c != nil && c.root == dir {
 		_ = c.Close()
 	}

@@ -49,7 +49,9 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		}
 		return runDaemonMetaVerb(client, f, paths, verb)
 	}
-	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) {
+	// A failed FIR preflight is reported in-process: the wire carries no
+	// degraded state, so a delegated report would omit summary.firDegraded.
+	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) || f.firDegraded != nil {
 		return false, 0
 	}
 	if *f.DaemonSocket != "" {

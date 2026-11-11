@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/output"
 )
 
 // `krit --daemon --fir` must behave like a direct `krit --fir`: the wire
@@ -130,5 +132,20 @@ func TestResolveDepthForDelegation_FastDisablesOracleOnTheWire(t *testing.T) {
 	resolveDepthForDelegation(f, fs, fs.Args())
 	if args := buildDaemonAnalyzeArgs(f, fs.Args()); args.NoTypeOracle {
 		t.Fatal("explicit --no-type-oracle=false must override the fast preset")
+	}
+}
+
+// A failed FIR preflight must keep the scan in-process even when a daemon is
+// reachable: the wire has no degraded state, so the report would lose
+// summary.firDegraded.
+func TestTryDaemonDelegate_PreflightDegradedStaysInProcess(t *testing.T) {
+	socketDir := startMockDaemon(t, mockBehavior{findings: `{"rules":[],"line":[]}`})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.DaemonSocket = filepath.Join(socketDir, "d.sock")
+	f.firDegraded = &output.FirDegraded{Reason: "no classpath"}
+	if handled, code := tryDaemonDelegate(f, []string{root}, root); handled {
+		t.Fatalf("degraded preflight was delegated: code=%d", code)
 	}
 }

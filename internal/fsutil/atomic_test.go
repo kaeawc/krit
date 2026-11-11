@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -257,5 +258,72 @@ func TestWriteFileAtomicKeepMode(t *testing.T) {
 	}
 	if info, _ := os.Stat(fresh); info.Mode().Perm() != 0o640 {
 		t.Fatalf("new mode = %v, want 0640", info.Mode().Perm())
+	}
+}
+
+func TestWriteFileAtomicWritesThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "shared", "baseline.xml")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "baseline.xml")
+	if err := os.Symlink(filepath.Join("shared", "baseline.xml"), link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if err := WriteFileAtomicKeepMode(link, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced: %v %v", info, err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "new" {
+		t.Fatalf("target = %q, want new", got)
+	}
+	if info, _ := os.Stat(target); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("target mode = %v, want 0600", info.Mode().Perm())
+	}
+
+	dangling := filepath.Join(dir, "dangling")
+	if err := os.Symlink("created.txt", dangling); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomic(dangling, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "created.txt")); string(got) != "x" {
+		t.Fatalf("dangling target = %q, want x", got)
+	}
+}
+
+func TestWriteFileAtomicHonorsUmaskForNewFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no umask on windows")
+	}
+	restore := setUmask(0o077)
+	defer restore()
+	dir := t.TempDir()
+	fresh := filepath.Join(dir, "fresh.json")
+	if err := WriteFileAtomic(fresh, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(fresh); info.Mode().Perm() != 0o600 {
+		t.Fatalf("new file mode = %v, want 0600 under umask 077", info.Mode().Perm())
+	}
+	existing := filepath.Join(dir, "existing.json")
+	if err := os.WriteFile(existing, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(existing, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileAtomicKeepMode(existing, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(existing); info.Mode().Perm() != 0o644 {
+		t.Fatalf("existing mode = %v, want 0644 kept", info.Mode().Perm())
 	}
 }

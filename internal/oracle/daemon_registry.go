@@ -25,11 +25,11 @@ import (
 
 // daemonCacheDir returns ~/.krit/cache/, creating it if needed.
 func daemonCacheDir() (string, error) {
-	home, err := os.UserHomeDir()
+	kritHome, err := fsutil.UserStateDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".krit", "cache")
+	dir := filepath.Join(kritHome, "cache")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
 	}

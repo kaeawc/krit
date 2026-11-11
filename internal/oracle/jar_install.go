@@ -99,14 +99,14 @@ func FindBackendJar(b Backend, scanPaths []string) string {
 
 	// Installed locations under ~/.krit. krit binary releases download
 	// the matching jar here on first use; see EnsureBackendJar.
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		jarsDir := filepath.Join(home, ".krit", "jars")
+	if kritHome, err := fsutil.UserStateDir(); err == nil {
+		jarsDir := filepath.Join(kritHome, "jars")
 		if tag := versionTag(); tag != "" {
 			candidates = append(candidates, filepath.Join(jarsDir, base+"-"+tag+".jar"))
 		}
 		candidates = append(candidates,
 			filepath.Join(jarsDir, name),
-			filepath.Join(home, ".krit", name),
+			filepath.Join(kritHome, name),
 		)
 	}
 	// Development builds share a content-addressed jar across worktrees.
@@ -297,15 +297,15 @@ func versionTag() string {
 }
 
 func installedJarPath(b Backend) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return "", errors.New("no HOME directory; cannot install jar under ~/.krit/jars")
+	kritHome, err := fsutil.UserStateDir()
+	if err != nil {
+		return "", errors.New("no HOME directory or KRIT_HOME; cannot install jar under ~/.krit/jars")
 	}
 	tag := versionTag()
 	if tag == "" {
-		return filepath.Join(home, ".krit", "jars", b.JarName()), nil
+		return filepath.Join(kritHome, "jars", b.JarName()), nil
 	}
-	return filepath.Join(home, ".krit", "jars", jarAssetName(b, tag)), nil
+	return filepath.Join(kritHome, "jars", jarAssetName(b, tag)), nil
 }
 
 // jarAssetName is the release asset filename, e.g. krit-fir-v1.2.3.jar.

@@ -841,11 +841,11 @@ func firDaemonsDir() (string, error) {
 		}
 		return dir, nil
 	}
-	home, err := os.UserHomeDir()
+	kritHome, err := fsutil.UserStateDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)
 	}
-	dir := filepath.Join(home, ".krit", "cache", "daemons")
+	dir := filepath.Join(kritHome, "cache", "daemons")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create daemons dir: %w", err)
 	}

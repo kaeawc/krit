@@ -111,7 +111,7 @@ without its leading `v`. Maven jars are verified against their published
 `.sha256` or `.sha512` sibling checksum files before installation.
 
 For offline or air-gapped machines, set `KRIT_NO_JAR_DOWNLOAD=1` and
-either pre-seed `~/.krit/jars/` with the release assets or point
+either pre-seed `~/.krit/jars/` (or `$KRIT_HOME/jars/`) with the release assets or point
 `KRIT_FIR_JAR` at an existing jar. Without Java the
 JVM-backed checks are skipped and source-level inference still runs.
 

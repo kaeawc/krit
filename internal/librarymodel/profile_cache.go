@@ -53,7 +53,7 @@ func ProjectProfileCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", projectProfileCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), projectProfileCacheDirName)
 }
 
 type projectProfileCachePayload struct {

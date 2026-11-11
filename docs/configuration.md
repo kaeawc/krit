@@ -136,6 +136,9 @@ Krit XML baselines use the `SmellBaseline` document shape with `ManuallySuppress
 
 Generated repo-local state lives under `.krit/` by default. The incremental analysis cache uses `.krit/cache/`; parse, resource, type, file-walk, and library-profile indexes use sibling directories under the same root. The FIR checker cache uses `.krit/fir-cache/`; krit-fir also persists its incremental-checking state, the type oracle's per-file facts and the binary snapshot in `.krit/fir-incremental/` (the three most recent compile keys are kept) so a restarted daemon or a one-shot run starts warm. Incremental FIR checking is on by default; set `KRIT_FIR_INCREMENTAL=0` to compile the whole module on every FIR check instead. `--cache-dir DIR` only overrides the incremental analysis cache; `--no-cache` skips the incremental analysis cache, the FIR checker cache and the FIR incremental bundle.
 
+Set `KRIT_STATE_DIR` to move all of that generated state, including the type oracle output, out of the project. This lets a scan run over a read-only source tree. Inputs kept under `.krit/`, such as an exported Gradle model, are still read from the project.
+Per-user state (installed jars, JVM AOT/CDS archives and the daemon registry) lives under `~/.krit/`; set `KRIT_HOME` to move it. Sandboxed runners, such as build-system actions, can point both variables at directories the action owns, together with `HOME`, `TMPDIR` and `KRIT_BUILDID_CACHE_BASE`, so no write lands outside them.
+
 ## FIR scan requirements
 
 CLI scans run the FIR checker by default, including `krit --daemon`. Pass

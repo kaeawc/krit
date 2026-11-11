@@ -75,7 +75,7 @@ func AndroidFindingsCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", androidFindingsCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), androidFindingsCacheDirName)
 }
 
 // ClearAndroidFindingsCache removes the on-disk cache. Safe to call when

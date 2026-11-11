@@ -33,6 +33,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/iterutil"
 	"github.com/kaeawc/krit/internal/perf"
@@ -179,7 +180,7 @@ type CacheClosure struct {
 // CacheDir returns the cache root for a repo. The directory is created if
 // it doesn't exist.
 func CacheDir(repoDir string) (string, error) {
-	dir := filepath.Join(repoDir, ".krit", "types-cache")
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), "types-cache")
 	tokens := []cacheutil.SchemaToken{
 		{Name: "version", Value: fmt.Sprintf("%d", CacheVersion)},
 		{Name: "hash", Value: hashutil.HasherName()},
@@ -1469,7 +1470,7 @@ func (oracleCacheEntry) Clear(ctx cacheutil.ClearContext) error {
 	if ctx.RepoDir == "" {
 		return nil
 	}
-	return os.RemoveAll(filepath.Join(ctx.RepoDir, ".krit", "types-cache"))
+	return os.RemoveAll(filepath.Join(fsutil.ProjectStateDir(ctx.RepoDir), "types-cache"))
 }
 func (oracleCacheEntry) Stats() cacheutil.CacheStats {
 	// Probe disk lazily on first call so Entries/Bytes reflect pre-run

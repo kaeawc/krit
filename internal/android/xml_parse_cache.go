@@ -123,7 +123,7 @@ func NewXMLParseCacheWithCap(repoDir string, capBytes int64) (*XMLParseCache, er
 	if repoDir == "" {
 		return nil, errors.New("android: NewXMLParseCache requires a non-empty repoDir")
 	}
-	dir := filepath.Join(repoDir, ".krit", xmlParseCacheDirName, xmlParseCacheSubDir)
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), xmlParseCacheDirName, xmlParseCacheSubDir)
 	grammar := XMLGrammarVersion()
 	vd := cacheutil.VersionedDir{
 		Root:       dir,
@@ -459,7 +459,7 @@ func ClearXMLParseCache(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
-	dir := filepath.Join(repoDir, ".krit", xmlParseCacheDirName, xmlParseCacheSubDir)
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), xmlParseCacheDirName, xmlParseCacheSubDir)
 	if pc := activeXMLParseCache.Load(); pc != nil && pc.dir == dir {
 		_ = pc.Close()
 	}

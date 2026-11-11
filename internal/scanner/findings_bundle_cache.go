@@ -160,7 +160,7 @@ func FindingsBundleCacheDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", findingsBundleCacheDirName)
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), findingsBundleCacheDirName)
 }
 
 func ClearFindingsBundleCache(dir string) error {

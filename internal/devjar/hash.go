@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheprune"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // SourceHash hashes build inputs by relative path and contents. The shared
@@ -118,11 +119,11 @@ func CacheDir() string {
 	if dir := os.Getenv(DirEnv); dir != "" {
 		return dir
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	kritHome, err := fsutil.UserStateDir()
+	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".krit", "jars", "dev")
+	return filepath.Join(kritHome, "jars", "dev")
 }
 
 // CachePath returns a checkout-specific shared cache path. A missing checkout

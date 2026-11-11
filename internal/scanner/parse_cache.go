@@ -24,6 +24,7 @@ import (
 	"github.com/smacker/go-tree-sitter/kotlin"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/perf"
 )
@@ -213,7 +214,7 @@ func NewParseCacheWithCap(repoDir string, capBytes int64) (*ParseCache, error) {
 	if repoDir == "" {
 		return nil, errors.New("scanner: NewParseCache requires a non-empty repoDir")
 	}
-	root := filepath.Join(repoDir, ".krit", parseCacheDirName)
+	root := filepath.Join(fsutil.ProjectStateDir(repoDir), parseCacheDirName)
 
 	// One-time migration: older krit versions wrote directly to
 	// {root}/entries/; drop that layout so stale payloads don't linger
@@ -1180,7 +1181,7 @@ func ClearParseCache(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
-	dir := filepath.Join(repoDir, ".krit", parseCacheDirName)
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), parseCacheDirName)
 	err := os.RemoveAll(dir)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("clear parse cache: %w", err)

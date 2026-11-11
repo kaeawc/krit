@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -91,7 +92,7 @@ type FirCacheStats struct {
 
 // CacheDir returns (and creates) {repoDir}/.krit/fir-cache.
 func CacheDir(repoDir string) (string, error) {
-	dir := filepath.Join(repoDir, ".krit", "fir-cache")
+	dir := filepath.Join(fsutil.ProjectStateDir(repoDir), "fir-cache")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create fir cache dir: %w", err)
 	}
@@ -105,7 +106,7 @@ func IncrementalDir(repoDir string) string {
 	if repoDir == "" {
 		return ""
 	}
-	return filepath.Join(repoDir, ".krit", "fir-incremental")
+	return filepath.Join(fsutil.ProjectStateDir(repoDir), "fir-incremental")
 }
 
 func init() {
@@ -120,7 +121,7 @@ func (findingCache) Clear(ctx cacheutil.ClearContext) error {
 	if ctx.RepoDir == "" {
 		return nil
 	}
-	return os.RemoveAll(filepath.Join(ctx.RepoDir, ".krit", "fir-cache"))
+	return os.RemoveAll(filepath.Join(fsutil.ProjectStateDir(ctx.RepoDir), "fir-cache"))
 }
 
 // incrementalBundleCache lets --clear-cache remove the persisted incremental

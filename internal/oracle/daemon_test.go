@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -1347,6 +1349,8 @@ func TestCleanStaleDaemon_DeadPID(t *testing.T) {
 }
 
 func TestDaemonCacheDir(t *testing.T) {
+	// An inherited KRIT_HOME would move the directory away from ~/.krit.
+	t.Setenv(fsutil.HomeEnv, "")
 	dir, err := daemonCacheDir()
 	if err != nil {
 		t.Fatalf("daemonCacheDir error: %v", err)

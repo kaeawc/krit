@@ -81,3 +81,26 @@ func TestRunApplyKeepsModeAndLeavesNoTempFiles(t *testing.T) {
 		t.Fatalf("leftover files after apply: %v", entries)
 	}
 }
+
+func TestApplyEditsWritesThroughSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "Real.kt")
+	if err := os.WriteFile(target, []byte("val a = Timber\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "Link.kt")
+	if err := os.Symlink("Real.kt", link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	start := strings.Index("val a = Timber\n", "Timber")
+	edit := Edit{File: link, StartByte: start, EndByte: start + len("Timber"), Replacement: "logger"}
+	if _, modified, err := ApplyEdits([]Edit{edit}); err != nil || modified != 1 {
+		t.Fatalf("ApplyEdits = %d, %v", modified, err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "val a = logger\n" {
+		t.Fatalf("target = %q, want edited", got)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced by a regular file: %v", err)
+	}
+}

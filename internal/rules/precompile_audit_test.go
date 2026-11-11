@@ -149,3 +149,24 @@ func TestPrecompileUnreachableCode_KeepsJumpShapesTheCompilerReports(t *testing.
 		t.Errorf("code after while (true) is dead, got %d", n)
 	}
 }
+
+// The compiler marks a declaration dead when its own initializer never completes, and the condition of a do-while
+// whose body always jumps.
+func TestPrecompileUnreachableCode_KeepsDeadDeclarationsAndDoWhileConditions(t *testing.T) {
+	tryDecl := "package test\nfun a(x: String): String {\n    val v = try { return x } catch (e: Throwable) { throw e }\n    return v\n}\n"
+	if n := unreachableVerdicts(t, tryDecl, 3, 5); n != 1 {
+		t.Errorf("a declaration whose try initializer always jumps is dead, got %d", n)
+	}
+	whenDecl := "package test\nfun a(x: Int): Int {\n    val r = when (x) {\n        1 -> return 1\n        else -> return 2\n    }\n    return r\n}\n"
+	if n := unreachableVerdicts(t, whenDecl, 3, 5); n != 1 {
+		t.Errorf("a declaration whose when initializer always jumps is dead, got %d", n)
+	}
+	doWhile := "package test\nfun a(x: Int) {\n    do { break } while (x > 0)\n}\n"
+	if n := unreachableVerdicts(t, doWhile, 3, 24); n != 1 {
+		t.Errorf("the condition of a do-while whose body breaks is dead, got %d", n)
+	}
+	live := "package test\nfun a(x: String?): String {\n    val v = x ?: return \"\"\n    return v\n}\n"
+	if n := unreachableVerdicts(t, live, 3, 5); n != 0 {
+		t.Errorf("an elvis-return declaration is reachable, got %d", n)
+	}
+}

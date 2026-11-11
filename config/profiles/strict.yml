@@ -275,6 +275,8 @@ style:
     active: true
   UnderscoresInNumericLiterals:
     active: true
+  UnnecessaryAnnotationUseSiteTarget:
+    active: true
   UnnecessaryAny:
     active: true
   UnnecessaryBackticks:

@@ -28,16 +28,26 @@ public class GenLocale {
     }
     sb.append("}\n\n");
     sb.append("// lintRelevantRegions maps a language to the regions LocaleManager pairs it with.\n");
-    sb.append("var lintRelevantRegions = map[string][]string{\n");
+    List<String> relevant = new ArrayList<>();
     for (String l : langs) {
       List<String> rr = LocaleManager.getRelevantRegions(l);
-      if (rr != null && !rr.isEmpty()) {
-        sb.append("\t" + q(l) + ": {");
-        for (int i = 0; i < rr.size(); i++) sb.append((i > 0 ? ", " : "") + q(rr.get(i)));
-        sb.append("},\n");
-      }
+      if (rr != null && !rr.isEmpty()) relevant.add(l + "=" + String.join(",", rr));
     }
-    sb.append("}\n\n");
+    sb.append("var lintRelevantRegions = decodeListMap(\n");
+    StringBuilder line = new StringBuilder();
+    List<String> chunks = new ArrayList<>();
+    for (String e : relevant) {
+      if (line.length() > 0 && line.length() + e.length() + 1 > 110) {
+        chunks.add(line.toString());
+        line.setLength(0);
+      }
+      if (line.length() > 0) line.append(' ');
+      line.append(e);
+    }
+    if (line.length() > 0) chunks.add(line.toString());
+    for (int i = 0; i < chunks.size(); i++)
+      sb.append("\t\"" + chunks.get(i) + (i < chunks.size() - 1 ? " \" +\n" : "\",\n"));
+    sb.append(")\n\n");
     sb.append("// lintDefaultRegion maps a language to its default region.\n");
     sb.append("var lintDefaultRegion = map[string]string{\n");
     for (String l : langs) {

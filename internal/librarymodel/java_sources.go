@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/strutil"
 )
 
 type JavaSourceProfile struct {
@@ -210,20 +211,9 @@ func absJoin(root, rel string) string {
 	return filepath.Clean(filepath.Join(root, rel))
 }
 
+// uniqueStrings trims, dedupes and sorts values.
 func uniqueStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(values))
-	out := values[:0]
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
+	out := strutil.UniqueTrimmed(values)
 	sort.Strings(out)
 	return out
 }

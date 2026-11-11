@@ -2769,6 +2769,24 @@ class Holder {
 	}
 }
 
+func TestUnsafeCallOnNullableType_IdiomSkipsYieldToCompilerNullableVerdict(t *testing.T) {
+	const src = `
+package test
+fun f(args: Bundle) {
+    val a = args.getString("k")!!
+}
+`
+	// Without a compiler fact the Bundle getter idiom stays quiet.
+	if got := runRuleByNameWithResolver(t, "UnsafeCallOnNullableType", src); len(got) != 0 {
+		t.Fatalf("want the Bundle getter idiom skipped without a compiler fact, got %+v", got)
+	}
+	// detekt reports any operand whose compiler type is nullable, idiomatic or not.
+	got := runRuleByNameWithExpressionTypes(t, "UnsafeCallOnNullableType", src, map[string]bool{`args.getString("k")`: true})
+	if len(got) != 1 {
+		t.Fatalf("want the nullable Bundle getter operand reported, got %+v", got)
+	}
+}
+
 func TestUnsafeCallOnNullableType_SmartCastOperandIsNotReported(t *testing.T) {
 	const src = `
 package test

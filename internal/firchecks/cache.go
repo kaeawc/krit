@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -31,6 +30,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/iterutil"
 )
 
 // FirCacheVersion is bumped when the on-disk entry layout changes incompatibly.
@@ -351,7 +351,7 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 	// Each file hashes once and writes its own entry directory, so the workers share nothing but the
 	// response, which they only read.
 	var written atomic.Int64
-	forEachParallel(files, func(p string) {
+	iterutil.ForEachParallel(files, func(p string) {
 		hash, err := ContentHash(p)
 		if err != nil {
 			return
@@ -388,33 +388,6 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 		}
 	})
 	return int(written.Load())
-}
-
-// forEachParallel runs fn for every item on a bounded pool of workers and waits for all of them.
-func forEachParallel(items []string, fn func(string)) {
-	workers := min(runtime.GOMAXPROCS(0), len(items))
-	if workers <= 1 {
-		for _, item := range items {
-			fn(item)
-		}
-		return
-	}
-	var wg sync.WaitGroup
-	next := make(chan string)
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for item := range next {
-				fn(item)
-			}
-		}()
-	}
-	for _, item := range items {
-		next <- item
-	}
-	close(next)
-	wg.Wait()
 }
 
 // ruleErrorsForFile returns rule ID -> checker exception for path, or nil.

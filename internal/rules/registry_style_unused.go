@@ -75,7 +75,8 @@ func registerStyleUnusedRules() {
 					return
 				}
 				if file.FlatHasModifier(idx, "actual") ||
-					file.FlatHasModifier(idx, "expect") {
+					file.FlatHasModifier(idx, "expect") ||
+					file.FlatHasModifier(idx, "protected") {
 					return
 				}
 				if summary.hasEntryPoint {
@@ -122,9 +123,6 @@ func registerStyleUnusedRules() {
 					return
 				}
 				if summary.paramsNode == 0 {
-					return
-				}
-				if hasSiblingOverloadFlat(file, idx, summary.name) {
 					return
 				}
 				for _, param := range summary.params {

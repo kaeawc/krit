@@ -49,10 +49,8 @@ func registerNamingClassNaming() {
 			if name == "" {
 				return
 			}
-			if strings.HasPrefix(name, "`") {
-				return
-			}
-			if !r.Pattern.MatchString(name) {
+			// detekt checks the name without its backticks, so `my class` is reported and `Valid` is not.
+			if !r.Pattern.MatchString(strings.TrimSuffix(strings.TrimPrefix(name, "`"), "`")) {
 				ctx.EmitAt(declLine(file, idx), declCol(file, idx), "Class and Object names should match the pattern: "+displayPattern(r.Pattern))
 			}
 		},
@@ -295,7 +293,8 @@ func registerNamingFunctionNameMaxLength() {
 			if funInterfaceMisparsedAsFunction(file, idx) {
 				return
 			}
-			if file.FlatHasModifier(idx, "override") {
+			// detekt's visitor skips override and operator functions and never descends into function bodies.
+			if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "operator") || hasEnclosingFunction(file, idx) {
 				return
 			}
 			name := strings.Trim(extractIdentifierFlat(file, idx), "`")
@@ -316,7 +315,8 @@ func registerNamingFunctionNameMinLength() {
 			if funInterfaceMisparsedAsFunction(file, idx) {
 				return
 			}
-			if file.FlatHasModifier(idx, "override") {
+			// detekt's visitor skips override and operator functions and never descends into function bodies.
+			if file.FlatHasModifier(idx, "override") || file.FlatHasModifier(idx, "operator") || hasEnclosingFunction(file, idx) {
 				return
 			}
 			name := strings.Trim(extractIdentifierFlat(file, idx), "`")

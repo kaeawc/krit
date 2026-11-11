@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
@@ -450,12 +451,16 @@ func detektLogicalOperatorScore(file *scanner.File, n uint32) int {
 		}
 	}
 	collect(n)
-	// Stable order by start offset, parents before children on ties (the visit order).
-	for i := 1; i < len(ops); i++ {
-		for j := i; j > 0 && file.FlatStartByte(ops[j]) < file.FlatStartByte(ops[j-1]); j-- {
-			ops[j], ops[j-1] = ops[j-1], ops[j]
+	// detekt sorts the operators by the start of the operator token, not of the expression.
+	key := func(op uint32) uint32 {
+		for c := file.FlatFirstChild(op); c != 0; c = file.FlatNextSib(c) {
+			if t := file.FlatType(c); t == "&&" || t == "||" {
+				return file.FlatStartByte(c)
+			}
 		}
+		return file.FlatStartByte(op)
 	}
+	sort.SliceStable(ops, func(i, j int) bool { return key(ops[i]) < key(ops[j]) })
 	score := 0
 	prev := ""
 	for i, op := range ops {

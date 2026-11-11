@@ -110,41 +110,18 @@ func registerExceptionsRules() {
 				if caughtVar == "" {
 					return
 				}
-				// A rethrow-only catch followed by another catch clause of the
-				// same try is an intentional "let this type escape" guard: it
-				// keeps the later (typically broader) handler from swallowing
-				// it, so removing it would change behavior.
-				if hasLaterCatchSibling(file, idx) {
-					return
-				}
 				if file.Language == scanner.LangJava {
-					if javaCatchOnlyRethrowsVar(file, idx, caughtVar) {
+					// A rethrow-only catch followed by another catch clause of the same try is an intentional
+					// "let this type escape" guard, so removing it would change behavior.
+					if !hasLaterCatchSibling(file, idx) && javaCatchOnlyRethrowsVar(file, idx, caughtVar) {
 						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 							"Do not rethrow a caught exception of the same type.")
 					}
 					return
 				}
-				body, _ := file.FlatFindChild(idx, "statements")
-				if body == 0 {
-					return
-				}
-				stmtCount := 0
-				var onlyThrow uint32
-				for i := 0; i < file.FlatChildCount(body); i++ {
-					child := file.FlatChild(body, i)
-					if file.FlatType(child) == "jump_expression" && strings.HasPrefix(file.FlatNodeText(child), "throw") {
-						onlyThrow = child
-						stmtCount++
-					} else if t := file.FlatType(child); t != "line_comment" && t != "multiline_comment" && t != "{" && t != "}" {
-						stmtCount++
-					}
-				}
-				if stmtCount == 1 && onlyThrow != 0 {
-					throwText := strings.TrimSpace(file.FlatNodeText(onlyThrow))
-					if throwText == "throw "+caughtVar || throwText == "throw "+caughtVar+";" {
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-							"Do not rethrow a caught exception of the same type.")
-					}
+				if throw := kotlinCatchRethrow(file, idx); throw != 0 && !kotlinLaterCatchHandles(file, idx) {
+					ctx.EmitAt(file.FlatRow(throw)+1, file.FlatCol(throw)+1,
+						"Do not rethrow a caught exception of the same type.")
 				}
 			},
 		})

@@ -1523,6 +1523,13 @@ func TestCommitPrefEdits_EscapingAndKtxEditors(t *testing.T) {
 		{"chain from local ends in apply", "fun f(p: SharedPreferences) { val ed = p.edit(); ed.putInt(\"a\", 1).apply() }", 0},
 		{"edited but never finalized", "fun f(p: SharedPreferences) { p.edit().putInt(\"a\", 1) }", 1},
 		{"local never finalized", "fun f(p: SharedPreferences) { val ed = p.edit(); ed.putInt(\"a\", 1) }", 1},
+		{"also it apply", "fun f(p: SharedPreferences) { p.edit().also { it.apply() } }", 0},
+		{"run bare commit", "fun f(p: SharedPreferences) { p.edit().run { putInt(\"a\", 1); commit() } }", 0},
+		{"let named parameter apply", "fun f(p: SharedPreferences) { p.edit().let { e -> e.apply() } }", 0},
+		{"nested lambda apply does not finalize", "fun f(p: SharedPreferences, xs: List<Int>) { p.edit().apply { xs.forEach { apply() } } }", 1},
+		{"also without finalize", "fun f(p: SharedPreferences) { p.edit().also { it.putInt(\"a\", 1) } }", 1},
+		{"local alias finalized", "fun f(p: SharedPreferences) { val ed = p.edit(); val e2 = ed; e2.apply() }", 0},
+		{"local apply lambda finalizes", "fun f(p: SharedPreferences) { val ed = p.edit(); ed.run { apply() } }", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

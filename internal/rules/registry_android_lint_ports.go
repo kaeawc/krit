@@ -15,6 +15,7 @@ func registerAndroidLintPortRules() {
 	registerWakelockTimeout()
 	registerInvalidWakeLockTag()
 	registerApplySharedPref()
+	registerStaticFieldLeak()
 	registerSuspiciousImport()
 	registerPropertyFileRules()
 	registerManifestPermissionRules()
@@ -30,6 +31,7 @@ func registerAndroidLintPortRules() {
 	registerReceiverFlag()
 	registerSecurityCallChecks()
 	registerMissingInflatedID()
+	registerTranslationRules()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector
@@ -295,6 +297,21 @@ func registerMissingInflatedID() {
 				return
 			}
 			r.check(ctx)
+		},
+	})
+}
+
+func registerStaticFieldLeak() {
+	r := &StaticFieldLeakRule{AndroidRule: lintAndroidRule("StaticFieldLeak", "Static Field Leaks", ALCPerformance, ALSWarning, 6)}
+	api.Register(&api.Rule{
+		ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+		NodeTypes: []string{"property_declaration", "object_declaration", "class_declaration", "object_literal"},
+		Needs:     api.NeedsTypeInfo, Languages: []scanner.Language{scanner.LangKotlin},
+		Confidence: r.Confidence(), Implementation: r, NeedsLibraryFacts: true,
+		Check: func(ctx *api.Context) {
+			if !scanner.IsTestFile(ctx.File.Path) {
+				r.check(ctx)
+			}
 		},
 	})
 }

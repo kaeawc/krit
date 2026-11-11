@@ -1,9 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 29, 30, 40, 58, 62, 76, 102, 107, 112, 117, 122
+// go-lines: 30, 31
 // Go findings the checker drops because the message is false of the code: the
 // call is not SharedPreferences.edit(), or the Editor it returns is committed
 // or applied. Go still reports the lines in go-lines; it already skips the KTX
-// `edit { }` lambda and the editors finalized by a later call or scope function.
+// `edit { }` lambda and the editors finalized by a later call, `!!`, alias or
+// scope function.
 package test
 
 import android.content.SharedPreferences
@@ -65,8 +66,6 @@ class Divergence(
         }
     }
 
-    // Go only reads a finalizing call written `editor.apply()`, not one at
-    // the end of a chain on the variable.
     fun variableChainApplies(key: String) {
         val editor = prefs.edit()
         editor.putString(key, "v").apply()
@@ -96,8 +95,6 @@ class Divergence(
         editor.apply()
     }
 
-    // Go only reads a call written `editor.apply()`, not one through `!!` or
-    // a scope function on the variable.
     fun variableNotNullApplies(key: String) {
         val editor: SharedPreferences.Editor? = nullable?.edit()
         editor!!.apply()

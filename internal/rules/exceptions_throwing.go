@@ -366,6 +366,41 @@ func hasLaterCatchSibling(file *scanner.File, catchNode uint32) bool {
 	return false
 }
 
+// kotlinCatchRethrow returns the throw that opens a Kotlin catch body and throws the caught parameter
+// itself, as in detekt's RethrowCaughtException, or 0.
+func kotlinCatchRethrow(file *scanner.File, catchNode uint32) uint32 {
+	caught := extractCaughtVarNameFlat(file, catchNode)
+	body, _ := file.FlatFindChild(catchNode, "statements")
+	if caught == "" || body == 0 {
+		return 0
+	}
+	for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) || isFlatCommentNode(file, c) {
+			continue
+		}
+		if file.FlatType(c) != "jump_expression" || !strings.HasPrefix(file.FlatNodeText(c), "throw") {
+			return 0
+		}
+		thrown := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(c), "throw")), ";"))
+		if thrown != caught {
+			return 0
+		}
+		return c
+	}
+	return 0
+}
+
+// kotlinLaterCatchHandles reports whether a catch after catchNode does more than rethrow. detekt reports
+// a rethrow only when every later catch of the same try rethrows too.
+func kotlinLaterCatchHandles(file *scanner.File, catchNode uint32) bool {
+	for sib := file.FlatNextSib(catchNode); sib != 0; sib = file.FlatNextSib(sib) {
+		if file.FlatType(sib) == "catch_block" && kotlinCatchRethrow(file, sib) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // jumpLeavesOnlyNestedScope reports a return or throw inside idx that stays within a declaration nested in
 // the finally block, such as a local function, anonymous function or object member. A return labeled
 // with the name of the lambda call (`return@forEach`) also only leaves that lambda.

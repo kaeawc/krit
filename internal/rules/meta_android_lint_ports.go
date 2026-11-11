@@ -44,6 +44,10 @@ func (r *ApplySharedPrefRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ApplySharedPref", RuleSet: "android-lint", DefaultActive: true}
 }
 
+func (r *StaticFieldLeakRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "StaticFieldLeak", RuleSet: "android-lint", DefaultActive: true}
+}
+
 func (r *SuspiciousImportRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "SuspiciousImport", RuleSet: "android-lint", DefaultActive: true}
 }
@@ -206,4 +210,24 @@ func (r *WebViewClientOnReceivedSslErrorRule) Meta() api.RuleDescriptor {
 
 func (r *MissingInflatedIDRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "MissingInflatedId", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MissingTranslationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MissingTranslation", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ExtraTranslationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ExtraTranslation", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MissingDefaultResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MissingDefaultResource", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UntranslatableRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "Untranslatable", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DuplicateDefinitionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DuplicateDefinition", RuleSet: "android-lint", DefaultActive: true}
 }

@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -1294,5 +1295,39 @@ func TestPreferToOverPairSyntax_NoFix(t *testing.T) {
 	findings := runRuleByName(t, "PreferToOverPairSyntax", "package test\nfun foo() = Pair(1, 2)\n")
 	if len(findings) != 1 || findings[0].Fix != nil {
 		t.Fatalf("expected one finding without a fix, got %v", findings)
+	}
+}
+
+// detekt's isString is false for a nullable String and for the caught exception itself, so throws that pass
+// them are not reported.
+func TestUseCheckOrError_SkipsNullableMessageAndCaughtException(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `package test
+fun f() {
+    try {
+        println()
+    } catch (e: Exception) {
+        throw IllegalStateException(e.message)
+    }
+    try {
+        println()
+    } catch (e: Exception) {
+        throw IllegalStateException(e)
+    }
+    try {
+        println()
+    } catch (e: Exception) {
+        throw IllegalStateException(e.toString())
+    }
+}
+fun g(t: String) {
+    throw IllegalStateException(t)
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{16, 20}; !slices.Equal(lines, want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
 	}
 }

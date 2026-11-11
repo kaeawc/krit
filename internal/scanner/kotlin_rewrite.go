@@ -101,6 +101,7 @@ func (r *kotlinRewriter) run() {
 	r.rewriteGenericCallableRefs()
 	r.rewriteFunctionTypeReceivers()
 	r.rewriteLines()
+	r.rewriteBraceDeclSeparators()
 	if r.lx != nil {
 		for _, e := range r.lx.edits {
 			r.set(e.pos, e.b)

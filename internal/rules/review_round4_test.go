@@ -972,3 +972,24 @@ fun testPlain(receipt: Receipt?) {
 		})
 	}
 }
+
+// detekt reports unused parameters of overloaded functions and skips protected members.
+func TestUnusedParameter_OverloadsReportedProtectedSkipped(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"overloads", "fun a(x: Int): Int = 1\n    fun a(x: String): Int = 2", 2},
+		{"protected", "protected fun a(x: Int): Int = 1", 0},
+		{"private", "private fun a(x: Int): Int = 1", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nclass C {\n    " + tc.body + "\n}\n"
+			if got := runRuleByName(t, "UnusedParameter", src); len(got) != tc.want {
+				t.Fatalf("got %d findings, want %d: %v", len(got), tc.want, got)
+			}
+		})
+	}
+}

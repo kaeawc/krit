@@ -444,6 +444,9 @@ rules:
     status: supported
     fixtures:
       - tests/fixtures/fixable/per-rule/SpacingAfterPackageAndImports.java
+  StaticFieldLeak:
+    status: pending
+    reason: Kotlin property, class and object coverage only; Java static fields and inner classes still need implementation.
   StaticIv:
     status: supported
     fixtures:

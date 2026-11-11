@@ -263,16 +263,16 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 	effectiveFormat := resolveEffectiveFormat(f)
 	if formatNeedsLocalColumnar(effectiveFormat) {
 		if err := writeDaemonColumnarFindings(w, effectiveFormat, res.Columns); err != nil {
-			_ = closer()
+			_ = closer(2)
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 2
 		}
 	} else if _, err := w.Write(res.Findings); err != nil {
-		_ = closer()
+		_ = closer(2)
 		fmt.Fprintf(os.Stderr, "error: write findings: %v\n", err)
 		return 2
 	}
-	if err := closer(); err != nil {
+	if err := closer(0); err != nil {
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		return 2
 	}
@@ -860,15 +860,19 @@ func resolveBasePath(explicit string, paths []string) string {
 }
 
 // openDaemonOutputWriter mirrors runner.openOutputWriter for the
-// daemon path. Returns the writer, a closer (no-op for stdout), and
-// any creation error.
-func openDaemonOutputWriter(f *scanFlags) (io.Writer, func() error, error) {
+// daemon path. The returned closer takes the exit code: a -o report is
+// staged beside the target and published only when the code is not 2, so a
+// failed run never truncates a previous good report. Stdout is a no-op.
+func openDaemonOutputWriter(f *scanFlags) (io.Writer, func(exitCode int) error, error) {
 	if *f.Output != "" {
+		if out := openAtomicOutput(*f.Output); out != nil {
+			return out.file, out.Finish, nil
+		}
 		file, err := os.Create(*f.Output)
 		if err != nil {
-			return nil, func() error { return nil }, fmt.Errorf("create %s: %w", *f.Output, err)
+			return nil, func(int) error { return nil }, fmt.Errorf("create %s: %w", *f.Output, err)
 		}
-		return file, file.Close, nil
+		return file, func(int) error { return file.Close() }, nil
 	}
-	return os.Stdout, func() error { return nil }, nil
+	return os.Stdout, func(int) error { return nil }, nil
 }

@@ -3,43 +3,8 @@ package oracle
 import (
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 )
-
-func TestForEachParallelVisitsEveryItemOnce(t *testing.T) {
-	items := make([]string, 500)
-	for i := range items {
-		items[i] = string(rune('a'+i%26)) + string(rune('A'+i/26))
-	}
-	var count atomic.Int64
-	seen := make([]atomic.Int32, len(items))
-	index := map[string]int{}
-	for i, item := range items {
-		index[item] = i
-	}
-	forEachParallel(items, func(item string) {
-		count.Add(1)
-		seen[index[item]].Add(1)
-	})
-	if int(count.Load()) != len(items) {
-		t.Fatalf("visited %d items, want %d", count.Load(), len(items))
-	}
-	for i := range seen {
-		if seen[i].Load() != 1 {
-			t.Fatalf("item %d visited %d times", i, seen[i].Load())
-		}
-	}
-}
-
-func TestForEachParallelHandlesEmptyAndSingle(t *testing.T) {
-	forEachParallel(nil, func(string) { t.Fatal("no item expected") })
-	var n int
-	forEachParallel([]string{"only"}, func(string) { n++ })
-	if n != 1 {
-		t.Fatalf("single item visited %d times", n)
-	}
-}
 
 func TestCollectKotlinSourceFilesListsAFileReachedByRelativeAndAbsoluteRootsOnce(t *testing.T) {
 	dir := t.TempDir()

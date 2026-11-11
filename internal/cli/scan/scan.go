@@ -361,11 +361,21 @@ func (r *runner) run(ctx context.Context) (int, error) {
 
 	r.recordTotalTimingAndStopProfiles()
 	exitCode := r.outputPhase()
-	if r.w != nil && r.w != os.Stdout {
+	if r.outAtomic != nil {
+		exitCode = finalizeOutputClose(finishCloser{r.outAtomic, exitCode}, os.Stderr, exitCode)
+	} else if r.w != nil && r.w != os.Stdout {
 		exitCode = finalizeOutputClose(r.w, os.Stderr, exitCode)
 	}
 	return exitCode, nil
 }
+
+// finishCloser adapts atomicOutput.Finish to io.Closer.
+type finishCloser struct {
+	out  *atomicOutput
+	code int
+}
+
+func (c finishCloser) Close() error { return c.out.Finish(c.code) }
 
 // finalizeOutputClose closes the scan output writer and surfaces any
 // Close error as a non-zero exit. Close is where buffered writes flush

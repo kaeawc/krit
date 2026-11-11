@@ -1034,57 +1034,19 @@ var lintRegionNames = map[string]string{
 }
 
 // lintRelevantRegions maps a language to the regions LocaleManager pairs it with.
-var lintRelevantRegions = map[string][]string{
-	"af":  {"NA", "ZA"},
-	"ar":  {"AE", "BH", "KM", "DJ", "DZ", "EG", "ER", "EH", "IQ", "IL", "JO", "KW", "LB", "LY", "MA", "MR", "OM", "PS", "QA", "SA", "SD", "SO", "SS", "SY", "TD", "TN", "YE"},
-	"bn":  {"BD", "IN"},
-	"bo":  {"CN", "IN"},
-	"ca":  {"AD", "ES", "FR", "IT"},
-	"da":  {"DK", "GL"},
-	"de":  {"DE", "AT", "BE", "CH", "IT", "LI", "LU"},
-	"ee":  {"GH", "TG"},
-	"el":  {"CY", "GR"},
-	"en":  {"AI", "AE", "AS", "AG", "AU", "AT", "BI", "BE", "BS", "BZ", "BM", "BB", "BW", "CA", "CC", "CH", "CM", "CK", "CX", "KY", "CY", "DE", "DG", "DM", "DK", "ER", "FI", "FJ", "FK", "FM", "GB", "GG", "GH", "GI", "GM", "GD", "GU", "GY", "HK", "IM", "IN", "IO", "IE", "IL", "JM", "JE", "KE", "KI", "KN", "LR", "LC", "LS", "MO", "MG", "MV", "MH", "MT", "MP", "MS", "MU", "MW", "MY", "NA", "NF", "NG", "NU", "NL", "NR", "NZ", "PK", "PN", "PH", "PW", "PG", "PR", "RW", "SD", "SG", "SH", "SB", "SL", "SS", "SI", "SE", "SZ", "SX", "SC", "TC", "TK", "TO", "TT", "TV", "TZ", "UG", "UM", "US", "VC", "VG", "VI", "VU", "WS", "ZA", "ZM", "ZW"},
-	"es":  {"AR", "BZ", "BO", "BR", "CL", "CO", "CR", "CU", "DO", "EC", "ES", "GQ", "GT", "HN", "MX", "NI", "PA", "PE", "PH", "PR", "PY", "SV", "UY", "US", "VE", "EA", "IC"},
-	"fa":  {"AF", "IR"},
-	"ff":  {"BF", "CM", "GH", "GN", "GM", "GW", "LR", "MR", "NE", "NG", "SN", "SL"},
-	"fo":  {"DK", "FO"},
-	"fr":  {"FR", "BI", "BE", "BJ", "BF", "BL", "CF", "CA", "CH", "CI", "CM", "CD", "CG", "KM", "DJ", "DZ", "GA", "GN", "GP", "GQ", "GF", "HT", "LU", "MF", "MA", "MC", "MG", "ML", "MR", "MQ", "MU", "YT", "NC", "NE", "PF", "RE", "RW", "SN", "PM", "SC", "SY", "TD", "TG", "TN", "VU", "WF"},
-	"ga":  {"GB", "IE"},
-	"ha":  {"GH", "NE", "NG"},
-	"hr":  {"HR", "BA"},
-	"it":  {"IT", "CH", "SM", "VA"},
-	"ko":  {"KR", "KP"},
-	"ln":  {"AO", "CF", "CD", "CG"},
-	"lrc": {"IR", "IQ"},
-	"ms":  {"BN", "ID", "MY", "SG"},
-	"nb":  {"NO", "SJ"},
-	"ne":  {"IN", "NP"},
-	"nl":  {"NL", "AW", "BE", "BQ", "CW", "SR", "SX"},
-	"om":  {"ET", "KE"},
-	"os":  {"GE", "RU"},
-	"pa":  {"IN", "PK"},
-	"ps":  {"AF", "PK"},
-	"pt":  {"AO", "BR", "CH", "CV", "GW", "GQ", "LU", "MO", "MZ", "PT", "ST", "TL"},
-	"qu":  {"BO", "EC", "PE"},
-	"ro":  {"MD", "RO"},
-	"ru":  {"RU", "BY", "KZ", "KG", "MD", "UA"},
-	"sd":  {"IN", "PK"},
-	"se":  {"FI", "NO", "SE"},
-	"so":  {"SO", "DJ", "ET", "KE"},
-	"sq":  {"AL", "MK", "XK"},
-	"sr":  {"BA", "ME", "RS", "XK"},
-	"sv":  {"SE", "AX", "FI"},
-	"sw":  {"CD", "KE", "TZ", "UG"},
-	"ta":  {"IN", "LK", "MY", "SG"},
-	"ti":  {"ER", "ET"},
-	"tr":  {"TR", "CY"},
-	"ur":  {"IN", "PK"},
-	"uz":  {"UZ", "AF"},
-	"yo":  {"BJ", "NG"},
-	"yrl": {"BR", "CO", "VE"},
-	"zh":  {"CN", "HK", "MO", "SG", "TW"},
-}
+var lintRelevantRegions = decodeListMap(
+	"af=NA,ZA ar=AE,BH,KM,DJ,DZ,EG,ER,EH,IQ,IL,JO,KW,LB,LY,MA,MR,OM,PS,QA,SA,SD,SO,SS,SY,TD,TN,YE bn=BD,IN bo=CN,IN " +
+		"ca=AD,ES,FR,IT da=DK,GL de=DE,AT,BE,CH,IT,LI,LU ee=GH,TG el=CY,GR " +
+		"en=AI,AE,AS,AG,AU,AT,BI,BE,BS,BZ,BM,BB,BW,CA,CC,CH,CM,CK,CX,KY,CY,DE,DG,DM,DK,ER,FI,FJ,FK,FM,GB,GG,GH,GI,GM,GD,GU,GY,HK,IM,IN,IO,IE,IL,JM,JE,KE,KI,KN,LR,LC,LS,MO,MG,MV,MH,MT,MP,MS,MU,MW,MY,NA,NF,NG,NU,NL,NR,NZ,PK,PN,PH,PW,PG,PR,RW,SD,SG,SH,SB,SL,SS,SI,SE,SZ,SX,SC,TC,TK,TO,TT,TV,TZ,UG,UM,US,VC,VG,VI,VU,WS,ZA,ZM,ZW " +
+		"es=AR,BZ,BO,BR,CL,CO,CR,CU,DO,EC,ES,GQ,GT,HN,MX,NI,PA,PE,PH,PR,PY,SV,UY,US,VE,EA,IC fa=AF,IR " +
+		"ff=BF,CM,GH,GN,GM,GW,LR,MR,NE,NG,SN,SL fo=DK,FO " +
+		"fr=FR,BI,BE,BJ,BF,BL,CF,CA,CH,CI,CM,CD,CG,KM,DJ,DZ,GA,GN,GP,GQ,GF,HT,LU,MF,MA,MC,MG,ML,MR,MQ,MU,YT,NC,NE,PF,RE,RW,SN,PM,SC,SY,TD,TG,TN,VU,WF " +
+		"ga=GB,IE ha=GH,NE,NG hr=HR,BA it=IT,CH,SM,VA ko=KR,KP ln=AO,CF,CD,CG lrc=IR,IQ ms=BN,ID,MY,SG nb=NO,SJ " +
+		"ne=IN,NP nl=NL,AW,BE,BQ,CW,SR,SX om=ET,KE os=GE,RU pa=IN,PK ps=AF,PK pt=AO,BR,CH,CV,GW,GQ,LU,MO,MZ,PT,ST,TL " +
+		"qu=BO,EC,PE ro=MD,RO ru=RU,BY,KZ,KG,MD,UA sd=IN,PK se=FI,NO,SE so=SO,DJ,ET,KE sq=AL,MK,XK sr=BA,ME,RS,XK " +
+		"sv=SE,AX,FI sw=CD,KE,TZ,UG ta=IN,LK,MY,SG ti=ER,ET tr=TR,CY ur=IN,PK uz=UZ,AF yo=BJ,NG yrl=BR,CO,VE " +
+		"zh=CN,HK,MO,SG,TW",
+)
 
 // lintDefaultRegion maps a language to its default region.
 var lintDefaultRegion = map[string]string{

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 
@@ -235,6 +236,10 @@ func registerEmptyblocksEmptyElseBlock() {
 				}
 			}
 			if elseBody == 0 {
+				// detekt reports an if without else when a ';' directly follows it.
+				if !sawElse && ifStatementEndsWithSemicolon(file, idx) {
+					ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Empty else block detected."))
+				}
 				return
 			}
 			// Must be a braced body — `else expr` form is never "empty".
@@ -637,4 +642,19 @@ func registerEmptyblocksEmptyWhileBlock() {
 			ctx.Emit(f)
 		},
 	})
+}
+
+// ifStatementEndsWithSemicolon reports an if statement in a statement list whose next byte is ';'.
+func ifStatementEndsWithSemicolon(file *scanner.File, ifIdx uint32) bool {
+	parent, ok := file.FlatParent(ifIdx)
+	if !ok || file.FlatType(parent) != "statements" && file.FlatType(parent) != "source_file" {
+		return false
+	}
+	end := int(file.FlatEndByte(ifIdx))
+	if end >= len(file.Content) || file.Content[end] != ';' {
+		return false
+	}
+	// `if (c) a; else b` has an else the grammar can attach after the ';'.
+	rest := bytes.TrimLeft(file.Content[end+1:], " \t\r\n")
+	return !bytes.HasPrefix(rest, []byte("else")) || len(rest) > 4 && isIdentByte(rest[4])
 }

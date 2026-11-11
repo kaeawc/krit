@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 43, 53, 73, 87, 139, 144, 149, 163
+// go-lines: 35, 43, 53, 73, 87, 139, 144, 149, 163
 // Go's evidence, kept as Go reads it. Any enclosing call named `show` counts,
 // up to the nearest named function (not across it), whatever it shows; a
-// receiverless `show()` anywhere in an enclosing `apply` lambda counts; and a
+// receiverless `show()` in the receiver's `apply` lambda counts; and a
 // variable's `show` is matched by the name it is spelled with, after the
 // call, in the enclosing function.
 package test.showtoast.scopes

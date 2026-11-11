@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/strutil"
 )
 
 type SourceIndex struct {
@@ -391,7 +392,7 @@ func javaHeaderSupertypes(text string) []string {
 			out = append(out, typ)
 		}
 	}
-	return uniqueStrings(out)
+	return strutil.UniqueTrimmed(out)
 }
 
 func javaAnnotations(text string) []string {
@@ -399,7 +400,7 @@ func javaAnnotations(text string) []string {
 	for _, match := range javaAnnoRe.FindAllStringSubmatch(text, -1) {
 		out = append(out, match[1])
 	}
-	return uniqueStrings(out)
+	return strutil.UniqueTrimmed(out)
 }
 
 func javaMethodReturnType(text, name string) string {
@@ -514,21 +515,4 @@ var javaModifierWords = map[string]bool{
 	"public": true, "private": true, "protected": true, "static": true, "final": true,
 	"abstract": true, "synchronized": true, "native": true, "strictfp": true,
 	"transient": true, "volatile": true, "default": true,
-}
-
-func uniqueStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(values))
-	out := values[:0]
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	return out
 }

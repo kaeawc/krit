@@ -73,7 +73,7 @@ func flatNavigationReceiver(file *scanner.File, nav uint32) uint32 {
 	return file.FlatNamedChild(nav, 0)
 }
 
-var causeArgumentRe = regexp.MustCompile(`^(cause\s*=|[\w.]*(Exception|Error|Throwable)\s*\()`)
+var causeArgumentRe = regexp.MustCompile(`^(cause\s*=|[\w.]*(Exception|Error|Throwable)\s*\(|[\w.]+\.(message|localizedMessage|cause)$)`)
 
 // flatThrowIfFix returns the autofix that turns `if (cond) throw X("m")` into `check(!cond) { "m" }` (or require),
 // or nil when the if is not that exact shape.
@@ -182,11 +182,21 @@ func throwArgumentsAreEmptyOrString(ctx *api.Context, call uint32) bool {
 	}
 	if ctx.Resolver != nil {
 		if t := ctx.Resolver.ResolveFlatNode(expr, file); t != nil && t.Kind != typeinfer.TypeUnknown {
-			return t.Name == "String" || t.FQN == "kotlin.String"
+			// detekt's KotlinBuiltIns.isString is false for String?.
+			return !t.Nullable && (t.Name == "String" || t.FQN == "kotlin.String")
 		}
 	}
 	// Without a type, anything that does not look like an exception is taken for a message.
+	if file.FlatType(expr) == "simple_identifier" && throwIsCaughtParameter(file, expr) {
+		return false
+	}
 	return !causeArgumentRe.MatchString(strings.TrimSpace(file.FlatNodeText(args[0])))
+}
+
+// throwIsCaughtParameter reports whether the identifier is the parameter of the nearest enclosing catch.
+func throwIsCaughtParameter(file *scanner.File, ident uint32) bool {
+	catchNode, ok := flatEnclosingAncestor(file, ident, "catch_block", "catch_clause")
+	return ok && extractCaughtVarNameFlat(file, catchNode) == file.FlatNodeText(ident)
 }
 
 // throwIsDirectControlBody reports whether a throw is the body of an if, else, loop or the only statement of its braces;

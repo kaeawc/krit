@@ -127,6 +127,7 @@ type runner struct {
 	allColumns *scanner.FindingColumns
 	basePath   string
 	w          *os.File
+	outAtomic  *atomicOutput
 }
 
 // newRunner builds the runner that drives scan.Run's phases. It performs
@@ -983,6 +984,10 @@ func (r *runner) openOutputWriter() (int, error) {
 	r.tracker.TrackVoid("openOutputWriter", func() {
 		if *r.f.Output != "" {
 			var w *os.File
+			if r.outAtomic = openAtomicOutput(*r.f.Output); r.outAtomic != nil {
+				r.w = r.outAtomic.file
+				return
+			}
 			w, openErr = os.Create(*r.f.Output)
 			if openErr != nil {
 				return

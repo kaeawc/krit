@@ -1112,3 +1112,28 @@ func TestEmptyBlocks_BracesOutsideTheBodyAreIgnored(t *testing.T) {
 		t.Errorf("empty when with a lambda subject must be reported once, got %d", len(got))
 	}
 }
+
+// detekt reports an else-less if when a ';' directly follows it, even though no else exists.
+func TestEmptyElseBlock_SemicolonAfterIf(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"unbraced then", "if (x > 1) println(); println()", 1},
+		{"braced then", "if (x > 1) { println() }; println()", 1},
+		{"space before semicolon", "if (x > 1) println() ; println()", 0},
+		{"no semicolon", "if (x > 1) println()\n    println()", 0},
+		{"else after semicolon", "if (x > 1) println(); else println()", 0},
+		{"with else", "if (x > 1) println() else println(); println()", 0},
+		{"expression use", "val y = if (x > 1) 1 else 2; println(y)", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nfun f(x: Int) {\n    " + tc.body + "\n}\n"
+			if got := runRuleByName(t, "EmptyElseBlock", src); len(got) != tc.want {
+				t.Fatalf("got %d findings, want %d: %v", len(got), tc.want, got)
+			}
+		})
+	}
+}

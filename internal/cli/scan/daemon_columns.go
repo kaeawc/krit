@@ -125,14 +125,14 @@ func runDaemonDelta(f *scanFlags, paths []string, rawColumns json.RawMessage) in
 // uses. ActiveRules / Version metadata are taken from the CLI's
 // resident rule registry to keep fixLevel / effort annotations in
 // the JSON output identical to the in-process emit.
-func emitDaemonFilteredColumns(f *scanFlags, paths []string, columns *scanner.FindingColumns, basePath string) int {
+func emitDaemonFilteredColumns(f *scanFlags, paths []string, columns *scanner.FindingColumns, basePath string) (exitCode int) {
 	w, closer, openErr := openDaemonOutputWriter(f)
 	if openErr != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", openErr)
 		return 2
 	}
 	defer func() {
-		if err := closer(); err != nil {
+		if err := closer(exitCode); err != nil {
 			fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		}
 	}()

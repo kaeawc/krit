@@ -285,7 +285,7 @@ func WriteBaselineIDsXML(path string, ids []string) error {
 		return err
 	}
 	header := []byte(xml.Header)
-	return fsutil.WriteFileAtomic(path, append(header, data...), 0o644)
+	return fsutil.WriteFileAtomicKeepMode(path, append(header, data...), 0o644)
 }
 
 // FilterByBaseline removes findings that are in the baseline.

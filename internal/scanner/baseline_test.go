@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -697,5 +698,30 @@ func TestWriteBaselineIDsXMLReplacesAtomically(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Fatalf("leftover temp files: %v", entries)
+	}
+}
+
+func TestWriteBaselineIDsXMLWritesThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "shared-baseline.xml")
+	if err := os.WriteFile(target, []byte("<old/>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "baseline.xml")
+	if err := os.Symlink("shared-baseline.xml", link); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	if err := WriteBaselineIDsXML(link, []string{"Rule:Foo.kt:abc"}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced by a regular file: %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || !strings.Contains(string(got), "Rule:Foo.kt:abc") {
+		t.Fatalf("target not updated: %q %v", got, err)
+	}
+	if info, _ := os.Stat(target); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("target mode = %v, want 0600 kept", info.Mode().Perm())
 	}
 }

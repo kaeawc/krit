@@ -306,10 +306,17 @@ enum class Bare : Parcelable { A }
 	if len(got) != len(want) {
 		t.Fatalf("expected %d findings, got %v", len(want), got)
 	}
+	seen := map[int]bool{}
 	for _, f := range got {
 		sub, ok := want[f.Line]
-		if !ok || !strings.Contains(f.Message, sub) {
+		if !ok || !strings.Contains(f.Message, sub) || seen[f.Line] {
 			t.Errorf("unexpected finding %d:%d %s", f.Line, f.Col, f.Message)
+		}
+		seen[f.Line] = true
+	}
+	for line := range want {
+		if !seen[line] {
+			t.Errorf("missing finding on line %d", line)
 		}
 	}
 }

@@ -102,3 +102,97 @@ class Loader {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+func TestSecureRandomFilledArraySeedIsNotConstant(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+
+class A {
+  void filled(SecureRandom source) {
+    SecureRandom target = new SecureRandom();
+    final byte[] seed = new byte[32];
+    source.nextBytes(seed);
+    target.setSeed(seed);
+  }
+
+  void zero() {
+    SecureRandom target = new SecureRandom();
+    final byte[] seed = new byte[32];
+    target.setSeed(seed);
+  }
+}
+`))
+	if want := "16:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+func TestSecureRandomKotlinFilledArraySeedIsNotConstant(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "SecureRandom", `package p
+
+import java.security.SecureRandom
+
+fun filled(source: SecureRandom) {
+  val target = SecureRandom()
+  val seed = ByteArray(32)
+  source.nextBytes(seed)
+  target.setSeed(seed)
+}
+
+fun zero() {
+  val target = SecureRandom()
+  val seed = ByteArray(32)
+  target.setSeed(seed)
+}
+`))
+	if want := "15:3"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+func TestSecureRandomParameterShadowsFileConstant(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "SecureRandom", `package p
+
+import java.security.SecureRandom
+
+val seed = 7L
+
+fun reseed(seed: Long) {
+  val r = SecureRandom()
+  r.setSeed(seed)
+}
+
+fun fixed() {
+  val r = SecureRandom()
+  r.setSeed(seed)
+}
+`))
+	if want := "14:3"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+func TestSecureRandomJavaParameterShadowsField(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+
+class A {
+  static final long SEED = 7L;
+
+  void param(long SEED) {
+    SecureRandom r = new SecureRandom();
+    r.setSeed(SEED);
+  }
+
+  void fixed() {
+    SecureRandom r = new SecureRandom();
+    r.setSeed(SEED);
+  }
+}
+`))
+	if want := "15:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}

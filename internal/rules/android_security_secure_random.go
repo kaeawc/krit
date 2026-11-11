@@ -149,7 +149,10 @@ func secureRandomIsConstantSeed(file *scanner.File, expr uint32, depth int) bool
 	case "simple_identifier", "identifier":
 		name := file.FlatNodeText(expr)
 		init := lintInitializerOf(file, expr, name, true)
-		return init != 0 && secureRandomIsConstantSeed(file, init, depth+1)
+		if init == 0 || secureRandomArrayMayBeFilled(file, expr, init, name) {
+			return false
+		}
+		return secureRandomIsConstantSeed(file, init, depth+1)
 	case "navigation_expression", "field_access":
 		return secureRandomIsLimitConstant(file, expr)
 	case "call_expression":
@@ -164,6 +167,41 @@ func secureRandomIsConstantSeed(file *scanner.File, expr uint32, depth int) bool
 		return secureRandomAllConstant(file, expr, "", depth)
 	}
 	return false
+}
+
+// secureRandomArrayMayBeFilled reports whether init builds an array and name is used anywhere besides the seed
+// argument ref, so calls such as `source.nextBytes(seed)` may have filled it before setSeed.
+func secureRandomArrayMayBeFilled(file *scanner.File, ref, init uint32, name string) bool {
+	init = flatUnwrapParenExpr(file, init)
+	switch file.FlatType(init) {
+	case "array_creation_expression":
+	case "call_expression":
+		callee := flatCallExpressionName(file, init)
+		if !secureRandomConstantArrayBuilders[callee] && !secureRandomSizedArrays[callee] {
+			return false
+		}
+	default:
+		return false
+	}
+	var root uint32
+	if fn, ok := flatEnclosingCallable(file, init); ok {
+		root = fn
+	}
+	used := false
+	for _, kind := range []string{"simple_identifier", "identifier"} {
+		file.FlatWalkNodes(root, kind, func(id uint32) {
+			if used || id == ref || file.FlatNodeText(id) != name {
+				return
+			}
+			parent, _ := file.FlatParent(id)
+			switch file.FlatType(parent) {
+			case "variable_declaration", "variable_declarator", "navigation_suffix":
+				return
+			}
+			used = true
+		})
+	}
+	return used
 }
 
 // secureRandomIsLimitConstant matches `Long.MAX_VALUE` style constants of the primitive wrapper classes.

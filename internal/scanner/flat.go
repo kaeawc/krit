@@ -746,12 +746,14 @@ func internNodeType(nodeType string) uint16 {
 	for k, v := range nodeTypeIndex {
 		indexCopy[k] = v
 	}
-	nodeTypeIndexSnapshot.Store(&indexCopy)
 	// Publish a snapshot for lock-free reads during dispatch. The slice header
 	// is copied so readers always see a consistent (ptr, len, cap) triple even
 	// if a future append reallocates the backing array.
 	snapshot := NodeTypeTable
 	nodeTypeSnapshot.Store(&snapshot)
+	// Publish the index after the name table, so any ID a lock-free reader
+	// observes already resolves to its name.
+	nodeTypeIndexSnapshot.Store(&indexCopy)
 	return idx
 }
 

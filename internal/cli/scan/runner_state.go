@@ -321,8 +321,12 @@ func applyDetektBaseline(f *scanFlags, cfg *config.Config) {
 	*f.Baseline = info.Baseline
 }
 
-// reportDetektImport prints the detekt import summary under --verbose.
+// reportDetektImport warns about a skipped detekt config and prints the
+// detekt import summary under --verbose.
 func reportDetektImport(verbose bool, cfg *config.Config, w io.Writer) {
+	if d := cfg.Detekt(); d != nil && d.Warning != "" {
+		fmt.Fprintf(w, "warning: config: %s\n", d.Warning)
+	}
 	if !verbose {
 		return
 	}

@@ -497,3 +497,36 @@ func TestDetektDefaultsNotAppliedWithoutDetektConfig(t *testing.T) {
 		t.Error("krit's own default should stand when no detekt config is imported")
 	}
 }
+
+func TestDetektDiscoveredInvalidYAMLIsSkippedWithWarning(t *testing.T) {
+	installFakeView(t)
+	root := newProject(t)
+	writeFile(t, filepath.Join(root, "detekt.yml"), "complexity: [unterminated\n")
+	kritYml := filepath.Join(root, "krit.yml")
+	writeFile(t, kritYml, "complexity:\n  LongMethod:\n    allowedLines: 90\n")
+	for name, userPath := range map[string]string{"explicit krit.yml": kritYml, "discovered krit.yml": ""} {
+		t.Run(name, func(t *testing.T) {
+			cfg := loadWith(t, LoadOptions{}, userPath, root)
+			if got := cfg.GetInt("complexity", "LongMethod", "allowedLines", 0); got != 90 {
+				t.Errorf("allowedLines = %d, want 90 from krit.yml", got)
+			}
+			if d := cfg.Detekt(); d == nil || !strings.Contains(d.Warning, "detekt.yml") {
+				t.Errorf("Detekt() = %+v, want a warning naming detekt.yml", d)
+			}
+		})
+	}
+}
+
+func TestDetektExplicitInvalidYAMLIsError(t *testing.T) {
+	installFakeView(t)
+	root := newProject(t)
+	bad := filepath.Join(root, "lint.yml")
+	writeFile(t, bad, "complexity: [unterminated\n")
+	if _, err := mergeUserConfig(NewConfig(), "", []string{root}, LoadOptions{DetektConfigFile: bad}); err == nil {
+		t.Error("--detekt-config pointing at invalid YAML must fail")
+	}
+	writeFile(t, filepath.Join(root, "krit.yml"), "detekt:\n  configFile: lint.yml\n")
+	if _, err := mergeUserConfig(NewConfig(), "", []string{root}, LoadOptions{}); err == nil {
+		t.Error("detekt.configFile pointing at invalid YAML must fail")
+	}
+}

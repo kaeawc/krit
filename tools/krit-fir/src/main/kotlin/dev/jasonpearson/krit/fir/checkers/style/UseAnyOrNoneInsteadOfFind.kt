@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.style
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNullLiteral
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -13,7 +14,6 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
@@ -37,7 +37,6 @@ import org.jetbrains.kotlin.fir.types.typeContext
 import org.jetbrains.kotlin.fir.types.withNullability
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 // Flags `x.find { ... } != null` / `== null` (and the firstOrNull / lastOrNull
 // variants, with `null` on either side) that should be `x.any { ... }` /
@@ -193,7 +192,4 @@ internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCh
             val unwrapped = if (argument is FirWrappedArgumentExpression) argument.expression else argument
             unwrapped is FirAnonymousFunctionExpression && unwrapped.anonymousFunction.isLambda
         }
-
-    private fun isNullLiteral(expression: FirExpression): Boolean =
-        expression is FirLiteralExpression && expression.kind == ConstantValueKind.Null
 }

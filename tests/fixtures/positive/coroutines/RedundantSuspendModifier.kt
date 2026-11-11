@@ -1,3 +1,4 @@
+// fir-parity: skip K2 rejects the anonymous `suspend fun()` form, so this fixture never compiles cleanly and Go stays authoritative for it; the FIR positives are covered by compiler-tests data
 package fixtures.positive.coroutines
 
 import kotlinx.coroutines.delay

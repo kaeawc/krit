@@ -144,9 +144,13 @@ Per-user state (installed jars, JVM AOT/CDS archives and the daemon registry) li
 CLI scans run the FIR checker by default, including `krit --daemon`. Pass
 `--no-fir` to disable it. Before analyzing files, Krit requires Java 21 or
 newer, a resolvable `krit-fir.jar`,
-and a declared classpath source. If any requirement is missing, the scan exits
-with code `2` and one actionable `error: FIR requires ...` message on stderr.
-With `--no-fir`, Krit uses the previous Go-only checker path.
+and a declared classpath source. If any requirement is missing, or the FIR
+checker fails mid-scan, the scan warns on stderr, lists the default-on rules
+that fell back to their Go implementation, and continues with normal exit
+codes. JSON reports carry `summary.firDegraded` and SARIF reports carry a
+`toolExecutionNotifications` entry. Pass `--fail-on-degraded` to exit `2` with
+the same message instead, for CI. With `--no-fir`, Krit uses the Go-only
+checker path without a warning.
 
 For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
 task already depends on it). Krit discovers `.krit/gradle-model/`; a stale

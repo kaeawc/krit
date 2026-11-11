@@ -5,6 +5,7 @@ import (
 	"runtime"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/output"
 )
 
 // scanFlags bundles every CLI flag the scan default verb declares.
@@ -76,6 +77,8 @@ type scanFlags struct {
 	// (zero when there is no model: the embedded compiler defaults apply).
 	modelKotlin              gradlemodel.KotlinSettings
 	firPreflightPassed       bool
+	firDegraded              *output.FirDegraded
+	FailOnDegraded           *bool
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string
 	Daemon                   *bool
@@ -197,6 +200,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.OracleFilterFingerprint = fs.Bool("oracle-filter-fingerprint", false, "Compute the oracle filter input-set fingerprint for the given paths and print JSON to stdout; exits without running rules. Used by the CI drift gate.")
 	f.Fir = fs.Bool("fir", true, "Enable FIR checker pass (krit-fir JVM subprocess; default on)")
 	f.NoFir = fs.Bool("no-fir", false, "Disable the default-on FIR checker pass")
+	f.FailOnDegraded = fs.Bool("fail-on-degraded", false, "Exit 2 when the FIR pass is unavailable or fails instead of falling back to Go rules with a warning")
 	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Force one-shot mode for FIR checker (no persistent daemon; useful for hermetic CI runners)")
 	f.FixBinary = fs.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	f.WarningsAsErrors = fs.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")

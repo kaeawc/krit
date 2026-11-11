@@ -23,6 +23,7 @@ import (
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
@@ -101,6 +102,8 @@ type runner struct {
 	// Parse phase
 	parseResult pipeline.ParseResult
 	pendingFIR  pipeline.PendingFindingsPass
+	// firDegraded is set when the FIR checker fails mid-scan.
+	firDegraded *output.FirDegraded
 	// preparse is the background parse started while the oracle runs, or nil.
 	preparse *pipeline.PreparseFuture
 	// parseCachesReady is set once setupParseCaches has run.
@@ -766,6 +769,7 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 		Tracker:             r.tracker,
 		VerboseOut:          os.Stderr,
 		Thorough:            r.depthPreset == DepthThorough,
+		OnDegraded:          r.markFirDegraded,
 	}
 	if enabled {
 		checker := r.productionFIRChecker()
@@ -1065,6 +1069,7 @@ func (r *runner) outputPhase() int {
 		},
 		Writer:             r.w,
 		BaselineSuppressed: r.baselineSuppressed,
+		FirDegraded:        r.currentFirDegraded(),
 		Format:             r.effectiveFormat,
 		BasePath:           r.basePath,
 		AbsolutePaths:      *r.f.AbsolutePaths,
@@ -1087,5 +1092,9 @@ func (r *runner) outputPhase() int {
 	finalColumns := outRes.FinalFindings
 	r.allColumns = &finalColumns
 
+	if d := r.currentFirDegraded(); d != nil && *r.f.FailOnDegraded {
+		fmt.Fprintf(os.Stderr, "error: %s\n", degradedMessage(d))
+		return 2
+	}
 	return finalScanExit(os.Stderr, r.allColumns.Len(), time.Since(r.start), *r.f.Quiet)
 }

@@ -1,0 +1,71 @@
+package scan
+
+import (
+	"fmt"
+	"io"
+	"slices"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/output"
+	"github.com/kaeawc/krit/internal/rules/api"
+)
+
+// firFallbackRules lists the default-on rules that have a FIR twin and so run
+// their Go implementation when the FIR pass is unavailable.
+func firFallbackRules(cfg *config.Config) []string {
+	var ids []string
+	for _, r := range api.Registry {
+		if !firchecks.IsKnownFIRRule(r.ID) {
+			continue
+		}
+		active := r.DefaultActive
+		if cfg != nil {
+			if v := cfg.IsRuleActive(r.Category, r.ID); v != nil {
+				active = *v
+			}
+		}
+		if active {
+			ids = append(ids, r.ID)
+		}
+	}
+	slices.Sort(ids)
+	return slices.Compact(ids)
+}
+
+func newFirDegraded(reason string, cfg *config.Config) *output.FirDegraded {
+	return &output.FirDegraded{Reason: reason, FallbackRules: firFallbackRules(cfg)}
+}
+
+// degradedMessage is the stderr text shared by the warning and the
+// --fail-on-degraded error.
+func degradedMessage(d *output.FirDegraded) string {
+	return fmt.Sprintf("FIR rules were skipped (%s); %d default-on rules fell back to their Go implementation: %s",
+		d.Reason, len(d.FallbackRules), strings.Join(d.FallbackRules, ", "))
+}
+
+// handleFirPreflightFailure turns a failed FIR preflight into a Go-only scan
+// with a warning, or into an error under --fail-on-degraded.
+func handleFirPreflightFailure(f *scanFlags, cfg *config.Config, cause error, warn io.Writer) error {
+	d := newFirDegraded(cause.Error(), cfg)
+	if f.FailOnDegraded != nil && *f.FailOnDegraded {
+		return fmt.Errorf("%s", degradedMessage(d))
+	}
+	fmt.Fprintf(warn, "warning: %s\n", degradedMessage(d))
+	*f.NoFir = true
+	f.firDegraded = d
+	return nil
+}
+
+func (r *runner) markFirDegraded(err error) {
+	r.firDegraded = newFirDegraded(fmt.Sprintf("checker failed: %v", err), r.cfg)
+}
+
+// currentFirDegraded returns the degraded state from preflight or mid-scan.
+func (r *runner) currentFirDegraded() *output.FirDegraded {
+	if r.firDegraded != nil {
+		return r.firDegraded
+	}
+	return r.f.firDegraded
+}

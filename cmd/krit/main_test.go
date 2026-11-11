@@ -98,15 +98,36 @@ func writeTempKt(t *testing.T, filename, content string) string {
 
 // --- Tests ---
 
-func TestFIRPreflightExit2BeforeAnalysis(t *testing.T) {
+func TestFIRPreflightFailOnDegradedExit2(t *testing.T) {
 	root := writeTempKt(t, "A.kt", "fun answer() = 42\n")
 	t.Setenv("JAVA_HOME", filepath.Join(t.TempDir(), "missing"))
-	stdout, stderr, code := runKrit(t, "--fir", root)
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "Java 21") || !strings.Contains(stderr, "JAVA_HOME") || !strings.Contains(stderr, "--no-fir") {
+	stdout, stderr, code := runKrit(t, "--fir", "--fail-on-degraded", root)
+	if code != 2 || stdout != "" || !strings.Contains(stderr, "FIR rules were skipped") || !strings.Contains(stderr, "Java 21") || !strings.Contains(stderr, "fell back to their Go implementation") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if strings.Count(strings.TrimSpace(stderr), "\n") != 0 {
-		t.Fatalf("expected one stderr message: %q", stderr)
+}
+
+func TestFIRPreflightDegradesToGoWithWarning(t *testing.T) {
+	root := writeTempKt(t, "Test.kt", "package test\n\nfun example() {\n    val x = 1\n}\n")
+	t.Setenv("JAVA_HOME", filepath.Join(t.TempDir(), "missing"))
+	stdout, stderr, code := runKrit(t, "--fir", "--format", "json", root)
+	if code == 2 || !strings.Contains(stderr, "warning: FIR rules were skipped") {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	var report struct {
+		Summary struct {
+			FirDegraded *struct {
+				Reason        string   `json:"reason"`
+				FallbackRules []string `json:"fallbackRules"`
+			} `json:"firDegraded"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("json: %v\n%s", err, stdout)
+	}
+	d := report.Summary.FirDegraded
+	if d == nil || d.Reason == "" || len(d.FallbackRules) == 0 {
+		t.Fatalf("summary.firDegraded missing: %s", stdout)
 	}
 }
 

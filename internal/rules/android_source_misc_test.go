@@ -812,3 +812,40 @@ fun f(a: Any, p: Any) {
 		t.Errorf("R.styleable indices must not be reported, got %v", got)
 	}
 }
+
+func TestLogTagMismatchIsLoggable(t *testing.T) {
+	const pre = "package test\nclass A {\n    private val TAG = \"a\"\n    private val OTHER = \"b\"\n    fun f(x: Boolean) {\n        "
+	const post = "\n    }\n}\n"
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"same tag", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d(TAG, \"m\") }", nil},
+		{"different tag in braces", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d(OTHER, \"m\") }", []string{"the `d()` and `isLoggable()` calls typically should pass the same tag: `TAG` versus `OTHER`"}},
+		{"different tag without braces", "if (Log.isLoggable(TAG, Log.DEBUG)) Log.d(OTHER, \"m\")", []string{"`TAG` versus `OTHER`"}},
+		{"else branch", "if (Log.isLoggable(TAG, Log.DEBUG)) { } else { Log.d(OTHER, \"m\") }", []string{"`TAG` versus `OTHER`"}},
+		{"string literal tags", "if (Log.isLoggable(\"abc\", Log.DEBUG)) { Log.d(\"abd\", \"m\") }", []string{"`\"abc\"` versus `\"abd\"`"}},
+		{"level mismatch", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.i(TAG, \"m\") }", []string{"Mismatched logging levels: when checking `isLoggable` level `DEBUG`, the corresponding log call should be `Log.d`, not `Log.i`"}},
+		{"level and tag mismatch", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.i(OTHER, \"m\") }", []string{"Mismatched logging levels", "`i()` and `isLoggable()`"}},
+		{"wtf is ignored", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.wtf(OTHER, \"m\") }", nil},
+		{"compound condition is ignored", "if (Log.isLoggable(TAG, Log.DEBUG) && x) { Log.d(OTHER, \"m\") }", nil},
+		{"negated condition is ignored", "if (!Log.isLoggable(TAG, Log.DEBUG)) { Log.d(OTHER, \"m\") }", nil},
+		{"nested statement is ignored", "if (Log.isLoggable(TAG, Log.DEBUG)) { if (x) { Log.d(OTHER, \"m\") } }", nil},
+		{"log call outside if", "Log.d(OTHER, \"m\")", nil},
+		{"class name is not compared to the tag", "Log.d(TAG, \"m\")", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "LogTagMismatch", pre+tc.body+post)
+			if len(findings) != len(tc.want) {
+				t.Fatalf("expected %d findings, got %v", len(tc.want), findings)
+			}
+			for i, f := range findings {
+				if !strings.Contains(f.Message, tc.want[i]) {
+					t.Errorf("finding %d: %q does not contain %q", i, f.Message, tc.want[i])
+				}
+			}
+		})
+	}
+}

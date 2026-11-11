@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerIn
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -334,12 +335,6 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
             }
         })
         return found
-    }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression {
-        var current = argument
-        while (current is FirWrappedArgumentExpression) current = current.expression
-        return current
     }
 
     // ---- Where the toast's value goes ----

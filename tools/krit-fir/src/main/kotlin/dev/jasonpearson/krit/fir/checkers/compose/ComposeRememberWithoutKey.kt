@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.compose
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
@@ -296,9 +296,6 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         })
         return out
     }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
 
     // The function that lexically contains the remember call: the nearest
     // enclosing NAMED function. Anonymous functions (Compose content lambdas

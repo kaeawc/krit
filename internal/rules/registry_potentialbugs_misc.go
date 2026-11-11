@@ -65,6 +65,11 @@ func registerPotentialbugsMiscRules() {
 					return
 				}
 
+				// The compiler analyzed this file and reported nothing here, so the name-based paths would only add false positives.
+				if compilerAnalyzedFile(ctx) {
+					return
+				}
+
 				// 1. Oracle-based check: annotations are embedded in the call-target
 				// resolution entry, so no member-declaration extraction is needed.
 				if oracleLookup != nil {

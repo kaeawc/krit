@@ -4,13 +4,16 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.trimGoSpace
+import dev.jasonpearson.krit.fir.support.upperCodePoints
 import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
+import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
@@ -19,9 +22,8 @@ import org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
@@ -230,29 +232,4 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
         tree: FlyweightCapableTreeStructure<LighterASTNode>,
     ): List<LighterASTNode> =
         node.getChildren(tree).filter { it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS }
-
-    // Go's strings.TrimSpace trims runes where unicode.IsSpace holds: \t \n \v
-    // \f \r, space, U+0085 and U+00A0, plus the Unicode White_Space characters
-    // above Latin-1. Kotlin's trim() differs: it trims U+001C..U+001F and
-    // keeps U+0085.
-    private fun trimGoSpace(text: String): String = text.trim(::isGoSpace)
-
-    private fun isGoSpace(c: Char): Boolean = when (c) {
-        '\t', '\n', '\u000B', '\u000C', '\r', ' ', '\u0085', ' ',
-        ' ', ' ', ' ', ' ', ' ', '　' -> true
-        else -> c in ' '..' '
-    }
-
-    // Go's strings.ToUpper maps each code point to its simple uppercase form,
-    // while String.uppercase() applies full mappings (one char to several).
-    private fun upperCodePoints(text: String): String {
-        val out = StringBuilder(text.length)
-        var i = 0
-        while (i < text.length) {
-            val cp = text.codePointAt(i)
-            out.appendCodePoint(Character.toUpperCase(cp))
-            i += Character.charCount(cp)
-        }
-        return out.toString()
-    }
 }

@@ -90,6 +90,19 @@ type sarifRun struct {
 	Tool       sarifTool       `json:"tool"`
 	Results    []sarifResult   `json:"results"`
 	Taxonomies []sarifTaxonomy `json:"taxonomies,omitempty"`
+	// Invocations is set only for a degraded (no-FIR) scan.
+	Invocations []sarifInvocation `json:"invocations,omitempty"`
+}
+
+type sarifInvocation struct {
+	ExecutionSuccessful        bool                `json:"executionSuccessful"`
+	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications,omitempty"`
+}
+
+type sarifNotification struct {
+	Level      string         `json:"level"`
+	Message    sarifText      `json:"message"`
+	Properties map[string]any `json:"properties,omitempty"`
 }
 
 type sarifTool struct {
@@ -202,6 +215,12 @@ func sarifRegionAt(cols scanner.FindingColumns, row int) sarifRegion {
 
 // FormatSARIFColumns writes columnar findings as SARIF 2.1.0 JSON.
 func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version string) error {
+	return FormatSARIFColumnsDegraded(w, columns, version, nil)
+}
+
+// FormatSARIFColumnsDegraded is FormatSARIFColumns plus a tool notification
+// when the FIR pass did not run.
+func FormatSARIFColumnsDegraded(w io.Writer, columns *scanner.FindingColumns, version string, degraded *FirDegraded) error {
 	cols := normalizedFindingColumns(columns)
 
 	descMap := make(map[string]string)
@@ -303,6 +322,17 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 			Results:    results,
 			Taxonomies: taxonomies,
 		}},
+	}
+
+	if degraded != nil {
+		log.Runs[0].Invocations = []sarifInvocation{{
+			ExecutionSuccessful: true,
+			ToolExecutionNotifications: []sarifNotification{{
+				Level:      "warning",
+				Message:    sarifText{Text: "FIR rules were skipped: " + degraded.Reason},
+				Properties: map[string]any{"firDegraded": true, "fallbackRules": degraded.FallbackRules},
+			}},
+		}}
 	}
 
 	enc := json.NewEncoder(w)

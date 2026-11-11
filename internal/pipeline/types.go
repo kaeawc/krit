@@ -13,6 +13,7 @@ import (
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -481,6 +482,8 @@ type OutputInput struct {
 	// already removed before this phase. OutputPhase sets it itself when it
 	// applies BaselinePath.
 	BaselineSuppressed *int
+	// FirDegraded, when non-nil, marks the report as produced without the FIR pass.
+	FirDegraded *output.FirDegraded
 	// DiffRef, when non-empty, is a git ref (e.g. "main",
 	// "origin/main") used to restrict findings to files changed
 	// since that ref.

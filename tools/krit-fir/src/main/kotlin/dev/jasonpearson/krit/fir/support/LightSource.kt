@@ -109,6 +109,19 @@ fun firstModifierAnchor(declaration: KtSourceElement): KtSourceElement? {
 }
 
 /**
+ * The direct modifier keyword [token] in [declaration]'s MODIFIER_LIST (the
+ * `suspend` in `private suspend fun`); null when the declaration lacks it.
+ * Go reports the keyword itself, which can sit on a later line than the first
+ * modifier or annotation.
+ */
+fun modifierKeywordAnchor(declaration: KtSourceElement, token: IElementType): KtSourceElement? {
+    val modifiers = lightChildren(declaration, declaration.lighterASTNode)
+        .firstOrNull { it.tokenType == KtNodeTypes.MODIFIER_LIST } ?: return null
+    val keyword = lightChildren(declaration, modifiers).firstOrNull { it.tokenType == token } ?: return null
+    return lightSourceOf(keyword, declaration)
+}
+
+/**
  * The imported name's segment of an import directive: the last selector of its
  * dotted path, which precedes any `as` alias. Go reports that identifier, so
  * `import android.content.Context\n    .MODE_PRIVATE` reports on the name's

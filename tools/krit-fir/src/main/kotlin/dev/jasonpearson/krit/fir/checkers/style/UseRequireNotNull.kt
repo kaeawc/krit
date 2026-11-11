@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -18,7 +19,6 @@ import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirOperation
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.types.canBeNull
@@ -81,9 +81,6 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
 
         report(source, MESSAGE)
     }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
 
     context(context: CheckerContext)
     private fun isNonNullable(operand: FirExpression): Boolean {

@@ -231,3 +231,19 @@ func (r *UntranslatableRule) Meta() api.RuleDescriptor {
 func (r *DuplicateDefinitionRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "DuplicateDefinition", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *UnsafeDynamicallyLoadedCodeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UnsafeDynamicallyLoadedCode", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *BadHostnameVerifierRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "BadHostnameVerifier", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *HardwareIDsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "HardwareIds", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DeprecatedProviderRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DeprecatedProvider", RuleSet: "android-lint", DefaultActive: true}
+}

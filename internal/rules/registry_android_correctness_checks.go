@@ -92,7 +92,10 @@ func registerAndroidCorrectnessChecksParcelCreator() {
 			if hasAnnotationNamed(file, idx, "Parcelize") {
 				return
 			}
-			if classDeclaresStaticProperty(file, idx, "CREATOR") {
+			if prop, found := parcelCreatorMember(file, idx); found {
+				if prop != 0 && !hasAnnotationNamed(file, prop, "JvmField") {
+					ctx.EmitAt(declLine(file, prop), declCol(file, prop), "Field should be annotated with `@JvmField`")
+				}
 				return
 			}
 			ctx.EmitAt(declLine(file, idx), declCol(file, idx), "This class implements `Parcelable` but does not provide a `CREATOR` field")

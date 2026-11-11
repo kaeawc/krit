@@ -1263,12 +1263,6 @@ func javaMethodInvocationResultIsIgnored(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-func isJavaBooleanTrue(file *scanner.File, idx uint32) bool {
-	idx = flatUnwrapParenExpr(file, idx)
-	text := strings.TrimSpace(file.FlatNodeText(idx))
-	return text == "true"
-}
-
 func javaMethodReceiverText(file *scanner.File, call uint32) string {
 	if file == nil || file.FlatType(call) != "method_invocation" {
 		return ""

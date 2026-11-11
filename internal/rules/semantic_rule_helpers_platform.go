@@ -199,11 +199,17 @@ func setJavaScriptEnabledJavaCall(ctx *api.Context, call uint32) bool {
 		return false
 	}
 	args := javaArgumentExpressions(file, call)
-	if len(args) != 1 || !isJavaBooleanTrue(file, args[0]) {
+	if len(args) != 1 {
+		return false
+	}
+	if on, known := lintEvalBool(file, args[0]); !known || !on {
 		return false
 	}
 	if fact, ok := javaSemanticCallFact(ctx, call); ok && fact.ReceiverType != "" {
 		return javaProfileTypeMatches(ctx, fact.ReceiverType, "android.webkit.WebSettings")
+	}
+	if lc, ok := lintCallAt(file, call); ok && lintReceiverIsType(ctx, lc, "android.webkit.WebSettings") {
+		return true
 	}
 	if !sourceImportsOrMentions(file, "android.webkit.WebSettings") && !sourceImportsOrMentions(file, "android.webkit.WebView") {
 		return false

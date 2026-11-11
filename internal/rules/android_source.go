@@ -692,7 +692,9 @@ func findConstStringPropertyValue(file *scanner.File, name string) (string, bool
 // =====================================================================
 
 // LogTagMismatchRule flags Log.x(TAG, ...) calls where the TAG companion
-// constant value doesn't match the enclosing class name.
+// constant value doesn't match the enclosing class name. Like Lint it also flags
+// a Log.v/d/i/w/e call in the branches of `if (Log.isLoggable(tag, level))` that
+// passes a different tag or level.
 type LogTagMismatchRule struct {
 	FlatDispatchBase
 	AndroidRule
@@ -705,6 +707,51 @@ type LogTagMismatchRule struct {
 // specific wrapper APIs can cause false positives or negatives.
 // Classified per roadmap/17.
 func (r *LogTagMismatchRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// isLoggableLevelMethods maps the Log level constants to their logging methods.
+var isLoggableLevelMethods = map[string]string{"VERBOSE": "v", "DEBUG": "d", "INFO": "i", "WARN": "w", "ERROR": "e"}
+
+// logCallArgText returns the source text of positional argument index of call, or "".
+func logCallArgText(file *scanner.File, call uint32, index int) string {
+	arg := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), index)
+	if expr := flatValueArgumentExpression(file, arg); expr != 0 {
+		return strings.TrimSpace(file.FlatNodeText(expr))
+	}
+	return ""
+}
+
+// logBranchStatements returns the statements directly inside an if branch.
+func logBranchStatements(file *scanner.File, body uint32) []uint32 {
+	var out []uint32
+	for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+		switch {
+		case !file.FlatIsNamed(c):
+		case file.FlatType(c) == "statements":
+			for st := file.FlatFirstChild(c); st != 0; st = file.FlatNextSib(st) {
+				if file.FlatIsNamed(st) {
+					out = append(out, st)
+				}
+			}
+		default:
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// logTagMismatchMessages returns Lint's messages for a log call checked by isLoggable(tag, level).
+func logTagMismatchMessages(tag, level, callTag, callMethod string) []string {
+	var out []string
+	levelName := level[strings.LastIndex(level, ".")+1:]
+	if want, ok := isLoggableLevelMethods[levelName]; ok && want != callMethod {
+		out = append(out, "Mismatched logging levels: when checking `isLoggable` level `"+levelName+
+			"`, the corresponding log call should be `Log."+want+"`, not `Log."+callMethod+"`")
+	}
+	if tag != "" && callTag != "" && tag != callTag {
+		out = append(out, "Mismatched tags: the `"+callMethod+"()` and `isLoggable()` calls typically should pass the same tag: `"+tag+"` versus `"+callTag+"`")
+	}
+	return out
+}
 
 // findDirectCompanionTag searches the direct children of a class_declaration
 // for a companion_object containing a TAG constant, returning its string value.

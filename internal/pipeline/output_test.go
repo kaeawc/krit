@@ -242,6 +242,45 @@ func TestOutputPhase_Run_BaselineSuppressedCountInJSON(t *testing.T) {
 	}
 }
 
+func TestOutputPhase_Run_BaselineSuppressedCountCombinations(t *testing.T) {
+	dir := t.TempDir()
+	matching := filepath.Join(dir, "matching.xml")
+	empty := filepath.Join(dir, "empty.xml")
+	for path, ids := range map[string]string{matching: "<ID>RuleX:foo.kt:$RuleX$trouble brewing</ID>", empty: ""} {
+		xml := `<?xml version="1.0" ?>
+<SmellBaseline><ManuallySuppressedIssues>` + ids + `</ManuallySuppressedIssues><CurrentIssues></CurrentIssues></SmellBaseline>`
+		if err := os.WriteFile(path, []byte(xml), 0o644); err != nil {
+			t.Fatalf("write baseline: %v", err)
+		}
+	}
+	preset := func(n int) *int { return &n }
+	tests := []struct {
+		name     string
+		baseline string
+		preset   *int
+		want     int
+	}{
+		{"baseline suppresses nothing", empty, nil, 0},
+		{"preset count without baseline", "", preset(3), 3},
+		{"preset count plus baseline", matching, preset(3), 4},
+	}
+	for _, tt := range tests {
+		for _, compact := range []bool{false, true} {
+			in, buf := twoFindingsInput(t, "json")
+			in.BaselinePath = tt.baseline
+			in.BaselineSuppressed = tt.preset
+			in.Paths = nil
+			in.JSONCompact = compact
+			if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {
+				t.Fatalf("%s: Run error: %v", tt.name, err)
+			}
+			if got, ok := summaryBaselineSuppressed(t, buf.Bytes()); !ok || got != tt.want {
+				t.Errorf("%s compact=%v: baselineSuppressed = %d (present=%v), want %d", tt.name, compact, got, ok, tt.want)
+			}
+		}
+	}
+}
+
 func TestOutputPhase_Run_NoBaselineOmitsSuppressedCount(t *testing.T) {
 	in, buf := twoFindingsInput(t, "json")
 	if _, err := (OutputPhase{}).Run(context.Background(), in); err != nil {

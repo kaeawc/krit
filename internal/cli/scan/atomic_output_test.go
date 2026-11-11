@@ -34,6 +34,9 @@ func TestAtomicOutputKeepsPreviousReportUntilFinish(t *testing.T) {
 func TestAtomicOutputDiscardedOnFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.json")
 	out := openAtomicOutput(path)
+	if out == nil {
+		t.Fatal("open returned nil")
+	}
 	_, _ = out.file.WriteString("partial")
 	if err := out.Finish(2); err != nil {
 		t.Fatal(err)

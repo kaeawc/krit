@@ -31,6 +31,7 @@ var knownFIRRules = map[string]bool{
 	"ImplicitDefaultLocale":                true,
 	"InjectDispatcher":                     true,
 	"InsecureTrustManager":                 true,
+	"InstanceOfCheckForException":          true,
 	"Instantiatable":                       true,
 	"IntoMapMissingKey":                    true,
 	"IntoSetOnNonSetReturn":                true,
@@ -50,6 +51,7 @@ var knownFIRRules = map[string]bool{
 	"PrintStackTrace":                      true,
 	"PrintlnInProduction":                  true,
 	"PrngFromSystemTime":                   true,
+	"RedundantSuspendModifier":             true,
 	"RsaNoPadding":                         true,
 	"RuntimeExecUnsafeShape":               true,
 	"ScopeOnParameterizedClass":            true,
@@ -61,6 +63,7 @@ var knownFIRRules = map[string]bool{
 	"ShortAlarm":                           true,
 	"ShowToast":                            true,
 	"SimpleDateFormat":                     true,
+	"SleepInsteadOfDelay":                  true,
 	"StateFlowMutableLeak":                 true,
 	"StaticIv":                             true,
 	"SuspendFunInFinallySection":           true,
@@ -85,7 +88,11 @@ var knownFIRRules = map[string]bool{
 	"WeakKeySize":                          true,
 	"WeakMacAlgorithm":                     true,
 	"WeakMessageDigest":                    true,
+	"WithContextInSuspendFunctionNoop":     true,
 	"WorldReadableFiles":                   true,
 	"WorldWriteableFiles":                  true,
 	"WrongCall":                            true,
 }
+
+// IsKnownFIRRule reports whether id has a FIR checker twin in krit-fir.
+func IsKnownFIRRule(id string) bool { return knownFIRRules[id] }

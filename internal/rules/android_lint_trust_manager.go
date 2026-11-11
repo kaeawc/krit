@@ -152,12 +152,18 @@ const slotLintTrustClasses = "lintTrustManagerClasses"
 // lintIsTrustManagerClass reports whether the class, object literal, or anonymous class has an X509TrustManager
 // supertype, directly or through a class declared in the same file.
 func lintIsTrustManagerClass(file *scanner.File, idx uint32, depth int) bool {
+	return lintHasSupertype(file, idx, trustManagerTypes, false, depth)
+}
+
+// lintHasSupertype reports whether the class, object literal, or anonymous class has one of the supertypes fqns,
+// directly or through a class declared in the same file. Interfaces are skipped unless interfaces is set.
+func lintHasSupertype(file *scanner.File, idx uint32, fqns []string, interfaces bool, depth int) bool {
 	if depth > 5 {
 		return false
 	}
 	switch file.FlatType(idx) {
 	case "class_declaration":
-		if lintDeclaresInterface(file, idx) {
+		if !interfaces && lintDeclaresInterface(file, idx) {
 			return false
 		}
 	case "object_literal":
@@ -169,12 +175,12 @@ func lintIsTrustManagerClass(file *scanner.File, idx uint32, depth int) bool {
 		return false
 	}
 	for _, super := range lintSupertypeNames(file, idx) {
-		for _, fqn := range trustManagerTypes {
+		for _, fqn := range fqns {
 			if lintTypeRefMatches(file, super, fqn) {
 				return true
 			}
 		}
-		if decl := lintSameFileClass(file, super); decl != 0 && decl != idx && lintIsTrustManagerClass(file, decl, depth+1) {
+		if decl := lintSameFileClass(file, super); decl != 0 && decl != idx && lintHasSupertype(file, decl, fqns, interfaces, depth+1) {
 			return true
 		}
 	}

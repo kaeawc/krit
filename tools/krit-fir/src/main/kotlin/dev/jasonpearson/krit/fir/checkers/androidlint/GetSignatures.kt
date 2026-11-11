@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -439,9 +440,6 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
 
     private fun flatArguments(call: FirFunctionCall): List<FirExpression> =
         call.argumentList.arguments.flatMap { (it as? FirVarargArgumentsExpression)?.arguments ?: listOf(it) }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) unwrapArgument(argument.expression) else argument
 
     // The values a lambda returns: its last expression and any
     // `return@label value` aimed at it.

@@ -6,6 +6,8 @@ import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.trimGoSpace
+import dev.jasonpearson.krit.fir.support.upperCodePoints
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
@@ -679,26 +681,5 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
             normalized.startsWith("HMACSHA") -> 256
             else -> null
         }
-    }
-
-    // Go's strings.TrimSpace trims runes where unicode.IsSpace holds.
-    private fun trimGoSpace(text: String): String = text.trim(::isGoSpace)
-
-    private fun isGoSpace(c: Char): Boolean = when (c) {
-        '\t', '\n', '\u000B', '\u000C', '\r', ' ', '\u0085', '\u00A0',
-        '\u1680', '\u2028', '\u2029', '\u202F', '\u205F', '\u3000' -> true
-        else -> c in '\u2000'..'\u200A'
-    }
-
-    // Go's strings.ToUpper maps each code point to its simple uppercase form.
-    private fun upperCodePoints(text: String): String {
-        val out = StringBuilder(text.length)
-        var i = 0
-        while (i < text.length) {
-            val cp = text.codePointAt(i)
-            out.appendCodePoint(Character.toUpperCase(cp))
-            i += Character.charCount(cp)
-        }
-        return out.toString()
     }
 }

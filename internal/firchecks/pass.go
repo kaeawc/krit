@@ -59,6 +59,9 @@ type PassOptions struct {
 	VerboseOut io.Writer
 	// Thorough mirrors --depth=thorough; forwarded to ActiveFirRules.
 	Thorough bool
+	// OnDegraded, when set, is called once if the checker fails mid-scan and
+	// the results fall back to Go-only findings.
+	OnDegraded func(err error)
 }
 
 // PendingPass owns an in-flight check. Check is not interruptible through the
@@ -250,6 +253,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	if err != nil {
 		// Always visible: the result holds only Go findings, which looks complete.
 		reporter().Warnf("warning: --fir checker failed (%v); results contain Go-only findings\n", err)
+		if opts.OnDegraded != nil {
+			opts.OnDegraded(err)
+		}
 		if verbose {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}

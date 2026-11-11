@@ -585,3 +585,18 @@ func TestPassRecordsFirCheckOutcome(t *testing.T) {
 		})
 	}
 }
+
+func TestStartPassCheckerErrorCallsOnDegraded(t *testing.T) {
+	SetReporter(&diag.Reporter{Warning: &bytes.Buffer{}})
+	t.Cleanup(func() { SetReporter(nil) })
+	checker := NewFakeFirChecker()
+	checker.Err = errors.New("daemon gone")
+	var got error
+	_, _ = StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"}, OnDegraded: func(err error) { got = err },
+	}).Finish(nil)
+	if got == nil || !strings.Contains(got.Error(), "daemon gone") {
+		t.Fatalf("OnDegraded err = %v", got)
+	}
+}

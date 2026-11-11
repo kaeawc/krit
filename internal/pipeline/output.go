@@ -111,7 +111,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
-			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed},
+			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded},
 			in.PerfRuleStats,
 		); err != nil {
 			return OutputResult{}, fmt.Errorf("format json: %w", err)
@@ -119,7 +119,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 	case "plain":
 		output.FormatPlainColumns(in.Writer, reported)
 	case "sarif":
-		if err := output.FormatSARIFColumns(in.Writer, reported, in.Version); err != nil {
+		if err := output.FormatSARIFColumnsDegraded(in.Writer, reported, in.Version, in.FirDegraded); err != nil {
 			return OutputResult{}, fmt.Errorf("format sarif: %w", err)
 		}
 	case "checkstyle":

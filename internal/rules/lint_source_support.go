@@ -788,6 +788,24 @@ func lintEvalBoolDepth(file *scanner.File, idx, scope uint32, depth int) (value,
 		if init := lintConstantInitializer(file, scope, file.FlatNodeText(idx)); init != 0 {
 			return lintEvalBoolDepth(file, init, init, depth+1)
 		}
+	case "unary_expression", "prefix_expression":
+		if operand := lintNegatedOperand(file, idx); operand != 0 {
+			v, ok := lintEvalBoolDepth(file, operand, scope, depth+1)
+			return !v, ok
+		}
 	}
 	return false, false
+}
+
+// lintNegatedOperand returns the operand of a `!x` expression, or 0 for any other unary or prefix operator.
+func lintNegatedOperand(file *scanner.File, idx uint32) uint32 {
+	negated := false
+	for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "!" {
+			negated = true
+		} else if negated && file.FlatIsNamed(child) {
+			return child
+		}
+	}
+	return 0
 }

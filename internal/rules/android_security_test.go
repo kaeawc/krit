@@ -3692,14 +3692,26 @@ func TestDrawAllocation_DeferredAndLazyAllocationsAreIgnored(t *testing.T) {
 	}{
 		{"plain allocation", "val p = Paint()", 1},
 		{"null checked lazy init", "if (cached == null) { cached = Paint() }", 0},
-		{"elvis lazy init", "cached = cached ?: Paint()", 0},
+		{"elvis is not lazy init for Lint", "cached = cached ?: Paint()", 1},
+		{"if-else assigns in else", "if (cached != null) { } else { cached = Paint() }", 1},
+		{"assigned name read by condition", "if (count > 1) { count = Rect().width() }", 0},
 		{"anonymous object member", "val r = object : Runnable { override fun run() { val x = Rect() } }", 0},
-		{"posted lambda", "post { val y = Path() }", 0},
+		{"posted lambda still flagged like Lint", "post { val y = Path() }", 1},
+		{"throw operand", "throw IllegalStateException(\"x\")", 0},
+		{"any constructor", "val sb = StringBuilder()", 1},
+		{"package qualified constructor", "val p = android.graphics.Path()", 1},
+		{"member call is not a constructor", "val c = Color.valueOf(1)", 0},
+		{"bitmap factory", "val b = Bitmap.createBitmap(1, 1, null)", 1},
+		{"bitmap decode", "val b = BitmapFactory.decodeFile(\"x\")", 1},
+		{"clip bounds call", "val b = canvas.getClipBounds()", 1},
+		{"clip bounds property", "val b = canvas.clipBounds", 1},
+		{"clip bounds with out parameter", "canvas.getClipBounds(rect)", 0},
+		{"SAM constructor", "val r = Runnable { }", 1},
 		{"local lambda still per draw", "run { val y = Path() }", 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			findings := runRuleByName(t, "DrawAllocation", "package test\nimport android.view.View\nimport android.graphics.*\nclass V(c: android.content.Context) : View(c) {\n  private var cached: Paint? = null\n  override fun onDraw(canvas: Canvas) {\n    "+tc.body+"\n  }\n}\n")
+			findings := runRuleByName(t, "DrawAllocation", "package test\nimport android.view.View\nimport android.graphics.*\nclass V(c: android.content.Context) : View(c) {\n  private var cached: Paint? = null\n  private var count = 0\n  override fun onDraw(canvas: Canvas) {\n    "+tc.body+"\n  }\n}\n")
 			if len(findings) != tc.want {
 				t.Fatalf("expected %d findings, got %d", tc.want, len(findings))
 			}
@@ -3766,10 +3778,40 @@ func TestHiddenFeatureComment_JavaUnicodeLineBreakInComment(t *testing.T) {
 }
 
 func TestDrawAllocation_LintMessageAndLayoutMethods(t *testing.T) {
-	for _, method := range []string{"onDraw(canvas: Canvas)", "onMeasure(w: Int, h: Int)", "onLayout(c: Boolean, l: Int, t: Int, r: Int, b: Int)", "dispatchDraw(canvas: Canvas)"} {
+	for _, method := range []string{"onDraw(canvas: Canvas)", "onMeasure(w: Int, h: Int)", "onLayout(c: Boolean, l: Int, t: Int, r: Int, b: Int)", "layout(l: Int, t: Int, r: Int, b: Int)"} {
 		findings := runRuleByName(t, "DrawAllocation", "package test\nimport android.graphics.Paint\nclass V {\n    override fun "+method+" {\n        val p = Paint()\n    }\n}\n")
 		if len(findings) != 1 || findings[0].Message != "Avoid object allocations during draw/layout operations (preallocate and reuse instead)" {
 			t.Errorf("%s: unexpected findings %+v", method, findings)
 		}
+	}
+}
+
+func TestDrawAllocation_OnlyLintPerFrameMethods(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		want   int
+	}{
+		{"draw is not inspected", "override fun draw(canvas: Canvas)", 0},
+		{"dispatchDraw is not inspected", "override fun dispatchDraw(canvas: Canvas)", 0},
+		{"onDraw needs a Canvas parameter", "fun onDraw(canvas: Canvas, extra: Int)", 0},
+		{"onMeasure needs two ints", "fun onMeasure(w: Int)", 0},
+		{"no override needed", "fun onDraw(canvas: Canvas)", 1},
+		{"qualified parameter type", "override fun onDraw(canvas: android.graphics.Canvas)", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nimport android.graphics.*\nclass V {\n    " + tc.method + " {\n        val p = Paint()\n    }\n}\n"
+			if got := len(runRuleByName(t, "DrawAllocation", src)); got != tc.want {
+				t.Fatalf("expected %d findings, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestDrawAllocation_ValueClassConstructorDoesNotAllocate(t *testing.T) {
+	src := "package test\n@JvmInline value class Wrapped(val v: Int)\nclass V {\n    fun onDraw(canvas: Canvas) {\n        val w = Wrapped(1)\n    }\n}\n"
+	if got := runRuleByName(t, "DrawAllocation", src); len(got) != 0 {
+		t.Fatalf("expected no findings, got %v", got)
 	}
 }

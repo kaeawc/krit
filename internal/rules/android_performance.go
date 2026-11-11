@@ -13,44 +13,30 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-// DrawAllocationRule detects object allocations inside onDraw/draw methods.
-// Uses AST dispatch on function_declaration to avoid brace-counting errors
-// from string literals, comments, and multi-line signatures that broke the
-// prior line-scan implementation.
+// DrawAllocationRule detects object allocations inside onDraw/onMeasure/onLayout/layout methods,
+// matching Android Lint's JavaPerformanceDetector: any constructor call, plus the Bitmap factory
+// calls and Canvas.getClipBounds().
 type DrawAllocationRule struct {
 	FlatDispatchBase
 	AndroidRule
 }
 
-// drawAllocationAllocTypes is the fixed allow-list of graphics types whose
-// construction inside onDraw/draw triggers a finding. Matched by unqualified
-// type name.
-var drawAllocationAllocTypes = map[string]bool{
-	"Paint":                 true,
-	"Rect":                  true,
-	"RectF":                 true,
-	"Path":                  true,
-	"Matrix":                true,
-	"LinearGradient":        true,
-	"RadialGradient":        true,
-	"SweepGradient":         true,
-	"Bitmap":                true,
-	"PorterDuffXfermode":    true,
-	"Shader":                true,
-	"ColorFilter":           true,
-	"PorterDuffColorFilter": true,
-	"BitmapShader":          true,
-	"ComposeShader":         true,
-	"Region":                true,
+// Confidence reports a tier-2 (medium) base confidence. Without type resolution a capitalized
+// call is taken as a constructor, so a capitalized factory function can be a false positive.
+func (r *DrawAllocationRule) Confidence() float64 { return api.ConfidenceHigh }
+
+// drawAllocationMethodParams maps the per-frame method names Lint inspects to their parameter types.
+var drawAllocationMethodParams = map[string][]string{
+	"onDraw":    {"Canvas"},
+	"onMeasure": {"Int", "Int"},
+	"onLayout":  {"Boolean", "Int", "Int", "Int", "Int"},
+	"layout":    {"Int", "Int", "Int", "Int"},
 }
 
-// Confidence reports a tier-2 (medium) base confidence. AST-based
-// detection scopes allocations to the onDraw/draw function body,
-// eliminating the prior regex/brace-scan false positives from string
-// literals, comments, and multi-line signatures. Unqualified type-name
-// matching against the fixed allow-list keeps this pattern-based
-// without oracle type resolution. Classified per roadmap/17.
-func (r *DrawAllocationRule) Confidence() float64 { return api.ConfidenceHigh }
+const (
+	drawAllocationMessage    = "Avoid object allocations during draw/layout operations (preallocate and reuse instead)"
+	drawAllocationClipBounds = "Avoid object allocations during draw operations: Use `Canvas.getClipBounds(Rect)` instead of `Canvas.getClipBounds()` which allocates a temporary `Rect`"
+)
 
 func (r *DrawAllocationRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -58,90 +44,179 @@ func (r *DrawAllocationRule) check(ctx *api.Context) {
 	if file == nil || fn == 0 || file.FlatType(fn) != "function_declaration" {
 		return
 	}
-	name := flatFunctionName(file, fn)
-	switch name {
-	case "onDraw", "draw", "dispatchDraw", "onMeasure", "onLayout":
-	default:
-		return
-	}
-	if !file.FlatHasModifier(fn, "override") {
+	if !drawAllocationIsPerFrameMethod(file, fn) {
 		return
 	}
 	body, _ := file.FlatFindChild(fn, "function_body")
 	if body == 0 {
 		return
 	}
+	inline := drawAllocationInlineClasses(file)
 	file.FlatWalkNodes(body, "call_expression", func(call uint32) {
-		if !drawAllocationIsAllocCall(file, call) || drawAllocationNotPerDraw(file, call, body) {
+		msg := drawAllocationCallMessage(file, call, inline)
+		if msg == "" || drawAllocationNotPerDraw(file, call, body) {
 			return
 		}
-		ctx.EmitAt(file.FlatRow(call)+1, file.FlatCol(call)+1,
-			"Avoid object allocations during draw/layout operations (preallocate and reuse instead)")
+		ctx.EmitAt(file.FlatRow(call)+1, file.FlatCol(call)+1, msg)
+	})
+	file.FlatWalkNodes(body, "navigation_expression", func(nav uint32) {
+		if drawAllocationIsClipBoundsProperty(file, nav) && !drawAllocationNotPerDraw(file, nav, body) {
+			ctx.EmitAt(file.FlatRow(nav)+1, file.FlatCol(nav)+1, drawAllocationClipBounds)
+		}
 	})
 }
 
-// drawAllocationIsAllocCall reports whether a call_expression is an
-// unqualified constructor-style call whose callee name appears in the
-// graphics allow-list. Qualified calls (receiver.Foo()) and calls whose
-// callee is not a simple identifier are ignored.
-// drawAllocationDeferredCallNames run their lambda later, not during the draw pass.
-var drawAllocationDeferredCallNames = map[string]bool{
-	"post": true, "postDelayed": true, "postOnAnimation": true, "postOnAnimationDelayed": true, "runOnUiThread": true,
+// drawAllocationIsPerFrameMethod reports whether fn has the name and parameter types of onDraw,
+// onMeasure, onLayout or layout. Lint checks no `override` modifier or View supertype.
+func drawAllocationIsPerFrameMethod(file *scanner.File, fn uint32) bool {
+	want, ok := drawAllocationMethodParams[flatFunctionName(file, fn)]
+	if !ok {
+		return false
+	}
+	params, ok := file.FlatFindChild(fn, "function_value_parameters")
+	if !ok {
+		return false
+	}
+	i := 0
+	for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+		if file.FlatType(p) != "parameter" {
+			continue
+		}
+		typ, _ := file.FlatFindChild(p, "user_type")
+		name := ""
+		if typ != 0 {
+			name = file.FlatNodeText(typ)
+			name = name[strings.LastIndex(name, ".")+1:]
+		}
+		if i >= len(want) || name != want[i] {
+			return false
+		}
+		i++
+	}
+	return i == len(want)
 }
 
-// drawAllocationNotPerDraw reports allocations that do not run on every draw pass: lazy
-// `x ?: Paint()` and `if (x == null) x = Paint()` initialization, nested class bodies and
-// lambdas handed to post-style calls.
+// drawAllocationInlineClasses returns the value classes declared in the file; Lint skips their
+// constructors because they do not allocate.
+func drawAllocationInlineClasses(file *scanner.File) map[string]bool {
+	var out map[string]bool
+	file.FlatWalkNodes(0, "class_declaration", func(cls uint32) {
+		if !file.FlatHasModifier(cls, "value") && !hasAnnotationNamed(file, cls, "JvmInline") {
+			return
+		}
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[extractIdentifierFlat(file, cls)] = true
+	})
+	return out
+}
+
+// drawAllocationCallMessage returns the finding message for call, or "" when it does not allocate.
+func drawAllocationCallMessage(file *scanner.File, call uint32, inline map[string]bool) string {
+	name := flatCallExpressionName(file, call)
+	if name == "" {
+		return ""
+	}
+	nav, args := flatCallExpressionParts(file, call)
+	if name[0] >= 'A' && name[0] <= 'Z' {
+		if inline[name] || (nav != 0 && !drawAllocationIsPackagePath(file, nav)) {
+			return ""
+		}
+		return drawAllocationMessage
+	}
+	if nav == 0 {
+		return ""
+	}
+	recv := drawAllocationReceiverName(file, nav)
+	switch {
+	case recv == "Bitmap" && (name == "createBitmap" || name == "createScaledBitmap"):
+		return drawAllocationMessage
+	case recv == "BitmapFactory" && strings.HasPrefix(name, "decode"):
+		return drawAllocationMessage
+	case name == "getClipBounds" && hasZeroArguments(file, args):
+		return drawAllocationClipBounds
+	}
+	return ""
+}
+
+// drawAllocationReceiverName returns the last identifier of the receiver in `Receiver.member`.
+func drawAllocationReceiverName(file *scanner.File, nav uint32) string {
+	recv := file.FlatNamedChild(nav, 0)
+	if recv == 0 {
+		return ""
+	}
+	text := file.FlatNodeText(recv)
+	return text[strings.LastIndex(text, ".")+1:]
+}
+
+// drawAllocationIsPackagePath reports whether nav is a dotted name whose qualifiers are all
+// lowercase, as in `android.graphics.Path`, so that the call constructs the final class.
+func drawAllocationIsPackagePath(file *scanner.File, nav uint32) bool {
+	text := file.FlatNodeText(nav)
+	text = text[:strings.LastIndex(text, ".")+1]
+	for _, seg := range strings.Split(strings.TrimSuffix(text, "."), ".") {
+		if seg == "" || seg[0] < 'a' || seg[0] > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// drawAllocationIsClipBoundsProperty reports `receiver.clipBounds` read as a Kotlin property.
+func drawAllocationIsClipBoundsProperty(file *scanner.File, nav uint32) bool {
+	if parent, ok := file.FlatParent(nav); ok && file.FlatType(parent) == "call_expression" {
+		return false
+	}
+	suffix, ok := file.FlatFindChild(nav, "navigation_suffix")
+	return ok && file.FlatNamedChildCount(nav) > 1 && strings.TrimPrefix(file.FlatNodeText(suffix), ".") == "clipBounds"
+}
+
+// drawAllocationNotPerDraw reports allocations Lint does not flag: nested class bodies and
+// object literals (their methods are not per-frame methods), `throw` operands, and lazy
+// initialization, where an `if` assigns a variable its own condition reads.
 func drawAllocationNotPerDraw(file *scanner.File, call, body uint32) bool {
-	child := call
 	for cur, ok := file.FlatParent(call); ok && cur != body; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
 		case "class_body", "object_literal", "class_declaration", "object_declaration":
 			return true
-		case "elvis_expression":
-			if file.FlatNamedChild(cur, 0) != child {
+		case "jump_expression":
+			if strings.HasPrefix(file.FlatNodeText(cur), "throw") {
 				return true
 			}
 		case "if_expression":
-			cond := file.FlatNamedChild(cur, 0)
-			if cond != 0 && cond != child && strings.Contains(file.FlatNodeText(cond), "null") {
-				return true
-			}
-		case "lambda_literal":
-			if outer, ok := flatEnclosingAncestor(file, cur, "call_expression"); ok && drawAllocationDeferredCallNames[flatCallExpressionName(file, outer)] {
+			if drawAllocationIsLazyIf(file, cur) {
 				return true
 			}
 		}
-		child = cur
 	}
 	return false
 }
 
-func drawAllocationIsAllocCall(file *scanner.File, call uint32) bool {
-	if file == nil || file.FlatType(call) != "call_expression" {
+// drawAllocationIsLazyIf reports an if whose then-branch assigns a name that its condition mentions.
+func drawAllocationIsLazyIf(file *scanner.File, ifExpr uint32) bool {
+	cond := file.FlatNamedChild(ifExpr, 0)
+	then, ok := file.FlatFindChild(ifExpr, "control_structure_body")
+	if cond == 0 || !ok {
 		return false
 	}
-	// Require the callee to be a bare simple_identifier, not a
-	// navigation_expression. `receiver.Paint()` is a method call, not a
-	// constructor of the Paint type.
-	var calleeName string
-	for child := file.FlatFirstChild(call); child != 0; child = file.FlatNextSib(child) {
-		if !file.FlatIsNamed(child) {
-			continue
+	assigned := map[string]bool{}
+	file.FlatWalkNodes(then, "assignment", func(asn uint32) {
+		if target := file.FlatNamedChild(asn, 0); target != 0 {
+			text := file.FlatNodeText(target)
+			assigned[text[strings.LastIndex(text, ".")+1:]] = true
 		}
-		switch file.FlatType(child) {
-		case "simple_identifier":
-			calleeName = file.FlatNodeText(child)
-		case "navigation_expression":
-			return false
-		case "call_suffix":
-			// no-op
-		}
-		if calleeName != "" {
-			break
-		}
+	})
+	if len(assigned) == 0 {
+		return false
 	}
-	return drawAllocationAllocTypes[calleeName]
+	lazy := false
+	file.FlatWalkNodes(cond, "simple_identifier", func(id uint32) {
+		if assigned[file.FlatNodeText(id)] {
+			lazy = true
+		}
+	})
+	return lazy
 }
 
 // FieldGetterRule detects calls on self to a trivial getter, which are slower than reading the field.

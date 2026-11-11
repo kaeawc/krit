@@ -273,3 +273,43 @@ func TestLongLogTagCountsUTF16Characters(t *testing.T) {
 		}
 	}
 }
+
+func TestParcelCreatorCompanionForms(t *testing.T) {
+	src := `package test
+import android.os.Parcelable
+class Named : Parcelable {
+    companion object CREATOR : Parcelable.Creator<Named> {}
+}
+class Annotated : Parcelable {
+    companion object { @JvmField val CREATOR: Parcelable.Creator<Annotated>? = null }
+}
+class Plain : Parcelable {
+    companion object { val CREATOR: Parcelable.Creator<Plain>? = null }
+}
+class Constant : Parcelable {
+    companion object { const val CREATOR = 1 }
+}
+class Stat : Parcelable {
+    companion object { @JvmStatic val CREATOR: Parcelable.Creator<Stat>? = null }
+}
+class Private : Parcelable {
+    companion object { private val CREATOR: Parcelable.Creator<Private>? = null }
+}
+enum class Kind : Parcelable {
+    A;
+    companion object { @JvmField val CREATOR: Parcelable.Creator<Kind>? = null }
+}
+enum class Bare : Parcelable { A }
+`
+	got := runAndroidRuleMinSdk(t, "ParcelCreator", src, 21)
+	want := map[int]string{10: "@JvmField", 13: "@JvmField", 16: "@JvmField", 19: "@JvmField", 25: "CREATOR"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d findings, got %v", len(want), got)
+	}
+	for _, f := range got {
+		sub, ok := want[f.Line]
+		if !ok || !strings.Contains(f.Message, sub) {
+			t.Errorf("unexpected finding %d:%d %s", f.Line, f.Col, f.Message)
+		}
+	}
+}

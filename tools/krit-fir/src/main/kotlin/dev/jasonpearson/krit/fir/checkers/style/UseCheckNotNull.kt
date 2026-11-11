@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.style
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -11,17 +13,14 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.types.canBeNull
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 // Flags `check(x != null)` (and `check(null != x)`, with or without a trailing
 // lazy-message lambda) that should be `checkNotNull(x)`.
@@ -91,10 +90,4 @@ internal object UseCheckNotNull : FirFunctionCallChecker(MppCheckerKind.Common),
 
         report(expression.source, MESSAGE)
     }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
-
-    private fun isNullLiteral(expression: FirExpression): Boolean =
-        expression is FirLiteralExpression && expression.kind == ConstantValueKind.Null
 }

@@ -88,47 +88,23 @@ func classHasSupertypeNamed(file *scanner.File, idx uint32, name string) bool {
 	return false
 }
 
-// classDeclaresStaticProperty returns true when the class at idx declares
-// a property named `name` at class-top-level or inside a companion_object
-// (which is how Kotlin models static fields like Parcelable.CREATOR).
-func classDeclaresStaticProperty(file *scanner.File, idx uint32, name string) bool {
-	if file == nil || idx == 0 {
-		return false
+// classBodyOf returns the class_body (or enum_class_body) of the class at idx, or 0.
+func classBodyOf(file *scanner.File, idx uint32) uint32 {
+	if body, ok := file.FlatFindChild(idx, "class_body"); ok {
+		return body
 	}
-	body, _ := file.FlatFindChild(idx, "class_body")
-	if body == 0 {
-		return false
-	}
-	if classBodyHasProperty(file, body, name) {
-		return true
-	}
-	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) == "companion_object" {
-			innerBody, _ := file.FlatFindChild(child, "class_body")
-			if classBodyHasProperty(file, innerBody, name) {
-				return true
-			}
-		}
-	}
-	return false
+	body, _ := file.FlatFindChild(idx, "enum_class_body")
+	return body
 }
 
-// classBodyHasProperty returns true when body contains a property_declaration
-// whose variable_declaration's simple_identifier matches `name`.
-func classBodyHasProperty(file *scanner.File, body uint32, name string) bool {
-	if file == nil || body == 0 {
-		return false
-	}
-	found := false
-	for child := file.FlatFirstChild(body); child != 0 && !found; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "property_declaration" {
-			continue
-		}
-		if propertyDeclarationName(file, child) == name {
-			found = true
+// classBodyProperty returns the property_declaration named `name` directly in body, or 0.
+func classBodyProperty(file *scanner.File, body uint32, name string) uint32 {
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "property_declaration" && propertyDeclarationName(file, child) == name {
+			return child
 		}
 	}
-	return found
+	return 0
 }
 
 // propertyDeclarationName returns the identifier name of a property_declaration,
@@ -262,4 +238,30 @@ func assignmentRHS(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+// parcelCreatorMember finds how the class at idx declares CREATOR: a property in the class body or in
+// any companion (prop != 0), or a companion object named CREATOR (found with prop == 0).
+func parcelCreatorMember(file *scanner.File, idx uint32) (prop uint32, found bool) {
+	body := classBodyOf(file, idx)
+	if body == 0 {
+		return 0, false
+	}
+	if p := classBodyProperty(file, body, "CREATOR"); p != 0 {
+		return p, true
+	}
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "companion_object" {
+			continue
+		}
+		if name, ok := file.FlatFindChild(child, "type_identifier"); ok && file.FlatNodeText(name) == "CREATOR" {
+			return 0, true
+		}
+		if inner, ok := file.FlatFindChild(child, "class_body"); ok {
+			if p := classBodyProperty(file, inner, "CREATOR"); p != 0 {
+				return p, true
+			}
+		}
+	}
+	return 0, false
 }

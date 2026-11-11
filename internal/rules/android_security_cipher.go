@@ -38,13 +38,12 @@ const (
 // transformation must not be ECB (RSA excepted), and AES, DES and DESede need
 // an explicit mode and padding. It returns "" when the transformation is fine.
 func getInstanceMessage(algo string) string {
-	parts := strings.Split(algo, "/")
-	if len(parts) >= 2 && parts[1] == "ECB" && parts[0] != "RSA" {
-		return getInstanceECBMessage
-	}
 	switch algo {
 	case "AES", "DES", "DESede":
 		return getInstanceNoModeMessage
+	}
+	if (strings.Contains(algo, "/ECB/") || strings.HasSuffix(algo, "/ECB")) && !strings.HasPrefix(algo, "RSA/") {
+		return getInstanceECBMessage
 	}
 	return ""
 }
@@ -65,12 +64,20 @@ func (r *GetInstanceRule) check(ctx *api.Context) {
 	if !getInstanceReceiverIsJavaxCipher(file, navExpr) {
 		return
 	}
-	algo, ok := getInstanceFirstStringArg(file, args)
-	if !ok {
+	call, isCall := lintCallAt(file, idx)
+	if !isCall || len(call.Args) == 0 || call.Args[0] == 0 {
 		return
 	}
+	algo, ok := getInstanceFirstStringArg(file, args)
+	if !ok {
+		// Lint folds constants, so a local or file-level `val` holding the transformation counts too.
+		if algo, ok = lintEvalStringStrict(file, call.Args[0]); !ok {
+			return
+		}
+	}
 	if msg := getInstanceMessage(algo); msg != "" {
-		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, msg)
+		// Lint reports the transformation argument.
+		ctx.EmitAt(file.FlatRow(call.Args[0])+1, file.FlatCol(call.Args[0])+1, msg)
 	}
 }
 

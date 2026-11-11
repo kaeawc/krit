@@ -279,12 +279,17 @@ func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
 		if len(paths) == 0 {
 			paths = []string{"."}
 		}
-		model, err := PreflightFIR(ctx, paths, loadScanConfig(f), *f.GradleModel, *f.NoGradleModel, os.Stderr)
+		cfg := loadScanConfig(f)
+		model, err := PreflightFIR(ctx, paths, cfg, *f.GradleModel, *f.NoGradleModel, os.Stderr)
 		if err != nil {
-			return err
+			if derr := handleFirPreflightFailure(f, cfg, err, os.Stderr); derr != nil {
+				return derr
+			}
+			loadFallbackGradleClasspath(f)
+		} else {
+			f.modelClasspath = model
+			f.firPreflightPassed = true
 		}
-		f.modelClasspath = model
-		f.firPreflightPassed = true
 	} else if !*f.Init && !*f.Version && *f.Completions == "" {
 		model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
 		if err != nil {
@@ -302,6 +307,15 @@ func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
 		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
 	}
 	return nil
+}
+
+// loadFallbackGradleClasspath loads the model after a degraded preflight, so
+// the Go-only scan still sees the project classpath when one exists.
+func loadFallbackGradleClasspath(f *scanFlags) {
+	// An unreadable model is not fatal here; the scan is already degraded.
+	if model, err := loadGradleClasspath(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr); err == nil {
+		f.modelClasspath = model
+	}
 }
 
 func shouldPreflightFIR(f *scanFlags) bool {

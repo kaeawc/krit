@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.contracts.description.LogicOperationKind
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWhenBranch
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenSubjectExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
@@ -87,9 +87,6 @@ internal object ErrorUsageWithThrowable : FirFunctionCallChecker(MppCheckerKind.
         if (argText.isEmpty()) return
         report(source, "error($argText) passes a Throwable. Use throw instead, or pass the message string.")
     }
-
-    private fun unwrapArgument(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
 
     context(context: CheckerContext)
     private fun isThrowable(argument: FirExpression): Boolean {

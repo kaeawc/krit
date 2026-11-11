@@ -11,6 +11,7 @@ import "bytes"
 //     `if`, a member access), so a ';' ends the previous line.
 //   - `is X if cond ->` (when guard) becomes `is X , cond ->`.
 //   - `{ [a, b] -> ...` (square-bracket destructuring) uses parentheses.
+//   - `{ e -> ... }` on its own line after a function body is a new lambda expression, not a trailing lambda.
 //   - `(x).f()` on its own line is a new statement, not a call suffix of the line above.
 
 var guardStopWords = map[string]bool{
@@ -78,6 +79,10 @@ func (r *kotlinRewriter) rewriteLeadingToken(ls, p, le int) {
 		r.rewriteLeadingSign(ls, p)
 	case '(':
 		r.rewriteLeadingParen(ls, p)
+	case '{':
+		if r.followsFunctionBody(ls) {
+			r.terminatePrevious(ls)
+		}
 	case '.':
 		if startsFractionLiteral(line) {
 			r.terminatePrevious(ls)
@@ -866,4 +871,53 @@ func (r *kotlinRewriter) skipLeadingBlockComments(p, le int) int {
 		}
 	}
 	return q
+}
+
+// followsFunctionBody reports whether the code before the line starting at ls
+// ends with the block body of a `fun` declaration.
+func (r *kotlinRewriter) followsFunctionBody(ls int) bool {
+	end := r.lastCodeSkippingComments(ls)
+	if end < 0 || r.orig[end] != '}' {
+		return false
+	}
+	depth := 0
+	open := -1
+	for i := end; i >= 0 && open < 0; i-- {
+		if !r.isCode(i) {
+			continue
+		}
+		switch r.orig[i] {
+		case '}':
+			depth++
+		case '{':
+			if depth--; depth == 0 {
+				open = i
+			}
+		}
+	}
+	return open >= 0 && r.headerIsFunction(open)
+}
+
+// headerIsFunction reports whether the declaration header before the block
+// opening at open starts with `fun`. Expression bodies and other statements
+// end the backward scan without a match.
+func (r *kotlinRewriter) headerIsFunction(open int) bool {
+	parens := 0
+	for i := open - 1; i >= 0; i-- {
+		if !r.isCode(i) {
+			continue
+		}
+		switch c := r.orig[i]; {
+		case c == ')':
+			parens++
+		case c == '(':
+			parens--
+		case parens > 0:
+		case c == '{' || c == '}' || c == ';' || c == '=':
+			return false
+		case c == 'f' && r.wordAt(i, "fun"):
+			return true
+		}
+	}
+	return false
 }

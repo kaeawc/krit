@@ -146,6 +146,8 @@ var firCrossRuleAllowlist = map[string]string{
 	// is cancelled, so the message is true; Go only matches call text that
 	// starts with a listed name and misses receiver-qualified calls.
 	"DefaultLocale|tests/fixtures/negative/potential-bugs/ImplicitDefaultLocale.kt":           "FIR reports every default-locale format call; Go follows Lint and skips formats without d/e/f/g/t conversions (DefaultLocale.kt patternOnly)",
+	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/InjectDispatcher.kt":         "launch lambda runs in its own coroutine, so the suspend caller never suspends; Go keeps the modifier for the launch call",
+	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SleepInsteadOfDelay.kt":      "Thread.sleep blocks and println does not suspend; Go cannot resolve the Java member call and keeps the modifier",
 	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
 	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
 }

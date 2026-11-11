@@ -563,3 +563,33 @@ func TestKotlinRewriteLeadingParenStartsStatement(t *testing.T) {
 		}
 	}
 }
+
+func TestKotlinRewriteLambdaAfterLocalFunction(t *testing.T) {
+	src := "class A {\n  fun f(): (Int) -> Unit = wrap(1) {\n    fun local() {\n      println(\"x\")\n    }\n    { e ->\n      local()\n      println(e)\n    }\n  }\n\n  fun b() {}\n}\n"
+	ft, b := parseSynthetic(t, src)
+	if hasErrors(ft) {
+		t.Fatalf("parse has errors: %s", sexp(ft))
+	}
+	for c := ft.FirstChildren[0]; c != 0; c = ft.NextSibs[c] {
+		if nodeTypeName(ft.Types[c]) == "function_declaration" {
+			t.Errorf("member function hoisted to the file: %s", sexp(ft))
+		}
+	}
+	if got := nodeTexts(ft, b, "call_expression"); len(got) == 0 {
+		t.Fatalf("no calls: %s", sexp(ft))
+	}
+}
+
+func TestKotlinRewriteLambdaAfterNonFunctionBlockUnchanged(t *testing.T) {
+	keep := []string{
+		"fun b() {\n  foo {\n    x()\n  }\n  { y() }\n}\n",
+		"fun b() = wrap {\n  x()\n}\n{ y() }\n",
+		"fun b() {\n  if (c) {\n    x()\n  }\n  { y() }\n}\n",
+	}
+	for _, src := range keep {
+		out, _ := rewriteKotlin([]byte(src))
+		if string(out) != src {
+			t.Errorf("rewrote a non-function block:\n%q\n%q", src, out)
+		}
+	}
+}

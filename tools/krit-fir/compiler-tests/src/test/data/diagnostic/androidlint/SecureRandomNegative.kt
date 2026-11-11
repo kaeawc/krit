@@ -16,7 +16,6 @@ class Negatives {
     fun byteArraySeed(seedBytes: ByteArray) {
         val rng = SecureRandom()
         rng.setSeed(seedBytes)
-        rng.setSeed(byteArrayOf(1, 2, 3))
     }
 
     fun variableSeed(seed: Long) {

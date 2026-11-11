@@ -43,6 +43,7 @@ func runDeprecation(t *testing.T, code string, anchors []deprecationAnchor) []sc
 	var r typeinfer.TypeResolver = resolver
 	if anchors != nil {
 		fake := oracle.NewFakeOracle()
+		fake.AnalyzedFiles[file.Path] = true
 		for _, a := range anchors {
 			idx := nthFlatNodeWithText(t, file, a.kind, a.text, a.nth)
 			msg := a.message
@@ -125,6 +126,22 @@ func TestDeprecationProjection_MessageCarriesCompilerDetail(t *testing.T) {
 	}
 	if got, want := findings[0].Message, "'oldFn' is deprecated: use newFn"; got != want {
 		t.Fatalf("message = %q, want %q", got, want)
+	}
+}
+
+func TestDeprecation_CompilerAnalyzedFileWithoutDiagnosticIsClean(t *testing.T) {
+	// Only the Int overload is deprecated, and the compiler resolved the call to the String one.
+	code := `package p
+@Deprecated("old")
+fun over(i: Int) {}
+fun over(s: String) {}
+fun use() { over("x") }
+`
+	if findings := runDeprecation(t, code, []deprecationAnchor{}); len(findings) != 0 {
+		t.Fatalf("findings = %#v, want none: the compiler analyzed the file and reported nothing", findings)
+	}
+	if findings := runDeprecation(t, code, nil); len(findings) != 1 {
+		t.Fatalf("findings = %#v, want the name-based source fallback without a compiler", findings)
 	}
 }
 

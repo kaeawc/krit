@@ -116,16 +116,112 @@ func singleKotlinValueArgument(file *scanner.File, args uint32) uint32 {
 func secureRandomIsDeterministicSeedArgument(file *scanner.File, arg uint32) bool {
 	arg = flatUnwrapParenExpr(file, arg)
 	switch file.FlatType(arg) {
-	case "integer_literal", "long_literal", "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal", "binary_integer_literal":
-		return true
 	case "call_expression":
 		navExpr, args := flatCallExpressionParts(file, arg)
-		return args != 0 && file.FlatNamedChildCount(args) == 0 && secureRandomIsSystemTimeNavigation(file, navExpr)
+		if args != 0 && file.FlatNamedChildCount(args) == 0 && secureRandomIsSystemTimeNavigation(file, navExpr) {
+			return true
+		}
 	case "method_invocation":
-		return secureRandomIsJavaSystemTimeCall(file, arg)
-	default:
+		if secureRandomIsJavaSystemTimeCall(file, arg) {
+			return true
+		}
+	}
+	return secureRandomIsConstantSeed(file, arg, 0)
+}
+
+// secureRandomConstantArrayBuilders are the Kotlin functions that build an array from their arguments.
+var secureRandomConstantArrayBuilders = map[string]bool{
+	"byteArrayOf": true, "shortArrayOf": true, "intArrayOf": true, "longArrayOf": true, "charArrayOf": true,
+	"floatArrayOf": true, "doubleArrayOf": true, "booleanArrayOf": true, "arrayOf": true,
+}
+
+// secureRandomIsConstantSeed mirrors Lint's ConstantEvaluator for a setSeed argument: numeric literals, arithmetic
+// on constants, arrays built from constants, and vals or final locals that hold one.
+func secureRandomIsConstantSeed(file *scanner.File, expr uint32, depth int) bool {
+	if expr == 0 || depth > 4 {
 		return false
 	}
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "integer_literal", "long_literal", "decimal_integer_literal", "hex_integer_literal", "octal_integer_literal",
+		"binary_integer_literal", "real_literal", "decimal_floating_point_literal", "character_literal":
+		return true
+	case "simple_identifier", "identifier":
+		name := file.FlatNodeText(expr)
+		init := lintInitializerOf(file, expr, name, true)
+		return init != 0 && secureRandomIsConstantSeed(file, init, depth+1)
+	case "navigation_expression", "field_access":
+		return secureRandomIsLimitConstant(file, expr)
+	case "call_expression":
+		return secureRandomIsConstantCall(file, expr, depth)
+	case "array_creation_expression":
+		if init, ok := file.FlatFindChild(expr, "array_initializer"); ok {
+			return secureRandomAllConstant(file, init, "", depth)
+		}
+		dims, ok := file.FlatFindChild(expr, "dimensions_expr")
+		return ok && secureRandomAllConstant(file, dims, "", depth)
+	case "prefix_expression", "unary_expression", "additive_expression", "multiplicative_expression", "binary_expression":
+		return secureRandomAllConstant(file, expr, "", depth)
+	}
+	return false
+}
+
+// secureRandomIsLimitConstant matches `Long.MAX_VALUE` style constants of the primitive wrapper classes.
+func secureRandomIsLimitConstant(file *scanner.File, expr uint32) bool {
+	switch file.FlatNodeText(expr) {
+	case "Long.MAX_VALUE", "Long.MIN_VALUE", "Int.MAX_VALUE", "Int.MIN_VALUE", "Short.MAX_VALUE", "Short.MIN_VALUE",
+		"Byte.MAX_VALUE", "Byte.MIN_VALUE", "Integer.MAX_VALUE", "Integer.MIN_VALUE":
+		return true
+	}
+	return false
+}
+
+// secureRandomIsConstantCall matches array builders and sized arrays over constants, and numeric conversions of a
+// constant such as `1.toLong()`.
+func secureRandomIsConstantCall(file *scanner.File, call uint32, depth int) bool {
+	navExpr, args := flatCallExpressionParts(file, call)
+	name := flatCallExpressionName(file, call)
+	if navExpr != 0 {
+		switch name {
+		case "toLong", "toInt", "toShort", "toByte", "toChar", "toDouble", "toFloat":
+			return secureRandomIsConstantSeed(file, flatNavigationReceiver(file, navExpr), depth+1)
+		}
+		return false
+	}
+	if secureRandomConstantArrayBuilders[name] || secureRandomSizedArrays[name] {
+		return secureRandomAllConstant(file, args, "value_argument", depth)
+	}
+	return false
+}
+
+// secureRandomSizedArrays are the Kotlin primitive array constructors that take a size.
+var secureRandomSizedArrays = map[string]bool{
+	"ByteArray": true, "ShortArray": true, "IntArray": true, "LongArray": true, "CharArray": true,
+	"FloatArray": true, "DoubleArray": true, "BooleanArray": true,
+}
+
+// secureRandomAllConstant reports whether every named child of owner (or the expression of each child of kind) is a
+// constant, ignoring operators.
+func secureRandomAllConstant(file *scanner.File, owner uint32, kind string, depth int) bool {
+	if owner == 0 {
+		return false
+	}
+	for c := file.FlatFirstChild(owner); c != 0; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) {
+			continue
+		}
+		node := c
+		if kind != "" {
+			if file.FlatType(c) != kind {
+				continue
+			}
+			node = flatValueArgumentExpression(file, c)
+		}
+		if !secureRandomIsConstantSeed(file, node, depth+1) {
+			return false
+		}
+	}
+	return true
 }
 
 func secureRandomIsSystemTimeNavigation(file *scanner.File, navExpr uint32) bool {

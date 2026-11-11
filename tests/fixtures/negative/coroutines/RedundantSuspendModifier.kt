@@ -1,3 +1,4 @@
+// fir-parity: skip K2 rejects a top-level `open` function and expect/actual outside a multiplatform project, so this fixture never compiles cleanly and Go stays authoritative for it; the FIR negatives are covered by compiler-tests data
 package fixtures.negative.coroutines
 
 import kotlinx.coroutines.delay

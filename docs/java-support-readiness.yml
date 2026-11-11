@@ -170,6 +170,22 @@ rules:
   ExplicitBackingFieldCandidate:
     status: not-applicable
     reason: "Targets Kotlin 2.4 explicit backing fields (`field = ...`); Java has no such construct."
+  UnsafeDynamicallyLoadedCode:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_checks_test.go
+  BadHostnameVerifier:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_checks_test.go
+  HardwareIds:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_checks_test.go
+  DeprecatedProvider:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_security_checks_test.go
   InvalidWakeLockTag:
     status: supported
     fixtures:
@@ -416,8 +432,9 @@ rules:
     fixtures:
       - internal/rules/android_source_test.go
   ServiceCast:
-    status: pending
-    reason: "Kotlin as_expression coverage only; Java cast-expression parity for getSystemService receivers still needs implementation."
+    status: supported
+    fixtures:
+      - internal/rules/android_service_cast_test.go
   SetJavaScriptEnabled:
     status: supported
     fixtures:

@@ -132,60 +132,10 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"as_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
+			NodeTypes: []string{"as_expression", "cast_expression"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				// First named child is the source expression; we want
-				// `getSystemService(...)` calls only.
-				call := file.FlatFirstChild(idx)
-				for call != 0 && !file.FlatIsNamed(call) {
-					call = file.FlatNextSib(call)
-				}
-				if call == 0 || file.FlatType(call) != "call_expression" {
-					return
-				}
-				if flatCallExpressionName(file, call) != "getSystemService" {
-					return
-				}
-				// Pull the service constant's final identifier. Accepts both
-				// `CONNECTIVITY_SERVICE` (simple_identifier) and
-				// `Context.CONNECTIVITY_SERVICE` (navigation_expression).
-				args := flatCallKeyArguments(file, call)
-				firstArg := flatPositionalValueArgument(file, args, 0)
-				expr := flatValueArgumentExpression(file, firstArg)
-				svcConst := ""
-				switch file.FlatType(expr) {
-				case "simple_identifier":
-					svcConst = file.FlatNodeText(expr)
-				case "navigation_expression":
-					svcConst = flatNavigationExpressionLastIdentifier(file, expr)
-				}
-				expectedType, ok := serviceCastMap[svcConst]
-				if !ok {
-					return
-				}
-				// Target type of the cast — last type_identifier of user_type.
-				castType := ""
-				if userType, ok := file.FlatFindChild(idx, "user_type"); ok {
-					if ident := flatLastChildOfType(file, userType, "type_identifier"); ident != 0 {
-						castType = file.FlatNodeText(ident)
-					}
-				}
-				if castType == "" || castType == expectedType {
-					return
-				}
-				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
-				var oracleLookup oracle.Lookup
-				if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
-					oracleLookup = cr.Oracle()
-				}
-				if !serviceCastOracleConfirmed(oracleLookup, file, call) {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Suspicious cast to `"+castType+"` for a `"+svcConst+"`: expected `"+expectedType+"`")
-			},
+			Check: serviceCastCheck,
 		})
 	}
 	{
@@ -407,10 +357,18 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"class_declaration", "if_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsTypeInfo | api.NeedsOracleCallTargets,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				if file.FlatType(idx) == "if_expression" {
+					var lookup oracle.Lookup
+					if cr, ok := ctx.Resolver.(*oracle.CompositeResolver); ok {
+						lookup = cr.Oracle()
+					}
+					checkLogTagMismatch(ctx, lookup)
+					return
+				}
 				if scanner.IsTestFile(file.Path) {
 					return
 				}
@@ -485,5 +443,32 @@ func registerAndroidSourceRules() {
 					"SMS destination should use international E.164 format starting with '+' to deliver correctly when roaming.")
 			},
 		})
+	}
+}
+
+// checkLogTagMismatch reports log calls in the branches of `if (Log.isLoggable(tag, level))`
+// whose tag or level differs from the isLoggable arguments.
+func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
+	file, ifExpr := ctx.File, ctx.Idx
+	cond := file.FlatNamedChild(ifExpr, 0)
+	if cond == 0 || file.FlatType(cond) != "call_expression" || !isReceiverNamed(file, cond, "Log") ||
+		flatCallExpressionName(file, cond) != "isLoggable" {
+		return
+	}
+	tag, level := logCallArgText(file, cond, 0), logCallArgText(file, cond, 1)
+	for branch := file.FlatFirstChild(ifExpr); branch != 0; branch = file.FlatNextSib(branch) {
+		if file.FlatType(branch) != "control_structure_body" {
+			continue
+		}
+		for _, stmt := range logBranchStatements(file, branch) {
+			method := flatCallExpressionName(file, stmt)
+			if file.FlatType(stmt) != "call_expression" || !isReceiverNamed(file, stmt, "Log") ||
+				!logMethodNames[method] || method == "wtf" || !logCallOracleConfirmed(lookup, file, stmt) {
+				continue
+			}
+			for _, msg := range logTagMismatchMessages(tag, level, logCallArgText(file, stmt, 0), method) {
+				ctx.EmitAt(callLine(file, stmt), callCol(file, stmt), msg)
+			}
+		}
 	}
 }

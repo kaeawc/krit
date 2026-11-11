@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.isNullLiteral
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
@@ -56,7 +57,6 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 /**
  * Port of the Go InsecureTrustManager rule: a trust manager's
@@ -260,9 +260,6 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
 
     private val nullCheckOperations =
         setOf(FirOperation.EQ, FirOperation.NOT_EQ, FirOperation.IDENTITY, FirOperation.NOT_IDENTITY)
-
-    private fun isNullLiteral(expression: FirExpression): Boolean =
-        (expression as? FirLiteralExpression)?.kind == ConstantValueKind.Null
 
     // A do-nothing stdlib call on an inert receiver, with inert arguments and
     // lambdas that do nothing. A computed receiver or argument

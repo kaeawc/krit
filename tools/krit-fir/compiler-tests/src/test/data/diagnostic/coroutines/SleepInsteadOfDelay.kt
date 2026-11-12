@@ -71,7 +71,7 @@ fun nestedInline(scope: CoroutineScope) {
 }
 
 suspend fun referenceArgument(items: List<Long>) {
-    items.forEach(<!SleepInsteadOfDelay!>Thread::sleep<!>)
+    <!SleepInsteadOfDelay!>items.forEach(Thread::sleep)<!>
 }
 
 // A local variable's initializer runs in the suspend function.

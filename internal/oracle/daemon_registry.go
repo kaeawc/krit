@@ -637,6 +637,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()
+	cmd.Env = fsutil.JVMEnv()
 	logFile := openDaemonLogFile(cmd, verbose)
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -1022,6 +1023,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = DaemonWorkDir()
+	cmd.Env = fsutil.JVMEnv()
 	logFile := openDaemonLogFile(cmd, verbose)
 
 	stdoutPipe, err := cmd.StdoutPipe()

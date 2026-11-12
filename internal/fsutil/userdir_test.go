@@ -10,6 +10,7 @@ import (
 )
 
 func TestUserKritDirCreatesPrivateDirectory(t *testing.T) {
+	t.Setenv(HomeEnv, "")
 	tmp := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", tmp)
 	if runtime.GOOS == "darwin" {
@@ -38,6 +39,7 @@ func TestUserKritDirCreatesPrivateDirectory(t *testing.T) {
 }
 
 func TestCreateUserKritFileWritesUnderUserDir(t *testing.T) {
+	t.Setenv(HomeEnv, "")
 	tmp := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", tmp)
 	if runtime.GOOS == "darwin" {
@@ -89,5 +91,47 @@ func TestCreateUserKritFileWritesUnderUserDir(t *testing.T) {
 	}
 	if len(data) != 0 {
 		t.Errorf("expected truncated file, got %d bytes", len(data))
+	}
+}
+
+func TestUserKritDirFollowsKritHome(t *testing.T) {
+	kritHome := t.TempDir()
+	t.Setenv(HomeEnv, kritHome)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	dir, err := UserKritDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(kritHome, "user-cache"); dir != want {
+		t.Fatalf("UserKritDir = %q, want %q", dir, want)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			t.Fatalf("UserKritDir mode %o, want owner-only", info.Mode().Perm())
+		}
+	}
+}
+
+func TestJVMEnvRoutesFirCacheUnderKritHome(t *testing.T) {
+	t.Setenv(firCacheDirEnv, "")
+	t.Setenv(HomeEnv, "")
+	if env := JVMEnv(); env != nil {
+		t.Fatalf("JVMEnv without KRIT_HOME = %d entries, want nil (inherit)", len(env))
+	}
+
+	kritHome := t.TempDir()
+	t.Setenv(HomeEnv, kritHome)
+	want := firCacheDirEnv + "=" + filepath.Join(kritHome, "user-cache")
+	if env := JVMEnv(); len(env) == 0 || env[len(env)-1] != want {
+		t.Fatalf("JVMEnv does not end with %q", want)
+	}
+
+	t.Setenv(firCacheDirEnv, "/explicit")
+	if env := JVMEnv(); env != nil {
+		t.Fatal("JVMEnv overrode an explicit KRIT_FIR_CACHE_DIR")
 	}
 }

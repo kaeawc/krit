@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Example</string>
+    <string name="title">@string/app_name</string>
+    <style name="AppTheme" parent="@android:style/Theme.Material" />
+    <style name="AppTheme.Dialog" />
+</resources>

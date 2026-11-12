@@ -206,13 +206,11 @@ negative ProxyPassword
 negative PxUsageResource
 negative Range
 negative RedundantLabel
-negative RedundantNamespaceResource
 negative RelativeOverlapResource
 negative RemoteVersion
 negative RequiredSizeResource
 negative ResAutoResource
 negative ResourceAsColor
-negative ResourceCycle
 negative ResourceType
 negative RoomDatabaseVersionNotBumped
 negative RtlCompatResource
@@ -489,13 +487,11 @@ positive ProxyPassword
 positive PxUsageResource
 positive Range
 positive RedundantLabel
-positive RedundantNamespaceResource
 positive RelativeOverlapResource
 positive RemoteVersion
 positive RequiredSizeResource
 positive ResAutoResource
 positive ResourceAsColor
-positive ResourceCycle
 positive ResourceType
 positive RoomDatabaseVersionNotBumped
 positive RtlCompatResource

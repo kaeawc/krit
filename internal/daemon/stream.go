@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 // Streamed progress frames let a verb send text to the client before its
@@ -23,17 +24,34 @@ type streamFrame struct {
 	Stream string `json:"stream"`
 }
 
+// streamWriteTimeout bounds one frame write. Handlers send frames while
+// holding analysis locks, so a client that stops reading must not stall them.
+var streamWriteTimeout = 10 * time.Second
+
+// writeDeadliner is the part of net.Conn a sink uses to bound its writes.
+type writeDeadliner interface {
+	SetWriteDeadline(t time.Time) error
+}
+
 // StreamSink writes streamed frames to one connection. Safe for concurrent
 // use. Seal stops further frames, which a handler calls before it begins
 // the final response so a frame can never land inside that envelope.
 type StreamSink struct {
 	mu     sync.Mutex
 	w      *bufio.Writer
+	conn   writeDeadliner
 	sealed bool
 }
 
 // NewStreamSink returns a sink that writes frames to w and flushes each.
 func NewStreamSink(w *bufio.Writer) *StreamSink { return &StreamSink{w: w} }
+
+// newConnStreamSink returns a sink whose frame writes to conn time out after
+// streamWriteTimeout. A timed-out write fails w, so the connection's final
+// response fails too and the server closes it.
+func newConnStreamSink(w *bufio.Writer, conn writeDeadliner) *StreamSink {
+	return &StreamSink{w: w, conn: conn}
+}
 
 // Send writes text as one frame and flushes it. It returns false when the
 // sink is nil, sealed, or the write failed, so the caller keeps the text
@@ -52,6 +70,13 @@ func (s *StreamSink) Send(text string) bool {
 		return false
 	}
 	buf = append(buf, '\n')
+	if s.conn != nil {
+		if err := s.conn.SetWriteDeadline(time.Now().Add(streamWriteTimeout)); err != nil {
+			s.sealed = true
+			return false
+		}
+		defer func() { _ = s.conn.SetWriteDeadline(time.Time{}) }()
+	}
 	if _, err := s.w.Write(buf); err != nil {
 		s.sealed = true
 		return false

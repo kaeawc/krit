@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -92,5 +93,49 @@ func TestDecodeStreamFrameRejectsResponses(t *testing.T) {
 	}
 	if text, ok := decodeStreamFrame([]byte("{\"stream\":\"hi\"}\n")); !ok || text != "hi" {
 		t.Fatalf("text=%q ok=%v", text, ok)
+	}
+}
+
+func TestStreamSinkBoundsWritesToStalledClient(t *testing.T) {
+	old := streamWriteTimeout
+	streamWriteTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { streamWriteTimeout = old })
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	sink := newConnStreamSink(bufio.NewWriter(server), server)
+
+	// A reading client receives each frame. The second Send comes after the
+	// first frame's deadline would have passed, so it proves the deadline is cleared.
+	reader := bufio.NewReader(client)
+	for _, text := range []string{"a", "a2"} {
+		got := make(chan string, 1)
+		go func() {
+			line, _ := reader.ReadString('\n')
+			got <- line
+		}()
+		if !sink.Send(text) {
+			t.Fatalf("send %q to a reading client failed", text)
+		}
+		if line, want := <-got, "{\"stream\":\""+text+"\"}\n"; line != want {
+			t.Fatalf("frame=%q want %q", line, want)
+		}
+		time.Sleep(2 * streamWriteTimeout)
+	}
+
+	// A client that stops reading must not block Send past the timeout.
+	done := make(chan bool, 1)
+	go func() { done <- sink.Send("b") }()
+	select {
+	case ok := <-done:
+		if ok {
+			t.Fatal("send to a stalled client reported success")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("send to a stalled client did not time out")
+	}
+	if sink.Send("c") {
+		t.Fatal("send after a timed-out write succeeded")
 	}
 }

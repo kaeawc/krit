@@ -24,13 +24,19 @@ import (
 // Fixture filename convention: tests/fixtures/<positive|negative>/<category>/<RuleID>.kt
 // or .java. The test does not enforce a category; it only checks that
 // some file with the rule's ID as basename exists in the right kind
-// directory.
+// directory. Rules that read manifests or resource folders may instead
+// ship project fixtures as tests/fixtures/android-lint/<RuleID>/<kind>/,
+// which cmd/krit's TestAndroidLintProjectFixtures scans.
 func TestFixtureCoverage(t *testing.T) {
 	root := repoRoot(t)
 	fixtureRoot := filepath.Join(root, "tests", "fixtures")
 
 	posIndex := indexFixtures(t, filepath.Join(fixtureRoot, "positive"))
 	negIndex := indexFixtures(t, filepath.Join(fixtureRoot, "negative"))
+	for rule, kinds := range indexProjectFixtures(t, filepath.Join(fixtureRoot, "android-lint")) {
+		posIndex[rule] = posIndex[rule] || kinds["positive"]
+		negIndex[rule] = negIndex[rule] || kinds["negative"]
+	}
 
 	allow, err := readAllowlist(filepath.Join(fixtureRoot, ".coverage-allowlist.txt"))
 	if err != nil {
@@ -102,6 +108,31 @@ func indexFixtures(t *testing.T, dir string) map[string]bool {
 		return nil
 	}); err != nil {
 		t.Fatalf("walk %s: %v", dir, err)
+	}
+	return out
+}
+
+// indexProjectFixtures records, per rule, which of the positive and negative
+// project fixture directories exist under dir/<RuleID>/.
+func indexProjectFixtures(t *testing.T, dir string) map[string]map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	out := make(map[string]map[string]bool)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		for _, kind := range []string{"positive", "negative"} {
+			if info, err := os.Stat(filepath.Join(dir, entry.Name(), kind)); err == nil && info.IsDir() {
+				if out[entry.Name()] == nil {
+					out[entry.Name()] = make(map[string]bool)
+				}
+				out[entry.Name()][kind] = true
+			}
+		}
 	}
 	return out
 }

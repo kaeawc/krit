@@ -39,7 +39,6 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import java.util.regex.Pattern
 
 /**
  * Flags a not-null assertion (`!!`) in the arguments of an assertion-library call, where
@@ -49,8 +48,8 @@ import java.util.regex.Pattern
  * every `!!` in the call's own arguments (a member receiver `x!!.ts` reads a member, not the value).
  * A `!!` inside a nested call's arguments or a lambda is not the assertion's subject. Go runs the rule
  * only on test-support files and skips an operand an earlier `assertNotNull`, `requireNotNull`,
- * `checkNotNull` or `assertThat(x).isNotNull()` in the same function already checks, since a library
- * without a Kotlin contract does not smart-cast it; the checker keeps both by the same text match.
+ * `checkNotNull` or `assertThat(x).isNotNull()` call in the same function already checks, since a library
+ * without a Kotlin contract does not smart-cast it; the checker reads those calls from the syntax tree as Go does.
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: the call must resolve to a function of an assertion library (kotlin.test, JUnit,
@@ -206,24 +205,74 @@ internal object AssertNullableWithNotNullAssertion : FirFunctionCallChecker(MppC
     }
 
     // An earlier check in the same function: without a Kotlin contract the `!!` after it is the required idiom.
+    // As in Go, the check is a call (`assertNotNull`, `requireNotNull` or `checkNotNull` on the operand, first or
+    // after one message argument, `assertThat(x).isNotNull()` or `assertThat(x, notNullValue())`) that ends before
+    // the assertion, and every block, lambda body or branch body around it also holds the assertion.
     context(context: CheckerContext)
     private fun isCheckedBefore(bang: Bang, call: KtSourceElement): Boolean {
-        val operand = bang.operandText.filterNot { isGoSpace(it) }
+        val operand = compact(bang.operandText)
         if (operand.isEmpty()) return false
-        val fileSource = containingFirFile()?.source ?: return false
-        val text = lightText(fileSource, fileSource.lighterASTNode)
+        val scope = context.containingDeclarations.lastOrNull { it is FirNamedFunctionSymbol }?.source
+            ?: containingFirFile()?.source ?: return false
         val callStart = qualifiedCall(call)?.let { lightSourceOf(it, call).startOffset } ?: call.startOffset
-        val scopeStart = context.containingDeclarations.lastOrNull { it is FirNamedFunctionSymbol }?.source?.startOffset ?: 0
-        if (scopeStart >= callStart || callStart > text.length) return false
-        val before = text.substring(scopeStart, callStart).filterNot { isGoSpace(it) }
-        val quoted = Pattern.quote(operand)
-        val pattern = Pattern.compile(
-            "assertThat\\($quoted\\)\\.isNotNull\\(\\)|" +
-                "(?:assertNotNull|requireNotNull|checkNotNull)\\((?:[^,()]*,)?$quoted[,)]|" +
-                "assertThat\\($quoted,notNullValue\\(\\)\\)",
-        )
-        return pattern.matcher(before).find()
+        val shift = scope.startOffset - scope.lighterASTNode.startOffset
+        fun visit(node: LighterASTNode): Boolean {
+            if (node.startOffset + shift >= callStart) return false
+            if (node.tokenType == KtNodeTypes.CALL_EXPRESSION && node.endOffset + shift <= callStart &&
+                isNonNullCheck(scope, node, operand) && reachesCall(scope, node, shift, callStart)
+            ) {
+                return true
+            }
+            return lightChildren(scope, node).any { visit(it) }
+        }
+        return visit(scope.lighterASTNode)
     }
+
+    private fun compact(text: String): String = text.filterNot { isGoSpace(it) }
+
+    private fun isNonNullCheck(source: KtSourceElement, call: LighterASTNode, operand: String): Boolean {
+        val args = argumentTexts(source, call)
+        return when (calleeName(source, call)) {
+            "assertNotNull", "requireNotNull", "checkNotNull" -> args.getOrNull(0) == operand || args.getOrNull(1) == operand
+            "assertThat" -> args.size == 2 && args[0] == operand && args[1] == "notNullValue()"
+            "isNotNull" -> args.isEmpty() && truthSubject(source, call)?.let { argumentTexts(source, it) } == listOf(operand)
+            else -> false
+        }
+    }
+
+    // The `assertThat(x)` call that `.isNotNull()` is called on, written directly or as `Truth.assertThat(x)`.
+    private fun truthSubject(source: KtSourceElement, call: LighterASTNode): LighterASTNode? {
+        val parent = source.treeStructure.getParent(call) ?: return null
+        if (parent.tokenType !in qualifiedTypes) return null
+        val parts = significantChildren(source, parent, accessTokens)
+        if (parts.size != 2 || !sameNode(parts[1], call)) return null
+        var receiver = parts[0]
+        if (receiver.tokenType in qualifiedTypes) receiver = significantChildren(source, receiver, accessTokens).lastOrNull() ?: return null
+        return receiver.takeIf { it.tokenType == KtNodeTypes.CALL_EXPRESSION && calleeName(source, it) == "assertThat" }
+    }
+
+    private fun calleeName(source: KtSourceElement, call: LighterASTNode): String? =
+        lightChildren(source, call).firstOrNull { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }?.let { lightText(source, it) }
+
+    // The compact text of each value argument, labels included.
+    private fun argumentTexts(source: KtSourceElement, call: LighterASTNode): List<String> {
+        val list = lightChildren(source, call).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return emptyList()
+        return lightChildren(source, list).filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }.map { compact(lightText(source, it)) }
+    }
+
+    // Every block, lambda body and branch body between check and the scope also holds callStart.
+    private fun reachesCall(scope: KtSourceElement, check: LighterASTNode, shift: Int, callStart: Int): Boolean {
+        var node = scope.treeStructure.getParent(check)
+        while (node != null && !sameNode(node, scope.lighterASTNode)) {
+            if (node.tokenType in branchBodies && (node.startOffset + shift > callStart || node.endOffset + shift <= callStart)) {
+                return false
+            }
+            node = scope.treeStructure.getParent(node)
+        }
+        return true
+    }
+
+    private val branchBodies = setOf(KtNodeTypes.BLOCK, KtNodeTypes.THEN, KtNodeTypes.ELSE, KtNodeTypes.BODY, KtNodeTypes.WHEN_ENTRY)
 
     context(context: CheckerContext)
     private fun containingFirFile(): FirFile? = context.containingElements.filterIsInstance<FirFile>().firstOrNull()

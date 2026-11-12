@@ -41,6 +41,13 @@ fun checkedWithMessage(maybe: String?) {
     assertEquals("x", maybe!!)
 }
 
+fun checkedInEnclosingBlock(maybe: String?, flag: Boolean) {
+    assertNotNull(maybe)
+    if (flag) {
+        assertEquals("x", maybe!!)
+    }
+}
+
 fun checkedByRequire(maybe: String?) {
     requireNotNull(maybe)
     assertEquals("x", maybe!!)

@@ -1,10 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 20, 24, 29, 35, 48
+// go-lines: 17, 21, 25, 30, 36, 49, 55, 60, 67, 72
 // A `!!` on a nullable operand in the arguments of a JUnit assertion.
 package test.assertnullablewithnotnullassertion
 
 import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 
 class Holder {
@@ -46,4 +47,27 @@ fun unstableProperty(holder: Holder) {
 
 fun comparison(maybe: String?) {
     assertTrue(maybe<!AssertNullableWithNotNullAssertion!>!!<!> == "x")
+}
+
+// A check in a comment, a string, another branch or a lambda does not run before the assertion.
+fun checkInComment(maybe: String?) {
+    // assertNotNull(maybe)
+    assertEquals("x", maybe<!AssertNullableWithNotNullAssertion!>!!<!>)
+}
+
+fun checkInString(maybe: String?) {
+    println("assertNotNull(maybe)")
+    assertEquals("x", maybe<!AssertNullableWithNotNullAssertion!>!!<!>)
+}
+
+fun checkInOtherBranch(maybe: String?, flag: Boolean) {
+    if (flag) {
+        assertNotNull(maybe)
+    }
+    assertEquals("x", maybe<!AssertNullableWithNotNullAssertion!>!!<!>)
+}
+
+fun checkInLambda(maybe: String?) {
+    run { assertNotNull(maybe) }
+    assertEquals("x", maybe<!AssertNullableWithNotNullAssertion!>!!<!>)
 }

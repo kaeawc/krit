@@ -3979,6 +3979,44 @@ fun testNullable(vm: Vm) {
 	}
 }
 
+func TestAssertNullableWithNotNullAssertion_EarlierCheckMustBeAReachingCall(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"comment", "// assertNotNull(maybe)\n    assertEquals(\"x\", maybe!!)", 1},
+		{"string", "println(\"assertNotNull(maybe)\")\n    assertEquals(\"x\", maybe!!)", 1},
+		{"other branch", "if (flag) {\n        assertNotNull(maybe)\n    }\n    assertEquals(\"x\", maybe!!)", 1},
+		{"braceless branch", "if (flag) assertNotNull(maybe)\n    assertEquals(\"x\", maybe!!)", 1},
+		{"lambda", "run { assertNotNull(maybe) }\n    assertEquals(\"x\", maybe!!)", 1},
+		{"same block", "assertNotNull(maybe)\n    assertEquals(\"x\", maybe!!)", 0},
+		{"declaration", "val checked = requireNotNull(maybe)\n    assertEquals(checked, maybe!!)", 0},
+		{"message first", "assertNotNull(\"must exist\", maybe)\n    assertEquals(\"x\", maybe!!)", 0},
+		{"enclosing block", "checkNotNull(maybe)\n    if (flag) {\n        assertEquals(\"x\", maybe!!)\n    }", 0},
+		{"hamcrest", "assertThat(maybe, notNullValue())\n    assertEquals(\"x\", maybe!!)", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.notNullValue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+
+fun check(maybe: String?, flag: Boolean) {
+    `+tc.body+`
+}
+`)
+			if len(findings) != tc.want {
+				t.Fatalf("want %d findings, got %d", tc.want, len(findings))
+			}
+		})
+	}
+}
+
 func TestTestWithoutAssertion_ExpectAndAwaitCallsCount(t *testing.T) {
 	findings := runRuleByName(t, "TestWithoutAssertion", `
 package test

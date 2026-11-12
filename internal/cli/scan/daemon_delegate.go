@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/selfexec"
@@ -57,6 +58,12 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 			return false, 0
 		}
 		return runDaemonAnalyze(client, f, paths)
+	}
+	// A daemon keeps its socket, lock, PID file and log in <project>/.krit
+	// and its caches in its own state directory, so a relocated-state scan
+	// stays in-process unless --daemon-socket names a daemon explicitly.
+	if fsutil.StateDirRelocated() {
+		return false, 0
 	}
 	if daemonAutoStartDisabled() {
 		client, ok := daemonclient.TryConnect(repoDir, "")

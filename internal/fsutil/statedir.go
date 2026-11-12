@@ -54,6 +54,12 @@ func ProjectStateDir(repoDir string) string {
 	return filepath.Join(repoDir, ".krit")
 }
 
+// StateDirRelocated reports whether KRIT_STATE_DIR moves generated state out
+// of the project.
+func StateDirRelocated() bool {
+	return strings.TrimSpace(os.Getenv(StateDirEnv)) != ""
+}
+
 // projectStateKey names repoDir's subdirectory of $KRIT_STATE_DIR: its base
 // name for readability plus a hash of its resolved absolute path.
 func projectStateKey(repoDir string) string {

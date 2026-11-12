@@ -196,3 +196,73 @@ class A {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+func TestSecureRandomKotlinArraySeedReadsDoNotHideFixedSeed(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "SecureRandom", `package p
+
+import java.security.SecureRandom
+
+fun twice() {
+  val a = SecureRandom()
+  val b = SecureRandom()
+  val seed = ByteArray(32)
+  a.setSeed(seed)
+  b.setSeed(seed)
+}
+
+fun filledAfter(source: SecureRandom) {
+  val a = SecureRandom()
+  val seed = ByteArray(32)
+  a.setSeed(seed)
+  source.nextBytes(seed)
+}
+
+fun filledBetween(source: SecureRandom) {
+  val a = SecureRandom()
+  val b = SecureRandom()
+  val seed = ByteArray(32)
+  a.setSeed(seed)
+  source.nextBytes(seed)
+  b.setSeed(seed)
+}
+
+fun filledInLoop(source: SecureRandom) {
+  val a = SecureRandom()
+  val seed = ByteArray(32)
+  for (i in 0 until 2) {
+    a.setSeed(seed)
+    source.nextBytes(seed)
+  }
+}
+`))
+	if want := "9:3,10:3,16:3,24:3"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+func TestSecureRandomJavaArraySeedReadsDoNotHideFixedSeed(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+
+class A {
+  void twice() {
+    SecureRandom a = new SecureRandom();
+    SecureRandom b = new SecureRandom();
+    final byte[] seed = new byte[32];
+    a.setSeed(seed);
+    b.setSeed(seed);
+  }
+
+  void filledAfter(SecureRandom source) {
+    SecureRandom a = new SecureRandom();
+    final byte[] seed = new byte[32];
+    a.setSeed(seed);
+    source.nextBytes(seed);
+  }
+}
+`))
+	if want := "10:5,11:5,17:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}

@@ -169,8 +169,10 @@ func secureRandomIsConstantSeed(file *scanner.File, expr uint32, depth int) bool
 	return false
 }
 
-// secureRandomArrayMayBeFilled reports whether init builds an array and name is used anywhere besides the seed
-// argument ref, so calls such as `source.nextBytes(seed)` may have filled it before setSeed.
+// secureRandomArrayMayBeFilled reports whether init builds an array and name has another use that can run
+// before the seed argument ref, so calls such as `source.nextBytes(seed)` may have filled it before setSeed.
+// For a local array, a use only counts when it comes before ref or shares a loop with it, and other setSeed
+// arguments never count because setSeed only reads the array.
 func secureRandomArrayMayBeFilled(file *scanner.File, ref, init uint32, name string) bool {
 	init = flatUnwrapParenExpr(file, init)
 	switch file.FlatType(init) {
@@ -198,10 +200,58 @@ func secureRandomArrayMayBeFilled(file *scanner.File, ref, init uint32, name str
 			case "variable_declaration", "variable_declarator", "navigation_suffix":
 				return
 			}
+			if root != 0 {
+				if secureRandomIsSetSeedArgument(file, id) {
+					return
+				}
+				if file.FlatStartByte(id) > file.FlatStartByte(ref) && !secureRandomShareLoop(file, ref, id, root) {
+					return
+				}
+			}
 			used = true
 		})
 	}
 	return used
+}
+
+// secureRandomIsSetSeedArgument reports whether id is the whole argument of a setSeed call.
+func secureRandomIsSetSeedArgument(file *scanner.File, id uint32) bool {
+	parent, ok := file.FlatParent(id)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "value_argument":
+		call := parent
+		for range 3 {
+			if call, ok = file.FlatParent(call); !ok {
+				return false
+			}
+		}
+		if file.FlatType(call) != "call_expression" {
+			return false
+		}
+		navExpr, _ := flatCallExpressionParts(file, call)
+		return navExpr != 0 && flatNavigationExpressionLastIdentifier(file, navExpr) == "setSeed"
+	case "argument_list":
+		call, ok := file.FlatParent(parent)
+		return ok && file.FlatType(call) == "method_invocation" && secureRandomJavaMethodName(file, call) == "setSeed"
+	}
+	return false
+}
+
+// secureRandomShareLoop reports whether a loop inside root contains both ref and use, so a use written after
+// ref can still run before ref on a later iteration.
+func secureRandomShareLoop(file *scanner.File, ref, use, root uint32) bool {
+	for n, ok := file.FlatParent(ref); ok && n != root; n, ok = file.FlatParent(n) {
+		switch file.FlatType(n) {
+		case "for_statement", "while_statement", "do_while_statement", "enhanced_for_statement":
+			if file.FlatStartByte(use) >= file.FlatStartByte(n) && file.FlatEndByte(use) <= file.FlatEndByte(n) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // secureRandomIsLimitConstant matches `Long.MAX_VALUE` style constants of the primitive wrapper classes.

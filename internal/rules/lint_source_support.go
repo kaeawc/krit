@@ -181,7 +181,8 @@ func lintTypeRefMatches(file *scanner.File, text, fqn string) bool {
 	pkg := strings.TrimSuffix(fqn, "."+text)
 	for _, star := range imp.stars {
 		if star == pkg {
-			return true
+			// A class declared in the file shadows a wildcard import of the same simple name.
+			return lintSameFileClass(file, head) == 0
 		}
 	}
 	return false

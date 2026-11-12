@@ -899,8 +899,9 @@ func (r *kotlinRewriter) followsFunctionBody(ls int) bool {
 }
 
 // headerIsFunction reports whether the declaration header before the block
-// opening at open starts with `fun`. Expression bodies and other statements
-// end the backward scan without a match.
+// opening at open starts with a named `fun` declaration. Expression bodies and
+// other statements end the backward scan without a match. An anonymous function
+// does not match, because a lambda on the next line is its trailing argument.
 func (r *kotlinRewriter) headerIsFunction(open int) bool {
 	parens := 0
 	for i := open - 1; i >= 0; i-- {
@@ -916,8 +917,40 @@ func (r *kotlinRewriter) headerIsFunction(open int) bool {
 		case c == '{' || c == '}' || c == ';' || c == '=':
 			return false
 		case c == 'f' && r.wordAt(i, "fun"):
-			return true
+			return r.funIsNamed(i + len("fun"))
 		}
+	}
+	return false
+}
+
+// funIsNamed reports whether the `fun` keyword ending at p starts a named
+// declaration: optional type parameters and receiver type, then a name before
+// the parameter list. `fun(` and `fun Receiver.(` are anonymous functions.
+func (r *kotlinRewriter) funIsNamed(p int) bool {
+	o := r.orig
+	angles := 0
+	var last byte
+	for i := p; i < len(o); i++ {
+		c := o[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			continue
+		case c == '`':
+			end := bytes.IndexByte(o[i+1:], '`')
+			if end < 0 {
+				return false
+			}
+			i += end + 1
+		case c == '<':
+			angles++
+		case c == '>':
+			angles--
+		case c == '(' && angles == 0:
+			return last != 0 && last != '.' && last != '>'
+		case c == '{' || c == '=' || c == ';':
+			return false
+		}
+		last = c
 	}
 	return false
 }

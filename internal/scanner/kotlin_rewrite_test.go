@@ -580,11 +580,23 @@ func TestKotlinRewriteLambdaAfterLocalFunction(t *testing.T) {
 	}
 }
 
+func TestKotlinRewriteLambdaAfterNamedFunctionForms(t *testing.T) {
+	for _, header := range []string{"fun local()", "fun <T> local(t: T)", "fun String.local()", "fun List<Int>.local()", "fun `local name`()"} {
+		src := "fun b() {\n  " + header + " {\n    x()\n  }\n  { y() }\n}\n"
+		out, _ := rewriteKotlin([]byte(src))
+		if string(out) == src {
+			t.Errorf("did not terminate the local function before the lambda: %q", src)
+		}
+	}
+}
+
 func TestKotlinRewriteLambdaAfterNonFunctionBlockUnchanged(t *testing.T) {
 	keep := []string{
 		"fun b() {\n  foo {\n    x()\n  }\n  { y() }\n}\n",
 		"fun b() = wrap {\n  x()\n}\n{ y() }\n",
 		"fun b() {\n  if (c) {\n    x()\n  }\n  { y() }\n}\n",
+		"fun b() {\n  val r = fun(block: () -> Int): Int { return block() }\n  { 42 }\n}\n",
+		"fun b() {\n  val r = fun String.(): Int { return length }\n  { 42 }\n}\n",
 	}
 	for _, src := range keep {
 		out, _ := rewriteKotlin([]byte(src))

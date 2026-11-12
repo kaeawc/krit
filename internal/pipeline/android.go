@@ -455,8 +455,7 @@ func (p AndroidPhase) scanResourceIcons(in AndroidInput, resDir string, scanIcon
 	cacheable := in.CacheDir != "" && in.CacheWriter != nil && in.RuleHash != ""
 	var key string
 	if cacheable {
-		resDirFP := resDirContentFingerprint(resDir)
-		key = in.iconKey(resDir, resDirFP)
+		key = in.iconKey(resDir, iconInputFingerprint(resDir))
 		if cached, ok := scanner.LoadAndroidFindings(in.CacheDir, key); ok {
 			collector.AppendColumns(&cached)
 			return

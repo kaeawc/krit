@@ -148,8 +148,9 @@ func (in AndroidInput) resourceSourceIndexBundleKey(mergedFP string, deps rules.
 	})
 }
 
-// iconKey / iconBundleKey: icon rules walk drawable PNGs/SVGs. They
-// don't run rule code against Java/Kotlin source, so the semantic-
+// iconKey / iconBundleKey: icon rules walk drawable PNGs/SVGs and the
+// manifest beside the res directory, so iconKey takes iconInputFingerprint.
+// They don't run rule code against Java/Kotlin source, so the semantic-
 // facts contribution is irrelevant. Same reasoning as resourceKey.
 func (in AndroidInput) iconKey(resDir, resDirFP string) string {
 	return scanner.AndroidFindingsKey(scanner.AndroidFindingsKeyInputs{
@@ -220,6 +221,12 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 	}
 	if needs.resources || needs.icons || needs.manifest {
 		writeResDirFingerprints(h, in.Project.ResDirs, resDirFPs)
+	}
+	// The icon index reads the manifest beside each res directory.
+	if needs.icons {
+		for _, resDir := range in.Project.ResDirs {
+			h.Write([]byte("icon-manifest\x00" + iconManifestFingerprint(resDir) + "\x00"))
+		}
 	}
 	if hasResourceSourceRules(in.ActiveRules) {
 		sourceFP, ok := in.resourceSourceFingerprintForBundle()

@@ -17,11 +17,16 @@ type iconManifestInfo struct {
 	minSdk   int
 }
 
+// IconManifestPath is the manifest the icon index reads for a res directory: the one in the same source set.
+func IconManifestPath(resDir string) string {
+	return filepath.Join(filepath.Dir(resDir), "AndroidManifest.xml")
+}
+
 // readIconManifest extracts the icons that application, activity and alias elements declare, plus the
 // minSdkVersion. Drawable references are stored by bare name and mipmap references as "@mipmap/name".
 func readIconManifest(resDir string) iconManifestInfo {
 	info := iconManifestInfo{launcher: map[string]bool{}, round: map[string]bool{}}
-	f, err := os.Open(filepath.Join(filepath.Dir(resDir), "AndroidManifest.xml"))
+	f, err := os.Open(IconManifestPath(resDir))
 	if err != nil {
 		return info
 	}

@@ -198,6 +198,12 @@ inline fun CoroutineExceptionHandler(
     crossinline handler: (CoroutineContext, Throwable) -> Unit,
 ): CoroutineExceptionHandler = TODO()
 
+interface CancellableContinuation<in T> : Continuation<T>
+
+suspend inline fun <T> suspendCancellableCoroutine(
+    crossinline block: (CancellableContinuation<T>) -> Unit,
+): T = TODO()
+
 data class CoroutineName(val name: String) : AbstractCoroutineContextElement(CoroutineName) {
     companion object Key : CoroutineContext.Key<CoroutineName>
 }

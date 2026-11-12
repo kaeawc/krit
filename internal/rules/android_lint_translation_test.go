@@ -256,3 +256,23 @@ func TestTranslationRootsSkipTestSourceSets(t *testing.T) {
 		t.Fatalf("roots = %v, want %v", got, want)
 	}
 }
+
+func TestRootElementPosAfterComments(t *testing.T) {
+	dir := t.TempDir()
+	for body, want := range map[string]string{
+		"<!-- c --><layout/>\n":                 "1:11",
+		"<?xml version=\"1.0\"?><!-- c --><a/>": "1:32",
+		"<!-- a\nb --> <a/>":                    "2:7",
+		"<!-- c -->\n<a/>":                      "2:1",
+		"\n  <a/>":                              "2:3",
+	} {
+		path := filepath.Join(dir, "f.xml")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		line, col := rootElementPos(path)
+		if got := strconv.Itoa(line) + ":" + strconv.Itoa(col); got != want {
+			t.Errorf("rootElementPos(%q) = %s, want %s", body, got, want)
+		}
+	}
+}

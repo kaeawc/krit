@@ -354,13 +354,12 @@ func rootElementPos(path string) (line, col int) {
 			}
 			for _, c := range data[i : i+end+3] {
 				if c == '\n' {
-					line, col = line+1, 0
+					line, col = line+1, 1
 				} else {
 					col++
 				}
 			}
 			i += end + 2
-			col++
 			continue
 		}
 		col++

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
@@ -16,7 +17,8 @@ type resDirFingerprints struct {
 
 func (fps *resDirFingerprints) fingerprint(resDir string) string {
 	if fps == nil {
-		return resDirContentFingerprint(resDir)
+		var tmp resDirFingerprints
+		return tmp.fingerprint(resDir)
 	}
 	if fps.values == nil {
 		fps.values = make(map[string]string)
@@ -24,14 +26,30 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 	if fp, ok := fps.values[resDir]; ok {
 		return fp
 	}
-	var fp string
-	if fps.cache != nil {
-		fp = fps.cache.fingerprint(resDir)
-	} else {
-		fp = resDirContentFingerprint(resDir)
+	fp := fps.dirFingerprint(resDir)
+	// Resource rules such as the translation checks also read the module's other source-set res directories, so
+	// a change there must invalidate findings cached under this resDir.
+	if siblings := android.SiblingSourceSetResDirs(resDir); len(siblings) > 0 {
+		h := hashutil.Hasher().New()
+		h.Write([]byte(fp))
+		for _, sib := range siblings {
+			h.Write([]byte{0})
+			h.Write([]byte(filepath.Base(filepath.Dir(sib))))
+			h.Write([]byte{0})
+			h.Write([]byte(fps.dirFingerprint(sib)))
+		}
+		fp = hex.EncodeToString(h.Sum(nil))
 	}
 	fps.values[resDir] = fp
 	return fp
+}
+
+// dirFingerprint fingerprints the content of one directory, reusing the persistent cache when present.
+func (fps *resDirFingerprints) dirFingerprint(dir string) string {
+	if fps.cache != nil {
+		return fps.cache.fingerprint(dir)
+	}
+	return resDirContentFingerprint(dir)
 }
 
 func newResDirFingerprints(cacheDir string, capacity int) resDirFingerprints {
@@ -98,12 +116,7 @@ func mergedResourceIndexFingerprintWith(resDirs []string, fps *resDirFingerprint
 	sorted := append([]string(nil), resDirs...)
 	sort.Strings(sorted)
 	for _, dir := range sorted {
-		var fp string
-		if fps != nil {
-			fp = fps.fingerprint(dir)
-		} else {
-			fp = resDirContentFingerprint(dir)
-		}
+		fp := fps.fingerprint(dir)
 		h.Write([]byte(dir))
 		h.Write([]byte{0})
 		h.Write([]byte(fp))

@@ -6,36 +6,39 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/rules/api"
 )
 
-// firFallbackRules lists the default-on rules that have a FIR twin and so run
-// their Go implementation when the FIR pass is unavailable.
-func firFallbackRules(cfg *config.Config) []string {
+// firFallbackRules lists the selected rules that have a FIR twin and so run
+// their Go implementation when the FIR pass is unavailable. A non-nil cfg also
+// drops rules the config turns off, for selections made before the config is
+// applied to the registry; enabled names override the config.
+func firFallbackRules(selected []*api.Rule, cfg *config.Config, enabled map[string]bool) []string {
 	var ids []string
-	for _, r := range api.Registry {
+	for _, r := range selected {
 		if !firchecks.IsKnownFIRRule(r.ID) {
 			continue
 		}
-		active := r.DefaultActive
-		if cfg != nil {
-			if v := cfg.IsRuleActive(r.Category, r.ID); v != nil {
-				active = *v
+		if cfg != nil && !enabled[r.ID] {
+			if v := cfg.IsRuleActive(r.Category, r.ID); v != nil && !*v {
+				continue
 			}
 		}
-		if active {
-			ids = append(ids, r.ID)
-		}
+		ids = append(ids, r.ID)
 	}
 	slices.Sort(ids)
 	return slices.Compact(ids)
 }
 
-func newFirDegraded(reason string, cfg *config.Config) *output.FirDegraded {
-	return &output.FirDegraded{Reason: reason, FallbackRules: firFallbackRules(cfg)}
+// preflightFallbackRules applies the scan's rule-selection flags before the
+// runner exists, so the preflight warning names only rules the scan runs.
+func preflightFallbackRules(f *scanFlags, cfg *config.Config) []string {
+	selected, _, _ := selectScanRules(f, cfg)
+	return firFallbackRules(selected, cfg, clishared.ParseRuleNameSetCSV(*f.EnableRules))
 }
 
 // degradedMessage is the stderr text shared by the warning and the
@@ -48,7 +51,7 @@ func degradedMessage(d *output.FirDegraded) string {
 // handleFirPreflightFailure turns a failed FIR preflight into a Go-only scan
 // with a warning, or into an error under --fail-on-degraded.
 func handleFirPreflightFailure(f *scanFlags, cfg *config.Config, cause error, warn io.Writer) error {
-	d := newFirDegraded(cause.Error(), cfg)
+	d := &output.FirDegraded{Reason: cause.Error(), FallbackRules: preflightFallbackRules(f, cfg)}
 	if f.FailOnDegraded != nil && *f.FailOnDegraded {
 		return fmt.Errorf("%s", degradedMessage(d))
 	}
@@ -59,7 +62,10 @@ func handleFirPreflightFailure(f *scanFlags, cfg *config.Config, cause error, wa
 }
 
 func (r *runner) markFirDegraded(err error) {
-	r.firDegraded = newFirDegraded(fmt.Sprintf("checker failed: %v", err), r.cfg)
+	r.firDegraded = &output.FirDegraded{
+		Reason:        fmt.Sprintf("checker failed: %v", err),
+		FallbackRules: firFallbackRules(r.activeRules, nil, nil),
+	}
 }
 
 // currentFirDegraded returns the degraded state from preflight or mid-scan.

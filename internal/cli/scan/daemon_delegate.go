@@ -281,7 +281,13 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 		fmt.Fprintf(os.Stderr, "error: write findings: %v\n", err)
 		return 2
 	}
-	if err := closer(0); err != nil {
+	// Decide the degraded exit first: exit 2 discards the staged -o report, as in-process.
+	failDegraded := res.Stats.FirDegraded != nil && f.FailOnDegraded != nil && *f.FailOnDegraded
+	closeCode := 0
+	if failDegraded {
+		closeCode = 2
+	}
+	if err := closer(closeCode); err != nil {
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		return 2
 	}
@@ -294,7 +300,7 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 	if d := res.Stats.FirDegraded; d != nil {
 		// The daemon's own warning goes to its stderr, so the client repeats it.
 		msg := degradedMessage(&output.FirDegraded{Reason: d.Reason, FallbackRules: d.FallbackRules})
-		if f.FailOnDegraded != nil && *f.FailOnDegraded {
+		if failDegraded {
 			fmt.Fprintf(os.Stderr, "error: %s\n", msg)
 			return 2
 		}

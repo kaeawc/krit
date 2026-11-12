@@ -186,3 +186,34 @@ func TestRunDaemonAnalyzeReportsFirDegraded(t *testing.T) {
 		})
 	}
 }
+
+// Under --fail-on-degraded a degraded daemon-served scan exits 2, so it must
+// keep the previous -o report, as the in-process scan does.
+func TestRunDaemonAnalyzeFailOnDegradedKeepsPreviousReport(t *testing.T) {
+	client := &verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+		Findings: []byte(`{"degraded":true}`),
+		Stats: daemon.AnalyzeProjectStats{FirDegraded: &daemon.FirDegradedStats{
+			Reason: "checker failed: boom", FallbackRules: []string{"InjectDispatcher"},
+		}},
+	}}
+	report := filepath.Join(t.TempDir(), "report.json")
+	if err := os.WriteFile(report, []byte(`{"good":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := freshScanFlags(t)
+	*f.FailOnDegraded = true
+	*f.Output = report
+	original := os.Stderr
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Stderr = original; _ = devNull.Close() })
+	os.Stderr = devNull
+	if handled, code := runDaemonAnalyze(client, f, []string{newRoot(t)}); !handled || code != 2 {
+		t.Fatalf("handled=%v code=%d, want handled exit 2", handled, code)
+	}
+	if got, _ := os.ReadFile(report); string(got) != `{"good":true}` {
+		t.Fatalf("report = %q, want the previous report kept", got)
+	}
+}

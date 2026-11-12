@@ -327,3 +327,162 @@ func TestWriteFileAtomicHonorsUmaskForNewFiles(t *testing.T) {
 		t.Fatalf("existing mode = %v, want 0644 kept", info.Mode().Perm())
 	}
 }
+
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+}
+
+// Relative targets are literal strings: filepath.Join would clean away the
+// "alias/.." these tests depend on.
+func readString(t *testing.T, path string) string {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(got)
+}
+
+// Link.kt -> alias/../Real.kt with alias -> shared/subdir names shared/Real.kt,
+// not a Real.kt beside the link.
+func TestWriteFileAtomicResolvesDotDotThroughSymlinkedDir(t *testing.T) {
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "shared")
+	if err := os.MkdirAll(filepath.Join(shared, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(shared, "Real.kt")
+	if err := os.WriteFile(real, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(dir, "work")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, filepath.Join(shared, "subdir"), filepath.Join(work, "alias"))
+	link := filepath.Join(work, "Link.kt")
+	symlinkOrSkip(t, "alias/../Real.kt", link)
+
+	if err := WriteFileAtomicKeepMode(link, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readString(t, real); got != "new" {
+		t.Fatalf("target = %q, want new", got)
+	}
+	if _, err := os.Lstat(filepath.Join(work, "Real.kt")); !os.IsNotExist(err) {
+		t.Fatalf("unrelated file created beside the link: %v", err)
+	}
+	if info, _ := os.Stat(real); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("target mode = %v, want 0600", info.Mode().Perm())
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink replaced: %v %v", info, err)
+	}
+}
+
+func TestWriteFileAtomicFollowsAbsoluteAndChainedLinks(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real", "Real.kt")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	abs := filepath.Join(dir, "abs.kt")
+	symlinkOrSkip(t, real, abs)
+	mid := filepath.Join(dir, "mid")
+	if err := os.Mkdir(mid, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// chain -> mid/hop.kt -> ../abs.kt -> real/Real.kt
+	symlinkOrSkip(t, filepath.Join("..", "abs.kt"), filepath.Join(mid, "hop.kt"))
+	chain := filepath.Join(dir, "chain.kt")
+	symlinkOrSkip(t, filepath.Join("mid", "hop.kt"), chain)
+
+	if err := WriteFileAtomic(abs, []byte("abs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readString(t, real); got != "abs" {
+		t.Fatalf("after absolute link write: %q", got)
+	}
+	if err := WriteFileAtomic(chain, []byte("chain"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readString(t, real); got != "chain" {
+		t.Fatalf("after chained link write: %q", got)
+	}
+	for _, l := range []string{abs, chain, filepath.Join(mid, "hop.kt")} {
+		if info, err := os.Lstat(l); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s replaced: %v %v", l, info, err)
+		}
+	}
+}
+
+func TestWriteFileAtomicDanglingLinks(t *testing.T) {
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "shared")
+	if err := os.MkdirAll(filepath.Join(shared, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, filepath.Join(shared, "subdir"), filepath.Join(dir, "alias"))
+
+	// A dangling link whose target directory exists creates the target there.
+	dangling := filepath.Join(dir, "New.kt")
+	symlinkOrSkip(t, "alias/../New.kt", dangling)
+	if err := WriteFileAtomic(dangling, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readString(t, filepath.Join(shared, "New.kt")); got != "x" {
+		t.Fatalf("dangling target = %q, want x", got)
+	}
+
+	// A target in a missing directory fails and creates nothing.
+	missing := filepath.Join(dir, "Missing.kt")
+	symlinkOrSkip(t, "nowhere/../Missing.kt", missing)
+	if err := WriteFileAtomic(missing, []byte("x"), 0o644); err == nil {
+		t.Fatal("want error for a target in a missing directory")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		switch e.Name() {
+		case "shared", "alias", "New.kt", "Missing.kt":
+		default:
+			t.Fatalf("unexpected entry %q", e.Name())
+		}
+	}
+	if info, err := os.Lstat(missing); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("dangling link replaced: %v %v", info, err)
+	}
+}
+
+func TestWriteFileAtomicRejectsSymlinkLoop(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	b := filepath.Join(dir, "b")
+	symlinkOrSkip(t, "b", a)
+	symlinkOrSkip(t, "a", b)
+	if err := WriteFileAtomic(a, []byte("x"), 0o644); err == nil {
+		t.Fatal("want error for a symlink loop")
+	}
+	for _, l := range []string{a, b} {
+		if info, err := os.Lstat(l); err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s replaced: %v %v", l, info, err)
+		}
+	}
+}
+
+func TestWriteFileAtomicRejectsDirectoryNamedTarget(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "up")
+	symlinkOrSkip(t, "..", link)
+	if err := WriteFileAtomic(link, []byte("x"), 0o644); err == nil {
+		t.Fatal("want error for a link naming a directory")
+	}
+}

@@ -50,30 +50,70 @@ func wakeLockTagError(tag string) string {
 }
 
 // isPowerManagerReceiver reports whether the call's receiver is a PowerManager, by resolved type, declared type, or
-// a `getSystemService` initializer that names it.
+// an initializer whose cast or `getSystemService` type argument resolves to it.
 func isPowerManagerReceiver(ctx *api.Context, call lintCall) bool {
 	if lintReceiverIsType(ctx, call, powerManagerClass) {
 		return true
 	}
 	file := ctx.File
-	recv := call.ReceiverNode
+	recv := flatUnwrapParenExpr(file, call.ReceiverNode)
 	switch file.FlatType(recv) {
 	case "simple_identifier", "identifier":
 		init := lintInitializerOf(file, call.Idx, file.FlatNodeText(recv), true)
-		return init != 0 && initNamesPowerManager(file.FlatNodeText(init))
-	case "parenthesized_expression", "as_expression", "cast_expression", "call_expression", "method_invocation":
-		return initNamesPowerManager(file.FlatNodeText(recv))
+		return init != 0 && lintExprNamesType(file, init, powerManagerClass)
+	}
+	return lintExprNamesType(file, recv, powerManagerClass)
+}
+
+// lintExprNamesType reports whether expr is a cast to fqn (`x as T`, `x as? T`, `(T) x`) or a `getSystemService`
+// call whose class or type argument is fqn (`getSystemService<T>()`, `getSystemService(T::class.java)`,
+// `getSystemService(T.class)`). Type names resolve through the file's imports.
+func lintExprNamesType(file *scanner.File, expr uint32, fqn string) bool {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "as_expression":
+		typ := flatLastNamedChild(file, expr)
+		return typ != 0 && lintTypeRefMatches(file, strings.TrimSuffix(file.FlatNodeText(typ), "?"), fqn)
+	case "cast_expression":
+		typ := file.FlatNamedChild(expr, 0)
+		return typ != 0 && lintTypeRefMatches(file, file.FlatNodeText(typ), fqn)
+	case "call_expression", "method_invocation":
+		call, ok := lintCallAt(file, expr)
+		if !ok || call.Name != "getSystemService" {
+			return false
+		}
+		if typeArgs := callExpressionTypeArgumentsFlat(file, expr); typeArgs != 0 {
+			proj := file.FlatNamedChild(typeArgs, 0)
+			return proj != 0 && lintTypeRefMatches(file, file.FlatNodeText(proj), fqn)
+		}
+		if len(call.Args) != 1 {
+			return false
+		}
+		return lintTypeRefMatches(file, classLiteralTypeText(file, call.Args[0]), fqn)
 	}
 	return false
 }
 
-// initNamesPowerManager matches `x as PowerManager`, `(PowerManager) x`, `getSystemService<PowerManager>()` and
-// `getSystemService(PowerManager::class.java)`.
-func initNamesPowerManager(text string) bool {
-	if !strings.Contains(text, "getSystemService") && !strings.Contains(text, " as ") && !strings.Contains(text, "(PowerManager)") {
-		return false
+// classLiteralTypeText returns the class named by `T::class.java`, `T::class`, or Java's `T.class`, or "".
+func classLiteralTypeText(file *scanner.File, idx uint32) string {
+	idx = flatUnwrapParenExpr(file, idx)
+	switch file.FlatType(idx) {
+	case "navigation_expression":
+		if flatNavigationExpressionLastIdentifier(file, idx) != "java" {
+			return ""
+		}
+		return classLiteralTypeText(file, file.FlatNamedChild(idx, 0))
+	case "callable_reference":
+		text := file.FlatNodeText(idx)
+		if typ, ok := strings.CutSuffix(text, "::class"); ok {
+			return typ
+		}
+	case "class_literal":
+		if typ := file.FlatNamedChild(idx, 0); typ != 0 {
+			return file.FlatNodeText(typ)
+		}
 	}
-	return strings.Contains(text, "PowerManager")
+	return ""
 }
 
 // lintEvalStringStrict folds a string made only of constants: literals without interpolation, `+` concatenation, and

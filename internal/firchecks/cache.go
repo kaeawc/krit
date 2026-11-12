@@ -158,7 +158,10 @@ func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntr
 	var entry FirCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		// A corrupt entry is a miss; remove it so it is rewritten.
-		os.Remove(path)
+		reporter().Verbosef("verbose: fir cache: corrupt entry %s: %v\n", path, err)
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			reporter().Warnf("warning: fir cache: cannot remove corrupt entry %s: %v\n", path, rmErr)
+		}
 		return nil, nil //nolint:nilerr // a corrupt entry is a cache miss, not a failure
 	}
 	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath || entry.ClosureFingerprint != fingerprint {
@@ -172,7 +175,8 @@ func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntr
 // concurrent reader or a crash never sees a truncated entry. It skips fsync
 // because entries are rebuilt on a miss.
 func writeFileRename(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".entry-*.tmp")
+	// 0644 less the umask, as os.WriteFile would create it.
+	tmp, err := fsutil.CreateTempMode(filepath.Dir(path), tempEntryPrefix+"*"+tempEntrySuffix, 0o644)
 	if err != nil {
 		return err
 	}
@@ -180,10 +184,6 @@ func writeFileRename(path string, data []byte) error {
 	_, werr := tmp.Write(data)
 	cerr := tmp.Close()
 	if err := errors.Join(werr, cerr); err != nil {
-		os.Remove(name)
-		return err
-	}
-	if err := os.Chmod(name, 0o644); err != nil {
 		os.Remove(name)
 		return err
 	}
@@ -216,6 +216,14 @@ func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
 
 const retainedFingerprintsPerPath = 3
 
+const (
+	tempEntryPrefix = ".entry-"
+	tempEntrySuffix = ".tmp"
+	// abandonedTempAge is far beyond any single entry write, so an older
+	// tempfile was left by a killed process rather than an active writer.
+	abandonedTempAge = time.Hour
+)
+
 func pruneCacheEntries(cacheDir, filePath string) error {
 	type retainedEntry struct {
 		path        string
@@ -227,7 +235,14 @@ func pruneCacheEntries(cacheDir, filePath string) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if item.IsDir() || filepath.Ext(path) != ".json" {
+		if item.IsDir() {
+			return nil
+		}
+		if name := item.Name(); strings.HasPrefix(name, tempEntryPrefix) && strings.HasSuffix(name, tempEntrySuffix) {
+			removeAbandonedTemp(path, item)
+			return nil
+		}
+		if filepath.Ext(path) != ".json" {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -267,6 +282,15 @@ func pruneCacheEntries(cacheDir, filePath string) error {
 		}
 	}
 	return nil
+}
+
+// removeAbandonedTemp deletes a tempfile left by an interrupted write.
+func removeAbandonedTemp(path string, item os.DirEntry) {
+	info, err := item.Info()
+	if err != nil || time.Since(info.ModTime()) < abandonedTempAge {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 func decodeCacheEntry(data []byte) (FirCacheEntry, bool) {

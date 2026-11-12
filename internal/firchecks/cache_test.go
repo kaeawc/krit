@@ -1,11 +1,15 @@
 package firchecks
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kaeawc/krit/internal/diag"
 )
 
 func TestCacheDir_CreatesDirectory(t *testing.T) {
@@ -332,5 +336,64 @@ func TestWriteCacheEntry_LeavesNoTempFilesAndIsReadable(t *testing.T) {
 	}
 	if got, err := LoadCacheEntry(cacheDir, "/src/A.kt", "h", ""); err != nil || got == nil {
 		t.Fatalf("load: %v %v", got, err)
+	}
+}
+
+func TestLoadCacheEntry_ReportsCorruptEntry(t *testing.T) {
+	var verbose, warned bytes.Buffer
+	SetReporter(&diag.Reporter{Verbose: &verbose, Warning: &warned})
+	t.Cleanup(func() { SetReporter(nil) })
+	cacheDir, _ := CacheDir(t.TempDir())
+	path := entryPath(cacheDir, "/src/A.kt", "h", "")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"v":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if entry, err := LoadCacheEntry(cacheDir, "/src/A.kt", "h", ""); err != nil || entry != nil {
+		t.Fatalf("want clean miss, got %v, %v", entry, err)
+	}
+	if !strings.Contains(verbose.String(), "corrupt entry") {
+		t.Fatalf("verbose output = %q, want corrupt-entry report", verbose.String())
+	}
+	if warned.Len() != 0 {
+		t.Fatalf("unexpected warning after successful removal: %q", warned.String())
+	}
+}
+
+func TestWriteCacheEntry_RemovesAbandonedTempFiles(t *testing.T) {
+	cacheDir, _ := CacheDir(t.TempDir())
+	dir := filepath.Dir(entryPath(cacheDir, "/src/A.kt", "h", ""))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(dir, ".entry-111.tmp")
+	active := filepath.Join(dir, ".entry-222.tmp")
+	for _, p := range []string{abandoned, active} {
+		if err := os.WriteFile(p, []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * abandonedTempAge)
+	if err := os.Chtimes(abandoned, old, old); err != nil {
+		t.Fatal(err)
+	}
+	e := &FirCacheEntry{V: FirCacheVersion, ContentHash: "h", FilePath: "/src/A.kt"}
+	if err := WriteCacheEntry(cacheDir, e); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Fatalf("abandoned tempfile kept: %v", err)
+	}
+	if _, err := os.Stat(active); err != nil {
+		t.Fatalf("recent tempfile removed: %v", err)
+	}
+}
+
+func TestDefaultReporterWarnsToStderr(t *testing.T) {
+	SetReporter(nil)
+	if r := reporter(); r == nil || r.Warning != os.Stderr {
+		t.Fatalf("default reporter = %+v, want warnings on stderr", r)
 	}
 }

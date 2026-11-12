@@ -1,6 +1,10 @@
 package typeinfer
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/kaeawc/krit/internal/strutil"
+)
 
 // StdlibMethod describes a known stdlib method's return type.
 type StdlibMethod struct {
@@ -298,7 +302,7 @@ func LookupStdlibMethod(receiverType, methodName string) *StdlibMethod {
 // ---------------------------------------------------------------------------
 
 // KnownInterfaces maps interface FQN -> known implementors.
-var KnownInterfaces = decodeListMap(`
+var KnownInterfaces = strutil.DecodeListMap(`
 		android.os.Parcelable=android.os.Bundle,android.content.Intent,android.net.Uri,android.graphics.Bitmap
 		java.io.Closeable=java.io.InputStream,java.io.OutputStream,java.io.FileInputStream,java.io.FileOutputStream,java.io.BufferedReader,java.io.BufferedWriter,java.io.InputStreamReader,java.io.OutputStreamWriter,java.io.PrintWriter,java.io.PrintStream,java.net.Socket,java.net.ServerSocket,java.sql.Connection,java.sql.Statement,java.sql.ResultSet,java.util.Scanner
 		java.io.Serializable=java.lang.Number,java.lang.String,java.lang.Enum,java.util.ArrayList,java.util.HashMap,java.util.HashSet,java.util.LinkedList,java.util.TreeMap,java.util.TreeSet,kotlin.Pair,kotlin.Triple,java.util.Date,java.util.Calendar,java.math.BigDecimal,java.math.BigInteger,java.io.File,java.net.URL,java.net.URI
@@ -309,7 +313,7 @@ var KnownInterfaces = decodeListMap(`
 // ---------------------------------------------------------------------------
 
 // KnownClassHierarchy maps FQN -> ordered list of supertypes (nearest first).
-var KnownClassHierarchy = decodeListMap(`
+var KnownClassHierarchy = strutil.DecodeListMap(`
 		android.app.Activity=android.content.ContextWrapper,android.content.Context
 		android.app.Application=android.content.ContextWrapper,android.content.Context
 		android.app.Service=android.content.ContextWrapper,android.content.Context
@@ -395,7 +399,7 @@ func IsKnownSubtype(typeFQN, supertypeFQN string) bool {
 // ---------------------------------------------------------------------------
 
 // ExceptionAncestors maps exception class name -> ordered list of supertypes.
-var ExceptionAncestors = decodeListMap(`
+var ExceptionAncestors = strutil.DecodeListMap(`
 		ActivityNotFoundException=RuntimeException,Exception,Throwable
 		AndroidException=Exception,Throwable
 		ArithmeticException=RuntimeException,Exception,Throwable
@@ -522,20 +526,4 @@ func IsSubtypeOfException(a, b string) bool {
 		}
 	}
 	return false
-}
-
-// decodeListMap decodes whitespace-separated "key=a,b,c" entries into a
-// map of ordered lists. An empty value yields an empty non-nil list.
-func decodeListMap(spec string) map[string][]string {
-	fields := strings.Fields(spec)
-	out := make(map[string][]string, len(fields))
-	for _, f := range fields {
-		key, vals, _ := strings.Cut(f, "=")
-		if vals == "" {
-			out[key] = []string{}
-			continue
-		}
-		out[key] = strings.Split(vals, ",")
-	}
-	return out
 }

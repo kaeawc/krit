@@ -129,7 +129,8 @@ func writeAtomic(path string, perm os.FileMode, exact bool, payload func(*os.Fil
 const maxSymlinkHops = 40
 
 // symlinkTarget follows a symlink at path to the file it finally names, so a
-// rename replaces that file rather than the link. The target need not exist.
+// rename replaces that file rather than the link. The target need not exist,
+// but its directory must.
 func symlinkTarget(path string) (string, error) {
 	for range maxSymlinkHops {
 		info, err := os.Lstat(path)
@@ -145,11 +146,36 @@ func symlinkTarget(path string) (string, error) {
 			return "", err
 		}
 		if !filepath.IsAbs(link) {
-			link = filepath.Join(filepath.Dir(path), link)
+			// No filepath.Join: cleaning would collapse "alias/.." lexically,
+			// while the kernel resolves alias first.
+			link = filepath.Dir(path) + string(filepath.Separator) + link
 		}
-		path = link
+		if path, err = resolveParent(link); err != nil {
+			return "", err
+		}
 	}
 	return "", fmt.Errorf("%s: too many levels of symbolic links", path)
+}
+
+// resolveParent resolves every symlink in the directory part of path the way
+// the filesystem does, leaving only the final element unresolved.
+func resolveParent(path string) (string, error) {
+	i := len(path) - 1
+	for i >= 0 && !os.IsPathSeparator(path[i]) {
+		i--
+	}
+	dir, base := path[:i+1], path[i+1:]
+	if base == "" || base == "." || base == ".." {
+		return "", fmt.Errorf("%s: symlink target is not a file name", path)
+	}
+	if dir == "" {
+		dir = "."
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("symlink target directory: %w", err)
+	}
+	return filepath.Join(resolved, base), nil
 }
 
 // CreateTempMode is os.CreateTemp with a caller-chosen mode instead of 0600.

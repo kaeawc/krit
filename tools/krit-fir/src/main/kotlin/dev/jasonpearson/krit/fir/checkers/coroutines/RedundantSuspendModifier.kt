@@ -111,7 +111,8 @@ internal object RedundantSuspendModifier : FirDeclarationChecker<FirNamedFunctio
         }
 
         override fun visitFunctionCall(functionCall: FirFunctionCall) {
-            if ((functionCall.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol)?.isSuspend == true) {
+            val callee = functionCall.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol
+            if (callee?.isSuspend == true) {
                 found = true
                 return
             }
@@ -136,10 +137,16 @@ internal object RedundantSuspendModifier : FirDeclarationChecker<FirNamedFunctio
             if (inPlace && !hasSuspendFunctionType(anonymousFunction)) visitElement(anonymousFunction)
         }
 
-        override fun visitNamedFunction(namedFunction: FirNamedFunction) {}
+        override fun visitNamedFunction(namedFunction: FirNamedFunction) {
+            // A local function owns its scope: its calls do not suspend the outer one.
+        }
 
-        override fun visitRegularClass(regularClass: FirRegularClass) {}
+        override fun visitRegularClass(regularClass: FirRegularClass) {
+            // A local class owns its scope.
+        }
 
-        override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {}
+        override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {
+            // An object literal owns its scope.
+        }
     }
 }

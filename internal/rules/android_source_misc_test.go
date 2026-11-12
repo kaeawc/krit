@@ -834,6 +834,9 @@ func TestLogTagMismatchIsLoggable(t *testing.T) {
 		{"nested statement is ignored", "if (Log.isLoggable(TAG, Log.DEBUG)) { if (x) { Log.d(OTHER, \"m\") } }", nil},
 		{"log call outside if", "Log.d(OTHER, \"m\")", nil},
 		{"class name is not compared to the tag", "Log.d(TAG, \"m\")", nil},
+		{"this-qualified tag is the same tag", "if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d(this.TAG, \"m\") }", nil},
+		{"local level is not a Log constant", "val DEBUG = Log.INFO\n        if (Log.isLoggable(TAG, DEBUG)) { Log.i(TAG, \"m\") }", nil},
+		{"qualified Log level", "if (Log.isLoggable(TAG, android.util.Log.DEBUG)) { Log.i(TAG, \"m\") }", []string{"Mismatched logging levels"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -847,5 +850,39 @@ func TestLogTagMismatchIsLoggable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLogTagMismatchIsLoggableIgnoresLocalLog(t *testing.T) {
+	src := `package test
+object Log {
+    const val DEBUG = 3
+    fun isLoggable(tag: String, level: Int) = true
+    fun i(tag: String, msg: String) {}
+}
+class A {
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.i("b", "m") }
+    }
+}
+`
+	if findings := runRuleByName(t, "LogTagMismatch", src); len(findings) != 0 {
+		t.Fatalf("expected no findings for a same-file Log object, got %v", findings)
+	}
+}
+
+func TestLogTagMismatchIsLoggableStaticImportedLevel(t *testing.T) {
+	src := `package test
+import android.util.Log
+import android.util.Log.DEBUG
+class A {
+    fun f() {
+        if (Log.isLoggable("a", DEBUG)) { Log.i("a", "m") }
+    }
+}
+`
+	findings := runRuleByName(t, "LogTagMismatch", src)
+	if len(findings) != 1 || !strings.Contains(findings[0].Message, "Mismatched logging levels") {
+		t.Fatalf("expected one level mismatch, got %v", findings)
 	}
 }

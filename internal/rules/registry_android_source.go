@@ -446,6 +446,20 @@ func registerAndroidSourceRules() {
 	}
 }
 
+// fileDeclaresTypeNamed reports whether the file declares a class, interface or object with the given simple name.
+func fileDeclaresTypeNamed(file *scanner.File, name string) bool {
+	if lintSameFileClass(file, name) != 0 {
+		return true
+	}
+	found := false
+	file.FlatWalkNodes(0, "object_declaration", func(decl uint32) {
+		if !found && extractIdentifierFlat(file, decl) == name {
+			found = true
+		}
+	})
+	return found
+}
+
 // checkLogTagMismatch reports log calls in the branches of `if (Log.isLoggable(tag, level))`
 // whose tag or level differs from the isLoggable arguments.
 func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
@@ -455,7 +469,11 @@ func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
 		flatCallExpressionName(file, cond) != "isLoggable" {
 		return
 	}
-	tag, level := logCallArgText(file, cond, 0), logCallArgText(file, cond, 1)
+	// Without an oracle, a Log class or object declared in the file is not android.util.Log.
+	if lookup == nil && fileDeclaresTypeNamed(file, "Log") {
+		return
+	}
+	tag, level := logCallArgText(file, cond, 0), logLevelConstantName(file, logCallArgText(file, cond, 1))
 	for branch := file.FlatFirstChild(ifExpr); branch != 0; branch = file.FlatNextSib(branch) {
 		if file.FlatType(branch) != "control_structure_body" {
 			continue

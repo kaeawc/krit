@@ -127,6 +127,9 @@ func cleanTestPaths(paths []string) []string {
 	return out
 }
 
+// IsTestSourceSetName reports whether a Gradle source set name, such as testDebug or androidTest, holds tests.
+func IsTestSourceSetName(name string) bool { return isTestSourceSetName(name) }
+
 // isTestSourceSetName reports whether a Gradle source set directory holds tests: test, androidTest, a
 // multiplatform *Test set, or a variant of the Android sets such as testDebug or androidTestDebug.
 func isTestSourceSetName(segment string) bool {

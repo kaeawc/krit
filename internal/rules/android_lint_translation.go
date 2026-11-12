@@ -527,13 +527,9 @@ func translationRoots(ctx *api.Context) []string {
 	}
 	for _, dir := range ctx.ResourceIndex.ResDirs {
 		add(dir)
-		// The index only lists src/main/res; the other source sets of the module merge with it.
-		setDir := filepath.Dir(dir)
-		if filepath.Base(filepath.Dir(setDir)) == "src" {
-			siblings, _ := filepath.Glob(filepath.Join(filepath.Dir(setDir), "*", "res"))
-			for _, sib := range siblings {
-				add(sib)
-			}
+		// The index only lists src/main/res; the other non-test source sets of the module merge with it.
+		for _, sib := range android.SiblingSourceSetResDirs(dir) {
+			add(sib)
 		}
 	}
 	sort.Strings(roots)

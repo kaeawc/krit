@@ -405,6 +405,12 @@ type AnalyzeProjectResult struct {
 	Columns json.RawMessage `json:"columns,omitempty"`
 }
 
+// FirDegradedStats mirrors output.FirDegraded on the wire.
+type FirDegradedStats struct {
+	Reason        string   `json:"reason"`
+	FallbackRules []string `json:"fallback_rules,omitempty"`
+}
+
 // DispatchProfile carries the per-file dispatch timing fan-out the
 // CLI's reportDispatchProfile renders into the stderr distribution
 // table. WallMs is the dispatch wall the CLI uses to compute the
@@ -478,6 +484,10 @@ type AnalyzeProjectStats struct {
 	// wasn't requested or it succeeded. Surfacing as warnings keeps the
 	// scan result intact even when diagnostic capture fails.
 	ProfileWarnings []string `json:"profile_warnings,omitempty"`
+	// FirDegraded is set when the FIR checker failed during this scan and
+	// the findings fell back to the Go rules. The CLI warns on it and
+	// enforces --fail-on-degraded.
+	FirDegraded *FirDegradedStats `json:"fir_degraded,omitempty"`
 	// BaselineIDs is populated only when AnalyzeProjectArgs.CreateBaseline
 	// is true. The slice is sorted and deduplicated so the CLI can
 	// hand it directly to scanner.WriteBaselineIDsXML (no further

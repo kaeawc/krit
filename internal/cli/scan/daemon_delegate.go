@@ -291,6 +291,15 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 	if *f.ProfileDispatch && res.DispatchProfile != nil && len(res.DispatchProfile.Timings) > 0 {
 		emitDaemonDispatchProfile(res.DispatchProfile)
 	}
+	if d := res.Stats.FirDegraded; d != nil {
+		// The daemon's own warning goes to its stderr, so the client repeats it.
+		msg := degradedMessage(&output.FirDegraded{Reason: d.Reason, FallbackRules: d.FallbackRules})
+		if f.FailOnDegraded != nil && *f.FailOnDegraded {
+			fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+			return 2
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+	}
 	return finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
 }
 

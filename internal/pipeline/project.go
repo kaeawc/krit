@@ -194,6 +194,9 @@ type ProjectHostState struct {
 	// StartFindingsPass starts work after parsing, before Go dispatch. The
 	// returned pass is finished at the FindingsPostPass boundary.
 	StartFindingsPass func(context.Context, ParseResult) (PendingFindingsPass, error)
+	// FirDegraded, when set, reports whether the pass StartFindingsPass
+	// started lost its FIR checker; the report then carries the marker.
+	FirDegraded func() *output.FirDegraded
 	// FIRCheckBroker, when non-nil, is the rendezvous between the oracle and
 	// the pass StartFindingsPass starts, so a --fir scan compiles the module
 	// once for both (#810). The pass registers its check with it; the oracle
@@ -706,9 +709,14 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if args.ShowPerf {
 		cacheStatsOut = analysis.IndexResult.CacheStats
 	}
+	var firDegraded *output.FirDegraded
+	if host.FirDegraded != nil {
+		firDegraded = host.FirDegraded()
+	}
 	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
+		FirDegraded:      firDegraded,
 		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,

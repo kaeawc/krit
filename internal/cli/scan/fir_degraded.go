@@ -62,9 +62,15 @@ func handleFirPreflightFailure(f *scanFlags, cfg *config.Config, cause error, wa
 }
 
 func (r *runner) markFirDegraded(err error) {
-	r.firDegraded = &output.FirDegraded{
+	r.firDegraded = CheckerFailureDegraded(err, r.activeRules)
+}
+
+// CheckerFailureDegraded describes a FIR checker that failed mid-scan, listing
+// the FIR twins among the active rules as Go fallbacks.
+func CheckerFailureDegraded(err error, active []*api.Rule) *output.FirDegraded {
+	return &output.FirDegraded{
 		Reason:        fmt.Sprintf("checker failed: %v", err),
-		FallbackRules: firFallbackRules(r.activeRules, nil, nil),
+		FallbackRules: firFallbackRules(active, nil, nil),
 	}
 }
 

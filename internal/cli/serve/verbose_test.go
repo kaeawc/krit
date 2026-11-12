@@ -102,7 +102,7 @@ func TestFirStartFindingsPassCapturesVerboseSummary(t *testing.T) {
 			buffer := &verboseBuffer{}
 			reporter := &diag.Reporter{Verbose: buffer}
 			hook := firStartFindingsPass(daemon.AnalyzeProjectArgs{Fir: true, Verbose: verbose},
-				[]string{t.TempDir()}, config.NewConfig(), firchecks.NewBroker(), nil, nil, reporter)
+				[]string{t.TempDir()}, config.NewConfig(), firchecks.NewBroker(), nil, nil, reporter, nil)
 			pending, err := hook(context.Background(), pipeline.ParseResult{
 				ActiveRules: []*api.Rule{{ID: "InjectDispatcher"}},
 			})

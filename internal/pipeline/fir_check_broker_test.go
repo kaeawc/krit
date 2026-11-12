@@ -1,10 +1,12 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -303,4 +306,30 @@ func TestRunProjectAnalysisResolvesTheBroker(t *testing.T) {
 			t.Fatal("broker unresolved after an early return")
 		}
 	})
+}
+
+// A degraded FIR pass reported through the host reaches the JSON summary.
+func TestRunProjectStreamingReportsHostFirDegraded(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "A.kt"), []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_, err := RunProjectStreaming(context.Background(), ProjectInput{
+		Args: ProjectArgs{Config: config.NewConfig(), Paths: []string{root}, ActiveRules: []*api.Rule{findV2RuleForTest(t, "AbsentOrWrongFileLicense")}, Format: "json", Version: "test"},
+		Host: ProjectHostState{
+			StartFindingsPass: func(context.Context, ParseResult) (PendingFindingsPass, error) {
+				return &waitingPass{}, nil
+			},
+			FirDegraded: func() *output.FirDegraded {
+				return &output.FirDegraded{Reason: "checker failed: boom", FallbackRules: []string{"InjectDispatcher"}}
+			},
+		},
+	}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"firDegraded"`) || !strings.Contains(out.String(), "checker failed: boom") {
+		t.Fatalf("summary.firDegraded missing: %s", out.String())
+	}
 }

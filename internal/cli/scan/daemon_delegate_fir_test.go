@@ -3,11 +3,13 @@ package scan
 import (
 	"encoding/json"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/output"
 )
 
@@ -147,5 +149,40 @@ func TestTryDaemonDelegate_PreflightDegradedStaysInProcess(t *testing.T) {
 	f.firDegraded = &output.FirDegraded{Reason: "no classpath"}
 	if handled, code := tryDaemonDelegate(f, []string{root}, root); handled {
 		t.Fatalf("degraded preflight was delegated: code=%d", code)
+	}
+}
+
+// A daemon-served scan whose FIR checker failed must warn on the client and
+// honor --fail-on-degraded, as the in-process scan does.
+func TestRunDaemonAnalyzeReportsFirDegraded(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "warn", true: "fail-on-degraded"}[fail], func(t *testing.T) {
+			client := &verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+				Findings: []byte(`{"rules":[],"line":[]}`),
+				Stats: daemon.AnalyzeProjectStats{FirDegraded: &daemon.FirDegradedStats{
+					Reason: "checker failed: boom", FallbackRules: []string{"InjectDispatcher"},
+				}},
+			}}
+			f := freshScanFlags(t)
+			*f.FailOnDegraded = fail
+			redirectStdout(t)
+			original := os.Stderr
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Stderr = original; _ = reader.Close(); _ = writer.Close() })
+			os.Stderr = writer
+			handled, code := runDaemonAnalyze(client, f, []string{newRoot(t)})
+			_ = writer.Close()
+			stderr, _ := io.ReadAll(reader)
+			want, wantCode := "warning: FIR rules were skipped (checker failed: boom)", 0
+			if fail {
+				want, wantCode = "error: FIR rules were skipped (checker failed: boom)", 2
+			}
+			if !handled || code != wantCode || !strings.Contains(string(stderr), want) {
+				t.Fatalf("handled=%v code=%d stderr=%q", handled, code, stderr)
+			}
+		})
 	}
 }

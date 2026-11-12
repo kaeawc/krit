@@ -2,10 +2,14 @@ package fsutil
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // WriteFileAtomic writes data to path with perm, using tempfile + fsync + rename
@@ -18,20 +22,27 @@ import (
 // The tempfile is created in the same directory as path (same filesystem =
 // rename is atomic on POSIX) with prefix derived from filepath.Base(path).
 // On any error after tempfile creation, the tempfile is removed best-effort.
+//
+// Like os.WriteFile, perm is subject to the process umask, and a symlink at
+// path is written through: its final target is replaced, the link is kept.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	return writeAtomic(path, perm, func(f *os.File) error {
+	return writeAtomic(path, perm, false, func(f *os.File) error {
 		_, err := f.Write(data)
 		return err
 	})
 }
 
 // WriteFileAtomicKeepMode is WriteFileAtomic for rewriting a file in place. An existing file
-// keeps its permission bits; a new file gets defaultPerm.
+// keeps its exact permission bits; a new file gets defaultPerm less the umask.
 func WriteFileAtomicKeepMode(path string, data []byte, defaultPerm os.FileMode) error {
-	if info, err := os.Stat(path); err == nil {
-		defaultPerm = info.Mode().Perm()
+	write := func(f *os.File) error {
+		_, err := f.Write(data)
+		return err
 	}
-	return WriteFileAtomic(path, data, defaultPerm)
+	if info, err := os.Stat(path); err == nil {
+		return writeAtomic(path, info.Mode().Perm(), true, write)
+	}
+	return writeAtomic(path, defaultPerm, false, write)
 }
 
 // WriteFileAtomicStream is like WriteFileAtomic but streams into a caller-provided
@@ -45,7 +56,7 @@ func WriteFileAtomicKeepMode(path string, data []byte, defaultPerm os.FileMode) 
 // The writer is buffered; flush is handled by the helper. fsync runs after
 // flush and before rename.
 func WriteFileAtomicStream(path string, perm os.FileMode, write func(io.Writer) error) error {
-	return writeAtomic(path, perm, func(f *os.File) error {
+	return writeAtomic(path, perm, false, func(f *os.File) error {
 		bw := bufio.NewWriter(f)
 		if err := write(bw); err != nil {
 			return err
@@ -55,12 +66,17 @@ func WriteFileAtomicStream(path string, perm os.FileMode, write func(io.Writer) 
 }
 
 // writeAtomic is the shared tempfile + fsync + rename core. payload decides
-// how bytes reach the file handle (direct write vs. buffered stream).
-func writeAtomic(path string, perm os.FileMode, payload func(*os.File) error) error {
+// how bytes reach the file handle (direct write vs. buffered stream). exact
+// sets perm regardless of the umask, for preserving an existing file's mode.
+func writeAtomic(path string, perm os.FileMode, exact bool, payload func(*os.File) error) error {
+	path, err := symlinkTarget(path)
+	if err != nil {
+		return fmt.Errorf("resolve symlink: %w", err)
+	}
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 
-	tmp, err := os.CreateTemp(dir, "."+base+".tmp-*")
+	tmp, err := CreateTempMode(dir, "."+base+".tmp-*", perm)
 	if err != nil {
 		return fmt.Errorf("write tempfile: %w", err)
 	}
@@ -71,9 +87,11 @@ func writeAtomic(path string, perm os.FileMode, payload func(*os.File) error) er
 		os.Remove(tmpName)
 	}
 
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return fmt.Errorf("write tempfile: %w", err)
+	if exact {
+		if err := tmp.Chmod(perm); err != nil {
+			cleanup()
+			return fmt.Errorf("write tempfile: %w", err)
+		}
 	}
 
 	if err := payload(tmp); err != nil {
@@ -105,4 +123,49 @@ func writeAtomic(path string, perm os.FileMode, payload func(*os.File) error) er
 	syncDir(dir)
 
 	return nil
+}
+
+// maxSymlinkHops bounds symlink resolution, matching the common ELOOP limit.
+const maxSymlinkHops = 40
+
+// symlinkTarget follows a symlink at path to the file it finally names, so a
+// rename replaces that file rather than the link. The target need not exist.
+func symlinkTarget(path string) (string, error) {
+	for range maxSymlinkHops {
+		info, err := os.Lstat(path)
+		if err != nil {
+			// A missing path is created by the rename; other errors surface there.
+			return path, nil //nolint:nilerr // the write itself reports the error
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return path, nil
+		}
+		link, err := os.Readlink(path)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(path), link)
+		}
+		path = link
+	}
+	return "", fmt.Errorf("%s: too many levels of symbolic links", path)
+}
+
+// CreateTempMode is os.CreateTemp with a caller-chosen mode instead of 0600.
+// The mode is subject to the umask, as with os.OpenFile.
+func CreateTempMode(dir, pattern string, perm os.FileMode) (*os.File, error) {
+	prefix, suffix := pattern, ""
+	if i := strings.LastIndex(pattern, "*"); i >= 0 {
+		prefix, suffix = pattern[:i], pattern[i+1:]
+	}
+	for range 10000 {
+		name := filepath.Join(dir, prefix+strconv.FormatUint(uint64(rand.Uint32()), 10)+suffix)
+		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		return f, err
+	}
+	return nil, fmt.Errorf("create temp file in %s: too many collisions", dir)
 }

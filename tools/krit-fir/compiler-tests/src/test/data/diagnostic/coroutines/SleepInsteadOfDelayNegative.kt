@@ -40,8 +40,19 @@ suspend fun localFunction() {
     blocking()
 }
 
+// A crossinline lambda can run later, after the suspend caller has moved on.
+inline fun deferred(crossinline block: () -> Unit): Runnable = Runnable { block() }
+
+suspend fun crossinlineCallback() {
+    deferred { Thread.sleep(10) }.run()
+}
+
 class Holder(private val scope: CoroutineScope) {
     val plain = Runnable { Thread.sleep(10) }
+    val initialized = run {
+        Thread.sleep(10)
+        1
+    }
 
     fun start() {
         scope.launch { delay(10) }

@@ -2,9 +2,9 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lambdaOwner
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -13,7 +13,6 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
 import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirFunction
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -29,7 +28,7 @@ internal object WithContextInSuspendFunctionNoop : FirFunctionCallChecker(MppChe
 
     private val coroutinesPackage = FqName("kotlinx.coroutines")
     private val withContextId = CallableId(coroutinesPackage, Name.identifier("withContext"))
-    private val dispatchersClass = "kotlinx/coroutines/Dispatchers"
+    private const val DISPATCHERS_CLASS = "kotlinx/coroutines/Dispatchers"
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -47,7 +46,7 @@ internal object WithContextInSuspendFunctionNoop : FirFunctionCallChecker(MppChe
         val argument = call.argumentList.arguments.firstOrNull()?.let(::unwrapArgument) ?: return null
         val access = argument as? FirPropertyAccessExpression ?: return null
         val id = access.calleeReference.toResolvedCallableSymbol()?.callableId ?: return null
-        if (id.classId?.asString() != dispatchersClass) return null
+        if (id.classId?.asString() != DISPATCHERS_CLASS) return null
         return id.callableName.asString()
     }
 
@@ -66,18 +65,6 @@ internal object WithContextInSuspendFunctionNoop : FirFunctionCallChecker(MppChe
                 is FirFunction, is FirClass, is FirAnonymousInitializer -> return null
                 else -> {}
             }
-        }
-        return null
-    }
-
-    // The call that takes `lambda` as an argument: the nearest enclosing call listing it.
-    private fun lambdaOwner(elements: List<FirElement>, lambdaIndex: Int, lambda: FirAnonymousFunction): FirFunctionCall? {
-        for (index in lambdaIndex - 1 downTo 0) {
-            val call = elements[index] as? FirFunctionCall ?: continue
-            val takesLambda = call.argumentList.arguments.any {
-                (unwrapArgument(it) as? FirAnonymousFunctionExpression)?.anonymousFunction === lambda
-            }
-            if (takesLambda) return call
         }
         return null
     }

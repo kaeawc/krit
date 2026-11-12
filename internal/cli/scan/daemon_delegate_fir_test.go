@@ -3,10 +3,14 @@ package scan
 import (
 	"encoding/json"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/output"
 )
 
 // `krit --daemon --fir` must behave like a direct `krit --fir`: the wire
@@ -130,5 +134,86 @@ func TestResolveDepthForDelegation_FastDisablesOracleOnTheWire(t *testing.T) {
 	resolveDepthForDelegation(f, fs, fs.Args())
 	if args := buildDaemonAnalyzeArgs(f, fs.Args()); args.NoTypeOracle {
 		t.Fatal("explicit --no-type-oracle=false must override the fast preset")
+	}
+}
+
+// A failed FIR preflight must keep the scan in-process even when a daemon is
+// reachable: the wire has no degraded state, so the report would lose
+// summary.firDegraded.
+func TestTryDaemonDelegate_PreflightDegradedStaysInProcess(t *testing.T) {
+	socketDir := startMockDaemon(t, mockBehavior{findings: `{"rules":[],"line":[]}`})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	f := freshScanFlags(t)
+	*f.DaemonSocket = filepath.Join(socketDir, "d.sock")
+	f.firDegraded = &output.FirDegraded{Reason: "no classpath"}
+	if handled, code := tryDaemonDelegate(f, []string{root}, root); handled {
+		t.Fatalf("degraded preflight was delegated: code=%d", code)
+	}
+}
+
+// A daemon-served scan whose FIR checker failed must warn on the client and
+// honor --fail-on-degraded, as the in-process scan does.
+func TestRunDaemonAnalyzeReportsFirDegraded(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "warn", true: "fail-on-degraded"}[fail], func(t *testing.T) {
+			client := &verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+				Findings: []byte(`{"rules":[],"line":[]}`),
+				Stats: daemon.AnalyzeProjectStats{FirDegraded: &daemon.FirDegradedStats{
+					Reason: "checker failed: boom", FallbackRules: []string{"InjectDispatcher"},
+				}},
+			}}
+			f := freshScanFlags(t)
+			*f.FailOnDegraded = fail
+			redirectStdout(t)
+			original := os.Stderr
+			reader, writer, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Stderr = original; _ = reader.Close(); _ = writer.Close() })
+			os.Stderr = writer
+			handled, code := runDaemonAnalyze(client, f, []string{newRoot(t)})
+			_ = writer.Close()
+			stderr, _ := io.ReadAll(reader)
+			want, wantCode := "warning: FIR rules were skipped (checker failed: boom)", 0
+			if fail {
+				want, wantCode = "error: FIR rules were skipped (checker failed: boom)", 2
+			}
+			if !handled || code != wantCode || !strings.Contains(string(stderr), want) {
+				t.Fatalf("handled=%v code=%d stderr=%q", handled, code, stderr)
+			}
+		})
+	}
+}
+
+// Under --fail-on-degraded a degraded daemon-served scan exits 2, so it must
+// keep the previous -o report, as the in-process scan does.
+func TestRunDaemonAnalyzeFailOnDegradedKeepsPreviousReport(t *testing.T) {
+	client := &verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+		Findings: []byte(`{"degraded":true}`),
+		Stats: daemon.AnalyzeProjectStats{FirDegraded: &daemon.FirDegradedStats{
+			Reason: "checker failed: boom", FallbackRules: []string{"InjectDispatcher"},
+		}},
+	}}
+	report := filepath.Join(t.TempDir(), "report.json")
+	if err := os.WriteFile(report, []byte(`{"good":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := freshScanFlags(t)
+	*f.FailOnDegraded = true
+	*f.Output = report
+	original := os.Stderr
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Stderr = original; _ = devNull.Close() })
+	os.Stderr = devNull
+	if handled, code := runDaemonAnalyze(client, f, []string{newRoot(t)}); !handled || code != 2 {
+		t.Fatalf("handled=%v code=%d, want handled exit 2", handled, code)
+	}
+	if got, _ := os.ReadFile(report); string(got) != `{"good":true}` {
+		t.Fatalf("report = %q, want the previous report kept", got)
 	}
 }

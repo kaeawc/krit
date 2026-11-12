@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 // atomicOutput stages a -o report in a temp file next to the target. Commit
@@ -15,24 +17,27 @@ type atomicOutput struct {
 }
 
 // openAtomicOutput returns nil when path is not a plain file target (a device,
-// FIFO or symlink), which the caller then opens directly.
+// FIFO or symlink), which the caller then opens directly. An existing report
+// keeps its mode; a new one gets 0644 less the umask, as os.Create would.
 func openAtomicOutput(path string) *atomicOutput {
-	perm := os.FileMode(0o644)
+	var existing os.FileInfo
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		perm = info.Mode().Perm()
+		existing = info
 	} else if !os.IsNotExist(err) {
 		return nil
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	tmp, err := fsutil.CreateTempMode(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*", 0o644)
 	if err != nil {
 		return nil // unwritable directory: the direct open reports the error
 	}
-	if err := tmp.Chmod(perm); err != nil {
-		discard(tmp)
-		return nil
+	if existing != nil {
+		if err := tmp.Chmod(existing.Mode().Perm()); err != nil {
+			discard(tmp)
+			return nil
+		}
 	}
 	return &atomicOutput{file: tmp, path: path}
 }

@@ -41,6 +41,9 @@ type DetektImport struct {
 	Baseline string
 	// Notes lists detekt keys that could not be mapped.
 	Notes []string
+	// Warning reports an auto-discovered detekt config that could not be
+	// read or parsed and was skipped.
+	Warning string
 }
 
 // RegistryView lets the detekt importer ask about krit's registered rules
@@ -384,7 +387,12 @@ func loadDetektLayer(user *Config, userFile string, roots []string, opts LoadOpt
 	}
 	layer, notes, err := ParseDetektConfig(data, path)
 	if err != nil {
-		return nil, nil, err
+		if explicit {
+			return nil, nil, err
+		}
+		// A discovered detekt config is optional, so a broken one must not
+		// discard the krit config it would have been layered beneath.
+		return nil, &DetektImport{Baseline: settings.baseline, Warning: fmt.Sprintf("ignoring detekt config: %v", err)}, nil
 	}
 	if defaults, _, derr := ParseDetektConfig(shippedconfig.DetektDefaults(), shippedconfig.DetektDefaultsName); derr == nil {
 		// detekt applies its own defaults to whatever the project leaves out.

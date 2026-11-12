@@ -12,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/scan"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/store"
@@ -204,12 +205,12 @@ func handleDumpTypes(_ context.Context, state *daemonState, raw json.RawMessage)
 }
 
 // daemonResolvedStore mirrors scan.resolvedStore for the daemon: when
-// <root>/.krit/store exists, route oracle cache reads/writes through
+// <root>/.krit/store (under KRIT_STATE_DIR when set) exists, route oracle cache reads/writes through
 // the unified file store so dump-types calls land in the same cache
 // the in-process CLI populates. Returns nil otherwise (legacy file
 // layout), matching the CLI's empty-StoreDir default semantics.
 func daemonResolvedStore(root string) *store.FileStore {
-	dir := filepath.Join(root, ".krit", "store")
+	dir := filepath.Join(fsutil.ProjectStateDir(root), "store")
 	if _, err := os.Stat(dir); err != nil {
 		return nil
 	}

@@ -6,14 +6,15 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/store"
 )
 
-// defaultStoreDir returns the default unified store root.
-// Prefers .krit/store/ under the current directory, matching the
-// oracle cache convention of writing into .krit/.
+// defaultStoreDir returns the default unified store root: .krit/store/
+// under the current directory, or under KRIT_STATE_DIR when set, matching
+// where scans look for it.
 func defaultStoreDir() string {
-	return filepath.Join(".krit", "store")
+	return filepath.Join(fsutil.ProjectStateDir("."), "store")
 }
 
 // runCacheSubcommand dispatches krit cache <verb> [flags].

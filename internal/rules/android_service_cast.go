@@ -28,12 +28,48 @@ func serviceCastCheck(ctx *api.Context) {
 	if !serviceCastOracleConfirmed(oracleLookup, file, call) {
 		return
 	}
+	if oracleLookup == nil && serviceCastCallsLocalLookalike(file, call) {
+		return
+	}
 	// Lint prints the JVM name of Kotlin's Any.
 	if castType == "Any" {
 		castType = "Object"
 	}
 	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 		"Suspicious cast to `"+castType+"` for a `"+svcConst+"`: expected `"+expectedType+"`")
+}
+
+// serviceCastCallsLocalLookalike reports an unqualified or this-qualified getSystemService call in a file that declares
+// its own getSystemService without overriding one, so the call may not reach Context.getSystemService.
+func serviceCastCallsLocalLookalike(file *scanner.File, call uint32) bool {
+	if file.FlatType(call) == "method_invocation" {
+		if recv := javaMethodReceiverText(file, call); recv != "" && recv != "this" {
+			return false
+		}
+	} else if nav, _ := flatCallExpressionParts(file, call); nav != 0 {
+		return false
+	}
+	local := false
+	for _, kind := range []string{"function_declaration", "method_declaration"} {
+		file.FlatWalkNodes(0, kind, func(decl uint32) {
+			if local || flatFunctionName(file, decl) != "getSystemService" && javaMethodDeclName(file, decl) != "getSystemService" {
+				return
+			}
+			local = !file.FlatHasModifier(decl, "override") && !javaMethodHasOverrideAnnotation(file, decl)
+		})
+	}
+	return local
+}
+
+// javaMethodDeclName returns the name of a Java method declaration, or "".
+func javaMethodDeclName(file *scanner.File, decl uint32) string {
+	if file.FlatType(decl) != "method_declaration" {
+		return ""
+	}
+	if id, ok := file.FlatFindChild(decl, "identifier"); ok {
+		return file.FlatNodeText(id)
+	}
+	return ""
 }
 
 // serviceCastOperands returns the getSystemService call being cast and the simple name of the cast type, or 0 and "".

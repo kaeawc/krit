@@ -251,6 +251,7 @@ func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, ta
 
 	cmd := exec.CommandContext(context.Background(), javaPath, args...)
 	cmd.Dir = oracle.DaemonWorkDir()
+	cmd.Env = fsutil.JVMEnv()
 	logFile, logPath, err := fsutil.CreateUserKritFile("krit-fir-daemon.log")
 	if err != nil {
 		cmd.Stderr = os.Stderr

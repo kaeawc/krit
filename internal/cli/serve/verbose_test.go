@@ -102,7 +102,7 @@ func TestFirStartFindingsPassCapturesVerboseSummary(t *testing.T) {
 			buffer := &verboseBuffer{}
 			reporter := &diag.Reporter{Verbose: buffer}
 			hook := firStartFindingsPass(daemon.AnalyzeProjectArgs{Fir: true, Verbose: verbose},
-				[]string{t.TempDir()}, config.NewConfig(), firchecks.NewBroker(), nil, nil, reporter)
+				[]string{t.TempDir()}, config.NewConfig(), firchecks.NewBroker(), nil, nil, reporter, nil)
 			pending, err := hook(context.Background(), pipeline.ParseResult{
 				ActiveRules: []*api.Rule{{ID: "InjectDispatcher"}},
 			})
@@ -214,7 +214,6 @@ func TestAnalyzeProject_StreamsVerboseOutputBeforeEnvelope(t *testing.T) {
 	if handled, err := daemon.ScanAnalyzeProjectResponse(lines[len(lines)-1], &got); err != nil || !handled {
 		t.Fatalf("final line not a response: handled=%v err=%v", handled, err)
 	}
-	if strings.Contains(got.VerboseOutput, "phase") && strings.Contains(streamed, got.VerboseOutput) && got.VerboseOutput != "" {
-		t.Fatalf("streamed text repeated in response: %q", got.VerboseOutput)
-	}
+	// Each phase line reaches the client once across the frames and the response.
+	assertVerbosePhasesOnce(t, streamed+got.VerboseOutput)
 }

@@ -151,3 +151,65 @@ class Ed { boolean commit() { return true; } }
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+func TestInvalidWakeLockTagFallbackResolvesInitializerType(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "InvalidWakeLockTag", `package p
+
+import android.content.Context
+import android.os.PowerManager
+
+fun platform(ctx: Context, service: Any) {
+  val a = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+  a.newWakeLock(1, "t")
+  val b = ctx.getSystemService(PowerManager::class.java)
+  b.newWakeLock(1, "t")
+  val c = ctx.getSystemService<PowerManager>()
+  c.newWakeLock(1, "t")
+  (service as android.os.PowerManager).newWakeLock(1, "t")
+  val d = service as? PowerManager
+  d?.newWakeLock(1, "t")
+  val e = lookup("getSystemService PowerManager")
+  e.newWakeLock(1, "t")
+  val f = service as Locker
+  f.newWakeLock(1, "t")
+}
+fun lookup(s: String): Locker = Locker()
+class Locker { fun newWakeLock(a: Int, b: String) {} }
+`))
+	if want := "8:3,10:3,12:3,13:3,15:3"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+func TestInvalidWakeLockTagFallbackRejectsLookalikePowerManager(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "InvalidWakeLockTag", `package p
+
+import com.example.power.PowerManager
+
+fun custom(service: Any) {
+  val pm = service as PowerManager
+  pm.newWakeLock(1, "t")
+  (service as PowerManager).newWakeLock(1, "t")
+}
+`))
+	if got != "" {
+		t.Fatalf("positions = %s, want none", got)
+	}
+}
+
+func TestInvalidWakeLockTagJavaFallbackRejectsLookalikePowerManager(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "InvalidWakeLockTag", `package p;
+
+import android.content.Context;
+import com.example.power.PowerManager;
+
+class J {
+  void w(Context ctx, Object service) {
+    PowerManager.Lock l = ((PowerManager) service).newWakeLock(1, "t");
+  }
+}
+`))
+	if got != "" {
+		t.Fatalf("positions = %s, want none", got)
+	}
+}

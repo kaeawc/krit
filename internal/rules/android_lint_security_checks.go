@@ -43,10 +43,15 @@ func (r *HardwareIDsRule) Confidence() float64 { return api.ConfidenceMedium }
 // Confidence reports a tier-2 (medium) base confidence: the receiver type is inferred from imports.
 func (r *DeprecatedProviderRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// javaLangTypeRef reports whether text names the java.lang class simple, which needs no import.
+// javaLangTypeRef reports whether text names the java.lang class simple, which needs no import. A same-file class or
+// an explicit import with that simple name shadows the java.lang class.
 func javaLangTypeRef(file *scanner.File, text, simple string) bool {
 	text = strings.TrimSpace(text)
-	return text == simple || text == "java.lang."+simple || lintTypeRefMatches(file, text, "java.lang."+simple)
+	if text == simple {
+		imported, ok := lintImportsOf(file).bySimple[simple]
+		return (!ok || imported == "java.lang."+simple) && lintSameFileClass(file, simple) == 0
+	}
+	return text == "java.lang."+simple || lintTypeRefMatches(file, text, "java.lang."+simple)
 }
 
 func (r *UnsafeDynamicallyLoadedCodeRule) check(ctx *api.Context) {
@@ -80,7 +85,7 @@ func (r *BadHostnameVerifierRule) check(ctx *api.Context) {
 	}
 	for member := file.FlatFirstChild(body); member != 0; member = file.FlatNextSib(member) {
 		name := verifyMethodName(file, member)
-		if name == 0 {
+		if name == 0 || !methodHasBody(file, member) {
 			continue
 		}
 		if !verifierAlwaysTrue(file, ctx.Idx) {
@@ -118,6 +123,16 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 		return 0
 	}
 	return name
+}
+
+// methodHasBody reports whether a Kotlin or Java method declaration has an implementation, so abstract and interface
+// declarations are not reported as accept-all verifiers.
+func methodHasBody(file *scanner.File, member uint32) bool {
+	if _, ok := file.FlatFindChild(member, "function_body"); ok {
+		return true
+	}
+	_, ok := file.FlatFindChild(member, "block")
+	return ok
 }
 
 // verifierState tracks Lint's ComplexVisitor over a class: a throw or call makes it complex, and each return sets or
@@ -257,8 +272,12 @@ func (r *HardwareIDsRule) checkSecureString(ctx *api.Context, call lintCall) {
 	}
 	arg := call.Args[1]
 	text := strings.TrimSpace(file.FlatNodeText(arg))
-	if value, ok := lintEvalStringStrict(file, arg); (ok && value == "android_id") ||
-		text == "ANDROID_ID" || strings.HasSuffix(text, "Secure.ANDROID_ID") {
+	matches := text == "ANDROID_ID" || strings.HasSuffix(text, "Secure.ANDROID_ID")
+	if value, ok := lintEvalStringStrict(file, arg); ok {
+		// A known value, such as a same-file constant named ANDROID_ID, overrides the identifier spelling.
+		matches = value == "android_id"
+	}
+	if matches {
 		ctx.Emit(lintFindingAtNode(ctx, ctx.Idx, "", hardwareIDMessage("getString")))
 	}
 }
@@ -338,7 +357,27 @@ func isSystemServiceReceiver(ctx *api.Context, call lintCall, fqn string) bool {
 }
 
 func initNamesSystemService(text, fqn, simple string) bool {
-	return strings.Contains(text, " as "+simple) || strings.Contains(text, " as "+fqn) || strings.Contains(text, " as? "+simple) || strings.Contains(text, "("+simple+")") || strings.Contains(text, "("+fqn+")")
+	return containsTypeName(text, " as "+simple) || containsTypeName(text, " as "+fqn) || containsTypeName(text, " as? "+simple) ||
+		strings.Contains(text, "("+simple+")") || strings.Contains(text, "("+fqn+")")
+}
+
+// containsTypeName reports whether text contains needle followed by a character that cannot continue the type name, so
+// ` as TelephonyManager` does not match ` as TelephonyManagerFake`.
+func containsTypeName(text, needle string) bool {
+	for rest := text; ; {
+		i := strings.Index(rest, needle)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(needle):]
+		if rest == "" || !isTypeNameByte(rest[0]) {
+			return true
+		}
+	}
+}
+
+func isTypeNameByte(c byte) bool {
+	return c == '_' || c == '$' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func (r *DeprecatedProviderRule) check(ctx *api.Context) {

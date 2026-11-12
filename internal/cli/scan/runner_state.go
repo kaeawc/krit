@@ -321,8 +321,12 @@ func applyDetektBaseline(f *scanFlags, cfg *config.Config) {
 	*f.Baseline = info.Baseline
 }
 
-// reportDetektImport prints the detekt import summary under --verbose.
+// reportDetektImport warns about a skipped detekt config and prints the
+// detekt import summary under --verbose.
 func reportDetektImport(verbose bool, cfg *config.Config, w io.Writer) {
+	if d := cfg.Detekt(); d != nil && d.Warning != "" {
+		fmt.Fprintf(w, "warning: config: %s\n", d.Warning)
+	}
 	if !verbose {
 		return
 	}
@@ -469,6 +473,26 @@ func (r *runner) ensureProjectModel() {
 	})
 }
 
+// selectScanRules applies --disable-rules, --enable-rules, --all-rules,
+// --experimental, --strict and --max-cost to the registry. It also returns
+// the rule count before the --max-cost filter and the resolved cost cap.
+func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, beforeMaxCost int, maxCost api.Cost) {
+	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
+	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
+	if *f.DisableRelated {
+		rules.ExpandWithRelated(disabledSet, api.Registry)
+	}
+	experimental := *f.Experimental || cfg.GetTopLevelBool("experimental", false)
+	strict := *f.Strict || cfg.GetTopLevelBool("strict", false)
+	selected = rules.ActiveRulesV2(disabledSet, enabledSet, *f.AllRules, experimental, strict)
+	beforeMaxCost = len(selected)
+	if c, ok := resolveMaxCost(*f.MaxCost, cfg); ok {
+		maxCost = c
+		selected = rules.FilterByMaxCost(selected, c)
+	}
+	return selected, beforeMaxCost, maxCost
+}
+
 // filterRules computes the active rule set from --disable-rules /
 // --enable-rules / --all-rules, derives the Java path subset Dispatch
 // will consume, and short-circuits when there's nothing to scan or
@@ -477,21 +501,12 @@ func (r *runner) ensureProjectModel() {
 // Returns (handled=true, code) when the run should terminate early.
 func (r *runner) filterRules() (handled bool, code int) {
 	r.tracker.TrackVoid("filterRules", func() {
-		disabledSet := clishared.ParseRuleNameSetCSV(*r.f.DisableRules)
-		enabledSet := clishared.ParseRuleNameSetCSV(*r.f.EnableRules)
-		if *r.f.DisableRelated {
-			rules.ExpandWithRelated(disabledSet, api.Registry)
-		}
-		experimental := *r.f.Experimental || r.cfg.GetTopLevelBool("experimental", false)
-		strict := *r.f.Strict || r.cfg.GetTopLevelBool("strict", false)
-		r.activeRules = rules.ActiveRulesV2(disabledSet, enabledSet, *r.f.AllRules, experimental, strict)
-		if maxCost, ok := resolveMaxCost(*r.f.MaxCost, r.cfg); ok {
-			before := len(r.activeRules)
-			r.activeRules = rules.FilterByMaxCost(r.activeRules, maxCost)
-			if *r.f.Verbose && len(r.activeRules) != before {
-				fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s filtered %d → %d rules\n",
-					maxCost, before, len(r.activeRules))
-			}
+		var before int
+		var maxCost api.Cost
+		r.activeRules, before, maxCost = selectScanRules(r.f, r.cfg)
+		if *r.f.Verbose && len(r.activeRules) != before {
+			fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s filtered %d → %d rules\n",
+				maxCost, before, len(r.activeRules))
 		}
 		if pipeline.RulesNeedProjectModel(r.activeRules) {
 			r.ensureProjectModel()

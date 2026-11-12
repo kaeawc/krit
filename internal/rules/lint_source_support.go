@@ -181,7 +181,8 @@ func lintTypeRefMatches(file *scanner.File, text, fqn string) bool {
 	pkg := strings.TrimSuffix(fqn, "."+text)
 	for _, star := range imp.stars {
 		if star == pkg {
-			return true
+			// A class declared in the file shadows a wildcard import of the same simple name.
+			return lintSameFileClass(file, head) == 0
 		}
 	}
 	return false
@@ -403,16 +404,21 @@ func lintInitializerOf(file *scanner.File, scope uint32, name string, allowMutab
 	fn, hasFn := flatEnclosingCallable(file, scope)
 	var local, member uint32
 	var localRoot uint32
+	// A parameter or an earlier local of the same name hides the member declaration.
+	shadowed := lintNameIsParameterAt(file, scope, name)
 	consider := func(decl, init uint32, mutable bool) {
-		if init == 0 {
-			return
-		}
 		mutable = mutable && !allowMutable
 		inFn := hasFn && file.FlatStartByte(decl) >= file.FlatStartByte(fn) && file.FlatEndByte(decl) <= file.FlatEndByte(fn)
 		if inFn {
-			if file.FlatStartByte(decl) < file.FlatStartByte(scope) && !mutable {
-				local, localRoot = init, fn
+			if file.FlatStartByte(decl) < file.FlatStartByte(scope) {
+				shadowed = true
+				if !mutable && init != 0 {
+					local, localRoot = init, fn
+				}
 			}
+			return
+		}
+		if init == 0 {
 			return
 		}
 		if _, nested := flatEnclosingCallable(file, decl); nested {
@@ -446,13 +452,64 @@ func lintInitializerOf(file *scanner.File, scope uint32, name string, allowMutab
 			return 0
 		}
 		return local
-	case member != 0:
+	case member != 0 && !shadowed:
 		if lintNameReassigned(file, 0, name) {
 			return 0
 		}
 		return member
 	}
 	return 0
+}
+
+// lintNameIsParameterAt reports whether name is a parameter of a function, constructor or lambda enclosing idx.
+func lintNameIsParameterAt(file *scanner.File, idx uint32, name string) bool {
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		var params uint32
+		switch file.FlatType(cur) {
+		case "function_declaration", "secondary_constructor", "anonymous_function":
+			params, _ = file.FlatFindChild(cur, "function_value_parameters")
+		case "lambda_literal":
+			params, _ = file.FlatFindChild(cur, "lambda_parameters")
+		case "method_declaration", "constructor_declaration":
+			params, _ = file.FlatFindChild(cur, "formal_parameters")
+		case "lambda_expression":
+			params = file.FlatNamedChild(cur, 0)
+		default:
+			continue
+		}
+		if params != 0 && lintParamsDeclare(file, params, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// lintParamsDeclare reports whether a parameter list, or a single Java lambda parameter, declares name.
+func lintParamsDeclare(file *scanner.File, params uint32, name string) bool {
+	switch file.FlatType(params) {
+	case "identifier":
+		return file.FlatNodeText(params) == name
+	case "inferred_parameters":
+		for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+			if file.FlatType(p) == "identifier" && file.FlatNodeText(p) == name {
+				return true
+			}
+		}
+		return false
+	}
+	for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+		switch file.FlatType(p) {
+		case "parameter", "variable_declaration":
+			if lintDeclaredName(file, p) == name {
+				return true
+			}
+		case "formal_parameter":
+			if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func lintDeclaredName(file *scanner.File, node uint32) string {

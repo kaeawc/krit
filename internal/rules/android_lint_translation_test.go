@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -231,5 +232,47 @@ func TestTranslationRulesMatchLintRegistration(t *testing.T) {
 	}
 	if found != len(want) {
 		t.Fatalf("found %d of %d translation rules in the registry", found, len(want))
+	}
+}
+
+func TestTranslationRootsSkipTestSourceSets(t *testing.T) {
+	main := writeTranslationFiles(t, map[string]string{
+		"values/strings.xml": "<resources>\n  <string name=\"a\">x</string>\n</resources>\n",
+	})
+	src := filepath.Dir(filepath.Dir(main))
+	locale := "<resources>\n  <string name=\"other\">x</string>\n</resources>\n"
+	for _, set := range []string{"debug", "test", "androidTest", "androidTestDebug"} {
+		dir := filepath.Join(src, set, "res", "values-de")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "strings.xml"), []byte(locale), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := translationRoots(&api.Context{ResourceIndex: &android.ResourceIndex{ResDirs: []string{main}}})
+	want := []string{filepath.Join(src, "debug", "res"), main}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+}
+
+func TestRootElementPosAfterComments(t *testing.T) {
+	dir := t.TempDir()
+	for body, want := range map[string]string{
+		"<!-- c --><layout/>\n":                 "1:11",
+		"<?xml version=\"1.0\"?><!-- c --><a/>": "1:32",
+		"<!-- a\nb --> <a/>":                    "2:7",
+		"<!-- c -->\n<a/>":                      "2:1",
+		"\n  <a/>":                              "2:3",
+	} {
+		path := filepath.Join(dir, "f.xml")
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		line, col := rootElementPos(path)
+		if got := strconv.Itoa(line) + ":" + strconv.Itoa(col); got != want {
+			t.Errorf("rootElementPos(%q) = %s, want %s", body, got, want)
+		}
 	}
 }

@@ -1391,11 +1391,52 @@ func TestExplicitConfigUnloadableExitsNonZero(t *testing.T) {
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, stderr, code := runKrit(t, args...)
-			if code == 0 {
-				t.Fatalf("expected non-zero exit, got 0\nstderr: %s", stderr)
+			if code != 2 {
+				t.Fatalf("expected exit 2, got %d\nstderr: %s", code, stderr)
 			}
 			if !strings.Contains(stderr, "error: config:") && !strings.Contains(stderr, "error: load config:") {
 				t.Fatalf("expected config error, got: %s", stderr)
+			}
+		})
+	}
+}
+
+func TestDiscoveredConfigUnloadableWarnsAndScans(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(src, []byte("fun a() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(dir, "good.yml")
+	if err := os.WriteFile(good, []byte("style:\n  MaxLineLength:\n    active: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		file string
+		args []string
+	}{
+		"malformed-krit-yml":               {"krit.yml", []string{"--no-daemon", "-f", "json", dir}},
+		"malformed-detekt-yml-with-config": {"detekt.yml", []string{"--no-daemon", "-f", "json", "--config", good, dir}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			bad := filepath.Join(dir, tc.file)
+			if err := os.WriteFile(bad, []byte("a: [unclosed\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			defer os.Remove(bad)
+			stdout, stderr, code := runKrit(t, tc.args...)
+			if code == 2 {
+				t.Fatalf("discovered config failure must not stop the scan\nstderr: %s", stderr)
+			}
+			if !strings.Contains(stderr, "warning: config:") {
+				t.Fatalf("expected config warning, got: %s", stderr)
+			}
+			if !strings.Contains(stdout, "\"findings\"") {
+				t.Fatalf("expected a JSON report, got: %s", stdout)
 			}
 		})
 	}

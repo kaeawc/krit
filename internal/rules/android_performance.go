@@ -150,17 +150,30 @@ func drawAllocationReceiverName(file *scanner.File, nav uint32) string {
 	return text[strings.LastIndex(text, ".")+1:]
 }
 
-// drawAllocationIsPackagePath reports whether nav is a dotted name whose qualifiers are all
-// lowercase, as in `android.graphics.Path`, so that the call constructs the final class.
+// drawAllocationIsPackagePath reports whether nav names a class, so that the call constructs it: lowercase package
+// qualifiers as in `android.graphics.Path`, optionally followed by outer classes as in
+// `android.graphics.BitmapFactory.Options`, or an outer class that the file imports or declares, as in
+// `BitmapFactory.Options`.
 func drawAllocationIsPackagePath(file *scanner.File, nav uint32) bool {
 	text := file.FlatNodeText(nav)
 	text = text[:strings.LastIndex(text, ".")+1]
-	for _, seg := range strings.Split(strings.TrimSuffix(text, "."), ".") {
-		if seg == "" || seg[0] < 'a' || seg[0] > 'z' {
+	segs := strings.Split(strings.TrimSuffix(text, "."), ".")
+	pkg := 0
+	for pkg < len(segs) && segs[pkg] != "" && segs[pkg][0] >= 'a' && segs[pkg][0] <= 'z' {
+		pkg++
+	}
+	for _, seg := range segs[pkg:] {
+		if seg == "" || seg[0] < 'A' || seg[0] > 'Z' {
 			return false
 		}
 	}
-	return true
+	if pkg > 0 || pkg == len(segs) {
+		return true
+	}
+	if _, imported := lintImportsOf(file).bySimple[segs[0]]; imported {
+		return true
+	}
+	return lintSameFileClass(file, segs[0]) != 0
 }
 
 // drawAllocationIsClipBoundsProperty reports `receiver.clipBounds` read as a Kotlin property.
@@ -211,12 +224,50 @@ func drawAllocationIsLazyIf(file *scanner.File, ifExpr uint32) bool {
 		return false
 	}
 	lazy := false
-	file.FlatWalkNodes(cond, "simple_identifier", func(id uint32) {
-		if assigned[file.FlatNodeText(id)] {
+	drawAllocationConditionNames(file, cond, func(name string) {
+		if assigned[name] {
 			lazy = true
 		}
 	})
 	return lazy
+}
+
+// drawAllocationConditionNames reports the variable names Lint's addReferencedVariables reads from an if condition:
+// bare names, `this.x` and `super.x` selectors, and `::x.isInitialized`, through operators and parentheses. Calls and
+// members of other receivers contribute nothing.
+func drawAllocationConditionNames(file *scanner.File, n uint32, add func(string)) {
+	switch file.FlatType(n) {
+	case "simple_identifier":
+		add(file.FlatNodeText(n))
+	case "parenthesized_expression", "prefix_expression", "disjunction_expression", "conjunction_expression",
+		"equality_expression", "comparison_expression", "additive_expression", "multiplicative_expression",
+		"infix_expression", "elvis_expression", "range_expression":
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatIsNamed(c) {
+				drawAllocationConditionNames(file, c, add)
+			}
+		}
+	case "navigation_expression":
+		recv := file.FlatNamedChild(n, 0)
+		suffix, _ := file.FlatFindChild(n, "navigation_suffix")
+		if recv == 0 || suffix == 0 || file.FlatNamedChildCount(n) != 2 {
+			return
+		}
+		sel, _ := file.FlatFindChild(suffix, "simple_identifier")
+		if sel == 0 {
+			return
+		}
+		switch file.FlatType(recv) {
+		case "this_expression", "super_expression":
+			add(file.FlatNodeText(sel))
+		case "callable_reference":
+			if file.FlatNodeText(sel) == "isInitialized" && file.FlatNamedChildCount(recv) == 1 {
+				if ref, ok := file.FlatFindChild(recv, "simple_identifier"); ok {
+					add(file.FlatNodeText(ref))
+				}
+			}
+		}
+	}
 }
 
 // FieldGetterRule detects calls on self to a trivial getter, which are slower than reading the field.

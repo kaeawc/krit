@@ -8,6 +8,8 @@ func TestRelSlash(t *testing.T) {
 		{"/r", "/other/b.kt", "/other/b.kt"},
 		{"/r", "/r", "."},
 		{"/r", "/rx/a.kt", "/rx/a.kt"},
+		{"/r", "/r/..generated/Foo.kt", "..generated/Foo.kt"},
+		{"/r/a", "/r", "/r"},
 	}
 	for _, c := range cases {
 		if got := RelSlash(c.root, c.path); got != c.want {

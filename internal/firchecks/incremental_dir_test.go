@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
+	"github.com/kaeawc/krit/internal/fsutil"
 )
 
 func incrementalDirOf(t *testing.T, target CompileTarget) (string, bool) {
@@ -84,5 +85,19 @@ func TestClearCacheRemovesThePersistedIncrementalBundles(t *testing.T) {
 	}
 	if err := cacheutil.ClearAll(cacheutil.ClearContext{}); err != nil {
 		t.Fatalf("no repo is a no-op: %v", err)
+	}
+}
+
+// krit-fir only persists bundles under an absolute <dir>/.krit/fir-incremental
+// (BundleStore.trustedRoot), so a relocated state dir must keep that shape.
+func TestIncrementalDirUnderStateDirKeepsTrustedShape(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv(fsutil.StateDirEnv, state)
+	got := IncrementalDir(t.TempDir())
+	if !filepath.IsAbs(got) || filepath.Base(got) != "fir-incremental" || filepath.Base(filepath.Dir(got)) != ".krit" {
+		t.Fatalf("IncrementalDir = %q, want an absolute <dir>/.krit/fir-incremental", got)
+	}
+	if !strings.HasPrefix(got, state+string(filepath.Separator)) {
+		t.Fatalf("IncrementalDir = %q, want it under %q", got, state)
 	}
 }

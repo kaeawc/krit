@@ -282,12 +282,7 @@ func writeResDirFingerprints(h interface {
 	for _, resDir := range sorted {
 		_, _ = h.Write([]byte(resDir))
 		_, _ = h.Write([]byte{0})
-		var fp string
-		if fps != nil {
-			fp = fps.fingerprint(resDir)
-		} else {
-			fp = resDirContentFingerprint(resDir)
-		}
+		fp := fps.fingerprint(resDir)
 		_, _ = h.Write([]byte(fp))
 		_, _ = h.Write([]byte{0})
 	}

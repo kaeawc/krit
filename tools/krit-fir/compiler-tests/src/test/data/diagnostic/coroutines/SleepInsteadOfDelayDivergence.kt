@@ -3,8 +3,10 @@
 // Where FIR follows the compiler and Go follows the spelling of the call.
 package test
 
+import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 inline fun <T> inPlace(block: () -> T): T = block()
 
@@ -29,4 +31,11 @@ fun projectSuspendBuilder(scope: CoroutineScope) {
     scope.launch {
         runSuspending { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
     }
+}
+
+// Go stops at the unknown call names; these crossinline blocks run before the
+// function suspends, so the sleep blocks the coroutine's thread.
+suspend fun suspendingBlocks() {
+    suspendCoroutine<Int> { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
+    suspendCancellableCoroutine<Int> { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
 }

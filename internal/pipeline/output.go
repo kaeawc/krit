@@ -62,6 +62,9 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 		filtered := scanner.FilterColumnsByBaseline(columns, baseline, basePath)
 		columns = &filtered
 		suppressed := before - columns.Len()
+		if in.BaselineSuppressed != nil {
+			suppressed += *in.BaselineSuppressed
+		}
 		in.BaselineSuppressed = &suppressed
 	}
 

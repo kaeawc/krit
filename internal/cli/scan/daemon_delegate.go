@@ -14,6 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/selfexec"
@@ -48,7 +49,9 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 		}
 		return runDaemonMetaVerb(client, f, paths, verb)
 	}
-	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) {
+	// A failed FIR preflight is reported in-process: the wire carries no
+	// degraded state, so a delegated report would omit summary.firDegraded.
+	if !daemonCompatibleFlags(f) || !configServedByDaemon(f, repoDir) || f.firDegraded != nil {
 		return false, 0
 	}
 	if *f.DaemonSocket != "" {
@@ -57,6 +60,12 @@ func tryDaemonDelegate(f *scanFlags, paths []string, repoDir string) (bool, int)
 			return false, 0
 		}
 		return runDaemonAnalyze(client, f, paths)
+	}
+	// A daemon keeps its socket, lock, PID file and log in <project>/.krit
+	// and its caches in its own state directory, so a relocated-state scan
+	// stays in-process unless --daemon-socket names a daemon explicitly.
+	if fsutil.StateDirRelocated() {
+		return false, 0
 	}
 	if daemonAutoStartDisabled() {
 		client, ok := daemonclient.TryConnect(repoDir, "")
@@ -272,7 +281,13 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 		fmt.Fprintf(os.Stderr, "error: write findings: %v\n", err)
 		return 2
 	}
-	if err := closer(0); err != nil {
+	// Decide the degraded exit first: exit 2 discards the staged -o report, as in-process.
+	failDegraded := res.Stats.FirDegraded != nil && f.FailOnDegraded != nil && *f.FailOnDegraded
+	closeCode := 0
+	if failDegraded {
+		closeCode = 2
+	}
+	if err := closer(closeCode); err != nil {
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		return 2
 	}
@@ -281,6 +296,15 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 	}
 	if *f.ProfileDispatch && res.DispatchProfile != nil && len(res.DispatchProfile.Timings) > 0 {
 		emitDaemonDispatchProfile(res.DispatchProfile)
+	}
+	if d := res.Stats.FirDegraded; d != nil {
+		// The daemon's own warning goes to its stderr, so the client repeats it.
+		msg := degradedMessage(&output.FirDegraded{Reason: d.Reason, FallbackRules: d.FallbackRules})
+		if failDegraded {
+			fmt.Fprintf(os.Stderr, "error: %s\n", msg)
+			return 2
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
 	}
 	return finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
 }

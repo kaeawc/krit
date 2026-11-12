@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
@@ -22,6 +23,7 @@ import (
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
@@ -285,6 +287,11 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			Output:    res.PhaseTimingsMs.Output,
 		},
 		ProfileWarnings: profileWarnings,
+	}
+	if r.in.Host.FirDegraded != nil {
+		if d := r.in.Host.FirDegraded(); d != nil {
+			stats.FirDegraded = &daemon.FirDegradedStats{Reason: d.Reason, FallbackRules: d.FallbackRules}
+		}
 	}
 	// CreateBaseline ships a sorted+deduped baseline-ID list so the
 	// CLI can write the XML locally — daemon never writes user
@@ -680,7 +687,9 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 		// No oracle run in this request, so there is no compile to share.
 		in.Host.FIRCheckBroker.Done("type oracle disabled for this request")
 	}
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter)
+	var firDegraded atomic.Pointer[output.FirDegraded]
+	in.Host.FirDegraded = firDegraded.Load
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter, firDegraded.Store)
 	return in, nil
 }
 
@@ -698,7 +707,8 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // firStartFindingsPass returns the pipeline hook that starts the --fir pass
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker, reporter *diag.Reporter) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+// recordDegraded receives the degraded state when the checker fails.
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker, reporter *diag.Reporter, recordDegraded func(*output.FirDegraded)) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
@@ -727,6 +737,11 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 			SourceDirs:          checker.SourceDirs,
 			Classpath:           checker.Classpath,
 			Tracker:             tracker,
+			OnDegraded: func(err error) {
+				if recordDegraded != nil {
+					recordDegraded(scan.CheckerFailureDegraded(err, parsed.ActiveRules))
+				}
+			},
 		}
 		// Offer the pass's check to the oracle compile before the pass starts:
 		// the pass waits on the broker whenever it has files to compile.

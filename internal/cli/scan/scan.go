@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/memtune"
@@ -85,10 +86,10 @@ func resolvedStore(storeDirFlag *string) *store.FileStore {
 	}
 	dir := *storeDirFlag
 	if dir == "" {
-		if _, err := os.Stat(".krit/store"); err != nil {
+		dir = filepath.Join(fsutil.ProjectStateDir("."), "store")
+		if _, err := os.Stat(dir); err != nil {
 			return nil
 		}
-		dir = ".krit/store"
 	}
 	return store.New(dir)
 }

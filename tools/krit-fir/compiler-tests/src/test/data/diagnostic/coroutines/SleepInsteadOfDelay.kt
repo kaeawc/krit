@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 22, 26, 31, 36, 41, 44, 49, 50, 51, 56, 60, 61, 62, 63, 64, 69, 74
+// go-lines: 18, 22, 26, 31, 36, 41, 44, 49, 50, 51, 56, 60, 61, 62, 63, 64, 69, 74, 80
 // Thread.sleep in a suspend function and in the lambdas that run as coroutines
 // or in place of the suspend caller. Go and FIR agree on every line here.
 package test
@@ -71,5 +71,14 @@ fun nestedInline(scope: CoroutineScope) {
 }
 
 suspend fun referenceArgument(items: List<Long>) {
-    items.forEach(<!SleepInsteadOfDelay!>Thread::sleep<!>)
+    <!SleepInsteadOfDelay!>items.forEach(Thread::sleep)<!>
+}
+
+// A local variable's initializer runs in the suspend function.
+suspend fun localInitializer(): Int {
+    val result = run {
+        <!SleepInsteadOfDelay!>Thread.sleep(10)<!>
+        42
+    }
+    return result
 }

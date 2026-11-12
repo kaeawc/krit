@@ -14,8 +14,9 @@
 # programmatic tests over android.ResourceIndex, and their .xml fixtures
 # under tests/fixtures/{positive,negative}/android-lint/ are not indexed by
 # the coverage walker (it only counts .kt/.java/.kts). They are listed here
-# alongside the other resource rules.
-negative AaptCrash
+# alongside the other resource rules. A project fixture under
+# tests/fixtures/android-lint/<RuleID>/<positive|negative>/, which
+# cmd/krit's TestAndroidLintProjectFixtures scans, counts as coverage.
 negative AcceptsUserCertificates
 negative AccidentalOctal
 negative AdapterViewChildrenResource
@@ -65,7 +66,6 @@ negative DeprecatedResource
 negative DeviceAdminManifest
 negative DisableBaselineAlignmentResource
 negative DuplicateActivityManifest
-negative DuplicateDefinition
 negative DuplicateIdsResource
 negative DuplicateIncludedIdsResource
 negative DuplicateUsesFeatureManifest
@@ -80,7 +80,6 @@ negative ExportedReceiverManifest
 negative ExportedServiceManifest
 negative ExportedWithoutPermission
 negative ExtraTextResource
-negative ExtraTranslation
 negative FullBackupContentManifest
 negative GifUsage
 negative GoogleApiKeyInResources
@@ -165,7 +164,6 @@ negative MipmapLauncher
 negative MissingApplicationIconManifest
 negative MissingBackupPin
 negative MissingContentDescriptionResource
-negative MissingDefaultResource
 negative MissingExportedFlag
 negative MissingGradleChecksums
 negative MissingIdResource
@@ -174,7 +172,6 @@ negative MissingLeanbackSupportManifest
 negative MissingPrefixResource
 negative MissingQuantityResource
 negative MissingRegisteredManifest
-negative MissingTranslation
 negative MissingTvBanner
 negative MissingVersionManifest
 negative MockLocationManifest
@@ -200,10 +197,8 @@ negative OssLicensesNotIncludedInAndroid
 negative OverdrawResource
 negative PackageDependencyCycle
 negative ParcelCreator
-negative PermissionImpliesUnsupportedChromeOsHardwareManifest
 negative PermissionImpliesUnsupportedHardwareManifest
 negative PinSetExpiry
-negative PluralsCandidateResource
 negative PluralsMissingZero
 negative Proguard
 negative ProtectedPermissionsManifest
@@ -211,7 +206,6 @@ negative ProxyPassword
 negative PxUsageResource
 negative Range
 negative RedundantLabel
-negative ReferenceType
 negative RelativeOverlapResource
 negative RemoteVersion
 negative RequiredSizeResource
@@ -269,7 +263,6 @@ negative TypographyOther
 negative TypographyQuotes
 negative UniqueConstants
 negative UniquePermission
-negative UnknownId
 negative UnknownIdInLayout
 negative UnnecessaryRequiredFeature
 negative UnpackedNativeCodeManifest
@@ -278,7 +271,6 @@ negative UnsafeProtectedBroadcastReceiverManifest
 negative UnsupportedChromeOsHardwareManifest
 negative UnsupportedTvHardware
 negative UntestedPublicApi
-negative Untranslatable
 negative UnusedAttributeResource
 negative UnusedIds
 negative UnusedNamespaceResource
@@ -306,7 +298,6 @@ negative WrongCaseResource
 negative WrongFolderResource
 negative WrongManifestParentManifest
 negative WrongRegionResource
-positive AaptCrash
 positive AcceptsUserCertificates
 positive AccidentalOctal
 positive AdapterViewChildrenResource
@@ -356,7 +347,6 @@ positive DeprecatedResource
 positive DeviceAdminManifest
 positive DisableBaselineAlignmentResource
 positive DuplicateActivityManifest
-positive DuplicateDefinition
 positive DuplicateIdsResource
 positive DuplicateIncludedIdsResource
 positive DuplicateUsesFeatureManifest
@@ -371,7 +361,6 @@ positive ExportedReceiverManifest
 positive ExportedServiceManifest
 positive ExportedWithoutPermission
 positive ExtraTextResource
-positive ExtraTranslation
 positive FullBackupContentManifest
 positive GifUsage
 positive GoogleApiKeyInResources
@@ -456,7 +445,6 @@ positive MipmapLauncher
 positive MissingApplicationIconManifest
 positive MissingBackupPin
 positive MissingContentDescriptionResource
-positive MissingDefaultResource
 positive MissingExportedFlag
 positive MissingGradleChecksums
 positive MissingIdResource
@@ -465,7 +453,6 @@ positive MissingLeanbackSupportManifest
 positive MissingPrefixResource
 positive MissingQuantityResource
 positive MissingRegisteredManifest
-positive MissingTranslation
 positive MissingTvBanner
 positive MissingVersionManifest
 positive MockLocationManifest
@@ -491,10 +478,8 @@ positive OssLicensesNotIncludedInAndroid
 positive OverdrawResource
 positive PackageDependencyCycle
 positive ParcelCreator
-positive PermissionImpliesUnsupportedChromeOsHardwareManifest
 positive PermissionImpliesUnsupportedHardwareManifest
 positive PinSetExpiry
-positive PluralsCandidateResource
 positive PluralsMissingZero
 positive Proguard
 positive ProtectedPermissionsManifest
@@ -502,7 +487,6 @@ positive ProxyPassword
 positive PxUsageResource
 positive Range
 positive RedundantLabel
-positive ReferenceType
 positive RelativeOverlapResource
 positive RemoteVersion
 positive RequiredSizeResource
@@ -560,7 +544,6 @@ positive TypographyOther
 positive TypographyQuotes
 positive UniqueConstants
 positive UniquePermission
-positive UnknownId
 positive UnknownIdInLayout
 positive UnnecessaryRequiredFeature
 positive UnpackedNativeCodeManifest
@@ -569,7 +552,6 @@ positive UnsafeProtectedBroadcastReceiverManifest
 positive UnsupportedChromeOsHardwareManifest
 positive UnsupportedTvHardware
 positive UntestedPublicApi
-positive Untranslatable
 positive UnusedAttributeResource
 positive UnusedIds
 positive UnusedNamespaceResource

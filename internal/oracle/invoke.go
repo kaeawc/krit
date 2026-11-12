@@ -365,6 +365,7 @@ func runOracleProcessMeasured(
 
 	cmd := exec.CommandContext(ctx, binaryPath, args...)
 	cmd.Stderr = stderrWriter
+	cmd.Env = fsutil.JVMEnv()
 
 	// A one-shot run writes to a stable path (<repo>/.krit/types.json), so
 	// a previous run's output is usually already there. Only a file that

@@ -17,6 +17,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -944,5 +945,26 @@ func TestTryDaemonDelegate_UnsupportedPlatformFallsThroughImmediately(t *testing
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("delegation took %s; want an immediate decision", d)
+	}
+}
+
+// A daemon writes its socket, lock, PID file and log under <project>/.krit,
+// so a scan with KRIT_STATE_DIR must neither start nor reuse one implicitly.
+func TestTryDaemonDelegate_StateDirKeepsScanInProcess(t *testing.T) {
+	socketDir := startMockDaemon(t, mockBehavior{
+		findings:      `{"rules":["X"],"line":[1]}`,
+		findingsCount: 1,
+	})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+	t.Setenv(fsutil.StateDirEnv, t.TempDir())
+	f := freshScanFlags(t)
+	stubEnsureDaemonForScan(t, func(string, daemonclient.SpawnOptions) (*daemonclient.Client, bool, error) {
+		t.Fatal("ensureDaemonForScan must not run with KRIT_STATE_DIR set")
+		return nil, false, nil
+	})
+
+	if handled, _ := tryDaemonDelegate(f, []string{root}, root); handled {
+		t.Fatal("expected an in-process scan with KRIT_STATE_DIR set")
 	}
 }

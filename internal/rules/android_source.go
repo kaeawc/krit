@@ -711,6 +711,20 @@ func (r *LogTagMismatchRule) Confidence() float64 { return api.ConfidenceMedium 
 // isLoggableLevelMethods maps the Log level constants to their logging methods.
 var isLoggableLevelMethods = map[string]string{"VERBOSE": "v", "DEBUG": "d", "INFO": "i", "WARN": "w", "ERROR": "e"}
 
+// logLevelConstantName returns the android.util.Log constant that level names, as `Log.DEBUG`, `android.util.Log.DEBUG`
+// or an imported `DEBUG`. A local value named like a constant returns "", because Lint resolves the level's owner.
+func logLevelConstantName(file *scanner.File, level string) string {
+	for _, prefix := range []string{"android.util.Log.", "Log."} {
+		if name, ok := strings.CutPrefix(level, prefix); ok && !strings.Contains(name, ".") {
+			return name
+		}
+	}
+	if _, ok := isLoggableLevelMethods[level]; ok && lintTypeRefMatches(file, level, "android.util.Log."+level) {
+		return level
+	}
+	return ""
+}
+
 // logCallArgText returns the source text of positional argument index of call, or "".
 func logCallArgText(file *scanner.File, call uint32, index int) string {
 	arg := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), index)
@@ -739,15 +753,15 @@ func logBranchStatements(file *scanner.File, body uint32) []uint32 {
 	return out
 }
 
-// logTagMismatchMessages returns Lint's messages for a log call checked by isLoggable(tag, level).
-func logTagMismatchMessages(tag, level, callTag, callMethod string) []string {
+// logTagMismatchMessages returns Lint's messages for a log call checked by isLoggable(tag, levelName), where
+// levelName is the android.util.Log constant the level names, or "" when it names no such constant.
+func logTagMismatchMessages(tag, levelName, callTag, callMethod string) []string {
 	var out []string
-	levelName := level[strings.LastIndex(level, ".")+1:]
 	if want, ok := isLoggableLevelMethods[levelName]; ok && want != callMethod {
 		out = append(out, "Mismatched logging levels: when checking `isLoggable` level `"+levelName+
 			"`, the corresponding log call should be `Log."+want+"`, not `Log."+callMethod+"`")
 	}
-	if tag != "" && callTag != "" && tag != callTag {
+	if tag != "" && callTag != "" && strings.TrimPrefix(tag, "this.") != strings.TrimPrefix(callTag, "this.") {
 		out = append(out, "Mismatched tags: the `"+callMethod+"()` and `isLoggable()` calls typically should pass the same tag: `"+tag+"` versus `"+callTag+"`")
 	}
 	return out

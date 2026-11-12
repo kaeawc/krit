@@ -93,3 +93,53 @@ class A { void f(Other o) { o.setJavaScriptEnabled(true); } }`, 0},
 		})
 	}
 }
+
+func TestServiceCast_JavaLocalGetSystemService(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ServiceCast", `
+package test;
+import android.app.NotificationManager;
+import android.content.Context;
+class Registry {
+  Object getSystemService(String name) { return null; }
+  void run() {
+    NotificationManager a = (NotificationManager) getSystemService(Context.ALARM_SERVICE);
+  }
+}`)
+	if len(findings) != 0 {
+		t.Fatalf("got %d findings, want 0: %v", len(findings), findings)
+	}
+}
+
+func TestServiceCast_JavaOverriddenGetSystemServiceStillChecked(t *testing.T) {
+	findings := runRuleByNameOnJava(t, "ServiceCast", `
+package test;
+import android.app.NotificationManager;
+import android.content.Context;
+import android.content.ContextWrapper;
+class Wrapper extends ContextWrapper {
+  Wrapper(Context base) { super(base); }
+  @Override public Object getSystemService(String name) { return super.getSystemService(name); }
+  void run() {
+    NotificationManager a = (NotificationManager) getSystemService(Context.ALARM_SERVICE);
+  }
+}`)
+	if len(findings) != 1 {
+		t.Fatalf("got %d findings, want 1: %v", len(findings), findings)
+	}
+}
+
+func TestSetJavaScriptEnabled_JavaLocalWebSettingsShadowsWildcardImport(t *testing.T) {
+	src := `package test;
+import android.webkit.*;
+class WebSettings { void setJavaScriptEnabled(boolean on) {} }
+class A { void f(WebSettings w) { w.setJavaScriptEnabled(true); } }`
+	if n := len(runRuleByNameOnJava(t, "SetJavaScriptEnabled", src)); n != 0 {
+		t.Fatalf("got %d findings, want 0", n)
+	}
+	platform := `package test;
+import android.webkit.*;
+class A { void f(WebSettings w) { w.setJavaScriptEnabled(true); } }`
+	if n := len(runRuleByNameOnJava(t, "SetJavaScriptEnabled", platform)); n != 1 {
+		t.Fatalf("got %d findings, want 1", n)
+	}
+}

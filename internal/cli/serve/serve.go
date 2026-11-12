@@ -1078,7 +1078,7 @@ func (s *daemonState) readyLine(watcherLine string) string {
 // misleading 0.
 func countKotlinFiles(root string, graph *module.Graph) int {
 	if graph == nil || len(graph.Modules) == 0 {
-		return countKotlinUnder(root)
+		return countKotlinUnder(root, skippedWalkDirs)
 	}
 	return countModuleFiles(graph)
 }
@@ -1094,23 +1094,27 @@ func countModuleFiles(graph *module.Graph) int {
 			roots = []string{filepath.Join(m.Dir, "src", "main", "kotlin")}
 		}
 		for _, r := range roots {
-			total += countKotlinUnder(r)
+			total += countKotlinUnder(r, sourceRootSkippedDirs)
 		}
 	}
 	return total
 }
 
-// skippedWalkDirs are directories the fallback count never enters.
+// skippedWalkDirs are directories the repo-root fallback count never enters.
 var skippedWalkDirs = map[string]bool{".git": true, ".gradle": true, ".krit": true, "build": true, "node_modules": true}
 
-func countKotlinUnder(dir string) int {
+// sourceRootSkippedDirs omits "build" and "node_modules", which can be
+// package directories inside a module source root.
+var sourceRootSkippedDirs = map[string]bool{".git": true, ".gradle": true, ".krit": true}
+
+func countKotlinUnder(dir string, skipped map[string]bool) int {
 	total := 0
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil //nolint:nilerr // skip-and-continue: an unreadable entry is not counted
 		}
 		if d.IsDir() {
-			if path != dir && skippedWalkDirs[d.Name()] {
+			if path != dir && skipped[d.Name()] {
 				return filepath.SkipDir
 			}
 			return nil

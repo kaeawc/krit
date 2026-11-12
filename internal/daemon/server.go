@@ -349,7 +349,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 			}
 			continue
 		}
-		ok := s.dispatchAndWrite(WithStreamSink(ctx, NewStreamSink(writer)), req, writer)
+		ok := s.dispatchAndWrite(WithStreamSink(ctx, newConnStreamSink(writer, conn)), req, writer)
 		if flushErr := writer.Flush(); flushErr != nil {
 			return
 		}

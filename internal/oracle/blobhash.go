@@ -39,8 +39,8 @@ func blobHashWithSchemaVersion(f *File, schemaVersion int) string {
 		expressions = f.Expressions
 		diagnostics = append([]*Diagnostic(nil), f.Diagnostics...)
 	}
-	// Encode each declaration once; the sort key and the framed record both
-	// derive from the same canonical bytes.
+	// Encode each declaration once. The sort key is the framed FQN and kind;
+	// ties fall back to the canonical bytes instead of storing a second copy.
 	type declarationRecord struct {
 		key       []byte
 		canonical []byte
@@ -48,10 +48,18 @@ func blobHashWithSchemaVersion(f *File, schemaVersion int) string {
 	declarationRecords := make([]declarationRecord, len(declarations))
 	for i, declaration := range declarations {
 		canonical := canonicalDeclaration(declaration)
-		declarationRecords[i] = declarationRecord{key: declarationSortKeyFor(declaration, canonical), canonical: canonical}
+		declarationRecords[i] = declarationRecord{key: declarationSortKeyFor(declaration), canonical: canonical}
 	}
 	sort.Slice(declarationRecords, func(i, j int) bool {
-		return bytes.Compare(declarationRecords[i].key, declarationRecords[j].key) < 0
+		a, b := declarationRecords[i], declarationRecords[j]
+		if c := bytes.Compare(a.key, b.key); c != 0 {
+			return c < 0
+		}
+		// Same order as comparing the length-framed canonical bytes.
+		if len(a.canonical) != len(b.canonical) {
+			return len(a.canonical) < len(b.canonical)
+		}
+		return bytes.Compare(a.canonical, b.canonical) < 0
 	})
 	writeBlobToken(h.Write, "declarations")
 	writeBlobInt(h.Write, len(declarationRecords))
@@ -148,14 +156,13 @@ func writeBlobStrings(write blobWriter, values []string, sortValues bool) {
 	}
 }
 
-func declarationSortKeyFor(c *Class, canonical []byte) []byte {
+func declarationSortKeyFor(c *Class) []byte {
 	if c == nil {
 		return nil
 	}
-	out := bytes.NewBuffer(make([]byte, 0, len(c.FQN)+len(c.Kind)+len(canonical)+24))
+	out := bytes.NewBuffer(make([]byte, 0, len(c.FQN)+len(c.Kind)+16))
 	writeBlobToken(out.Write, c.FQN)
 	writeBlobToken(out.Write, c.Kind)
-	writeBlobBytes(out.Write, canonical)
 	return out.Bytes()
 }
 

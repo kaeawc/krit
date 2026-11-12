@@ -49,6 +49,16 @@ fun FirBasedSymbol<*>.isDeclaredInFile(file: FirFileSymbol?, session: FirSession
     }
 }
 
+/**
+ * The path of the source file declaring this symbol, or null for a local declaration, a deserialized one, or a
+ * declaration whose file is unknown. Only the path is read, never a body or an initializer. A rule uses it to tell
+ * a declaration of another Gradle module from one of the same module.
+ */
+fun FirBasedSymbol<*>.declaringSourcePath(session: FirSession): String? {
+    if (origin != FirDeclarationOrigin.Source || isLocalDeclaration()) return null
+    return session.firProvider.getContainingFile(this)?.sourceFile?.path
+}
+
 /** [isDeclaredInFile] for the file [context] is checking. */
 context(context: CheckerContext)
 fun FirBasedSymbol<*>.isDeclaredInCheckedFile(): Boolean = isDeclaredInFile(context.containingFileSymbol, context.session)

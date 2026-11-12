@@ -51,6 +51,20 @@ type IconIndex struct {
 	Densities   map[string][]*IconFile // density -> list of icon files
 	Icons       []*IconFile            // all icon files
 	ConfigIcons []*IconFile            // icons in non-density config folders (e.g., drawable-en, drawable-fr)
+
+	// LauncherIcons and RoundIcons hold the icons the manifest next to the res directory assigns to the
+	// application, activities and aliases. Drawable names are bare and mipmap names are "@mipmap/name".
+	LauncherIcons map[string]bool
+	RoundIcons    map[string]bool
+	// ManifestMinSdk is the manifest minSdkVersion, or 0 when it is not declared.
+	ManifestMinSdk int
+}
+
+// AllIcons returns the density-bucket icons followed by the icons in every other configuration folder.
+func (idx *IconIndex) AllIcons() []*IconFile {
+	all := make([]*IconFile, 0, len(idx.Icons)+len(idx.ConfigIcons))
+	all = append(all, idx.Icons...)
+	return append(all, idx.ConfigIcons...)
 }
 
 // ScanIconDirs scans res/drawable-* and res/mipmap-* directories for icon resources.
@@ -148,6 +162,9 @@ func ScanIconDirsWithWorkers(resDir string, maxWorkers int) (*IconIndex, error) 
 		}
 		idx.ConfigIcons = append(idx.ConfigIcons, results[i].configIcons...)
 	}
+
+	manifest := readIconManifest(resDir)
+	idx.LauncherIcons, idx.RoundIcons, idx.ManifestMinSdk = manifest.launcher, manifest.round, manifest.minSdk
 
 	return idx, nil
 }

@@ -400,13 +400,24 @@ func TestNotSiblingResource(t *testing.T) {
 		}
 	})
 
-	t.Run("relative to self reports", func(t *testing.T) {
+	t.Run("relative to self reports the same id form", func(t *testing.T) {
+		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
+			Type: "RelativeLayout", Line: 1, Attributes: map[string]string{},
+			Children: []*android.View{{Type: "TextView", ID: "@+id/a", Line: 2, Attributes: map[string]string{"android:layout_below": "@+id/a"}}},
+		})
+		findings := runResourceRule(r, idx)
+		if len(findings) != 1 || findings[0].Message != "Cannot be relative to self: id=a, layout_below=a" {
+			t.Fatalf("got %+v", findings)
+		}
+	})
+
+	// Lint matches the reference text against the declared id text, so `@id/a` on `@+id/a` is not reported.
+	t.Run("relative to self through the other id form is not reported", func(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "RelativeLayout", Line: 1, Attributes: map[string]string{},
 			Children: []*android.View{{Type: "TextView", ID: "@+id/a", Line: 2, Attributes: map[string]string{"android:layout_below": "@id/a"}}},
 		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 || findings[0].Message != "Cannot be relative to self: id=a, layout_below=a" {
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
 			t.Fatalf("got %+v", findings)
 		}
 	})
@@ -739,7 +750,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			"":     inconsistentLayoutConfig("layout", "LinearLayout", "title", "subtitle"),
 			"land": inconsistentLayoutConfig("layout-land", "LinearLayout", "title"),
 		})
-		findings := runResourceRule(r, idx)
+		findings := runInconsistentLayout(r, idx, "title", "subtitle")
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %v", findingMessages(findings))
 		}
@@ -747,8 +758,22 @@ func TestInconsistentLayoutResource(t *testing.T) {
 		if f.File != "res/layout/main.xml" || f.Line != 3 {
 			t.Errorf("expected anchor res/layout/main.xml:3, got %s:%d", f.File, f.Line)
 		}
-		if !strings.Contains(f.Message, "`subtitle`") || !strings.Contains(f.Message, "layout-land") {
-			t.Errorf("unexpected message %q", f.Message)
+		want := `The id "subtitle" in layout "main" is missing from the following layout configurations: layout-land (present in layout)`
+		if f.Message != want {
+			t.Errorf("got message %q, want %q", f.Message, want)
+		}
+	})
+
+	t.Run("ids source code never reads are not reported", func(t *testing.T) {
+		idx := inconsistentLayoutIndex(map[string]*android.Layout{
+			"":     inconsistentLayoutConfig("layout", "LinearLayout", "title", "subtitle"),
+			"land": inconsistentLayoutConfig("layout-land", "LinearLayout", "title"),
+		})
+		if findings := runInconsistentLayout(r, idx, "title"); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
+		}
+		if findings := runResourceRule(r, idx); len(findings) != 0 {
+			t.Fatalf("expected 0 findings without scanned source, got %v", findingMessages(findings))
 		}
 	})
 
@@ -757,7 +782,7 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			"":     inconsistentLayoutConfig("layout", "LinearLayout", "title", "body"),
 			"land": inconsistentLayoutConfig("layout-land", "ConstraintLayout", "body", "title"),
 		})
-		if findings := runResourceRule(r, idx); len(findings) != 0 {
+		if findings := runInconsistentLayout(r, idx, "title", "body"); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
 		}
 	})
@@ -768,9 +793,24 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			"land":    inconsistentLayoutConfig("layout-land", "LinearLayout", "title"),
 			"sw600dp": inconsistentLayoutConfig("layout-sw600dp", "LinearLayout"),
 		})
-		findings := runResourceRule(r, idx)
-		if len(findings) != 1 || !strings.Contains(findings[0].Message, "layout-sw600dp (present in layout)") {
+		findings := runInconsistentLayout(r, idx, "title")
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "layout-sw600dp (present in layout, layout-land)") {
 			t.Fatalf("expected one finding for layout-sw600dp, got %v", findingMessages(findings))
+		}
+	})
+
+	// Lint words an id found in fewer than half the configurations by where it is present.
+	t.Run("id in few configurations is described by where it is present", func(t *testing.T) {
+		idx := inconsistentLayoutIndex(map[string]*android.Layout{
+			"":        inconsistentLayoutConfig("layout", "LinearLayout", "rare"),
+			"land":    inconsistentLayoutConfig("layout-land", "LinearLayout"),
+			"night":   inconsistentLayoutConfig("layout-night", "LinearLayout"),
+			"sw600dp": inconsistentLayoutConfig("layout-sw600dp", "LinearLayout"),
+		})
+		findings := runInconsistentLayout(r, idx, "rare")
+		want := `The id "rare" in layout "main" is only present in the following layout configurations: layout (missing from layout-land, layout-night, layout-sw600dp)`
+		if len(findings) != 1 || findings[0].Message != want {
+			t.Fatalf("expected %q, got %v", want, findingMessages(findings))
 		}
 	})
 
@@ -781,7 +821,35 @@ func TestInconsistentLayoutResource(t *testing.T) {
 			"":     withExtra,
 			"land": inconsistentLayoutConfig("layout-land", "LinearLayout", "title"),
 		})
-		if findings := runResourceRule(r, idx); len(findings) != 0 {
+		if findings := runInconsistentLayout(r, idx, "title", "extra"); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
+		}
+	})
+
+	t.Run("an ignore on any declaration suppresses the id in every configuration", func(t *testing.T) {
+		land := inconsistentLayoutConfig("layout-land", "LinearLayout", "extra")
+		land.RootView.Children[0].Attributes["tools:ignore"] = "InconsistentLayout"
+		idx := inconsistentLayoutIndex(map[string]*android.Layout{
+			"":     inconsistentLayoutConfig("layout", "LinearLayout", "extra"),
+			"land": land,
+			"v21":  inconsistentLayoutConfig("layout-v21", "LinearLayout"),
+		})
+		if findings := runInconsistentLayout(r, idx, "extra"); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
+		}
+	})
+
+	t.Run("framework ids and ids that differ from the R.id name are not compared", func(t *testing.T) {
+		with := inconsistentLayoutConfig("layout", "LinearLayout", "dotted.id")
+		with.RootView.Children = append(with.RootView.Children, &android.View{Type: "ListView", ID: "@android:id/list", Line: 9, Attributes: map[string]string{}})
+		idx := inconsistentLayoutIndex(map[string]*android.Layout{
+			"":     with,
+			"land": inconsistentLayoutConfig("layout-land", "LinearLayout"),
+		})
+		if findings := runInconsistentLayout(r, idx, "list", "dotted_id", "dotted.id"); len(findings) != 1 {
+			t.Fatalf("source can only say R.id.dotted_id, so only a literal dotted.id match counts; got %v", findingMessages(findings))
+		}
+		if findings := runInconsistentLayout(r, idx, "list", "dotted_id"); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %v", findingMessages(findings))
 		}
 	})
@@ -790,13 +858,13 @@ func TestInconsistentLayoutResource(t *testing.T) {
 		idx := indexWithLayout("main", "res/layout/main.xml", &android.View{
 			Type: "LinearLayout", Line: 1, Attributes: map[string]string{},
 		})
-		if findings := runResourceRule(r, idx); len(findings) != 0 {
+		if findings := runInconsistentLayout(r, idx); len(findings) != 0 {
 			t.Fatalf("expected 0 findings for single config, got %d", len(findings))
 		}
 	})
 
 	t.Run("empty index is clean for InconsistentLayout", func(t *testing.T) {
-		if findings := runResourceRule(r, emptyIndex()); len(findings) != 0 {
+		if findings := runInconsistentLayout(r, emptyIndex()); len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})

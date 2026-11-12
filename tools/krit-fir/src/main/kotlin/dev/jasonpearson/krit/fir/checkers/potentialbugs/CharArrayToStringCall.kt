@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.potentialbugs
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.contracts.description.LogicOperationKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -16,13 +18,11 @@ import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirBooleanOperatorExpression
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
@@ -48,7 +48,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
@@ -128,7 +127,7 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
 
     private const val MAX_TYPE_DEPTH = 8
 
-    private val charArray = ClassId(FqName("kotlin"), Name.identifier("CharArray"))
+    private val charArray = classIdOf("kotlin", "CharArray")
     private val toString = Name.identifier("toString")
     private val toStringCallees = setOf(
         CallableId(StandardClassIds.Any, toString),
@@ -407,9 +406,6 @@ internal object CharArrayToStringCall : FirFunctionCallChecker(MppCheckerKind.Co
         return found
     }
 
-    private fun assignedVariable(assignment: FirVariableAssignment): FirVariableSymbol<*>? {
-        val lValue = assignment.lValue
-        val target = if (lValue is FirDesugaredAssignmentValueReferenceExpression) lValue.expressionRef.value else lValue
-        return (target as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedVariableSymbol()
-    }
+    private fun assignedVariable(assignment: FirVariableAssignment): FirVariableSymbol<*>? =
+        assignedAccess(assignment)?.calleeReference?.toResolvedVariableSymbol()
 }

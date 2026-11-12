@@ -126,11 +126,17 @@ func firJar(t *testing.T) (jar, stdlib string) {
 // included; Crashed lists files lost to a compiler crash.
 func firInvoke(t *testing.T, rules []string, files []string, target ...firchecks.CompileTarget) *firchecks.Result {
 	t.Helper()
+	return firInvokeWithFacts(t, rules, files, firchecks.FileFacts{}, target...)
+}
+
+// firInvokeWithFacts is firInvoke with the per-file facts a check request carries (scan spellings, test files).
+func firInvokeWithFacts(t *testing.T, rules []string, files []string, facts firchecks.FileFacts, target ...firchecks.CompileTarget) *firchecks.Result {
+	t.Helper()
 	jar, stdlib := firJar(t)
 	stubs, stubClasspath := firStubLibrary(t)
 	all := append(append([]string{}, stubs...), files...)
 	classpath := append([]string{stdlib}, stubClasspath...)
-	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, firchecks.FileFacts{}, "", false, false, target...)
+	res, err := firchecks.InvokeCached(jar, all, nil, classpath, rules, nil, facts, "", false, false, target...)
 	if err != nil {
 		t.Fatalf("krit-fir invoke: %v", err)
 	}

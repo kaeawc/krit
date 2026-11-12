@@ -40,25 +40,7 @@ func kdocRemovalRange(file *scanner.File, kdoc uint32) (int, int) {
 	return start, end
 }
 
-// kdocFirstParagraph returns the KDoc lines of the first paragraph: the first content line up to a
-// blank line or a block tag. Each item holds the line text without the comment decoration.
-func kdocFirstParagraph(raw string) []string {
-	raw = strings.TrimPrefix(strings.TrimSpace(raw), "/**")
-	raw = strings.TrimSuffix(raw, "*/")
-	var out []string
-	for _, line := range strings.Split(raw, "\n") {
-		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "*"))
-		if strings.HasPrefix(trimmed, "@") || strings.HasPrefix(trimmed, "- ") || (trimmed == "" && len(out) > 0) {
-			break
-		}
-		if trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
-}
-
-// endOfSentenceInsertOffsetFlat returns the byte offset after the last line of the first KDoc paragraph.
+// endOfSentenceInsertOffsetFlat returns the byte offset after the last text line before the first block tag.
 func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 	startByte := int(file.FlatStartByte(idx))
 	endByte := int(file.FlatEndByte(idx))
@@ -79,10 +61,10 @@ func endOfSentenceInsertOffsetFlat(file *scanner.File, idx uint32) int {
 		stripped = strings.TrimSpace(stripped)
 		stripped = strings.TrimSuffix(stripped, "*/")
 		stripped = strings.TrimSpace(strings.TrimPrefix(stripped, "*"))
-		if stripped == "" || strings.HasPrefix(stripped, "@") || strings.HasPrefix(stripped, "- ") {
-			if result >= 0 || stripped != "" {
-				break
-			}
+		if strings.HasPrefix(stripped, "@") {
+			break
+		}
+		if stripped == "" {
 			pos = nl + 1
 			continue
 		}
@@ -550,8 +532,6 @@ type OutdatedDocumentationRule struct {
 	AllowParamOnConstructorProperties bool
 }
 
-var paramTagRe = regexp.MustCompile(`@param\s+([A-Za-z_][A-Za-z0-9_]*)`)
-
 // Confidence holds the 0.95 dispatch default. Documentation/comment rule. Detection checks presence and
 // well-formedness of doc comments on declarations — purely structural. No
 // heuristic path. Classified per roadmap/17.
@@ -638,35 +618,12 @@ func kdocSectionStart(file *scanner.File, idx uint32) (row, col int) {
 	return row + 1, len(line) - len(strings.TrimLeft(line, " \t")) + 1
 }
 
-// outdatedDocMatches reports that the documented @param names equal the declared ones, as a sequence when
-// order matters and as a set otherwise.
-func outdatedDocMatches(tags, expected []string, ordered bool) bool {
-	if len(tags) != len(expected) {
-		return false
-	}
-	if ordered {
-		for i := range tags {
-			if tags[i] != expected[i] {
-				return false
-			}
+// kdocDocumentsProperty reports a `@property name` or `@param name` block tag in the KDoc text.
+func kdocDocumentsProperty(kdoc, name string) bool {
+	for _, d := range outdatedDocDecls(kdoc) {
+		if d.name == name {
+			return true
 		}
-		return true
 	}
-	seen := make(map[string]int, len(expected))
-	for _, n := range expected {
-		seen[n]++
-	}
-	for _, n := range tags {
-		if seen[n] == 0 {
-			return false
-		}
-		seen[n]--
-	}
-	return true
-}
-
-// kdocHasTag reports a `@tag name` block tag in the KDoc text.
-func kdocHasTag(kdoc, tag, name string) bool {
-	re := regexp.MustCompile(`@` + regexp.QuoteMeta(tag) + `\s+` + regexp.QuoteMeta(name) + `\b`)
-	return re.MatchString(kdoc)
+	return false
 }

@@ -1,9 +1,8 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
-import com.intellij.lang.LighterASTNode
-import com.intellij.openapi.util.Ref
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -132,9 +131,9 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
             node = when (node.tokenType) {
                 KtNodeTypes.REFERENCE_EXPRESSION -> return tree.toString(node).toString()
                 KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
-                    children(source, node).lastOrNull { it.tokenType in selectorTypes } ?: return null
+                    lightChildren(source, node).lastOrNull { it.tokenType in selectorTypes } ?: return null
                 KtNodeTypes.CALL_EXPRESSION ->
-                    children(source, node).firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
+                    lightChildren(source, node).firstOrNull()?.takeIf { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
                         ?: return null
                 else -> return null
             }
@@ -165,16 +164,10 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
         if (argument.tokenType != KtNodeTypes.VALUE_ARGUMENT) return false
         val list = tree.getParent(argument) ?: return false
         if (list.tokenType != KtNodeTypes.VALUE_ARGUMENT_LIST) return false
-        val first = children(source, list).firstOrNull {
+        val first = lightChildren(source, list).firstOrNull {
             it.tokenType == KtNodeTypes.VALUE_ARGUMENT &&
-                children(source, it).none { child -> child.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
+                lightChildren(source, it).none { child -> child.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
         }
         return first != null && first.startOffset == argument.startOffset && first.endOffset == argument.endOffset
-    }
-
-    private fun children(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> {
-        val ref = Ref<Array<LighterASTNode?>>()
-        source.treeStructure.getChildren(node, ref)
-        return ref.get()?.filterNotNull().orEmpty()
     }
 }

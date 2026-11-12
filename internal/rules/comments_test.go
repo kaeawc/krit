@@ -943,8 +943,12 @@ class ListIntro
  */
 class Missing
 `)
-	if len(findings) != 1 {
-		t.Fatalf("expected only the paragraph without any terminator, got %d findings", len(findings))
+	// detekt tests the whole text before the first tag, so a list item after "list:" is flagged too.
+	if len(findings) != 2 {
+		t.Fatalf("expected the list intro and the paragraph without any terminator, got %d findings", len(findings))
+	}
+	if findings[1].Fix == nil || findings[1].Fix.Replacement != "." {
+		t.Fatalf("expected a period fix, got %+v", findings[1].Fix)
 	}
 	if findings[0].Fix == nil || findings[0].Fix.Replacement != "." {
 		t.Fatalf("expected a period fix, got %+v", findings[0].Fix)

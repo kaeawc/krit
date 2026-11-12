@@ -30,6 +30,17 @@ func runResourceRule(r *api.Rule, idx *android.ResourceIndex) []scanner.Finding 
 	return api.ContextFindings(ctx)
 }
 
+// runInconsistentLayout runs the rule with source code that reads the given R.id names.
+func runInconsistentLayout(r *api.Rule, idx *android.ResourceIndex, readIDs ...string) []scanner.Finding {
+	refs := &api.ResourceCodeRefs{Refs: map[string]bool{}, Bindings: map[string]bool{}}
+	for _, id := range readIDs {
+		refs.Refs["id/"+id] = true
+	}
+	ctx := &api.Context{ResourceIndex: idx, Rule: r, Collector: scanner.NewFindingCollector(0), ResourceCodeRefs: refs}
+	r.Check(ctx)
+	return api.ContextFindings(ctx)
+}
+
 // helper: build a ResourceIndex with a single layout containing the given root view.
 func indexWithLayout(name, filePath string, root *android.View) *android.ResourceIndex {
 	layout := &android.Layout{Name: name, FilePath: filePath, RootView: root}

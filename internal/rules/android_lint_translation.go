@@ -28,6 +28,7 @@ const (
 	lintMissingDefault     = "MissingDefaultResource"
 	lintUntranslatable     = "Untranslatable"
 	lintDuplicateDef       = "DuplicateDefinition"
+	lintReferenceType      = "ReferenceType"
 )
 
 // translationFinding is one report of the translation checks.
@@ -160,6 +161,7 @@ type translationModule struct {
 	localeSeen   map[string]bool
 	nonTranslate map[string]bool
 	findings     []translationFinding
+	cycles       *cycleModule // resource references, read along with the values files
 }
 
 // moduleResRoots groups res directories by module: <module>/src/<set>/res share one module.
@@ -188,12 +190,13 @@ func analyzeTranslations(roots []string) []translationFinding {
 	for _, k := range keys {
 		rs := modules[k]
 		sort.Strings(rs)
-		m := &translationModule{localeSeen: map[string]bool{}, nonTranslate: map[string]bool{}}
+		m := &translationModule{localeSeen: map[string]bool{}, nonTranslate: map[string]bool{}, cycles: newCycleModule()}
 		for _, root := range rs {
 			m.readRoot(root)
 		}
 		m.checkDuplicates()
 		m.checkTranslations()
+		m.reportCycles()
 		out = append(out, m.findings...)
 	}
 	return out
@@ -230,6 +233,9 @@ func (m *translationModule) readRoot(root string) {
 				}
 				continue
 			}
+			if cycleFolderTypes[folderTy] && strings.HasSuffix(f.Name(), ".xml") {
+				m.cycles.readNonValuesFile(path, folderTy)
+			}
 			m.res = append(m.res, &translationRes{typ: folderTy, name: fileResourceName(f.Name()), folder: folder, folderTy: folderTy,
 				file: path, lang: lang, isLocale: lang != "", isDef: isDef, order: len(m.res)})
 		}
@@ -241,17 +247,34 @@ func translationIgnoredFile(name string) bool {
 	return strings.HasPrefix(name, "donottranslate") || name == "analytics.xml"
 }
 
+// reportCycles finds the loops among the references read from this module and reports them.
+func (m *translationModule) reportCycles() {
+	m.cycles.findCycles()
+	for _, f := range m.cycles.findings {
+		m.report(lintResourceCycle, f.loc.file, f.loc.line, f.loc.col, f.msg)
+	}
+}
+
 // readValuesFile records the resources of one values XML file.
 func (m *translationModule) readValuesFile(path, folder string, isDef bool, lang string) {
-	if translationIgnoredFile(filepath.Base(path)) {
-		return
-	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
 	root, err := android.ParseXMLAST(context.Background(), data)
-	if err != nil || root == nil || root.Tag != "resources" {
+	if err != nil || root == nil {
+		return
+	}
+	// The reference checks read every values file, including the ones the translation checks skip.
+	if cycleMayReference(data, "values") {
+		m.cycles.readFile(path, "values", root)
+	}
+	if hasTextReference(data) {
+		for _, f := range referenceTypeFileFindings(path, root) {
+			m.report(lintReferenceType, f.file, f.line, f.col, f.msg)
+		}
+	}
+	if translationIgnoredFile(filepath.Base(path)) || root.Tag != "resources" {
 		return
 	}
 	if root.Attr("translatable") == "false" {

@@ -1705,8 +1705,9 @@ func (in AndroidInput) withDescribedViewNames() AndroidInput {
 	return in
 }
 
-// unusedResourceRuleIDs are the rules that need to know which resources source code refers to.
-var unusedResourceRuleIDs = []string{"UnusedResources", "UnusedIds"}
+// unusedResourceRuleIDs are the rules that need to know which resources source code refers to. InconsistentLayout
+// only reports ids that source reads.
+var unusedResourceRuleIDs = []string{"UnusedResources", "UnusedIds", "InconsistentLayout"}
 
 // withResourceCodeRefs scans the project's source files for R.type.name references and view binding
 // classes, hands them to the dispatcher, and folds them into the cache key so findings are recomputed

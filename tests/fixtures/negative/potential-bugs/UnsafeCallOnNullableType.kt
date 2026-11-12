@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: it imports a project type with no stub, so Go stays authoritative for it; its stable-copy and short-circuit shapes need Go's text guards, and the FIR coverage is in compiler-tests data
 package potentialbugs
 
 import com.example.protos.push.SyncMessage

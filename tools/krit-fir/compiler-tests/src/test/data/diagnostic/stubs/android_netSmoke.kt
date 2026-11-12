@@ -1,6 +1,8 @@
 // Smoke: Uri.parse (a Java static) and the Uri.Builder chain.
 package stubs
 
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 
 fun buildUri(): Uri {
@@ -15,3 +17,5 @@ fun buildUri(): Uri {
 }
 
 fun freshUri(): Uri = Uri.Builder().scheme("https").authority("example.com").build()
+
+fun activeNetwork(cm: ConnectivityManager): Network? = cm.activeNetwork

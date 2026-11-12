@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.potentialbugs
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -23,7 +24,6 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.arrayElementType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -64,15 +64,15 @@ internal object ExitOutsideMain : FirFunctionCallChecker(MppCheckerKind.Common),
     private const val MESSAGE = "Do not call exitProcess() or System.exit() outside of the main function."
 
     private val exitProcess = CallableId(FqName("kotlin.system"), Name.identifier("exitProcess"))
-    private val systemExit = CallableId(ClassId(FqName("java.lang"), Name.identifier("System")), Name.identifier("exit"))
-    private val runtimeClass = ClassId(FqName("java.lang"), Name.identifier("Runtime"))
+    private val systemExit = CallableId(classIdOf("java.lang", "System"), Name.identifier("exit"))
+    private val runtimeClass = classIdOf("java.lang", "Runtime")
     private val runtimeExit = CallableId(runtimeClass, Name.identifier("exit"))
     private val runtimeHalt = CallableId(runtimeClass, Name.identifier("halt"))
     private val exits = setOf(exitProcess, systemExit, runtimeExit, runtimeHalt)
     private val main = Name.identifier("main")
-    private val jvmStatic = ClassId(FqName("kotlin.jvm"), Name.identifier("JvmStatic"))
-    private val stringClass = ClassId(FqName("kotlin"), Name.identifier("String"))
-    private val arrayClass = ClassId(FqName("kotlin"), Name.identifier("Array"))
+    private val jvmStatic = classIdOf("kotlin.jvm", "JvmStatic")
+    private val stringClass = classIdOf("kotlin", "String")
+    private val arrayClass = classIdOf("kotlin", "Array")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

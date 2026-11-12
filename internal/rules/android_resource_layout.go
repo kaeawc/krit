@@ -730,11 +730,10 @@ func (r *UseCompoundDrawablesResourceRule) check(ctx *api.Context) {
 // InconsistentLayoutResource
 // ---------------------------------------------------------------------------
 
-// InconsistentLayoutResourceRule detects a view id that one configuration of a
-// layout (for example layout/) defines but another (layout-land/) does not.
-// Code that calls findViewById on that id fails in the configuration where it
-// is missing. Layout structure and view types may differ between
-// configurations; only ids are compared.
+// InconsistentLayoutResourceRule mirrors Lint's LayoutConsistencyDetector. It reports a view id that some
+// configurations of a layout (for example layout/) define and others (layout-land/) do not, but only for ids that
+// Kotlin or Java source reads through R.id, because only those can fail in findViewById. Layout structure and view
+// types may differ between configurations; only ids are compared.
 type InconsistentLayoutResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -744,7 +743,14 @@ type InconsistentLayoutResourceRule struct {
 // expanded, so an id contributed by an included layout is not seen.
 func (r *InconsistentLayoutResourceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// inconsistentIDSite is where a configuration declares an id.
+type inconsistentIDSite struct{ line, col int }
+
 func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
+	// Without source references no id is relevant, which is what Lint does when it finds no R.id use.
+	if ctx.ResourceCodeRefs == nil {
+		return
+	}
 	idx := ctx.ResourceIndex
 	// Names and qualifiers are visited in sorted order so anchors and finding order are stable.
 	names := make([]string, 0, len(idx.LayoutConfigs))
@@ -753,73 +759,100 @@ func (r *InconsistentLayoutResourceRule) check(ctx *api.Context) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		configs := idx.LayoutConfigs[name]
-		if len(configs) < 2 {
-			continue
-		}
-		qualifiers := make([]string, 0, len(configs))
-		for qualifier, layout := range configs {
-			if layout != nil && layout.RootView != nil {
-				qualifiers = append(qualifiers, qualifier)
-			}
-		}
-		if len(qualifiers) < 2 {
-			continue
-		}
-		sort.Strings(qualifiers)
+		r.checkLayoutName(ctx, name, idx.LayoutConfigs[name])
+	}
+}
 
-		type idSite struct {
-			line int
-			col  int
-		}
-		present := make(map[string]map[string]idSite) // id -> qualifier -> first site
-		var order []string
-		for _, qualifier := range qualifiers {
-			walkViewsUnlessIgnored(configs[qualifier].RootView, []string{"InconsistentLayout"}, func(v *android.View) {
-				id := strings.TrimPrefix(strings.TrimPrefix(v.ID, "@+id/"), "@id/")
-				// InvalidId already reports malformed ids.
-				if id == "" || !isValidAndroidID(v.ID) {
-					return
-				}
-				if present[id] == nil {
-					present[id] = make(map[string]idSite)
-					order = append(order, id)
-				}
-				if _, seen := present[id][qualifier]; !seen {
-					present[id][qualifier] = idSite{line: v.Line, col: v.Col}
-				}
-			})
-		}
-		label := func(qualifier string) string {
-			if qualifier == "" {
-				return "layout"
-			}
-			return "layout-" + qualifier
-		}
-		sort.Strings(order)
-		for _, id := range order {
-			sites := present[id]
-			if len(sites) == len(qualifiers) {
-				continue
-			}
-			var anchor string
-			anchored := false
-			var missing []string
-			for _, qualifier := range qualifiers {
-				if _, ok := sites[qualifier]; ok {
-					if !anchored {
-						anchor, anchored = qualifier, true
-					}
-				} else {
-					missing = append(missing, label(qualifier))
-				}
-			}
-			site := sites[anchor]
-			ctx.Emit(baseFindingAt(configs[anchor].FilePath, site.line, site.col, r.BaseRule,
-				fmt.Sprintf("The id `%s` in layout `%s` is missing from the following layout configurations: %s (present in %s).",
-					id, name, strings.Join(missing, ", "), label(anchor))))
+func (r *InconsistentLayoutResourceRule) checkLayoutName(ctx *api.Context, name string, configs map[string]*android.Layout) {
+	if len(configs) < 2 {
+		return
+	}
+	qualifiers := make([]string, 0, len(configs))
+	for qualifier, layout := range configs {
+		if layout != nil && layout.RootView != nil {
+			qualifiers = append(qualifiers, qualifier)
 		}
 	}
+	if len(qualifiers) < 2 {
+		return
+	}
+	sort.Strings(qualifiers)
+	present, suppressed := collectInconsistentIDs(configs, qualifiers, ctx.ResourceCodeRefs.Refs)
+	order := make([]string, 0, len(present))
+	for id := range present {
+		order = append(order, id)
+	}
+	sort.Strings(order)
+	for _, id := range order {
+		sites := present[id]
+		if suppressed[id] || len(sites) == len(qualifiers) {
+			continue
+		}
+		var havers, missing []string
+		anchor := ""
+		for _, qualifier := range qualifiers {
+			if _, ok := sites[qualifier]; ok {
+				if len(havers) == 0 {
+					anchor = qualifier
+				}
+				havers = append(havers, layoutConfigLabel(qualifier))
+			} else {
+				missing = append(missing, layoutConfigLabel(qualifier))
+			}
+		}
+		site := sites[anchor]
+		ctx.Emit(baseFindingAt(configs[anchor].FilePath, site.line, site.col, r.BaseRule,
+			inconsistentLayoutMessage(id, name, havers, missing, len(qualifiers))))
+	}
+}
+
+func layoutConfigLabel(qualifier string) string {
+	if qualifier == "" {
+		return "layout"
+	}
+	return "layout-" + qualifier
+}
+
+// collectInconsistentIDs maps each id read from source to the first place each configuration declares it. An id is
+// suppressed when any declaration, or an ancestor of it, has tools:ignore for InconsistentLayout.
+func collectInconsistentIDs(configs map[string]*android.Layout, qualifiers []string, codeRefs map[string]bool) (map[string]map[string]inconsistentIDSite, map[string]bool) {
+	present := make(map[string]map[string]inconsistentIDSite)
+	suppressed := make(map[string]bool)
+	for _, qualifier := range qualifiers {
+		var visit func(v *android.View, inherited bool)
+		visit = func(v *android.View, inherited bool) {
+			ignored := inherited || resourceToolsIgnoreMatches(v, "InconsistentLayout")
+			// Lint skips framework ids and compares the id text with the R.id name as written in source.
+			if id := strings.TrimPrefix(strings.TrimPrefix(v.ID, "@+id/"), "@id/"); id != "" && !strings.HasPrefix(v.ID, "@android:") && codeRefs["id/"+id] {
+				if ignored {
+					suppressed[id] = true
+				}
+				if present[id] == nil {
+					present[id] = make(map[string]inconsistentIDSite)
+				}
+				if _, seen := present[id][qualifier]; !seen {
+					line, col := v.PosOf("android:id")
+					present[id][qualifier] = inconsistentIDSite{line: line, col: col}
+				}
+			}
+			for _, child := range v.Children {
+				visit(child, ignored)
+			}
+		}
+		visit(configs[qualifier].RootView, false)
+	}
+	return present, suppressed
+}
+
+// inconsistentLayoutMessage words the finding the way Lint does: ids found in fewer than half the configurations
+// are described by where they are present, others by where they are missing.
+func inconsistentLayoutMessage(id, layout string, present, missing []string, total int) string {
+	if len(present) < total/2 {
+		return fmt.Sprintf("The id \"%s\" in layout \"%s\" is only present in the following layout configurations: %s (missing from %s)",
+			id, layout, strings.Join(present, ", "), strings.Join(missing, ", "))
+	}
+	return fmt.Sprintf("The id \"%s\" in layout \"%s\" is missing from the following layout configurations: %s (present in %s)",
+		id, layout, strings.Join(missing, ", "), strings.Join(present, ", "))
 }
 
 // ---------------------------------------------------------------------------

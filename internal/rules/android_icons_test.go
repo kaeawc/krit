@@ -50,7 +50,21 @@ func testWriteIdenticalPNG(t *testing.T, path1, path2 string) {
 	}
 }
 
-// testWriteLargePNG creates a PNG file larger than webpThresholdBytes.
+// testWriteManifest writes an AndroidManifest.xml with the given extra body next to the res directory.
+func testWriteManifest(t *testing.T, root, body string) {
+	t.Helper()
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="p">` + body + `</manifest>`
+	if err := os.WriteFile(filepath.Join(root, "AndroidManifest.xml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// testMinSdk is a manifest body that sets minSdkVersion.
+func testMinSdk(sdk string) string {
+	return `<uses-sdk android:minSdkVersion="` + sdk + `"/><application/>`
+}
+
+// testWriteLargePNG creates a noisy PNG of about 10 KB or more.
 func testWriteLargePNG(t *testing.T, path string) {
 	t.Helper()
 	// Use a larger, noisier image so compression still leaves it above the threshold.
@@ -74,8 +88,8 @@ func testWriteLargePNG(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("stat PNG %s: %v", path, err)
 	}
-	if info.Size() < webpThresholdBytes {
-		t.Fatalf("test PNG is too small: got %d bytes, need at least %d", info.Size(), webpThresholdBytes)
+	if info.Size() < 10*1024 {
+		t.Fatalf("test PNG is too small: got %d bytes", info.Size())
 	}
 }
 
@@ -291,6 +305,7 @@ func TestCheckConvertToWebp_LargePNG(t *testing.T) {
 	dirPath := filepath.Join(resDir, "drawable-xxhdpi")
 	os.MkdirAll(dirPath, 0o755)
 	testWriteLargePNG(t, filepath.Join(dirPath, "large_bg.png"))
+	testWriteManifest(t, root, testMinSdk("21"))
 
 	idx, err := android.ScanIconDirs(resDir)
 	if err != nil {
@@ -298,7 +313,7 @@ func TestCheckConvertToWebp_LargePNG(t *testing.T) {
 	}
 
 	c := scanner.NewFindingCollector(0)
-	CheckConvertToWebp(idx, c)
+	CheckConvertToWebp(idx, c, nil)
 	findings := c.Columns().Findings()
 	if len(findings) == 0 {
 		t.Fatal("expected finding for large PNG")
@@ -316,7 +331,7 @@ func TestCheckConvertToWebp_LargePNG(t *testing.T) {
 	if findings[0].BinaryFix.SourcePath == "" {
 		t.Error("expected BinaryFix.SourcePath to be non-empty")
 	}
-	if findings[0].BinaryFix.Description != "Convert to WebP format and remove original PNG" {
+	if findings[0].BinaryFix.Description != "Convert to WebP format and remove original image" {
 		t.Errorf("unexpected BinaryFix.Description: %s", findings[0].BinaryFix.Description)
 	}
 	if !findings[0].BinaryFix.DeleteSource {
@@ -324,12 +339,13 @@ func TestCheckConvertToWebp_LargePNG(t *testing.T) {
 	}
 }
 
-func TestCheckConvertToWebp_SmallPNG(t *testing.T) {
+func TestCheckConvertToWebp_MinSdkBelow18(t *testing.T) {
 	root := t.TempDir()
 	resDir := filepath.Join(root, "res")
 	dirPath := filepath.Join(resDir, "drawable-mdpi")
 	os.MkdirAll(dirPath, 0o755)
 	testWritePNG(t, filepath.Join(dirPath, "small.png"), 4, 4)
+	testWriteManifest(t, root, testMinSdk("17"))
 
 	idx, err := android.ScanIconDirs(resDir)
 	if err != nil {
@@ -337,10 +353,10 @@ func TestCheckConvertToWebp_SmallPNG(t *testing.T) {
 	}
 
 	c := scanner.NewFindingCollector(0)
-	CheckConvertToWebp(idx, c)
+	CheckConvertToWebp(idx, c, nil)
 	findings := c.Columns().Findings()
 	if len(findings) != 0 {
-		t.Errorf("expected no findings for small PNG, got %d", len(findings))
+		t.Errorf("expected no findings below minSdk 18, got %d", len(findings))
 	}
 }
 
@@ -954,7 +970,7 @@ func TestCheckIconDensities_ListsEveryMissingDrawablePerFolder(t *testing.T) {
 		os.MkdirAll(filepath.Join(resDir, d.dir), 0o755)
 		testWritePNG(t, filepath.Join(resDir, d.dir, "icon.png"), d.size, d.size)
 	}
-	// Lint counts a nodpi copy as no substitute for the per-density bitmaps.
+	// A nodpi copy is no substitute for the per-density bitmaps, but Lint lists it in the found-in note.
 	os.MkdirAll(filepath.Join(resDir, "drawable-nodpi"), 0o755)
 	testWritePNG(t, filepath.Join(resDir, "drawable-nodpi", "art.png"), 40, 40)
 	testWritePNG(t, filepath.Join(resDir, "drawable-mdpi", "art.png"), 40, 40)
@@ -972,8 +988,8 @@ func TestCheckIconDensities_ListsEveryMissingDrawablePerFolder(t *testing.T) {
 	}
 	sort.Strings(msgs)
 	want := []string{
-		"Missing the following drawables in `drawable-hdpi`: art.png (found in drawable-mdpi)",
-		"Missing the following drawables in `drawable-xhdpi`: art.png (found in drawable-mdpi)",
+		"Missing the following drawables in `drawable-hdpi`: art.png (found in drawable-mdpi, drawable-nodpi)",
+		"Missing the following drawables in `drawable-xhdpi`: art.png (found in drawable-mdpi, drawable-nodpi)",
 	}
 	if strings.Join(msgs, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got %q, want %q", msgs, want)
@@ -1070,12 +1086,13 @@ func TestCheckConvertToWebp_NinePatchIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	testWriteLargePNG(t, filepath.Join(dirPath, "bubble.9.png"))
+	testWriteManifest(t, filepath.Dir(resDir), testMinSdk("21"))
 	idx, err := android.ScanIconDirs(resDir)
 	if err != nil {
 		t.Fatalf("ScanIconDirs: %v", err)
 	}
 	c := scanner.NewFindingCollector(0)
-	CheckConvertToWebp(idx, c)
+	CheckConvertToWebp(idx, c, nil)
 	if findings := c.Columns().Findings(); len(findings) != 0 {
 		t.Fatalf("expected no findings for a nine-patch, got %v", findings)
 	}

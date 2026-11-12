@@ -2,20 +2,14 @@ package rules
 
 import (
 	"regexp"
-	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-// deprecatedKDocTagRe matches the literal `@deprecated` KDoc block tag.
-// The tag must begin at a non-identifier boundary (start of text,
-// whitespace, or the `*` line marker) and end at a non-identifier
-// boundary (whitespace, end of text, or punctuation like `.` or `:`).
-// This rejects substring matches inside other tag names like
-// `@deprecatedSince` and inside Markdown code spans where the `@` is
-// preceded by a backtick.
-var deprecatedKDocTagRe = regexp.MustCompile(`(?:^|[\s*])@deprecated(?:$|[\s.:])`)
+// deprecatedKDocTagRe matches a `@deprecated` KDoc block tag. Like the KDoc parser it accepts the tag
+// only at the start of a content line, so a mid-sentence "@deprecated" is plain text.
+var deprecatedKDocTagRe = regexp.MustCompile(`(?m)^[ \t]*(?:/\*\*[ \t]*|\*[ \t]*)?@deprecated(?:$|[\s.:])`)
 
 func registerCommentsRules() {
 
@@ -38,7 +32,7 @@ func registerCommentsRules() {
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
-				if !flatIsKDoc(file, idx) {
+				if !flatIsKDoc(file, idx) || kdocIsOrphan(file, idx) {
 					return
 				}
 				text := file.FlatNodeText(idx)
@@ -114,15 +108,11 @@ func registerCommentsRules() {
 				if scanner.IsTestFile(file.Path) || isGradleBuildScript(file.Path) {
 					return
 				}
-				if !flatIsKDoc(file, idx) {
+				if !flatIsKDoc(file, idx) || kdocIsOrphan(file, idx) {
 					return
 				}
-				paragraph := kdocFirstParagraph(file.FlatNodeText(idx))
-				if len(paragraph) == 0 || strings.HasPrefix(paragraph[0], "<") {
-					return
-				}
-				// A sentence wrapped over several lines ends on a later line, so test the whole paragraph.
-				if r.Pattern.MatchString(strings.Join(paragraph, "\n")) {
+				text := kdocDefaultSectionText(file.FlatNodeText(idx))
+				if text == "" || kdocStartsWithHTML(text) || r.Pattern.MatchString(text) || kdocLastWordIsURL(text) {
 					return
 				}
 				row, col := kdocSectionStart(file, idx)
@@ -198,45 +188,8 @@ func registerCommentsRules() {
 		r := &OutdatedDocumentationRule{BaseRule: BaseRule{RuleName: "OutdatedDocumentation", RuleSetName: "comments", Sev: "warning", Desc: "Detects functions and classes whose KDoc @param tags do not match their parameters."}, MatchDeclarationsOrder: true, MatchTypeParameters: true}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"function_declaration", "class_declaration"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				prev, ok := flatPrecedingKDoc(file, idx)
-				if !ok {
-					return
-				}
-				var tags []string
-				for _, m := range paramTagRe.FindAllStringSubmatch(file.FlatNodeText(prev), -1) {
-					tags = append(tags, m[1])
-				}
-				// detekt only compares when the documentation has @param tags.
-				if len(tags) == 0 {
-					return
-				}
-				var expected []string
-				if r.MatchTypeParameters {
-					expected = append(expected, outdatedDocCollectTypeParameterNamesFlat(file, idx)...)
-				}
-				if file.FlatType(idx) == "function_declaration" {
-					if params, ok := file.FlatFindChild(idx, "function_value_parameters"); ok {
-						for _, p := range functionParamEntries(file, params, nil) {
-							expected = append(expected, paramName(file, p.node))
-						}
-					}
-				} else if ctor, ok := file.FlatFindChild(idx, "primary_constructor"); ok {
-					// @param on a constructor property is outdated: such parameters are documented with @property.
-					for _, p := range classParamEntries(file, ctor, nil) {
-						if r.AllowParamOnConstructorProperties || !file.FlatHasChildOfType(p.node, "binding_pattern_kind") {
-							expected = append(expected, paramName(file, p.node))
-						}
-					}
-				}
-				if outdatedDocMatches(tags, expected, r.MatchDeclarationsOrder) {
-					return
-				}
-				ctx.EmitAt(declLine(file, idx), declCol(file, idx),
-					"Documentation of "+extractIdentifierFlat(file, idx)+" is outdated")
-			},
+			NodeTypes: []string{"function_declaration", "class_declaration", "secondary_constructor"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,
+			Check: r.check,
 		})
 	}
 	{
@@ -312,7 +265,7 @@ func registerCommentsRules() {
 							if !isPublicDeclarationFlat(file, cls) {
 								return
 							}
-							if kdoc, ok := flatPrecedingKDoc(file, cls); ok && kdocHasTag(file.FlatNodeText(kdoc), "property", name) {
+							if kdoc, ok := flatPrecedingKDoc(file, cls); ok && kdocDocumentsProperty(file.FlatNodeText(kdoc), name) {
 								return
 							}
 						}
@@ -385,6 +338,10 @@ func shouldSkipPublicDocumentationRule(file *scanner.File, idx uint32) bool {
 	}
 	// Test sources are left out by the rules' default excludes, not here, and detekt has no DI exemption.
 	if file.FlatHasModifier(idx, "override") {
+		return true
+	}
+	// Members of an anonymous object are not public API.
+	if _, inLiteral := flatEnclosingAncestor(file, idx, "object_literal"); inLiteral {
 		return true
 	}
 	_, ok := flatPrecedingKDoc(file, idx)

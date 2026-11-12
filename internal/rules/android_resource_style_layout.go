@@ -470,10 +470,21 @@ func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 			view *android.View
 			attr string
 		}
-		walkViewsUnlessIgnored(menu.RootView, []string{"AlwaysShowAction"}, func(v *android.View) {
+		// Lint skips the whole file once any showAsAction attribute is suppressed.
+		fileIgnored := false
+		var walk func(v *android.View, inherited bool)
+		walk = func(v *android.View, inherited bool) {
+			if v == nil {
+				return
+			}
+			ignored := inherited || resourceToolsIgnoreMatches(v, "AlwaysShowAction")
 			for _, attr := range []string{"app:showAsAction", "android:showAsAction"} {
 				val := v.Attributes[attr]
 				if val == "" {
+					continue
+				}
+				if ignored {
+					fileIgnored = true
 					continue
 				}
 				total++
@@ -488,8 +499,12 @@ func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 					ifRoom++
 				}
 			}
-		})
-		if len(always) == 0 || total <= 1 || (len(always) <= 2 && ifRoom > 0) {
+			for _, child := range v.Children {
+				walk(child, ignored)
+			}
+		}
+		walk(menu.RootView, false)
+		if fileIgnored || len(always) == 0 || total <= 1 || (len(always) <= 2 && ifRoom > 0) {
 			continue
 		}
 		first := always[0]
@@ -506,7 +521,7 @@ func (r *AlwaysShowActionResourceRule) check(ctx *api.Context) {
 // drawables. Selector items are matched top-down and chosen when the
 // runtime state set is a superset of the item's state qualifiers, so an
 // item whose qualifier set is a superset of any earlier item's is
-// unreachable.
+// unreachable. Like Lint it reports only the first such item of a file.
 type StateListReachableResourceRule struct {
 	LayoutResourceBase
 	AndroidRule
@@ -536,8 +551,9 @@ func (r *StateListReachableResourceRule) check(ctx *api.Context) {
 }
 
 func (r *StateListReachableResourceRule) checkItems(ctx *api.Context, items []android.SelectorItem) {
-	for j := 1; j < len(items); j++ {
-		for i := 0; i < j; i++ {
+	// Lint scans earlier items first and stops at the first masked item, so a state list gets at most one report.
+	for i := 0; i < len(items)-1; i++ {
+		for j := i + 1; j < len(items); j++ {
 			if !stateAttrsSubsetOf(items[i].StateAttrs, items[j].StateAttrs) {
 				continue
 			}
@@ -551,7 +567,7 @@ func (r *StateListReachableResourceRule) checkItems(ctx *api.Context, items []an
 				Message:    fmt.Sprintf("This item is unreachable because a previous item (item #%d) is a more general match than this one", i+1),
 				Confidence: r.Confidence(),
 			})
-			break
+			return
 		}
 	}
 }

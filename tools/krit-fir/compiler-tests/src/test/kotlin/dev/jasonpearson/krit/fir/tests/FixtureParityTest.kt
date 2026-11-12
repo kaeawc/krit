@@ -165,18 +165,27 @@ class FixtureParityTest {
         // A unique file name per fixture: the probe reports by file name.
         val name = "${kind}_${fixture.parentFile.name}_${fixture.name}".replace('-', '_')
         return parityTest(ruleId, "$kind $rel") {
-            checkFixture(ruleId, rel, name, fixture.readText(), positive)
+            checkFixture(ruleId, rel, name, fixture.readText(), positive, scanPath = fixture.absolutePath)
         }
     }
 
     // Compiles one fixture with only [ruleId] enabled and asserts its verdict.
     // The compile runs first even for an opted-out fixture, so a marker whose
     // reason no longer holds (the fixture now compiles) is caught.
-    private fun checkFixture(ruleId: String, rel: String, name: String, source: String, positive: Boolean) {
+    private fun checkFixture(
+        ruleId: String,
+        rel: String,
+        name: String,
+        source: String,
+        positive: Boolean,
+        scanPath: String? = null,
+    ) {
         val skip = skipReason(source, rel)
         val result = KritFirProbe.compile(
             mapOf(name to source),
             FirRuleCompileContext(enabledRuleIds = setOf(ruleId)),
+            // The scan spelling is the fixture's real path, as Go's in-process rule sees it, for rules that test it.
+            scanPaths = scanPath?.let { mapOf(name to it) }.orEmpty(),
         )
         if (skip != null) {
             if (result.clean) {

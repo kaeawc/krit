@@ -47,7 +47,7 @@ func TestNoTabs_FixUsesDefaultFourSpaces(t *testing.T) {
 		t.Fatal("expected a fix")
 	}
 	got := findings[0].Fix.Replacement
-	want := "    println(\"hi\")"
+	want := "\n    "
 	if got != want {
 		t.Fatalf("default fix replacement = %q, want %q", got, want)
 	}
@@ -786,16 +786,56 @@ func TestTrailingWhitespace_CRLFAndRawStrings(t *testing.T) {
 	}
 }
 
-func TestNoTabs_RawStringTabsAreNotRewritten(t *testing.T) {
-	findings := runRuleByName(t, "NoTabs", "package test\nval raw = \"\"\"\n\tx\n\"\"\"\nfun f() {\n\tprintln()\n}\n")
+// detekt reports whitespace tokens, so tabs in strings and comments are not findings.
+func TestNoTabs_IgnoresStringsAndComments(t *testing.T) {
+	src := "package test\nval raw = \"\"\"\n\tx\n\"\"\"\nval s = \"a\\tb\tc\"\n// a\tb\n/* a\tb */\n/** a\tb */\nfun f() {}\n"
+	if findings := runRuleByName(t, "NoTabs", src); len(findings) != 0 {
+		t.Fatalf("expected no findings, got %v", findings)
+	}
+}
+
+// A whitespace token starts at the end of the previous line when a tab indents the next line.
+func TestNoTabs_ReportsWhitespaceTokenStart(t *testing.T) {
+	src := "package test\nclass A {\n\tfun f() {}\n\t\tfun g() {}\n    val x =\t1\n    val y = 2\t// c\n    fun h() {\n\n\t\n    }\n}\n"
+	var got [][2]int
+	for _, f := range runRuleByName(t, "NoTabs", src) {
+		got = append(got, [2]int{f.Line, f.Col})
+	}
+	want := [][2]int{{2, 10}, {3, 12}, {5, 12}, {6, 14}, {7, 14}}
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
+}
+
+func TestNoTabs_ReportsWhitespaceInsideInterpolation(t *testing.T) {
+	src := "package test\nval x = 1\nval s = \"a ${x\t+ 1} b\"\n"
+	findings := runRuleByName(t, "NoTabs", src)
+	if len(findings) != 1 || findings[0].Line != 3 {
+		t.Fatalf("expected one finding on line 3, got %v", findings)
+	}
+}
+
+func TestNoTabs_FixReplacesOnlyTheWhitespaceToken(t *testing.T) {
+	src := "package test\nfun f() {\n\tval x =\t1\n}\n"
+	findings := runRuleByName(t, "NoTabs", src)
 	if len(findings) != 2 {
-		t.Fatalf("expected 2 findings, got %d", len(findings))
+		t.Fatalf("expected 2 findings, got %v", findings)
 	}
-	if findings[0].Fix != nil {
-		t.Error("tab inside a raw string must not be auto-replaced")
+	got := src
+	for i := len(findings) - 1; i >= 0; i-- {
+		fix := findings[i].Fix
+		if fix == nil {
+			t.Fatal("tab in code should be fixable")
+		}
+		got = got[:fix.StartByte] + fix.Replacement + got[fix.EndByte:]
 	}
-	if findings[1].Fix == nil {
-		t.Error("tab in code should be fixable")
+	if want := "package test\nfun f() {\n    val x =    1\n}\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

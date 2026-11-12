@@ -247,3 +247,7 @@ func (r *HardwareIDsRule) Meta() api.RuleDescriptor {
 func (r *DeprecatedProviderRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "DeprecatedProvider", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *ResourceCycleRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ResourceCycle", RuleSet: "android-lint", DefaultActive: true}
+}

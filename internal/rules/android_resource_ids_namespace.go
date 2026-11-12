@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -117,29 +118,97 @@ func (r *NamespaceTypoResourceRule) Confidence() float64 { return api.Confidence
 func (r *NamespaceTypoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for _, layout := range idx.AllLayouts() {
-		walkViewsUnlessIgnored(layout.RootView, []string{"NamespaceTypo"}, func(v *android.View) {
-			for attrName, attrVal := range v.Attributes {
-				if !strings.HasPrefix(attrName, "xmlns:") || attrVal == correctAndroidNS {
-					continue
-				}
-				// A package namespace such as apk/res/com.example.app is a different, valid namespace (see ResAuto).
-				if pkg, ok := strings.CutPrefix(attrVal, resPackagePrefix); ok && strings.Contains(pkg, ".") {
-					continue
-				}
-				// Check if the namespace looks like a typo of the Android NS
-				if strings.Contains(attrVal, "schemas.android.com") ||
-					strings.Contains(attrVal, "schema.android.com") ||
-					strings.Contains(attrVal, "shemas.android.com") {
-					dist := levenshtein(attrVal, correctAndroidNS)
-					if dist > 0 && dist <= 5 {
-						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attrName, r.BaseRule,
-							fmt.Sprintf("Possible typo in namespace URI `%s`. Did you mean `%s`?",
-								attrVal, correctAndroidNS)))
-					}
-				}
+		root := layout.RootView
+		if root == nil || resourceToolsIgnoreMatches(root, "NamespaceTypo") {
+			continue
+		}
+		for _, rep := range lintNamespaceReports(root) {
+			if rep.issue == "NamespaceTypo" {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, root, rep.attr, r.BaseRule, rep.msg))
 			}
-		})
+		}
 	}
+}
+
+const (
+	lintAndroidURI = correctAndroidNS
+	lintResAutoURI = "http://schemas.android.com/apk/res-auto"
+	lintToolsURI   = "http://schemas.android.com/tools"
+)
+
+// nsReport is one report of Lint's NamespaceDetector on a root xmlns declaration.
+type nsReport struct{ issue, attr, msg string }
+
+// lintIsEditableTo is Lint.isEditableTo: s turns into t with at most max single-character edits.
+func lintIsEditableTo(s, t string, limit int) bool {
+	if s == t {
+		return true
+	}
+	if d := len(s) - len(t); d > limit || -d > limit {
+		return false
+	}
+	return levenshtein(s, t) <= limit
+}
+
+// lintNamespaceReports mirrors the root-attribute loop of NamespaceDetector.visitDocument: misspelled or
+// misbound xmlns declarations (NamespaceTypo) and a res-auto lookalike (ResAuto).
+func lintNamespaceReports(root *android.View) []nsReport {
+	names := make([]string, 0, len(root.Attributes))
+	for name := range root.Attributes {
+		if strings.HasPrefix(name, "xmlns:") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var out []nsReport
+	for _, name := range names {
+		out = append(out, lintNamespaceDeclReports(name, root.Attributes[name])...)
+	}
+	return out
+}
+
+func lintNamespaceDeclReports(name, uri string) []nsReport {
+	typo := func(msg string) nsReport { return nsReport{"NamespaceTypo", name, msg} }
+	if uri == "" {
+		return nil
+	}
+	if uri == lintAndroidURI {
+		if name == "xmlns:tools" || name == "xmlns:app" {
+			return []nsReport{typo("Suspicious namespace and prefix combination")}
+		}
+		return nil
+	}
+	var out []nsReport
+	switch {
+	case strings.HasPrefix(uri, resPackagePrefix):
+	case strings.HasPrefix(uri, "urn:"):
+		return nil
+	case !strings.HasPrefix(uri, "http://"):
+		return []nsReport{typo("Suspicious namespace: should start with `http://`")}
+	case uri != lintResAutoURI && strings.Contains(uri, "auto") && strings.HasPrefix(uri, "http://schemas.android.com/"):
+		out = append(out, nsReport{"ResAuto", name, "Suspicious namespace: Did you mean `http://schemas.android.com/apk/res-auto`?"})
+	case uri == lintToolsURI && (name == "xmlns:android" || name == "xmlns:app"):
+		out = append(out, typo("Suspicious namespace and prefix combination"))
+	}
+	if name != "xmlns:android" && name != "xmlns:a" {
+		i := strings.Index(uri, "/res/")
+		if i < 0 || len(uri)+5 <= len(resPackagePrefix) {
+			return out
+		}
+		if head := uri[:i+5]; head != resPackagePrefix && lintIsEditableTo(resPackagePrefix, head, 3) {
+			out = append(out, typo(fmt.Sprintf("Possible typo in URL: was `\"%s\"`, should probably be `\"%s%s\"`",
+				uri, resPackagePrefix, uri[i+5:])))
+		}
+		return out
+	}
+	if name == "xmlns:a" && !lintIsEditableTo(uri, lintAndroidURI, 4) {
+		return out
+	}
+	if strings.EqualFold(uri, lintAndroidURI) {
+		return append(out, typo(fmt.Sprintf("URI is case sensitive: was `\"%s\"`, expected `\"%s\"`", uri, lintAndroidURI)))
+	}
+	return append(out, typo(fmt.Sprintf("Unexpected namespace URI bound to the `\"android\"` prefix, was `%s`, expected `%s`",
+		uri, lintAndroidURI)))
 }
 
 // ---------------------------------------------------------------------------
@@ -164,20 +233,28 @@ func (r *ResAutoResourceRule) Confidence() float64 { return api.ConfidenceMedium
 func (r *ResAutoResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
 	for _, layout := range idx.AllLayouts() {
-		walkViewsUnlessIgnored(layout.RootView, []string{"ResAuto"}, func(v *android.View) {
-			for attr, val := range v.Attributes {
-				// Check xmlns declarations that use a hardcoded package
-				if strings.HasPrefix(attr, "xmlns:") && strings.HasPrefix(val, resPackagePrefix) {
-					suffix := val[len(resPackagePrefix):]
-					if suffix != "" && suffix != "android" {
-						ctx.Emit(baseFindingAtAttr(layout.FilePath, v, attr, r.BaseRule,
-							fmt.Sprintf("Namespace declaration `%s=\"%s\"` uses a hardcoded package name. "+
-								"Use `http://schemas.android.com/apk/res-auto` instead.",
-								attr, val)))
-					}
-				}
+		root := layout.RootView
+		if root == nil || resourceToolsIgnoreMatches(root, "ResAuto") {
+			continue
+		}
+		// Lint reads only the root element's declarations.
+		for _, rep := range lintNamespaceReports(root) {
+			if rep.issue == "ResAuto" {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, root, rep.attr, r.BaseRule, rep.msg))
 			}
-		})
+		}
+		names := make([]string, 0, len(root.Attributes))
+		for attr := range root.Attributes {
+			names = append(names, attr)
+		}
+		sort.Strings(names)
+		for _, attr := range names {
+			val := root.Attributes[attr]
+			if strings.HasPrefix(attr, "xmlns:") && strings.HasPrefix(val, resPackagePrefix) && val != lintAndroidURI {
+				ctx.Emit(baseFindingAtAttr(layout.FilePath, root, attr, r.BaseRule,
+					"In Gradle projects, always use `http://schemas.android.com/apk/res-auto` for custom attributes"))
+			}
+		}
 	}
 }
 

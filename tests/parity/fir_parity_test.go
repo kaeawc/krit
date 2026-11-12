@@ -38,6 +38,7 @@ var firParitySkipRe = regexp.MustCompile(`(?m)^\s*//\s*fir-parity:\s*skip\b(.*)$
 type firFixture struct {
 	rule, kind string
 	rel        string // repo-relative path of the original fixture
+	scan       string // absolute path of the original fixture, the scan spelling Go's rule sees
 	tmp        string // rewritten copy (unique package) that krit-fir compiles
 	lineOffset int    // lines the rewrite inserted before the original line 1
 	hasSkip    bool
@@ -229,13 +230,16 @@ func runParityBatch(t *testing.T, rules []string, fixtures []firFixture, target 
 	firByPath := map[string][]scanner.Finding{}
 	crashed := map[string]string{}
 	var files []string
+	facts := firchecks.FileFacts{ScanPaths: map[string]string{}}
 	for _, f := range fixtures {
 		files = append(files, f.tmp)
+		// Rules that test the path see the fixture's own path, as the in-process Go rule does.
+		facts.ScanPaths[f.tmp] = f.scan
 	}
 	if len(files) == 0 {
 		return firByPath, crashed
 	}
-	res := firInvoke(t, rules, files, target...)
+	res := firInvokeWithFacts(t, rules, files, facts, target...)
 	if broken := brokenFixtures(res); len(broken) > 0 {
 		crashed = broken
 		var compiling []string
@@ -247,7 +251,7 @@ func runParityBatch(t *testing.T, rules []string, fixtures []firFixture, target 
 		if len(compiling) == 0 {
 			return firByPath, crashed
 		}
-		res = firInvoke(t, rules, compiling, target...)
+		res = firInvokeWithFacts(t, rules, compiling, facts, target...)
 		if broken := brokenFixtures(res); len(broken) > 0 {
 			t.Fatalf("krit-fir still reports compile errors after dropping the broken fixtures: %v", broken)
 		}
@@ -342,7 +346,7 @@ func writeParityFixture(t *testing.T, root, dir, id, kind, path string) firFixtu
 	ident := func(s string) string { return strings.NewReplacer("-", "_", ".", "_").Replace(s) }
 	pkg := fmt.Sprintf("firparity.%s.%s.%s", kind, ident(category), strings.ToLower(id))
 	source, offset := rewritePackage(string(data), pkg)
-	f := firFixture{rule: id, kind: kind, rel: filepath.ToSlash(rel), lineOffset: offset}
+	f := firFixture{rule: id, kind: kind, rel: filepath.ToSlash(rel), scan: path, lineOffset: offset}
 	if m := firParitySkipRe.FindStringSubmatch(source); m != nil {
 		f.hasSkip, f.skip = true, strings.TrimSpace(m[1])
 	}

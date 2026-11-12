@@ -110,6 +110,36 @@ fun foo(valid: Boolean) {
 	}
 }
 
+// detekt takes the first call in source order, so a chain on the exception constructor still counts.
+func TestUseCheckOrError_ReportsConstructorWithChainedCall(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `
+package test
+fun foo(x: Int) {
+    if (x > 1) throw IllegalStateException("a").also { println(it) }
+    if (x > 2) throw IllegalStateException("b")?.also { println(it) }
+    if (x > 3) throw IllegalStateException("c").let { it }
+    if (x > 4) throw wrap(IllegalStateException("d"))
+    if (x > 5) throw make().also { }
+}
+`)
+	if len(findings) != 3 || findings[0].Line != 4 || findings[1].Line != 5 || findings[2].Line != 6 {
+		t.Fatalf("expected findings on lines 4, 5 and 6, got %v", findings)
+	}
+}
+
+func TestUseRequire_ReportsConstructorWithChainedCall(t *testing.T) {
+	findings := runRuleByName(t, "UseRequire", `
+package test
+fun foo(x: Int) {
+    if (x > 1) throw IllegalArgumentException("a").also { println(it) }
+    if (x > 2) throw wrap(IllegalArgumentException("b"))
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 4 {
+		t.Fatalf("expected one finding on line 4, got %v", findings)
+	}
+}
+
 func TestUseRequire_Positive(t *testing.T) {
 	findings := runRuleByName(t, "UseRequire", `
 package test

@@ -263,8 +263,12 @@ func buildResourceGraph(ctx *api.Context, ignoreID string) *resourceGraph {
 						if err == nil {
 							if root, perr := android.ParseXMLAST(context.Background(), data); perr == nil && root != nil {
 								decl.ignored = toolsIgnoresUnused(root, ignoreID)
+								// Lint locates an unused file resource at its root element, below any header comment.
+								decl.line = root.Line
 								nodeRefs(root, refs)
-								collectIDDecls(root, path, g, ignoreID)
+								if folderType != "navigation" {
+									collectIDDecls(root, path, g, ignoreID)
+								}
 								if keep := root.Attr("tools:keep"); keep != "" && folderType == "raw" {
 									keepPatterns = append(keepPatterns, strings.Split(keep, ",")...)
 								}
@@ -354,11 +358,17 @@ func scanValuesFile(path, folder string, g *resourceGraph, addEdges func(string,
 	}
 }
 
-// collectIDDecls records the ids an XML tree declares with @+id/ in android:id attributes.
+// collectIDDecls records the ids an XML tree declares with @+id/, in document order.
 func collectIDDecls(node *android.XMLNode, path string, g *resourceGraph, ignoreID string) {
-	if v := node.Attr("android:id"); strings.HasPrefix(v, "@+id/") {
-		key := resKey("id", strings.TrimPrefix(v, "@+id/"))
-		g.ids[key] = append(g.ids[key], &unusedDecl{typ: "id", name: strings.TrimPrefix(v, "@+id/"), path: path, line: node.Line,
+	for _, attr := range node.Attrs {
+		// Lint treats an `@+id/` in any attribute as a declaration, so a forward reference moves the report up.
+		if !strings.HasPrefix(attr.Value, "@+id/") {
+			continue
+		}
+		name := strings.TrimPrefix(attr.Value, "@+id/")
+		key := resKey("id", name)
+		// Lint reports the id at the attribute, which can be below the element's first line.
+		g.ids[key] = append(g.ids[key], &unusedDecl{typ: "id", name: name, path: path, line: attr.Line,
 			ignored: toolsIgnoresUnused(node, ignoreID), order: declOrder(filepath.Base(filepath.Dir(path)), filepath.Base(path))})
 	}
 	for _, child := range node.Children {
@@ -495,14 +505,8 @@ func (r *UnusedIDsRule) check(ctx *api.Context) {
 		return
 	}
 	g := projectResourceGraph(ctx, "UnusedIds")
-	// Any @id/ reference or R.id use keeps the id; the graph's edges already include @+id/ uses in other attributes.
+	// Like Lint, only an R.id use or a reference from a resource that is itself used keeps the id.
 	used := g.reachable(codeRoots(ctx, g))
-	refsAnywhere := map[string]bool{}
-	for _, tos := range g.edges {
-		for _, to := range tos {
-			refsAnywhere[to] = true
-		}
-	}
 	keys := make([]string, 0, len(g.ids))
 	for key := range g.ids {
 		keys = append(keys, key)
@@ -510,7 +514,7 @@ func (r *UnusedIDsRule) check(ctx *api.Context) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		decls := g.ids[key]
-		if used[key] || refsAnywhere[key] {
+		if used[key] {
 			continue
 		}
 		d := firstLocalDecl(ctx, decls)

@@ -45,7 +45,7 @@ class PlainAdapter(private val rows: List<ListRow>) : RecyclerView.Adapter<RowVi
     override fun getItemCount(): Int = rows.size
 
     fun refresh() {
-        notifyDataSetChanged()
+        <!RecyclerAdapterWithoutDiffUtil!>notifyDataSetChanged<!>()
         notifyItemChanged(0)
         notifyItemInserted(1)
         notifyItemRemoved(2)

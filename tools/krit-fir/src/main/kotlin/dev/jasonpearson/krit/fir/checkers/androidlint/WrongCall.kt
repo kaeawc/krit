@@ -1,10 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -21,7 +20,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.toKtLightSourceElement
 
 /**
  * Flags a direct call of a View's `onDraw`, `onMeasure`, or `onLayout` on an
@@ -101,7 +99,7 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         if (enclosing != null && enclosing.isOverride && enclosing.name == callee.name) return
         val source = expression.source ?: return
         report(
-            qualifiedCall(source)?.let { sourceOf(it, source) } ?: source,
+            qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source,
             "Suspicious method call; should probably call draw/measure/layout instead of ${callee.name}.",
         )
     }
@@ -113,16 +111,4 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         symbol.classId == view ||
             lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
                 .any { it.lookupTag.classId == view }
-
-    // A source element for [node], a node in [anchor]'s tree, keeping the
-    // anchor's offset shift between tree offsets and file offsets.
-    private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
-        if (node == anchor.lighterASTNode) return anchor
-        val shift = anchor.startOffset - anchor.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            anchor.treeStructure,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
-    }
 }

@@ -1358,3 +1358,28 @@ func TestLabelForResource_MinSdkBelow17(t *testing.T) {
 		})
 	}
 }
+
+func TestAlwaysShowActionResource_SuppressedItemSilencesFile(t *testing.T) {
+	r := findResourceRule(t, "AlwaysShowActionResource")
+	item := func(line int, attrs map[string]string) *android.View {
+		return &android.View{Type: "item", Line: line, Attributes: attrs}
+	}
+	always := map[string]string{"app:showAsAction": "always"}
+	menu := func(children ...*android.View) *android.View {
+		return &android.View{Type: "menu", Line: 1, Attributes: map[string]string{}, Children: children}
+	}
+	plain := menu(item(2, always), item(3, always), item(4, always))
+	if got := runResourceRule(r, indexWithMenu("m", "res/menu/m.xml", plain)); len(got) != 1 || got[0].Line != 2 {
+		t.Fatalf("baseline: want one finding on line 2, got %v", got)
+	}
+	// Lint sets an ignore-file flag on the first suppressed showAsAction attribute, so the other items count for nothing.
+	suppressed := map[string]string{"app:showAsAction": "always", "tools:ignore": "AlwaysShowAction"}
+	if got := runResourceRule(r, indexWithMenu("m", "res/menu/m.xml", menu(item(2, always), item(3, always), item(4, always), item(5, suppressed)))); len(got) != 0 {
+		t.Fatalf("a suppressed item silences the whole menu, got %v", got)
+	}
+	ignoredRoot := menu(item(2, always), item(3, always), item(4, always))
+	ignoredRoot.Attributes["tools:ignore"] = "AlwaysShowAction"
+	if got := runResourceRule(r, indexWithMenu("m", "res/menu/m.xml", ignoredRoot)); len(got) != 0 {
+		t.Fatalf("a suppressed root silences the menu, got %v", got)
+	}
+}

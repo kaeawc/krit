@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -19,8 +20,6 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -85,42 +84,41 @@ internal object ScopeOnParameterizedClass :
     )
 
     private val scopeMetaAnnotations = setOf(
-        classId("javax.inject", "Scope"),
-        classId("jakarta.inject", "Scope"),
-        classId("com.google.inject", "ScopeAnnotation"),
-        classId("javax.enterprise.context", "NormalScope"),
-        classId("jakarta.enterprise.context", "NormalScope"),
-        classId("me.tatarka.inject.annotations", "Scope"),
-        classId("dev.zacsweers.metro", "Scope"),
+        classIdOf("javax.inject", "Scope"),
+        classIdOf("jakarta.inject", "Scope"),
+        classIdOf("com.google.inject", "ScopeAnnotation"),
+        classIdOf("javax.enterprise.context", "NormalScope"),
+        classIdOf("jakarta.enterprise.context", "NormalScope"),
+        classIdOf("me.tatarka.inject.annotations", "Scope"),
+        classIdOf("dev.zacsweers.metro", "Scope"),
     )
 
     // Scope annotations that carry no scope meta-annotation: Koin's single
     // definition, EJB's singleton session bean (one instance per application)
     // and the JSF managed-bean scopes, which Go reports by their simple names.
     private val scopeAnnotations = setOf(
-        classId("org.koin.core.annotation", "Singleton"),
-        classId("javax.ejb", "Singleton"),
-        classId("jakarta.ejb", "Singleton"),
-        classId("javax.faces.bean", "ApplicationScoped"),
-        classId("javax.faces.bean", "SessionScoped"),
-        classId("javax.faces.bean", "RequestScoped"),
-        classId("javax.faces.bean", "ViewScoped"),
-        classId("jakarta.faces.bean", "ApplicationScoped"),
-        classId("jakarta.faces.bean", "SessionScoped"),
-        classId("jakarta.faces.bean", "RequestScoped"),
-        classId("jakarta.faces.bean", "ViewScoped"),
+        classIdOf("org.koin.core.annotation", "Singleton"),
+        classIdOf("javax.ejb", "Singleton"),
+        classIdOf("jakarta.ejb", "Singleton"),
+        classIdOf("javax.faces.bean", "ApplicationScoped"),
+        classIdOf("javax.faces.bean", "SessionScoped"),
+        classIdOf("javax.faces.bean", "RequestScoped"),
+        classIdOf("javax.faces.bean", "ViewScoped"),
+        classIdOf("jakarta.faces.bean", "ApplicationScoped"),
+        classIdOf("jakarta.faces.bean", "SessionScoped"),
+        classIdOf("jakarta.faces.bean", "RequestScoped"),
+        classIdOf("jakarta.faces.bean", "ViewScoped"),
     )
 
     // Pseudo-scopes meta-annotated as scopes that create a new instance for
     // every injection point, so no instance is shared across type arguments:
     // CDI's `@Dependent` and Micronaut's `@Prototype`.
     private val excludedScopes = setOf(
-        classId("javax.enterprise.context", "Dependent"),
-        classId("jakarta.enterprise.context", "Dependent"),
-        classId("io.micronaut.context.annotation", "Prototype"),
+        classIdOf("javax.enterprise.context", "Dependent"),
+        classIdOf("jakarta.enterprise.context", "Dependent"),
+        classIdOf("io.micronaut.context.annotation", "Prototype"),
     )
 
-    private fun classId(pkg: String, name: String) = ClassId(FqName(pkg), Name.identifier(name))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {

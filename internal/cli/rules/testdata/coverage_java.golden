@@ -4,9 +4,9 @@ AbsentOrWrongFileLicense                              comments             pendi
 AbstractClassCanBeConcreteClass                       style                partial         detekt-ported style rules are Kotlin-only because detekt does not analyze Java; the remaining style rules encode Kotlin syntax or ktlint behavior and require explicit per-rule review.
 ...
 
-Total: 874 rule(s)
+Total: 876 rule(s)
   supported: 111
-  partial: 507
+  partial: 509
   pending: 153
   needs-design: 0
   not-applicable: 82

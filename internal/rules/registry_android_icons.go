@@ -76,8 +76,8 @@ func registerAndroidIconsRules() {
 		Category: ALCIcons, ALSeverity: ALSWarning, Priority: 3,
 		Origin: "AOSP Android Lint",
 	}}, func(ctx *api.Context) {
-		CheckConvertToWebp(ctx.IconIndex, ctx.Collector)
-	})
+		CheckConvertToWebp(ctx.IconIndex, ctx.Collector, ctx.LibraryFacts)
+	}, iconRuleNeedsLibraryFacts)
 
 	registerAndroidIconRule(&IconMissingDensityFolderRule{AndroidRule: AndroidRule{
 		BaseRule: BaseRule{RuleName: "IconMissingDensityFolder", RuleSetName: androidRuleSet, Sev: "warning"},

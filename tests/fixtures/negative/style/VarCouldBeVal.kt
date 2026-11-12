@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: `var delegated by lazy { 1 }` has no setValue, so Go stays authoritative for it; the FIR coverage is in compiler-tests data
 package fixtures.negative.style
 
 fun compute() {

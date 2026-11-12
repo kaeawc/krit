@@ -29,6 +29,120 @@ class Foo {
 	}
 }
 
+func redundantVisibilityLines(t *testing.T, code string) []int {
+	t.Helper()
+	var lines []int
+	for _, f := range runRuleByName(t, "RedundantVisibilityModifier", code) {
+		lines = append(lines, f.Line)
+	}
+	return lines
+}
+
+func TestRedundantVisibilityModifier_ReportsAtNameNotAnnotation(t *testing.T) {
+	findings := runRuleByName(t, "RedundantVisibilityModifier", "package test\n@Suppress(\"x\")\npublic\nclass Foo {\n    @Deprecated(\"x\") public fun bar() {}\n}\n")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings, got %v", findings)
+	}
+	if findings[0].Line != 4 || findings[0].Col != 7 || findings[1].Line != 5 || findings[1].Col != 33 {
+		t.Errorf("expected findings at the declaration names 4:7 and 5:33, got %d:%d and %d:%d",
+			findings[0].Line, findings[0].Col, findings[1].Line, findings[1].Col)
+	}
+}
+
+func TestRedundantVisibilityModifier_SkipsWhatDetektSkips(t *testing.T) {
+	lines := redundantVisibilityLines(t, `package test
+public fun topFun() {}
+public val topVal = 1
+public typealias TA = Int
+public object Obj { public val inObj = 1 }
+class Holder(public val ctorProp: Int) {
+    public constructor(a: String) : this(1)
+    public companion object
+    public override fun toString() = ""
+    public var withSet: Int = 1
+        public set(v) { field = v }
+}
+`)
+	// Only the property inside the object is reported.
+	if len(lines) != 2 || lines[0] != 5 || lines[1] != 10 {
+		t.Errorf("expected only the object member (5) and the property (10), got %v", lines)
+	}
+}
+
+func TestRedundantVisibilityModifier_ReportsNestedAndLocalClasses(t *testing.T) {
+	lines := redundantVisibilityLines(t, `package test
+public interface I { public fun m() }
+public enum class E { A; public fun e() {} }
+class Outer {
+    public class Nested { public val n = 1 }
+    fun f() {
+        public class Local { public fun l() {} }
+        public fun localFun() {}
+    }
+}
+`)
+	want := []int{2, 2, 3, 3, 5, 5, 7, 7, 8}
+	if len(lines) != len(want) {
+		t.Fatalf("expected findings on lines %v, got %v", want, lines)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("expected findings on lines %v, got %v", want, lines)
+		}
+	}
+}
+
+func TestRedundantVisibilityModifier_InternalInPrivateOrLocalClass(t *testing.T) {
+	lines := redundantVisibilityLines(t, `package test
+private class P(internal val ctor: Int) {
+    internal val a = 1
+    internal fun b() {}
+    internal class Nested
+    internal companion object
+    var setter: Int = 0
+        internal set
+}
+internal class Plain {
+    internal fun ok() {}
+}
+class Outer {
+    private object PO { internal val x = 1 }
+    internal fun ok2() {}
+}
+fun f() {
+    val o = object : Any() { internal fun m() {} }
+}
+`)
+	want := []int{2, 3, 4, 5, 6, 14, 18}
+	if len(lines) != len(want) {
+		t.Fatalf("expected findings on lines %v, got %v", want, lines)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("expected findings on lines %v, got %v", want, lines)
+		}
+	}
+}
+
+func TestRedundantVisibilityModifier_InternalReportsAtKDocStart(t *testing.T) {
+	findings := runRuleByName(t, "RedundantVisibilityModifier", "package test\nprivate class P {\n    /** doc */\n    @Suppress(\"x\")\n    internal val a = 1\n    @Suppress(\"y\")\n    internal fun b() {}\n}\n")
+	if len(findings) != 2 || findings[0].Line != 3 || findings[1].Line != 6 {
+		t.Fatalf("expected findings at the KDoc (3) and the annotation (6), got %v", findings)
+	}
+}
+
+func TestRedundantVisibilityModifier_PublicFixRemovesKeyword(t *testing.T) {
+	code := "package test\npublic class Foo\n"
+	findings := runRuleByName(t, "RedundantVisibilityModifier", code)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one finding with a fix, got %v", findings)
+	}
+	fix := findings[0].Fix
+	if got := code[fix.StartByte:fix.EndByte]; got != "public " || fix.Replacement != "" {
+		t.Errorf("fix should delete the keyword and its trailing space, got %q -> %q", got, fix.Replacement)
+	}
+}
+
 // --- RedundantConstructorKeyword ---
 
 func TestRedundantConstructorKeyword_Positive(t *testing.T) {
@@ -230,6 +344,92 @@ fun doWork() {
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+func optionalUnitFindings(t *testing.T, code string) [][2]int {
+	t.Helper()
+	var got [][2]int
+	for _, f := range runRuleByName(t, "OptionalUnit", code) {
+		got = append(got, [2]int{f.Line, f.Col})
+	}
+	return got
+}
+
+func TestOptionalUnit_InferredUnitBody(t *testing.T) {
+	got := optionalUnitFindings(t, `package test
+open class Base { open fun a() {} }
+class C : Base() {
+    fun inferred() = Unit
+    override fun a() = Unit
+    fun explicit(): Unit = Unit
+    fun other() = run { 1 }
+}
+`)
+	// The inferred body reports at Unit, the explicit type at its own Unit; the override is skipped.
+	want := [][2]int{{4, 22}, {6, 21}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("expected %v, got %v", want, got)
+	}
+}
+
+func TestOptionalUnit_UnitStatementInBlock(t *testing.T) {
+	got := optionalUnitFindings(t, `package test
+class C {
+    fun last() {
+        println()
+        Unit
+    }
+    fun branches(b: Boolean) {
+        if (b) {
+            println()
+            Unit
+        } else {
+            println()
+        }
+        for (i in 0..1) { Unit }
+    }
+    init { Unit }
+    constructor(i: Int) : this() { Unit }
+}
+`)
+	want := [][2]int{{3, 16}, {8, 16}, {14, 25}, {16, 10}, {17, 34}}
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
+}
+
+func TestOptionalUnit_UnitStatementUsedAsValue(t *testing.T) {
+	got := optionalUnitFindings(t, `package test
+class C {
+    fun values(b: Boolean) {
+        val a = if (b) { println(); Unit } else { Unit }
+        val x = try { Unit } catch (e: Exception) { Unit }
+        val f: () -> Any = { Unit }
+        val w = when (b) { true -> { println(); Unit } else -> Unit }
+        run { println(); Unit }
+    }
+}
+`)
+	if len(got) != 0 {
+		t.Errorf("a trailing Unit that is a block's value must not be reported, got %v", got)
+	}
+}
+
+func TestOptionalUnit_UnitStatementBeforeAnotherInLambda(t *testing.T) {
+	got := optionalUnitFindings(t, `package test
+val f = {
+    Unit
+    println()
+}
+`)
+	if len(got) != 1 || got[0] != [2]int{3, 5} {
+		t.Errorf("expected a finding at the lambda's first statement 3:5, got %v", got)
 	}
 }
 

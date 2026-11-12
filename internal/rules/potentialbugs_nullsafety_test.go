@@ -123,6 +123,48 @@ func runRuleByNameWithEmptyOracle(t *testing.T, ruleName string, code string) []
 	return nil
 }
 
+// runRuleByNameWithAnalyzedOracle runs the rule against a compiler that analyzed the file and reported nothing.
+func runRuleByNameWithAnalyzedOracle(t *testing.T, ruleName string, code string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	fake := oracle.NewFakeOracle()
+	fake.AnalyzedFiles[file.Path] = true
+	composite := oracle.NewCompositeResolver(fake, resolver)
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			cols := rules.NewDispatcher([]*api.Rule{r}, composite).Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+// The shadowing local `n` is a String, but the name-based resolver types it as the Int property of the same name.
+const unsafeCastShadowedLocal = `
+package test
+class Holder(val n: Int) {
+    fun text(): String {
+        val s = listOf(1).map { n -> "x$n" }.first()
+        return run { val n = "text"; n as String }
+    }
+}
+`
+
+func TestUnsafeCast_CompilerAnalyzedFileWithoutDiagnosticIsClean(t *testing.T) {
+	if findings := runRuleByNameWithAnalyzedOracle(t, "UnsafeCast", unsafeCastShadowedLocal); len(findings) != 0 {
+		t.Fatalf("the compiler analyzed the file and reported no CAST_NEVER_SUCCEEDS, got %d findings: %+v", len(findings), findings)
+	}
+}
+
+func TestUnsafeCast_SourceFallbackRunsWithoutCompilerFacts(t *testing.T) {
+	if findings := runRuleByNameWithEmptyOracle(t, "UnsafeCast", unsafeCastShadowedLocal); len(findings) != 1 {
+		t.Fatalf("without compiler facts the source fallback must still run, got %d findings: %+v", len(findings), findings)
+	}
+}
+
 func TestUnsafeCast_Negative(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "UnsafeCast", `
 package test

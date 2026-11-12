@@ -299,7 +299,7 @@ func versionTag() string {
 func installedJarPath(b Backend) (string, error) {
 	kritHome, err := fsutil.UserStateDir()
 	if err != nil {
-		return "", errors.New("no HOME directory or KRIT_HOME; cannot install jar under ~/.krit/jars")
+		return "", errors.New("cannot resolve the jar install directory: set KRIT_HOME or HOME")
 	}
 	tag := versionTag()
 	if tag == "" {

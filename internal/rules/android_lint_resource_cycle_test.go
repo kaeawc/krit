@@ -1,11 +1,13 @@
 package rules
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // issueLines renders the findings of one issue as "file | line:col | message".
@@ -146,6 +148,26 @@ func TestResourceCycleEntryCycleReportsAtLastName(t *testing.T) {
 	})
 	// The path x => a => b => a enters the loop from outside; Lint reports where `a` is defined.
 	wantLines(t, cycleLines(root), "values/v.xml | 3:22 | String Resource definition cycle: a => b => a")
+}
+
+func TestResourceCycleRepeatedAliasChainIsLinear(t *testing.T) {
+	// The same 40-level alias chain in two configurations doubles every edge; a search that revisits names would
+	// take 2^40 steps.
+	var chain strings.Builder
+	chain.WriteString("<resources>\n")
+	for i := range 40 {
+		fmt.Fprintf(&chain, "    <string name=\"s%02d\">@string/s%02d</string>\n", i, i+1)
+	}
+	chain.WriteString("    <string name=\"a\">@string/b</string>\n    <string name=\"b\">@string/a</string>\n</resources>\n")
+	root := writeTranslationFiles(t, map[string]string{"values/v.xml": chain.String(), "values-night/v.xml": chain.String()})
+	done := make(chan []string, 1)
+	go func() { done <- cycleLines(root) }()
+	select {
+	case got := <-done:
+		wantLines(t, got, "values/v.xml | 42:22 | String Resource definition cycle: a => b => a")
+	case <-time.After(30 * time.Second):
+		t.Fatal("cycle search did not finish")
+	}
 }
 
 func TestReferenceTypeTagFindings(t *testing.T) {

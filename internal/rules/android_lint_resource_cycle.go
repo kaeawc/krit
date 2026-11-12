@@ -354,12 +354,13 @@ func (m *cycleModule) findCycles() {
 		}
 		sort.Strings(keys)
 		visiting := map[string]bool{}
+		visited := map[string]bool{}
 		seen := map[string]bool{}
 		for _, from := range keys {
 			if seen[from] {
 				continue
 			}
-			chain := cycleDFS(refs, from, visiting)
+			chain := cycleDFS(refs, from, visiting, visited)
 			// Self loops of two entries were already reported when the reference was read.
 			if len(chain) <= 2 {
 				continue
@@ -374,13 +375,18 @@ func (m *cycleModule) findCycles() {
 }
 
 // cycleDFS follows references from a name until one leads back into the path; it returns the path in reverse.
-func cycleDFS(refs map[string][]string, from string, visiting map[string]bool) []string {
+// Like Lint's dfs, it does not search a name twice, which keeps it linear when references repeat across configurations.
+func cycleDFS(refs map[string][]string, from string, visiting, visited map[string]bool) []string {
 	visiting[from] = true
+	visited[from] = true
 	for _, target := range refs[from] {
 		if visiting[target] {
 			return []string{target, from}
 		}
-		if chain := cycleDFS(refs, target, visiting); chain != nil {
+		if visited[target] {
+			continue
+		}
+		if chain := cycleDFS(refs, target, visiting, visited); chain != nil {
 			return append(chain, from)
 		}
 	}

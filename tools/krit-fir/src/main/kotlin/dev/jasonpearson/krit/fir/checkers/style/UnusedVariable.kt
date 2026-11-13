@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.goFullMatchRegex
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
@@ -87,19 +88,7 @@ internal object UnusedVariable : FirFileChecker(MppCheckerKind.Common), FirRule 
 
     private fun allowedNames(): Regex {
         val configured = config()["allowedNames"] as? String
-        return configured?.let { runCatching { Regex(anchored(it)) }.getOrNull() } ?: Regex(anchored(DEFAULT_ALLOWED))
-    }
-
-    // Go compiles a rule's regex option as a full match: a pattern without `^`/`$` gets them, and a
-    // top-level alternation is grouped first (`a|b` is `^(?:a|b)$`).
-    private fun anchored(pattern: String): String {
-        val start = pattern.startsWith("^")
-        val end = pattern.endsWith("$") && pattern.dropLast(1).takeLastWhile { it == '\\' }.length % 2 == 0
-        if (start && end) return pattern
-        if ('|' !in pattern) return (if (start) "" else "^") + pattern + (if (end) "" else "$")
-        var core = pattern.removePrefix("^")
-        if (end) core = core.removeSuffix("$")
-        return "^(?:$core)$"
+        return configured?.let(::goFullMatchRegex) ?: requireNotNull(goFullMatchRegex(DEFAULT_ALLOWED))
     }
 
     private fun candidate(property: FirProperty, allowed: Regex): Candidate? {

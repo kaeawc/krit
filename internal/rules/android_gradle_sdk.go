@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
@@ -21,100 +19,38 @@ type StringIntegerRule struct {
 	AndroidRule
 }
 
-// sdkPropertyNames lists the Gradle DSL property names whose values
-// must be integers, not string literals, in both Groovy (.gradle) and
-// Kotlin (.kts) DSL.
-var sdkPropertyNames = []string{
-	"minSdk", "minSdkVersion",
-	"targetSdk", "targetSdkVersion",
-	"compileSdk", "compileSdkVersion",
-}
-
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
 // line/regex matching; build-script shape varies by project and plugin
 // version. Classified per roadmap/17.
 func (r *StringIntegerRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *StringIntegerRule) check(ctx *api.Context) {
-	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	for i, line := range strings.Split(content, "\n") {
-		if literal, ok := gradleLineQuotedIntegerSDKProperty(line); ok {
-			ctx.Emit(baseFinding(path, i+1, r.BaseRule,
-				fmt.Sprintf("Use an integer rather than a string here (replace `%s` with just `%s`)", literal, strings.Trim(literal, `"'`))))
+	if !strings.ContainsAny(ctx.GradleContent, `"'`) {
+		return
+	}
+	for _, st := range lintGradleStatements(ctx.GradleContent) {
+		if !lintSDKPropertyInScope(st) {
+			continue
 		}
+		literal, _, ok := lintQuotedLiteral(st.Value)
+		if !ok || !lintIsDigits(literal) {
+			continue
+		}
+		ctx.Emit(baseFinding(ctx.GradlePath, st.Line, r.BaseRule,
+			fmt.Sprintf("Use an integer rather than a string here (replace `%s` with just `%s`)", st.Value, literal)))
 	}
 }
 
-// gradleLineQuotedIntegerSDKProperty returns the quoted literal assigned to an SDK property on the line.
-func gradleLineQuotedIntegerSDKProperty(line string) (string, bool) {
-	line = stripGradleLineComment(line)
-	if strings.TrimSpace(line) == "" {
-		return "", false
+// lintSDKPropertyInScope reports whether st sets an SDK level where Lint checks it: min and target SDK in defaultConfig,
+// compile SDK in the android closure.
+func lintSDKPropertyInScope(st lintGradleStmt) bool {
+	switch st.Name {
+	case "minSdk", "minSdkVersion", "targetSdk", "targetSdkVersion":
+		return st.Parent == "defaultConfig"
+	case "compileSdk", "compileSdkVersion":
+		return strings.HasPrefix(st.Parent, "android")
 	}
-	for _, prop := range sdkPropertyNames {
-		if literal, ok := gradleLineQuotedIntegerAssignment(line, prop); ok {
-			return literal, true
-		}
-	}
-	return "", false
-}
-
-func gradleLineQuotedIntegerAssignment(line, prop string) (string, bool) {
-	for i := 0; i < len(line); {
-		r, size := utf8.DecodeRuneInString(line[i:])
-		if !isGradleIdentStart(r) {
-			i += size
-			continue
-		}
-		start := i
-		i += size
-		for i < len(line) {
-			r, size = utf8.DecodeRuneInString(line[i:])
-			if !isGradleIdentPart(r) {
-				break
-			}
-			i += size
-		}
-		if line[start:i] != prop {
-			continue
-		}
-		if start > 0 {
-			prev, _ := utf8.DecodeLastRuneInString(line[:start])
-			if isGradleIdentPart(prev) {
-				continue
-			}
-		}
-		rest := strings.TrimSpace(line[i:])
-		if rest == "" {
-			return "", false
-		}
-		if rest[0] == '=' || rest[0] == '(' {
-			rest = strings.TrimSpace(rest[1:])
-		}
-		if rest == "" || (rest[0] != '"' && rest[0] != '\'') {
-			return "", false
-		}
-		quote := rest[0]
-		end := 1
-		for end < len(rest) && rest[end] != quote {
-			end++
-		}
-		if end == 1 || end >= len(rest) {
-			return "", false
-		}
-		// A call on the literal, such as "21".toInt(), already yields an integer.
-		if after := strings.TrimSpace(rest[end+1:]); strings.HasPrefix(after, ".") || strings.HasPrefix(after, "?") {
-			return "", false
-		}
-		value := rest[1:end]
-		for _, ch := range value {
-			if !unicode.IsDigit(ch) {
-				return "", false
-			}
-		}
-		return rest[:end+1], true
-	}
-	return "", false
+	return false
 }
 
 var gradleLibraryAliasRe = regexp.MustCompile(`alias\s*\(\s*[\w.]*[lL]ibrary\s*\)`)

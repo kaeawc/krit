@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 // Current (1.5+) API: the page count lives on PagerState; the pageCount
 // parameter on the pager composables was removed.
 @Stable
-abstract class PagerState(currentPage: Int = 0, currentPageOffsetFraction: Float = 0f) {
+abstract class PagerState(@Suppress("unused") currentPage: Int = 0, @Suppress("unused") currentPageOffsetFraction: Float = 0f) {
     abstract val pageCount: Int
 
     val currentPage: Int

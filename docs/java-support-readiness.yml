@@ -479,6 +479,10 @@ rules:
   SqliteCursorWithoutClose:
     status: not-applicable
     reason: Rule dispatches on Kotlin property_declaration and matches the val/var initializer chain; Java local variables are syntactically and structurally different.
+  SuspiciousIndentation:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_suspicious_indentation_test.go
   ThrowingExceptionInMain:
     status: not-applicable
     reason: "Ported from detekt, which analyzes only Kotlin sources; Java sources are not reported."

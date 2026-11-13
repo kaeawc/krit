@@ -9,10 +9,36 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // resourceFindings scans resource files and returns "file:line message" for a rule.
 func resourceFindings(t *testing.T, ruleID string, files map[string]string) []string {
+	t.Helper()
+	findings, resDir := resourceRuleFindings(t, ruleID, files)
+	var out []string
+	for _, f := range findings {
+		rel, _ := filepath.Rel(resDir, f.File)
+		out = append(out, filepath.ToSlash(rel)+":"+fmt.Sprintf("%02d", f.Line)+" "+f.Message)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// resourceFindingColumns returns the sorted "file:line:column" of every finding a rule reports on resource files.
+func resourceFindingColumns(t *testing.T, ruleID string, files map[string]string) string {
+	t.Helper()
+	findings, resDir := resourceRuleFindings(t, ruleID, files)
+	var out []string
+	for _, f := range findings {
+		rel, _ := filepath.Rel(resDir, f.File)
+		out = append(out, fmt.Sprintf("%s:%d:%d", filepath.ToSlash(rel), f.Line, f.Col))
+	}
+	sort.Strings(out)
+	return strings.Join(out, ",")
+}
+
+func resourceRuleFindings(t *testing.T, ruleID string, files map[string]string) ([]scanner.Finding, string) {
 	t.Helper()
 	resDir := filepath.Join(t.TempDir(), "res")
 	for name, body := range files {
@@ -28,13 +54,7 @@ func resourceFindings(t *testing.T, ruleID string, files map[string]string) []st
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
-	for _, f := range runResourceRule(findResourceRule(t, ruleID), idx) {
-		rel, _ := filepath.Rel(resDir, f.File)
-		out = append(out, filepath.ToSlash(rel)+":"+fmt.Sprintf("%02d", f.Line)+" "+f.Message)
-	}
-	sort.Strings(out)
-	return out
+	return runResourceRule(findResourceRule(t, ruleID), idx), resDir
 }
 
 const stringFormatDefaults = `<resources>

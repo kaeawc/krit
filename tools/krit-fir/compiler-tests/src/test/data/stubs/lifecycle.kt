@@ -67,7 +67,7 @@ interface DefaultLifecycleObserver : LifecycleObserver {
     fun onDestroy(owner: LifecycleOwner) {}
 }
 
-open class LifecycleRegistry(provider: LifecycleOwner) : Lifecycle() {
+open class LifecycleRegistry(@Suppress("unused") provider: LifecycleOwner) : Lifecycle() {
     override var currentState: State
         get() = TODO()
         set(value) = TODO()
@@ -147,7 +147,7 @@ interface ViewModelStoreOwner {
     val viewModelStore: ViewModelStore
 }
 
-open class ViewModelProvider(owner: ViewModelStoreOwner) {
+open class ViewModelProvider(@Suppress("unused") owner: ViewModelStoreOwner) {
     constructor(owner: ViewModelStoreOwner, factory: Factory) : this(owner)
 
     open operator fun <T : ViewModel> get(modelClass: Class<T>): T = TODO()

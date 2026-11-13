@@ -76,7 +76,8 @@ fun localBase(): AndroidFragment {
 // Classes declared inside an object expression resolve through the same
 // supertype lookup without crashing.
 private val holder = object {
-    open inner class Base : AndroidFragment()
+    // An inner class needs an outer instance, so it is reported whatever its constructors.
+    <!FragmentConstructor!>open inner<!> class Base : AndroidFragment()
 
     // Go misses this because it reads only the direct supertype's name.
     <!FragmentConstructor!>inner<!> class Child(val a: Int) : Base()

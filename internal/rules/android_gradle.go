@@ -338,52 +338,33 @@ var (
 	ktsNamedArgNameRe    = regexp.MustCompile(`\bname\s*=\s*["']([^"']+)["']`)
 )
 
-// accidentalOctalRe matches an integer token with a leading zero that is not part of a larger
-// number, identifier, or version-like string.
-var accidentalOctalRe = regexp.MustCompile(`(^|[\s=(,:\[])(0[0-9]+)\b`)
-
 func (r *AccidentalOctalRule) check(ctx *api.Context) {
-	for i, line := range strings.Split(ctx.GradleContent, "\n") {
-		if isGradleCommentLine(line) {
+	if !strings.Contains(ctx.GradleContent, "0") {
+		return
+	}
+	for _, st := range lintGradleStatements(ctx.GradleContent) {
+		if !lintOctalCandidate(st) {
 			continue
 		}
-		code := gradleCodeOutsideStrings(stripGradleLineComment(line))
-		for _, m := range accidentalOctalRe.FindAllStringSubmatchIndex(code, -1) {
-			lit := code[m[4]:m[5]]
-			if end := m[5]; end < len(code) && (code[end] == '.' || code[end] == '_') {
-				continue
-			}
-			msg := "The leading 0 turns this number into octal which is probably not what was intended"
-			if strings.ContainsAny(lit, "89") {
-				msg += " (and it is not a valid octal number)"
-			} else if n, err := strconv.ParseInt(lit, 8, 64); err == nil {
-				msg += fmt.Sprintf(" (interpreted as %d)", n)
-			}
-			ctx.Emit(baseFindingAt(ctx.GradlePath, i+1, m[4]+1, r.BaseRule, msg))
+		msg := "The leading 0 turns this number into octal which is probably not what was intended"
+		if n, err := strconv.ParseInt(st.Value, 0, 64); err == nil {
+			msg += fmt.Sprintf(" (interpreted as %d)", n)
+		} else {
+			msg += " (and it is not a valid octal number)"
 		}
+		ctx.Emit(baseFindingAt(ctx.GradlePath, st.Line, st.ValueCol, r.BaseRule, msg))
 	}
 }
 
-// gradleCodeOutsideStrings blanks the contents of quoted string literals so numbers inside them are ignored.
-func gradleCodeOutsideStrings(line string) string {
-	b := []byte(line)
-	var quote byte
-	for i := 0; i < len(b); i++ {
-		c := b[i]
-		switch {
-		case quote != 0 && c == '\\':
-			b[i] = ' '
-			if i+1 < len(b) {
-				i++
-				b[i] = ' '
-			}
-		case quote != 0 && c == quote:
-			quote = 0
-		case quote != 0:
-			b[i] = ' '
-		case c == '"' || c == '\'':
-			quote = c
-		}
+// lintOctalCandidate follows Lint: a value that starts with 0 is suspect inside defaultConfig and for SDK levels. Two
+// character values only count when the second digit is not a valid octal digit.
+func lintOctalCandidate(st lintGradleStmt) bool {
+	v := st.Value
+	if len(v) < 2 || v[0] != '0' {
+		return false
 	}
-	return string(b)
+	if st.Parent != "defaultConfig" && !lintSDKPropertyInScope(st) {
+		return false
+	}
+	return len(v) > 2 || (v[1] >= '8' && lintIsDigits(v))
 }

@@ -37,7 +37,7 @@ abstract class ActionBar {
 }
 
 open class AlertDialog(context: Context) : Dialog(context) {
-    open class Builder(context: Context) {
+    open class Builder(@Suppress("unused") context: Context) {
         open fun setTitle(title: CharSequence?): Builder = TODO()
 
         open fun setTitle(titleId: Int): Builder = TODO()

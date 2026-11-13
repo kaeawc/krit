@@ -147,7 +147,10 @@ func lintClassNameNode(file *scanner.File, idx uint32) uint32 {
 	return 0
 }
 
-const slotLintTrustClasses = "lintTrustManagerClasses"
+const (
+	slotLintTrustClasses = "lintTrustManagerClasses"
+	slotLintTypeAliases  = "lintTypeAliases"
+)
 
 // lintIsTrustManagerClass reports whether the class, object literal, or anonymous class has an X509TrustManager
 // supertype, directly or through a class declared in the same file.
@@ -182,6 +185,13 @@ func lintHasSupertype(file *scanner.File, idx uint32, fqns []string, interfaces 
 		}
 		if decl := lintSameFileClass(file, super); decl != 0 && decl != idx && lintHasSupertype(file, decl, fqns, interfaces, depth+1) {
 			return true
+		}
+		if target := lintSameFileTypeAlias(file, super); target != "" {
+			for _, fqn := range fqns {
+				if lintTypeRefMatches(file, target, fqn) {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -249,6 +259,28 @@ func lintSameFileClass(file *scanner.File, name string) uint32 {
 			if n := lintClassNameNode(file, decl); n != 0 {
 				out[file.FlatNodeText(n)] = decl
 			}
+		})
+		return out
+	})
+	return index[name]
+}
+
+// lintSameFileTypeAlias returns the written target type, without type arguments, of the typealias with the given
+// name declared in the file, or "".
+func lintSameFileTypeAlias(file *scanner.File, name string) string {
+	index := filefacts.FileFact(fileFactsCache(), file, slotLintTypeAliases, func() map[string]string {
+		out := map[string]string{}
+		file.FlatWalkNodes(0, "type_alias", func(decl uint32) {
+			alias, ok := file.FlatFindChild(decl, "type_identifier")
+			target, ok2 := file.FlatFindChild(decl, "user_type")
+			if !ok || !ok2 {
+				return
+			}
+			text := file.FlatNodeText(target)
+			if i := strings.IndexByte(text, '<'); i >= 0 {
+				text = text[:i]
+			}
+			out[file.FlatNodeText(alias)] = strings.TrimSpace(text)
 		})
 		return out
 	})

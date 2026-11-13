@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -18,15 +19,12 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
-import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -271,7 +269,7 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     private fun identities(expression: FirExpression, bindings: Bindings, depth: Int = 0): Set<List<Any>> {
         if (depth > MAX_ALIAS_STEPS) return emptySet()
         val next = depth + 1
-        return when (val current = unwrap(expression)) {
+        return when (val current = unwrapSmartCasts(expression, throughNotNull = true)) {
             is FirSafeCallExpression ->
                 (current.selector as? FirExpression)?.let { identities(it, bindings, next) }.orEmpty()
             is FirThisReceiverExpression -> {
@@ -359,7 +357,7 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     private fun variableOf(value: FirExpression): FirExpression? {
         var target = if (value is FirElvisExpression) value.lhs else value
         repeat(MAX_ALIAS_STEPS) {
-            target = unwrap(target)
+            target = unwrapSmartCasts(target, throughNotNull = true)
             val current = target
             when {
                 current is FirSafeCallExpression -> target = current.selector as? FirExpression ?: return null
@@ -377,7 +375,7 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         val type = receiver.resolvedType.fullyExpandedType(session).lowerBoundIfFlexible()
         val symbol = type.toClassLikeSymbol(session)
         if (symbol != null && isWakeLockClass(symbol, session)) return true
-        return declaredFromNewWakeLock(unwrap(receiver), candidate)
+        return declaredFromNewWakeLock(unwrapSmartCasts(receiver, throughNotNull = true), candidate)
     }
 
     // The class itself or a supertype named WakeLock, read from the class's
@@ -405,12 +403,5 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
         var initializer = property.resolvedInitializer ?: return false
         if (initializer is FirSafeCallExpression) initializer = initializer.selector as? FirExpression ?: return false
         return initializer is FirFunctionCall && initializer.calleeReference.name == newWakeLock
-    }
-
-    private tailrec fun unwrap(expression: FirExpression): FirExpression = when (expression) {
-        is FirCheckedSafeCallSubject -> unwrap(expression.originalReceiverRef.value)
-        is FirSmartCastExpression -> unwrap(expression.originalExpression)
-        is FirCheckNotNullCall -> unwrap(expression.argumentList.arguments.first())
-        else -> expression
     }
 }

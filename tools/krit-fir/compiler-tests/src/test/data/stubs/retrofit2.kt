@@ -55,7 +55,7 @@ class Response<T> private constructor() {
     fun errorBody(): okhttp3.ResponseBody? = TODO()
 }
 
-class HttpException(response: Response<*>) : RuntimeException() {
+class HttpException(@Suppress("unused") response: Response<*>) : RuntimeException() {
     fun code(): Int = TODO()
 }
 

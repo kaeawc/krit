@@ -151,6 +151,9 @@ var firCrossRuleAllowlist = map[string]string{
 	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SleepInsteadOfDelay.kt":      "Thread.sleep blocks and println does not suspend; Go cannot resolve the Java member call and keeps the modifier",
 	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
 	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+	// UnusedPrivateProperty matches the name through resolution; Go treats any other use of the name as a use.
+	"UnusedPrivateProperty|tests/fixtures/negative/android-lint/FragmentConstructor.kt": "private var whose name appears only as a parameter of another function (UnusedPrivatePropertyDivergence.kt ParameterNamed)",
+	"UnusedPrivateProperty|tests/fixtures/negative/coroutines/StateFlowMutableLeak.kt":  "unused constructor parameter whose name appears only as a member access (UnusedPrivatePropertyDivergence.kt PlainNamedLikeMember)",
 }
 
 // firMessageAllowlist lists reviewed message differences on a rule's own

@@ -7,19 +7,26 @@ import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.Visibilities
+import org.jetbrains.kotlin.descriptors.Visibility
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
+import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirAnonymousObjectChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
 import org.jetbrains.kotlin.fir.analysis.getChild
 import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousObject
+import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirConstructor
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
+import org.jetbrains.kotlin.fir.declarations.utils.isInner
 import org.jetbrains.kotlin.fir.declarations.utils.modality
+import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
@@ -33,18 +40,24 @@ import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go FragmentConstructor rule (Android Lint `ValidFragment`): a
- * non-abstract, non-sealed Fragment subclass that declares a constructor with
- * parameters and has no constructor callable without arguments, reported on
- * the class declaration's first line (its modifier list, else `class`), like
- * Go.
+ * non-abstract, non-sealed Fragment subclass the framework cannot
+ * re-instantiate, reported on the class declaration's first line (its
+ * modifier list, else `class`), like Go. The cases, as in Android Lint 32.4.1:
+ * - the class is `private` or `protected`, which are not public JVM classes
+ *   (Kotlin `internal` compiles to a public class and is accepted);
+ * - the class is `inner`, so it needs an outer instance;
+ * - the no-arg constructor is `private` or `protected`
+ *   (reported on the constructor);
+ * - the class declares a constructor with parameters and has no constructor
+ *   callable without arguments;
+ * - the class is an anonymous object.
  *
  * As in Go, a constructor counts as no-arg when it has no parameters, or when
  * it is the primary constructor and every parameter has a default value (the
  * compiler then emits a no-arg JVM constructor). A secondary constructor
  * whose parameters all have defaults gets no such JVM constructor and does
  * not count, which is also Go's verdict: Go never sees a default on a
- * secondary constructor parameter. Constructor visibility is not considered,
- * as in Go.
+ * secondary constructor parameter.
  *
  * The class is a Fragment when `android.app.Fragment`,
  * `androidx.fragment.app.Fragment`, or the support library's
@@ -88,10 +101,13 @@ internal object FragmentConstructor :
     override val ruleId = "FragmentConstructor"
     override val declarationCheckers = object : DeclarationCheckers() {
         override val regularClassCheckers = setOf(FragmentConstructor)
+        override val anonymousObjectCheckers = setOf(AnonymousFragment)
     }
 
     private const val MESSAGE =
         "Fragment subclass must have a default (no-arg) constructor for framework re-instantiation."
+    private const val ANONYMOUS_MESSAGE =
+        "Fragments should be static such that they can be re-instantiated by the system, and anonymous classes are not static."
 
     private val fragmentClassIds = setOf(
         ClassId(FqName("android.app"), Name.identifier("Fragment")),
@@ -115,18 +131,33 @@ internal object FragmentConstructor :
         @OptIn(DirectDeclarationsAccess::class)
         val constructors = declaration.declarations.filterIsInstance<FirConstructor>()
         if (constructors.isEmpty()) return
-        if (constructors.any { isNoArg(it, context.session) }) return
         // A DI-annotated constructor means a custom FragmentFactory builds the class.
         if (constructors.any { isInjectAnnotated(it) }) return
         // Go reports the declaration's first line, where its modifier list
         // (annotations included) starts, else the `class` keyword.
-        report(
-            source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1)
-                ?: source.getChild(KtTokens.CLASS_KEYWORD, depth = 1)
-                ?: source,
-            MESSAGE,
-        )
+        val anchor = source.getChild(KtNodeTypes.MODIFIER_LIST, depth = 1)
+            ?: source.getChild(KtTokens.CLASS_KEYWORD, depth = 1)
+            ?: source
+        if (declaration.visibility.isNonPublicJvm()) {
+            report(anchor, "This fragment class should be public (${declaration.name.asString()}).")
+            return
+        }
+        if (declaration.isInner) {
+            report(anchor, "This fragment inner class should be static (${declaration.name.asString()}).")
+            return
+        }
+        val hiddenNoArg = constructors.firstOrNull { it.valueParameters.isEmpty() && it.visibility.isNonPublicJvm() }
+        if (hiddenNoArg != null) {
+            report(hiddenNoArg.source ?: anchor, "The default constructor of a fragment must be public.")
+            return
+        }
+        if (constructors.any { isNoArg(it, context.session) }) return
+        report(anchor, MESSAGE)
     }
+
+    // Private and protected members are not public in the class file. Kotlin
+    // internal members compile to public ones, so they are accepted.
+    private fun Visibility.isNonPublicJvm(): Boolean = this == Visibilities.Private || this == Visibilities.Protected
 
     // A constructor the framework can call without arguments: one with no
     // parameters, or one whose parameters all have defaults when the compiler
@@ -145,7 +176,7 @@ internal object FragmentConstructor :
 
     // Supertypes are read from their own lookup tags, so no class id is
     // resolved from a symbol that may be local.
-    private fun isFragment(declaration: FirRegularClass, session: FirSession): Boolean {
+    private fun isFragment(declaration: FirClass, session: FirSession): Boolean {
         for (ref in declaration.superTypeRefs) {
             val type = ref.coneType.fullyExpandedType(session).lowerBoundIfFlexible() as? ConeClassLikeType ?: continue
             if (type.lookupTag.classId in fragmentClassIds) return true
@@ -155,5 +186,17 @@ internal object FragmentConstructor :
             if (extendsFragment) return true
         }
         return false
+    }
+
+    /** Reports `object : Fragment() {}`, which has no name to re-instantiate. */
+    private object AnonymousFragment : FirAnonymousObjectChecker(MppCheckerKind.Common) {
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        override fun check(declaration: FirAnonymousObject) {
+            val source = declaration.source ?: return
+            if (source.kind !is KtRealSourceElementKind) return
+            if (isInTestFile()) return
+            if (!isFragment(declaration, context.session)) return
+            report(source, ANONYMOUS_MESSAGE)
+        }
     }
 }

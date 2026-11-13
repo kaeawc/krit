@@ -10,6 +10,7 @@ package rules
 //   WrongImportDetector, LayoutInflationDetector.
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,96 +21,6 @@ import (
 // =====================================================================
 // 1. FragmentConstructorRule
 // =====================================================================
-
-// kotlinMapExtensions are Kotlin Map extension functions that SparseArray does not offer.
-var kotlinMapExtensions = map[string]bool{
-	"getOrPut": true, "getOrElse": true, "mapValues": true, "mapKeys": true, "filterKeys": true, "filterValues": true,
-	"toMap": true, "toList": true, "withDefault": true, "plus": true, "minus": true, "asSequence": true, "forEach": true,
-	"entries": true, "keys": true, "values": true, "iterator": true, "getOrDefault": true, "putIfAbsent": true,
-	"computeIfAbsent": true, "computeIfPresent": true, "compute": true, "merge": true, "putAll": true,
-	"containsValue": true, "filter": true, "map": true, "flatMap": true, "toMutableMap": true,
-}
-
-// hashMapEscapesAsMap reports a HashMap that is typed as a Map, passed as an argument, returned, or used
-// with Kotlin map extensions, so it cannot become a SparseArray.
-func hashMapEscapesAsMap(file *scanner.File, call uint32) bool {
-	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
-		switch file.FlatType(cur) {
-		case "value_argument", "jump_expression":
-			return true
-		case "property_declaration":
-			name := extractIdentifierFlat(file, cur)
-			if typ := extractPropertyTypeFlat(file, cur); strings.Contains(typ, "Map<") && !strings.Contains(typ, "HashMap<") {
-				return true
-			}
-			scope, ok := file.FlatParent(cur)
-			if !ok || name == "" {
-				return false
-			}
-			escapes := false
-			file.FlatWalkNodes(scope, "simple_identifier", func(ident uint32) {
-				if escapes || !file.FlatNodeTextEquals(ident, name) {
-					return
-				}
-				parent, ok := file.FlatParent(ident)
-				if !ok {
-					return
-				}
-				switch file.FlatType(parent) {
-				case "value_argument", "jump_expression":
-					escapes = true
-				case "function_body":
-					// `fun f() = map` returns the variable.
-					escapes = true
-				case "for_statement":
-					// Iterating the map itself needs Map's iterator.
-					escapes = file.FlatNamedChild(parent, 0) != ident
-				case "navigation_expression":
-					if file.FlatNamedChild(parent, 0) == ident && kotlinMapExtensions[navigationMemberName(file, parent)] {
-						escapes = true
-					}
-				}
-			})
-			return escapes
-		case "assignment":
-			// `target = HashMap()` where the target is declared as a Map.
-			target := file.FlatNamedChild(cur, 0)
-			if target == 0 || file.FlatType(target) != "directly_assignable_expression" {
-				return false
-			}
-			return fileDeclaresMapProperty(file, strings.TrimSpace(file.FlatNodeText(target)))
-		case "function_body":
-			// An expression body is returned as the declared type.
-			fn, ok := file.FlatParent(cur)
-			if !ok || file.FlatType(fn) != "function_declaration" {
-				return false
-			}
-			typ := extractFunctionReturnTypeNameFlat(file, fn)
-			return (strings.HasPrefix(typ, "Map<") || strings.HasPrefix(typ, "MutableMap<")) && !strings.Contains(typ, "HashMap<")
-		case "statements", "class_body", "lambda_literal", "function_declaration":
-			return false
-		}
-	}
-	return false
-}
-
-// fileDeclaresMapProperty reports a property named name declared in file with a Map or MutableMap type.
-func fileDeclaresMapProperty(file *scanner.File, name string) bool {
-	found := false
-	file.FlatWalkNodes(0, "property_declaration", func(prop uint32) {
-		if found || extractIdentifierFlat(file, prop) != name {
-			return
-		}
-		typ := extractPropertyTypeFlat(file, prop)
-		found = (strings.HasPrefix(typ, "Map<") || strings.HasPrefix(typ, "MutableMap<")) && !strings.Contains(typ, "HashMap<")
-	})
-	return found
-}
-
-// navigationMemberName returns the name selected by a navigation_expression such as `map.getOrPut`.
-func navigationMemberName(file *scanner.File, nav uint32) string {
-	return flatNavigationExpressionLastIdentifier(file, nav)
-}
 
 // fragmentLaunchedFromInstance reports a launchFragment call that is handed an instance of className,
 // the way fragment tests build one with constructor arguments.
@@ -157,6 +68,8 @@ type fragmentConstructorState struct {
 	hasParamCtor bool
 	// hasInjectCtor is true when a constructor is DI-annotated, which implies a custom FragmentFactory.
 	hasInjectCtor bool
+	// privateNoArgCtor is the first declared no-arg constructor marked private or protected, or 0.
+	privateNoArgCtor uint32
 }
 
 // fragmentCtorIsInjectAnnotatedFlat reports whether a constructor header carries @Inject or @AssistedInject.
@@ -185,6 +98,9 @@ func fragmentConstructorStateFlat(file *scanner.File, classDecl uint32) fragment
 		}
 		if count == 0 || (defaults == count && overloads) {
 			state.hasNoArgCtor = true
+			if count == 0 && state.privateNoArgCtor == 0 && fragmentCtorHeaderHasModifier(file, ctor, "private", "protected") {
+				state.privateNoArgCtor = ctor
+			}
 			return
 		}
 		state.hasParamCtor = true
@@ -226,6 +142,20 @@ func fragmentCtorHeaderHasAnnotation(file *scanner.File, ctor uint32, name strin
 	}
 	for _, w := range strings.Fields(text) {
 		if strings.HasPrefix(w, "@") && androidAnnotationSimpleName(w) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// fragmentCtorHeaderHasModifier reports whether the constructor header (before its parameter list) names one of mods.
+func fragmentCtorHeaderHasModifier(file *scanner.File, ctor uint32, mods ...string) bool {
+	text := file.FlatNodeText(ctor)
+	if paren := strings.Index(text, "("); paren >= 0 {
+		text = text[:paren]
+	}
+	for _, w := range strings.Fields(text) {
+		if slices.Contains(mods, w) {
 			return true
 		}
 	}
@@ -454,8 +384,9 @@ func parseIntegerLiteralForFlag(text string) (int64, bool) {
 // 3. SparseArrayRule
 // =====================================================================
 
-// SparseArrayRule flags HashMap<Integer, ...> / HashMap<Int, ...> usage where
-// SparseArray or SparseIntArray would be more efficient on Android.
+// SparseArrayRule flags `SparseArray<Int>` and `SparseArray<Boolean>` constructor calls, where
+// SparseIntArray or SparseBooleanArray avoids boxing the values. Android Lint 32.4.1 reports exactly this
+// and no longer reports HashMap.
 type SparseArrayRule struct {
 	FlatDispatchBase
 	AndroidRule

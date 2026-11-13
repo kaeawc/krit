@@ -10,6 +10,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/librarymodel"
 )
 
 // manifestGradleInfo holds the relevant build.gradle(.kts) facts for the
@@ -31,6 +32,9 @@ type manifestGradleInfo struct {
 	minSdk              int // minSdk read from the build script; 0 when unset or defined elsewhere
 	versionCode         string
 	versionName         string
+	// usesSplashScreenLibrary is true when the build script mentions the SplashScreen library or declares it through
+	// a version-catalog alias.
+	usesSplashScreenLibrary bool
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -89,6 +93,8 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 		info.versionName = m[1]
 	}
 	info.hasDensityResConfig = gradleDensityResConfigPattern.MatchString(content)
+	info.usesSplashScreenLibrary = strings.Contains(strings.ToLower(content), "splashscreen") ||
+		catalogDeclaresDependency(path, content, "androidx.core", "core-splashscreen")
 	lower := strings.ToLower(content)
 	info.hasMinSdk = strings.Contains(lower, "minsdk")
 	info.hasTargetSdk = strings.Contains(lower, "targetsdk")
@@ -122,6 +128,24 @@ var (
 	pluginAliasCallPattern        = regexp.MustCompile(`alias\(\s*([A-Za-z_][\w.]*)\s*\)`)
 	catalogPluginEntryPattern     = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.-]+)\s*=\s*\{[^}]*\bid\s*=\s*"([^"]+)"`)
 )
+
+// catalogDeclaresDependency reports a dependency on group:name declared through a version-catalog alias or bundle,
+// such as `implementation(libs.core.splash)`, which Lint sees in the resolved dependency graph.
+func catalogDeclaresDependency(gradlePath, content, group, name string) bool {
+	if !strings.Contains(content, "libs.") {
+		return false
+	}
+	catalog, ok := librarymodel.LoadVersionCatalogForGradlePath(gradlePath)
+	if !ok {
+		return false
+	}
+	for _, dep := range librarymodel.ProfileFromGradleContentWithCatalog(gradlePath, content, catalog).Dependencies {
+		if dep.Group == group && dep.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // catalogPluginIDs resolves `alias(libs.plugins.x.y)` entries in a build script to plugin ids through the
 // project's Gradle version catalogs, so `alias(libs.plugins.android.library)` counts as com.android.library.

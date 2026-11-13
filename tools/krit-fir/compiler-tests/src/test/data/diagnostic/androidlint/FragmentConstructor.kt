@@ -107,9 +107,6 @@ class SecondariesWithNoArg : Fragment {
     constructor(a: Int) : super()
 }
 
-// Constructor visibility is not considered, as in Go.
-class PrivateNoArg private constructor() : Fragment()
-
 abstract class AbstractFragment(val a: Int) : Fragment()
 
 sealed class SealedFragment(val a: Int) : Fragment()
@@ -121,8 +118,6 @@ class NotAFragmentEither(val a: Int) : Comparable<NotAFragmentEither> {
 }
 
 object SingletonFragment : Fragment()
-
-val anonymous = object : Fragment() {}
 
 interface Screen
 

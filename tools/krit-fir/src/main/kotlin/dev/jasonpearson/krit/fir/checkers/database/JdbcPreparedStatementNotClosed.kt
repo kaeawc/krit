@@ -3,10 +3,9 @@ package dev.jasonpearson.krit.fir.checkers.database
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
@@ -308,11 +307,6 @@ internal object JdbcPreparedStatementNotClosed :
 
     // Go reports the property's first line: its first modifier or
     // annotation, else `val`/`var` (a KDoc above it is not part of Go's node).
-    private fun anchor(source: KtSourceElement): KtSourceElement {
-        firstModifierAnchor(source)?.let { return it }
-        val keyword = lightChildren(source, source.lighterASTNode)
-            .firstOrNull { it.tokenType == KtTokens.VAL_KEYWORD || it.tokenType == KtTokens.VAR_KEYWORD }
-            ?: return source
-        return lightSourceOf(keyword, source)
-    }
+    private fun anchor(source: KtSourceElement): KtSourceElement =
+        firstLineAnchor(source, KtTokens.VAL_KEYWORD, KtTokens.VAR_KEYWORD) ?: source
 }

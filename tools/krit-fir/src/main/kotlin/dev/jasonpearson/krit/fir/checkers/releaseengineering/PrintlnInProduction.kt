@@ -6,17 +6,16 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.constructClassLikeType
@@ -113,15 +112,9 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
     }
 
     private fun isSystemStream(receiver: FirExpression): Boolean {
-        val access = unwrapReceiver(receiver) as? FirPropertyAccessExpression ?: return false
+        val access = unwrapSmartCasts(receiver) as? FirPropertyAccessExpression ?: return false
         val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return false
         return symbol.callableId in SYSTEM_STREAMS
-    }
-
-    private tailrec fun unwrapReceiver(receiver: FirExpression): FirExpression = when (receiver) {
-        is FirCheckedSafeCallSubject -> unwrapReceiver(receiver.originalReceiverRef.value)
-        is FirSmartCastExpression -> unwrapReceiver(receiver.originalExpression)
-        else -> receiver
     }
 
     // Go's nearest `function_declaration` ancestor: the innermost named

@@ -2,10 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.isNullLiteral
-import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -283,10 +281,6 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
     // Go reports the function_declaration's first line: the first entry of its
     // modifier list (an annotation or a modifier keyword) when it has one, else
     // the `fun` keyword. A preceding KDoc is not part of Go's node.
-    private fun firstLine(source: KtSourceElement): KtSourceElement {
-        firstModifierAnchor(source)?.let { return it }
-        val keyword = lightChildren(source, source.lighterASTNode)
-            .firstOrNull { it.tokenType == KtTokens.FUN_KEYWORD } ?: return source
-        return lightSourceOf(keyword, source)
-    }
+    private fun firstLine(source: KtSourceElement): KtSourceElement =
+        firstLineAnchor(source, KtTokens.FUN_KEYWORD) ?: source
 }

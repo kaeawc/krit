@@ -88,18 +88,30 @@ type DynamicVersionRule struct {
 // version. Classified per roadmap/17.
 func (r *DynamicVersionRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// checkLintStyle reports versions that end in "+" the way Lint's GradleDynamicVersion does: every dependency string or
+// map notation in a dependencies closure.
+func (r *DynamicVersionRule) checkLintStyle(ctx *api.Context) {
+	if !strings.Contains(ctx.GradleContent, "+") {
+		return
+	}
+	for _, dep := range lintGradleDependencies(lintGradleStatements(ctx.GradleContent)) {
+		if !strings.HasSuffix(lintCoordinateVersion(dep.Coord), "+") {
+			continue
+		}
+		ctx.Emit(baseFinding(ctx.GradlePath, dep.Stmt.Line, r.BaseRule,
+			fmt.Sprintf("Avoid using + in version numbers; can lead to unpredictable and unrepeatable builds (%s)", dep.Coord)))
+	}
+}
+
 func (r *DynamicVersionRule) check(ctx *api.Context) {
+	if r.RuleName == "GradleDynamicVersion" {
+		r.checkLintStyle(ctx)
+		return
+	}
 	path, content, cfg := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
 	depLines := gradleDependencyBlockLines(content)
 	emitted := make(map[string]bool)
-	// The GradleDynamicVersion registration follows Lint: any version containing "+" (including a bare "+").
-	lintStyle := r.RuleName == "GradleDynamicVersion"
-	isDynamic := func(v string) bool {
-		if lintStyle {
-			return strings.Contains(v, "+")
-		}
-		return isDynamicVersionString(v)
-	}
+	isDynamic := isDynamicVersionString
 	emit := func(line int, label, version string) {
 		key := fmt.Sprintf("%d|%s|%s", line, label, version)
 		if emitted[key] {
@@ -107,9 +119,6 @@ func (r *DynamicVersionRule) check(ctx *api.Context) {
 		}
 		emitted[key] = true
 		msg := fmt.Sprintf("Dependency %s uses dynamic version `%s`. Pin to a specific version for reproducible builds.", label, version)
-		if lintStyle {
-			msg = fmt.Sprintf("Avoid using + in version numbers; can lead to unpredictable and unrepeatable builds (%s:%s)", label, version)
-		}
 		ctx.Emit(baseFinding(path, line, r.BaseRule, msg))
 	}
 	findCoordLine := func(coord string) int {

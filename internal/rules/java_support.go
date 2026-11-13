@@ -175,6 +175,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"SdCardPath":                              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_sdcard_path_test.go"}},
 		"InvalidWakeLockTag":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_wakelock_tag_test.go"}},
 		"ApplySharedPref":                         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_apply_shared_pref_test.go"}},
+		"SuspiciousIndentation":                   {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_suspicious_indentation_test.go"}},
 		"UnsafeDynamicallyLoadedCode":             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_checks_test.go"}},
 		"BadHostnameVerifier":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_checks_test.go"}},
 		"HardwareIds":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_checks_test.go"}},

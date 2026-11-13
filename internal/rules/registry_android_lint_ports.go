@@ -34,6 +34,9 @@ func registerAndroidLintPortRules() {
 	registerMissingInflatedID()
 	registerTranslationRules()
 	registerResourceCycle()
+	registerWearChecks()
+	registerLintGradleScriptChecks()
+	registerSuspiciousIndentation()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector
@@ -330,4 +333,35 @@ func registerLintSecurityChecks() {
 		[]string{"call_expression", "method_invocation", "navigation_expression", "field_access"}, 0, nil)
 	provider := &DeprecatedProviderRule{AndroidRule: lintAndroidRule("DeprecatedProvider", "Using BC Provider", ALCSecurity, ALSWarning, 9)}
 	registerLintRule(provider.AndroidRule, provider, provider.Confidence(), provider.check, lintCallNodeTypes[:2], 0, nil)
+}
+
+func registerWearChecks() {
+	feature := &InvalidWearFeatureAttributeRule{AndroidRule: lintAndroidRule("InvalidWearFeatureAttribute",
+		"Invalid attribute for Wear uses-feature", ALCCorrectness, ALSError, 6)}
+	registerLintManifestRule(feature.AndroidRule, feature, feature.Confidence(), feature.check)
+	standalone := &WearStandaloneAppFlagRule{AndroidRule: lintAndroidRule("WearStandaloneAppFlag",
+		"Invalid or missing Wear standalone app flag", ALCCorrectness, ALSError, 6)}
+	registerLintManifestRule(standalone.AndroidRule, standalone, standalone.Confidence(), standalone.check)
+	recents := &WearRecentsRule{AndroidRule: lintAndroidRule("WearRecents", "Wear OS: Recents and app resume", ALCUsability, ALSWarning, 5)}
+	registerLintManifestRule(recents.AndroidRule, recents, recents.Confidence(), recents.check)
+	splash := &WearSplashScreenRule{AndroidRule: lintAndroidRule("WearSplashScreen", "Wear: Use `SplashScreen` library", ALCUsability, ALSWarning, 5)}
+	registerLintManifestRule(splash.AndroidRule, splash, splash.Confidence(), splash.check)
+	editor := &WatchFaceEditorRule{AndroidRule: lintAndroidRule("WatchFaceEditor", "Watch face editor must use launchMode=\"standard\"", ALCCorrectness, ALSWarning, 5)}
+	registerLintManifestRule(editor.AndroidRule, editor, editor.Confidence(), editor.check)
+	noCode := &WatchFaceFormatDeclaresHasNoCodeRule{AndroidRule: lintAndroidRule("WatchFaceFormatDeclaresHasNoCode",
+		"The `hasCode` attribute should be set to `false`", ALCCorrectness, ALSError, 7)}
+	registerLintManifestRule(noCode.AndroidRule, noCode, noCode.Confidence(), noCode.check)
+	missing := &WatchFaceFormatMissingVersionRule{AndroidRule: lintAndroidRule("WatchFaceFormatMissingVersion",
+		"The Watch Face Format version is missing", ALCCorrectness, ALSError, 7)}
+	registerLintManifestRule(missing.AndroidRule, missing, missing.Confidence(), missing.check)
+	invalid := &WatchFaceFormatInvalidVersionRule{AndroidRule: lintAndroidRule("WatchFaceFormatInvalidVersion",
+		"The Watch Face Format version is invalid", ALCCorrectness, ALSError, 7)}
+	registerLintManifestRule(invalid.AndroidRule, invalid, invalid.Confidence(), invalid.check)
+	password := &WearPasswordInputRule{AndroidRule: lintAndroidRule("WearPasswordInput", "Wear: Using password input", ALCUsability, ALSError, 5)}
+	registerLintResourceRule(password.AndroidRule, password, password.Confidence(), password.check)
+}
+
+func registerSuspiciousIndentation() {
+	r := &SuspiciousIndentationRule{AndroidRule: lintAndroidRule("SuspiciousIndentation", "Suspicious indentation", ALCCorrectness, ALSError, 6)}
+	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check, []string{"statements", "block", "constructor_body"}, 0, nil)
 }

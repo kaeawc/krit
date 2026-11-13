@@ -71,7 +71,8 @@ func (r *InsecureBaseConfigurationResourceRule) check(ctx *api.Context) {
 			}
 			seen = true
 			if attr, ok := xmlNodeAttr(child, "cleartextTrafficPermitted"); ok && attr.Value == "true" {
-				ctx.Emit(baseFindingAt(path, attr.Line, attr.Col, r.BaseRule, "Insecure Base Configuration"))
+				// Lint reports at the attribute value, after the opening quote.
+				ctx.Emit(baseFindingAt(path, attr.Line, attr.Col+len(attr.Name)+2, r.BaseRule, "Insecure Base Configuration"))
 			}
 		}
 	})

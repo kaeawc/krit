@@ -68,6 +68,10 @@ fun SemanticsPropertyReceiver.invisibleToUser() {
     TODO()
 }
 
+fun SemanticsPropertyReceiver.hideFromAccessibility() {
+    TODO()
+}
+
 fun SemanticsPropertyReceiver.onClick(label: String? = null, action: (() -> Boolean)?) {
     TODO()
 }

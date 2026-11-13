@@ -49,9 +49,6 @@ type GradleDeprecatedRule struct {
 	AndroidRule
 }
 
-// deprecatedConfigPattern finds a dependency configuration call such as `compile(...)`, `debugCompile '...'` or `provided "..."`.
-var deprecatedConfigPattern = regexp.MustCompile(`(^|[^A-Za-z0-9_.])([a-z][A-Za-z0-9]*)\s*[("']`)
-
 // deprecatedConfigMessage returns Lint's message for a deprecated configuration name, or "".
 func deprecatedConfigMessage(name string) string {
 	lower := func(prefix, suffix string) string {
@@ -94,18 +91,18 @@ func deprecatedConfigMessage(name string) string {
 func (r *GradleDeprecatedRule) Confidence() float64 { return api.ConfidenceMedium }
 
 func (r *GradleDeprecatedRule) check(ctx *api.Context) {
-	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	for i, line := range strings.Split(content, "\n") {
-		if isGradleCommentLine(line) {
-			continue
+	for _, st := range lintGradleStatements(ctx.GradleContent) {
+		var msg string
+		switch {
+		case st.Parent == "dependencies":
+			msg = deprecatedConfigMessage(st.Name)
+		case st.Name == "packageName" && st.Parent == "defaultConfig":
+			msg = "Deprecated: Replace 'packageName' with 'applicationId'"
+		case st.Name == "packageNameSuffix" && st.Parent != "defaultConfig":
+			msg = "Deprecated: Replace 'packageNameSuffix' with 'applicationIdSuffix'"
 		}
-		code := gradleCodeOutsideStrings(stripGradleLineComment(line))
-		for _, m := range deprecatedConfigPattern.FindAllStringSubmatchIndex(code, -1) {
-			name := code[m[4]:m[5]]
-			if msg := deprecatedConfigMessage(name); msg != "" {
-				ctx.Emit(baseFindingAt(path, i+1, m[4]+1, r.BaseRule, msg))
-				break
-			}
+		if msg != "" {
+			ctx.Emit(baseFindingAt(ctx.GradlePath, st.Line, st.Col, r.BaseRule, msg))
 		}
 	}
 }
@@ -234,30 +231,44 @@ type GradlePathRule struct {
 // version. Classified per roadmap/17.
 func (r *GradlePathRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// gradlePathCallRe matches a files(), fileTree() or file() call whose first argument (or dir:
-// argument) is a string literal; group 1 is a double-quoted body and group 2 a single-quoted body.
-var gradlePathCallRe = regexp.MustCompile(`\b(?:files|fileTree|file)\s*\(\s*(?:dir\s*[:=]\s*)?(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')`)
-
 // gradleWindowsDriveRe matches a Windows drive path such as C:/libs or C:\\libs.
 var gradleWindowsDriveRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 func (r *GradlePathRule) check(ctx *api.Context) {
-	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig
-	for i, line := range strings.Split(content, "\n") {
-		if isGradleCommentLine(line) {
-			continue
-		}
-		for _, m := range gradlePathCallRe.FindAllStringSubmatch(stripGradleLineComment(line), -1) {
-			arg := m[1] + m[2]
-			// An escaped backslash (`\\`) is a real backslash in the path; `\n` and friends are not.
-			switch {
-			case strings.Contains(arg, `\\`):
-				ctx.Emit(baseFinding(path, i+1, r.BaseRule, "Do not use Windows file separators in .gradle files; use / instead"))
-			case strings.HasPrefix(arg, "/") || gradleWindowsDriveRe.MatchString(arg):
-				ctx.Emit(baseFinding(path, i+1, r.BaseRule, "Avoid using absolute paths in .gradle files"))
+	if !strings.Contains(ctx.GradleContent, "files(") && !strings.Contains(ctx.GradleContent, "applicationIdSuffix") {
+		return
+	}
+	for _, st := range lintGradleStatements(ctx.GradleContent) {
+		var msg string
+		switch {
+		case st.Parent == "dependencies":
+			msg = gradleFilesPathMessage(st.Value)
+		case st.Name == "applicationIdSuffix" && st.Parent != "defaultConfig":
+			if suffix, _, ok := lintQuotedLiteral(st.Value); ok && !strings.HasPrefix(suffix, ".") {
+				msg = `Application ID suffix should probably start with a "."`
 			}
 		}
+		if msg != "" {
+			ctx.Emit(baseFinding(ctx.GradlePath, st.Line, r.BaseRule, msg))
+		}
 	}
+}
+
+// gradleFilesPathMessage checks the argument of a files("...") dependency like Lint: a backslash separator, or an
+// absolute path. Other calls, such as fileTree(), are not checked.
+func gradleFilesPathMessage(value string) string {
+	if !strings.HasPrefix(value, "files(") || !strings.HasSuffix(value, ")") || len(value) < 9 ||
+		(value[6] != '"' && value[6] != '\'') || (value[len(value)-2] != '"' && value[len(value)-2] != '\'') {
+		return ""
+	}
+	arg := value[7 : len(value)-2]
+	switch {
+	case strings.Contains(arg, `\\`):
+		return "Do not use Windows file separators in .gradle files; use / instead"
+	case strings.HasPrefix(arg, "/") || gradleWindowsDriveRe.MatchString(arg):
+		return "Avoid using absolute paths in .gradle files"
+	}
+	return ""
 }
 
 // ---------------------------------------------------------------------------

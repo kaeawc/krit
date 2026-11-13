@@ -12,7 +12,7 @@ class SmokeComposeActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             BackHandler(enabled = true) { finish() }
-            Text("hello")
+            <!ComposeRawTextLiteral!>Text<!>("hello")
         }
     }
 }

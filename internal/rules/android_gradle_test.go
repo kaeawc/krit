@@ -1061,15 +1061,14 @@ func TestGradlePath(t *testing.T) {
 		}
 	})
 
-	t.Run("absolute path in fileTree triggers", func(t *testing.T) {
+	t.Run("absolute path in fileTree is clean", func(t *testing.T) {
 		content := `dependencies {
     implementation(fileTree("/opt/libs"))
 }
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
-		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
+		if findings := runGradleRule(r, "build.gradle.kts", content, cfg); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %v", findings)
 		}
 	})
 
@@ -1085,7 +1084,7 @@ func TestGradlePath(t *testing.T) {
 		}
 	})
 
-	t.Run("file and dir forms trigger, escapes and comments do not", func(t *testing.T) {
+	t.Run("only files calls in dependencies trigger", func(t *testing.T) {
 		content := `dependencies {
     implementation(fileTree(dir: '/opt/libs', include: ['*.jar']))
     implementation(files("C:/libs/foo.jar"))
@@ -1093,11 +1092,34 @@ func TestGradlePath(t *testing.T) {
     implementation(files("libs/a\nb.jar")) // C:\\old
     implementation(files("${rootDir}/libs/foo.jar"))
 }
+val other = files("/outside/dependencies.jar")
 `
 		cfg, _ := android.ParseBuildGradleContent(content)
 		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
-		if len(findings) != 3 {
-			t.Fatalf("expected 3 findings (lines 2-4), got %v", findings)
+		if len(findings) != 1 || findings[0].Line != 3 {
+			t.Fatalf("expected 1 finding on line 3, got %v", findings)
+		}
+	})
+
+	t.Run("application id suffix without a leading dot triggers", func(t *testing.T) {
+		content := `android {
+    defaultConfig {
+        applicationIdSuffix = "default"
+    }
+    buildTypes {
+        debug { applicationIdSuffix = "dbg" }
+        release { applicationIdSuffix = ".rel" }
+        staging { applicationIdSuffix = suffixValue }
+    }
+}
+`
+		cfg, _ := android.ParseBuildGradleContent(content)
+		findings := runGradleRule(r, "build.gradle.kts", content, cfg)
+		if len(findings) != 1 || findings[0].Line != 6 {
+			t.Fatalf("expected 1 finding on line 6, got %v", findings)
+		}
+		if findings[0].Message != `Application ID suffix should probably start with a "."` {
+			t.Fatalf("unexpected message %q", findings[0].Message)
 		}
 	})
 

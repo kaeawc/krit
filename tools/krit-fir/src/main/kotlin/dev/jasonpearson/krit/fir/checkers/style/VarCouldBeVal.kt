@@ -3,10 +3,10 @@ package dev.jasonpearson.krit.fir.checkers.style
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.firstModifierAnchor
-import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.firstLineAnchor
+import dev.jasonpearson.krit.fir.support.frameworkInjectedAnnotations
 import dev.jasonpearson.krit.fir.support.simpleName
+import dev.jasonpearson.krit.fir.support.unusedMemberSuppressions
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -61,18 +61,6 @@ internal object VarCouldBeVal : FirFileChecker(MppCheckerKind.Common), FirRule {
     }
 
     private class Candidate(val name: String, val symbol: FirPropertySymbol, val anchor: KtSourceElement)
-
-    // Annotations after which a property is initialised by a framework (Go's frameworkAnnotationNames).
-    private val frameworkAnnotations = setOf(
-        "Mock", "MockK", "RelaxedMockK", "SpyK", "InjectMocks", "Inject", "Autowired", "BindView", "BindViews",
-        "Captor", "Spy", "Value", "EJB", "Resource", "PersistenceContext",
-    )
-
-    // Go skips a property that suppresses the unused-member family, since it cannot be judged from here.
-    private val suppressedUnused = listOf(
-        "\"unused\"", "\"UNUSED_PARAMETER\"", "\"UNUSED_VARIABLE\"", "\"UnusedPrivateProperty\"",
-        "\"UnusedPrivateMember\"", "\"UnusedPrivateFunction\"", "\"UnusedVariable\"",
-    )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirFile) {
@@ -130,18 +118,14 @@ internal object VarCouldBeVal : FirFileChecker(MppCheckerKind.Common), FirRule {
             property.getter?.annotations.orEmpty()
         return annotations.any { annotation ->
             val name = annotation.simpleName()
-            name in frameworkAnnotations || name == "Volatile" ||
+            name in frameworkInjectedAnnotations || name == "Volatile" ||
                 (name == "Suppress" || name == "SuppressWarnings") &&
                 annotation.source?.let { s -> s.treeStructure.toString(s.lighterASTNode).toString() }
-                    ?.let { text -> suppressedUnused.any { it in text } } == true
+                    ?.let { text -> unusedMemberSuppressions.any { it in text } } == true
         }
     }
 
     // Go reports a declaration on its first line: where the modifier list starts, else the `var` keyword.
     // A preceding KDoc belongs to the declaration in the light tree but not in Go's node.
-    private fun anchorOf(source: KtSourceElement): KtSourceElement? {
-        firstModifierAnchor(source)?.let { return it }
-        val keyword = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.VAR_KEYWORD }
-        return keyword?.let { lightSourceOf(it, source) }
-    }
+    private fun anchorOf(source: KtSourceElement): KtSourceElement? = firstLineAnchor(source, KtTokens.VAR_KEYWORD)
 }

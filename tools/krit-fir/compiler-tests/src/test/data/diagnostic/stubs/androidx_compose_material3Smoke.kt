@@ -20,12 +20,12 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun Material3Smoke(query: String, onQuery: (String) -> Unit, onClose: () -> Unit) {
     Column {
-        Text("Title", color = Color.Red, fontSize = 18.sp, maxLines = 1)
-        Text(text = "Body", modifier = Modifier.minimumInteractiveComponentSize())
+        <!ComposeRawTextLiteral!>Text<!>("Title", color = Color.Red, fontSize = 18.sp, maxLines = 1)
+        <!ComposeRawTextLiteral!>Text<!>(text = "Body", modifier = Modifier.minimumInteractiveComponentSize())
         Icon(imageVector = Icons.Filled.Add, contentDescription = "Add", tint = Color.Black)
         IconButton(onClick = onClose, enabled = true) { Icon(Icons.Default.Close, contentDescription = "Close") }
-        TextField(value = query, onValueChange = onQuery, label = { Text("Search") }, singleLine = true)
-        OutlinedTextField(value = query, onValueChange = onQuery, placeholder = { Text("Type") }, readOnly = true)
-        Button(onClick = onClose) { Text("OK") }
+        TextField(value = query, onValueChange = onQuery, label = { <!ComposeRawTextLiteral!>Text<!>("Search") }, singleLine = true)
+        OutlinedTextField(value = query, onValueChange = onQuery, placeholder = { <!ComposeRawTextLiteral!>Text<!>("Type") }, readOnly = true)
+        Button(onClick = onClose) { <!ComposeRawTextLiteral!>Text<!>("OK") }
     }
 }

@@ -68,6 +68,8 @@ var extraLintAliases = map[string][]string{
 	"ServiceExportedManifest":        {"ExportedService"},
 	// Android lint reports calls to @RequiresApi members under NewApi.
 	"RequiresApiViolation": {"NewApi"},
+	// Lint renamed the issue; the old ID still suppresses it.
+	"SuspiciousIndentation": {"SuspiciousIndentAfterControlStatement"},
 }
 
 // LintSuppressionAliases returns the Android lint issue IDs that also suppress the rule: the ID without

@@ -1,6 +1,7 @@
 // Compiler-test source stubs; never packaged in the production artifact.
 package androidx.compose.foundation
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Alignment
@@ -56,6 +57,19 @@ fun Modifier.clickable(
     onClick: () -> Unit,
 ): Modifier = TODO()
 
+// The overload that takes an explicit indication; `indication = null` makes an invisible click target.
+fun Modifier.clickable(
+    interactionSource: MutableInteractionSource?,
+    indication: Indication?,
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+    role: Role? = null,
+    onClick: () -> Unit,
+): Modifier = TODO()
+
+@Stable
+interface Indication
+
 fun Modifier.combinedClickable(
     enabled: Boolean = true,
     onClickLabel: String? = null,
@@ -67,7 +81,7 @@ fun Modifier.combinedClickable(
 ): Modifier = TODO()
 
 @Stable
-class ScrollState(initial: Int) {
+class ScrollState(@Suppress("unused") initial: Int) {
     val value: Int
         get() = TODO()
 

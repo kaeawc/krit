@@ -1,15 +1,14 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
-import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.firstArgumentNode
+import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
 import dev.jasonpearson.krit.fir.support.trimGoSpace
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import dev.jasonpearson.krit.fir.support.upperCodePoints
-import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -60,7 +59,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -176,20 +174,9 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     // `gen?.`, or a smart-cast `gen`, a property or a Java field. Go takes
     // only a receiver without a dot.
     private fun variableReceiver(receiver: FirExpression?): FirPropertyAccessExpression? {
-        val access = unwrap(receiver) as? FirPropertyAccessExpression ?: return null
+        val access = unwrapSmartCasts(receiver) as? FirPropertyAccessExpression ?: return null
         if (access.explicitReceiver != null) return null
         return access
-    }
-
-    private fun unwrap(expression: FirExpression?): FirExpression? {
-        var current = expression
-        while (true) {
-            current = when (current) {
-                is FirCheckedSafeCallSubject -> current.originalReceiverRef.value
-                is FirSmartCastExpression -> current.originalExpression
-                else -> return current
-            }
-        }
     }
 
     // The algorithms [symbol] may hold at [callStart]. When the variable's own
@@ -362,7 +349,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
 
         @OptIn(SymbolInternals::class)
         private fun keyOf(expression: FirExpression, depth: Int): Any {
-            val value = unwrap(expression) ?: return expression
+            val value = unwrapSmartCasts(expression) ?: return expression
             if (depth > 8) return value
             return when (value) {
                 is FirThisReceiverExpression -> {
@@ -398,14 +385,14 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
             return if (isVariableLike(owner)) keyOf(owner, depth + 1) else lambda
         }
 
-        private fun isVariableLike(expression: FirExpression): Boolean = when (val value = unwrap(expression)) {
+        private fun isVariableLike(expression: FirExpression): Boolean = when (val value = unwrapSmartCasts(expression)) {
             is FirThisReceiverExpression, is FirResolvedQualifier -> true
             is FirPropertyAccessExpression -> value.explicitReceiver == null
             else -> false
         }
 
         private fun applyLambda(expression: FirExpression?): FirAnonymousFunctionSymbol? {
-            val call = unwrap(expression) as? FirFunctionCall ?: return null
+            val call = unwrapSmartCasts(expression) as? FirFunctionCall ?: return null
             if (call.calleeReference.toResolvedCallableSymbol()?.callableId != applyId) return null
             return lambdaArgument(call)?.symbol
         }
@@ -426,7 +413,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         // The Pair/Triple constructor argument or `to` operand a
         // destructuring entry takes, or null for any other value.
         private fun componentOperand(value: FirExpression?, component: Int): FirExpression? {
-            val call = unwrap(value) as? FirFunctionCall ?: return null
+            val call = unwrapSmartCasts(value) as? FirFunctionCall ?: return null
             val callee = call.calleeReference.toResolvedCallableSymbol() ?: return null
             if (callee is FirConstructorSymbol) {
                 if (callee.containingClassLookupTag()?.classId !in tupleClasses) return null
@@ -541,7 +528,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                     val write = current
                     val start = element.source?.startOffset
                     if (write != null && start != null && id in getInstanceIds) {
-                        val literal = firstArgumentString(element.source)
+                        val literal = element.source?.let(::firstArgumentStringContent)
                         val known = literal ?: constantString(element.argumentList.arguments.firstOrNull(), 0)
                         if (known != null) write.instances += Instance(start, literal, known)
                     }
@@ -577,18 +564,18 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     // The algorithm of a getInstance call: its string literal first
     // argument as Go reads it, or the value of a `const val` argument.
     private fun instanceAlgorithm(call: FirFunctionCall): String? =
-        firstArgumentString(call.source) ?: constantString(call.argumentList.arguments.firstOrNull(), 0)
+        call.source?.let(::firstArgumentStringContent) ?: constantString(call.argumentList.arguments.firstOrNull(), 0)
 
     // The value of a reference to a string `const val`.
     @OptIn(SymbolInternals::class)
     private fun constantString(expression: FirExpression?, depth: Int): String? {
-        val access = unwrap(expression) as? FirPropertyAccessExpression ?: return null
+        val access = unwrapSmartCasts(expression) as? FirPropertyAccessExpression ?: return null
         val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
         if (!symbol.isConst || depth > 8) return null
         return constantValue(symbol.resolvedInitializer, depth + 1)
     }
 
-    private fun constantValue(expression: FirExpression?, depth: Int): String? = when (val value = unwrap(expression)) {
+    private fun constantValue(expression: FirExpression?, depth: Int): String? = when (val value = unwrapSmartCasts(expression)) {
         is FirLiteralExpression -> value.value as? String
         is FirStringConcatenationCall -> value.argumentList.arguments
             .map { constantValue(it, depth) ?: return null }
@@ -596,49 +583,10 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         else -> constantString(value, depth)
     }
 
-    // Syntax wrappers that leave the argument's value unchanged, and the
-    // non-expression parts inside them.
-    private val expressionWrappers = setOf(
-        KtNodeTypes.PARENTHESIZED,
-        KtNodeTypes.ANNOTATED_EXPRESSION,
-        KtNodeTypes.LABELED_EXPRESSION,
-    )
-    private val wrapperParts = setOf(
-        KtTokens.LPAR,
-        KtTokens.RPAR,
-        KtNodeTypes.ANNOTATION_ENTRY,
-        KtNodeTypes.ANNOTATION,
-        KtNodeTypes.LABEL_QUALIFIER,
-    )
-
-    // The first argument's expression node of the call [source] spans, with
-    // parentheses, annotations, and labels unwrapped.
-    private fun firstArgument(source: KtSourceElement): LighterASTNode? {
-        val root = source.lighterASTNode
-        val call = when (root.tokenType) {
-            KtNodeTypes.CALL_EXPRESSION -> root
-            KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
-                significantChildren(source, root).lastOrNull()?.takeIf { it.tokenType == KtNodeTypes.CALL_EXPRESSION }
-            else -> null
-        } ?: return null
-        val arguments = significantChildren(source, call)
-            .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
-        val argument = significantChildren(source, arguments)
-            .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return null
-        // A named (`name = x`) or spread (`*x`) argument has more than one part.
-        var value = significantChildren(source, argument).singleOrNull() ?: return null
-        while (value.tokenType in expressionWrappers) {
-            value = significantChildren(source, value)
-                .filter { it.tokenType !in wrapperParts }
-                .singleOrNull() ?: return null
-        }
-        return value
-    }
-
     // Go's reading of the size: the argument text, trimmed, without an `L`
     // then an `l` suffix and without `_`, parsed as a signed decimal integer.
     private fun firstArgumentSize(source: KtSourceElement): Long? {
-        val node = firstArgument(source) ?: return null
+        val node = firstArgumentNode(source) ?: return null
         var text = trimGoSpace(source.treeStructure.toString(node).toString())
         text = text.removeSuffix("L").removeSuffix("l").replace("_", "")
         return parseGoInt(text)
@@ -649,24 +597,6 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         val digits = if (text.startsWith("+") || text.startsWith("-")) text.substring(1) else text
         if (digits.isEmpty() || digits.any { it !in '0'..'9' }) return null
         return text.toLongOrNull()
-    }
-
-    // The raw text of the first argument when it is a string template without
-    // `$` entries; escape entries keep their source text, as Go reads them.
-    private fun firstArgumentString(source: KtSourceElement?): String? {
-        source ?: return null
-        val value = firstArgument(source) ?: return null
-        if (value.tokenType != KtNodeTypes.STRING_TEMPLATE) return null
-        val content = StringBuilder()
-        for (part in lightChildren(source, value)) {
-            when (part.tokenType) {
-                KtTokens.OPEN_QUOTE, KtTokens.CLOSING_QUOTE -> Unit
-                KtNodeTypes.LITERAL_STRING_TEMPLATE_ENTRY, KtNodeTypes.ESCAPE_STRING_TEMPLATE_ENTRY ->
-                    content.append(source.treeStructure.toString(part))
-                else -> return null
-            }
-        }
-        return content.toString()
     }
 
     // Go's weakKeySizeThreshold.

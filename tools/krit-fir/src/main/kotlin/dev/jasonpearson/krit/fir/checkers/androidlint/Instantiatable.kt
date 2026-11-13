@@ -2,9 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -168,11 +167,6 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
     // Go reports the class_declaration's first line: the first entry of its
     // modifier list (an annotation or a modifier keyword) when it has one,
     // else the `class` / `interface` keyword.
-    private fun firstLine(source: KtSourceElement): KtSourceElement {
-        firstModifierAnchor(source)?.let { return it }
-        val keyword = lightChildren(source, source.lighterASTNode)
-            .firstOrNull { it.tokenType == KtTokens.CLASS_KEYWORD || it.tokenType == KtTokens.INTERFACE_KEYWORD }
-            ?: return source
-        return lightSourceOf(keyword, source)
-    }
+    private fun firstLine(source: KtSourceElement): KtSourceElement =
+        firstLineAnchor(source, KtTokens.CLASS_KEYWORD, KtTokens.INTERFACE_KEYWORD) ?: source
 }

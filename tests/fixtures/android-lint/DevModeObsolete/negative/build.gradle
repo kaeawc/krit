@@ -1,0 +1,20 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.example.devmode'
+    compileSdkVersion 34
+    defaultConfig {
+        applicationId 'com.example.devmode'
+        targetSdkVersion 34
+    }
+    productFlavors {
+        dev {
+            minSdkVersion 26
+        }
+        prod {
+            minSdkVersion 21
+        }
+    }
+}

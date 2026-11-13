@@ -9,7 +9,7 @@ import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509TrustManager
 
-open class OkHttpClient internal constructor(builder: Builder) : Call.Factory {
+open class OkHttpClient internal constructor(@Suppress("unused") builder: Builder) : Call.Factory {
     constructor() : this(Builder())
 
     val hostnameVerifier: HostnameVerifier

@@ -5,6 +5,14 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `InsecureBaseConfiguration` reports at the value of `cleartextTrafficPermitted`, and
+  `CustomX509TrustManager` and `TrustAllX509TrustManager` follow a `typealias` declared in the same
+  file to `X509TrustManager`, as Lint does.
+- `IgnoredReturnValue` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, a discarded call is reported from the callee's must-use annotation or its resolved stdlib
+  return type (Sequence, Flow, Stream, function value), and "discarded" is the compiler's own unused-value
+  analysis, so a call that is not the last statement of a callback lambda is reported where Go's text
+  heuristics missed it.
 - `UnusedIds` now follows Lint 32.4.1: an id stays used only when source reads it or a resource that
   is itself used refers to it (a reference from an unused layout no longer counts), navigation graph
   ids are never reported, and the finding sits at the first `@+id/` mention, which can be a forward
@@ -49,6 +57,10 @@ All notable changes to Krit will be documented in this file.
   covers them too.
 
 ### Added
+- `SuspiciousIndentation` ports Android Lint's check: a statement indented as if it belonged to the
+  previous statement or to an unbraced `if`, `else` or loop, an unbraced body at the column of its
+  control statement, and an indentation string that differs from the line above. It reports at most
+  one problem per block and skips lambda bodies and braced `when` branches, as Lint does.
 - New list options, all empty by default, let a project name its own conventions:
   `RunBlockingInTest.realDispatcherMarkers` (strings that mark a test class as using
   real dispatchers), `StateFlowMutableLeak.testSupportClassNames` (class-name substrings

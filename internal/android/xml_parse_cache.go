@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	xmlParseCacheVersion    uint32 = 2
-	xmlParseCacheVersionStr        = "2"
+	xmlParseCacheVersion    uint32 = 3
+	xmlParseCacheVersionStr        = "3"
 
 	// Most layout XML files in Android repos run 500B–8KB. A 512-byte
 	// floor skips the tiniest drawables / shape files where gob encode

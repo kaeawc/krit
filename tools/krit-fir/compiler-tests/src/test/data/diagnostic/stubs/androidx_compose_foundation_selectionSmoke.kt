@@ -13,8 +13,8 @@ import androidx.compose.ui.semantics.Role
 @Composable
 fun SelectionSmoke(checked: Boolean, onChecked: (Boolean) -> Unit, selected: Boolean, onSelect: () -> Unit) {
     Row(Modifier.selectableGroup()) {
-        Text("toggle", Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChecked))
-        Text("option", Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect))
-        Text("plain", Modifier.toggleable(checked) { onChecked(it) })
+        <!ComposeRawTextLiteral!>Text<!>("toggle", Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = onChecked))
+        <!ComposeRawTextLiteral!>Text<!>("option", Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onSelect))
+        <!ComposeRawTextLiteral!>Text<!>("plain", Modifier.<!ComposeSemanticsMissingRole!>toggleable<!>(checked) { onChecked(it) })
     }
 }

@@ -1,12 +1,10 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
-import com.intellij.lang.LighterASTNode
-import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
 import dev.jasonpearson.krit.fir.support.trimGoSpace
 import dev.jasonpearson.krit.fir.support.upperCodePoints
-import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -14,12 +12,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.util.getChildren
 
 // Flags `Mac.getInstance("<weak HMAC>")` on the JDK's javax.crypto.Mac, where
 // the first argument is a plain string literal naming HmacMD2, HmacMD5,
@@ -78,69 +74,9 @@ internal object WeakMacAlgorithm : FirFunctionCallChecker(MppCheckerKind.Common)
         if (callee.callableId != getInstanceId) return
 
         if (expression.argumentList.arguments.isEmpty()) return
-        val algorithm = firstArgumentLiteralContent(expression) ?: return
+        val algorithm = expression.source?.let(::firstArgumentStringContent) ?: return
         if (upperCodePoints(trimGoSpace(algorithm)) !in weakAlgorithms) return
 
         report(expression.source, MESSAGE)
     }
-
-    // Syntax wrappers that leave the argument's value unchanged, and the
-    // non-expression parts inside them.
-    private val expressionWrappers = setOf(
-        KtNodeTypes.PARENTHESIZED,
-        KtNodeTypes.ANNOTATED_EXPRESSION,
-        KtNodeTypes.LABELED_EXPRESSION,
-    )
-    private val wrapperParts = setOf(
-        KtTokens.LPAR,
-        KtTokens.RPAR,
-        KtNodeTypes.ANNOTATION_ENTRY,
-        KtNodeTypes.ANNOTATION,
-        KtNodeTypes.LABEL_QUALIFIER,
-    )
-
-    // The raw text of the first argument when it is a string template without
-    // `$` entries, read from the call's syntax tree rather than from FIR (K2
-    // folds `"${"HmacMD5"}"` into a plain literal). Parentheses, annotations, and
-    // labels around the literal are unwrapped, and escape entries keep their
-    // source text, as the Go rule reads them.
-    private fun firstArgumentLiteralContent(call: FirFunctionCall): String? {
-        val source = call.source ?: return null
-        val tree = source.treeStructure
-        val root = source.lighterASTNode
-        val callExpression = when (root.tokenType) {
-            KtNodeTypes.CALL_EXPRESSION -> root
-            KtNodeTypes.DOT_QUALIFIED_EXPRESSION ->
-                significantChildren(root, tree).lastOrNull()?.takeIf { it.tokenType == KtNodeTypes.CALL_EXPRESSION }
-            else -> null
-        } ?: return null
-        val argumentList = significantChildren(callExpression, tree)
-            .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
-        val argument = significantChildren(argumentList, tree)
-            .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT } ?: return null
-        // A named (`name = x`) or spread (`*x`) argument has more than one part.
-        var value = significantChildren(argument, tree).singleOrNull() ?: return null
-        while (value.tokenType in expressionWrappers) {
-            value = significantChildren(value, tree)
-                .filter { it.tokenType !in wrapperParts }
-                .singleOrNull() ?: return null
-        }
-        if (value.tokenType != KtNodeTypes.STRING_TEMPLATE) return null
-        val content = StringBuilder()
-        for (part in value.getChildren(tree)) {
-            when (part.tokenType) {
-                KtTokens.OPEN_QUOTE, KtTokens.CLOSING_QUOTE -> Unit
-                KtNodeTypes.LITERAL_STRING_TEMPLATE_ENTRY, KtNodeTypes.ESCAPE_STRING_TEMPLATE_ENTRY ->
-                    content.append(tree.toString(part))
-                else -> return null
-            }
-        }
-        return content.toString()
-    }
-
-    private fun significantChildren(
-        node: LighterASTNode,
-        tree: FlyweightCapableTreeStructure<LighterASTNode>,
-    ): List<LighterASTNode> =
-        node.getChildren(tree).filter { it.tokenType != KtTokens.WHITE_SPACE && it.tokenType !in KtTokens.COMMENTS }
 }

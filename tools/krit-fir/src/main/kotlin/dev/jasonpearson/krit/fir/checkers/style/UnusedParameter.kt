@@ -161,7 +161,8 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
         }
         val text = lightText(source, block).trim()
         if (text == "{}" || text == "{ }") return true
-        if ("throw " in text && text.startsWith("{") && text.count { it == '\n' } <= MAX_THROW_STUB_NEWLINES) return true
+        val shortThrow = text.count { it == '\n' } <= MAX_THROW_STUB_NEWLINES
+        if ("throw " in text && text.startsWith("{") && shortThrow) return true
         return blockIsStub(source, block)
     }
 

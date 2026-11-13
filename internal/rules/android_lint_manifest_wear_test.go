@@ -112,6 +112,18 @@ func TestWearSplashScreenSkipsModulesUsingTheLibrary(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("with the library: got %q, want none", got)
 	}
+	catalogFiles := files(`dependencies { implementation(libs.core.splash) }`)
+	catalogFiles["settings.gradle.kts"] = `include(":app")`
+	catalogFiles["gradle/libs.versions.toml"] = "[libraries]\ncore-splash = { module = \"androidx.core:core-splashscreen\", version = \"1.0.1\" }\n"
+	got = wearFindingsAt(t, catalogFiles, manifestRel, "app/src/main/res")
+	if len(got) != 0 {
+		t.Fatalf("with the library through a catalog alias: got %q, want none", got)
+	}
+	catalogFiles["gradle/libs.versions.toml"] = "[libraries]\ncore-splash = { module = \"androidx.core:core-ktx\", version = \"1.0.1\" }\n"
+	got = wearFindingsAt(t, catalogFiles, manifestRel, "app/src/main/res")
+	if want := []string{"WearSplashScreen app/src/main/AndroidManifest.xml:6:5"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("with an unrelated catalog alias: got %q, want %q", got, want)
+	}
 }
 
 func TestWearStandaloneAppFlagSkipsLibraryModules(t *testing.T) {

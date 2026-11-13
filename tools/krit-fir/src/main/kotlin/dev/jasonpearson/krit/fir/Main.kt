@@ -88,12 +88,12 @@ fun main(args: Array<String>) {
     val daemon = args.contains("--daemon")
     val portIdx = args.indexOf("--port")
     val port = if (portIdx >= 0 && portIdx + 1 < args.size) args[portIdx + 1].toIntOrNull() ?: -1 else -1
-	val parentValue = extractCliValue(args, "--parent-pid")
-	val parentPid = parentValue?.toLongOrNull()
-	if (("--parent-pid" in args && (parentPid == null || parentPid <= 0))) {
-		System.err.println("--parent-pid requires a positive process ID")
-		exitProcess(2)
-	}
+    val parentValue = extractCliValue(args, "--parent-pid")
+    val parentPid = parentValue?.toLongOrNull()
+    if (("--parent-pid" in args && (parentPid == null || parentPid <= 0))) {
+        System.err.println("--parent-pid requires a positive process ID")
+        exitProcess(2)
+    }
 
     if (daemon) {
         startParentWatch(parentPid)

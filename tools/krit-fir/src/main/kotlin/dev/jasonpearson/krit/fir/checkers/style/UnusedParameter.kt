@@ -58,6 +58,9 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
     // The default of the option in config/default-krit.yml.
     private const val DEFAULT_ALLOWED = "ignored|expected"
 
+    // A `{ throw ... }` body spanning at most this many line breaks counts as a stub.
+    private const val MAX_THROW_STUB_NEWLINES = 3
+
     // Annotation names after which a function is called by a framework or tool (Go's entryPointAnnotationNames).
     private val entryPointAnnotations = setOf(
         "Preview", "ComposePreview", "PreviewParameter", "PreviewLightDark", "DarkPreview", "LightPreview",
@@ -158,7 +161,7 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
         }
         val text = lightText(source, block).trim()
         if (text == "{}" || text == "{ }") return true
-        if ("throw " in text && text.startsWith("{") && text.count { it == '\n' } <= 3) return true
+        if ("throw " in text && text.startsWith("{") && text.count { it == '\n' } <= MAX_THROW_STUB_NEWLINES) return true
         return blockIsStub(source, block)
     }
 

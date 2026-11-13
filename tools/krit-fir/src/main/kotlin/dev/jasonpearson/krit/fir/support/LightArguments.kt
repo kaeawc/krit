@@ -44,8 +44,7 @@ fun firstArgumentNode(source: KtSourceElement): LighterASTNode? {
     var value = significantChildren(source, argument).singleOrNull() ?: return null
     while (value.tokenType in expressionWrappers) {
         value = significantChildren(source, value)
-            .filter { it.tokenType !in wrapperParts }
-            .singleOrNull() ?: return null
+            .singleOrNull { it.tokenType !in wrapperParts } ?: return null
     }
     return value
 }

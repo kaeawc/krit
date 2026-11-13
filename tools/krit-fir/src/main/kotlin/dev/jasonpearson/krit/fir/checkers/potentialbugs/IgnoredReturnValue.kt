@@ -317,7 +317,9 @@ internal object IgnoredReturnValue : FirRule {
                 if (!found) element.acceptChildren(this)
             }
 
-            override fun visitNamedFunction(namedFunction: FirNamedFunction) {}
+            override fun visitNamedFunction(namedFunction: FirNamedFunction) {
+                // A nested named function owns its returns, so the walk stops here.
+            }
 
             override fun visitReturnExpression(returnExpression: FirReturnExpression) {
                 if (returnExpression.target.labeledElement is FirNamedFunction) found = true

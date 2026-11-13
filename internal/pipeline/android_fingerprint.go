@@ -103,6 +103,20 @@ func resDirContentFingerprint(resDir string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// iconInputFingerprint covers everything the icon index reads: the res directory and the manifest beside it.
+func iconInputFingerprint(resDir string) string {
+	return resDirContentFingerprint(resDir) + "\x00" + iconManifestFingerprint(resDir)
+}
+
+// iconManifestFingerprint hashes the manifest the icon index reads for a res directory, which assigns
+// launcher and round icons and sets minSdk.
+func iconManifestFingerprint(resDir string) string {
+	if hx, err := hashutil.Default().HashFile(android.IconManifestPath(resDir), nil); err == nil {
+		return hx
+	}
+	return "no-manifest"
+}
+
 // mergedResourceIndexFingerprint composes per-resDir content fingerprints
 // into one stable hex digest. Sorting the dirs first makes the result
 // order-independent; including each dir's path prevents two identical-content

@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -29,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
@@ -305,11 +305,8 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         }
 
         // `x = y` assigns x; `x += y` assigns x through a desugared reference.
-        private fun assignedSymbol(assignment: FirVariableAssignment): FirBasedSymbol<*>? {
-            val lValue = assignment.lValue
-            val target = if (lValue is FirDesugaredAssignmentValueReferenceExpression) lValue.expressionRef.value else lValue
-            return (target as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()
-        }
+        private fun assignedSymbol(assignment: FirVariableAssignment): FirBasedSymbol<*>? =
+            assignedAccess(assignment)?.calleeReference?.toResolvedCallableSymbol()
     }
 
     // A custom getter that only returns the backing field (`get() = field`)

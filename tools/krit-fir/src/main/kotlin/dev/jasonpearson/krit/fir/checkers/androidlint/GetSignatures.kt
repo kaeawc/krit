@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirBooleanOperatorExpression
 import org.jetbrains.kotlin.fir.expressions.FirComparisonExpression
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -635,11 +635,8 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     }
 
     // `x = y` assigns x; `x += y` assigns x through a desugared reference.
-    private fun assignedSymbol(assignment: FirVariableAssignment): Any? {
-        val lValue = assignment.lValue
-        val target = if (lValue is FirDesugaredAssignmentValueReferenceExpression) lValue.expressionRef.value else lValue
-        return (target as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()
-    }
+    private fun assignedSymbol(assignment: FirVariableAssignment): Any? =
+        assignedAccess(assignment)?.calleeReference?.toResolvedCallableSymbol()
 
     // Whether [element] reads GET_SIGNATURES anywhere, other than inverted
     // (`GET_SIGNATURES.inv()` is a mask that clears the flag).

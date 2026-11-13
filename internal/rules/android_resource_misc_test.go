@@ -227,8 +227,8 @@ func TestNamespaceTypoResource(t *testing.T) {
 		if len(findings) != 1 {
 			t.Fatalf("expected 1 finding, got %d", len(findings))
 		}
-		if !strings.Contains(findings[0].Message, "typo") {
-			t.Fatalf("expected message to mention typo, got: %s", findings[0].Message)
+		if !strings.Contains(findings[0].Message, "Unexpected namespace URI") {
+			t.Fatalf("expected message about the android prefix, got: %s", findings[0].Message)
 		}
 	})
 

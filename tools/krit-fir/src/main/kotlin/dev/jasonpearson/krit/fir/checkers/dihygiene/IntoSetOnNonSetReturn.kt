@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
@@ -23,9 +24,7 @@ import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 
 /**
@@ -81,16 +80,16 @@ internal object IntoSetOnNonSetReturn :
     private val kotlinInject = FqName("me.tatarka.inject.annotations")
 
     private val intoSet = setOf(
-        classId(daggerMultibindings, "IntoSet"),
-        classId(metro, "IntoSet"),
-        classId(kotlinInject, "IntoSet"),
+        classIdOf(daggerMultibindings, "IntoSet"),
+        classIdOf(metro, "IntoSet"),
+        classIdOf(kotlinInject, "IntoSet"),
     )
     private val providesOrBinds = setOf(
-        classId(dagger, "Provides"),
-        classId(dagger, "Binds"),
-        classId(metro, "Provides"),
-        classId(metro, "Binds"),
-        classId(kotlinInject, "Provides"),
+        classIdOf(dagger, "Provides"),
+        classIdOf(dagger, "Binds"),
+        classIdOf(metro, "Provides"),
+        classIdOf(metro, "Binds"),
+        classIdOf(kotlinInject, "Provides"),
     )
 
     // Go's wrapper names. Go matches the last dotted segment of the declared
@@ -104,22 +103,21 @@ internal object IntoSetOnNonSetReturn :
         "Iterable", "MutableIterable", "Array",
     )
 
-    private val kotlinArray = classId(FqName("kotlin"), "Array")
+    private val kotlinArray = classIdOf(FqName("kotlin"), "Array")
 
     // A type is a collection when it is, or has as a supertype, one of these.
     // Kotlin maps the Java interfaces onto its own, but a Kotlin file can
     // still name the Java ones explicitly.
     private val collectionRoots = setOf(
-        classId(FqName("kotlin.collections"), "Iterable"),
-        classId(FqName("kotlin.collections"), "MutableIterable"),
-        classId(FqName("kotlin.collections"), "Map"),
-        classId(FqName("kotlin.collections"), "MutableMap"),
-        classId(FqName("java.lang"), "Iterable"),
-        classId(FqName("java.util"), "Collection"),
-        classId(FqName("java.util"), "Map"),
+        classIdOf(FqName("kotlin.collections"), "Iterable"),
+        classIdOf(FqName("kotlin.collections"), "MutableIterable"),
+        classIdOf(FqName("kotlin.collections"), "Map"),
+        classIdOf(FqName("kotlin.collections"), "MutableMap"),
+        classIdOf(FqName("java.lang"), "Iterable"),
+        classIdOf(FqName("java.util"), "Collection"),
+        classIdOf(FqName("java.util"), "Map"),
     )
 
-    private fun classId(pkg: FqName, name: String) = ClassId(pkg, Name.identifier(name))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirNamedFunction) {

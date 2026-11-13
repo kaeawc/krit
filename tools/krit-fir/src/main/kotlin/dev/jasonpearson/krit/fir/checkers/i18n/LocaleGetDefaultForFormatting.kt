@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -37,7 +38,6 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.toKtLightSourceElement
 import org.jetbrains.kotlin.util.getChildren
 
 // Flags `withLocale(Locale.getDefault())` on a machine-readable
@@ -125,7 +125,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
 
         val source = expression.source ?: return
         val qualified = qualifiedCall(source)
-        report(qualified?.let { sourceOf(it, source) } ?: source, MESSAGE)
+        report(qualified?.let { lightSourceOf(it, source) } ?: source, MESSAGE)
     }
 
     // Where a formatter value comes from.
@@ -303,17 +303,5 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
         val parent = tree.getParent(node) ?: return null
         if (parent.tokenType !in qualifiedTypes) return null
         return parent.takeIf { parent.getChildren(tree).lastOrNull { it.tokenType == KtNodeTypes.CALL_EXPRESSION } == node }
-    }
-
-    // A source element for [node], a node in [anchor]'s tree, keeping the
-    // anchor's offset shift between tree offsets and file offsets.
-    private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
-        if (node == anchor.lighterASTNode) return anchor
-        val shift = anchor.startOffset - anchor.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            anchor.treeStructure,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
     }
 }

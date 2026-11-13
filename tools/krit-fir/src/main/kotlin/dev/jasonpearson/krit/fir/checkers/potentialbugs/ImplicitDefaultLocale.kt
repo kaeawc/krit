@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
@@ -23,7 +24,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -79,8 +79,8 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
     }
 
     private val kotlinText = FqName("kotlin.text")
-    private val javaString = ClassId(FqName("java.lang"), Name.identifier("String"))
-    private val javaLocale = ClassId(FqName("java.util"), Name.identifier("Locale"))
+    private val javaString = classIdOf("java.lang", "String")
+    private val javaLocale = classIdOf("java.util", "Locale")
     private val stringCompanion = StandardClassIds.String.createNestedClassId(Name.identifier("Companion"))
     private val format = Name.identifier("format")
     private val stdlibCaseNames = setOf("toLowerCase", "toUpperCase", "capitalize", "decapitalize").map(Name::identifier).toSet()

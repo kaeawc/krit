@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 
@@ -60,31 +61,103 @@ type NoTabsRule struct {
 // room for interpretation.
 func (r *NoTabsRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
+// check mirrors detekt, which reports each whitespace token that contains a tab. Tabs inside comments and
+// string text are not whitespace tokens, but whitespace inside a ${ ... } entry is. A token starts where the whitespace run starts, so a tab that indents a
+// line is reported at the end of the previous line. Tabs after a KDoc tag name, which detekt also reports,
+// are not modeled.
 func (r *NoTabsRule) check(ctx *api.Context) {
 	file := ctx.File
+	content := file.Content
+	tab := bytes.IndexByte(content, '\t')
+	if tab < 0 {
+		return
+	}
 	indent := r.IndentSize
 	if indent <= 0 {
 		indent = 4
 	}
 	spaces := strings.Repeat(" ", indent)
-	insideRawString := computeRawStringLines(file.Lines)
-	for i, line := range file.Lines {
-		if strings.Contains(line, "\t") {
-			f := r.Finding(file, i+1, strings.Index(line, "\t")+1,
-				"Tab character found. Use spaces for indentation.")
-			// Tabs inside a raw string are part of its value, so they are reported but not replaced.
-			if !insideRawString[i] {
-				lineStart := file.LineOffset(i)
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   lineStart,
-					EndByte:     lineStart + len(line),
-					Replacement: strings.ReplaceAll(line, "\t", spaces),
+	protected := noTabsProtectedRanges(file)
+	next := 0
+	for ; tab >= 0; tab = nextTabAfter(content, tab+1) {
+		for next < len(protected) && protected[next].end <= tab {
+			next++
+		}
+		if next < len(protected) && protected[next].start <= tab {
+			continue
+		}
+		start, end := tab, tab+1
+		for start > 0 && isKotlinWhitespaceByte(content[start-1]) {
+			start--
+		}
+		for end < len(content) && isKotlinWhitespaceByte(content[end]) {
+			end++
+		}
+		row := file.RowForByte(start)
+		f := r.Finding(file, row+1, start-file.LineOffset(row)+1, "Tab character found. Use spaces for indentation.")
+		f.Fix = &scanner.Fix{
+			ByteMode:    true,
+			StartByte:   start,
+			EndByte:     end,
+			Replacement: strings.ReplaceAll(string(content[start:end]), "\t", spaces),
+		}
+		ctx.Emit(f)
+		// The rest of this whitespace token is already covered.
+		tab = end - 1
+	}
+}
+
+func nextTabAfter(content []byte, from int) int {
+	if from >= len(content) {
+		return -1
+	}
+	i := bytes.IndexByte(content[from:], '\t')
+	if i < 0 {
+		return -1
+	}
+	return from + i
+}
+
+func isKotlinWhitespaceByte(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
+}
+
+type byteRange struct{ start, end int }
+
+// noTabsProtectedRanges returns, in source order, the byte ranges of comments and string text. Expressions inside a
+// string's ${ ... } entries are code, so they are left out of the string's ranges.
+func noTabsProtectedRanges(file *scanner.File) []byteRange {
+	var out []byteRange
+	var walk func(n uint32)
+	walk = func(n uint32) {
+		switch file.FlatType(n) {
+		case "line_comment", "multiline_comment", "character_literal":
+			out = append(out, byteRange{int(file.FlatStartByte(n)), int(file.FlatEndByte(n))})
+			return
+		case "string_literal":
+			// Everything outside a ${ ... } entry is string text.
+			cur := int(file.FlatStartByte(n))
+			for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+				switch file.FlatType(c) {
+				case "${":
+					out = append(out, byteRange{cur, int(file.FlatStartByte(c))})
+				case "}":
+					cur = int(file.FlatEndByte(c))
+				case "interpolated_expression":
+					walk(c)
 				}
 			}
-			ctx.Emit(f)
+			out = append(out, byteRange{cur, int(file.FlatEndByte(n))})
+			return
+		}
+		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+			walk(c)
 		}
 	}
+	for n := uint32(1); n != 0; n = file.FlatNextSib(n) {
+		walk(n)
+	}
+	return out
 }
 
 // MaxLineLengthRule detects lines exceeding the configured max.

@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -44,7 +45,6 @@ import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -83,28 +83,28 @@ internal object ExplicitBackingFieldCandidate : FirPropertyChecker(MppCheckerKin
     }
 
     private val mutableFamily = setOf(
-        classId("kotlinx.coroutines.flow", "MutableStateFlow"),
-        classId("kotlinx.coroutines.flow", "MutableSharedFlow"),
-        classId("androidx.lifecycle", "MutableLiveData"),
-        classId("androidx.compose.runtime", "MutableState"),
-        classId("kotlin.collections", "MutableList"),
-        classId("kotlin.collections", "MutableSet"),
-        classId("kotlin.collections", "MutableMap"),
-        classId("kotlinx.coroutines.channels", "Channel"),
+        classIdOf("kotlinx.coroutines.flow", "MutableStateFlow"),
+        classIdOf("kotlinx.coroutines.flow", "MutableSharedFlow"),
+        classIdOf("androidx.lifecycle", "MutableLiveData"),
+        classIdOf("androidx.compose.runtime", "MutableState"),
+        classIdOf("kotlin.collections", "MutableList"),
+        classIdOf("kotlin.collections", "MutableSet"),
+        classIdOf("kotlin.collections", "MutableMap"),
+        classIdOf("kotlinx.coroutines.channels", "Channel"),
     )
 
     private val readOnlyCounterparts = setOf(
-        classId("kotlinx.coroutines.flow", "StateFlow"),
-        classId("kotlinx.coroutines.flow", "SharedFlow"),
-        classId("kotlinx.coroutines.flow", "Flow"),
-        classId("androidx.lifecycle", "LiveData"),
-        classId("androidx.compose.runtime", "State"),
-        classId("kotlin.collections", "List"),
-        classId("kotlin.collections", "Set"),
-        classId("kotlin.collections", "Map"),
-        classId("kotlin.collections", "Collection"),
-        classId("kotlin.collections", "Iterable"),
-        classId("kotlinx.coroutines.channels", "ReceiveChannel"),
+        classIdOf("kotlinx.coroutines.flow", "StateFlow"),
+        classIdOf("kotlinx.coroutines.flow", "SharedFlow"),
+        classIdOf("kotlinx.coroutines.flow", "Flow"),
+        classIdOf("androidx.lifecycle", "LiveData"),
+        classIdOf("androidx.compose.runtime", "State"),
+        classIdOf("kotlin.collections", "List"),
+        classIdOf("kotlin.collections", "Set"),
+        classIdOf("kotlin.collections", "Map"),
+        classIdOf("kotlin.collections", "Collection"),
+        classIdOf("kotlin.collections", "Iterable"),
+        classIdOf("kotlinx.coroutines.channels", "ReceiveChannel"),
     )
 
     private val wrappers = setOf(
@@ -114,7 +114,6 @@ internal object ExplicitBackingFieldCandidate : FirPropertyChecker(MppCheckerKin
 
     private val jvmField = setOf("JvmField")
 
-    private fun classId(pkg: String, name: String) = ClassId(FqName(pkg), Name.identifier(name))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirProperty) {

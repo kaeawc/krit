@@ -98,6 +98,13 @@ func TestTestWithoutAssertion_FrameworkAssertionForms(t *testing.T) {
     fun emits() {
         source.test().assertValue(1).assertComplete()
     }`,
+		"assertion after raw string ending in a backslash": `
+    @Test
+    fun strips() {
+        val expected = WIRE.replace("""\""", "")
+        sut.run()
+        assertThat(updated()).containsExactly("sections" to expected)
+    }`,
 		"rx awaitTerminalEvent": `
     @Test
     fun emits() {

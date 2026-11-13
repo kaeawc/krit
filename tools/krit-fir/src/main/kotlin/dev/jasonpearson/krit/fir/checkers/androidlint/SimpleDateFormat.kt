@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -15,8 +16,6 @@ import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 // Flags a SimpleDateFormat constructor call that passes fewer than two
@@ -63,9 +62,9 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
         "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates."
 
     private val simpleDateFormatClassIds = setOf(
-        ClassId(FqName("java.text"), Name.identifier("SimpleDateFormat")),
-        ClassId(FqName("android.icu.text"), Name.identifier("SimpleDateFormat")),
-        ClassId(FqName("com.ibm.icu.text"), Name.identifier("SimpleDateFormat")),
+        classIdOf("java.text", "SimpleDateFormat"),
+        classIdOf("android.icu.text", "SimpleDateFormat"),
+        classIdOf("com.ibm.icu.text", "SimpleDateFormat"),
     )
 
     private val simpleDateFormatName = Name.identifier("SimpleDateFormat")

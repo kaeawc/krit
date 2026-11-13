@@ -42,6 +42,8 @@ public abstract class Context {
 
     public static final String POWER_SERVICE = "power";
 
+    public static final String WIFI_SERVICE = "wifi";
+
     public Context() {
     }
 

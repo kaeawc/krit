@@ -3,6 +3,9 @@ package stubs
 
 import android.content.Context
 import android.util.AttributeSet
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -19,6 +22,20 @@ import android.widget.Toast
 class SmokeTextView(context: Context, attrs: AttributeSet?) : TextView(context, attrs)
 
 class SmokeProgress(context: Context) : ProgressBar(context)
+
+class SmokeListAdapter(private val rows: List<String>) : BaseAdapter() {
+    override fun getCount(): Int = rows.size
+
+    override fun getItem(position: Int): Any = rows[position]
+
+    override fun getItemId(position: Int): Long = position.toLong()
+
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = TextView(parent.context)
+
+    fun refresh() {
+        notifyDataSetChanged()
+    }
+}
 
 class SmokeScroll(context: Context) : ScrollView(context)
 

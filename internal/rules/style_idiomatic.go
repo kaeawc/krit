@@ -128,15 +128,24 @@ func flatThrowIfFix(file *scanner.File, idx uint32, exceptionType, replacement s
 	return &scanner.Fix{ByteMode: true, StartByte: int(file.FlatStartByte(idx)), EndByte: int(file.FlatEndByte(idx)), Replacement: fmt.Sprintf("%s(%s) { %s }", replacement, innerCond, argText)}
 }
 
-// firstCallExpression returns the first call_expression at or below node in source order, or 0.
+// firstCallExpression returns the first call at or below node in PSI source order, or 0. Tree-sitter wraps
+// `X("a").also {}` as a call on a member access, while PSI puts the receiver call X("a") first, so a call with a
+// receiver defers to the first call inside that receiver.
 func firstCallExpression(file *scanner.File, node uint32) uint32 {
-	found := uint32(0)
-	file.FlatWalkNodes(node, "call_expression", func(n uint32) {
-		if found == 0 {
-			found = n
+	if file.FlatType(node) == "call_expression" {
+		if nav := file.FlatFirstChild(node); nav != 0 && file.FlatType(nav) == "navigation_expression" {
+			if inner := firstCallExpression(file, file.FlatFirstChild(nav)); inner != 0 {
+				return inner
+			}
 		}
-	})
-	return found
+		return node
+	}
+	for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
+		if inner := firstCallExpression(file, c); inner != 0 {
+			return inner
+		}
+	}
+	return 0
 }
 
 // throwCalleeName returns the simple name of the exception constructor a throw calls, qualified or not.

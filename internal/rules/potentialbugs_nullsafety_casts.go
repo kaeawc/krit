@@ -77,6 +77,11 @@ func (r *UnsafeCastRule) check(ctx *api.Context) {
 		ctx.Emit(f)
 		return
 	}
+	// The compiler analyzed this file and reported no CAST_NEVER_SUCCEEDS here, so the name-based paths below
+	// would only add false positives, such as a shadowed local the resolver types as its outer namesake.
+	if compilerAnalyzedFile(ctx) {
+		return
+	}
 	// Skip `other as ThisClass` inside an `equals(other: Any?)` method,
 	// which is the IntelliJ-generated pattern safeguarded by a prior
 	// class check.

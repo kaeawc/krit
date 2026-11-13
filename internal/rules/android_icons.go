@@ -70,7 +70,7 @@ type GifUsageRule struct {
 
 func (r *GifUsageRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ConvertToWebpRule detects large PNGs that could be smaller as WebP.
+// ConvertToWebpRule reports the largest PNG or JPEG of a res directory as convertible to WebP.
 type ConvertToWebpRule struct {
 	IconResourceBase
 	AndroidRule
@@ -86,7 +86,8 @@ type IconMissingDensityFolderRule struct {
 
 func (r *IconMissingDensityFolderRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// IconExpectedSizeRule checks that launcher icons have expected sizes.
+// IconExpectedSizeRule checks that launcher, action bar, tab, dialog, menu, notification and adaptive
+// layer icons have the standard size for their density.
 type IconExpectedSizeRule struct {
 	IconResourceBase
 	AndroidRule
@@ -144,139 +145,6 @@ func (r *IconLauncherShapeRule) Confidence() float64 { return api.ConfidenceMedi
 
 // --- IconIndex-backed check functions ---
 
-// webpThresholdBytes is the minimum PNG size to suggest WebP conversion (10 KB).
-const webpThresholdBytes = 10 * 1024
-
-// launcherPrefixes identifies launcher icon resources by name prefix.
-var launcherPrefixes = []string{"ic_launcher", "ic_launcher_round"}
-
-// isLauncherIconName reports whether name is a legacy launcher icon such as ic_launcher or
-// ic_launcher_debug. Adaptive icon layers (foreground, background, monochrome) are 108dp, not 48dp,
-// and are expected to be transparent, so they are not launcher icons here.
-func isLauncherIconName(name string) bool {
-	for _, layer := range []string{"_foreground", "_background", "_monochrome"} {
-		if strings.HasSuffix(name, layer) {
-			return false
-		}
-	}
-	for _, prefix := range launcherPrefixes {
-		if name == prefix || strings.HasPrefix(name, prefix+"_") {
-			return true
-		}
-	}
-	return false
-}
-
-// expectedLauncherSizes maps density to the expected launcher icon pixel size (48dp base).
-var expectedLauncherSizes = map[string]int{
-	"ldpi":    36,
-	"mdpi":    48,
-	"hdpi":    72,
-	"xhdpi":   96,
-	"xxhdpi":  144,
-	"xxxhdpi": 192,
-}
-
-// CheckIconDuplicates reports different file names with identical contents in one density folder, like Lint.
-func CheckIconDuplicates(idx *android.IconIndex, c *scanner.FindingCollector) {
-	if idx == nil {
-		return
-	}
-	var findings []scanner.Finding
-	type densityHash struct{ density, hash string }
-	sameFolder := make(map[densityHash][]*android.IconFile)
-	for _, ic := range idx.Icons {
-		if ic.Hash == "" || ic.Format == "xml" {
-			continue
-		}
-		key := densityHash{ic.Density, ic.Hash}
-		sameFolder[key] = append(sameFolder[key], ic)
-	}
-	for _, icons := range sameFolder {
-		names := make(map[string]*android.IconFile)
-		for _, ic := range icons {
-			fileName := filepath.Base(ic.Path)
-			if _, ok := names[fileName]; !ok {
-				names[fileName] = ic
-			}
-		}
-		if len(names) < 2 {
-			continue
-		}
-		sorted := make([]string, 0, len(names))
-		for n := range names {
-			sorted = append(sorted, n)
-		}
-		sort.Strings(sorted)
-		findings = append(findings, scanner.Finding{
-			File:     names[sorted[len(sorted)-1]].Path,
-			Line:     1,
-			Col:      1,
-			RuleSet:  androidRuleSet,
-			Rule:     "IconDuplicates",
-			Severity: "warning",
-			Message:  "The following unrelated icon files have identical contents: " + strings.Join(sorted, ", "),
-		})
-	}
-	sort.Slice(findings, func(i, j int) bool { return findings[i].Message < findings[j].Message })
-	c.AppendAll(findings)
-}
-
-// CheckGifUsage reports any GIF files in the resource directories.
-func CheckGifUsage(idx *android.IconIndex, c *scanner.FindingCollector) {
-	if idx == nil {
-		return
-	}
-	for _, ic := range idx.Icons {
-		if ic.Format == "gif" {
-			c.Append(scanner.Finding{
-				File:     ic.Path,
-				Line:     1,
-				Col:      1,
-				RuleSet:  androidRuleSet,
-				Rule:     "GifUsage",
-				Severity: "warning",
-				Message:  "Using the `.gif` format for bitmaps is discouraged",
-				BinaryFix: &scanner.BinaryFix{
-					Type:         scanner.BinaryFixConvertWebP,
-					SourcePath:   ic.Path,
-					TargetPath:   "", // will generate .webp alongside
-					Description:  "Convert GIF to WebP format",
-					DeleteSource: true,
-				},
-			})
-		}
-	}
-}
-
-// CheckConvertToWebp reports large PNG files that could be converted to WebP.
-func CheckConvertToWebp(idx *android.IconIndex, c *scanner.FindingCollector) {
-	if idx == nil {
-		return
-	}
-	for _, ic := range idx.Icons {
-		// A nine-patch must stay a .9.png: the packaging tool only reads nine-patch data from PNG files.
-		if ic.Format == "png" && ic.Size >= webpThresholdBytes && !ic.IsNinePatch() {
-			c.Append(scanner.Finding{
-				File:     ic.Path,
-				Line:     1,
-				Col:      1,
-				RuleSet:  androidRuleSet,
-				Rule:     "ConvertToWebp",
-				Severity: "warning",
-				Message:  "One or more images in this project can be converted to the WebP format which typically results in smaller file sizes, even for lossless conversion",
-				BinaryFix: &scanner.BinaryFix{
-					Type:         scanner.BinaryFixConvertWebP,
-					SourcePath:   ic.Path,
-					TargetPath:   "", // will generate .webp alongside
-					Description:  "Convert to WebP format and remove original PNG",
-					DeleteSource: true,
-				},
-			})
-		}
-	}
-}
-
 // CheckIconExtension reports icon files where the file extension doesn't match the detected content format.
 func CheckIconExtension(idx *android.IconIndex, c *scanner.FindingCollector) {
 	if idx == nil {
@@ -302,12 +170,12 @@ func CheckIconExtension(idx *android.IconIndex, c *scanner.FindingCollector) {
 	}
 }
 
-// iconFormatLabel names an image format the way Lint prints it.
+// iconFormatLabel names an image format the way Java ImageIO reports it: JPEG upper case, others lower case.
 func iconFormatLabel(format string) string {
 	if format == "jpg" {
 		return "JPEG"
 	}
-	return strings.ToUpper(format)
+	return format
 }
 
 // CheckIconLocation reports bitmap drawables placed directly in the densityless drawable folder, as Lint does.

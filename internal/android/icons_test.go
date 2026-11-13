@@ -482,3 +482,43 @@ func TestGifDetection(t *testing.T) {
 		t.Errorf("expected format gif, got %s", idx.Icons[0].Format)
 	}
 }
+
+func TestScanIconDirs_ReadsManifestIconsAndMinSdk(t *testing.T) {
+	root := t.TempDir()
+	manifest := `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="p">
+  <uses-sdk android:minSdkVersion="19"/>
+  <application android:icon="@mipmap/app" android:roundIcon="@mipmap/app_round">
+    <activity android:name=".A" android:icon="@drawable/act"/>
+    <activity-alias android:name=".B" android:icon="@color/not_an_icon"/>
+    <service android:name=".S" android:icon="@drawable/svc" android:roundIcon="@drawable/svc_round"/>
+  </application>
+</manifest>`
+	if err := os.WriteFile(filepath.Join(root, "AndroidManifest.xml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resDir := filepath.Join(root, "res")
+	if err := os.MkdirAll(resDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := ScanIconDirs(resDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"@mipmap/app", "@mipmap/app_round", "act"} {
+		if !idx.LauncherIcons[want] {
+			t.Errorf("LauncherIcons missing %q: %v", want, idx.LauncherIcons)
+		}
+	}
+	// Services do not launch, and a non-image reference is not an icon.
+	for _, unwanted := range []string{"svc", "svc_round", "@color/not_an_icon", "not_an_icon"} {
+		if idx.LauncherIcons[unwanted] {
+			t.Errorf("LauncherIcons should not hold %q", unwanted)
+		}
+	}
+	if !idx.RoundIcons["@mipmap/app_round"] || !idx.RoundIcons["svc_round"] || idx.RoundIcons["act"] {
+		t.Errorf("unexpected RoundIcons: %v", idx.RoundIcons)
+	}
+	if idx.ManifestMinSdk != 19 {
+		t.Errorf("ManifestMinSdk = %d, want 19", idx.ManifestMinSdk)
+	}
+}

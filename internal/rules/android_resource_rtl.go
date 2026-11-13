@@ -458,6 +458,10 @@ func (r *NotSiblingResourceRule) checkChild(ctx *api.Context, path, parent strin
 			name := stripIDPrefix(ref)
 			switch {
 			case siblings[name] && own != "" && name == own:
+				// Lint compares the reference text with the declared id text, so only the same `@+id/` or `@id/` form is a self reference.
+				if ref != strings.TrimSpace(child.ID) {
+					continue
+				}
 				ctx.Emit(baseFindingAtAttr(path, child, attr, r.BaseRule,
 					fmt.Sprintf("Cannot be relative to self: id=%s, %s=%s", own, local, own)))
 			case !siblings[name] && (inFile[name] || defined[name] && !strings.HasPrefix(ref, "@+id/")):

@@ -1227,7 +1227,7 @@ func TestStateListReachableResource(t *testing.T) {
 		}
 	})
 
-	t.Run("only first masking pair reported per selector", func(t *testing.T) {
+	t.Run("only the first masked item is reported per selector", func(t *testing.T) {
 		idx := emptyIndex()
 		idx.DrawableSelectors = map[string][]android.SelectorItem{
 			"button": {
@@ -1237,8 +1237,8 @@ func TestStateListReachableResource(t *testing.T) {
 			},
 		}
 		findings := runResourceRule(r, idx)
-		if len(findings) != 2 {
-			t.Fatalf("expected 2 findings (one per masked item), got %d", len(findings))
+		if len(findings) != 1 || findings[0].Line != 6 {
+			t.Fatalf("expected 1 finding on line 6 (Lint stops at the first masked item), got %v", findings)
 		}
 	})
 }
@@ -1853,5 +1853,30 @@ func TestEnforceUtf8Resource(t *testing.T) {
 	}
 	if got[0].Message != "ISO-8859-1: Not using UTF-8 as the file encoding. This can lead to subtle bugs with non-ascii characters" || got[0].Col != 31 {
 		t.Fatalf("unexpected finding %+v", got[0])
+	}
+}
+
+func TestStateListReachableResource_ReportsOnlyFirstMaskedItem(t *testing.T) {
+	r := findResourceRule(t, "StateListReachableResource")
+	item := func(line int, states ...string) android.SelectorItem {
+		attrs := map[string]string{}
+		for _, s := range states {
+			attrs["android:state_"+s] = "true"
+		}
+		return android.SelectorItem{FilePath: "res/drawable/button.xml", Line: line, StateAttrs: attrs}
+	}
+	// Lint scans earlier items first: item #1 masks item #4 before item #2 masks item #3.
+	idx := emptyIndex()
+	idx.DrawableSelectors = map[string][]android.SelectorItem{"button": {
+		item(3, "pressed"), item(4, "focused"), item(5, "focused", "enabled"), item(6, "pressed", "checked"),
+	}}
+	got := runResourceRule(r, idx)
+	if len(got) != 1 || got[0].Line != 6 || !strings.Contains(got[0].Message, "item #1") {
+		t.Fatalf("want one finding on line 6 naming item #1, got %v", got)
+	}
+	idx.DrawableSelectors["button"] = []android.SelectorItem{item(3, "enabled"), item(4, "enabled"), item(5, "enabled"), item(6)}
+	got = runResourceRule(r, idx)
+	if len(got) != 1 || got[0].Line != 4 {
+		t.Fatalf("a state list with several masked items reports only the first, got %v", got)
 	}
 }

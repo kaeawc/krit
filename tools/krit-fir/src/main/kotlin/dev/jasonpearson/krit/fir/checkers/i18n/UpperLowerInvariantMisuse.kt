@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -41,7 +42,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.text
-import org.jetbrains.kotlin.toKtLightSourceElement
 import org.jetbrains.kotlin.util.getChildren
 
 // Flags the Kotlin 1.5+ stdlib case conversions `uppercase()` / `lowercase()`
@@ -152,7 +152,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
         if (asciiInvariantIdentifiers.any { receiverText.contains(it) }) return
         if (qualified != null && isInvariantTokenReceiver(source, qualified, expression)) return
         if (isValueOfArgument(expression)) return
-        report(qualified?.let { sourceOf(it, source) } ?: source, message(name))
+        report(qualified?.let { lightSourceOf(it, source) } ?: source, message(name))
     }
 
     // Receivers that hold fixed ASCII tokens, as in Go: a string literal without
@@ -286,18 +286,6 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
 
     private fun message(name: String) =
         "'$name()' is locale-invariant but its result is shown as user-facing text. Use a display-locale variant such as '$name(Locale.getDefault())'."
-
-    // A source element for [node], a node in [anchor]'s tree, keeping the
-    // anchor's offset shift between tree offsets and file offsets.
-    private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
-        if (node == anchor.lighterASTNode) return anchor
-        val shift = anchor.startOffset - anchor.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            anchor.treeStructure,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
-    }
 
     private fun significantChildren(
         node: LighterASTNode,

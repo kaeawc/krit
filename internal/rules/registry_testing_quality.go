@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -795,30 +794,91 @@ func registerTestingQualityVerifyWithoutMock() {
 }
 
 // testingQualityOperandAssertedNonNull reports an earlier non-null assertion on the operand of the `!!` at bang,
-// in the same function: `assertThat(x).isNotNull()`, `assertNotNull(x)` or `requireNotNull(x)`.
+// in the same function: `assertNotNull(x)`, `requireNotNull(x)` or `checkNotNull(x)` (x first or after one
+// message argument), `assertThat(x).isNotNull()` or `assertThat(x, notNullValue())`. The check must be a call
+// that ends before the assertion starts, and every block, lambda or branch body around it must also hold the
+// assertion, so text in a comment or a check in another branch does not count.
 func testingQualityOperandAssertedNonNull(file *scanner.File, call, bang uint32) bool {
 	operand := flatFirstNamedChild(file, bang)
 	if operand == 0 {
 		return false
 	}
-	text := strings.Join(strings.Fields(file.FlatNodeText(operand)), "")
+	text := testingQualityCompactText(file.FlatNodeText(operand))
 	if text == "" {
 		return false
 	}
-	scopeStart := uint32(0)
+	scope := uint32(0)
 	if fn, ok := flatEnclosingFunction(file, call); ok {
-		scopeStart = file.FlatStartByte(fn)
+		scope = fn
 	}
 	callStart := file.FlatStartByte(call)
-	if scopeStart >= callStart || int(callStart) > len(file.Content) {
-		return false
+	found := false
+	file.FlatWalkNodes(scope, "call_expression", func(check uint32) {
+		if found || file.FlatEndByte(check) > callStart || !testingQualityIsNonNullCheck(file, check, text) {
+			return
+		}
+		found = testingQualityCheckReachesCall(file, check, scope, callStart)
+	})
+	return found
+}
+
+// testingQualityCompactText is text with every whitespace character removed.
+func testingQualityCompactText(text string) string {
+	return strings.Join(strings.Fields(text), "")
+}
+
+// testingQualityIsNonNullCheck reports whether call is one of the checks testingQualityOperandAssertedNonNull
+// accepts, applied to the operand whose compact text is operand.
+func testingQualityIsNonNullCheck(file *scanner.File, call uint32, operand string) bool {
+	_, args := flatCallExpressionParts(file, call)
+	texts := testingQualityArgumentTexts(file, args)
+	switch flatCallExpressionName(file, call) {
+	case "assertNotNull", "requireNotNull", "checkNotNull":
+		return (len(texts) > 0 && texts[0] == operand) || (len(texts) > 1 && texts[1] == operand)
+	case "assertThat":
+		return len(texts) == 2 && texts[0] == operand && texts[1] == "notNullValue()"
+	case "isNotNull":
+		if len(texts) != 0 {
+			return false
+		}
+		nav, _ := flatCallExpressionParts(file, call)
+		receiver := flatFirstNamedChild(file, nav)
+		if file.FlatType(receiver) != "call_expression" || flatCallExpressionName(file, receiver) != "assertThat" {
+			return false
+		}
+		_, receiverArgs := flatCallExpressionParts(file, receiver)
+		receiverTexts := testingQualityArgumentTexts(file, receiverArgs)
+		return len(receiverTexts) == 1 && receiverTexts[0] == operand
 	}
-	before := strings.Join(strings.Fields(string(file.Content[scopeStart:callStart])), "")
-	quoted := regexp.QuoteMeta(text)
-	pattern := regexp.MustCompile(`assertThat\(` + quoted + `\)\.isNotNull\(\)|` +
-		`(?:assertNotNull|requireNotNull|checkNotNull)\((?:[^,()]*,)?` + quoted + `[,)]|` +
-		`assertThat\(` + quoted + `,notNullValue\(\)\)`)
-	return pattern.MatchString(before)
+	return false
+}
+
+// testingQualityArgumentTexts is the compact text of each value argument, labels included.
+func testingQualityArgumentTexts(file *scanner.File, args uint32) []string {
+	if args == 0 {
+		return nil
+	}
+	var out []string
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) == "value_argument" {
+			out = append(out, testingQualityCompactText(file.FlatNodeText(arg)))
+		}
+	}
+	return out
+}
+
+// testingQualityCheckReachesCall reports whether every block, lambda body and branch body between check and
+// scope also holds the byte offset callStart.
+func testingQualityCheckReachesCall(file *scanner.File, check, scope uint32, callStart uint32) bool {
+	for node, ok := file.FlatParent(check); ok && node != scope; node, ok = file.FlatParent(node) {
+		switch file.FlatType(node) {
+		case "statements", "control_structure_body":
+			if file.FlatStartByte(node) > callStart || file.FlatEndByte(node) <= callStart {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // testingQualityBodyHasExpectOrAwaitCall reports Turbine and navigator style checks (`expectNoEvents()`,

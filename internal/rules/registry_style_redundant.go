@@ -28,57 +28,7 @@ func registerStyleRedundantVisibilityModifier() {
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"modifiers"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			// Check for "public" and absence of "override" using AST child walking.
-			// This node IS a "modifiers" node, so walk its children directly.
-			hasPublic := false
-			hasOverride := false
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				child := file.FlatChild(idx, i)
-				childText := file.FlatNodeText(child)
-				if childText == "public" {
-					hasPublic = true
-				}
-				if childText == "override" {
-					hasOverride = true
-				}
-				// Modifier keywords may be wrapped (e.g. visibility_modifier > "public")
-				for j := 0; j < file.FlatChildCount(child); j++ {
-					gcText := file.FlatNodeText(file.FlatChild(child, j))
-					if gcText == "public" {
-						hasPublic = true
-					}
-					if gcText == "override" {
-						hasOverride = true
-					}
-				}
-			}
-			if hasPublic && !hasOverride {
-				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-					"Redundant 'public' modifier. Public is the default visibility in Kotlin.")
-				// Find the visibility_modifier child with "public"
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) == "visibility_modifier" && file.FlatNodeTextEquals(child, "public") {
-						startByte := int(file.FlatStartByte(child))
-						endByte := int(file.FlatEndByte(child))
-						// Also consume trailing whitespace
-						for endByte < len(file.Content) && (file.Content[endByte] == ' ' || file.Content[endByte] == '\t') {
-							endByte++
-						}
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   startByte,
-							EndByte:     endByte,
-							Replacement: "",
-						}
-						break
-					}
-				}
-				ctx.Emit(f)
-			}
-		},
+		Check: r.check,
 	})
 }
 
@@ -440,69 +390,8 @@ func registerStyleOptionalUnit() {
 	r := &OptionalUnitRule{BaseRule: BaseRule{RuleName: "OptionalUnit", RuleSetName: "style", Sev: "warning", Desc: "Detects explicit Unit return types and return Unit statements that are redundant."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"function_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			// 1. Check for explicit `: Unit` return type annotation.
-			// In the tree-sitter AST, function_declaration children include a ":"
-			// token followed by a user_type node when a return type is specified.
-			colonIdx := -1
-			for i := 0; i < file.FlatChildCount(idx); i++ {
-				child := file.FlatChild(idx, i)
-				if file.FlatType(child) == ":" {
-					colonIdx = i
-				}
-				if colonIdx >= 0 && file.FlatType(child) == "user_type" {
-					typeText := file.FlatNodeText(child)
-					if typeText == "Unit" {
-						f := r.Finding(file, file.FlatRow(child)+1,
-							file.FlatCol(child)+1,
-							"Unit return type is optional and can be omitted.")
-						// Remove ": Unit" including the colon and any surrounding whitespace
-						colonNode := file.FlatChild(idx, colonIdx)
-						// With an expression body the declared Unit hides the body's own type (`= coroutineScope { ... }`),
-						// so only a block body is safe to rewrite.
-						if body, _ := file.FlatFindChild(idx, "function_body"); body != 0 &&
-							strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(body)), "{") {
-							f.Fix = &scanner.Fix{
-								ByteMode:    true,
-								StartByte:   int(file.FlatStartByte(colonNode)),
-								EndByte:     int(file.FlatEndByte(child)),
-								Replacement: "",
-							}
-						}
-						ctx.Emit(f)
-					}
-					break
-				}
-			}
-			// 2. Check for `return Unit` statements inside the function body using compiled query.
-			body, _ := file.FlatFindChild(idx, "function_body")
-			if body != 0 {
-				file.FlatWalkNodes(body, "jump_expression", func(jump uint32) {
-					if file.FlatChildCount(jump) < 2 {
-						return
-					}
-					first := file.FlatChild(jump, 0)
-					if file.FlatType(first) != "return" {
-						return
-					}
-					second := file.FlatChild(jump, 1)
-					if file.FlatType(second) == "simple_identifier" && file.FlatNodeTextEquals(second, "Unit") {
-						f := r.Finding(file, file.FlatRow(jump)+1,
-							file.FlatCol(jump)+1,
-							"return Unit is redundant and can be replaced with return.")
-						f.Fix = &scanner.Fix{
-							ByteMode:    true,
-							StartByte:   int(file.FlatEndByte(first)),
-							EndByte:     int(file.FlatEndByte(second)),
-							Replacement: "",
-						}
-						ctx.Emit(f)
-					}
-				})
-			}
-		},
+		NodeTypes: []string{"function_declaration", "statements"}, Confidence: api.ConfidenceMedium, Fix: api.FixCosmetic, Implementation: r,
+		Check: r.check,
 	})
 }
 

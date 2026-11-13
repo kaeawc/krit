@@ -28,7 +28,7 @@ func TestInconsistentLayoutDeterministicOutput(t *testing.T) {
 	}
 	run := func() []flat {
 		var out []flat
-		for _, f := range runResourceRule(r, build()) {
+		for _, f := range runInconsistentLayout(r, build(), "a", "b", "c") {
 			out = append(out, flat{f.File, f.Line, f.Message})
 		}
 		return out

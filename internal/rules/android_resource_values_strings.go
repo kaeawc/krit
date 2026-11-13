@@ -434,6 +434,7 @@ func aliasReferenceType(value string) (refType string, isReference bool) {
 
 func (r *ReferenceTypeRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex
+	emitTranslationFindings(ctx, r.BaseRule, lintReferenceType)
 	for _, item := range idx.AliasItems {
 		refType, ok := aliasReferenceType(item.Value)
 		if !ok {

@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +14,7 @@ import (
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-func unusedResourceFindings(t *testing.T, ruleID string, files map[string]string, code ...string) []string {
+func unusedResourceContext(t *testing.T, ruleID string, files map[string]string, code ...string) (string, *api.Context) {
 	t.Helper()
 	root := t.TempDir()
 	resDir := filepath.Join(root, "res")
@@ -37,10 +38,28 @@ func unusedResourceFindings(t *testing.T, ruleID string, files map[string]string
 	r := findResourceRule(t, ruleID)
 	ctx := &api.Context{ResourceIndex: idx, Rule: r, Collector: scanner.NewFindingCollector(0), ResourceCodeRefs: rules.ComputeResourceCodeRefs(sources)}
 	r.Check(ctx)
+	return root, ctx
+}
+
+func unusedResourceFindings(t *testing.T, ruleID string, files map[string]string, code ...string) []string {
+	t.Helper()
+	root, ctx := unusedResourceContext(t, ruleID, files, code...)
 	var out []string
 	for _, f := range api.ContextFindings(ctx) {
 		rel, _ := filepath.Rel(root, f.File)
 		out = append(out, filepath.ToSlash(rel)+" "+strings.TrimSuffix(strings.TrimPrefix(f.Message, "The resource `R."), "` appears to be unused"))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// unusedResourceLines returns "line id" for each finding, sorted by line.
+func unusedResourceLines(t *testing.T, ruleID string, files map[string]string) []string {
+	t.Helper()
+	_, ctx := unusedResourceContext(t, ruleID, files)
+	var out []string
+	for _, f := range api.ContextFindings(ctx) {
+		out = append(out, fmt.Sprintf("%d %s", f.Line, strings.TrimSuffix(strings.TrimPrefix(f.Message, "The resource `R."), "` appears to be unused")))
 	}
 	sort.Strings(out)
 	return out
@@ -105,9 +124,61 @@ func TestUnusedIdsFollowsLint(t *testing.T) {
 </LinearLayout>`,
 		"values/ids.xml": `<resources><item name="unused_item" type="id"/></resources>`,
 	}
+	// Nothing uses the main layout, so the reference it makes to `other` does not keep that id either.
 	got := strings.Join(unusedResourceFindings(t, "UnusedIds", files, "class A { val i = R.id.used_in_code }"), "\n")
-	want := "res/layout/main.xml id.referenced\nres/layout/main.xml id.unused\nres/values/ids.xml id.unused_item"
+	want := "res/layout/main.xml id.other\nres/layout/main.xml id.referenced\nres/layout/main.xml id.unused\nres/values/ids.xml id.unused_item"
 	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestUnusedIdsFollowsLintReachability(t *testing.T) {
+	files := map[string]string{
+		"layout/main.xml": `<RelativeLayout ` + unusedNS + `>
+  <TextView android:id="@+id/anchor"/>
+  <TextView
+      android:layout_below="@id/anchor"
+      android:layout_above="@+id/forward"
+      android:id="@+id/below_anchor"/>
+  <TextView android:id="@+id/forward"/>
+</RelativeLayout>`,
+		"layout/dead.xml": `<RelativeLayout ` + unusedNS + `>
+  <TextView android:id="@+id/dead_anchor"/>
+  <TextView android:id="@+id/dead_user" android:layout_below="@id/dead_anchor"/>
+</RelativeLayout>`,
+		"navigation/graph.xml": `<navigation ` + unusedNS + `><fragment android:id="@+id/dest_a"/></navigation>`,
+	}
+	got := strings.Join(unusedResourceFindings(t, "UnusedIds", files, "class A { val l = R.layout.main }"), "\n")
+	// A layout that code uses keeps the ids it references; ids in a layout nothing uses stay unused.
+	// Navigation ids are never reported, and the forward `@+id/` reference is where Lint reports `forward`.
+	want := "res/layout/dead.xml id.dead_anchor\nres/layout/dead.xml id.dead_user\nres/layout/main.xml id.below_anchor"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestUnusedIdsReportAtLintLocation(t *testing.T) {
+	files := map[string]string{
+		"layout/main.xml": "<!-- header -->\n<RelativeLayout " + unusedNS + ">\n" +
+			"  <TextView\n      android:layout_width=\"1dp\"\n      android:id=\"@+id/multi_line\"/>\n" +
+			"  <TextView android:layout_above=\"@+id/forward\"/>\n" +
+			"  <TextView android:id=\"@+id/forward\"/>\n" +
+			"</RelativeLayout>",
+	}
+	// The id attribute is on line 5 and the first `@+id/forward` mention on line 6.
+	got := strings.Join(unusedResourceLines(t, "UnusedIds", files), "\n")
+	if want := "5 id.multi_line\n6 id.forward"; got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestUnusedResourcesFileLineIsRootElement(t *testing.T) {
+	files := map[string]string{
+		"drawable/shape.xml": "<?xml version=\"1.0\"?>\n<!--\n  header\n-->\n<shape " + unusedNS + "/>",
+	}
+	// Lint reports the root element, which is on line 5 below the header comment.
+	got := strings.Join(unusedResourceLines(t, "UnusedResources", files), "\n")
+	if want := "5 drawable.shape"; got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
 }

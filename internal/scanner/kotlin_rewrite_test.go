@@ -605,3 +605,32 @@ func TestKotlinRewriteLambdaAfterNonFunctionBlockUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestKotlinRewriteRawStringEndingInBackslash(t *testing.T) {
+	src := "fun f(w: String) {\n  val a = w.replace(\"\"\"\\\"\"\", \"\")\n  check(a)\n  val b = \"\"\"x\\\"\"\"\n  done(b)\n}\n"
+	ft, b := parseSynthetic(t, src)
+	if hasErrors(ft) {
+		t.Fatalf("parse has errors: %s", sexp(ft))
+	}
+	calls := nodeTexts(ft, b, "call_expression")
+	for _, want := range []string{"check(a)", "done(b)"} {
+		found := false
+		for _, c := range calls {
+			found = found || c == want
+		}
+		if !found {
+			t.Errorf("call %q swallowed by a raw string: %v", want, calls)
+		}
+	}
+	strs := nodeTexts(ft, b, "string_literal")
+	if len(strs) < 2 || strs[0] != "\"\"\"\\\"\"\"" {
+		t.Errorf("raw string text changed: %q", strs)
+	}
+}
+
+func TestKotlinRewriteRawStringBackslashBeforeLongerQuoteRunUnchanged(t *testing.T) {
+	src := "val a = \"\"\"x\\\"\"\"\"\n"
+	if out, _ := rewriteKotlin([]byte(src)); string(out) != src {
+		t.Errorf("rewrote a closing run of four quotes:\n%q\n%q", src, out)
+	}
+}

@@ -1,11 +1,9 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
-import com.intellij.openapi.util.Ref
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -140,9 +138,9 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         if (node.tokenType != KtNodeTypes.VALUE_ARGUMENT) return false
         val list = tree.getParent(node) ?: return false
         if (list.tokenType != KtNodeTypes.VALUE_ARGUMENT_LIST) return false
-        val first = children(source, list).firstOrNull {
+        val first = lightChildren(source, list).firstOrNull {
             it.tokenType == KtNodeTypes.VALUE_ARGUMENT &&
-                children(source, it).none { child -> child.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
+                lightChildren(source, it).none { child -> child.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
         }
         return first != null && first.startOffset == node.startOffset && first.endOffset == node.endOffset
     }
@@ -153,10 +151,4 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         KtNodeTypes.ANNOTATED_EXPRESSION,
         KtNodeTypes.LABELED_EXPRESSION,
     )
-
-    private fun children(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> {
-        val ref = Ref<Array<LighterASTNode?>>()
-        source.treeStructure.getChildren(node, ref)
-        return ref.get()?.filterNotNull().orEmpty()
-    }
 }

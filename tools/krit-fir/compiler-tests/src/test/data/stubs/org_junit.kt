@@ -107,6 +107,10 @@ object Assert {
         TODO()
     }
 
+    fun assertNotNull(message: String?, `object`: Any?) {
+        TODO()
+    }
+
     fun assertSame(expected: Any?, actual: Any?) {
         TODO()
     }

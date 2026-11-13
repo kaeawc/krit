@@ -107,6 +107,15 @@ func (r *ResAutoResourceRule) Meta() api.RuleDescriptor {
 	}
 }
 
+func (r *RedundantNamespaceResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{
+		ID:            "RedundantNamespaceResource",
+		RuleSet:       "android-lint",
+		DefaultActive: false,
+		OptInReason:   api.OptInReasonAndroidOnly,
+	}
+}
+
 func (r *UnusedNamespaceResourceRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "UnusedNamespaceResource",

@@ -211,6 +211,11 @@ func (lx *kotlinLexer) rawQuotes(i int) (int, bool) {
 	}
 	if j-i >= 3 {
 		lx.mask[j-1] = true
+		// The grammar reads `\"` in a raw string as an escape, so a backslash right before
+		// a closing `"""` would keep the string open. Raw strings have no escapes.
+		if j-i == 3 && i > 0 && src[i-1] == '\\' {
+			lx.edits = append(lx.edits, byteEdit{i - 1, '_'})
+		}
 		return j, true
 	}
 	return j, false

@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.trimGoSpace
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirComponentCall
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -521,9 +521,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                     within(write) { element.acceptChildren(this) }
                 }
                 is FirVariableAssignment -> {
-                    val lValue = element.lValue
-                    val target = (if (lValue is FirDesugaredAssignmentValueReferenceExpression) lValue.expressionRef.value else lValue)
-                        as? FirQualifiedAccessExpression
+                    val target = assignedAccess(element)
                     val symbol = target?.calleeReference?.toResolvedCallableSymbol()
                     if (symbol == null) {
                         element.acceptChildren(this)
@@ -535,7 +533,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                         source?.endOffset ?: Int.MAX_VALUE, blockOf[element], element.rValue, target,
                     )
                     all += write
-                    lValue.accept(this)
+                    element.lValue.accept(this)
                     within(write) { element.rValue.accept(this) }
                 }
                 is FirFunctionCall -> {

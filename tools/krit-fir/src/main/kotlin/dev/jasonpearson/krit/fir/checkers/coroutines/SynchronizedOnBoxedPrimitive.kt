@@ -1,9 +1,8 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
-import com.intellij.lang.LighterASTNode
-import com.intellij.openapi.util.Ref
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -172,7 +171,7 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
         val tree = source.treeStructure
         val parent = tree.getParent(source.lighterASTNode) ?: return false
         if (parent.tokenType != KtNodeTypes.VALUE_ARGUMENT) return false
-        return children(source, parent).none { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
+        return lightChildren(source, parent).none { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME }
     }
 
     private fun isBoxedPrimitiveLiteral(lock: FirExpression, source: KtSourceElement): Boolean {
@@ -279,7 +278,7 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
     // `:`, cut at the first `=`, without a trailing `?` or type arguments.
     private fun declaredTypeText(source: KtSourceElement): String? {
         val node = source.lighterASTNode
-        val tokens = children(source, node).filter {
+        val tokens = lightChildren(source, node).filter {
             it.tokenType !in KtTokens.WHITESPACES && it.tokenType !in KtTokens.COMMENTS
         }
         val first = tokens.firstOrNull() ?: return null
@@ -299,11 +298,5 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
         val lt = afterColon.indexOf('<')
         if (lt >= 0) afterColon = afterColon.substring(0, lt)
         return afterColon.trim()
-    }
-
-    private fun children(source: KtSourceElement, node: LighterASTNode): List<LighterASTNode> {
-        val ref = Ref<Array<LighterASTNode?>>()
-        source.treeStructure.getChildren(node, ref)
-        return ref.get()?.filterNotNull().orEmpty()
     }
 }

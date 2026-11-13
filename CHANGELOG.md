@@ -5,6 +5,16 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `UnusedIds` now follows Lint 32.4.1: an id stays used only when source reads it or a resource that
+  is itself used refers to it (a reference from an unused layout no longer counts), navigation graph
+  ids are never reported, and the finding sits at the first `@+id/` mention, which can be a forward
+  reference or an `android:id` below the element's first line. `UnusedResources` reports a file
+  resource at its root element instead of line 1.
+- `NotSibling` reports "Cannot be relative to self" only when the reference uses the same
+  `@+id/` or `@id/` form as the declared id, as Lint does.
+- `InconsistentLayout` now follows Lint's LayoutConsistencyDetector: it reports only ids that Kotlin or
+  Java source reads through `R.id`, words an id found in fewer than half the configurations as
+  "only present in", and drops an id when any declaration is suppressed with `tools:ignore`.
 - The oracle JVMs (one-shot and persistent) now launch from `JAVA_HOME` first, like the FIR
   daemon and the preflight check, and Leyden AOT eligibility is decided from the JDK that
   actually runs. Before, a `JAVA_HOME` JDK 25+ with an older `java` on `PATH` never used the

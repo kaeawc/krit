@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: it uses Gradle types (ObjectFactory, Property) with no stubs and calls a member-extension operator out of scope, so Go stays authoritative for it; the FIR coverage is in compiler-tests data
 package fixtures.negative.style
 
 fun foo() {

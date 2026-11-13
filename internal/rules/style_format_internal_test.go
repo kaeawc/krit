@@ -11,16 +11,16 @@ import (
 )
 
 // TestNoTabs_FixHonorsConfiguredIndentSize ensures the fix replaces tab
-// characters with the configured number of spaces, not a hardcoded 4.
+// characters of the whitespace token with the configured number of spaces, not a hardcoded 4.
 func TestNoTabs_FixHonorsConfiguredIndentSize(t *testing.T) {
 	cases := []struct {
 		name   string
 		indent int
 		want   string
 	}{
-		{"default", 0, "    println(\"hi\")"},
-		{"two", 2, "  println(\"hi\")"},
-		{"eight", 8, "        println(\"hi\")"},
+		{"default", 0, "\n    "},
+		{"two", 2, "\n  "},
+		{"eight", 8, "\n        "},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

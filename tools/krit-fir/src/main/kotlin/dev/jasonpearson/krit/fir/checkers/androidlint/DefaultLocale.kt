@@ -1,10 +1,10 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
-import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -15,11 +15,9 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
-import org.jetbrains.kotlin.toKtLightSourceElement
 
 // Flags the JDK / Kotlin stdlib calls that format or case-convert text with
 // the JVM's default locale:
@@ -80,14 +78,14 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         "Implicitly using the default locale is a common source of bugs: Use `String.format(Locale, ...)` instead"
 
     private val kotlinText = FqName("kotlin.text")
-    private val javaString = ClassId(FqName("java.lang"), Name.identifier("String"))
-    private val javaLocale = ClassId(FqName("java.util"), Name.identifier("Locale"))
+    private val javaString = classIdOf("java.lang", "String")
+    private val javaLocale = classIdOf("java.util", "Locale")
     private val stringCompanion = StandardClassIds.String.createNestedClassId(Name.identifier("Companion"))
     private val format = Name.identifier("format")
     private val caseNames = setOf(Name.identifier("toLowerCase"), Name.identifier("toUpperCase"))
     private val icuUCharacter = setOf(
-        ClassId(FqName("android.icu.lang"), Name.identifier("UCharacter")),
-        ClassId(FqName("com.ibm.icu.lang"), Name.identifier("UCharacter")),
+        classIdOf("android.icu.lang", "UCharacter"),
+        classIdOf("com.ibm.icu.lang", "UCharacter"),
     )
 
 
@@ -107,7 +105,7 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         val icu = callableId.classId in icuUCharacter
         if (!stdlib && !jdk && !icu) return
         val source = expression.source ?: return
-        report(qualifiedCall(source)?.let { sourceOf(it, source) } ?: source, message)
+        report(qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source, message)
     }
 
     // `String.Companion.format(format, vararg args)` (stdlib) or the static
@@ -141,17 +139,5 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
             null -> callee.resolvedReceiverType?.lowerBoundIfFlexible()?.classId == StandardClassIds.String
             else -> false
         }
-    }
-
-    // A source element for [node], a node in [anchor]'s tree, keeping the
-    // anchor's offset shift between tree offsets and file offsets.
-    private fun sourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElement {
-        if (node == anchor.lighterASTNode) return anchor
-        val shift = anchor.startOffset - anchor.lighterASTNode.startOffset
-        return node.toKtLightSourceElement(
-            anchor.treeStructure,
-            startOffset = node.startOffset + shift,
-            endOffset = node.endOffset + shift,
-        )
     }
 }

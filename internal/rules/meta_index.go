@@ -687,6 +687,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*MissingDefaultResourceRule)(nil),
 		(*UntranslatableRule)(nil),
 		(*DuplicateDefinitionRule)(nil),
+		(*ResourceCycleRule)(nil),
+		(*RedundantNamespaceResourceRule)(nil),
 		(*StaticFieldLeakRule)(nil),
 		(*CustomX509TrustManagerRule)(nil),
 		(*TrustAllX509TrustManagerRule)(nil),

@@ -168,6 +168,22 @@ func registerAndroidResourceIDsRules() {
 		})
 	}
 	{
+		r := &RedundantNamespaceResourceRule{AndroidRule: AndroidRule{
+			BaseRule:   BaseRule{RuleName: "RedundantNamespaceResource", RuleSetName: androidRuleSet, Sev: "warning"},
+			IssueID:    "RedundantNamespace",
+			Brief:      "Redundant namespace",
+			Category:   ALCPerformance,
+			ALSeverity: ALSWarning,
+			Priority:   1,
+			Origin:     "AOSP Android Lint",
+		}}
+		api.Register(&api.Rule{
+			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
+			Needs: api.NeedsResources, AndroidDeps: uint32(r.AndroidDependencies()), Confidence: r.Confidence(), Implementation: r,
+			Check: r.check,
+		})
+	}
+	{
 		r := &IllegalResourceRefResourceRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "IllegalResourceRefResource", RuleSetName: androidRuleSet, Sev: "warning"},
 			IssueID:    "IllegalResourceRef",

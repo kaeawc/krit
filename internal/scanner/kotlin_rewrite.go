@@ -85,7 +85,7 @@ func (r *kotlinRewriter) run() {
 	needLex := hasNonASCII(o)
 	for _, w := range [][]byte{[]byte("..<"), []byte("0b"), []byte("0B"), []byte("interface"), []byte("context"), []byte("$$"),
 		[]byte("(val "), []byte("(var "), []byte("[val "), []byte("[var "), []byte("val ["), []byte("var ["), []byte("{ ["),
-		[]byte("class "), []byte("object")} {
+		[]byte("class "), []byte("object"), []byte("\\\"\"\"")} {
 		if bytes.Contains(o, w) {
 			needLex = true
 			break

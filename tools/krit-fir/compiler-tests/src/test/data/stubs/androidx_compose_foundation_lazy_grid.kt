@@ -41,9 +41,9 @@ inline fun <T> LazyGridScope.items(
 
 @Stable
 interface GridCells {
-    class Fixed(private val count: Int) : GridCells
+    class Fixed(@Suppress("unused") private val count: Int) : GridCells
 
-    class Adaptive(private val minSize: Dp) : GridCells
+    class Adaptive(@Suppress("unused") private val minSize: Dp) : GridCells
 }
 
 @Composable

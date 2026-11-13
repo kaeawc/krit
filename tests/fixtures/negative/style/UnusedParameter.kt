@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: `_` is a reserved name for a function parameter, so Go stays authoritative for it; the FIR coverage is in compiler-tests data
 package style
 
 fun foo(value: Int) {

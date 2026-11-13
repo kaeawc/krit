@@ -1,0 +1,19 @@
+plugins {
+    id 'com.android.application'
+}
+
+def libVersion = '1.2.3'
+
+android {
+    namespace 'com.example.notinterpolated'
+    compileSdkVersion 34
+    defaultConfig {
+        applicationId 'com.example.notinterpolated'
+        minSdkVersion 26
+        targetSdkVersion 34
+    }
+}
+
+dependencies {
+    implementation 'com.example.lib:core:$libVersion'
+}

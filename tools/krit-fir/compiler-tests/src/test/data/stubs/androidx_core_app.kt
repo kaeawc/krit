@@ -35,7 +35,7 @@ object NotificationCompat {
     const val PRIORITY_HIGH: Int = 1
     const val PRIORITY_LOW: Int = -1
 
-    open class Builder(context: Context, channelId: String) {
+    open class Builder(@Suppress("unused") context: Context, @Suppress("unused") channelId: String) {
         open fun setSmallIcon(icon: Int): Builder = TODO()
 
         open fun setContentTitle(title: CharSequence?): Builder = TODO()

@@ -80,47 +80,8 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if file.FlatHasModifier(idx, "abstract") ||
-					file.FlatHasModifier(idx, "sealed") {
-					return
-				}
-				// Test fragments are built by the test, not re-instantiated by the framework.
-				if scanner.IsTestFile(file.Path) || fragmentLaunchedFromInstance(file, extractIdentifierFlat(file, idx)) {
-					return
-				}
-				isFragment := false
-				for i := 0; i < file.FlatChildCount(idx); i++ {
-					child := file.FlatChild(idx, i)
-					if file.FlatType(child) != "delegation_specifier" {
-						continue
-					}
-					typeName := viewConstructorSupertypeNameFlat(file, child)
-					if typeName == "" {
-						continue
-					}
-					for _, base := range fragmentSuperclasses {
-						if typeName == base {
-							isFragment = true
-							break
-						}
-					}
-					if isFragment {
-						break
-					}
-				}
-				if !isFragment {
-					return
-				}
-				ctorState := fragmentConstructorStateFlat(file, idx)
-				// DI-annotated constructors are built by a custom FragmentFactory.
-				if ctorState.hasParamCtor && !ctorState.hasNoArgCtor && !ctorState.hasInjectCtor {
-					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
-						"Fragment subclass must have a default (no-arg) constructor for framework re-instantiation.")
-				}
-			},
+			NodeTypes: []string{"class_declaration", "object_literal"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			Check: fragmentConstructorCheck,
 		})
 	}
 	{
@@ -208,77 +169,9 @@ func registerAndroidSourceRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigher, Implementation: r,
-			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				if flatCallExpressionName(file, idx) != "HashMap" {
-					return
-				}
-				// First type argument's user_type's identifier is the key type.
-				suffix, _ := file.FlatFindChild(idx, "call_suffix")
-				if suffix == 0 {
-					return
-				}
-				typeArgs, _ := file.FlatFindChild(suffix, "type_arguments")
-				if typeArgs == 0 {
-					return
-				}
-				keyProj := file.FlatFirstChild(typeArgs)
-				for keyProj != 0 && file.FlatType(keyProj) != "type_projection" {
-					keyProj = file.FlatNextSib(keyProj)
-				}
-				if keyProj == 0 {
-					return
-				}
-				keyUserType, _ := file.FlatFindChild(keyProj, "user_type")
-				keyIdent := flatLastChildOfType(file, keyUserType, "type_identifier")
-				if keyIdent == 0 {
-					return
-				}
-				keyType := file.FlatNodeText(keyIdent)
-				// A SparseArray is not a Map, so a map that escapes as one cannot be replaced.
-				if hashMapEscapesAsMap(file, idx) {
-					return
-				}
-				// SparseArray lookups are O(log n), so lint skips maps sized for more than 100 entries.
-				if _, args := flatCallExpressionParts(file, idx); args != 0 && file.FlatNamedChildCount(args) == 1 {
-					capacity := strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(file.FlatNamedChild(args, 0))), "_", "")
-					if n, err := strconv.Atoi(capacity); err == nil && n > 100 {
-						return
-					}
-				}
-				valProj := file.FlatNextSib(keyProj)
-				for valProj != 0 && file.FlatType(valProj) != "type_projection" {
-					valProj = file.FlatNextSib(valProj)
-				}
-				var valueType string
-				if valProj != 0 {
-					valUserType, _ := file.FlatFindChild(valProj, "user_type")
-					if valIdent := flatLastChildOfType(file, valUserType, "type_identifier"); valIdent != 0 {
-						valueType = file.FlatNodeText(valIdent)
-					}
-				}
-				var suggestion string
-				switch keyType {
-				case "Int", "Integer":
-					switch valueType {
-					case "Boolean":
-						suggestion = "SparseBooleanArray"
-					case "Int", "Integer":
-						suggestion = "SparseIntArray"
-					case "Long":
-						suggestion = "SparseLongArray"
-					default:
-						suggestion = "SparseArray"
-					}
-				case "Long":
-					suggestion = "LongSparseArray"
-				default:
-					return
-				}
-				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
-					"Use "+suggestion+" instead of HashMap<"+keyType+", ...> for better performance on Android.")
-			},
+			NodeTypes: []string{"call_expression", "object_creation_expression"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceHigher, Implementation: r,
+			Check: sparseArrayCheck,
 		})
 	}
 	{

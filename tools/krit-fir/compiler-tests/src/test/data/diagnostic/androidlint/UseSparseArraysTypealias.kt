@@ -1,19 +1,23 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Divergence (recall): a user typealias to HashMap. Each call constructs a
-// java.util.HashMap with an Int key, so FIR reports it ("Use SparseArray
-// instead of HashMap<Int, ...>"). Go misses both, because the call name is the
-// alias (`IntMap`, `JMap`), not HashMap.
+// Divergence (recall): a typealias for the value type or for SparseArray. Each
+// call constructs an android.util.SparseArray with a written Int or Boolean
+// argument, so FIR reports it. Go reads the written names and misses them.
 package test
 
-typealias IntMap<V> = HashMap<Int, V>
-typealias JMap<K, V> = java.util.HashMap<K, V>
+import android.util.SparseArray as FrameworkArray
 
-fun intMap(): HashMap<Int, String> = <!UseSparseArrays!>IntMap<String>()<!>
+typealias Count = Int
+typealias Flag = Boolean
+typealias Sparse<V> = FrameworkArray<V>
 
-fun jMap(): HashMap<Int, String> = <!UseSparseArrays!>JMap<Int, String>()<!>
+val aliasedArgument = <!UseSparseArrays!>FrameworkArray<Count>()<!>
 
-// An alias whose key is not Int or Long is reported by neither.
-typealias NameMap<V> = HashMap<String, V>
+val aliasedFlag = <!UseSparseArrays!>FrameworkArray<Flag>()<!>
 
-fun nameMap(): Map<String, String> = NameMap<String>()
+val aliasedClass = <!UseSparseArrays!>Sparse<Int>()<!>
+
+// An alias whose argument is neither Int nor Boolean is reported by neither.
+typealias Name = String
+
+val aliasedName = FrameworkArray<Name>()

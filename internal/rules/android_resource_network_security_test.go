@@ -22,4 +22,8 @@ func TestInsecureBaseConfigurationResourceLintParity(t *testing.T) {
 	if want := "xml/nsc.xml:02 Insecure Base Configuration"; got != want {
 		t.Errorf("InsecureBaseConfiguration:\ngot  %s\nwant %s", got, want)
 	}
+	// Lint reports at the first character of the attribute value.
+	if got, want := resourceFindingColumns(t, "InsecureBaseConfigurationResource", files), "xml/nsc.xml:2:43"; got != want {
+		t.Errorf("InsecureBaseConfiguration position:\ngot  %s\nwant %s", got, want)
+	}
 }

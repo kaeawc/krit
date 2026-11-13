@@ -249,6 +249,8 @@ type View struct {
 	Children           []*View
 	Line               int // 1-based line number in the XML file
 	Col                int // 1-based column of the element's opening `<`
+	// DOMIndex is the zero-based position among the parent's DOM child nodes, counting text runs and comments.
+	DOMIndex int
 	// AttrPos maps an attribute name to the 1-based position of its name.
 	AttrPos map[string]XMLPos
 	// TextNodes holds the non-blank text directly inside the element.
@@ -1152,6 +1154,7 @@ func viewFromXMLNode(node *XMLNode) *View {
 		Attributes: make(map[string]string),
 		Line:       node.Line,
 		Col:        node.Col,
+		DOMIndex:   node.Index,
 	}
 	if len(node.Attrs) > 0 {
 		v.AttrPos = make(map[string]XMLPos, len(node.Attrs))

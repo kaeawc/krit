@@ -12,7 +12,7 @@ class ImageRequest private constructor() {
 
     fun newBuilder(context: Context = this.context): Builder = TODO()
 
-    class Builder(context: Context) {
+    class Builder(@Suppress("unused") context: Context) {
         fun data(data: Any?): Builder = TODO()
 
         fun crossfade(enable: Boolean): Builder = TODO()

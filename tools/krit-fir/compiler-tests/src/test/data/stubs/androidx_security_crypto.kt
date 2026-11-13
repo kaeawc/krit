@@ -68,7 +68,7 @@ class MasterKey private constructor() {
     val isKeyStoreBacked: Boolean
         get() = TODO()
 
-    class Builder(context: Context) {
+    class Builder(@Suppress("unused") context: Context) {
         constructor(context: Context, keyAlias: String) : this(context)
 
         fun setKeyScheme(keyScheme: KeyScheme): Builder = TODO()

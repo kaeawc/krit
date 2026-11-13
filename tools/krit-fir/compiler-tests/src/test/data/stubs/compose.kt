@@ -271,7 +271,7 @@ fun SideEffect(effect: () -> Unit) {
 
 abstract class CompositionContext
 
-sealed class CompositionLocal<T>(defaultFactory: () -> T) {
+sealed class CompositionLocal<T>(@Suppress("unused") defaultFactory: () -> T) {
     val current: T
         @Composable
         @ReadOnlyComposable

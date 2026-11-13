@@ -69,3 +69,25 @@ interface Iface : X509TrustManager
 		t.Errorf("TrustAllX509TrustManager positions = %s, want %s", got, want)
 	}
 }
+
+func TestX509TrustManagerKotlinTypeAliasLintParity(t *testing.T) {
+	src := `package com.example
+
+import java.security.cert.X509Certificate
+import javax.net.ssl.X509TrustManager
+
+typealias TM = X509TrustManager
+
+class Aliased : TM {
+    override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) { return }
+    override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) { throw RuntimeException() }
+    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+}
+`
+	if got, want := findingPositions(runRuleByName(t, "CustomX509TrustManager", src)), "8:7"; got != want {
+		t.Errorf("CustomX509TrustManager positions = %s, want %s", got, want)
+	}
+	if got, want := findingPositions(runRuleByName(t, "TrustAllX509TrustManager", src)), "9:18"; got != want {
+		t.Errorf("TrustAllX509TrustManager positions = %s, want %s", got, want)
+	}
+}

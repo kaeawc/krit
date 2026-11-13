@@ -72,7 +72,7 @@ inline fun <T> LazyListScope.itemsIndexed(
 }
 
 @Stable
-class LazyListState(firstVisibleItemIndex: Int = 0, firstVisibleItemScrollOffset: Int = 0) {
+class LazyListState(@Suppress("unused") firstVisibleItemIndex: Int = 0, @Suppress("unused") firstVisibleItemScrollOffset: Int = 0) {
     val firstVisibleItemIndex: Int
         get() = TODO()
 

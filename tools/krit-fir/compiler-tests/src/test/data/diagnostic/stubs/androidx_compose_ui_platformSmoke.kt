@@ -12,6 +12,6 @@ import androidx.compose.ui.platform.LocalContext
 fun ToastButton() {
     val context: Context = LocalContext.current
     Button(onClick = { Toast.makeText(context, "hi", Toast.LENGTH_SHORT).show() }) {
-        Text("Toast")
+        <!ComposeRawTextLiteral!>Text<!>("Toast")
     }
 }

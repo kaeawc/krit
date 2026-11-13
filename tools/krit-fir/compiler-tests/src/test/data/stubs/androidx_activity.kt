@@ -65,7 +65,7 @@ class OnBackPressedDispatcher {
     fun hasEnabledCallbacks(): Boolean = TODO()
 }
 
-abstract class OnBackPressedCallback(enabled: Boolean) {
+abstract class OnBackPressedCallback(@Suppress("unused") enabled: Boolean) {
     var isEnabled: Boolean
         get() = TODO()
         set(value) = TODO()

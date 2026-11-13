@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.fir.support
 
+import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
@@ -36,4 +37,18 @@ fun lambdaOwner(
         if (takesLambda) return call
     }
     return null
+}
+
+/**
+ * The name [argument] was written with (`enabled` in `f(enabled = false)`), or null for a positional argument.
+ *
+ * A resolved call drops the named-argument wrapper, so this reads the name from the argument's source.
+ */
+fun writtenArgumentName(argument: FirExpression): String? {
+    val source = argument.source ?: return null
+    val node = source.lighterASTNode
+    val valueArgument = if (node.tokenType == KtNodeTypes.VALUE_ARGUMENT) node else source.treeStructure.getParent(node)
+    if (valueArgument == null || valueArgument.tokenType != KtNodeTypes.VALUE_ARGUMENT) return null
+    val name = lightChildren(source, valueArgument).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME } ?: return null
+    return lightText(source, name).trim()
 }

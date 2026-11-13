@@ -251,3 +251,71 @@ func (r *DeprecatedProviderRule) Meta() api.RuleDescriptor {
 func (r *ResourceCycleRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ResourceCycle", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *InvalidWearFeatureAttributeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "InvalidWearFeatureAttribute", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WearStandaloneAppFlagRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WearStandaloneAppFlag", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WearRecentsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WearRecents", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WearSplashScreenRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WearSplashScreen", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WatchFaceEditorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WatchFaceEditor", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WatchFaceFormatDeclaresHasNoCodeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WatchFaceFormatDeclaresHasNoCode", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WatchFaceFormatMissingVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WatchFaceFormatMissingVersion", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WatchFaceFormatInvalidVersionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WatchFaceFormatInvalidVersion", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WearPasswordInputRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WearPasswordInput", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *NotInterpolatedRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NotInterpolated", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *BomWithoutPlatformRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "BomWithoutPlatform", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AnnotationProcessorOnCompilePathRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AnnotationProcessorOnCompilePath", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *UseOfBundledGooglePlayServicesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "UseOfBundledGooglePlayServices", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DevModeObsoleteRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DevModeObsolete", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *HighAppVersionCodeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "HighAppVersionCode", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DataBindingWithoutKaptRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DataBindingWithoutKapt", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SuspiciousIndentationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SuspiciousIndentation", RuleSet: "android-lint", DefaultActive: true}
+}

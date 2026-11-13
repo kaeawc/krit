@@ -5,55 +5,6 @@ import (
 )
 
 // =====================================================================
-// SparseArrayRule ("UseSparseArrays")
-// =====================================================================
-
-func TestSparseArrayRule(t *testing.T) {
-	t.Run("HashMap_Int_triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UseSparseArrays", `
-package test
-val map = HashMap<Int, String>()
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("HashMap_Long_triggers", func(t *testing.T) {
-		findings := runRuleByName(t, "UseSparseArrays", `
-package test
-val map = HashMap<Long, String>()
-`)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-		if got := findings[0].Message; got == "" {
-			t.Fatal("expected non-empty message")
-		}
-	})
-
-	t.Run("HashMap_String_key_no_trigger", func(t *testing.T) {
-		findings := runRuleByName(t, "UseSparseArrays", `
-package test
-val map = HashMap<String, Int>()
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("no_HashMap_no_trigger", func(t *testing.T) {
-		findings := runRuleByName(t, "UseSparseArrays", `
-package test
-val list = listOf(1, 2, 3)
-`)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
-// =====================================================================
 // UseValueOfRule ("UseValueOf")
 // =====================================================================
 
@@ -257,28 +208,4 @@ fun foo() {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
-}
-
-func TestSparseArrayRule_EscapingMapIgnored(t *testing.T) {
-	findings := runRuleByName(t, "UseSparseArrays", `
-package test
-class Cache {
-    private val local = HashMap<Int, String>()
-    private val escaped = HashMap<Int, String>()
-    private val cached = HashMap<Int, String>()
-    private val typed: MutableMap<Int, String> = HashMap<Int, String>()
-
-    fun use() {
-        local[1] = "a"
-        consume(escaped)
-        cached.getOrPut(2) { "x" }
-        consume(HashMap<Int, String>())
-    }
-
-    fun consume(m: Map<Int, String>) {}
-}
-`)
-	if len(findings) != 1 {
-		t.Fatalf("expected only the local-only map to be flagged, got %d: %v", len(findings), findings)
-	}
 }

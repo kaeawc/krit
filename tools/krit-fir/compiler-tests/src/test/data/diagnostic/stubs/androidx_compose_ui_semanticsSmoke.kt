@@ -8,6 +8,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -27,7 +28,8 @@ fun SemanticsSmoke(onOpen: () -> Unit) {
                     true
                 }
             }
-            .clearAndSetSemantics { contentDescription = "Hidden" },
+            .clearAndSetSemantics { contentDescription = "Hidden" }
+            .semantics { hideFromAccessibility() },
     ) {}
     val roles: List<Role> = listOf(Role.Checkbox, Role.Switch, Role.RadioButton, Role.Tab, Role.Image)
     <!PrintlnInProduction!>println<!>(roles)

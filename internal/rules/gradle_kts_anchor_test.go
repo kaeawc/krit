@@ -61,7 +61,7 @@ configurations.all {
 var gradleAnchorCases = map[string][]string{
 	"RemoteVersion":               {`"com.example:lib:+"`},
 	"DynamicVersion":              {`"com.example:dyn:1.+"`, `name = "named"`},
-	"GradleDynamicVersion":        {`"com.example:lib:+"`, `"com.example:dyn:1.+"`, `name = "named"`}, // Lint counts a bare "+" too
+	"GradleDynamicVersion":        {`"com.example:lib:+"`, `"com.example:dyn:1.+"`}, // Lint counts a bare "+" and skips named arguments
 	"OldTargetApi":                {`targetSdk = 28`},
 	"ExpiredTargetSdkVersion":     {`targetSdk = 28`},
 	"MinSdkTooLow":                {`minSdk = 14`},

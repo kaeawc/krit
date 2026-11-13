@@ -1,33 +1,24 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negatives Go also leaves alone: a key that is not Int, Integer, or Long, a
-// nullable key, map types that are not HashMap (LinkedHashMap, a subclass), a
-// superclass delegation, a constructor reference, and factory functions.
+// Negatives Android Lint 32.4.1 also leaves alone: other value types, an
+// argument inferred from the declared type, a HashMap with an Int key, and a
+// constructor reference.
 package test
 
-class IntMap : HashMap<Int, String>()
+import android.util.SparseArray
 
-fun stringKey(): Map<String, String> = HashMap<String, String>()
-
-fun nullableKey(): Map<Int?, String> = HashMap<Int?, String>()
-
-fun shortKey(): Map<Short, String> = HashMap<Short, String>()
-
-fun linked(): Map<Int, String> = LinkedHashMap<Int, String>()
-
-fun subclass(): Map<Int, String> = IntMap()
-
-fun factory(): Map<Int, String> = hashMapOf<Int, String>()
-
-fun mutable(): Map<Int, String> = mutableMapOf<Int, String>()
-
-fun reference(): () -> HashMap<Int, String> = ::HashMap
-
-fun anonymousSubclass(): Map<Int, String> = object : HashMap<Int, String>() {}
-
-fun localSubclass(): Map<Int, String> {
-    class Local : HashMap<Int, String>()
-    return Local()
+class Cache {
+    val strings = SparseArray<String>()
+    val longs = SparseArray<Long>()
+    val floats = SparseArray<Float>()
+    val lists = SparseArray<List<Int>>()
+    val inferred: SparseArray<Int> = SparseArray()
+    val hashMap = HashMap<Int, String>()
+    val boolMap = HashMap<Int, Boolean>()
+    val factory = hashMapOf<Int, Boolean>()
+    val reference: () -> SparseArray<Int> = ::SparseArray
 }
 
-fun <K> typeParameterKey(): Map<K, String> = HashMap<K, String>()
+class Subclass : SparseArray<Int>()
+
+fun anonymous() = object : SparseArray<Boolean>() {}

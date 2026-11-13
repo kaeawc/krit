@@ -937,6 +937,9 @@ func hasSuppressionNeedle(text []byte) bool {
 	return false
 }
 
+// androidLintIDPrefix is the Android Studio inspection prefix of a Lint issue ID.
+const androidLintIDPrefix = "AndroidLint"
+
 // extractSuppressedRules parses rule names from @Suppress("Rule1", "Rule2"), @SuppressWarnings("...") or @SuppressLint("...")
 func extractSuppressedRules(text string) map[string]bool {
 	// Find the arguments between ( and )
@@ -956,6 +959,10 @@ func extractSuppressedRules(text string) map[string]bool {
 		arg = strings.TrimPrefix(arg, "detekt:")
 		if arg != "" {
 			rules[arg] = true
+			// Android Studio names a Lint issue AndroidLint<Id>, and Lint accepts that spelling too.
+			if id := strings.TrimPrefix(arg, androidLintIDPrefix); id != arg && id != "" {
+				rules[id] = true
+			}
 		}
 	}
 

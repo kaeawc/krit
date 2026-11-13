@@ -7,18 +7,16 @@ import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.argument
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
@@ -175,16 +173,8 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
     // else before the call.
     context(context: CheckerContext)
     private fun receiverHoldsSecureRandom(call: FirFunctionCall): Boolean {
-        var current = call.explicitReceiver
-        while (true) {
-            current = when (current) {
-                is FirSmartCastExpression -> current.originalExpression
-                is FirCheckedSafeCallSubject -> current.originalReceiverRef.value
-                is FirCheckNotNullCall -> current.argument
-                else -> break
-            }
-        }
-        val access = current as? FirPropertyAccessExpression ?: return false
+        val receiver = unwrapSmartCasts(call.explicitReceiver, throughNotNull = true)
+        val access = receiver as? FirPropertyAccessExpression ?: return false
         val property = access.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
         // A property of another file shows no initializer, as in a class file.
         if (!constructsSecureRandom(property.initializerInCheckedFile())) return false

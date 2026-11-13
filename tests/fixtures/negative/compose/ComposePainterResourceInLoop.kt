@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: it imports androidx.compose.foundation.lazy.item (a LazyListScope member, not a top-level function) and reads an undeclared item, iconFor and R, so Go stays authoritative for it; the FIR negatives are covered by compiler-tests data
 package fixtures.negative.compose
 
 import androidx.compose.foundation.Image

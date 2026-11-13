@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-// UseSparseArrays cases a single-file golden cannot express: key and value
-// types imported from another package under the names Long and Boolean.
+// UseSparseArrays cases a single-file golden cannot express: a type argument
+// imported from another package under the name Int or Boolean.
 class UseSparseArraysCrossFileTest {
 
     private fun findings(sources: Map<String, String>): List<Pair<String, Int>> {
@@ -21,45 +21,44 @@ class UseSparseArraysCrossFileTest {
     private val other = "Other.kt" to """
         package other
 
-        class Long
+        class Int
         class Boolean
     """.trimIndent()
 
-    // Divergence (precision): `import other.Long` makes the key other.Long,
-    // not kotlin.Long. Go reads the key by name and reports LongSparseArray
-    // on line 5. FIR is correct to drop it: the message ("HashMap<Long, ...>")
-    // is false for this code. The kotlin.Long key on line 7 still reports.
-    @Test fun importedKeyLookalike() {
+    // Divergence (precision): `import other.Int` makes the argument other.Int,
+    // not kotlin.Int. Go reads the argument by name and reports line 6. FIR is
+    // correct to drop it: the message ("SparseIntArray") is false for this
+    // code. The kotlin.Int argument on line 8 still reports.
+    @Test fun importedArgumentLookalike() {
         val sources = mapOf(
             other,
             "User.kt" to """
                 package demo
 
-                import other.Long
+                import android.util.SparseArray
+                import other.Int
 
-                fun f() = HashMap<Long, String>()
+                fun f() = SparseArray<Int>()
 
-                fun g() = HashMap<kotlin.Long, String>()
+                fun g() = SparseArray<kotlin.Int>()
             """.trimIndent(),
         )
-        assertEquals(listOf("User.kt" to 7), findings(sources))
+        assertEquals(listOf("User.kt" to 8), findings(sources))
     }
 
-    // Divergence (message only): the key is kotlin.Int, so both report line 5,
-    // but the value is other.Boolean. Go reads the value's name `Boolean` and
-    // suggests SparseBooleanArray; FIR suggests SparseArray, which is correct.
-    // The merge keeps Go's message because the finding is on the same line.
-    @Test fun importedValueLookalike() {
+    // Divergence (precision): the same for Boolean.
+    @Test fun importedBooleanLookalike() {
         val sources = mapOf(
             other,
             "User.kt" to """
                 package demo
 
+                import android.util.SparseArray
                 import other.Boolean
 
-                fun f() = HashMap<kotlin.Int, Boolean>()
+                fun f() = SparseArray<Boolean>()
             """.trimIndent(),
         )
-        assertEquals(listOf("User.kt" to 5), findings(sources))
+        assertEquals(emptyList(), findings(sources))
     }
 }

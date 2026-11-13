@@ -93,6 +93,16 @@ fun identifierText(source: KtSourceElement): String? {
 }
 
 /**
+ * The name identifier of [declaration] as a source element. Go reports a named declaration there, so a finding
+ * stays on the name's line when annotations or modifiers span several lines; null when the declaration has none.
+ */
+fun identifierAnchor(declaration: KtSourceElement): KtSourceElement? {
+    val identifier = lightChildren(declaration, declaration.lighterASTNode)
+        .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
+    return lightSourceOf(identifier, declaration)
+}
+
+/**
  * The first annotation or modifier of [declaration]'s direct MODIFIER_LIST
  * child (the modifier list itself when it holds only trivia); null when the
  * declaration has no modifier list. Go reports a declaration on its first
@@ -106,6 +116,19 @@ fun firstModifierAnchor(declaration: KtSourceElement): KtSourceElement? {
     val first = lightChildren(declaration, modifiers)
         .firstOrNull { it.tokenType !in KtTokens.WHITESPACES && it.tokenType !in KtTokens.COMMENTS }
     return lightSourceOf(first ?: modifiers, declaration)
+}
+
+/**
+ * The anchor Go reports for a declaration: the first annotation or modifier of
+ * its modifier list (see [firstModifierAnchor]), else its first direct child
+ * whose type is one of [keywords] (`fun`, `val`, `class`). Null when neither
+ * is present, so callers choose the fallback.
+ */
+fun firstLineAnchor(declaration: KtSourceElement, vararg keywords: IElementType): KtSourceElement? {
+    firstModifierAnchor(declaration)?.let { return it }
+    val keyword = lightChildren(declaration, declaration.lighterASTNode)
+        .firstOrNull { it.tokenType in keywords } ?: return null
+    return lightSourceOf(keyword, declaration)
 }
 
 /**

@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 fun PagerSmoke() {
     val pagerState: PagerState = rememberPagerState(pageCount = { 3 })
     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), pageSpacing = 8.dp, key = { it }) { page ->
-        Text("Page $page of ${pagerState.pageCount}, current ${pagerState.currentPage}")
+        <!ComposeRawTextLiteral!>Text<!>("Page $page of ${pagerState.pageCount}, current ${pagerState.currentPage}")
     }
     VerticalPager(state = rememberPagerState { 2 }) { page -> Text("$page") }
     LaunchedEffect(Unit) { pagerState.animateScrollToPage(1) }

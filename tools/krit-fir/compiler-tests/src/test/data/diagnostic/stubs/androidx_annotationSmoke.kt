@@ -57,7 +57,7 @@ class UiThing(
     @Mode val mode: Int,
 ) {
     @CheckResult
-    fun copyWithCount(@IntRange(from = 0) newCount: Int): UiThing = this
+    fun copyWithCount(@Suppress("UNUSED_PARAMETER") @IntRange(from = 0) newCount: Int): UiThing = this
 
     @CheckResult(suggest = "#copyWithCount")
     fun other(): UiThing = this

@@ -10,7 +10,7 @@ sealed class TransitionState<S> {
     abstract val targetState: S
 }
 
-class MutableTransitionState<S>(initialState: S) : TransitionState<S>() {
+class MutableTransitionState<S>(@Suppress("unused") initialState: S) : TransitionState<S>() {
     override val currentState: S
         get() = TODO()
 

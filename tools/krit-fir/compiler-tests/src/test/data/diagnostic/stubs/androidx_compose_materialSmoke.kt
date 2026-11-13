@@ -21,12 +21,12 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun MaterialSmoke(query: String, onQuery: (String) -> Unit, onClose: () -> Unit) {
     Column {
-        Text("Title", color = Color.Red, fontSize = 18.sp, maxLines = 1)
+        <!ComposeRawTextLiteral!>Text<!>("Title", color = Color.Red, fontSize = 18.sp, maxLines = 1)
         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Black)
         IconButton(onClick = onClose) { Icon(Icons.Filled.Menu, contentDescription = null) }
-        TextField(value = query, onValueChange = onQuery, label = { Text("Search") }, singleLine = true)
-        OutlinedTextField(value = query, onValueChange = onQuery, placeholder = { Text("Type") })
-        Button(onClick = onClose, modifier = Modifier.minimumInteractiveComponentSize()) { Text("OK") }
+        TextField(value = query, onValueChange = onQuery, label = { <!ComposeRawTextLiteral!>Text<!>("Search") }, singleLine = true)
+        OutlinedTextField(value = query, onValueChange = onQuery, placeholder = { <!ComposeRawTextLiteral!>Text<!>("Type") })
+        Button(onClick = onClose, modifier = Modifier.minimumInteractiveComponentSize()) { <!ComposeRawTextLiteral!>Text<!>("OK") }
         Icon(painter = painterResource(android.R.drawable.ic_menu_add), contentDescription = "Add")
     }
 }

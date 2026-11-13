@@ -1,14 +1,16 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 14
-// Divergence (precision): a same-package class named HashMap is not
-// java.util.HashMap. Go reports the unqualified call because it matches the
-// call name alone, but the message ("Use SparseArray instead of
-// HashMap<Int, ...>") is about the JDK map, which this code does not
-// construct. The qualified JDK call still reports.
+// go-lines: 16
+// Divergence (precision): a same-package class named SparseArray, and an
+// argument that is only named Int. Neither is the framework SparseArray of
+// kotlin.Int, so FIR reports nothing. Go skips the first because the file has
+// no android.util import, but reports the qualified call on line 16 because it
+// reads the argument by its written name.
 package test
 
-class HashMap<K, V>
+class SparseArray<E>
 
-fun lookalike(): HashMap<Int, String> = HashMap<Int, String>()
+class Int
 
-fun jdk(): java.util.HashMap<Int, String> = <!UseSparseArrays!>java.util.HashMap<Int, String>()<!>
+val lookalikeArray = SparseArray<kotlin.Int>()
+
+val lookalikeArgument = android.util.SparseArray<Int>()

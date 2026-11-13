@@ -12,6 +12,7 @@ import org.jetbrains.kotlin.KtLightSourceElement
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.parsing.KotlinLightParser
 import dev.jasonpearson.krit.fir.plugins.KtFileParser
 
@@ -66,5 +67,45 @@ class LightSourceTest {
         assertEquals(body.endOffset + 100, source.endOffset)
         assertSame(body, source.lighterASTNode)
         assertSame(anchor.treeStructure, source.treeStructure)
+    }
+
+    private fun declarationOf(text: String): KtSourceElement {
+        val parsed = KotlinLightParser.buildLightTree(text, KtInMemoryTextSourceFile("d.kt", "d.kt", text), null)
+        val node = assertNotNull(find(parsed.root, KtNodeTypes.FUN))
+        return KtLightSourceElement(node, node.startOffset, node.endOffset, parsed, KtRealSourceElementKind)
+    }
+
+    @Test
+    fun firstLineAnchorPrefersTheFirstModifierOverTheKeyword() {
+        val source = declarationOf("/** doc */\n@Deprecated(\"x\")\nprivate fun f() {}\n")
+        val anchor = assertNotNull(firstLineAnchor(source, KtTokens.FUN_KEYWORD))
+        assertEquals("@Deprecated(\"x\")", lightText(anchor, anchor.lighterASTNode))
+    }
+
+    @Test
+    fun firstLineAnchorFallsBackToTheKeyword() {
+        val source = declarationOf("/** doc */\nfun f() {}\n")
+        val anchor = assertNotNull(firstLineAnchor(source, KtTokens.FUN_KEYWORD))
+        assertEquals("fun", lightText(anchor, anchor.lighterASTNode))
+    }
+
+    @Test
+    fun firstLineAnchorIsNullWithoutModifiersOrKeyword() {
+        val source = declarationOf("fun f() {}\n")
+        assertEquals(null, firstLineAnchor(source, KtTokens.VAL_KEYWORD, KtTokens.VAR_KEYWORD))
+    }
+
+    @Test
+    fun identifierAnchorIsTheNameOnItsOwnLine() {
+        val source = declarationOf("@Deprecated(\"x\")\nprivate\nfun\nf() {}\n")
+        val anchor = assertNotNull(identifierAnchor(source))
+        assertEquals("f", lightText(anchor, anchor.lighterASTNode))
+        assertEquals(source.startOffset + "@Deprecated(\"x\")\nprivate\nfun\n".length, anchor.startOffset)
+    }
+
+    @Test
+    fun identifierAnchorIsNullWithoutAName() {
+        val source = declarationOf("fun () {}\n")
+        assertEquals(null, identifierAnchor(source))
     }
 }

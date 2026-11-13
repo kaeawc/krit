@@ -29,3 +29,22 @@ fun upperCodePoints(text: String): String {
     }
     return out.toString()
 }
+
+/**
+ * [pattern] compiled the way Go compiles a rule's regex option, as a full match: a pattern without `^` or `$`
+ * gets them, and a top-level alternation is grouped first (`a|b` is `^(?:a|b)$`). Null when it is not a valid regex.
+ */
+fun goFullMatchRegex(pattern: String): Regex? {
+    val start = pattern.startsWith("^")
+    val end = pattern.endsWith("$") && pattern.dropLast(1).takeLastWhile { it == '\\' }.length % 2 == 0
+    val anchored = when {
+        start && end -> pattern
+        '|' !in pattern -> (if (start) "" else "^") + pattern + (if (end) "" else "$")
+        else -> {
+            var core = pattern.removePrefix("^")
+            if (end) core = core.removeSuffix("$")
+            "^(?:$core)$"
+        }
+    }
+    return runCatching { Regex(anchored) }.getOrNull()
+}

@@ -45,6 +45,31 @@ type XMLNode struct {
 	Text      string
 	// TextNodes holds each non-blank character data run with its position.
 	TextNodes []XMLTextNode
+	// Index is the zero-based position among the parent's DOM child nodes, counting text runs and comments.
+	Index int
+}
+
+// domCounter numbers the child nodes of one element the way a DOM parser does.
+type domCounter struct {
+	next   int
+	inText bool
+}
+
+// advance returns the DOM index a content child of the given tree-sitter kind takes, or -1 when it adds no DOM node.
+func (c *domCounter) advance(kind string) int {
+	switch kind {
+	case "element", "Comment", "CDSect":
+		c.inText = false
+	case "CharData", "EntityRef", "CharRef", "Reference":
+		if c.inText {
+			return -1
+		}
+		c.inText = true
+	default:
+		return -1
+	}
+	c.next++
+	return c.next - 1
 }
 
 // XMLTextNode is a run of character data and its 1-based position.
@@ -178,17 +203,20 @@ func buildXMLNode(node *sitter.Node, src []byte) (*XMLNode, error) {
 		}
 		out.TextNodes = append(out.TextNodes, XMLTextNode{Text: trimmed, Line: line, Col: col})
 	}
+	var dom domCounter
 	for i := 0; i < int(content.ChildCount()); i++ {
 		child := content.Child(i)
 		if child == nil {
 			continue
 		}
+		domIndex := dom.advance(child.Type())
 		if child.Type() == "element" {
 			flush()
 			xmlChild, err := buildXMLNode(child, src)
 			if err != nil {
 				return nil, err
 			}
+			xmlChild.Index = domIndex
 			out.Children = append(out.Children, xmlChild)
 			continue
 		}

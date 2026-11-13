@@ -21,10 +21,6 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.text
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
-import dev.jasonpearson.krit.fir.support.simpleName
-import org.jetbrains.kotlin.descriptors.Visibilities
-import org.jetbrains.kotlin.fir.declarations.FirFile
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
@@ -89,7 +85,7 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         // Only composables recompose, so a keyless remember elsewhere cannot go stale.
         if (!function.hasAnnotationNamed(composable)) return
         // Preview and testing scaffolding keeps its first-composition values on purpose, as in Go.
-        if (isScaffolding(function)) return
+        if (isComposeKeyRuleExempt(function)) return
         // `if (k != null) remember(k) { } else remember { }`: the keyless arm is the fallback for no key.
         if (isUnkeyedFallbackArm(function, source)) return
         val keyed = keyBlockParams(function, source)
@@ -127,40 +123,6 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         val verb = if (names.size == 1) "${names[0]} changes" else "they change"
 
         report(source, "remember { } reads enclosing $noun $list but has no keys; the cached value won't update when $verb. Pass remember($list) { ... }.")
-    }
-
-    private fun isPreviewOrSample(function: FirNamedFunction): Boolean {
-        val lower = function.name.asString().lowercase()
-        return listOf("preview", "sample", "fixture").any { lower.startsWith(it) || lower.endsWith(it) } ||
-            function.annotations.any { it.simpleName()?.endsWith("Preview") == true }
-    }
-
-    // True for a preview or sample composable, a @VisibleForTesting one, one in a Fake/Test class, or a private
-    // one that only preview functions in this file call.
-    context(context: CheckerContext)
-    private fun isScaffolding(function: FirNamedFunction): Boolean {
-        val enclosing = context.containingElements
-        if (enclosing.filterIsInstance<FirNamedFunction>().any(::isPreviewOrSample)) return true
-        if (function.hasAnnotationNamed(setOf("VisibleForTesting"))) return true
-        val className = enclosing.filterIsInstance<FirRegularClass>().lastOrNull()?.name?.asString().orEmpty()
-        if (className.startsWith("Fake") || className.contains("Test")) return true
-        if (function.status.visibility != Visibilities.Private) return false
-        val file = enclosing.filterIsInstance<FirFile>().firstOrNull() ?: return false
-        var calls = 0
-        var fromPreview = 0
-        file.accept(object : FirVisitorVoid() {
-            private val functions = ArrayDeque<FirNamedFunction>()
-            override fun visitElement(element: FirElement) {
-                if (element is FirNamedFunction) functions.addLast(element)
-                if (element is FirFunctionCall && element.calleeReference.toResolvedCallableSymbol() == function.symbol) {
-                    calls++
-                    if (functions.any(::isPreviewOrSample)) fromPreview++
-                }
-                element.acceptChildren(this)
-                if (element is FirNamedFunction) functions.removeLast()
-            }
-        })
-        return calls > 0 && calls == fromPreview
     }
 
     private val firstCapturePhrases = listOf(

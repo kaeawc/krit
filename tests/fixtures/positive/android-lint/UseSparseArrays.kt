@@ -1,5 +1,8 @@
 package com.example
 
+import android.util.SparseArray
+
 class Cache {
-    val map = HashMap<Int, String>()
+    val counts = SparseArray<Int>()
+    val flags = SparseArray<Boolean>()
 }

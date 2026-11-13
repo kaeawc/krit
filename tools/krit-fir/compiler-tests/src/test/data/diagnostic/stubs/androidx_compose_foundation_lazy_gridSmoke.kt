@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun GridSmoke(values: List<String>) {
     LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize()) {
-        item { Text("header") }
+        item { <!ComposeRawTextLiteral!>Text<!>("header") }
         items(values, key = { it }) { value -> Text(value) }
         numbers()
     }

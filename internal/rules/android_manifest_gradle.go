@@ -31,6 +31,8 @@ type manifestGradleInfo struct {
 	minSdk              int // minSdk read from the build script; 0 when unset or defined elsewhere
 	versionCode         string
 	versionName         string
+	// usesSplashScreenLibrary is true when the build script mentions the SplashScreen library.
+	usesSplashScreenLibrary bool
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -89,6 +91,7 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 		info.versionName = m[1]
 	}
 	info.hasDensityResConfig = gradleDensityResConfigPattern.MatchString(content)
+	info.usesSplashScreenLibrary = strings.Contains(strings.ToLower(content), "splashscreen")
 	lower := strings.ToLower(content)
 	info.hasMinSdk = strings.Contains(lower, "minsdk")
 	info.hasTargetSdk = strings.Contains(lower, "targetsdk")

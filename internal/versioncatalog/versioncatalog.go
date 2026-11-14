@@ -61,6 +61,8 @@ type Plugin struct {
 	ID       string
 	Version  Version
 	Resolved string
+	// Short is true for the "id:version" string notation.
+	Short bool
 }
 
 type Bundle struct {
@@ -236,7 +238,7 @@ func parsePlugin(value any) (Plugin, bool) {
 		if parts[0] == "" {
 			return Plugin{}, false
 		}
-		plugin := Plugin{ID: parts[0]}
+		plugin := Plugin{ID: parts[0], Short: true}
 		if len(parts) == 2 {
 			plugin.Version = Version{Require: parts[1], Plain: true}
 		}

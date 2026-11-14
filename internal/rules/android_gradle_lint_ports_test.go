@@ -1,6 +1,8 @@
 package rules_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -167,5 +169,84 @@ func TestLintGradleRulesAreRegisteredAsAndroidLintDefaults(t *testing.T) {
 		if r.Category != "android-lint" || !r.Needs.Has(api.NeedsGradle) {
 			t.Errorf("%s: category %q needs %v", id, r.Category, r.Needs)
 		}
+	}
+}
+
+// dataBindingCatalog is a gradle/libs.versions.toml with the plugin entry shapes Lint 32.4.1 does and does not resolve.
+const dataBindingCatalog = `[versions]
+kotlin = "2.0.21"
+
+[plugins]
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+kapt_underscore = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+kapt-literal = "org.jetbrains.kotlin.kapt:2.0.21"
+kapt-plain = { id = "org.jetbrains.kotlin.kapt", version = "2.0.21" }
+kapt-rich = { id = "org.jetbrains.kotlin.kapt", version = { strictly = "2.0.21" } }
+kaptCamel = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
+kapt-noversion = { id = "org.jetbrains.kotlin.kapt" }
+kapt-badref = { id = "org.jetbrains.kotlin.kapt", version.ref = "missing" }
+`
+
+// runDataBindingInProject writes a module build script under a project root holding catalogName and runs DataBindingWithoutKapt.
+func runDataBindingInProject(t *testing.T, catalogName, script, content string) []scanner.Finding {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "gradle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "gradle", catalogName), []byte(dataBindingCatalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	module := filepath.Join(root, "app")
+	if err := os.MkdirAll(module, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(module, script)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return runLintGradleRule(t, "DataBindingWithoutKapt", path, content)
+}
+
+// Expectations match Lint 32.4.1 run on the same projects.
+func TestDataBindingWithoutKaptResolvesCatalogPluginAliases(t *testing.T) {
+	const groovyBinding = "android {\n    dataBinding {\n        enabled true\n    }\n}\n"
+	const ktsBinding = "android {\n    buildFeatures {\n        dataBinding = true\n    }\n}\n"
+	groovy := func(plugins ...string) string {
+		return "plugins {\n    " + strings.Join(plugins, "\n    ") + "\n}\n" + groovyBinding
+	}
+	kts := func(plugins ...string) string {
+		return "plugins {\n    " + strings.Join(plugins, "\n    ") + "\n}\n" + ktsBinding
+	}
+	for _, tc := range []struct {
+		name, catalog, script, content string
+		want                           int
+	}{
+		{"groovy kotlin and kapt aliases", "libs.versions.toml", "build.gradle", groovy("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kotlin.kapt)"), 0},
+		{"groovy kotlin alias only", "libs.versions.toml", "build.gradle", groovy("alias(libs.plugins.kotlin.android)"), 1},
+		{"groovy command syntax", "libs.versions.toml", "build.gradle", groovy("alias libs.plugins.kotlin.android", "alias libs.plugins.kotlin.kapt"), 0},
+		{"groovy id kotlin with kapt alias", "libs.versions.toml", "build.gradle", groovy("id 'org.jetbrains.kotlin.android'", "alias(libs.plugins.kotlin.kapt)"), 0},
+		{"kts kotlin and kapt aliases", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kotlin.kapt)"), 0},
+		{"kts kotlin alias only", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)"), 1},
+		{"kts id kotlin with kapt alias", "libs.versions.toml", "build.gradle.kts", kts("id(\"org.jetbrains.kotlin.android\")", "alias(libs.plugins.kotlin.kapt)"), 0},
+		{"kts kapt alias with apply false", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kotlin.kapt) apply false"), 0},
+		{"underscore key", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.underscore)"), 0},
+		{"string notation", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.literal)"), 0},
+		{"plain version", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.plain)"), 0},
+		{"rich version", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.rich)"), 0},
+		{"camel case key", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kaptCamel)"), 0},
+		{"key case differs", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kaptcamel)"), 1},
+		{"table without version", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.noversion)"), 1},
+		{"version ref to nothing", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kapt.badref)"), 1},
+		{"undefined alias", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "alias(libs.plugins.kotlin.missing)"), 1},
+		{"other catalog name", "deps.versions.toml", "build.gradle.kts", kts("id(\"kotlin-android\")", "alias(deps.plugins.kotlin.kapt)"), 1},
+		{"kotlin shorthand is not resolved", "libs.versions.toml", "build.gradle.kts", kts("alias(libs.plugins.kotlin.android)", "kotlin(\"kapt\")"), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(runDataBindingInProject(t, tc.catalog, tc.script, tc.content)); got != tc.want {
+				t.Fatalf("%d findings, want %d", got, tc.want)
+			}
+		})
 	}
 }

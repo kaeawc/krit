@@ -2,11 +2,15 @@ package rules
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/versioncatalog"
 )
 
 // Android Lint GradleDetector checks that read only the text of a build script. Behaviour follows Lint 32.4.1.
@@ -545,11 +549,14 @@ type DataBindingWithoutKaptRule struct {
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *DataBindingWithoutKaptRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// lintAppliedPluginID returns the plugin id a statement applies, for `id 'x'` in plugins and `apply plugin: 'x'`.
-func lintAppliedPluginID(st lintGradleStmt) string {
+// lintAppliedPluginID returns the plugin id a statement applies, for `id 'x'` and
+// `alias(libs.plugins.x)` in plugins and `apply plugin: 'x'`.
+func lintAppliedPluginID(st lintGradleStmt, gradlePath string) string {
 	switch {
 	case st.Name == "id" && st.Parent == "plugins":
 		return leadingQuotedLiteral(st.Value)
+	case st.Name == "alias" && st.Parent == "plugins":
+		return lintCatalogPluginID(gradlePath, leadingAccessor(st.Value))
 	case st.Name == "apply" && st.Parent == "":
 		_, rest, found := strings.Cut(st.Value, "plugin")
 		if !found {
@@ -562,6 +569,88 @@ func lintAppliedPluginID(st lintGradleStmt) string {
 		return leadingQuotedLiteral(strings.TrimLeft(rest[1:], " \t"))
 	}
 	return ""
+}
+
+// leadingAccessor returns the dotted reference that starts text, such as `libs.plugins.kotlin.kapt`.
+func leadingAccessor(text string) string {
+	end := 0
+	for end < len(text) {
+		c := text[end]
+		if c != '.' && c != '_' && (c < '0' || c > '9') && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') {
+			break
+		}
+		end++
+	}
+	return text[:end]
+}
+
+// lintCatalogPluginPrefix is the only catalog accessor prefix Lint resolves plugin aliases through.
+const lintCatalogPluginPrefix = "libs.plugins."
+
+// lintCatalogPluginID resolves `libs.plugins.<key>` the way Lint does: through the nearest
+// gradle/libs.versions.toml, matching a [plugins] key with `-` and `_` read as `.`.
+func lintCatalogPluginID(gradlePath, accessor string) string {
+	key, ok := strings.CutPrefix(accessor, lintCatalogPluginPrefix)
+	if !ok || key == "" || gradlePath == "" {
+		return ""
+	}
+	catalog := lintLibsCatalogPath(gradlePath)
+	if catalog == "" {
+		return ""
+	}
+	return lintCatalogPluginIDs(catalog)[key]
+}
+
+// lintLibsCatalogPath returns the gradle/libs.versions.toml at or above the build script's directory.
+func lintLibsCatalogPath(gradlePath string) string {
+	if abs, err := filepath.Abs(gradlePath); err == nil {
+		gradlePath = abs
+	}
+	for dir := filepath.Dir(gradlePath); ; {
+		candidate := filepath.Join(dir, "gradle", "libs.versions.toml")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// lintCatalogPluginIDs maps each [plugins] key, with `-` and `_` replaced by `.`, to its plugin id.
+// Lint skips a table entry without a version, or whose version.ref names no [versions] entry.
+func lintCatalogPluginIDs(path string) map[string]string {
+	return filefacts.StringFact(fileFactsCache(), path, slotLintCatalogPlugins, func() map[string]string {
+		ids := map[string]string{}
+		catalog, err := versioncatalog.ParseFile(path)
+		if err != nil {
+			return ids
+		}
+		versions := make(map[string]bool, len(catalog.Versions))
+		for _, v := range catalog.Versions {
+			versions[v.Alias] = true
+		}
+		for _, p := range catalog.Plugins {
+			if !p.Short && !lintCatalogVersionResolves(p.Version, versions) {
+				continue
+			}
+			key := strings.NewReplacer("-", ".", "_", ".").Replace(p.Alias)
+			if _, dup := ids[key]; !dup {
+				ids[key] = p.ID
+			}
+		}
+		return ids
+	})
+}
+
+// lintCatalogVersionResolves reports whether a plugin table's version is one Lint can read.
+func lintCatalogVersionResolves(v versioncatalog.Version, versions map[string]bool) bool {
+	if v.Ref != "" {
+		return versions[v.Ref]
+	}
+	return v.Plain || v.Require != "" || v.Strictly != "" || v.Prefer != "" || len(v.Reject) > 0 || v.RejectAll
 }
 
 // leadingQuotedLiteral returns the body of the string literal that starts text, ignoring what follows it.
@@ -582,7 +671,7 @@ func (r *DataBindingWithoutKaptRule) check(ctx *api.Context) {
 	}
 	kotlin, kapt := false, false
 	for _, st := range lintGradleStatements(ctx.GradleContent) {
-		switch lintAppliedPluginID(st) {
+		switch lintAppliedPluginID(st, ctx.GradlePath) {
 		case "kotlin-android", "org.jetbrains.kotlin.android":
 			kotlin = true
 		case "kotlin-kapt", "org.jetbrains.kotlin.kapt":

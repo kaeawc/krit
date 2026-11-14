@@ -40,6 +40,7 @@ const (
 	slotManifestGradle              = "manifestGradle"
 	slotManifestDOM                 = "manifestDOM"
 	slotVersionCatalogPlugins       = "versionCatalogPlugins"
+	slotLintCatalogPlugins          = "lintCatalogPlugins"
 	slotSourceModuleGradle          = "sourceModuleGradle"
 	slotTestQualityMockHelpers      = "testQualityMockHelpers"
 	slotTestQualityMockNames        = "testQualityMockNames"

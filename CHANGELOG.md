@@ -5,6 +5,16 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Source type inference no longer takes a call's return type from a same-name function that the call
+  cannot reach: a private, local or private-class function in another file. When the reachable
+  same-name declarations disagree, or one has no declared return type, the call's type is unknown
+  instead of whichever file was indexed last. This removes false positives from
+  `UselessElvisOnNonNull` and `UnnecessaryNotNullCheck` (and other rules reading call types) on
+  calls to a nullable function that shares its name with a private non-null function elsewhere.
+- `DataBindingWithoutKapt` resolves `alias(libs.plugins.<name>)` in a `plugins` block through
+  `gradle/libs.versions.toml`, as Lint 32.4.1 does, for both the Kotlin Android and the kapt plugin
+  in Groovy and Kotlin DSL. Like Lint, it skips a table entry without a version and does not resolve
+  `kotlin("kapt")`.
 - `InsecureBaseConfiguration` reports at the value of `cleartextTrafficPermitted`, and
   `CustomX509TrustManager` and `TrustAllX509TrustManager` follow a `typealias` declared in the same
   file to `X509TrustManager`, as Lint does.

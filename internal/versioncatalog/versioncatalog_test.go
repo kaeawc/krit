@@ -75,6 +75,9 @@ func TestParseVersionsAndPlugins(t *testing.T) {
 	if !cat.Plugins[0].Version.Plain || cat.Plugins[2].Version.Ref != "rich" {
 		t.Fatalf("plugin versions: %+v", cat.Plugins)
 	}
+	if !cat.Plugins[0].Short || !cat.Plugins[1].Short || cat.Plugins[2].Short {
+		t.Fatalf("plugin notation: %+v", cat.Plugins)
+	}
 }
 
 func TestParseBundlesAndOrder(t *testing.T) {

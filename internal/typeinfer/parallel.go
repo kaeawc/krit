@@ -24,7 +24,9 @@ type FileTypeInfo struct {
 	EnumEntries map[string][]string      // enum class name → entry names
 	TypeAliases map[string]*ResolvedType // alias name or FQN → target type
 	Functions   map[string]*ResolvedType // function name → return type
-	Extensions  []*ExtensionFuncInfo     // extension functions
+	// FunctionDecls lists every declaration per function key in this file.
+	FunctionDecls map[string][]FunctionDecl
+	Extensions    []*ExtensionFuncInfo // extension functions
 	// SuspendFunctions lists the sorted names of functions declared `suspend` in the file.
 	SuspendFunctions []string
 }
@@ -98,8 +100,26 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		Functions:   tmp.functions,
 		Extensions:  tmp.extensions,
 
+		FunctionDecls: fileFunctionDecls(tmp.functionDecls),
+
 		SuspendFunctions: suspendFunctionNamesFlat(file),
 	}
+}
+
+// fileFunctionDecls strips the file path from a single-file declaration map.
+func fileFunctionDecls(refs map[string][]functionDeclRef) map[string][]FunctionDecl {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make(map[string][]FunctionDecl, len(refs))
+	for key, list := range refs {
+		decls := make([]FunctionDecl, len(list))
+		for i, ref := range list {
+			decls[i] = ref.FunctionDecl
+		}
+		out[key] = decls
+	}
+	return out
 }
 
 // suspendFunctionNamesFlat returns the sorted names of functions declared `suspend` in the file.
@@ -268,6 +288,11 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 			r.functions[name] = fi.Functions[name]
 		}
 
+		if r.fileFunctionDecls == nil {
+			r.fileFunctionDecls = make(map[string]map[string][]FunctionDecl)
+		}
+		r.fileFunctionDecls[fi.Path] = fi.FunctionDecls
+
 		r.extensions = append(r.extensions, fi.Extensions...)
 
 		for _, name := range fi.SuspendFunctions {
@@ -277,6 +302,7 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 			r.suspendFuncs[name] = true
 		}
 	}
+	r.summarizeFunctionDecls()
 }
 
 // DeclaresSuspendFunction reports whether any indexed source file declares a function with this name as `suspend`.

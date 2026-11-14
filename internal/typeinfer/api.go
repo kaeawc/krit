@@ -11,7 +11,9 @@ import (
 type ExtensionFuncInfo struct {
 	ReceiverType string        // Simple name of the receiver type (e.g., "String")
 	Name         string        // Function name
-	ReturnType   *ResolvedType // Return type
+	ReturnType   *ResolvedType // Return type; nil when not declared
+	Path         string        // Declaring file
+	FileLocal    bool          // Only the declaring file can call it
 }
 
 // defaultResolver is the concrete implementation of TypeResolver.
@@ -34,6 +36,14 @@ type defaultResolver struct {
 	typeAliases map[string]*ResolvedType
 	// Top-level and class-level function return types
 	functions map[string]*ResolvedType // function name -> return type
+	// Every source declaration per function key, so lookups can skip
+	// declarations private to another file and refuse ambiguous names.
+	functionDecls map[string][]functionDeclRef
+	// fileFunctionDecls holds each merged file's declarations, so re-indexing
+	// a file replaces its entries in functionDecls instead of adding to them.
+	fileFunctionDecls map[string]map[string][]FunctionDecl
+	// functionSummaries caches lookupFunction answers; built after each merge.
+	functionSummaries map[string]functionSummary
 	// Extension functions from source
 	extensions []*ExtensionFuncInfo
 	// suspendFuncs holds names declared `suspend` in any indexed source file.
@@ -725,7 +735,7 @@ func (r *defaultResolver) inferCallExpressionTypeFlat(idx uint32, file *scanner.
 		}
 	}
 
-	return r.inferCallByFuncNameFlat(funcName, it)
+	return r.inferCallByFuncNameFlat(funcName, file)
 }
 
 func (r *defaultResolver) inferCallOnNavigationExprFlat(_ uint32, navIdx uint32, funcName string, file *scanner.File, _ *ImportTable) *ResolvedType {
@@ -741,27 +751,25 @@ func (r *defaultResolver) inferCallOnNavigationExprFlat(_ uint32, navIdx uint32,
 		if m := LookupStdlibMethod(receiverType.Name, funcName); m != nil {
 			return r.applyStdlibReturnType(m, receiverType)
 		}
-		for _, ext := range r.extensions {
-			if ext.Name == funcName && ext.ReceiverType == receiverType.Name {
-				return ext.ReturnType
-			}
+		if retType := r.lookupExtension(receiverType.Name, funcName, file); retType != nil {
+			return retType
 		}
 	}
 	if receiverIdx != 0 && file.FlatType(receiverIdx) == "simple_identifier" {
 		key := file.FlatNodeText(receiverIdx) + "." + funcName
-		if retType, ok := r.functions[key]; ok {
+		if retType := r.lookupFunction(key, file); retType != nil {
 			return retType
 		}
 	}
 	return nil
 }
 
-func (r *defaultResolver) inferCallByFuncNameFlat(funcName string, _ *ImportTable) *ResolvedType {
+func (r *defaultResolver) inferCallByFuncNameFlat(funcName string, file *scanner.File) *ResolvedType {
 	if funcName != "" {
 		if m := LookupStdlibMethod("_", funcName); m != nil {
 			return &ResolvedType{Name: m.ReturnType.Name, FQN: m.ReturnType.FQN, Kind: m.ReturnType.Kind, Nullable: m.Nullable, Resolved: m.ReturnType.Resolved}
 		}
-		if retType, ok := r.functions[funcName]; ok {
+		if retType := r.lookupFunction(funcName, file); retType != nil {
 			return retType
 		}
 	}
@@ -814,15 +822,13 @@ func (r *defaultResolver) inferNavigationExpressionTypeFlat(idx uint32, file *sc
 			if m := LookupStdlibMethod(receiverType.Name, memberName); m != nil {
 				return r.applyStdlibReturnType(m, receiverType)
 			}
-			for _, ext := range r.extensions {
-				if ext.Name == memberName && ext.ReceiverType == receiverType.Name {
-					return ext.ReturnType
-				}
+			if retType := r.lookupExtension(receiverType.Name, memberName, file); retType != nil {
+				return retType
 			}
 		}
 		if file.FlatType(receiverIdx) == "simple_identifier" {
 			key := file.FlatNodeText(receiverIdx) + "." + memberName
-			if retType, ok := r.functions[key]; ok {
+			if retType := r.lookupFunction(key, file); retType != nil {
 				return retType
 			}
 		}

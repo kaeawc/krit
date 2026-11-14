@@ -244,7 +244,12 @@ func (r *defaultResolver) indexCompanionMembersFlat(bodyIdx uint32, file *scanne
 		if companionBody == 0 {
 			continue
 		}
+		companionLocal := flatDeclarationFileLocal(file, child)
 		for _, m := range r.extractMembersFlat(companionBody, file, it) {
+			r.addFunctionDecl(file.Path, className+"."+m.Name, FunctionDecl{
+				Type:      m.Type,
+				FileLocal: companionLocal || m.Visibility == "private",
+			})
 			if m.Type != nil && m.Type.Kind != TypeUnknown {
 				r.functions[className+"."+m.Name] = m.Type
 			}

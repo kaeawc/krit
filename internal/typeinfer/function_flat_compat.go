@@ -111,15 +111,18 @@ func (r *defaultResolver) summarizeFunctionDecls() {
 	}
 }
 
-// lookupFunction returns the return type the call site in file sees for key.
-// Declarations private to another file are invisible. Overload resolution is
-// out of reach, so it returns nil when the visible candidates disagree or any
-// of them lacks a known return type. Keys with no recorded declarations fall
-// back to the plain name map.
-func (r *defaultResolver) lookupFunction(key string, file *scanner.File) *ResolvedType {
+// lookupFunction returns the return type the call site in file sees for key,
+// and whether any declaration under key is visible there. Declarations private
+// to another file are invisible. Overload resolution is out of reach, so the
+// type is nil when the visible candidates disagree or any of them lacks a
+// known return type; callers then report an unknown type rather than guess
+// from another source. Keys with no recorded declarations fall back to the
+// plain name map.
+func (r *defaultResolver) lookupFunction(key string, file *scanner.File) (*ResolvedType, bool) {
 	decls, ok := r.functionDecls[key]
 	if !ok {
-		return r.functions[key]
+		t, found := r.functions[key]
+		return t, found
 	}
 	path := ""
 	if file != nil {
@@ -127,15 +130,15 @@ func (r *defaultResolver) lookupFunction(key string, file *scanner.File) *Resolv
 	}
 	if s, ok := r.functionSummaries[key]; ok && !s.localPaths[path] {
 		if s.ambiguous {
-			return nil
+			return nil, true
 		}
-		return s.public
+		return s.public, s.public != nil
 	}
 	found, ambiguous := agreedFunctionType(decls, path)
 	if ambiguous {
-		return nil
+		return nil, true
 	}
-	return found
+	return found, found != nil
 }
 
 // agreedFunctionType returns the single return type of the declarations
@@ -160,8 +163,9 @@ func agreedFunctionType(decls []functionDeclRef, path string) (found *ResolvedTy
 }
 
 // lookupExtension returns the return type of the extension receiverType.name
-// visible from file, with the same visibility and ambiguity rules as lookupFunction.
-func (r *defaultResolver) lookupExtension(receiverType, name string, file *scanner.File) *ResolvedType {
+// visible from file, and whether one is visible, with the same visibility and
+// ambiguity rules as lookupFunction.
+func (r *defaultResolver) lookupExtension(receiverType, name string, file *scanner.File) (*ResolvedType, bool) {
 	path := ""
 	if file != nil {
 		path = file.Path
@@ -175,17 +179,26 @@ func (r *defaultResolver) lookupExtension(receiverType, name string, file *scann
 			continue
 		}
 		if ext.ReturnType == nil || ext.ReturnType.Kind == TypeUnknown {
-			return nil
+			return nil, true
 		}
 		if found == nil {
 			found = ext.ReturnType
 			continue
 		}
 		if !reflect.DeepEqual(*found, *ext.ReturnType) {
-			return nil
+			return nil, true
 		}
 	}
-	return found
+	return found, found != nil
+}
+
+// knownOrUnknown returns t, or an unknown type when a visible declaration
+// exists but its type could not be settled.
+func knownOrUnknown(t *ResolvedType) *ResolvedType {
+	if t == nil {
+		return UnknownType()
+	}
+	return t
 }
 
 // flatDeclarationFileLocal reports whether code outside the file cannot

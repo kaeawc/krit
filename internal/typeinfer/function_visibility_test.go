@@ -214,3 +214,17 @@ func TestCallReturnType_ReindexReplacesFileDeclarations(t *testing.T) {
 		t.Fatalf("maker(1) after re-index = %q, want %q", got, "String")
 	}
 }
+
+// TestQualifiedCallReturnType_AmbiguousCompanionDeclines checks an ambiguous
+// `Receiver.member()` key yields an unknown type instead of a fallback guess.
+func TestQualifiedCallReturnType_AmbiguousCompanionDeclines(t *testing.T) {
+	dir := t.TempDir()
+	caller := parseTempFile(t, dir, "a_caller.kt", "package p.a\nclass Holder {\n  companion object {\n    fun make(): String? = null\n  }\n}\nfun use() = Holder.make()\n")
+	other := parseTempFile(t, dir, "z_other.kt", "package p.z\nclass Holder {\n  companion object {\n    fun make(): String = \"a\"\n  }\n}\n")
+	resolver := NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{caller, other}, 1)
+	call := flatFirstOfTypeWithText(caller, "call_expression", "Holder.make()")
+	if got := renderResolved(resolver.ResolveFlatNode(call, caller)); got != "" {
+		t.Fatalf("Holder.make() = %q, want unknown", got)
+	}
+}

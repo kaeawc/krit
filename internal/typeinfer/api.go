@@ -751,14 +751,14 @@ func (r *defaultResolver) inferCallOnNavigationExprFlat(_ uint32, navIdx uint32,
 		if m := LookupStdlibMethod(receiverType.Name, funcName); m != nil {
 			return r.applyStdlibReturnType(m, receiverType)
 		}
-		if retType := r.lookupExtension(receiverType.Name, funcName, file); retType != nil {
-			return retType
+		if retType, ok := r.lookupExtension(receiverType.Name, funcName, file); ok {
+			return knownOrUnknown(retType)
 		}
 	}
 	if receiverIdx != 0 && file.FlatType(receiverIdx) == "simple_identifier" {
 		key := file.FlatNodeText(receiverIdx) + "." + funcName
-		if retType := r.lookupFunction(key, file); retType != nil {
-			return retType
+		if retType, ok := r.lookupFunction(key, file); ok {
+			return knownOrUnknown(retType)
 		}
 	}
 	return nil
@@ -769,8 +769,8 @@ func (r *defaultResolver) inferCallByFuncNameFlat(funcName string, file *scanner
 		if m := LookupStdlibMethod("_", funcName); m != nil {
 			return &ResolvedType{Name: m.ReturnType.Name, FQN: m.ReturnType.FQN, Kind: m.ReturnType.Kind, Nullable: m.Nullable, Resolved: m.ReturnType.Resolved}
 		}
-		if retType := r.lookupFunction(funcName, file); retType != nil {
-			return retType
+		if retType, ok := r.lookupFunction(funcName, file); ok {
+			return knownOrUnknown(retType)
 		}
 	}
 	return UnknownType()
@@ -822,14 +822,14 @@ func (r *defaultResolver) inferNavigationExpressionTypeFlat(idx uint32, file *sc
 			if m := LookupStdlibMethod(receiverType.Name, memberName); m != nil {
 				return r.applyStdlibReturnType(m, receiverType)
 			}
-			if retType := r.lookupExtension(receiverType.Name, memberName, file); retType != nil {
-				return retType
+			if retType, ok := r.lookupExtension(receiverType.Name, memberName, file); ok {
+				return knownOrUnknown(retType)
 			}
 		}
 		if file.FlatType(receiverIdx) == "simple_identifier" {
 			key := file.FlatNodeText(receiverIdx) + "." + memberName
-			if retType := r.lookupFunction(key, file); retType != nil {
-				return retType
+			if retType, ok := r.lookupFunction(key, file); ok {
+				return knownOrUnknown(retType)
 			}
 		}
 		return r.ResolveFlatNode(receiverIdx, file)

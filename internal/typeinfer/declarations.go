@@ -244,12 +244,17 @@ func (r *defaultResolver) indexCompanionMembersFlat(bodyIdx uint32, file *scanne
 		if companionBody == 0 {
 			continue
 		}
-		companionLocal := flatDeclarationFileLocal(file, child)
+		companionLocal, scopeStart, scopeEnd := flatDeclarationVisibility(file, child)
 		for _, m := range r.extractMembersFlat(companionBody, file, it) {
-			r.addFunctionDecl(file.Path, className+"."+m.Name, FunctionDecl{
-				Type:      m.Type,
-				FileLocal: companionLocal || m.Visibility == "private",
-			})
+			decl := FunctionDecl{Type: m.Type, FileLocal: companionLocal, ScopeStart: scopeStart, ScopeEnd: scopeEnd}
+			if !companionLocal && m.Visibility == "private" {
+				// A private companion member is reachable from the class that holds the companion.
+				decl.FileLocal = true
+				if owner, ok := file.FlatParent(bodyIdx); ok && owner != 0 {
+					decl.ScopeStart, decl.ScopeEnd = file.FlatStartByte(owner), file.FlatEndByte(owner)
+				}
+			}
+			r.addFunctionDecl(file.Path, className+"."+m.Name, decl)
 			if m.Type != nil && m.Type.Kind != TypeUnknown {
 				r.functions[className+"."+m.Name] = m.Type
 			}

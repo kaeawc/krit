@@ -25,7 +25,7 @@ const (
 	// Bumped to 6 when file info gained SuspendFunctions.
 	// Bumped to 8 when companion object, object literal and enum bodies gained their own scopes.
 	// Bumped to 9 when smart casts stopped leaking onto the root scope from files with several top-level declarations.
-	// Bumped to 10 when file info gained FunctionDecls and extensions gained visibility.
+	// Bumped to 10 when file info gained FunctionDecls and extensions gained visibility scopes.
 	typeIndexCacheVersion = 10
 )
 

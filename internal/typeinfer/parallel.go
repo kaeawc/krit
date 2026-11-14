@@ -293,7 +293,10 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 		}
 		r.fileFunctionDecls[fi.Path] = fi.FunctionDecls
 
-		r.extensions = append(r.extensions, fi.Extensions...)
+		if r.fileExtensions == nil {
+			r.fileExtensions = make(map[string][]*ExtensionFuncInfo)
+		}
+		r.fileExtensions[fi.Path] = fi.Extensions
 
 		for _, name := range fi.SuspendFunctions {
 			if r.suspendFuncs == nil {

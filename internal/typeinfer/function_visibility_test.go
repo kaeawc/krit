@@ -118,6 +118,30 @@ func TestCallReturnType_VisibilityAndAmbiguity(t *testing.T) {
 			want: "String",
 		},
 		{
+			name: "untyped local function elsewhere in the same file is out of scope",
+			files: map[string]string{
+				"a_caller.kt": "package p\nfun outer() { fun maker() = \"\" }\nfun maker(): String = \"ok\"\nfun use() = maker()\n",
+			},
+			call: "maker()",
+			want: "String",
+		},
+		{
+			name: "local function is visible inside its own body",
+			files: map[string]string{
+				"a_caller.kt": "package p\nfun maker(): String = \"ok\"\nfun use(): String? {\n  fun maker(): String? = null\n  return maker()\n}\n",
+			},
+			call: "maker()",
+			want: "",
+		},
+		{
+			name: "private member is out of scope outside its class",
+			files: map[string]string{
+				"a_caller.kt": "package p\nclass Holder {\n  private fun maker(): String? = null\n}\nfun maker(): String = \"ok\"\nfun use() = maker()\n",
+			},
+			call: "maker()",
+			want: "String",
+		},
+		{
 			name: "unique public function in another file resolves",
 			files: map[string]string{
 				"a_caller.kt": "package p\nfun use() = maker(1)\n",
@@ -226,5 +250,21 @@ func TestQualifiedCallReturnType_AmbiguousCompanionDeclines(t *testing.T) {
 	call := flatFirstOfTypeWithText(caller, "call_expression", "Holder.make()")
 	if got := renderResolved(resolver.ResolveFlatNode(call, caller)); got != "" {
 		t.Fatalf("Holder.make() = %q, want unknown", got)
+	}
+}
+
+// TestNavigationExtensionReturnType_ReindexReplacesExtensions checks a
+// re-indexed file replaces its earlier extension records.
+func TestNavigationExtensionReturnType_ReindexReplacesExtensions(t *testing.T) {
+	dir := t.TempDir()
+	caller := parseTempFile(t, dir, "a_caller.kt", "package p\nclass Box\nfun use(b: Box) = b.maker()\n")
+	decl := parseTempFile(t, dir, "z_decl.kt", "package p\nfun Box.maker(): String? = null\n")
+	resolver := NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{caller, decl}, 1)
+	decl = parseTempFile(t, dir, "z_decl.kt", "package p\nfun Box.maker(): String = \"a\"\n")
+	resolver.IndexFilesParallel([]*scanner.File{caller, decl}, 1)
+	call := flatFirstOfTypeWithText(caller, "call_expression", "b.maker()")
+	if got := renderResolved(resolver.ResolveFlatNode(call, caller)); got != "String" {
+		t.Fatalf("b.maker() after re-index = %q, want %q", got, "String")
 	}
 }

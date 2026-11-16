@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -21,7 +22,6 @@ import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.utils.isInner
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
@@ -111,9 +111,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
             val type = ref.coneType.fullyExpandedType(session).lowerBoundIfFlexible() as? ConeClassLikeType ?: continue
             if (type.lookupTag.classId == handlerClassId) return true
             val symbol = type.lookupTag.toClassSymbol(session) ?: continue
-            val extendsHandler = lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId == handlerClassId }
-            if (extendsHandler) return true
+            if (inheritsFrom(symbol, session, lookupInterfaces = false) { it == handlerClassId }) return true
         }
         return false
     }

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.resourcecost
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -49,7 +50,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneTypeOrNull
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.isUnit
@@ -129,7 +129,7 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
     private const val MAX_DEPTH = 32
 
     private fun streamType(id: String): ConeKotlinType =
-        ClassId.fromString(id).constructClassLikeType(emptyArray(), isMarkedNullable = true)
+        ClassId.fromString(id).nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

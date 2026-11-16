@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.importedNameSource
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
@@ -44,7 +45,6 @@ import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
@@ -285,9 +285,7 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
 
     context(context: CheckerContext)
     private fun isContextOrSubclass(owner: FirClassSymbol<*>): Boolean =
-        owner.classId == contextClassId ||
-            lookupSuperTypes(owner, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == contextClassId }
+        isOrInheritsFrom(owner, contextClassId, context.session, lookupInterfaces = false)
 
     // What FIR knows about an Int value. Only [Known] without the
     // world-writeable bit, [NotAMode], and [CallerSupplied] are provably not

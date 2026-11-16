@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -18,7 +19,6 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
@@ -81,7 +81,7 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
     private val PRINT_STREAMS = listOf(
         ClassId.fromString("java/io/PrintStream"),
         ClassId.fromString("java/io/PrintWriter"),
-    ).map { it.constructClassLikeType(emptyArray(), isMarkedNullable = true) }
+    ).map { it.nullableClassType() }
     private val MAIN = Name.identifier("main")
     private val TASK_ACTION = Name.identifier("TaskAction")
     private val NON_PRODUCTION_DIRECTORIES = listOf("/samples/", "/sample/", "/demos/", "/demo/")

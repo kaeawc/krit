@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
@@ -39,13 +41,11 @@ import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.references.toResolvedBaseSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.classId
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
@@ -123,7 +123,7 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
 
     private val sharedPreferencesId = ClassId(FqName("android.content"), Name.identifier("SharedPreferences"))
     private val editorId = sharedPreferencesId.createNestedClassId(Name.identifier("Editor"))
-    private val nullableEditorType = editorId.constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val nullableEditorType = editorId.nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -216,9 +216,7 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
     }
 
     private fun isSubclassOf(symbol: FirClassSymbol<*>, classId: ClassId, session: FirSession): Boolean =
-        symbol.classId == classId ||
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                .any { it.classId == classId }
+        isOrInheritsFrom(symbol, classId, session, lookupInterfaces = true)
 
     // The index in [path] of the body the edit call runs in: the nearest
     // named function, accessor, or anonymous function (Go's function_declaration

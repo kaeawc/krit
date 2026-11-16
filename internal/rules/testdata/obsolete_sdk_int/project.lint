@@ -1,0 +1,50 @@
+AndroidManifest.xml:10:39 Unnecessary; `SDK_INT` is always >= 19
+AndroidManifest.xml:11:34 Unnecessary; `SDK_INT` is always >= 19
+AndroidManifest.xml:3:18 Unnecessary; `SDK_INT` is always >= 19
+AndroidManifest.xml:4:37 Unnecessary; `SDK_INT` is always >= 21
+AndroidManifest.xml:6:36 Unnecessary; `SDK_INT` is always >= 21
+AndroidManifest.xml:7:37 Unnecessary; `SDK_INT` is always >= 19
+AndroidManifest.xml:8:40 Unnecessary; `SDK_INT` is always >= 19
+res/anim-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `anim`.
+res/color-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `color`.
+res/drawable-anydpi-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `drawable-anydpi`.
+res/drawable-hdpi-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `drawable-hdpi`.
+res/drawable-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `drawable`.
+res/drawable-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `drawable`.
+res/drawable/v.xml:1:213 Unnecessary; `SDK_INT` is always >= 19
+res/drawable/v.xml:2:71 Unnecessary; `SDK_INT` is always >= 21
+res/font-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `font`.
+res/layout-land-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `layout-land`.
+res/layout-sw600dp-v17:1:1 This folder configuration (`v17`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `layout-sw600dp`.
+res/layout-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `layout`.
+res/layout-v20:1:1 This folder configuration (`v20`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `layout`.
+res/layout-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `layout`.
+res/layout/b.xml:1:194 Unnecessary; `SDK_INT` is always >= 19
+res/layout/b.xml:1:322 Unnecessary; `SDK_INT` is always >= 21
+res/layout/b.xml:1:451 Unnecessary; `SDK_INT` is always >= 21
+res/layout/targetapi.xml:14:88 Unnecessary; `SDK_INT` is always >= 1
+res/layout/targetapi.xml:15:88 Unnecessary; `SDK_INT` is always >= 21
+res/layout/targetapi.xml:19:33 Unnecessary; `SDK_INT` is always >= 19
+res/layout/targetapi.xml:20:12 Unnecessary; `SDK_INT` is always >= 19
+res/layout/targetapi.xml:5:88 Unnecessary; `SDK_INT` is always >= 19
+res/layout/targetapi.xml:6:88 Unnecessary; `SDK_INT` is always >= 19
+res/layout/targetapi.xml:7:88 Unnecessary; `SDK_INT` is always >= 19
+res/layout/targetapi.xml:8:88 Unnecessary; `SDK_INT` is always >= 21
+res/layout/targetapi.xml:9:88 Unnecessary; `SDK_INT` is always >= 21
+res/menu-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `menu`.
+res/menu/m.xml:1:113 Unnecessary; `SDK_INT` is always >= 19
+res/menu/m.xml:2:49 Unnecessary; `SDK_INT` is always >= 19
+res/mipmap-anydpi-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `mipmap-anydpi`.
+res/values-en-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values-en`.
+res/values-ldrtl-v17:1:1 This folder configuration (`v17`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values-ldrtl`.
+res/values-night-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values-night`.
+res/values-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values`.
+res/values-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values`.
+res/values-v2:1:1 This folder configuration (`v2`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values`.
+res/values-w820dp-v21:1:1 This folder configuration (`v21`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `values-w820dp`.
+res/values/styles.xml:2:44 Unnecessary; `SDK_INT` is always >= 19
+res/values/styles.xml:3:54 Unnecessary; `SDK_INT` is always >= 19
+res/values/styles.xml:4:43 Unnecessary; `SDK_INT` is always >= 21
+res/values/styles.xml:6:22 Unnecessary; `SDK_INT` is always >= 19
+res/xml-v19:1:1 This folder configuration (`v19`) is unnecessary; `minSdkVersion` is 21. Merge all the resources in this folder into `xml`.
+res/xml/p.xml:1:125 Unnecessary; `SDK_INT` is always >= 19

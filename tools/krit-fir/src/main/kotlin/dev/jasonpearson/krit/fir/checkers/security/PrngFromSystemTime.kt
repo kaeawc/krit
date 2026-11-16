@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -18,7 +19,6 @@ import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
@@ -193,8 +193,7 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
 
     context(context: CheckerContext)
     private fun extendsAny(symbol: FirClassLikeSymbol<*>, targets: Set<ClassId>): Boolean =
-        lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-            .any { it.classId in targets }
+        inheritsFromAny(symbol, targets, context.session, lookupInterfaces = false)
 
     context(context: CheckerContext)
     private fun isOrExtendsAny(type: ConeClassLikeType, targets: Set<ClassId>): Boolean =

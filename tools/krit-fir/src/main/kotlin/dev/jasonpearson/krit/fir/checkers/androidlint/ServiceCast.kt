@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
@@ -182,9 +182,7 @@ internal object ServiceCast : FirTypeOperatorCallChecker(MppCheckerKind.Common),
     // The containing class comes from the symbol's lookup tag, which is bound to local classes.
     context(context: CheckerContext)
     private fun isContext(symbol: FirClassLikeSymbol<*>): Boolean =
-        symbol.classId == contextClass ||
-            lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == contextClass }
+        isOrInheritsFrom(symbol, contextClass, context.session, lookupInterfaces = false)
 
     // The name of the `Context` constant passed as the first argument.
     private fun serviceConstant(call: FirFunctionCall): String? {

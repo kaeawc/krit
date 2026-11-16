@@ -12,5 +12,5 @@ class ComposeSmokeViewModel : ViewModel()
 @Composable
 fun VmScreen(viewModel: ComposeSmokeViewModel = viewModel()) {
     val keyed: ComposeSmokeViewModel = viewModel(key = "k")
-    Text("$viewModel $keyed ${LocalViewModelStoreOwner.current}")
+    Text("$viewModel $keyed ${LocalViewModelStoreOwner.current?.toString().orEmpty()}")
 }

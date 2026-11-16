@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -34,7 +35,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -67,7 +67,7 @@ internal object ErrorUsageWithThrowable : FirFunctionCallChecker(MppCheckerKind.
         override val functionCallCheckers = setOf(ErrorUsageWithThrowable)
     }
     private val kotlinError = CallableId(FqName("kotlin"), Name.identifier("error"))
-    private val nullableThrowable = StandardClassIds.Throwable.constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val nullableThrowable = StandardClassIds.Throwable.nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

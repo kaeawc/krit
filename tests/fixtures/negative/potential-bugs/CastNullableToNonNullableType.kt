@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: it casts an unresolved reference and an unresolved type, so Go stays authoritative for it; the FIR negatives are covered by compiler-tests data
 package potentialbugs
 
 data class Box<T>(val value: T)

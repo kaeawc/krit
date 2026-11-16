@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.significantChildren
 import org.jetbrains.kotlin.KtNodeTypes
@@ -104,9 +105,9 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
     private const val NORMALIZE = "normalize"
     private val searchPrefixes = listOf("search", "find")
 
-    private val charSequence = StandardClassIds.CharSequence.constructClassLikeType(emptyArray(), isMarkedNullable = true)
-    private val nullableChar = StandardClassIds.Char.constructClassLikeType(emptyArray(), isMarkedNullable = true)
-    private val number = StandardClassIds.Number.constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val charSequence = StandardClassIds.CharSequence.nullableClassType()
+    private val nullableChar = StandardClassIds.Char.nullableClassType()
+    private val number = StandardClassIds.Number.nullableClassType()
     private val collection =
         StandardClassIds.Collection.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
     private val map =

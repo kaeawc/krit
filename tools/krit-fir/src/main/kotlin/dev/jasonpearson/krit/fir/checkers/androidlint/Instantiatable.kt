@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -20,7 +21,6 @@ import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.constructors
 import org.jetbrains.kotlin.fir.declarations.hasAnnotation
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
@@ -138,9 +138,7 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
             val type = ref.coneType.fullyExpandedType(session).lowerBoundIfFlexible() as? ConeClassLikeType ?: continue
             if (type.lookupTag.classId in componentClassIds) return true
             val symbol = type.lookupTag.toClassSymbol(session) ?: continue
-            val inherits = lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId in componentClassIds }
-            if (inherits) return true
+            if (inheritsFromAny(symbol, componentClassIds, session, lookupInterfaces = false)) return true
         }
         return false
     }

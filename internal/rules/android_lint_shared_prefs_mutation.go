@@ -168,6 +168,10 @@ type prefsDef struct {
 	value uint32
 	// param is a lambda parameter, whose value is the receiver of its scope function.
 	param uint32
+	// scope is the node a declaration is visible in; zero for assignments.
+	scope uint32
+	// binding is the declaration an assignment writes to.
+	binding *prefsDef
 }
 
 // prefsNameTracked follows a local name back to its latest definition before the use.
@@ -203,18 +207,14 @@ func prefsNameTracked(ctx *api.Context, use uint32, depth int) bool {
 	return prefsSetTracked(ctx, latest.value, depth+1)
 }
 
-// prefsDefinitions collects the definitions of name in fn that precede the use. declared is false when no local
-// declaration, parameter or lambda parameter named so is visible, so assignments to a field are not followed.
+// prefsDefinitions collects the definitions of name in fn that precede the use and write to the binding the use
+// sees. declared is false when no local declaration, parameter or lambda parameter named so is visible, so
+// assignments to a field are not followed. Assignments to a shadowing declaration in a nested scope are skipped.
 func prefsDefinitions(file *scanner.File, fn, use uint32, name string) (defs []prefsDef, declared bool) {
 	useStart := file.FlatStartByte(use)
-	visible := func(scope uint32) bool {
-		return file.FlatStartByte(scope) <= useStart && useStart <= file.FlatEndByte(scope)
-	}
+	var decls []*prefsDef
 	addDecl := func(decl, scope, value, param uint32) {
-		if file.FlatStartByte(decl) < useStart && visible(scope) {
-			declared = true
-			defs = append(defs, prefsDef{pos: file.FlatStartByte(decl), value: value, param: param})
-		}
+		decls = append(decls, &prefsDef{pos: file.FlatStartByte(decl), value: value, param: param, scope: scope})
 	}
 	file.FlatWalkNodes(fn, "property_declaration", func(decl uint32) {
 		if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
@@ -233,9 +233,34 @@ func prefsDefinitions(file *scanner.File, fn, use uint32, name string) (defs []p
 		}
 	})
 	prefsParameterDefs(file, fn, name, addDecl)
-	file.FlatWalkNodes(fn, "assignment", func(as uint32) { prefsAssignmentDef(file, as, name, useStart, declared, &defs) })
-	file.FlatWalkNodes(fn, "assignment_expression", func(as uint32) { prefsAssignmentDef(file, as, name, useStart, declared, &defs) })
-	return defs, declared
+	binding := prefsBindingAt(file, decls, useStart)
+	if binding == nil {
+		return nil, false
+	}
+	defs = append(defs, *binding)
+	collect := func(as uint32) {
+		if def, ok := prefsAssignmentDef(file, as, name, useStart); ok && prefsBindingAt(file, decls, def.pos) == binding {
+			defs = append(defs, def)
+		}
+	}
+	file.FlatWalkNodes(fn, "assignment", collect)
+	file.FlatWalkNodes(fn, "assignment_expression", collect)
+	return defs, true
+}
+
+// prefsBindingAt returns the declaration visible at pos: the innermost-scoped one declared before pos.
+func prefsBindingAt(file *scanner.File, decls []*prefsDef, pos uint32) *prefsDef {
+	var best *prefsDef
+	for _, d := range decls {
+		if d.pos >= pos || file.FlatStartByte(d.scope) > pos || pos > file.FlatEndByte(d.scope) {
+			continue
+		}
+		if best == nil || file.FlatStartByte(d.scope) > file.FlatStartByte(best.scope) ||
+			(d.scope == best.scope && d.pos > best.pos) {
+			best = d
+		}
+	}
+	return best
 }
 
 // prefsParameterDefs registers function and lambda parameters named name; they hide earlier values.
@@ -269,19 +294,19 @@ func prefsAddParam(file *scanner.File, p uint32, add func(decl, scope, value, pa
 	}
 }
 
-// prefsAssignmentDef records `name = value` when it precedes the use and a local named so is declared.
-func prefsAssignmentDef(file *scanner.File, as uint32, name string, useStart uint32, declared bool, defs *[]prefsDef) {
-	if !declared || file.FlatStartByte(as) >= useStart {
-		return
+// prefsAssignmentDef returns `name = value` when it precedes the use.
+func prefsAssignmentDef(file *scanner.File, as uint32, name string, useStart uint32) (prefsDef, bool) {
+	if file.FlatStartByte(as) >= useStart {
+		return prefsDef{}, false
 	}
 	target := file.FlatNamedChild(as, 0)
 	if file.FlatType(target) == "directly_assignable_expression" {
 		target = file.FlatNamedChild(target, 0)
 	}
 	if target == 0 || file.FlatNodeText(target) != name || file.FlatNamedChildCount(as) < 2 || !prefsPlainAssignment(file, as) {
-		return
+		return prefsDef{}, false
 	}
-	*defs = append(*defs, prefsDef{pos: file.FlatStartByte(as), value: flatLastNamedChild(file, as)})
+	return prefsDef{pos: file.FlatStartByte(as), value: flatLastNamedChild(file, as)}, true
 }
 
 // prefsPlainAssignment reports whether the assignment operator is `=`.

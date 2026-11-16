@@ -305,6 +305,41 @@ fun scope(sp: SharedPreferences) {
 	}
 }
 
+func TestMutatingSharedPrefsFollowsLexicalBinding(t *testing.T) {
+	got := findingPositions(runRuleByName(t, "MutatingSharedPrefs", `package q
+import android.content.SharedPreferences
+
+fun shadowAssigned(sp: SharedPreferences) {
+  val s = mutableSetOf<String>()
+  run {
+    var s = mutableSetOf<String>()
+    s = sp.getStringSet("key", null)!!
+    s.add("inner")
+  }
+  s.add("outer")
+}
+fun outerAssigned(sp: SharedPreferences) {
+  var s = mutableSetOf<String>()
+  run {
+    s = sp.getStringSet("key", null)!!
+  }
+  s.add("outer")
+}
+fun shadowHidesOuter(sp: SharedPreferences) {
+  var s = sp.getStringSet("key", null)!!
+  run {
+    var s = mutableSetOf<String>()
+    s = mutableSetOf()
+    s.add("inner")
+  }
+  s.add("outer")
+}
+`))
+	if want := "9:5,18:3,27:3"; got != want {
+		t.Errorf("MutatingSharedPrefs positions = %s, want %s", got, want)
+	}
+}
+
 func TestMutatingSharedPrefsJavaLintParity(t *testing.T) {
 	got := findingPositions(runRuleByNameOnJava(t, "MutatingSharedPrefs", `package q;
 import android.content.SharedPreferences;

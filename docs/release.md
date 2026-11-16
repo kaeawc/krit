@@ -7,7 +7,7 @@ Krit ships from `v*` tags:
   for musl) bundling `krit`, `krit-lsp`, and `krit-mcp`, plus SBOMs, the
   `krit-fir` jar, and a signed `checksums.txt`. Tags with a prerelease
   suffix (`-nightly.*`, `-rc1`, ...) are marked as GitHub prereleases.
-  Owned by [`release.yml`](../.github/workflows/release.yml). The Gradle
+  Owned by [`release.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/release.yml). The Gradle
   plugin, VS Code extension, and `install.sh` all download these archives
   and verify them against `checksums.txt`.
 - **Package managers** — stable `vX.Y.Z` tags only. `release.yml` pushes
@@ -21,14 +21,14 @@ Krit ships from `v*` tags:
   self-contained `:krit-fir` oracle jar (see
   [Oracle jar on Maven Central](#oracle-jar-on-maven-central) below).
   Owned by
-  [`publish-maven-central.yml`](../.github/workflows/publish-maven-central.yml).
+  [`publish-maven-central.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/publish-maven-central.yml).
 - **Gradle Plugin Portal** — `dev.jasonpearson.krit` Gradle plugin
   (separate; not yet automated, see
-  [`krit-gradle-plugin/`](../krit-gradle-plugin/)). The plugin's version
+  [`krit-gradle-plugin/`](https://github.com/kaeawc/krit/tree/main/krit-gradle-plugin)). The plugin's version
   is the krit release it downloads by default; build it with
   `-PkritVersion=X.Y.Z` to match the tag.
 
-[`nightly.yml`](../.github/workflows/nightly.yml) pushes a
+[`nightly.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/nightly.yml) pushes a
 `vX.Y.Z-nightly.<date>` tag daily when `main` has new commits, so
 nightlies get a GitHub prerelease and nothing else.
 

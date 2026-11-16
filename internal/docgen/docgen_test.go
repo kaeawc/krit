@@ -128,6 +128,45 @@ func TestGeneratedLinksResolve(t *testing.T) {
 	}
 }
 
+// mkdocs --strict fails on relative links that leave docs/, so those must be absolute URLs.
+func TestHandwrittenDocLinksStayInsideDocs(t *testing.T) {
+	docs, err := filepath.Abs(filepath.Join(repoRoot, "docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := regexp.MustCompile(`\]\(([^)\s#]+)[^)]*\)`)
+	fence := regexp.MustCompile("(?ms)^\\s*```.*?^\\s*```")
+	err = filepath.WalkDir(docs, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if p == filepath.Join(docs, "rules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(p) != ".md" {
+			return nil
+		}
+		body := fence.ReplaceAllString(read(t, p), "")
+		for _, m := range link.FindAllStringSubmatch(body, -1) {
+			target := m[1]
+			if strings.Contains(target, ":") || strings.HasPrefix(target, "/") {
+				continue
+			}
+			resolved := filepath.Join(filepath.Dir(p), filepath.FromSlash(target))
+			if rel, relErr := filepath.Rel(docs, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
+				t.Errorf("%s: link %s leaves docs/; use a GitHub URL", strings.TrimPrefix(p, docs+string(filepath.Separator)), target)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMkdocsNavCoversEveryCategory(t *testing.T) {
 	nav := read(t, filepath.Join(repoRoot, "mkdocs.yml"))
 	for _, r := range api.Registry {

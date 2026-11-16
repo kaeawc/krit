@@ -515,7 +515,7 @@ package; treat the asymmetric naming as load-bearing.
 
 When the consumer builds Krit from source — for example, when shipping
 a heavily-customized Krit binary internally — they can register rules
-in-process via [`pkg/extension`](../pkg/extension/extension.go):
+in-process via [`pkg/extension`](https://github.com/kaeawc/krit/blob/main/pkg/extension/extension.go):
 
 ```go
 package myteamrules

@@ -10,5 +10,5 @@ fun deviceSettings(context: Context): String? {
     val airplane: Int = Settings.Global.getInt(resolver, Settings.Global.AIRPLANE_MODE_ON, 0)
     val id: String? = Settings.Secure.getString(resolver, Settings.Secure.ANDROID_ID)
     context.startActivity(Intent(Settings.ACTION_SETTINGS))
-    return Settings.Global.getString(resolver, "name") ?: "$airplane$id"
+    return Settings.Global.getString(resolver, "name") ?: "$airplane${id.orEmpty()}"
 }

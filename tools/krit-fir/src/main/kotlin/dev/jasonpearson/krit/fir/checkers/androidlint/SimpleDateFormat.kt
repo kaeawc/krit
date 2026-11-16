@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -12,7 +13,6 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -96,7 +96,6 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
     context(context: CheckerContext)
     private fun extendsSimpleDateFormat(constructor: FirConstructorSymbol): Boolean {
         val owner = constructor.getContainingClassSymbol() ?: return false
-        return lookupSuperTypes(owner, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-            .any { it.lookupTag.classId in simpleDateFormatClassIds }
+        return inheritsFromAny(owner, simpleDateFormatClassIds, context.session, lookupInterfaces = false)
     }
 }

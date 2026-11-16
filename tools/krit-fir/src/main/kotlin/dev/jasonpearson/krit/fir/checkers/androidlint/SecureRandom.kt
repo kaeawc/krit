@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.security.assignedLocalValues
 import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
@@ -21,7 +22,6 @@ import org.jetbrains.kotlin.fir.expressions.argument
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
@@ -199,7 +199,5 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
     // local and anonymous classes; only class ids already in hand are compared.
     context(context: CheckerContext)
     private fun isSubclassOf(symbol: FirClassLikeSymbol<*>, classId: ClassId): Boolean =
-        symbol.classId == classId ||
-            lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == classId }
+        isOrInheritsFrom(symbol, classId, context.session, lookupInterfaces = false)
 }

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.support
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -24,5 +25,19 @@ class FirClassIdsTest {
     @Test
     fun emptyPackageIsRoot() {
         assertEquals("Foo", classIdOf("", "Foo").asString())
+    }
+
+    @Test
+    fun nullableClassTypeIsNullableWithoutTypeArguments() {
+        val type = classIdOf("java.util", "Map").nullableClassType()
+        assertEquals(classIdOf("java.util", "Map"), type.lookupTag.classId)
+        assertTrue(type.isMarkedNullable)
+        assertTrue(type.typeArguments.isEmpty())
+    }
+
+    @Test
+    fun nullableClassTypesOfEqualIdsAreEqual() {
+        assertEquals(classIdOf("a", "B").nullableClassType(), classIdOf("a", "B").nullableClassType())
+        assertFalse(classIdOf("a", "B").nullableClassType() == classIdOf("a", "C").nullableClassType())
     }
 }

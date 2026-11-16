@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
@@ -15,7 +16,6 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeStarProjection
@@ -146,7 +146,5 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
         child === call.explicitReceiver || child === call.dispatchReceiver || child === call.extensionReceiver
 
     private fun isDeferred(symbol: FirClassSymbol<*>, session: FirSession): Boolean =
-        symbol.classId == deferredClassId ||
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                .any { it.classId == deferredClassId }
+        isOrInheritsFrom(symbol, deferredClassId, session, lookupInterfaces = true)
 }

@@ -1,0 +1,168 @@
+11:17 Unnecessary; `Build.VERSION.SDK_INT == 22` is never true here
+11:48 Unnecessary; `SDK_INT` is always >= 24
+14:1 Unnecessary; `SDK_INT` is always >= 19
+19:9 Unnecessary; `Build.VERSION.SDK_INT == 21` is never true here
+19:45 Unnecessary; `Build.VERSION.SDK_INT == 26` is never true here
+19:79 Unnecessary; `SDK_INT` is always >= 24
+19:242 Unnecessary; `SDK_INT` is always >= 26
+19:285 Unnecessary; `Build.VERSION.SDK_INT != 26` is always true here (`SDK_INT` ≥ 24 and < 26)
+23:138 Unnecessary; `Build.VERSION.SDK_INT < 20` is never true here
+23:182 Unnecessary; `Build.VERSION.SDK_INT > 20` is always true here (`SDK_INT` = 25)
+23:214 Unnecessary; `Build.VERSION.SDK_INT == 19` is never true here
+23:245 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+23:277 Unnecessary; `Build.VERSION.SDK_INT < 20` is never true here
+23:307 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+23:350 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+23:455 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+23:501 Unnecessary; `Build.VERSION.SDK_INT < 24` is never true here
+27:11 Unnecessary; `Build.VERSION.SDK_INT == 21` is never true here
+27:75 Unnecessary; `SDK_INT` is always >= 26
+27:105 Unnecessary; `Build.VERSION.SDK_INT >= 30` is never true here
+35:13 Unnecessary; `Build.VERSION.SDK_INT != 21` is never true here
+35:44 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+35:83 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+35:114 Unnecessary; `Build.VERSION.SDK_INT != 26` is never true here
+35:147 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+35:177 Unnecessary; `SDK_INT` is always >= 24
+35:211 Unnecessary; `SDK_INT` is always >= 24
+35:262 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+39:210 Unnecessary; `SDK_INT` is always >= 24
+39:259 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+39:393 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+39:435 Unnecessary; `Build.VERSION.SDK_INT > 19` is never true here
+43:22 Unnecessary; `Build.VERSION.SDK_INT == 19` is never true here
+43:92 Unnecessary; `SDK_INT` is always >= 23
+43:133 Unnecessary; `SDK_INT` is always >= 23
+43:202 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+43:252 Unnecessary; `SDK_INT` is always >= 23
+43:284 Unnecessary; `SDK_INT` is always >= 23
+43:348 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+50:1 Unnecessary; `SDK_INT` is always >= 19
+51:9 Unnecessary; `Build.VERSION.SDK_INT < 20` is never true here
+51:43 Unnecessary; `Build.VERSION.SDK_INT != 19` is never true here
+51:85 Unnecessary; `SDK_INT` is always >= 21
+55:117 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+55:159 Unnecessary; `Build.VERSION.SDK_INT <= 22` is never true here
+55:206 Unnecessary; `Build.VERSION.SDK_INT == 24` is never true here
+59:9 Unnecessary; `Build.VERSION.SDK_INT == 20` is never true here
+59:48 Unnecessary; `Build.VERSION.SDK_INT <= 30` is never true here
+63:9 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+63:48 Unnecessary; `Build.VERSION.SDK_INT > 26` is never true here
+63:78 Unnecessary; `SDK_INT` is always >= 24
+63:116 Unnecessary; `Build.VERSION.SDK_INT == 30` is never true here
+63:169 Unnecessary; `Build.VERSION.SDK_INT == 22` is never true here
+63:254 Unnecessary; `SDK_INT` is always >= 24
+63:301 Unnecessary; `SDK_INT` is always >= 24
+63:331 Unnecessary; `Build.VERSION.SDK_INT == 22` is never true here
+63:364 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+67:43 Unnecessary; `Build.VERSION.SDK_INT <= 21` is never true here
+67:93 Unnecessary; `Build.VERSION.SDK_INT < 30` is always true here (`SDK_INT` ≥ 22 and < 24)
+74:1 Unnecessary; `SDK_INT` is always >= 19
+79:42 Unnecessary; `SDK_INT` is always >= 24
+79:73 Unnecessary; `Build.VERSION.SDK_INT < 21` is never true here
+83:47 Unnecessary; `Build.VERSION.SDK_INT >= 19` is always true here (`SDK_INT` = 30)
+87:9 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+87:43 Unnecessary; `Build.VERSION.SDK_INT <= 25` is never true here
+91:43 Unnecessary; `Build.VERSION.SDK_INT > 20` is always true here (`SDK_INT` ≥ 24 and < 31)
+95:10 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+95:101 Unnecessary; `SDK_INT` is always >= 25
+95:142 Unnecessary; `Build.VERSION.SDK_INT == 21` is never true here
+99:9 Unnecessary; `Build.VERSION.SDK_INT == 21` is never true here
+99:46 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+99:76 Unnecessary; `SDK_INT` is always >= 24
+99:111 Unnecessary; `Build.VERSION.SDK_INT <= 23` is never true here
+99:196 Unnecessary; `Build.VERSION.SDK_INT == 22` is never true here
+99:229 Unnecessary; `Build.VERSION.SDK_INT <= 19` is never true here
+99:260 Unnecessary; `Build.VERSION.SDK_INT >= 19` is never true here
+99:303 Unnecessary; `Build.VERSION.SDK_INT == 23` is never true here
+99:422 Unnecessary; `Build.VERSION.SDK_INT <= 19` is never true here
+99:517 Unnecessary; `SDK_INT` is always >= 24
+99:564 Unnecessary; `SDK_INT` is always >= 31
+99:598 Unnecessary; `SDK_INT` is always >= 31
+99:640 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+107:17 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+111:42 Unnecessary; `SDK_INT` is always >= 30
+111:114 Unnecessary; `Build.VERSION.SDK_INT == 20` is never true here
+111:145 Unnecessary; `SDK_INT` is always >= 24
+115:13 Unnecessary; `SDK_INT` is always >= 22
+115:45 Unnecessary; `SDK_INT` is always >= 22
+115:145 Unnecessary; `Build.VERSION.SDK_INT < 30` is always true here (`SDK_INT` = 22)
+115:177 Unnecessary; `Build.VERSION.SDK_INT < 26` is always true here (`SDK_INT` = 24)
+115:214 Unnecessary; `Build.VERSION.SDK_INT >= 21` is always true here (`SDK_INT` = 24)
+115:277 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+115:309 Unnecessary; `Build.VERSION.SDK_INT == 20` is never true here
+115:355 Unnecessary; `Build.VERSION.SDK_INT >= 30` is never true here
+115:389 Unnecessary; `Build.VERSION.SDK_INT != 20` is always true here (`SDK_INT` = 24)
+115:471 Unnecessary; `Build.VERSION.SDK_INT <= 19` is never true here
+115:502 Unnecessary; `SDK_INT` is always >= 22
+119:12 Unnecessary; `SDK_INT` is always >= 24
+119:48 Unnecessary; `SDK_INT` is always >= 24
+119:126 Unnecessary; `Build.VERSION.SDK_INT < 20` is never true here
+119:166 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+119:267 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+119:329 Unnecessary; `Build.VERSION.SDK_INT == 19` is never true here
+123:10 Unnecessary; `SDK_INT` is always >= 21
+123:41 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+127:21 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+135:74 Unnecessary; `SDK_INT` is always >= 24
+135:105 Unnecessary; `Build.VERSION.SDK_INT <= 26` is never true here
+139:40 Unnecessary; `SDK_INT` is always >= 23
+142:1 Unnecessary; `SDK_INT` is always >= 19
+147:42 Unnecessary; `Build.VERSION.SDK_INT >= 21` is always true here (`SDK_INT` = 21)
+147:74 Unnecessary; `SDK_INT` is always >= 22
+151:30 Unnecessary; `SDK_INT` is always >= 24
+151:61 Unnecessary; `SDK_INT` is always >= 24
+163:48 Unnecessary; `Build.VERSION.SDK_INT >= 30` is never true here
+163:85 Unnecessary; `SDK_INT` is always >= 24
+163:119 Unnecessary; `SDK_INT` is always >= 24
+163:194 Unnecessary; `Build.VERSION.SDK_INT >= 30` is never true here
+167:44 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+171:16 Unnecessary; `Build.VERSION.SDK_INT == 23` is never true here
+171:47 Unnecessary; `Build.VERSION.SDK_INT == 24` is never true here
+171:87 Unnecessary; `SDK_INT` is always >= 24
+171:124 Unnecessary; `Build.VERSION.SDK_INT > 20` is never true here
+171:159 Unnecessary; `Build.VERSION.SDK_INT < 20` is never true here
+171:315 Unnecessary; `Build.VERSION.SDK_INT == 21` is never true here
+171:346 Unnecessary; `Build.VERSION.SDK_INT == 23` is never true here
+171:390 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+171:447 Unnecessary; `Build.VERSION.SDK_INT < 23` is never true here
+171:477 Unnecessary; `Build.VERSION.SDK_INT == 22` is never true here
+175:48 Unnecessary; `Build.VERSION.SDK_INT < 24` is never true here
+175:80 Unnecessary; `Build.VERSION.SDK_INT < 24` is never true here
+175:118 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+175:154 Unnecessary; `Build.VERSION.SDK_INT <= 20` is never true here
+175:200 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+183:49 Unnecessary; `Build.VERSION.SDK_INT < 24` is always true here (`SDK_INT` ≥ 22 and < 24)
+190:1 Unnecessary; `SDK_INT` is always >= 19
+191:73 Unnecessary; `Build.VERSION.SDK_INT == 25` is never true here
+191:205 Unnecessary; `Build.VERSION.SDK_INT == 20` is never true here
+194:1 Unnecessary; `SDK_INT` is always >= 19
+195:44 Unnecessary; `Build.VERSION.SDK_INT >= 26` is never true here
+202:1 Unnecessary; `SDK_INT` is always >= 19
+203:118 Unnecessary; `SDK_INT` is always >= 31
+203:187 Unnecessary; `Build.VERSION.SDK_INT < 30` is never true here
+203:217 Unnecessary; `SDK_INT` is always >= 31
+203:248 Unnecessary; `SDK_INT` is always >= 31
+203:363 Unnecessary; `Build.VERSION.SDK_INT <= 22` is always true here (`SDK_INT` ≥ 21 and < 23)
+203:426 Unnecessary; `SDK_INT` is always >= 21
+207:110 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+207:144 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+207:177 Unnecessary; `Build.VERSION.SDK_INT > 23` is never true here
+207:207 Unnecessary; `Build.VERSION.SDK_INT >= 21` is never true here
+207:251 Unnecessary; `Build.VERSION.SDK_INT < 23` is never true here
+207:321 Unnecessary; `SDK_INT` is always >= 22
+207:352 Unnecessary; `SDK_INT` is always >= 22
+207:428 Unnecessary; `SDK_INT` is always >= 22
+211:46 Unnecessary; `Build.VERSION.SDK_INT >= 26` is never true here
+211:114 Unnecessary; `SDK_INT` is always >= 26
+214:1 Unnecessary; `SDK_INT` is always >= 19
+227:49 Unnecessary; `Build.VERSION.SDK_INT == 19` is never true here
+231:12 Unnecessary; `Build.VERSION.SDK_INT == 23` is never true here
+235:12 Unnecessary; `SDK_INT` is always >= 23
+235:68 Unnecessary; `Build.VERSION.SDK_INT <= 30` is never true here
+235:116 Unnecessary; `SDK_INT` is always >= 23
+235:146 Unnecessary; `SDK_INT` is always >= 23
+239:9 Unnecessary; `SDK_INT` is always >= 24
+239:40 Unnecessary; `Build.VERSION.SDK_INT < 22` is never true here
+243:10 Unnecessary; `SDK_INT` is always >= 24
+243:41 Unnecessary; `SDK_INT` is always >= 24

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -14,7 +15,6 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSuperReceiverExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.ClassId
@@ -108,7 +108,5 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     // local and anonymous classes; only class ids already in hand are compared.
     context(context: CheckerContext)
     private fun isView(symbol: FirClassLikeSymbol<*>): Boolean =
-        symbol.classId == view ||
-            lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == view }
+        isOrInheritsFrom(symbol, view, context.session, lookupInterfaces = false)
 }

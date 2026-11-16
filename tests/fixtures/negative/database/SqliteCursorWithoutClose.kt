@@ -1,14 +1,7 @@
 package test
 
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
-
-interface Cursor {
-    fun moveToNext(): Boolean
-    fun getString(idx: Int): String
-    fun close()
-}
-
-inline fun <T : Cursor, R> T.use(block: (T) -> R): R = block(this)
 
 fun loadUsersWithUse(db: SQLiteDatabase) {
     db.rawQuery("SELECT * FROM users", null).use { cursor ->

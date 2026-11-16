@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -13,7 +14,6 @@ import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
@@ -95,13 +95,7 @@ internal object JavaObjectInputStream : FirFunctionCallChecker(MppCheckerKind.Co
         val nearest = context.containingDeclarations.asReversed()
             .firstOrNull { it is FirRegularClassSymbol && it.classKind != ClassKind.OBJECT && it.classKind != ClassKind.ENUM_ENTRY }
             as? FirRegularClassSymbol ?: return false
-        val extendsObjectInputStream = lookupSuperTypes(
-            nearest,
-            lookupInterfaces = false,
-            deep = true,
-            useSiteSession = context.session,
-        ).any { it.classId == objectInputStream }
-        if (!extendsObjectInputStream) return false
+        if (!inheritsFrom(nearest, context.session, lookupInterfaces = false) { it == objectInputStream }) return false
         return nearest.declarationSymbols.any { it is FirNamedFunctionSymbol && it.name == resolveClass }
     }
 }

@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.trailingLambdaOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -21,7 +22,6 @@ import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirComponentCall
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
@@ -81,7 +81,7 @@ internal object UnnecessaryLet : FirFunctionCallChecker(MppCheckerKind.Common), 
         val safe = parent?.tokenType == KtNodeTypes.SAFE_ACCESS_EXPRESSION
 
         val lambdaNode = trailingLambda(source, call)
-        val lambda = trailingLambdaOf(expression)
+        val lambda = lastTrailingLambda(expression)
         val count = if (lambda == null) 0 else countReferences(lambda)
         if (count > 1) return
 
@@ -136,12 +136,8 @@ internal object UnnecessaryLet : FirFunctionCallChecker(MppCheckerKind.Common), 
         KtNodeTypes.LAMBDA_EXPRESSION,
     )
 
-    private fun trailingLambdaOf(call: FirFunctionCall): FirAnonymousFunctionExpression? {
-        var argument = call.argumentList.arguments.lastOrNull() ?: return null
-        if (argument is FirFunctionTypeConversionExpression) argument = argument.expression
-        val lambda = argument as? FirAnonymousFunctionExpression ?: return null
-        return if (lambda.isTrailingLambda) lambda else null
-    }
+    private fun lastTrailingLambda(call: FirFunctionCall): FirAnonymousFunctionExpression? =
+        call.argumentList.arguments.lastOrNull()?.let(::trailingLambdaOf)
 
     // The names the lambda parameter goes by: `it`, the declared name, or the
     // destructured names. Detekt compares them with the root of the body.

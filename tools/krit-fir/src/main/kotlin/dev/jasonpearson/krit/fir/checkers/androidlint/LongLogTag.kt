@@ -1,12 +1,13 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.containingMinSdk
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
+import dev.jasonpearson.krit.fir.containingMinSdk
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -37,7 +38,6 @@ import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.expressions.unwrapSmartcastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirBackingFieldSymbol
@@ -233,8 +233,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
 
     context(context: CheckerContext)
     private fun isSubclass(symbol: FirClassSymbol<*>, ownerId: ClassId): Boolean =
-        lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = context.session)
-            .any { it.classId == ownerId }
+        inheritsFrom(symbol, context.session, lookupInterfaces = true) { it == ownerId }
 
     // The expression whose value the local var [variable] holds where [use]
     // reads it. The value can be the initializer as long as no assignment

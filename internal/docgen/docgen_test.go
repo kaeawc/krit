@@ -128,14 +128,59 @@ func TestGeneratedLinksResolve(t *testing.T) {
 	}
 }
 
+var (
+	inlineLinkDest = regexp.MustCompile(`\]\(\s*(?:<([^>]+)>|([^)\s]+))`)
+	refLinkDest    = regexp.MustCompile(`(?m)^ {0,3}\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))`)
+	codeFence      = regexp.MustCompile("(?ms)^\\s*```.*?^\\s*```")
+)
+
+// linksLeavingDir returns relative link destinations in body that resolve outside dir.
+func linksLeavingDir(dir, file, body string) []string {
+	body = codeFence.ReplaceAllString(body, "")
+	var out []string
+	for _, re := range []*regexp.Regexp{inlineLinkDest, refLinkDest} {
+		for _, m := range re.FindAllStringSubmatch(body, -1) {
+			target := m[1] + m[2]
+			if i := strings.IndexByte(target, '#'); i >= 0 {
+				target = target[:i]
+			}
+			if target == "" || strings.Contains(target, ":") || strings.HasPrefix(target, "/") {
+				continue
+			}
+			resolved := filepath.Join(filepath.Dir(file), filepath.FromSlash(target))
+			if rel, err := filepath.Rel(dir, resolved); err != nil || strings.HasPrefix(rel, "..") {
+				out = append(out, target)
+			}
+		}
+	}
+	return out
+}
+
+func TestLinksLeavingDir(t *testing.T) {
+	dir := filepath.FromSlash("/repo/docs")
+	file := filepath.Join(dir, "page.md")
+	body := strings.Join([]string{
+		"[a](../pkg/a.go) [b](<../pkg/b.go>) [c](sub/c.md#x) [d](#anchor) [e](https://x.dev/../y)",
+		"[f][ref] [g][angle]",
+		"[ref]: ../pkg/f.go",
+		"[angle]: <../pkg/g.go>",
+		"[ok]: other.md",
+		"```",
+		"[h](../in-code-block.md)",
+		"```",
+	}, "\n")
+	got := strings.Join(linksLeavingDir(dir, file, body), ",")
+	if want := "../pkg/a.go,../pkg/b.go,../pkg/f.go,../pkg/g.go"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 // mkdocs --strict fails on relative links that leave docs/, so those must be absolute URLs.
 func TestHandwrittenDocLinksStayInsideDocs(t *testing.T) {
 	docs, err := filepath.Abs(filepath.Join(repoRoot, "docs"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	link := regexp.MustCompile(`\]\(([^)\s#]+)[^)]*\)`)
-	fence := regexp.MustCompile("(?ms)^\\s*```.*?^\\s*```")
 	err = filepath.WalkDir(docs, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -149,16 +194,8 @@ func TestHandwrittenDocLinksStayInsideDocs(t *testing.T) {
 		if filepath.Ext(p) != ".md" {
 			return nil
 		}
-		body := fence.ReplaceAllString(read(t, p), "")
-		for _, m := range link.FindAllStringSubmatch(body, -1) {
-			target := m[1]
-			if strings.Contains(target, ":") || strings.HasPrefix(target, "/") {
-				continue
-			}
-			resolved := filepath.Join(filepath.Dir(p), filepath.FromSlash(target))
-			if rel, relErr := filepath.Rel(docs, resolved); relErr != nil || strings.HasPrefix(rel, "..") {
-				t.Errorf("%s: link %s leaves docs/; use a GitHub URL", strings.TrimPrefix(p, docs+string(filepath.Separator)), target)
-			}
+		for _, target := range linksLeavingDir(docs, p, read(t, p)) {
+			t.Errorf("%s: link %s leaves docs/; use a GitHub URL", strings.TrimPrefix(p, docs+string(filepath.Separator)), target)
 		}
 		return nil
 	})

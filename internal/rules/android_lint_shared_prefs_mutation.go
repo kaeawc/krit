@@ -170,8 +170,6 @@ type prefsDef struct {
 	param uint32
 	// scope is the node a declaration is visible in; zero for assignments.
 	scope uint32
-	// binding is the declaration an assignment writes to.
-	binding *prefsDef
 }
 
 // prefsNameTracked follows a local name back to its latest definition before the use.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -21,10 +22,12 @@ const ShardsEnv = "KRIT_MODULE_SHARDS"
 func MergedOnly() bool { return os.Getenv(ShardsEnv) == "merged" }
 
 // Isolator returns the FIR pass's source-set isolator for a scan of scanPaths, or nil when
-// KRIT_MODULE_SHARDS=merged turns it off. Rechecked units are cached by content under the project
-// state directory, or in a directory removed after the recheck when noCache is set.
-func Isolator(scanPaths []string, noCache bool, logf func(string, ...any)) firchecks.SourceSetIsolator {
-	if MergedOnly() || len(scanPaths) == 0 {
+// KRIT_MODULE_SHARDS=merged turns it off or the scan reads no Gradle model. modelDir is the scan's
+// explicit model directory ("" discovers one from the scan paths unless modelDisabled). Rechecked units
+// are cached by content under the project state directory, or in a directory removed after the recheck
+// when noCache is set.
+func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, logf func(string, ...any)) firchecks.SourceSetIsolator {
+	if MergedOnly() || len(scanPaths) == 0 || (modelDir == "" && modelDisabled) {
 		return nil
 	}
 	scanPaths = append([]string(nil), scanPaths...)
@@ -51,6 +54,7 @@ func Isolator(scanPaths []string, noCache bool, logf func(string, ...any)) firch
 		}
 		return CheckIsolated(ctx, Input{
 			ScanPaths:    scanPaths,
+			ModelDir:     modelDir,
 			JarPath:      jarPath,
 			JavaPath:     javaPath,
 			CacheDir:     cacheDir,
@@ -77,12 +81,13 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	if check == nil {
 		return nil, nil, nil
 	}
-	model, repoRoot, _ := loadModel(in.ScanPaths[0])
+	model, repoRoot := isolationModel(in)
 	if model == nil {
 		return nil, nil, nil
 	}
 	all, _ := Plan(model, repoRoot, in.ScanPaths)
 	units, skipped := isolationUnits(all, gated)
+	addUserClasspath(units, model, check.classpath)
 	for _, project := range skipped {
 		logf("verbose: FIR source sets: %s keeps its merged verdicts (dependency sources exceed the context limit)\n", project)
 	}
@@ -197,4 +202,58 @@ func countProjects(units []Unit) int {
 		seen[projectOf(u.Spec.ID)] = true
 	}
 	return len(seen)
+}
+
+// isolationModel loads the scan's Gradle model: in.ModelDir when set, else the one discovered from the
+// first scan path. The repository root is where built dependency jars are looked up.
+func isolationModel(in Input) (*gradlemodel.Model, string) {
+	if in.ModelDir == "" {
+		model, repoRoot, _ := loadModel(in.ScanPaths[0])
+		return model, repoRoot
+	}
+	model, _, err := gradlemodel.Load(in.ModelDir)
+	if err != nil {
+		return nil, ""
+	}
+	repoRoot := oracle.FindRepoDir(in.ScanPaths)
+	if repoRoot == "" {
+		repoRoot = filepath.Dir(filepath.Dir(in.ModelDir))
+	}
+	return model, repoRoot
+}
+
+// addUserClasspath appends to every unit the request's classpath entries that no model source set
+// lists: the ones the user configured (oracle.classpath, CLASSPATH), which the merged compile had too.
+func addUserClasspath(units []Unit, model *gradlemodel.Model, requested []string) {
+	fromModel := map[string]bool{}
+	for _, p := range model.Projects {
+		for _, s := range p.SourceSets {
+			for _, list := range [][]string{s.BootClasspath, s.ClasspathEntries, s.GeneratedClasspath} {
+				for _, entry := range list {
+					fromModel[oracle.AbsolutePath(entry)] = true
+				}
+			}
+		}
+	}
+	var extra []string
+	for _, entry := range requested {
+		if !fromModel[oracle.AbsolutePath(entry)] {
+			extra = append(extra, entry)
+		}
+	}
+	if len(extra) == 0 {
+		return
+	}
+	for i := range units {
+		have := map[string]bool{}
+		for _, entry := range units[i].Spec.Classpath {
+			have[oracle.AbsolutePath(entry)] = true
+		}
+		for _, entry := range extra {
+			if !have[oracle.AbsolutePath(entry)] {
+				have[oracle.AbsolutePath(entry)] = true
+				units[i].Spec.Classpath = append(units[i].Spec.Classpath, entry)
+			}
+		}
+	}
 }

@@ -31,6 +31,9 @@ import (
 // Input describes one sharded oracle run.
 type Input struct {
 	ScanPaths []string
+	// ModelDir, when set, is the Gradle model directory to read instead of discovering one (only
+	// CheckIsolated reads it).
+	ModelDir string
 	// JarPath is the krit-fir jar. JavaPath is the JVM to run it with.
 	JarPath, JavaPath string
 	// Workers is the number of worker JVMs; 0 means half the CPUs, between 2 and 8.

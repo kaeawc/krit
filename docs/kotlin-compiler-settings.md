@@ -265,7 +265,9 @@ next to other projects' sets. A project keeps its merged verdicts when a set's
 unbuilt dependency sources exceed 3000 files or a set's compile fails, and a
 gated file outside every exported source set (for example a `src/debug` or
 flavor directory of a variant the model did not export) is not rechecked.
-The recheck replaces FIR check verdicts only; the type oracle's facts still
+The recheck reads the same Gradle model as the scan (`--gradle-model`,
+`--no-gradle-model`) and keeps any configured `oracle.classpath` or
+`CLASSPATH` entries. It replaces FIR check verdicts only; the type oracle's facts still
 come from the merged compile. `--verbose` reports it as a `FIR source sets:`
 line. Rechecked sets are cached by content in the project state directory
 (`.krit/module-facts/source-sets`), so only edited sets recompile; `--no-cache`

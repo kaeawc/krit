@@ -53,12 +53,52 @@ func TestIsolationUnitsSkipProjectsWithoutFullContext(t *testing.T) {
 
 func TestIsolatorIsOffWhenMergedIsRequested(t *testing.T) {
 	t.Setenv(ShardsEnv, "merged")
-	if Isolator([]string{t.TempDir()}, true, nil) != nil {
+	if Isolator([]string{t.TempDir()}, "", false, true, nil) != nil {
 		t.Fatal("KRIT_MODULE_SHARDS=merged should turn the recheck off")
 	}
 	t.Setenv(ShardsEnv, "")
-	if Isolator([]string{t.TempDir()}, true, nil) == nil {
+	if Isolator([]string{t.TempDir()}, "", false, true, nil) == nil {
 		t.Fatal("the recheck should be on by default")
+	}
+	if Isolator([]string{t.TempDir()}, "", true, true, nil) != nil {
+		t.Fatal("--no-gradle-model leaves no model to recheck with")
+	}
+	if Isolator([]string{t.TempDir()}, t.TempDir(), true, true, nil) == nil {
+		t.Fatal("--gradle-model overrides --no-gradle-model")
+	}
+}
+
+func TestAddUserClasspathKeepsConfiguredEntriesOnly(t *testing.T) {
+	model := &gradlemodel.Model{Projects: []gradlemodel.Project{{Path: ":a", SourceSets: []gradlemodel.SourceSet{
+		{Name: "main", ClasspathEntries: []string{"/m2/model.jar"}, BootClasspath: []string{"/sdk/android.jar"}},
+	}}}}
+	units := []Unit{{Spec: firchecks.ModuleSpec{ID: ":a:main", Classpath: []string{"/m2/model.jar"}}}, {Spec: firchecks.ModuleSpec{ID: ":a:test"}}}
+	addUserClasspath(units, model, []string{"/sdk/android.jar", "/m2/model.jar", "/user/extra.jar"})
+	if !slices.Equal(units[0].Spec.Classpath, []string{"/m2/model.jar", "/user/extra.jar"}) ||
+		!slices.Equal(units[1].Spec.Classpath, []string{"/user/extra.jar"}) {
+		t.Fatalf("only the configured entry should be added: %v %v", units[0].Spec.Classpath, units[1].Spec.Classpath)
+	}
+}
+
+func TestCheckIsolatedReadsAnExplicitModelDirectory(t *testing.T) {
+	t.Setenv("KRIT_WORKER_AOT", "0")
+	model, root := fixtureModel(t)
+	elsewhere := t.TempDir()
+	writeModel(t, elsewhere, model)
+	test := filepath.Join(root, "lib", "src", "test", "kotlin", "LTest.kt")
+	request, _ := json.Marshal(map[string]any{"id": 2, "files": []map[string]string{{"path": test}}, "rules": []string{"R"}})
+	in := Input{
+		ScanPaths: []string{root}, JarPath: filepath.Join(root, "krit-fir.jar"), Workers: 1,
+		JavaPath: fakeWorker(t, []string{":lib:release", ":lib:releaseUnitTest"}, nil),
+		CacheDir: filepath.Join(t.TempDir(), "cache"), CheckRequest: request,
+	}
+	if _, rechecked, err := CheckIsolated(context.Background(), in, []string{test}); err != nil || len(rechecked) != 0 {
+		t.Fatalf("no model is discoverable from the scan path: %v %v", rechecked, err)
+	}
+	in.ModelDir = filepath.Join(elsewhere, ".krit", "gradle-model")
+	_, rechecked, err := CheckIsolated(context.Background(), in, []string{test})
+	if err != nil || !slices.Equal(rechecked, []string{test}) {
+		t.Fatalf("the explicit model should be used: %v %v", rechecked, err)
 	}
 }
 

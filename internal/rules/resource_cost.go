@@ -736,26 +736,78 @@ func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 	}
 	size, known := byteArraySizeLiteral(file, expr)
 	if !known && file.FlatType(expr) == "simple_identifier" {
-		name := file.FlatNodeText(expr)
-		lookup := func(root uint32) {
-			file.FlatWalkNodes(root, "property_declaration", func(prop uint32) {
-				if known || composePropertyNameFlat(file, prop) != name || declarationIsVarFlat(file, prop) {
-					return
-				}
-				if init := propertyInitializerExpression(file, prop); init != 0 {
-					size, known = byteArraySizeLiteral(file, init)
-				}
-			})
-		}
-		// A local shadows a member or top-level val of the same name.
-		if fn, ok := flatEnclosingCallable(file, call); ok {
-			lookup(fn)
-		}
-		if !known {
-			lookup(0)
-		}
+		size, known = visibleBufferValSize(file, call, file.FlatNodeText(expr))
 	}
 	return known && size >= 8192
+}
+
+// visibleBufferValSize returns the constant ByteArray size of the val named name that the read at call sees: the
+// nearest local declared before it, a member of an enclosing class or a top-level val. A parameter, a var or a val
+// without a constant ByteArray initializer that shadows outer declarations leaves the size unknown.
+func visibleBufferValSize(file *scanner.File, call uint32, name string) (int64, bool) {
+	at := file.FlatStartByte(call)
+	for scope, ok := file.FlatParent(call); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "statements", "class_body", "source_file":
+			decl := uint32(0)
+			for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) != "property_declaration" || composePropertyNameFlat(file, child) != name {
+					continue
+				}
+				if file.FlatType(scope) == "statements" {
+					if file.FlatStartByte(child) >= at {
+						break
+					}
+					decl = child
+					continue
+				}
+				decl = child
+				break
+			}
+			if decl == 0 {
+				continue
+			}
+			if declarationIsVarFlat(file, decl) {
+				return 0, false
+			}
+			if init := propertyInitializerExpression(file, decl); init != 0 {
+				return byteArraySizeLiteral(file, init)
+			}
+			return 0, false
+		case "function_declaration", "secondary_constructor", "anonymous_function":
+			if bufferScopeHasParameter(file, scope, "parameter", name) {
+				return 0, false
+			}
+		case "lambda_literal":
+			if params, ok := file.FlatFindChild(scope, "lambda_parameters"); ok &&
+				bufferScopeHasParameter(file, params, "variable_declaration", name) {
+				return 0, false
+			}
+		case "class_declaration":
+			if bufferScopeHasParameter(file, scope, "class_parameter", name) {
+				return 0, false
+			}
+		}
+	}
+	return 0, false
+}
+
+// bufferScopeHasParameter reports a nodeType parameter named name declared by scope itself, not by a nested scope.
+func bufferScopeHasParameter(file *scanner.File, scope uint32, nodeType, name string) bool {
+	found := false
+	file.FlatWalkNodes(scope, nodeType, func(param uint32) {
+		if found || file.FlatChildTextOrEmpty(param, "simple_identifier") != name {
+			return
+		}
+		for parent, ok := file.FlatParent(param); ok && parent != scope; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "function_body", "class_body", "statements", "lambda_literal":
+				return
+			}
+		}
+		found = true
+	})
+	return found
 }
 
 // kotlinDefaultBufferSize is kotlin.io.DEFAULT_BUFFER_SIZE, which Kotlin imports by default.

@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -82,6 +83,35 @@ class Reader(private val file: File) {
 `)
 	if len(findings) != 1 || findings[0].Line != 13 {
 		t.Fatalf("expected only the 4 KiB read on line 13, got %v", findings)
+	}
+}
+
+func TestBufferedReadWithoutBuffer_OnlyTheVisibleBufferCounts(t *testing.T) {
+	findings := runRuleByName(t, "BufferedReadWithoutBuffer", `
+package test
+import java.io.File
+import java.io.FileInputStream
+class Reader(private val file: File) {
+    private val chunk = ByteArray(16384)
+    fun elsewhere() {
+        val buffer = ByteArray(8192)
+        FileInputStream(file).read(buffer)
+    }
+    fun param(buffer: ByteArray) = FileInputStream(file).read(buffer)
+    fun shadowed() {
+        val chunk = ByteArray(1)
+        FileInputStream(file).read(chunk)
+    }
+    fun member() = FileInputStream(file).read(chunk)
+    fun lambda() = listOf(ByteArray(1)).forEach { buffer -> FileInputStream(file).read(buffer) }
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{11, 14, 17}; !slices.Equal(lines, want) {
+		t.Fatalf("expected the parameter, shadowed-local and lambda reads on lines %v, got %v", want, lines)
 	}
 }
 

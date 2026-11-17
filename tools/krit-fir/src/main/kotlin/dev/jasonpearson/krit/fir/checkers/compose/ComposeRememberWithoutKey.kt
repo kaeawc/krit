@@ -2,8 +2,10 @@ package dev.jasonpearson.krit.fir.checkers.compose
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -13,12 +15,14 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -438,8 +442,9 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
     private val chainedScopeCalls = setOf("also", "apply", "let", "run")
     private val resyncCallPrefixes = listOf("set", "update", "sync")
 
-    // True when [param] is written back into the remembered object outside the calculation: an assignment in an
-    // also/apply/let/run block chained on [remember], or a set*/update*/sync* call on [variable] that mentions it.
+    // True when [param] is written back into the remembered object outside the calculation: an assignment to a
+    // member of the block's receiver (`it.x`, `this.x` or `x`) in an also/apply/let/run block chained on [remember],
+    // or a set*/update*/sync* call on [variable] whose arguments read it.
     context(context: CheckerContext)
     private fun resyncsThroughRememberedValue(
         function: FirNamedFunction,
@@ -447,14 +452,17 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         variable: FirPropertySymbol?,
         param: String,
     ): Boolean {
-        val word = Regex("\\b" + Regex.escape(param) + "\\b")
-        fun mentions(element: FirElement) =
-            element.source?.takeIf { it.kind is KtRealSourceElementKind }?.text?.let { word.containsMatchIn(it) } == true
         val scope = context.containingElements.lastOrNull {
             it is FirFunctionCall && it.explicitReceiver === remember && it.calleeReference.name.asString() in chainedScopeCalls
         } as FirFunctionCall?
         val block = scope?.argumentList?.arguments?.lastOrNull()?.let(::unwrapArgument) as? FirAnonymousFunctionExpression
-        if (block != null && containsMatching(block) { it is FirVariableAssignment && mentions(it) }) return true
+        if (block != null) {
+            val lambda = block.anonymousFunction
+            val writesBack = containsMatching(lambda) { element ->
+                element is FirVariableAssignment && writesLambdaReceiver(element, lambda) && readsName(element.rValue, param)
+            }
+            if (writesBack) return true
+        }
         if (variable == null) return false
         val rememberSource = remember.source ?: return false
         return containsMatching(function) { element ->
@@ -463,8 +471,35 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
             val receiver = element.explicitReceiver
             val inside = element.source?.let { it.startOffset >= rememberSource.startOffset && it.endOffset <= rememberSource.endOffset } == true
             !inside && resyncCallPrefixes.any { name.startsWith(it) } && receiver is FirQualifiedAccessExpression &&
-                receiver.explicitReceiver == null && receiver.calleeReference.toResolvedCallableSymbol() == variable && mentions(element)
+                receiver.explicitReceiver == null && receiver.calleeReference.toResolvedCallableSymbol() == variable &&
+                element.argumentList.arguments.any { readsName(it, param) }
         }
+    }
+
+    // The assignment writes a member of [lambda]'s receiver: its parameter (`it.x`) or its extension receiver
+    // (`this.x`, `x`).
+    private fun writesLambdaReceiver(assignment: FirVariableAssignment, lambda: FirAnonymousFunction): Boolean {
+        val target = assignedAccess(assignment) ?: return false
+        val parameters = lambda.valueParameters.map { it.symbol }.toSet()
+        return listOfNotNull(target.explicitReceiver, target.dispatchReceiver, target.extensionReceiver).any { raw ->
+            when (val receiver = unwrapSmartCasts(raw)) {
+                is FirThisReceiverExpression -> {
+                    // Typed as Any: the bound symbol's type and the lambda's symbol types are unrelated for `===`.
+                    val bound: Any = receiver.calleeReference.boundSymbol ?: return@any false
+                    bound === lambda.symbol || bound === lambda.receiverParameter?.symbol
+                }
+                is FirQualifiedAccessExpression -> receiver.explicitReceiver == null &&
+                    receiver.calleeReference.toResolvedCallableSymbol() in parameters
+                else -> false
+            }
+        }
+    }
+
+    // [root] reads a value named [name] written in the source, so a comment or string holding the name does not count.
+    private fun readsName(root: FirElement, name: String): Boolean = containsMatching(root) { element ->
+        element is FirQualifiedAccessExpression && element.explicitReceiver == null &&
+            element.source?.kind is KtRealSourceElementKind &&
+            element.calleeReference.toResolvedCallableSymbol()?.name?.asString() == name
     }
 
     private fun containsMatching(root: FirElement, predicate: (FirElement) -> Boolean): Boolean {

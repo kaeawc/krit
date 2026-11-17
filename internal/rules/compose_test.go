@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -3259,6 +3260,55 @@ fun Row(scope: Scope, index: Int, label: String, colors: Colors) {
 	}
 	if msg := findings[0].Message; !strings.Contains(msg, "parameter scope ") || strings.Contains(msg, "index") {
 		t.Fatalf("the re-synced index must leave the key list, got %q", msg)
+	}
+}
+
+func TestComposeRememberWithoutKey_ResyncMustWriteTheRememberedObject(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+var lastSeen = 0
+
+@Composable
+fun Outer(input: Int) {
+    val holder = remember { Holder(input) }.also { lastSeen = input }
+}
+
+@Composable
+fun Quoted(input: Int) {
+    val holder = remember { Holder(input) }.also { it.note = "input" /* input */ }
+}
+
+@Composable
+fun Local(input: Int) {
+    var seen = 0
+    val holder = remember { Holder(input) }.apply { seen = input }
+}
+
+@Composable
+fun Named(input: Int) {
+    val holder = remember { Holder(input) }.also { h -> h.value = input }
+}
+
+@Composable
+fun Member(input: Int) {
+    val holder = remember { Holder(input) }.apply { value = input }
+}
+
+@Composable
+fun Setter(input: Int) {
+    val holder = remember { Holder(input) }
+    holder.setLevel(0) // input
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{10, 15, 21, 36}; !slices.Equal(lines, want) {
+		t.Fatalf("expected the writes that miss the remembered object on lines %v, got %v", want, lines)
 	}
 }
 

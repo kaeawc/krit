@@ -198,7 +198,9 @@ inline fun CoroutineExceptionHandler(
     crossinline handler: (CoroutineContext, Throwable) -> Unit,
 ): CoroutineExceptionHandler = TODO()
 
-interface CancellableContinuation<in T> : Continuation<T>
+interface CancellableContinuation<in T> : Continuation<T> {
+    fun invokeOnCancellation(handler: (cause: Throwable?) -> Unit)
+}
 
 suspend inline fun <T> suspendCancellableCoroutine(
     crossinline block: (CancellableContinuation<T>) -> Unit,

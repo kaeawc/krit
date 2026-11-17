@@ -15,6 +15,9 @@ annotations and inspections.
   see [Per-rule inspections](#per-rule-inspections))
 - Severity mapping for `error`, `warning`, and `info`; findings with
   confidence below 0.5 render as weak warnings
+- A link to the rule's documentation in the annotation tooltip and in the
+  per-rule inspection's description, when the krit binary's rule list has a
+  `docsUrl` for it (no link otherwise)
 - A project scan on open, then rescans of edited files after the scan debounce
   (`Settings → Tools → Krit → Scan debounce`, default 1000 ms)
 - Native quick fix for fixable findings: `krit --fix --fix-level <level>
@@ -58,7 +61,8 @@ open; choosing a different binary in settings reads its list right away.
 again; it adds inspections for new rules right away, while rules krit no
 longer has leave the tree on the next IDE restart. A krit too old to print the
 JSON list leaves the per-rule inspections out, and every finding is reported
-by the per-language inspections as before.
+by the per-language inspections as before. The tooltip docs links come from
+the same cached list, so showing them never runs krit.
 
 ### Precedence with krit.yml
 
@@ -107,10 +111,38 @@ The plugin resolves the Krit binary in this order:
 2. `Settings → Tools → Krit → Krit binary`
 3. `-Dkrit.binary=/absolute/path/to/krit`
 4. `KRIT_BINARY=/absolute/path/to/krit`
-5. `krit` on `PATH`
+5. `krit` on `PATH` (`krit.exe` on Windows)
+6. A krit the plugin downloaded (see below)
 
 A configured path that isn't executable is reported as a missing binary rather
 than falling through to the next source.
+
+### Downloading krit
+
+When none of the sources above has a krit, the "Krit binary not found"
+notification offers **Download krit from GitHub**. Nothing is downloaded until
+you click it. The plugin then:
+
+- picks the newest published release in the supported version range (release
+  candidates and drafts are skipped) that has an archive for your OS and CPU
+  (`krit_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows);
+- checks the archive's SHA-256 against the release's `checksums.txt` and
+  installs nothing when it doesn't match;
+- unpacks it under the IDE system directory (`krit/bin/<version>/`) and rescans
+  open projects.
+
+Requests go through the IDE's HTTP client, so
+`Settings → Appearance & Behavior → System Settings → HTTP Proxy` applies. When
+GitHub can't be reached, the error says so and points at that proxy setting and
+at `Settings → Tools → Krit → Krit binary`, which always takes precedence over a
+downloaded binary.
+
+### Supported krit versions
+
+The plugin supports krit `>= 0.3.0` and `< 1.0.0`. On project open it runs
+`krit --version` once per binary; a binary outside that range still runs, with a
+warning notification. A source build (`krit dev`) has no version and gets no
+warning.
 
 ## Publishing to JetBrains Marketplace
 

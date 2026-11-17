@@ -106,8 +106,8 @@ func registerAndroidManifestStructureRules() {
 	{
 		r := &SystemPermissionRule{AndroidRule: AndroidRule{
 			BaseRule:   BaseRule{RuleName: "SystemPermission", RuleSetName: androidRuleSet, Sev: "error"},
-			IssueID:    "SystemPermission",
-			Brief:      "Requesting a permission only granted to system apps",
+			IssueID:    "ProtectedPermissions",
+			Brief:      "Using system app permission",
 			Category:   ALCCorrectness,
 			ALSeverity: ALSError,
 			Priority:   5,

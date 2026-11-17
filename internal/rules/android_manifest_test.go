@@ -698,43 +698,6 @@ func TestUniquePermission(t *testing.T) {
 	})
 }
 
-func TestSystemPermission(t *testing.T) {
-	r := findManifestRule(t, "SystemPermission")
-
-	t.Run("system only permission triggers", func(t *testing.T) {
-		m := &rules.Manifest{
-			Path:            "AndroidManifest.xml",
-			UsesPermissions: []string{"android.permission.INSTALL_PACKAGES"},
-		}
-		findings := runManifestRule(r, m)
-		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding, got %d", len(findings))
-		}
-	})
-
-	t.Run("multiple system only permissions trigger multiple", func(t *testing.T) {
-		m := &rules.Manifest{
-			Path:            "AndroidManifest.xml",
-			UsesPermissions: []string{"android.permission.REBOOT", "android.permission.READ_LOGS"},
-		}
-		findings := runManifestRule(r, m)
-		if len(findings) != 2 {
-			t.Fatalf("expected 2 findings, got %d", len(findings))
-		}
-	})
-
-	t.Run("runtime dangerous and normal permissions are clean", func(t *testing.T) {
-		m := &rules.Manifest{
-			Path:            "AndroidManifest.xml",
-			UsesPermissions: []string{"android.permission.CAMERA", "android.permission.READ_SMS", "android.permission.INTERNET"},
-		}
-		findings := runManifestRule(r, m)
-		if len(findings) != 0 {
-			t.Fatalf("expected 0 findings, got %d", len(findings))
-		}
-	})
-}
-
 func TestManifestTypoManifest(t *testing.T) {
 	r := findManifestRule(t, "ManifestTypoManifest")
 

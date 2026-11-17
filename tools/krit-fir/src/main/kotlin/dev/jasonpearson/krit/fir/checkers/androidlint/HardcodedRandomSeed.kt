@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -9,10 +10,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -63,8 +61,7 @@ internal object HardcodedRandomSeed : FirFunctionCallChecker(MppCheckerKind.Comm
         val constructor = expression.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol ?: return
         // The return type names the constructed class; for a typealias
         // constructor it is expanded to the aliased class.
-        val constructed = constructor.resolvedReturnType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
-            ?: return
+        val constructed = constructor.resolvedReturnType.expandedClassType() ?: return
         if (constructed.lookupTag.classId != secureRandomClassId) return
         report(expression.source, MESSAGE)
     }

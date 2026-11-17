@@ -42,6 +42,10 @@ func registerAndroidLintPortRules() {
 	registerObsoleteSdkInt()
 	registerSourceHygieneLintChecks()
 	registerDiffUtilEquals()
+	registerManifestPermissionNameChecks()
+	registerManifestOrientationChecks()
+	registerManifestAppLinkChecks()
+	registerIntentLintChecks()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector
@@ -444,4 +448,57 @@ func registerDiffUtilEquals() {
 	r := &DiffUtilEqualsRule{AndroidRule: lintAndroidRule("DiffUtilEquals", "Suspicious DiffUtil Equality", ALCCorrectness, ALSError, 4)}
 	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check,
 		[]string{"equality_expression", "binary_expression", "call_expression", "method_invocation"}, 0, nil)
+}
+
+func registerManifestPermissionNameChecks() {
+	reserved := &ReservedSystemPermissionRule{AndroidRule: lintAndroidRule("ReservedSystemPermission",
+		"Permission name is a reserved Android permission", ALCSecurity, ALSError, 5)}
+	registerLintManifestRule(reserved.AndroidRule, reserved, reserved.Confidence(), reserved.check)
+	naming := &PermissionNamingConventionRule{AndroidRule: lintAndroidRule("PermissionNamingConvention",
+		"Permission name does not follow recommended convention", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(naming.AndroidRule, naming, naming.Confidence(), naming.check)
+	known := &KnownPermissionErrorRule{AndroidRule: lintAndroidRule("KnownPermissionError",
+		"Value specified for permission is a known error", ALCSecurity, ALSError, 5)}
+	registerLintManifestRule(known.AndroidRule, known, known.Confidence(), known.check)
+	system := &SystemPermissionTypoRule{AndroidRule: lintAndroidRule("SystemPermissionTypo",
+		"Permission appears to be a standard permission with a typo", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(system.AndroidRule, system, system.Confidence(), system.check)
+	custom := &CustomPermissionTypoRule{AndroidRule: lintAndroidRule("CustomPermissionTypo",
+		"Permission appears to be a custom permission with a typo", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(custom.AndroidRule, custom, custom.Confidence(), custom.check)
+}
+
+func registerManifestOrientationChecks() {
+	locked := &LockedOrientationActivityRule{AndroidRule: lintAndroidRule("LockedOrientationActivity",
+		"Incompatible screenOrientation value", ALCCorrectness, ALSWarning, 4)}
+	registerLintManifestRule(locked.AndroidRule, locked, locked.Confidence(), locked.check)
+	resizeable := &NonResizeableActivityRule{AndroidRule: lintAndroidRule("NonResizeableActivity",
+		"Activity is set to be non-resizeable", ALCCorrectness, ALSWarning, 4)}
+	registerLintManifestRule(resizeable.AndroidRule, resizeable, resizeable.Confidence(), resizeable.check)
+	unique := &IntentFilterUniqueDataAttributesRule{AndroidRule: lintAndroidRule("IntentFilterUniqueDataAttributes",
+		"Data tags should only declare unique attributes", ALCCorrectness, ALSWarning, 5)}
+	registerLintManifestRule(unique.AndroidRule, unique, unique.Confidence(), unique.check)
+	discouraged := &DiscouragedAPIRule{AndroidRule: lintAndroidRule("DiscouragedApi", "Using discouraged APIs",
+		ALCCorrectness, ALSWarning, 2)}
+	registerLintManifestRule(discouraged.AndroidRule, discouraged, discouraged.Confidence(), discouraged.check)
+}
+
+func registerManifestAppLinkChecks() {
+	urlError := &AppLinkURLErrorRule{AndroidRule: lintAndroidRule("AppLinkUrlError", "URI invalid",
+		ALCCorrectness, ALSError, 5)}
+	registerLintManifestRule(urlError.AndroidRule, urlError, urlError.Confidence(), urlError.check)
+	warning := &AppLinkWarningRule{AndroidRule: lintAndroidRule("AppLinkWarning", "App Link warning",
+		ALCCorrectness, ALSWarning, 5)}
+	registerLintManifestRule(warning.AndroidRule, warning, warning.Confidence(), warning.check)
+}
+
+func registerIntentLintChecks() {
+	reset := &IntentResetRule{AndroidRule: lintAndroidRule("IntentReset", "Suspicious mix of `setType` and `setData`", ALCCorrectness, ALSWarning, 6)}
+	registerLintRule(reset.AndroidRule, reset, reset.Confidence(), reset.check,
+		[]string{"call_expression", "object_creation_expression"}, 0, nil)
+
+	nullAction := &IntentWithNullActionLaunchRule{AndroidRule: lintAndroidRule("IntentWithNullActionLaunch",
+		"Unsafe intent launched with no action set", ALCSecurity, ALSWarning, 9)}
+	registerLintRule(nullAction.AndroidRule, nullAction, nullAction.Confidence(), nullAction.check,
+		[]string{"call_expression", "object_creation_expression"}, 0, nil)
 }

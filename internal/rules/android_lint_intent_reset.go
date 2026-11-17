@@ -43,17 +43,21 @@ type intentEvent struct {
 	// name is the setter for a call, or the local being bound.
 	name     string
 	nameNode uint32
-	recv     uint32
-	init     uint32
-	args     []uint32
+	// decl is the declaration a bind event writes to.
+	decl uint32
+	recv uint32
+	init uint32
+	args []uint32
 }
 
 // intentFlow is the state Lint's analyzer keeps while it walks one method.
 type intentFlow struct {
-	file    *scanner.File
-	ctor    uint32
-	locals  map[string]bool
-	tracked map[string]bool
+	file   *scanner.File
+	ctor   uint32
+	scope  uint32
+	locals map[string]bool
+	// tracked holds the declarations of the locals that hold the Intent, so a shadowing local is a different one.
+	tracked map[uint32]bool
 	// allCalls makes collect report every call, with its arguments, instead of only the type and data setters.
 	allCalls bool
 }
@@ -68,7 +72,7 @@ func (r *IntentResetRule) check(ctx *api.Context) {
 	if scope == 0 || !intentScopeMayReset(file, scope) {
 		return
 	}
-	flow := &intentFlow{file: file, ctor: ctx.Idx, locals: intentLocals(file, scope), tracked: map[string]bool{}}
+	flow := &intentFlow{file: file, ctor: ctx.Idx, scope: scope, locals: intentLocals(file, scope), tracked: map[uint32]bool{}}
 	events := flow.collect(scope)
 	inCtor := intentCtorSetsURI(file, call, ctx.Idx)
 	var seenData, seenType *intentEvent
@@ -195,7 +199,7 @@ func (f *intentFlow) addBind(events *[]intentEvent, node uint32, name string, in
 	if name == "" || init == 0 || !f.locals[name] {
 		return
 	}
-	*events = append(*events, intentEvent{pos: int(f.file.FlatStartByte(node)), node: node, kind: "bind", name: name, init: init})
+	*events = append(*events, intentEvent{pos: int(f.file.FlatStartByte(node)), node: node, kind: "bind", name: name, decl: node, init: init})
 }
 
 // callEvent describes a one-argument `setData`/`setType` call. A null literal argument is ignored, as in Lint.
@@ -243,7 +247,8 @@ func (f *intentFlow) kotlinAssignmentEvent(n uint32) (intentEvent, bool) {
 			if !f.locals[ident] {
 				return intentEvent{}, false
 			}
-			return intentEvent{pos: int(file.FlatStartByte(n)), node: n, kind: "bind", name: ident, init: rhs}, true
+			decl := intentDeclOf(file, f.scope, name)
+			return intentEvent{pos: int(file.FlatStartByte(n)), node: n, kind: "bind", name: ident, decl: decl, init: rhs}, true
 		}
 		return intentEvent{}, false
 	}
@@ -280,15 +285,19 @@ func (f *intentFlow) javaAssignmentEvent(n uint32) (intentEvent, bool) {
 	if !f.locals[name] {
 		return intentEvent{}, false
 	}
-	return intentEvent{pos: int(file.FlatStartByte(n)), node: n, kind: "bind", name: name, init: rhs}, true
+	decl := intentDeclOf(file, f.scope, lhs)
+	return intentEvent{pos: int(file.FlatStartByte(n)), node: n, kind: "bind", name: name, decl: decl, init: rhs}, true
 }
 
 // bind starts following a local when its value is the tracked Intent and stops when it gets another value.
 func (f *intentFlow) bind(e *intentEvent) {
+	if e.decl == 0 {
+		return
+	}
 	if f.isTracked(e.init, 0) {
-		f.tracked[e.name] = true
+		f.tracked[e.decl] = true
 	} else {
-		delete(f.tracked, e.name)
+		delete(f.tracked, e.decl)
 	}
 }
 
@@ -305,7 +314,8 @@ func (f *intentFlow) isTracked(idx uint32, depth int) bool {
 	case "parenthesized_expression", "cast_expression", "as_expression", "postfix_expression":
 		return f.isTracked(intentOperand(file, idx), depth+1)
 	case "simple_identifier", "identifier":
-		return f.tracked[file.FlatNodeText(idx)]
+		decl := intentDeclOf(file, f.scope, idx)
+		return decl != 0 && f.tracked[decl]
 	case "call_expression", "method_invocation":
 		call, ok := lintCallAt(file, idx)
 		return ok && call.ReceiverNode != 0 && intentSelfReturning[call.Name] && f.isTracked(call.ReceiverNode, depth+1)
@@ -317,6 +327,130 @@ func (f *intentFlow) isTracked(idx uint32, depth int) bool {
 		return f.anyBranchTracked(idx, depth)
 	}
 	return false
+}
+
+// intentDeclOf returns the declaration an identifier names, the way Lint resolves a reference: the nearest
+// parameter, lambda parameter, loop or catch variable, or earlier local of that name between it and scope.
+// It returns 0 when none of them declares the name.
+func intentDeclOf(file *scanner.File, scope, ident uint32) uint32 {
+	name := file.FlatNodeText(ident)
+	use := file.FlatStartByte(ident)
+	for cur, ok := file.FlatParent(ident); ok; cur, ok = file.FlatParent(cur) {
+		if decl := intentDeclIn(file, cur, name, use); decl != 0 {
+			return decl
+		}
+		if cur == scope {
+			break
+		}
+	}
+	return 0
+}
+
+// intentDeclIn returns the declaration of name that node introduces for code inside it at byte offset use.
+func intentDeclIn(file *scanner.File, node uint32, name string, use uint32) uint32 {
+	switch file.FlatType(node) {
+	case "statements", "block", "constructor_body", "switch_block_statement_group":
+		return intentLocalBefore(file, node, name, use)
+	case "lambda_literal":
+		if params, ok := file.FlatFindChild(node, "lambda_parameters"); ok {
+			return intentNamedChild(file, params, "variable_declaration", name)
+		}
+	case "function_declaration", "secondary_constructor", "setter", "anonymous_function":
+		if params, ok := file.FlatFindChild(node, "function_value_parameters"); ok {
+			return intentNamedChild(file, params, "parameter", name)
+		}
+	case "method_declaration", "constructor_declaration":
+		if params, ok := file.FlatFindChild(node, "formal_parameters"); ok {
+			return intentNamedChild(file, params, "formal_parameter", name)
+		}
+	case "lambda_expression":
+		return intentJavaLambdaParam(file, node, name)
+	case "for_statement":
+		if v := intentNamedChild(file, node, "variable_declaration", name); v != 0 {
+			return v
+		}
+		if v, ok := file.FlatFindChild(node, "local_variable_declaration"); ok {
+			return intentNamedChild(file, v, "variable_declarator", name)
+		}
+	case "enhanced_for_statement":
+		if id, ok := file.FlatFindChild(node, "identifier"); ok && file.FlatNodeTextEquals(id, name) {
+			return node
+		}
+	case "catch_block":
+		if id, ok := file.FlatFindChild(node, "simple_identifier"); ok && file.FlatNodeTextEquals(id, name) {
+			return node
+		}
+	case "catch_clause":
+		if p, ok := file.FlatFindChild(node, "catch_formal_parameter"); ok && intentIdentifierIs(file, p, name) {
+			return p
+		}
+	}
+	return 0
+}
+
+// intentLocalBefore returns the last local of name that a block declares before use, as the node its bind event uses.
+func intentLocalBefore(file *scanner.File, block uint32, name string, use uint32) uint32 {
+	var found uint32
+	// A declaration is visible after it ends, so `val i = i` in a nested block reads the outer `i`.
+	for c := file.FlatFirstChild(block); c != 0 && file.FlatStartByte(c) < use; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "property_declaration":
+			if file.FlatEndByte(c) > use {
+				continue
+			}
+			if intentNamedChild(file, c, "variable_declaration", name) != 0 {
+				found = c
+			} else if multi, ok := file.FlatFindChild(c, "multi_variable_declaration"); ok &&
+				intentNamedChild(file, multi, "variable_declaration", name) != 0 {
+				found = c
+			}
+		case "local_variable_declaration":
+			if d := intentNamedChild(file, c, "variable_declarator", name); d != 0 && file.FlatEndByte(d) <= use {
+				found = d
+			}
+		}
+	}
+	return found
+}
+
+// intentNamedChild returns the child of the given type that declares name.
+func intentNamedChild(file *scanner.File, parent uint32, kind, name string) uint32 {
+	for c := file.FlatFirstChild(parent); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == kind && intentIdentifierIs(file, c, name) {
+			return c
+		}
+	}
+	return 0
+}
+
+// intentIdentifierIs reports whether the first identifier child of decl is name.
+func intentIdentifierIs(file *scanner.File, decl uint32, name string) bool {
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); t == "simple_identifier" || t == "identifier" {
+			return file.FlatNodeTextEquals(c, name)
+		}
+	}
+	return false
+}
+
+// intentJavaLambdaParam handles `i -> ...`, `(i, j) -> ...` and `(Intent i) -> ...`.
+func intentJavaLambdaParam(file *scanner.File, lambda uint32, name string) uint32 {
+	params := file.FlatNamedChild(lambda, 0)
+	switch file.FlatType(params) {
+	case "identifier":
+		if file.FlatNodeTextEquals(params, name) {
+			return params
+		}
+	case "inferred_parameters":
+		for c := file.FlatFirstChild(params); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "identifier" && file.FlatNodeTextEquals(c, name) {
+				return c
+			}
+		}
+	case "formal_parameters":
+		return intentNamedChild(file, params, "formal_parameter", name)
+	}
+	return 0
 }
 
 // intentOperand returns the wrapped expression of a parenthesized, cast or non-null-asserted expression.
@@ -501,7 +635,7 @@ func (r *IntentWithNullActionLaunchRule) check(ctx *api.Context) {
 	if scope == 0 || (!fileFactsCache().Mentions(file, "startActivity") && !fileFactsCache().Mentions(file, "sendBroadcast")) {
 		return
 	}
-	flow := &intentFlow{file: file, ctor: ctx.Idx, locals: intentLocals(file, scope), tracked: map[string]bool{}, allCalls: true}
+	flow := &intentFlow{file: file, ctor: ctx.Idx, scope: scope, locals: intentLocals(file, scope), tracked: map[uint32]bool{}, allCalls: true}
 	var launched, explicit, escaped bool
 	for _, e := range flow.collect(scope) {
 		if e.kind == "bind" {

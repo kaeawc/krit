@@ -484,3 +484,66 @@ class K : Activity() {
 		t.Errorf("IntentWithNullActionLaunch positions = %s, want %s", got, want)
 	}
 }
+
+// Shadowing cases: Lint resolves each reference, so a lambda parameter, local function parameter, loop variable or
+// nested local of the same name is a different variable from the tracked Intent.
+const intentShadowingKotlin = `package app
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+
+class K : Activity() {
+    fun k1(c: Context) { val i = Intent(); val configure: (Intent) -> Unit = { i -> i.setAction("x") }; c.startActivity(i) }
+    fun k2(c: Context) { val i = Intent(); val configure = { -> i.setAction("x") }; c.startActivity(i) }
+    fun k3(c: Context) { val i = Intent(); listOf(Intent()).forEach { i -> i.setAction("x") }; c.startActivity(i) }
+    fun k4(c: Context) { val i = Intent(); fun local(i: Intent) { i.setAction("x") }; c.startActivity(i) }
+    fun k5(c: Context) { val i = Intent(); run { val i = Intent("a"); i.setAction("x") }; c.startActivity(i) }
+    fun k6(c: Context) { val i = Intent(); for (i in listOf(Intent())) i.setAction("x"); c.startActivity(i) }
+    fun k7(c: Context) { val i = Intent(); run { val i = i; i.setAction("x") }; c.startActivity(i) }
+    fun k8(c: Context) { val i = Intent(); run { val (i, j) = Pair(Intent(), 1); i.setAction("x") }; c.startActivity(i) }
+    fun k9(c: Context, l: List<Intent>) { val i = Intent(); l.forEach { i.setAction("x") }; c.startActivity(i) }
+    fun k10(c: Context) { val i = Intent(); run { val i = Intent(); c.startActivity(i) } }
+    fun r1(u: Uri) { val i = Intent(); i.setData(u); val f: (Intent) -> Unit = { i -> i.setType("t") } }
+    fun r2(u: Uri) { val i = Intent(); i.setData(u); run { val i = Intent(); i.setType("t") } }
+    fun r3(u: Uri) { val i = Intent(); i.setData(u); run { val i = Intent() }; i.setType("t") }
+    fun r4(u: Uri) { val i = Intent(); i.setData(u); listOf(1).forEach { i -> println(i) }; i.setType("t") }
+    fun r5(u: Uri) { val i = Intent(); i.setData(u); if (true) { val i = Intent(); i.setType("t") } }
+}
+`
+
+const intentShadowingJava = `package app;
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import java.util.function.Consumer;
+public class J extends Activity {
+  void a1(Context c) { Intent i = new Intent(); Consumer<Intent> f = new Consumer<Intent>() { public void accept(Intent i) { i.setAction("x"); } }; c.startActivity(i); }
+  void a2(Context c) { Intent i = new Intent(); Consumer<Intent> f = j -> j.setAction("x"); c.startActivity(i); }
+  void a3(Context c) { Intent i = new Intent(); Runnable r = () -> i.setAction("x"); c.startActivity(i); }
+  void a4(Context c) { Intent i = new Intent(), j = i; j.setAction("x"); c.startActivity(i); }
+  void a5(Context c) { Intent i = new Intent(); new Object() { void q(Intent i) { i.setAction("x"); } }; c.startActivity(i); }
+  void s1(Uri u) { Intent i = new Intent(); i.setData(u); new Object() { void q(Intent i) { i.setType("t"); } }; }
+  void s2(Uri u) { Intent i = new Intent(), j = i; i.setData(u); j.setType("t"); }
+}
+`
+
+func TestIntentWithNullActionLaunchLintParityShadowing(t *testing.T) {
+	if got, want := findingPositions(runRuleByName(t, "IntentWithNullActionLaunch", intentShadowingKotlin)), "9:34,11:34,12:34,13:34,14:34,16:34,18:59"; got != want {
+		t.Errorf("Kotlin IntentWithNullActionLaunch positions = %s, want %s", got, want)
+	}
+	if got, want := findingPositions(runRuleByNameOnJava(t, "IntentWithNullActionLaunch", intentShadowingJava)), "8:35,9:35,12:35"; got != want {
+		t.Errorf("Java IntentWithNullActionLaunch positions = %s, want %s", got, want)
+	}
+}
+
+func TestIntentResetLintParityShadowing(t *testing.T) {
+	if got, want := findingPositions(runRuleByName(t, "IntentReset", intentShadowingKotlin)), "21:82,22:95"; got != want {
+		t.Errorf("Kotlin IntentReset positions = %s, want %s", got, want)
+	}
+	if got, want := findingPositions(runRuleByNameOnJava(t, "IntentReset", intentShadowingJava)), "14:68"; got != want {
+		t.Errorf("Java IntentReset positions = %s, want %s", got, want)
+	}
+}

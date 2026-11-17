@@ -45,9 +45,9 @@ internal object SuspendFunWithFlowReturnType : FirDeclarationChecker<FirNamedFun
         override val namedFunctionCheckers = setOf(SuspendFunWithFlowReturnType)
     }
 
-    private val flowPackage = "kotlinx.coroutines.flow"
+    private const val FLOW_PACKAGE = "kotlinx.coroutines.flow"
     private val flowTypes = listOf("Flow", "StateFlow", "SharedFlow", "MutableStateFlow", "MutableSharedFlow")
-        .map { classIdOf(flowPackage, it) }
+        .map { classIdOf(FLOW_PACKAGE, it) }
         .toSet()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

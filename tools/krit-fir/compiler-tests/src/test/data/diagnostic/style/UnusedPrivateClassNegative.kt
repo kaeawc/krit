@@ -116,6 +116,19 @@ private fun <T> where(value: T) where T : InWhere = value
 
 private fun nested() = Nested()
 
+// A nested class reached only through its private enclosing class keeps the enclosing class used.
+private class ConstructedThrough {
+    class Inner
+}
+
+private class TypedThrough {
+    class Inner
+}
+
+private fun constructedThrough() = ConstructedThrough.Inner()
+
+private fun typedThrough(value: TypedThrough.Inner) = value
+
 // Not judged: objects and companion objects are separate declarations in Go.
 private object Singleton
 

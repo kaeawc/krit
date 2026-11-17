@@ -84,8 +84,13 @@ internal object UnusedPrivateClass : FirFileChecker(MppCheckerKind.Common), FirR
         }
     }
 
+    // A nested class is reached through its enclosing classes (`Outer.Inner()`), so they count as used too.
     private fun addClass(classId: ClassId, inside: Set<ClassId>, referenced: MutableSet<ClassId>) {
-        if (classId !in inside) referenced += classId
+        var current: ClassId? = classId
+        while (current != null) {
+            if (current !in inside) referenced += current
+            current = current.outerClassId
+        }
     }
 
     // A constructor call or an enum entry names its class even when the class is not spelled at the use.

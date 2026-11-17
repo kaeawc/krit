@@ -37,6 +37,13 @@ func TestVersionCatalogBuildSrcMismatch(t *testing.T) {
 		if len(findings) != 2 {
 			t.Errorf("expected 2 findings, got %d: %v", len(findings), findings)
 		}
+		// The buildSrc file is named relative to the project, so the message
+		// does not change when the checkout moves.
+		for _, f := range findings {
+			if strings.Contains(f.Message, positiveDir) || !strings.Contains(f.Message, " buildSrc/") {
+				t.Errorf("message should name the buildSrc file relative to the project: %q", f.Message)
+			}
+		}
 	})
 
 	t.Run("negative fixture is clean", func(t *testing.T) {

@@ -181,3 +181,20 @@ func TestReproducibleJSONIsByteIdentical(t *testing.T) {
 		t.Errorf("reproducible report changed when the tree moved")
 	}
 }
+
+// A finding whose message names another file stays byte-identical when the
+// project moves: the buildSrc mismatch message names the buildSrc file
+// relative to the project.
+func TestReproducibleJSONRelocatesMessagePaths(t *testing.T) {
+	src := "../../tests/fixtures/positive/supply-chain/version-catalog-build-src-mismatch"
+	first, second := copyTree(t, src), copyTree(t, src)
+	args := []string{"--enable-rules", "VersionCatalogBuildSrcMismatch"}
+	a := reproducibleScan(t, first, t.TempDir(), args...)
+	b := reproducibleScan(t, second, t.TempDir(), args...)
+	if !bytes.Contains(a, []byte("VersionCatalogBuildSrcMismatch")) {
+		t.Fatalf("expected a VersionCatalogBuildSrcMismatch finding:\n%s", a)
+	}
+	if !bytes.Equal(a, b) {
+		t.Errorf("reproducible report changed when the project moved:\n%s\n---\n%s", a, b)
+	}
+}

@@ -8,6 +8,8 @@ All notable changes to Krit will be documented in this file.
 - `--output-types` no longer leaves a krit-fir daemon running under `--no-daemon` or `--no-fir-daemon`, and it
   compiles against the scan's classpath, model source roots, JVM target and Kotlin settings.
 - `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.
+- `VersionCatalogBuildSrcMismatch` names the conflicting buildSrc file relative to the project instead of by
+  absolute path, so its message, and baseline entries for it, no longer depend on the checkout location.
 - The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing, and re-uploads it
   once when the published release lacks it.
 - `SharedPreferencesForSensitiveKey` and `LogOfSharedPreferenceRead` now have FIR checkers, with the Go rules

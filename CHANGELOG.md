@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `--output-types` no longer leaves a krit-fir daemon running under `--no-daemon` or `--no-fir-daemon`, and it
+  compiles against the scan's classpath, model source roots, JVM target and Kotlin settings.
+- `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.
+- The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing, and re-uploads it
+  once when the published release lacks it.
 - `SharedPreferencesForSensitiveKey` and `LogOfSharedPreferenceRead` now have FIR checkers, with the Go rules
   kept as the fallback. On files the compiler analyzes, the editor or preferences are the resolved
   `SharedPreferences` members, so a receiver held in a property, returned by a call or left implicit counts, and
@@ -91,6 +96,12 @@ All notable changes to Krit will be documented in this file.
   covers them too.
 
 ### Added
+- `--only-scope` and `--exclude-scope` select rules by scope: `file` for per-file rules and `project` for
+  cross-file, module, Android and Gradle rules (individual dispatcher scopes also work). A build system can run
+  the per-file rules per module and the project rules once. `--list-rules --format json` reports each rule's
+  `scope`. See `docs/hermetic-builds.md`.
+- `--reproducible` makes JSON reports byte-identical across runs, caches, worker counts and checkout paths:
+  `durationMs` is 0, cache statistics and perf timings are omitted, and suggested-edit targets are relative.
 - `SuspiciousIndentation` ports Android Lint's check: a statement indented as if it belonged to the
   previous statement or to an unbraced `if`, `else` or loop, an unbraced body at the column of its
   control statement, and an indentation string that differs from the line above. It reports at most
@@ -197,6 +208,12 @@ All notable changes to Krit will be documented in this file.
   `tools/lintdata`; see `tools/lintdata/README.md`.
 
 ### Changed
+- Krit finds `java` and `javac` under `JAVA_HOME` before `PATH` everywhere it launches a JVM or checks for one
+  (jar download, Java facts helper, `--doctor`).
+- On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory
+  sizing reads the cgroup memory limit instead of the host's. A scan in a memory-limited cgroup sets a Go soft
+  memory limit of three quarters of it unless `GOMEMLIMIT` is set.
+- `--no-fir-daemon` also runs the type oracle's cache misses one-shot, so no krit-fir daemon outlives the scan.
 - Cold `--fir` scans start parsing, and building the cross-file code index, while the oracle
   JVM compiles, instead of after it. The phases take the background result only when their
   input is identical, so findings do not change.

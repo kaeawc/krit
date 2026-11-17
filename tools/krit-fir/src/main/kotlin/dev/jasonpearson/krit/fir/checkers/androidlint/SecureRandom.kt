@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.security.assignedLocalValues
 import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
@@ -31,7 +32,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
@@ -101,12 +101,12 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
         "Calling SecureRandom.setSeed() with a fixed or time-based seed makes output predictable. " +
             "Use the default SecureRandom seeding."
 
-    private val randomClassId = ClassId(FqName("java.util"), Name.identifier("Random"))
-    private val secureRandomClassId = ClassId(FqName("java.security"), Name.identifier("SecureRandom"))
+    private val randomClassId = classIdOf("java.util", "Random")
+    private val secureRandomClassId = classIdOf("java.security", "SecureRandom")
     private val setSeed = Name.identifier("setSeed")
     private val randomSetSeed = CallableId(randomClassId, setSeed)
     private val secureRandomSetSeed = CallableId(secureRandomClassId, setSeed)
-    private val systemClassId = ClassId(FqName("java.lang"), Name.identifier("System"))
+    private val systemClassId = classIdOf("java.lang", "System")
     private val timeCalls = setOf(
         CallableId(systemClassId, Name.identifier("currentTimeMillis")),
         CallableId(systemClassId, Name.identifier("nanoTime")),

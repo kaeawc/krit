@@ -2,9 +2,11 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -20,9 +22,7 @@ import org.jetbrains.kotlin.fir.resolve.toClassLikeSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go IntoMapMissingKey rule: a named function annotated with
@@ -78,13 +78,13 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
     private val metro = FqName("dev.zacsweers.metro")
 
     private val intoMap = setOf(
-        ClassId(daggerMultibindings, Name.identifier("IntoMap")),
-        ClassId(metro, Name.identifier("IntoMap")),
+        classIdOf(daggerMultibindings, "IntoMap"),
+        classIdOf(metro, "IntoMap"),
     )
 
     private val mapKey = setOf(
-        ClassId(dagger, Name.identifier("MapKey")),
-        ClassId(metro, Name.identifier("MapKey")),
+        classIdOf(dagger, "MapKey"),
+        classIdOf(metro, "MapKey"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -139,7 +139,7 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
             ?: return null
         val identifier = lightChildren(source, reference).firstOrNull { it.tokenType == KtTokens.IDENTIFIER }
             ?: return null
-        return source.treeStructure.toString(identifier).toString().removeSurrounding("`")
+        return lightText(source, identifier).removeSurrounding("`")
     }
 
     private val writtenTypePath = listOf(KtNodeTypes.CONSTRUCTOR_CALLEE, KtNodeTypes.TYPE_REFERENCE, KtNodeTypes.USER_TYPE)

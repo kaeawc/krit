@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -11,7 +12,6 @@ import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 
@@ -46,8 +46,7 @@ internal object InstanceOfCheckForException : FirTypeOperatorCallChecker(MppChec
 
     context(context: CheckerContext)
     private fun isCaughtParameter(operand: FirExpression): Boolean {
-        var value = operand
-        while (value is FirSmartCastExpression) value = value.originalExpression
+        val value = unwrapSmartCasts(operand, throughSafeCallSubject = false)
         val access = value as? FirPropertyAccessExpression ?: return false
         if (access.explicitReceiver != null) return false
         val variable = access.calleeReference.toResolvedVariableSymbol() ?: return false

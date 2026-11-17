@@ -5,7 +5,10 @@ import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.qualifiedCall
+import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
@@ -33,7 +36,6 @@ import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
@@ -145,7 +147,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
         val qualified = qualifiedCall(source)
         val receiverText = if (qualified != null) {
             val receiver = significantChildren(qualified, source.treeStructure).firstOrNull() ?: return
-            source.treeStructure.toString(receiver).toString()
+            lightText(source, receiver)
         } else {
             implicitReceiverText(expression) ?: return
         }
@@ -248,8 +250,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     // scope function called on an implicit receiver).
     context(context: CheckerContext)
     private fun implicitReceiverText(call: FirFunctionCall): String? {
-        var receiver = call.extensionReceiver ?: return null
-        while (receiver is FirSmartCastExpression) receiver = receiver.originalExpression
+        val receiver = unwrapSmartCasts(call.extensionReceiver ?: return null, throughSafeCallSubject = false)
         val thisReceiver = receiver as? FirThisReceiverExpression ?: return null
         val parameter = thisReceiver.calleeReference.boundSymbol as? FirReceiverParameterSymbol ?: return null
         return when (val owner = parameter.containingDeclarationSymbol) {
@@ -280,7 +281,7 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     }
 
     private fun FirExpression.passesLambda(lambda: FirAnonymousFunctionSymbol): Boolean {
-        val value = if (this is FirWrappedArgumentExpression) expression else this
+        val value = unwrapArgument(this)
         return value is FirAnonymousFunctionExpression && value.anonymousFunction.symbol == lambda
     }
 

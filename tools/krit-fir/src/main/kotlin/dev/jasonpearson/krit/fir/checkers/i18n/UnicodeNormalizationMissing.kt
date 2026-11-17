@@ -3,12 +3,16 @@ package dev.jasonpearson.krit.fir.checkers.i18n
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.nullableClassType
+import dev.jasonpearson.krit.fir.support.nullableStarProjectedType
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -29,7 +33,6 @@ import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirSpreadArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.FirNamedReference
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.substitution.substitutorByMap
@@ -42,10 +45,8 @@ import org.jetbrains.kotlin.fir.types.ConeDefinitelyNotNullType
 import org.jetbrains.kotlin.fir.types.ConeIntersectionType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
-import org.jetbrains.kotlin.fir.types.ConeStarProjection
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -108,10 +109,8 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
     private val charSequence = StandardClassIds.CharSequence.nullableClassType()
     private val nullableChar = StandardClassIds.Char.nullableClassType()
     private val number = StandardClassIds.Number.nullableClassType()
-    private val collection =
-        StandardClassIds.Collection.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
-    private val map =
-        StandardClassIds.Map.constructClassLikeType(arrayOf(ConeStarProjection, ConeStarProjection), isMarkedNullable = true)
+    private val collection = StandardClassIds.Collection.nullableStarProjectedType(1)
+    private val map = StandardClassIds.Map.nullableStarProjectedType(2)
 
     private val rangesPackage = FqName("kotlin.ranges")
     private val collectionPackages = setOf(FqName("kotlin.collections"), FqName("java.util"))
@@ -124,12 +123,12 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
         add(StandardClassIds.UShort)
         add(StandardClassIds.UInt)
         add(StandardClassIds.ULong)
-        add(ClassId(FqName("java.util"), Name.identifier("UUID")))
+        add(classIdOf("java.util", "UUID"))
         // Language tags are ASCII and canonicalised by the JDK.
-        add(ClassId(FqName("java.util"), Name.identifier("Locale")))
+        add(classIdOf("java.util", "Locale"))
         for (name in listOf("Int", "Long", "UInt", "ULong")) {
-            add(ClassId(rangesPackage, Name.identifier("${name}Range")))
-            add(ClassId(rangesPackage, Name.identifier("${name}Progression")))
+            add(classIdOf(rangesPackage, "${name}Range"))
+            add(classIdOf(rangesPackage, "${name}Progression"))
         }
         // Arrays compare by identity.
         add(StandardClassIds.Array)
@@ -139,11 +138,11 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
 
     // Generic types whose equality compares only values of their type arguments.
     private val structuralClasses: Set<ClassId> = setOf(
-        ClassId(FqName("kotlin.collections"), FqName("Map.Entry"), false),
-        ClassId(rangesPackage, Name.identifier("ClosedRange")),
-        ClassId(rangesPackage, Name.identifier("OpenEndRange")),
-        ClassId(rangesPackage, Name.identifier("ClosedFloatingPointRange")),
-        ClassId(FqName("java.util"), Name.identifier("Optional")),
+        nestedClassIdOf("kotlin.collections", "Map.Entry"),
+        classIdOf(rangesPackage, "ClosedRange"),
+        classIdOf(rangesPackage, "OpenEndRange"),
+        classIdOf(rangesPackage, "ClosedFloatingPointRange"),
+        classIdOf("java.util", "Optional"),
     )
 
     private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
@@ -223,7 +222,7 @@ internal object UnicodeNormalizationMissing : FirFunctionCallChecker(MppCheckerK
         if (receiverType != null && isText(receiverType, session)) return true
         val argumentTypes = buildList {
             for (argument in call.argumentList.arguments) {
-                val value = if (argument is FirWrappedArgumentExpression) argument.expression else argument
+                val value = unwrapArgument(argument)
                 if (value !is FirVarargArgumentsExpression) {
                     add(typeOf(value))
                     continue

@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.performance
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -19,9 +21,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 // Flags a call to one of android.graphics.BitmapFactory's decode methods that
 // takes no BitmapFactory.Options, so the bitmap is decoded at full size:
@@ -55,8 +54,8 @@ internal object BitmapDecodeWithoutOptions : FirFunctionCallChecker(MppCheckerKi
         override val functionCallCheckers = setOf(BitmapDecodeWithoutOptions)
     }
 
-    private val bitmapFactory = ClassId(FqName("android.graphics"), Name.identifier("BitmapFactory"))
-    private val options = ClassId(FqName("android.graphics"), FqName("BitmapFactory.Options"), false)
+    private val bitmapFactory = classIdOf("android.graphics", "BitmapFactory")
+    private val options = nestedClassIdOf("android.graphics", "BitmapFactory.Options")
     private val smallImageNames = listOf("Thumb", "Tiny", "Icon", "Avatar")
     private val decodeMethods = setOf(
         "decodeFile",

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.database
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
 import dev.jasonpearson.krit.fir.support.identifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
@@ -37,8 +38,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -73,8 +72,8 @@ internal object SqliteCursorWithoutClose :
     private val closeNames = setOf("close", "use")
     private val use = "use"
     private val databaseTypes = setOf(
-        ClassId(FqName("android.database.sqlite"), Name.identifier("SQLiteDatabase")),
-        ClassId(FqName("androidx.sqlite.db"), Name.identifier("SupportSQLiteDatabase")),
+        classIdOf("android.database.sqlite", "SQLiteDatabase"),
+        classIdOf("androidx.sqlite.db", "SupportSQLiteDatabase"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

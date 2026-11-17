@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.support.goFullMatchRegex
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -190,10 +191,7 @@ internal object SwallowedException : FirExpressionChecker<FirTryExpression>(MppC
             return i
         }
 
-        private fun unwrap(expression: FirExpression): FirExpression {
-            var current = expression
-            while (current is FirSmartCastExpression) current = current.originalExpression
-            return current
-        }
+        private fun unwrap(expression: FirExpression): FirExpression =
+            unwrapSmartCasts(expression, throughSafeCallSubject = false)
     }
 }

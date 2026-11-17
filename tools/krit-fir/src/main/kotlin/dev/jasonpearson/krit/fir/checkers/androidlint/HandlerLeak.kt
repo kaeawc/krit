@@ -3,9 +3,11 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -27,9 +29,6 @@ import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go HandlerLeak rule (Android Lint `HandlerLeak`), Kotlin side:
@@ -80,7 +79,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     private const val ANONYMOUS_MESSAGE =
         "This `Handler` class should be static or leaks might occur (anonymous android.os.Handler)"
 
-    private val handlerClassId = ClassId(FqName("android.os"), Name.identifier("Handler"))
+    private val handlerClassId = classIdOf("android.os", "Handler")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirClass) {
@@ -151,7 +150,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
         for (param in lightChildren(source, params)) {
             if (param.tokenType != KtNodeTypes.VALUE_PARAMETER) continue
             val name = lightChildren(source, param).firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: continue
-            if (containsLooperType(source, param)) into += source.treeStructure.toString(name).toString()
+            if (containsLooperType(source, param)) into += lightText(source, name)
         }
     }
 
@@ -165,7 +164,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     private fun containsLooperType(source: KtSourceElement, node: LighterASTNode): Boolean {
         if (node.tokenType == KtNodeTypes.USER_TYPE) {
             val segment = lightChildren(source, node).lastOrNull { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
-            if (segment != null && source.treeStructure.toString(segment).toString() == "Looper") return true
+            if (segment != null && lightText(source, segment) == "Looper") return true
         }
         return lightChildren(source, node).any { containsLooperType(source, it) }
     }
@@ -180,7 +179,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
             ?: return false
         val segment = lightChildren(source, userType).lastOrNull { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }
             ?: return false
-        return source.treeStructure.toString(segment).toString() == "Handler"
+        return lightText(source, segment) == "Handler"
     }
 
     // An identifier spelled like one of [names] anywhere in [node]'s subtree.
@@ -188,7 +187,7 @@ internal object HandlerLeak : FirClassChecker(MppCheckerKind.Common), FirRule {
     // interpolated identifier, which it does not count; `"${looper}"` holds an
     // ordinary identifier and counts in both.
     private fun usesAnyName(source: KtSourceElement, node: LighterASTNode, names: Set<String>): Boolean {
-        if (node.tokenType == KtTokens.IDENTIFIER) return source.treeStructure.toString(node).toString() in names
+        if (node.tokenType == KtTokens.IDENTIFIER) return lightText(source, node) in names
         if (node.tokenType == KtNodeTypes.SHORT_STRING_TEMPLATE_ENTRY) return false
         return lightChildren(source, node).any { usesAnyName(source, it, names) }
     }

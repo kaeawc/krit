@@ -4,8 +4,10 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -28,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
@@ -41,9 +42,7 @@ import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go TooGenericExceptionThrown rule: a `throw` of a newly
@@ -118,11 +117,11 @@ internal object TooGenericExceptionThrown :
     private val kotlinPackage = FqName("kotlin")
 
     private val genericClassIds = setOf(
-        ClassId(javaLang, Name.identifier("Exception")),
-        ClassId(javaLang, Name.identifier("RuntimeException")),
-        ClassId(javaLang, Name.identifier("Error")),
-        ClassId(javaLang, Name.identifier("Throwable")),
-        ClassId(kotlinPackage, Name.identifier("Throwable")),
+        classIdOf(javaLang, "Exception"),
+        classIdOf(javaLang, "RuntimeException"),
+        classIdOf(javaLang, "Error"),
+        classIdOf(javaLang, "Throwable"),
+        classIdOf(kotlinPackage, "Throwable"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -239,7 +238,7 @@ internal object TooGenericExceptionThrown :
     private fun passesCaught(call: FirFunctionCall, caught: FirBasedSymbol<*>): Boolean =
         call.argumentList.arguments.any { argument ->
             var value = argument
-            if (value is FirWrappedArgumentExpression) value = value.expression
+            value = unwrapArgument(value)
             if (value is FirSmartCastExpression) value = value.originalExpression
             val access = value as? FirPropertyAccessExpression ?: return@any false
             access.explicitReceiver == null && access.calleeReference.toResolvedVariableSymbol() == caught

@@ -5,7 +5,9 @@ import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -41,8 +43,6 @@ import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.ConstantValueKind
@@ -103,9 +103,9 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     // The trigger time (index 1) and the interval (index 2) with the minimum Lint enforces for each.
     private class Bound(val index: Int, val minimum: Long)
     private val bounds = listOf(Bound(1, 5_000L), Bound(2, 60_000L))
-    private val alarmManager = ClassId(FqName("android.app"), Name.identifier("AlarmManager"))
-    private val pendingIntent = ClassId(FqName("android.app"), Name.identifier("PendingIntent"))
-    private val onAlarmListener = ClassId(FqName("android.app"), FqName("AlarmManager.OnAlarmListener"), false)
+    private val alarmManager = classIdOf("android.app", "AlarmManager")
+    private val pendingIntent = classIdOf("android.app", "PendingIntent")
+    private val onAlarmListener = nestedClassIdOf("android.app", "AlarmManager.OnAlarmListener")
     private val alarmManagerType = alarmManager.nullableClassType()
     private val repeatingSetter = Name.identifier("setRepeating")
     private val integralKinds = setOf(

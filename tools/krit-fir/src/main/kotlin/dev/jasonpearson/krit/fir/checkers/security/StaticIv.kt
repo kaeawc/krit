@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -112,8 +114,8 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         "IV parameter spec is built from literal bytes. Generate a fresh random IV for each encryption operation."
 
     private val specPackage = FqName("javax.crypto.spec")
-    private val ivParameterSpec = ClassId(specPackage, Name.identifier("IvParameterSpec"))
-    private val gcmParameterSpec = ClassId(specPackage, Name.identifier("GCMParameterSpec"))
+    private val ivParameterSpec = classIdOf(specPackage, "IvParameterSpec")
+    private val gcmParameterSpec = classIdOf(specPackage, "GCMParameterSpec")
 
     private val kotlinPackage = FqName("kotlin")
     private val kotlinText = FqName("kotlin.text")
@@ -124,26 +126,26 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         CallableId(kotlinText, Name.identifier("encodeToByteArray")),
         CallableId(kotlinText, Name.identifier("hexToByteArray")),
     )
-    private val regex = ClassId(kotlinText, Name.identifier("Regex"))
+    private val regex = classIdOf(kotlinText, "Regex")
 
     private val byteArrays = setOf(
-        ClassId(kotlinPackage, Name.identifier("ByteArray")),
-        ClassId(kotlinPackage, Name.identifier("UByteArray")),
+        classIdOf(kotlinPackage, "ByteArray"),
+        classIdOf(kotlinPackage, "UByteArray"),
     )
 
     private val bytes = setOf(StandardClassIds.Byte, StandardClassIds.UByte)
 
     private val randoms = setOf(
-        ClassId(FqName("java.util"), Name.identifier("Random")),
-        ClassId(FqName("java.security"), Name.identifier("SecureRandom")),
-        ClassId(FqName("kotlin.random"), Name.identifier("Random")),
-        ClassId(FqName("kotlin.random"), FqName("Random.Default"), false),
+        classIdOf("java.util", "Random"),
+        classIdOf("java.security", "SecureRandom"),
+        classIdOf("kotlin.random", "Random"),
+        nestedClassIdOf("kotlin.random", "Random.Default"),
     )
 
     private val decode = Name.identifier("decode")
     private val base64 = Name.identifier("Base64")
     private val getDecoder = Name.identifier("getDecoder")
-    private val javaDecoder = ClassId(FqName("java.util"), FqName("Base64.Decoder"), false)
+    private val javaDecoder = nestedClassIdOf("java.util", "Base64.Decoder")
 
     // Scope functions whose result is their receiver, so a lambda passed to
     // them can change the IV only by mutating it.
@@ -355,13 +357,13 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
             name == "set" && owner in byteArrays -> Mutator(randomizes = false, targetIndex = null)
             name == "fill" && callableId.packageName == kotlinCollections && owner == null ->
                 Mutator(randomizes = false, targetIndex = null)
-            name == "fill" && owner == ClassId(FqName("java.util"), Name.identifier("Arrays")) ->
+            name == "fill" && owner == classIdOf("java.util", "Arrays") ->
                 Mutator(randomizes = false, targetIndex = 0)
             name == "shuffle" && callableId.packageName == kotlinCollections && owner == null ->
                 Mutator(randomizes = true, targetIndex = null)
             name == "copyInto" && callableId.packageName == kotlinCollections && owner == null ->
                 Mutator(randomizes = false, targetIndex = 0)
-            name == "arraycopy" && owner == ClassId(FqName("java.lang"), Name.identifier("System")) ->
+            name == "arraycopy" && owner == classIdOf("java.lang", "System") ->
                 Mutator(randomizes = false, targetIndex = 2)
             else -> null
         }

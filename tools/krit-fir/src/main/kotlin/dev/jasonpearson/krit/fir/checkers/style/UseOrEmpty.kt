@@ -3,7 +3,9 @@ package dev.jasonpearson.krit.fir.checkers.style
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.nullableStarProjectedType
 import dev.jasonpearson.krit.fir.support.significantChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -30,8 +32,6 @@ import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.ConeStarProjection
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
@@ -99,20 +99,17 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         COLLECTION(StandardClassIds.Collection, 1),
         MAP(StandardClassIds.Map, 2),
         ARRAY(StandardClassIds.Array, 1),
-        SEQUENCE(ClassId(FqName("kotlin.sequences"), Name.identifier("Sequence")), 1),
+        SEQUENCE(classIdOf("kotlin.sequences", "Sequence"), 1),
         STRING(StandardClassIds.String, 0),
         ;
 
-        fun receiverType(): ConeKotlinType = classId.constructClassLikeType(
-            Array(typeArguments) { ConeStarProjection },
-            isMarkedNullable = true,
-        )
+        fun receiverType(): ConeKotlinType = classId.nullableStarProjectedType(typeArguments)
     }
 
     private val collections = FqName("kotlin.collections")
     private val sequences = FqName("kotlin.sequences")
     private val kotlin = FqName("kotlin")
-    private val javaUtilCollections = ClassId(FqName("java.util"), Name.identifier("Collections"))
+    private val javaUtilCollections = classIdOf("java.util", "Collections")
 
     private fun id(pkg: FqName, name: String) = CallableId(pkg, Name.identifier(name))
     private fun member(owner: ClassId, name: String) = CallableId(owner, Name.identifier(name))
@@ -154,16 +151,13 @@ internal object UseOrEmpty : FirExpressionChecker<FirElvisExpression>(MppChecker
         val fallback = expression.rhs as? FirFunctionCall
         val fallbackName = fallback?.calleeReference?.toResolvedCallableSymbol()?.callableId?.callableName?.asString()
         val leftType = expression.lhs.resolvedType
-        val nullableSet = StandardClassIds.Set.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
-        val nullableList = StandardClassIds.List.constructClassLikeType(arrayOf(ConeStarProjection), isMarkedNullable = true)
+        val nullableSet = StandardClassIds.Set.nullableStarProjectedType(1)
+        val nullableList = StandardClassIds.List.nullableStarProjectedType(1)
         if (fallbackName in setOf("emptyList", "listOf") && leftType.isSubtypeOf(nullableSet, context.session)) return
         if (fallbackName in setOf("emptySet", "setOf") && leftType.isSubtypeOf(nullableList, context.session)) return
         if (family == Family.COLLECTION || family == Family.MAP) {
             val mutable = if (family == Family.MAP) StandardClassIds.MutableMap else StandardClassIds.MutableCollection
-            val mutableType = mutable.constructClassLikeType(
-                Array(family.typeArguments) { ConeStarProjection },
-                isMarkedNullable = true,
-            )
+            val mutableType = mutable.nullableStarProjectedType(family.typeArguments)
             if (expression.resolvedType.isSubtypeOf(mutableType, context.session)) return
         }
 

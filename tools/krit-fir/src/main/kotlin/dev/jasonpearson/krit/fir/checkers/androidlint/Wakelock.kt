@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.unwrapArgument
@@ -29,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
@@ -383,8 +383,7 @@ internal object Wakelock : FirDeclarationChecker<FirNamedFunction>(MppCheckerKin
     // class id is resolved from a symbol that may be local.
     private fun isWakeLockClass(symbol: FirClassLikeSymbol<*>, session: FirSession): Boolean =
         symbol.classId.shortClassName == wakeLock ||
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId.shortClassName == wakeLock }
+            inheritsFrom(symbol, session, lookupInterfaces = true) { it.shortClassName == wakeLock }
 
     // Go's fallback when it cannot type the receiver: a variable declared in
     // the call's nearest named function, before the call, whose initializer

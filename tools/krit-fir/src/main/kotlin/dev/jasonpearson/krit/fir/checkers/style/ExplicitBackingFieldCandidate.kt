@@ -7,6 +7,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
@@ -34,7 +35,6 @@ import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedPropertySymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
@@ -196,8 +196,7 @@ internal object ExplicitBackingFieldCandidate : FirPropertyChecker(MppCheckerKin
         if (expanded.isMarkedNullable) return false
         if (expanded.classId in mutableFamily) return true
         val symbol = expanded.lookupTag.toRegularClassSymbol(session) ?: return false
-        return lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-            .any { it.classId in mutableFamily }
+        return inheritsFrom(symbol, session, lookupInterfaces = true) { it in mutableFamily }
     }
 
     // How many properties of the declaring class (or file) expose [backing] the way [declaration] does.

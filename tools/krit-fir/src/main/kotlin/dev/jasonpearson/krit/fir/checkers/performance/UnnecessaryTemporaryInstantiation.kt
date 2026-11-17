@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.performance
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -35,7 +36,7 @@ internal object UnnecessaryTemporaryInstantiation : FirFunctionCallChecker(MppCh
     private val javaLang = FqName("java.lang")
     private val wrapperClassIds: Set<ClassId> =
         listOf("Boolean", "Byte", "Short", "Integer", "Long", "Float", "Double")
-            .mapTo(HashSet()) { ClassId(javaLang, Name.identifier(it)) }
+            .mapTo(HashSet()) { classIdOf(javaLang, it) }
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

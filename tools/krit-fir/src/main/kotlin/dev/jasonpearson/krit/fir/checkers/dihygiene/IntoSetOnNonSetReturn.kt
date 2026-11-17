@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.identifierText
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChec
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -182,8 +182,7 @@ internal object IntoSetOnNonSetReturn :
                 val classId = t.lookupTag.classId
                 if (classId == kotlinArray || classId in collectionRoots) return true
                 val symbol = t.lookupTag.toClassSymbol(session) ?: return false
-                lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                    .any { it.lookupTag.classId in collectionRoots }
+                inheritsFrom(symbol, session, lookupInterfaces = true) { it in collectionRoots }
             }
             is ConeTypeParameterType -> t.lookupTag.typeParameterSymbol.resolvedBounds.any {
                 isCollection(it.coneType, session, depth + 1)

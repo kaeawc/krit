@@ -5,7 +5,9 @@ import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -62,7 +64,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -133,13 +134,13 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     private const val GET_SIGNATURES_BIT = 0x40L
     private val getPackageInfo = Name.identifier("getPackageInfo")
     private val getSignatures = Name.identifier("GET_SIGNATURES")
-    private val packageManager = ClassId(FqName("android.content.pm"), Name.identifier("PackageManager"))
+    private val packageManager = classIdOf("android.content.pm", "PackageManager")
     private val sdkInt = Name.identifier("SDK_INT")
     private const val SDK_INT_SPELLING = "Build.VERSION.SDK_INT"
     private val flagsParameter = Name.identifier("flags")
     private val guardAnnotations = setOf("RequiresApi", "TargetApi")
     private val packageInfoFlagsOf = CallableId(
-        ClassId(FqName("android.content.pm"), FqName("PackageManager.PackageInfoFlags"), isLocal = false),
+        nestedClassIdOf("android.content.pm", "PackageManager.PackageInfoFlags"),
         Name.identifier("of"),
     )
     private val integralClassIds = setOf(
@@ -169,8 +170,8 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
         CallableId(FqName("kotlin.comparisons"), Name.identifier("minOf")),
         CallableId(FqName("kotlin.math"), Name.identifier("max")),
         CallableId(FqName("kotlin.math"), Name.identifier("min")),
-        CallableId(ClassId(FqName("java.lang"), Name.identifier("Math")), Name.identifier("max")),
-        CallableId(ClassId(FqName("java.lang"), Name.identifier("Math")), Name.identifier("min")),
+        CallableId(classIdOf("java.lang", "Math"), Name.identifier("max")),
+        CallableId(classIdOf("java.lang", "Math"), Name.identifier("min")),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

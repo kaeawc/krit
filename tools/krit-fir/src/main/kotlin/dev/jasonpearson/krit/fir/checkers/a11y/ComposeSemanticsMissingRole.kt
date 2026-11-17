@@ -6,6 +6,8 @@ import dev.jasonpearson.krit.fir.checkers.compose.isPrivateHelperOfPreviews
 import dev.jasonpearson.krit.fir.checkers.compose.isTestSupportSource
 import dev.jasonpearson.krit.fir.checkers.compose.previewConfig
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.isNullLiteral
 import dev.jasonpearson.krit.fir.support.pathTo
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.writtenArgumentName
@@ -33,10 +35,8 @@ import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 // Flags `Modifier.clickable { }`, `.toggleable(...)` and `.selectable(...)` written on a chain that starts at
 // `Modifier` and gives screen readers no role.
@@ -66,7 +66,7 @@ internal object ComposeSemanticsMissingRole : FirFunctionCallChecker(MppCheckerK
     private val roleProperty = CallableId(semanticsPackage, Name.identifier("role"))
     private val hidingNames = setOf("hideFromAccessibility", "invisibleToUser", "clearAndSetSemantics")
 
-    private val modifierClass = ClassId.topLevel(FqName("androidx.compose.ui.Modifier"))
+    private val modifierClass = classIdOf("androidx.compose.ui", "Modifier")
     private val modifierRoots = setOf(modifierClass, modifierClass.createNestedClassId(Name.identifier("Companion")))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -115,7 +115,7 @@ internal object ComposeSemanticsMissingRole : FirFunctionCallChecker(MppCheckerK
             when (parameter.name.asString()) {
                 "role" -> return true
                 "enabled" -> if (written == "enabled" && value is FirLiteralExpression && value.value == false) return true
-                "indication" -> if (written == "indication" && value is FirLiteralExpression && value.kind == ConstantValueKind.Null) return true
+                "indication" -> if (written == "indication" && isNullLiteral(value)) return true
             }
         }
         return false

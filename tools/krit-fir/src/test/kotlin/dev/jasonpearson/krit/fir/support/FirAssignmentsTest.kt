@@ -1,8 +1,10 @@
 package dev.jasonpearson.krit.fir.support
 
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import org.jetbrains.kotlin.fir.FirContractViolation
 import org.jetbrains.kotlin.fir.FirExpressionRef
 import org.jetbrains.kotlin.fir.expressions.FirExpression
@@ -32,6 +34,7 @@ class FirAssignmentsTest {
     @Test
     fun plainAssignmentReturnsItsTargetAccess() {
         assertSame(access, assignedAccess(assignmentTo(access)))
+        assertFalse(isCompoundAssignment(assignmentTo(access)))
     }
 
     @OptIn(FirContractViolation::class)
@@ -41,6 +44,7 @@ class FirAssignmentsTest {
             expressionRef = FirExpressionRef<FirExpression>().apply { bind(access) }
         }
         assertSame(access, assignedAccess(assignmentTo(desugared)))
+        assertTrue(isCompoundAssignment(assignmentTo(desugared)))
     }
 
     @Test

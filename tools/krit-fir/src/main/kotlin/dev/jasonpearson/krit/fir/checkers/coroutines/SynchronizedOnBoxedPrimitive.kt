@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -283,7 +284,7 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
         }
         val first = tokens.firstOrNull() ?: return null
         val last = tokens.last()
-        val nodeText = source.treeStructure.toString(node)
+        val nodeText = lightText(source, node)
         val start = first.startOffset - node.startOffset
         val end = last.endOffset - node.startOffset
         if (start < 0 || end > nodeText.length || start > end) return null

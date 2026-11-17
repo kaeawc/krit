@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -28,8 +29,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
 
 // Flags a `newInstance()` or `newFactory()` call on a JAXP XML parser factory (DocumentBuilderFactory,
@@ -106,10 +105,10 @@ internal object XmlExternalEntity : FirFunctionCallChecker(MppCheckerKind.Common
     )
     private val xIncludeNames = setOf("isXIncludeAware", "setXIncludeAware")
     private val expandEntityNames = setOf("isExpandEntityReferences", "setExpandEntityReferences")
-    private val transformerId = ClassId(FqName("javax.xml.transform"), Name.identifier("Transformer"))
+    private val transformerId = classIdOf("javax.xml.transform", "Transformer")
     private val sourceIds = setOf(
-        ClassId(FqName("javax.xml.transform.stream"), Name.identifier("StreamSource")),
-        ClassId(FqName("javax.xml.transform.sax"), Name.identifier("SAXSource")),
+        classIdOf("javax.xml.transform.stream", "StreamSource"),
+        classIdOf("javax.xml.transform.sax", "SAXSource"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

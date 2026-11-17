@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -16,6 +17,7 @@ import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
 import dev.jasonpearson.krit.fir.support.sqlLastIdentifierSegment
 import dev.jasonpearson.krit.fir.support.sqlSchemaConstantName
 import dev.jasonpearson.krit.fir.support.sqlStaticOperand
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -45,7 +47,6 @@ import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirWhenBranch
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenSubjectExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.references.FirSuperReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -67,7 +68,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -138,9 +138,9 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
         .map { Name.identifier(it) }.toSet()
 
     private val javaSql = FqName("java.sql")
-    private val statement = ClassId(javaSql, Name.identifier("Statement"))
+    private val statement = classIdOf(javaSql, "Statement")
     private val nullableStatement = statement.nullableClassType()
-    private val nullablePreparedStatement = ClassId(javaSql, Name.identifier("PreparedStatement")).nullableClassType()
+    private val nullablePreparedStatement = classIdOf(javaSql, "PreparedStatement").nullableClassType()
 
     private val stringPlus = CallableId(StandardClassIds.String, Name.identifier("plus"))
     private const val MAX_DEPTH = 16
@@ -315,7 +315,7 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     // The resolved argument whose source lies within [argumentSource].
     private fun firArgumentAt(expression: FirFunctionCall, argumentSource: KtSourceElement): FirExpression? =
         expression.argumentList.arguments.asSequence()
-            .map { if (it is FirWrappedArgumentExpression) it.expression else it }
+            .map { unwrapArgument(it) }
             .firstOrNull { value ->
                 val source = value.source ?: return@firstOrNull false
                 source.startOffset >= argumentSource.startOffset && source.endOffset <= argumentSource.endOffset

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.inheritsFrom
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -20,8 +21,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -70,7 +69,7 @@ internal object JavaObjectInputStream : FirFunctionCallChecker(MppCheckerKind.Co
     private const val MESSAGE =
         "ObjectInputStream enables Java deserialization gadget attacks. Prefer JSON, protobuf, or kotlinx.serialization for untrusted data."
 
-    private val objectInputStream = ClassId(FqName("java.io"), Name.identifier("ObjectInputStream"))
+    private val objectInputStream = classIdOf("java.io", "ObjectInputStream")
     private val resolveClass = Name.identifier("resolveClass")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

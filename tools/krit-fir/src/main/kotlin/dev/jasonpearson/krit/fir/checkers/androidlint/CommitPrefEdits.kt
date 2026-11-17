@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -121,7 +122,7 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
     private val RECEIVER_RETURNING = setOf("apply", "also").map(Name::identifier).toSet()
     private val WITH = Name.identifier("with")
 
-    private val sharedPreferencesId = ClassId(FqName("android.content"), Name.identifier("SharedPreferences"))
+    private val sharedPreferencesId = classIdOf("android.content", "SharedPreferences")
     private val editorId = sharedPreferencesId.createNestedClassId(Name.identifier("Editor"))
     private val nullableEditorType = editorId.nullableClassType()
 

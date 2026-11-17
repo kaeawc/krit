@@ -7,7 +7,9 @@ import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.containingMinSdk
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.inheritsFrom
+import dev.jasonpearson.krit.fir.support.isCompoundAssignment
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -26,7 +28,6 @@ import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.InlineStatus
 import org.jetbrains.kotlin.fir.expressions.FirBlock
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
@@ -50,7 +51,6 @@ import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 
@@ -115,7 +115,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     // Android 7.0 removed the tag length limit.
     private const val TAG_LIMIT_REMOVED_API = 24
 
-    private val logClassId = ClassId(FqName("android.util"), Name.identifier("Log"))
+    private val logClassId = classIdOf("android.util", "Log")
     private val levelNames = setOf("v", "d", "i", "w", "e", "wtf").map(Name::identifier).toSet()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -270,7 +270,7 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
         }
         val last = dominating.maxByOrNull { (assignment, _) -> assignment.source?.startOffset ?: 0 }?.first
         if (last != null) {
-            return if (last.lValue is FirDesugaredAssignmentValueReferenceExpression) null else last.rValue
+            return if (isCompoundAssignment(last)) null else last.rValue
         }
         return if (deferred >= 0) null else variable.resolvedInitializer
     }

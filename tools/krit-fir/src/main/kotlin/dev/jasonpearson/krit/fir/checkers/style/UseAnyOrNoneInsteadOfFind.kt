@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.style
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.nullableStarProjectedType
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -16,7 +18,6 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
@@ -27,8 +28,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.ConeStarProjection
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSomeFunctionType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -174,10 +173,7 @@ internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCh
     private fun receiverAccepts(extension: FirNamedFunctionSymbol, receiverType: ConeKotlinType): Boolean {
         val declared = extension.resolvedReceiverType?.fullyExpandedType()?.lowerBoundIfFlexible() as? ConeClassLikeType
             ?: return false
-        val erased = declared.lookupTag.classId.constructClassLikeType(
-            Array(declared.typeArguments.size) { ConeStarProjection },
-            isMarkedNullable = true,
-        )
+        val erased = declared.lookupTag.classId.nullableStarProjectedType(declared.typeArguments.size)
         return receiverType.isSubtypeOf(erased, context.session)
     }
 
@@ -189,7 +185,7 @@ internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCh
 
     private fun hasPredicateLambda(call: FirFunctionCall): Boolean =
         call.argumentList.arguments.any { argument ->
-            val unwrapped = if (argument is FirWrappedArgumentExpression) argument.expression else argument
+            val unwrapped = unwrapArgument(argument)
             unwrapped is FirAnonymousFunctionExpression && unwrapped.anonymousFunction.isLambda
         }
 }

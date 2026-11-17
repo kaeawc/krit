@@ -3,13 +3,13 @@ package dev.jasonpearson.krit.fir.checkers.style
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.trailingLambdaOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -67,7 +67,7 @@ internal object UseCheckNotNull : FirFunctionCallChecker(MppCheckerKind.Common),
         if (callee.callableId != kotlinCheck) return
 
         val condition = expression.argumentList.arguments
-            .filterNot { it is FirAnonymousFunctionExpression && it.isTrailingLambda }
+            .filterNot { trailingLambdaOf(it) != null }
             .singleOrNull()
             ?.let(::unwrapArgument) as? FirEqualityOperatorCall ?: return
         if (condition.operation != FirOperation.NOT_EQ) return

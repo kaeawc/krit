@@ -6,6 +6,9 @@ import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -41,7 +44,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
@@ -113,7 +115,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         "SecretKeySpec is constructed from hardcoded bytes. Load keys from Android Keystore or a secret manager instead."
 
     private val secretKeySpecClassId =
-        ClassId(FqName("javax.crypto.spec"), Name.identifier("SecretKeySpec"))
+        classIdOf("javax.crypto.spec", "SecretKeySpec")
     private val kotlinPackage = FqName("kotlin")
     private const val BYTE_ARRAY_OF = "byteArrayOf"
     private val stringToBytes = setOf("toByteArray", "encodeToByteArray", "getBytes", "hexToByteArray")
@@ -266,7 +268,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         try {
             return when (val value = strip(expression)) {
                 // A null default is a missing value, not a key.
-                is FirLiteralExpression -> value.kind != ConstantValueKind.Null
+                is FirLiteralExpression -> !isNullLiteral(value)
                 is FirStringConcatenationCall -> value.argumentList.arguments.all { isHardcoded(it, walk) }
                 is FirPropertyAccessExpression -> isFixedRead(value, walk)
                 is FirWhenExpression -> value.branches.any { branch -> isHardcodedResult(branch.result, walk) }
@@ -311,9 +313,9 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     private val receiverScopes = setOf("also", "apply", "takeIf", "takeUnless")
 
     private val stringBuilderClassIds = setOf(
-        ClassId(FqName("java.lang"), Name.identifier("StringBuilder")),
-        ClassId(FqName("java.lang"), Name.identifier("StringBuffer")),
-        ClassId(FqName("kotlin"), Name.identifier("String")),
+        classIdOf("java.lang", "StringBuilder"),
+        classIdOf("java.lang", "StringBuffer"),
+        classIdOf("kotlin", "String"),
     )
     private val stringFunctionId = CallableId(FqName("kotlin.text"), Name.identifier("String"))
     private val charArrayOfId = CallableId(FqName("kotlin"), Name.identifier("charArrayOf"))
@@ -355,8 +357,8 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         }
 
     private val charsetOwners = setOf(
-        ClassId(FqName("kotlin.text"), Name.identifier("Charsets")),
-        ClassId(FqName("java.nio.charset"), Name.identifier("StandardCharsets")),
+        classIdOf("kotlin.text", "Charsets"),
+        classIdOf("java.nio.charset", "StandardCharsets"),
     )
     private val lazyId = CallableId(FqName("kotlin"), Name.identifier("lazy"))
 
@@ -481,5 +483,5 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     }
 
     private fun unwrap(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
+        unwrapArgument(argument)
 }

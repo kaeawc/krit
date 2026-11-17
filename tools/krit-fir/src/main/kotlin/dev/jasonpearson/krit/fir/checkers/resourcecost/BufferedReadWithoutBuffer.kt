@@ -2,6 +2,9 @@ package dev.jasonpearson.krit.fir.checkers.resourcecost
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.isCompoundAssignment
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -20,7 +23,6 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousObjectExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -28,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
@@ -145,7 +146,7 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
         report(expression.source, MESSAGE)
     }
 
-    private val BYTE_ARRAY = ClassId.fromString("kotlin/ByteArray")
+    private val BYTE_ARRAY = classIdOf("kotlin", "ByteArray")
 
     // A read into a buffer of 8 KiB or more already moves data in large chunks, so
     // a BufferedInputStream adds nothing. Buffers of unknown size are still reported.
@@ -418,9 +419,8 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
 
                     private fun record(assignment: FirVariableAssignment) {
                         val span = spanOf(assignment) ?: return
-                        val lValue = assignment.lValue
-                        val compound = lValue is FirDesugaredAssignmentValueReferenceExpression
-                        val target = (if (compound) lValue.expressionRef.value else lValue) as? FirQualifiedAccessExpression
+                        val compound = isCompoundAssignment(assignment)
+                        val target = assignedAccess(assignment)
                         val symbol = target?.calleeReference?.toResolvedCallableSymbol() ?: return
                         val value = assignment.rValue
                         // `x += y` combines y with the current value.

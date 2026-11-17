@@ -2,9 +2,11 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.isNullLiteral
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -52,7 +54,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -138,8 +139,8 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
     private val serverCheck = Name.identifier("checkServerTrusted")
     private val clientCheck = Name.identifier("checkClientTrusted")
     private val checkNames = setOf(serverCheck, clientCheck)
-    private val trustManager = ClassId(FqName("javax.net.ssl"), Name.identifier("TrustManager"))
-    private val unitClassId = ClassId(FqName("kotlin"), Name.identifier("Unit"))
+    private val trustManager = classIdOf("javax.net.ssl", "TrustManager")
+    private val unitClassId = classIdOf("kotlin", "Unit")
 
     private val kotlin = FqName("kotlin")
     private val collections = FqName("kotlin.collections")
@@ -267,7 +268,7 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
         if (!isCondition && callableId !in inertCalls) return false
         if (call.explicitReceiver?.let(::isInert) == false) return false
         return call.arguments.withIndex().all { (index, argument) ->
-            val value = (argument as? FirWrappedArgumentExpression)?.expression ?: argument
+            val value = unwrapArgument(argument)
             when {
                 value is FirAnonymousFunctionExpression -> value.anonymousFunction.body?.let(::isTrivialBlock) == true
                 isCondition && index == 0 -> value is FirEqualityOperatorCall && isNullCheck(value)

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.naming
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -17,9 +18,6 @@ import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
 /**
@@ -59,7 +57,7 @@ internal object NonBooleanPropertyPrefixedWithIs : FirPropertyChecker(MppChecker
         override val propertyCheckers = setOf(NonBooleanPropertyPrefixedWithIs)
     }
 
-    private val javaLangBoolean = ClassId(FqName("java.lang"), Name.identifier("Boolean"))
+    private val javaLangBoolean = classIdOf("java.lang", "Boolean")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirProperty) {

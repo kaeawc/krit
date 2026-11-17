@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -13,9 +14,6 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 // Flags a `java.security.SecureRandom(...)` constructor call that passes any
 // argument: the JDK's `SecureRandom(byte[] seed)` constructor. A supplied seed
@@ -55,7 +53,7 @@ internal object HardcodedRandomSeed : FirFunctionCallChecker(MppCheckerKind.Comm
     private const val MESSAGE =
         "SecureRandom constructed with an explicit seed can be predictable. Use the default constructor so the platform supplies the entropy."
 
-    private val secureRandomClassId = ClassId(FqName("java.security"), Name.identifier("SecureRandom"))
+    private val secureRandomClassId = classIdOf("java.security", "SecureRandom")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

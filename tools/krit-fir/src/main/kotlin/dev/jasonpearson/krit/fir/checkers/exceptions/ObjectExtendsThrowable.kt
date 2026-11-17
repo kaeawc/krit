@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -19,9 +20,6 @@ import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
 /**
@@ -72,7 +70,7 @@ internal object ObjectExtendsThrowable :
 
     private val throwableClassIds = setOf(
         StandardClassIds.Throwable,
-        ClassId(FqName("java.lang"), Name.identifier("Throwable")),
+        classIdOf("java.lang", "Throwable"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

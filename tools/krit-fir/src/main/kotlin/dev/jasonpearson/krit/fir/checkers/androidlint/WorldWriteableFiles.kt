@@ -6,10 +6,12 @@ import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.importedNameSource
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -42,7 +44,6 @@ import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
@@ -62,8 +63,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
@@ -113,7 +112,7 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
     }
 
     private const val MESSAGE = "MODE_WORLD_WRITEABLE is insecure. Use more restrictive file permissions."
-    private val contextClassId = ClassId(FqName("android.content"), Name.identifier("Context"))
+    private val contextClassId = classIdOf("android.content", "Context")
     private val androidName = Name.identifier("MODE_WORLD_WRITEABLE")
     private val goNames = setOf(androidName, Name.identifier("MODE_WORLD_WRITABLE"))
     private val goNameStrings = goNames.mapTo(HashSet()) { it.asString() }
@@ -197,7 +196,7 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
         override fun check(expression: FirCall) {
             for (argument in expression.argumentList.arguments.flatMap { flattenVararg(it) }) {
                 val label = namedArgumentLabel(argument) ?: continue
-                val value = (argument as? FirWrappedArgumentExpression)?.expression ?: argument
+                val value = unwrapArgument(argument)
                 if (evaluate(value, HashSet()).isProvablyNotWorldWriteable()) continue
                 WorldWriteableFiles.report(label, MESSAGE)
             }

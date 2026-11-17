@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.classType
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -31,12 +33,10 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
@@ -101,22 +101,20 @@ internal object SuspendFunInFinallySection : FirExpressionChecker<FirTryExpressi
     private val contextTakingBuilders = setOf(launch, async, withContext, runBlocking)
     private val contextParameter = Name.identifier("context")
     private val plus = Name.identifier("plus")
-    private val sequenceScope = ClassId(FqName("kotlin.sequences"), Name.identifier("SequenceScope"))
+    private val sequenceScope = classIdOf("kotlin.sequences", "SequenceScope")
 
-    private val nonCancellable = ClassId(coroutinesPackage, Name.identifier("NonCancellable"))
-    private val jobType = classType(ClassId(coroutinesPackage, Name.identifier("Job")))
-    private val nonCancellableType = classType(nonCancellable)
-    private val emptyCoroutineContext = ClassId(stdlibCoroutinesPackage, Name.identifier("EmptyCoroutineContext"))
+    private val nonCancellable = classIdOf(coroutinesPackage, "NonCancellable")
+    private val jobType = classIdOf(coroutinesPackage, "Job").classType()
+    private val nonCancellableType = nonCancellable.classType()
+    private val emptyCoroutineContext = classIdOf(stdlibCoroutinesPackage, "EmptyCoroutineContext")
 
     // Context elements that cannot carry a Job: adding one to a context keeps
     // the Job already there.
     private val jobFreeTypes = listOf(
-        classType(ClassId(coroutinesPackage, Name.identifier("CoroutineDispatcher"))),
-        classType(ClassId(coroutinesPackage, Name.identifier("CoroutineName"))),
-        classType(ClassId(coroutinesPackage, Name.identifier("CoroutineExceptionHandler"))),
+        classIdOf(coroutinesPackage, "CoroutineDispatcher").classType(),
+        classIdOf(coroutinesPackage, "CoroutineName").classType(),
+        classIdOf(coroutinesPackage, "CoroutineExceptionHandler").classType(),
     )
-
-    private fun classType(id: ClassId): ConeKotlinType = id.constructClassLikeType(emptyArray(), isMarkedNullable = false)
 
     // The Job a context argument puts in the new coroutine's context.
     private enum class ContextJob {

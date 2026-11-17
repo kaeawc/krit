@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.inheritsFrom
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -95,8 +96,8 @@ internal object AllowAllHostnameVerifier :
 
     private val verify = Name.identifier("verify")
     private val sslPackage = FqName("javax.net.ssl")
-    private val hostnameVerifier = ClassId(sslPackage, Name.identifier("HostnameVerifier"))
-    private val sslSession = ClassId(sslPackage, Name.identifier("SSLSession"))
+    private val hostnameVerifier = classIdOf(sslPackage, "HostnameVerifier")
+    private val sslSession = classIdOf(sslPackage, "SSLSession")
 
     private const val MESSAGE =
         "HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host."

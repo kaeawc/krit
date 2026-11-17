@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -27,9 +28,6 @@ import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go Instantiatable rule: an Android component class (an
@@ -85,13 +83,13 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
             "Remove the private constructor or add a public no-arg constructor."
 
     private val componentClassIds = setOf(
-        ClassId(FqName("android.app"), Name.identifier("Activity")),
-        ClassId(FqName("android.app"), Name.identifier("Service")),
-        ClassId(FqName("android.app"), Name.identifier("Application")),
-        ClassId(FqName("android.content"), Name.identifier("ContentProvider")),
+        classIdOf("android.app", "Activity"),
+        classIdOf("android.app", "Service"),
+        classIdOf("android.app", "Application"),
+        classIdOf("android.content", "ContentProvider"),
     )
 
-    private val jvmOverloadsClassId = ClassId(FqName("kotlin.jvm"), Name.identifier("JvmOverloads"))
+    private val jvmOverloadsClassId = classIdOf("kotlin.jvm", "JvmOverloads")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {

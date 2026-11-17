@@ -4,9 +4,12 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerIn
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -64,7 +67,6 @@ import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtToken
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -123,7 +125,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     private const val MESSAGE = "Toast created but not shown: did you forget to call `show()`?"
     private const val FLOW_BUDGET = 4
 
-    private val toastClassId = ClassId(FqName("android.widget"), Name.identifier("Toast"))
+    private val toastClassId = classIdOf("android.widget", "Toast")
     private val makeText = Name.identifier("makeText")
     private val show = Name.identifier("show")
     private val apply = Name.identifier("apply")
@@ -283,7 +285,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         lightChildren(anchor, node).filter { it.tokenType !is KtToken }
 
     private fun textOf(anchor: KtSourceElement, node: LighterASTNode): String =
-        anchor.treeStructure.toString(node).toString().removeSurrounding("`")
+        lightText(anchor, node).removeSurrounding("`")
 
     // The call's own CALL_EXPRESSION node: the source itself, or the selector
     // of a qualified call.
@@ -437,8 +439,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         private fun receiverShown(lambda: FirAnonymousFunction, budget: Int): Boolean {
             val symbol = lambda.symbol
             fun bound(expression: FirExpression?): Boolean {
-                var receiver = expression
-                while (receiver is FirSmartCastExpression) receiver = receiver.originalExpression
+                val receiver = unwrapSmartCasts(expression, throughSafeCallSubject = false)
                 val bound = (receiver as? FirThisReceiverExpression)?.calleeReference?.boundSymbol ?: return false
                 return bound == symbol || (bound as? FirReceiverParameterSymbol)?.containingDeclarationSymbol == symbol
             }

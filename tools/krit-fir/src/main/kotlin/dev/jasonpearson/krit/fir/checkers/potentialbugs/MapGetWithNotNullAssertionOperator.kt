@@ -5,6 +5,7 @@ import com.intellij.psi.tree.IElementType
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -97,7 +97,7 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
     private const val MESSAGE = "Map access with not-null assertion operator (!!). Use getValue() or getOrDefault() instead."
     private val GET = Name.identifier("get")
     private val COLLECTIONS = FqName("kotlin.collections")
-    private val MAP_GET = CallableId(ClassId(COLLECTIONS, Name.identifier("Map")), GET)
+    private val MAP_GET = CallableId(classIdOf(COLLECTIONS, "Map"), GET)
     private val STDLIB_MAP_GET_EXTENSION = CallableId(COLLECTIONS, GET)
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

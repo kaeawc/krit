@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
 import dev.jasonpearson.krit.fir.support.nullableClassType
@@ -22,7 +23,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -73,14 +73,14 @@ internal object PrintlnInProduction : FirFunctionCallChecker(MppCheckerKind.Comm
     private const val MESSAGE = "println/print in production code; use a logging framework instead."
     private val KOTLIN_IO = FqName("kotlin.io")
     private val PRINT_NAMES = setOf(Name.identifier("println"), Name.identifier("print"))
-    private val SYSTEM = ClassId.fromString("java/lang/System")
+    private val SYSTEM = classIdOf("java.lang", "System")
     private val SYSTEM_STREAMS = setOf(
         CallableId(SYSTEM, Name.identifier("out")),
         CallableId(SYSTEM, Name.identifier("err")),
     )
     private val PRINT_STREAMS = listOf(
-        ClassId.fromString("java/io/PrintStream"),
-        ClassId.fromString("java/io/PrintWriter"),
+        classIdOf("java.io", "PrintStream"),
+        classIdOf("java.io", "PrintWriter"),
     ).map { it.nullableClassType() }
     private val MAIN = Name.identifier("main")
     private val TASK_ACTION = Name.identifier("TaskAction")

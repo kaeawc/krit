@@ -17,3 +17,7 @@ fun assignedAccess(assignment: FirVariableAssignment): FirQualifiedAccessExpress
     val access = if (target is FirDesugaredAssignmentValueReferenceExpression) target.expressionRef.value else target
     return access as? FirQualifiedAccessExpression
 }
+
+/** True when [assignment] is a compound write (`x += y`, `x++`) that K2 desugars through a value reference. */
+fun isCompoundAssignment(assignment: FirVariableAssignment): Boolean =
+    assignment.lValue is FirDesugaredAssignmentValueReferenceExpression

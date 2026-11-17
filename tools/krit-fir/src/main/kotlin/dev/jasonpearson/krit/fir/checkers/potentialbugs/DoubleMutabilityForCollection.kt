@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.report
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.descriptors.Visibilities
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
@@ -29,7 +30,6 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -287,8 +287,7 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
     private fun isMutableBound(bound: ConeClassLikeType, session: FirSession): Boolean {
         if (bound.lookupTag.classId in mutableRoots) return true
         val symbol = bound.lookupTag.toClassSymbol(session) ?: return false
-        return lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-            .any { it.lookupTag.classId in mutableRoots }
+        return inheritsFrom(symbol, session, lookupInterfaces = true) { it in mutableRoots }
     }
 
     /** One bound of a type: its class names as written, and its expansion. */

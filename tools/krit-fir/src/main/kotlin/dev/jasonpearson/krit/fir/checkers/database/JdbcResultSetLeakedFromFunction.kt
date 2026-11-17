@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.database
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -24,8 +25,6 @@ import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.util.getChildren
@@ -70,12 +69,12 @@ internal object JdbcResultSetLeakedFromFunction :
     }
 
     private const val RESULT_SET = "ResultSet"
-    private val resultSet = ClassId(FqName("java.sql"), Name.identifier(RESULT_SET))
+    private val resultSet = classIdOf("java.sql", RESULT_SET)
     private val close = Name.identifier("close")
     private const val MAX_TYPE_DEPTH = 16
     private val autoCloseable = setOf(
-        ClassId(FqName("java.lang"), Name.identifier("AutoCloseable")),
-        ClassId(FqName("kotlin"), Name.identifier("AutoCloseable")),
+        classIdOf("java.lang", "AutoCloseable"),
+        classIdOf("kotlin", "AutoCloseable"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

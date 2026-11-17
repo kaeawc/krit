@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyIn
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -29,7 +30,6 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
@@ -83,7 +83,7 @@ internal object SharedFlowWithoutReplay : FirPropertyChecker(MppCheckerKind.Comm
 
     private val flowPackage = FqName("kotlinx.coroutines.flow")
     private val mutableSharedFlow = CallableId(flowPackage, Name.identifier("MutableSharedFlow"))
-    private val mutableSharedFlowClass = ClassId(flowPackage, Name.identifier("MutableSharedFlow"))
+    private val mutableSharedFlowClass = classIdOf(flowPackage, "MutableSharedFlow")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirProperty) {

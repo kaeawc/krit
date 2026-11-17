@@ -1134,6 +1134,26 @@ package test
 class Name { fun capitalize(): Name = this }
 fun title(s: String) = s.capitalize()
 `, 1},
+		{"member extension outside its class", `
+package test
+class Helper {
+    fun String.toUpperCase(): String = this
+    fun inside(s: String) = s.toUpperCase()
+}
+fun title(s: String) = s.toUpperCase()
+`, 1},
+		{"extension text only in a string", `
+package test
+fun toUpperCase() = "fun String.toUpperCase()"
+fun title(s: String) = s.toUpperCase()
+`, 1},
+		{"local extension before the call", `
+package test
+fun title(s: String): String {
+    fun String.toUpperCase(): String = this
+    return s.toUpperCase()
+}
+`, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

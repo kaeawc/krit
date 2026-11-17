@@ -6,6 +6,6 @@ import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 
 fun currentWifi(context: Context): WifiInfo? {
-    val manager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    val manager = context.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return null
     return manager.connectionInfo
 }

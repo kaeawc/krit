@@ -113,6 +113,7 @@ public abstract class Context {
 
     public abstract void revokeUriPermission(Uri uri, int modeFlags);
 
+    @android.annotation.Nullable
     public abstract Object getSystemService(String name);
 
     public final <T> T getSystemService(Class<T> serviceClass) {

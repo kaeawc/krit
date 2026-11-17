@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.descriptors.ClassKind
@@ -28,7 +29,6 @@ import org.jetbrains.kotlin.fir.declarations.utils.isInner
 import org.jetbrains.kotlin.fir.declarations.utils.modality
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
@@ -181,9 +181,7 @@ internal object FragmentConstructor :
             val type = ref.coneType.fullyExpandedType(session).lowerBoundIfFlexible() as? ConeClassLikeType ?: continue
             if (type.lookupTag.classId in fragmentClassIds) return true
             val symbol = type.lookupTag.toClassSymbol(session) ?: continue
-            val extendsFragment = lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId in fragmentClassIds }
-            if (extendsFragment) return true
+            if (inheritsFromAny(symbol, fragmentClassIds, session, lookupInterfaces = false)) return true
         }
         return false
     }

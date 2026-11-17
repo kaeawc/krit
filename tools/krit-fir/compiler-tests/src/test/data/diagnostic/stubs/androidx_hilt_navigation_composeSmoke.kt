@@ -17,5 +17,5 @@ class HiltSmokeViewModel @Inject constructor(private val handle: SavedStateHandl
 @Composable
 fun HiltScreen(viewModel: HiltSmokeViewModel = hiltViewModel()) {
     val keyed: HiltSmokeViewModel = hiltViewModel(key = "k")
-    Text("${viewModel.id} $keyed")
+    Text("${viewModel.id.orEmpty()} $keyed")
 }

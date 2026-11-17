@@ -5,6 +5,30 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `SharedPreferencesForSensitiveKey` and `LogOfSharedPreferenceRead` now have FIR checkers, with the Go rules
+  kept as the fallback. On files the compiler analyzes, the editor or preferences are the resolved
+  `SharedPreferences` members, so a receiver held in a property, returned by a call or left implicit counts, and
+  an editor reached through `EncryptedSharedPreferences` is skipped. A logger is a resolved member of a class or
+  object named `Log` or `Timber`, so an aliased or fully qualified `android.util.Log` and
+  `Timber.tag(...).d(...)` count and a local value named `Log` does not.
+- `SqliteCursorWithoutClose` now has a FIR checker, with the Go rule kept as the fallback. On files the
+  compiler analyzes, the query is a resolved call to `SQLiteDatabase` or `SupportSQLiteDatabase`, so a
+  receiver written as a property chain (`helper.readableDatabase.rawQuery(...)`) or left implicit counts, and
+  only a resolved reference to the cursor, not any identifier of the same name, hands it over to other code.
+- `AssertTrueOnComparison` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the call must resolve to kotlin.test, JUnit 3, JUnit 4 or JUnit Jupiter, so a project helper that
+  reuses the name `assertTrue` is no longer reported, and an import-aliased `assertTrue` is.
+- `NullableToStringCall` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the receiver or template part is nullable by the compiler's type, so a mutable property after a null
+  check, an implicit lambda parameter, a safe-call result and a type parameter are reported, and a stable smart
+  cast to non-null is not.
+- `CastNullableToNonNullableType` now has a FIR checker, with the Go rule kept as the fallback. On files the
+  compiler analyzes, the operand's nullability is the compiler's type (stable smart casts, platform types and
+  typealiases to nullable types are read exactly), so a cast Go's source inference could not resolve is reported.
+- `SwallowedException` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, only an access to the catch parameter's own symbol counts as a use, so a logger call such as
+  `Timber.e(...)`, a lambda parameter or a local that reuses the name no longer hides a swallowed exception,
+  and a typealias of an ignored exception type is exempt like the type itself.
 - Source type inference no longer takes a call's return type from a same-name function that the call
   cannot reach: a private, local or private-class function in another file. When the reachable
   same-name declarations disagree, or one has no declared return type, the call's type is unknown

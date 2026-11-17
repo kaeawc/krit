@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.exceptions
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.descriptors.ClassKind
@@ -14,7 +15,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
@@ -102,9 +102,9 @@ internal object ObjectExtendsThrowable :
             val type = ref.coneType.fullyExpandedType(session).lowerBoundIfFlexible() as? ConeClassLikeType ?: continue
             if (type.lookupTag.classId in throwableClassIds) return type.lookupTag.name.asString()
             val symbol = type.lookupTag.toClassSymbol(session) ?: continue
-            val isThrowable = lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = session)
-                .any { it.lookupTag.classId in throwableClassIds }
-            if (isThrowable) return type.lookupTag.name.asString()
+            if (inheritsFromAny(symbol, throwableClassIds, session, lookupInterfaces = false)) {
+                return type.lookupTag.name.asString()
+            }
         }
         return null
     }

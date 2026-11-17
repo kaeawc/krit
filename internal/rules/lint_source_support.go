@@ -264,6 +264,11 @@ type lintEvalParser struct {
 	pos    int
 	scope  uint32
 	depth  int
+	// lenient folds more than a plain constant: it ignores Int conversions and resolves `Class.NAME` constants
+	// declared in this file, as Lint's constant evaluators do. It also rejects a non-final Java local.
+	lenient bool
+	// mutableLocals follows a mutable local that nothing reassigns, as Lint's ConstantEvaluator does.
+	mutableLocals bool
 }
 
 func (p *lintEvalParser) expr(minPrec int) (int64, bool) {
@@ -317,6 +322,38 @@ func (p *lintEvalParser) expr(minPrec int) (int64, bool) {
 }
 
 func (p *lintEvalParser) unary() (int64, bool) {
+	if p.lenient {
+		p.skipIntCast()
+	}
+	v, ok := p.primary()
+	if ok && p.lenient {
+		p.skipIntConversion()
+	}
+	return v, ok
+}
+
+// skipIntCast consumes a Java `(int)` cast prefix.
+func (p *lintEvalParser) skipIntCast() {
+	if p.pos+2 < len(p.toks) && p.toks[p.pos] == "(" && p.toks[p.pos+1] == "int" && p.toks[p.pos+2] == ")" {
+		p.pos += 3
+	}
+}
+
+// skipIntConversion consumes a Kotlin `.toInt()` call or `as Int` cast after an operand.
+func (p *lintEvalParser) skipIntConversion() {
+	for p.pos < len(p.toks) {
+		switch {
+		case p.pos+3 < len(p.toks) && p.toks[p.pos] == "." && p.toks[p.pos+1] == "toInt" && p.toks[p.pos+2] == "(" && p.toks[p.pos+3] == ")":
+			p.pos += 4
+		case p.pos+1 < len(p.toks) && p.toks[p.pos] == "as" && p.toks[p.pos+1] == "Int":
+			p.pos += 2
+		default:
+			return
+		}
+	}
+}
+
+func (p *lintEvalParser) primary() (int64, bool) {
 	if p.pos >= len(p.toks) {
 		return 0, false
 	}
@@ -380,16 +417,70 @@ func (p *lintEvalParser) constant(name string) (int64, bool) {
 	if qualifier == "this" {
 		return p.resolveLocal(simple)
 	}
+	if p.lenient {
+		return p.resolveQualified(qualifier, simple)
+	}
 	return 0, false
+}
+
+// resolveQualified folds the initializer of a constant `qualifier.name` declared in this file.
+func (p *lintEvalParser) resolveQualified(qualifier, name string) (int64, bool) {
+	init := lintQualifiedConstantInitializer(p.file, qualifier, name)
+	if init == 0 || p.depth+1 > 6 {
+		return 0, false
+	}
+	sub := &lintEvalParser{file: p.file, consts: p.consts, scope: init, depth: p.depth + 1,
+		toks: lintEvalTokens(p.file.FlatNodeText(init)), lenient: true}
+	v, ok := sub.expr(0)
+	if !ok || sub.pos != len(sub.toks) {
+		return 0, false
+	}
+	return v, true
 }
 
 // resolveLocal folds the initializer of a never-reassigned local, property, or final field declared in this file.
 func (p *lintEvalParser) resolveLocal(name string) (int64, bool) {
 	init := lintConstantInitializer(p.file, p.scope, name)
-	if init == 0 {
+	if init == 0 && p.mutableLocals {
+		init = lintMutableLocalInitializer(p.file, p.scope, name)
+	}
+	if init != 0 && p.lenient && !p.mutableLocals && lintIsNonFinalJavaLocal(p.file, init) {
 		return 0, false
 	}
-	return lintEvalIntDepth(p.file, init, init, p.consts, p.depth+1)
+	if init == 0 || p.depth+1 > 6 {
+		return 0, false
+	}
+	sub := &lintEvalParser{file: p.file, consts: p.consts, scope: init, depth: p.depth + 1,
+		toks: lintEvalTokens(p.file.FlatNodeText(init)), lenient: p.lenient, mutableLocals: p.mutableLocals}
+	v, ok := sub.expr(0)
+	if !ok || sub.pos != len(sub.toks) {
+		return 0, false
+	}
+	return v, true
+}
+
+// lintIsNonFinalJavaLocal reports whether the initializer belongs to a Java local variable declared without `final`.
+func lintIsNonFinalJavaLocal(file *scanner.File, init uint32) bool {
+	declarator, ok := file.FlatParent(init)
+	if !ok || file.FlatType(declarator) != "variable_declarator" {
+		return false
+	}
+	decl, ok := file.FlatParent(declarator)
+	return ok && file.FlatType(decl) == "local_variable_declaration" && !file.FlatHasModifier(decl, "final")
+}
+
+// lintMutableLocalInitializer returns the initializer of a mutable local called name that nothing reassigns, or 0
+// when the name is not a local of the enclosing callable.
+func lintMutableLocalInitializer(file *scanner.File, scope uint32, name string) uint32 {
+	fn, ok := flatEnclosingCallable(file, scope)
+	if !ok {
+		return 0
+	}
+	init := lintInitializerOf(file, scope, name, true)
+	if init == 0 || file.FlatStartByte(init) < file.FlatStartByte(fn) || file.FlatEndByte(init) > file.FlatEndByte(fn) {
+		return 0
+	}
+	return init
 }
 
 // lintConstantInitializer returns the initializer node of the declaration of name visible from scope, or 0 when the
@@ -865,4 +956,65 @@ func lintNegatedOperand(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+// lintQualifiedConstantInitializer returns the initializer of the read-only property or final field called name that
+// the class (or Kotlin companion) named by the last segment of qualifier declares in this file, or 0.
+func lintQualifiedConstantInitializer(file *scanner.File, qualifier, name string) uint32 {
+	owner := qualifier[strings.LastIndex(qualifier, ".")+1:]
+	var found uint32
+	match := func(decl uint32) bool {
+		for cur, ok := file.FlatParent(decl); ok; cur, ok = file.FlatParent(cur) {
+			switch file.FlatType(cur) {
+			case "class_declaration", "object_declaration":
+				return lintDeclTypeName(file, cur) == owner
+			case "companion_object":
+				if lintDeclTypeName(file, cur) == owner {
+					return true
+				}
+				parent, ok := file.FlatParent(cur)
+				for ok && file.FlatType(parent) != "class_declaration" && file.FlatType(parent) != "object_declaration" {
+					parent, ok = file.FlatParent(parent)
+				}
+				return ok && lintDeclTypeName(file, parent) == owner
+			}
+		}
+		return false
+	}
+	file.FlatWalkNodes(0, "property_declaration", func(decl uint32) {
+		vd, ok := file.FlatFindChild(decl, "variable_declaration")
+		if !ok || found != 0 || lintDeclaredName(file, vd) != name {
+			return
+		}
+		if kind, _ := file.FlatFindChild(decl, "binding_pattern_kind"); strings.TrimSpace(file.FlatNodeText(kind)) != "val" {
+			return
+		}
+		if match(decl) {
+			found = lintInitializerAfterEquals(file, decl)
+		}
+	})
+	file.FlatWalkNodes(0, "variable_declarator", func(decl uint32) {
+		id, ok := file.FlatFindChild(decl, "identifier")
+		parent, _ := file.FlatParent(decl)
+		if found != 0 || !ok || file.FlatNodeText(id) != name || file.FlatType(parent) != "field_declaration" || !file.FlatHasModifier(parent, "final") {
+			return
+		}
+		if match(decl) {
+			found = lintInitializerAfterEquals(file, decl)
+		}
+	})
+	return found
+}
+
+// lintDeclTypeName returns the name of a class, object, or companion declaration; an unnamed companion is "Companion".
+func lintDeclTypeName(file *scanner.File, decl uint32) string {
+	for _, kind := range []string{"type_identifier", "identifier"} {
+		if n, ok := file.FlatFindChild(decl, kind); ok {
+			return file.FlatNodeText(n)
+		}
+	}
+	if file.FlatType(decl) == "companion_object" {
+		return "Companion"
+	}
+	return ""
 }

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -23,7 +24,6 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
@@ -144,8 +144,7 @@ internal object AllowAllHostnameVerifier :
     // local and anonymous classes, so no class id is resolved from a symbol
     // that may be local.
     private fun isHostnameVerifier(owner: FirClassSymbol<*>, session: FirSession): Boolean =
-        lookupSuperTypes(owner, lookupInterfaces = true, deep = true, useSiteSession = session)
-            .any { it.classId == hostnameVerifier }
+        inheritsFrom(owner, session, lookupInterfaces = true) { it == hostnameVerifier }
 
     // A block body `{ return true }` and an expression body `= true` both
     // resolve to a block holding one return of the literal `true`.

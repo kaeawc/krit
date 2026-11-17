@@ -5,7 +5,9 @@ import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -25,12 +27,10 @@ import org.jetbrains.kotlin.fir.references.FirSuperReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -82,7 +82,7 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
     private const val MESSAGE = "Do not print a stack trace. These debug statements should be removed or replaced with a logger."
     private val PRINT_STACK_TRACE = Name.identifier("printStackTrace")
     private val STDLIB_PRINT_STACK_TRACE = CallableId(StandardClassIds.BASE_KOTLIN_PACKAGE, PRINT_STACK_TRACE)
-    private val nullableThrowable = StandardClassIds.Throwable.constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val nullableThrowable = StandardClassIds.Throwable.nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -149,9 +149,7 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
 
     context(context: CheckerContext)
     private fun isThrowableClass(owner: FirClassSymbol<*>): Boolean =
-        owner.classId == StandardClassIds.Throwable ||
-            lookupSuperTypes(owner, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == StandardClassIds.Throwable }
+        isOrInheritsFrom(owner, StandardClassIds.Throwable, context.session, lookupInterfaces = false)
 
     context(context: CheckerContext)
     private fun isThrowableReceiver(receiver: FirExpression?): Boolean {

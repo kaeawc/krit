@@ -1,5 +1,12 @@
 package com.example.exceptions
 
+object logger {
+    fun warn(message: String?) {}
+    fun warn(message: String, error: Throwable) {}
+}
+
+class Analytics(val error: Exception)
+
 class Processor {
 
     fun process() {
@@ -77,6 +84,8 @@ class Processor {
 
 class LocalLog {
     fun warn(error: Throwable) {}
+
+    private fun doWork() {}
 
     // detekt reports a catch that never reads the exception, even if it recovers.
     var cached: String? = "x"

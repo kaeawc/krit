@@ -14,7 +14,7 @@ val SavedPointSaver: Saver<SavedPoint, Any> = Saver(
     save = { listOf(it.x, it.y) },
     restore = { value ->
         val parts = value as List<*>
-        SavedPoint(parts[0] as Int, parts[1] as Int)
+        SavedPoint(parts[0] as? Int ?: 0, parts[1] as? Int ?: 0)
     },
 )
 

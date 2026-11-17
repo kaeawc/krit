@@ -151,6 +151,62 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_apply_shared_pref_test.go
+  AccessibilityFocus:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_accessibility_test.go
+  ParcelClassLoader:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_parcel_binder_test.go
+  BinderGetCallingInMainThread:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_parcel_binder_test.go
+  MutatingSharedPrefs:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_parcel_binder_test.go
+  ObsoleteSdkInt:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_obsolete_sdk_int_test.go
+  ConstantLocale:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  NotConstructor:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  CanvasSize:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  WifiManagerLeak:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  WifiManagerPotentialLeak:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  DiffUtilEquals:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_source_hygiene_test.go
+  AccessibilityWindowStateChangedEvent:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_accessibility_test.go
+  GetContentDescriptionOverride:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_accessibility_test.go
+  NotificationId0:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_accessibility_test.go
   BroadcastReceiverExportedFlagMissing:
     status: supported
     fixtures:

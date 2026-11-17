@@ -8,13 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // Run implements `krit graph`.
@@ -135,7 +135,7 @@ func renderPackageGraph(root, format string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, parseErrs := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
+	files, parseErrs := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
 	if len(parseErrs) > 0 {
 		return "", fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}

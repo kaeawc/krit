@@ -7,11 +7,11 @@ import (
 	"log"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 var codeLensDecisionRe = regexp.MustCompile(`\b(if|else\s+if|when|for|while|catch)\b|&&|\|\||\?:`)
@@ -33,7 +33,7 @@ func (s *Server) handleCodeLens(req *Request) {
 	}
 
 	files := s.openParsedFiles()
-	idx := scanner.BuildIndex(files, runtime.NumCPU())
+	idx := scanner.BuildIndex(files, sysres.CPUs())
 	lenses := buildFunctionCodeLenses(uri, file, idx)
 	s.sendResponse(req.ID, lenses, nil)
 }

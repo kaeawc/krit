@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/proc"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type impactJSON struct {
@@ -105,7 +105,7 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	idx := scanner.BuildIndex(files, runtime.NumCPU())
+	idx := scanner.BuildIndex(files, sysres.CPUs())
 
 	hits := computeImpact(idx, changed)
 	graph, _ := module.DiscoverModules(context.Background(), root)
@@ -315,6 +315,6 @@ func scanProjectKotlinFiles(root string) ([]*scanner.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
+	files, _ := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
 	return files, nil
 }

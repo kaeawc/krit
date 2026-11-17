@@ -35,7 +35,10 @@ Sharding applies only when all of these hold. Otherwise krit logs the reason
 | `KRIT_WORKER_JAVA` | Path to the `java` the workers use. By default a JDK 25+ is preferred when one is installed. |
 
 Each worker gets a heap of at most 5 GB, reduced so that all workers together
-stay under 40% of physical memory, and never below 1.5 GB.
+stay under 40% of the available memory, and never below 1.5 GB. On Linux the
+available memory is the cgroup memory limit when one is set, and the CPU count
+follows the cgroup CPU quota; see
+[Hermetic and build-system runs](hermetic-builds.md#cpu-and-memory).
 
 ## Cache
 

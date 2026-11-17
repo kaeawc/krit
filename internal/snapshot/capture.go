@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // CaptureOptions controls a single Capture invocation.
@@ -64,7 +64,7 @@ func Capture(opts CaptureOptions) (*Result, error) {
 	}
 	workers := opts.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	now := time.Now
 	if opts.Now != nil {

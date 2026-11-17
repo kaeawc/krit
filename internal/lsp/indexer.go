@@ -2,10 +2,10 @@ package lsp
 
 import (
 	"context"
-	"runtime"
 
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type WorkspaceIndexProgress func(done, total int)
@@ -28,7 +28,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if progress != nil {
 		progress(0, total)
 	}
-	kotlinFiles, errs := scanner.ScanFiles(ctx, kotlin, runtime.NumCPU())
+	kotlinFiles, errs := scanner.ScanFiles(ctx, kotlin, sysres.CPUs())
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}
@@ -38,7 +38,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if progress != nil {
 		progress(len(kotlinFiles), total)
 	}
-	javaFiles, errs := scanner.ScanJavaFiles(ctx, java, runtime.NumCPU())
+	javaFiles, errs := scanner.ScanJavaFiles(ctx, java, sysres.CPUs())
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}
@@ -48,7 +48,7 @@ func (SourceWorkspaceIndexer) BuildWorkspaceIndex(ctx context.Context, root stri
 	if progress != nil {
 		progress(len(kotlinFiles)+len(javaFiles), total)
 	}
-	codeIndex := scanner.BuildIndex(kotlinFiles, runtime.NumCPU(), javaFiles...)
+	codeIndex := scanner.BuildIndex(kotlinFiles, sysres.CPUs(), javaFiles...)
 	return oracleIndexFromSourceIndex(codeIndex), nil
 }
 

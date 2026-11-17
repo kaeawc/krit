@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/strutil"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type Finding struct {
@@ -147,7 +147,7 @@ func checkMemberCoverage(root string, sym scanner.Symbol, file *scanner.File, ta
 }
 
 func StaticFindings(root string, files []*scanner.File) []Finding {
-	idx := scanner.BuildIndex(files, runtime.NumCPU())
+	idx := scanner.BuildIndex(files, sysres.CPUs())
 	filesByPath := make(map[string]*scanner.File, len(files))
 	for _, file := range files {
 		if file != nil {

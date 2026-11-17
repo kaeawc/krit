@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +31,7 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/store"
+	"github.com/kaeawc/krit/internal/sysres"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -42,7 +42,7 @@ import (
 // across edits, the CLI wires them through the IndexInput hooks). This
 // phase's job is the cheap, deterministic pieces that always need to run.
 type IndexPhase struct {
-	// Workers overrides the type-index worker count. Zero = runtime.NumCPU().
+	// Workers overrides the type-index worker count. Zero = sysres.CPUs().
 	Workers int
 	// ScanRoot, if non-empty, is passed to module.DiscoverModules.
 	// Empty means "use the first element of ParseResult.Paths, or '.'".
@@ -473,7 +473,7 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 	}
 	workers := p.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if in.TypeIndexCacheDir != "" {
 		if cached, ok := in.PrebuiltResolver.(interface {
@@ -537,7 +537,7 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 	}
 	workers := p.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	build := func() typeinfer.TypeResolver {
 		r := typeinfer.NewResolver()

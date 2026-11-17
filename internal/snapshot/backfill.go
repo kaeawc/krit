@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // BackfillOptions controls a Backfill invocation. Snapshots land in
@@ -50,7 +51,7 @@ func Backfill(opts BackfillOptions) (BackfillResult, error) {
 	}
 	workers := opts.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	snapshotsRoot := SnapshotsDir(root)
 

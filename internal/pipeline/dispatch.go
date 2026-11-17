@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -22,7 +22,7 @@ import (
 // returned here are already suppression-filtered.
 type DispatchPhase struct {
 	// Workers overrides the dispatch worker count. Zero =
-	// runtime.NumCPU().
+	// sysres.CPUs().
 	Workers int
 }
 
@@ -37,7 +37,7 @@ func (d DispatchPhase) dispatchWorkerCount(in IndexResult) int {
 		workers = in.Jobs
 	}
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if workers <= 0 {
 		workers = 1

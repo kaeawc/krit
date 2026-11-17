@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type SymbolImpact struct {
@@ -93,11 +93,11 @@ func Analyze(root, base string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	files, errs := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
+	files, errs := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}
-	index := scanner.BuildIndex(files, runtime.NumCPU())
+	index := scanner.BuildIndex(files, sysres.CPUs())
 	graph, _ := module.DiscoverModules(context.Background(), root)
 	if graph == nil {
 		graph = module.NewModuleGraph(root)

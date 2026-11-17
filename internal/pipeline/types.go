@@ -83,7 +83,7 @@ type ParseInput struct {
 	// consistent across parse and cache phases.
 	JavaPaths []string
 	// Workers overrides ParsePhase.Workers. Zero falls through to
-	// ParsePhase.Workers which itself defaults to runtime.NumCPU().
+	// ParsePhase.Workers which itself defaults to sysres.CPUs().
 	// Main plugs its phaseWorkerCount("parse", ...) result here.
 	Workers int
 	// SkipJavaCollection, when true, suppresses the NeedsCrossFile-driven

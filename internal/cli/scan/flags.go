@@ -2,10 +2,10 @@ package scan
 
 import (
 	"flag"
-	"runtime"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/output"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // scanFlags bundles every CLI flag the scan default verb declares.
@@ -149,7 +149,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.ProfileDispatch = fs.Bool("profile-dispatch", false, "Debug: emit per-file dispatch timing distribution to stderr (works in both daemon and in-process modes)")
 	f.IncludeGenerated = fs.Bool("include-generated", false, "Include files under */generated/* directories (default: skipped, not user-maintained code)")
 	f.Output = fs.String("o", "", "Write output to file")
-	f.Jobs = fs.Int("j", runtime.NumCPU(), "Number of parallel jobs")
+	f.Jobs = fs.Int("j", sysres.CPUs(), "Number of parallel jobs (default GOMAXPROCS, which follows a Linux cgroup CPU quota)")
 	f.Quiet = fs.Bool("q", false, "Only print findings")
 	f.Verbose = fs.Bool("v", false, "Verbose output")
 	f.Fix = fs.Bool("fix", false, "Apply auto-fixes to files")

@@ -2,12 +2,12 @@ package migration
 
 import (
 	"context"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type Options struct {
@@ -48,15 +48,15 @@ func Analyze(opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	kotlinFiles, errs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
+	kotlinFiles, errs := scanner.ScanFiles(context.Background(), kotlinPaths, sysres.CPUs())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}
-	javaFiles, errs := scanner.ScanJavaFiles(context.Background(), javaPaths, runtime.NumCPU())
+	javaFiles, errs := scanner.ScanJavaFiles(context.Background(), javaPaths, sysres.CPUs())
 	if len(errs) > 0 {
 		return Report{}, errs[0]
 	}
-	index := scanner.BuildIndex(kotlinFiles, runtime.NumCPU(), javaFiles...)
+	index := scanner.BuildIndex(kotlinFiles, sysres.CPUs(), javaFiles...)
 	files := make(map[string]*scanner.File, len(kotlinFiles)+len(javaFiles))
 	for _, file := range append(kotlinFiles, javaFiles...) {
 		if file != nil {

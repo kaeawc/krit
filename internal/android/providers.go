@@ -1,9 +1,10 @@
 package android
 
 import (
-	"runtime"
 	"sync"
 	"time"
+
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type resourceScanFunc func(string, int) (*ResourceIndex, ResourceScanStats, error)
@@ -25,7 +26,7 @@ type ResourceScanFuture struct {
 }
 
 func NewResourceScanFuture(resDir string, startLimiter chan struct{}, maxWorkers ...int) *ResourceScanFuture {
-	workers := runtime.NumCPU()
+	workers := sysres.CPUs()
 	if len(maxWorkers) > 0 && maxWorkers[0] > 0 {
 		workers = maxWorkers[0]
 	}
@@ -107,7 +108,7 @@ type IconScanFuture struct {
 }
 
 func NewIconScanFuture(resDir string, startLimiter chan struct{}, maxWorkers ...int) *IconScanFuture {
-	workers := runtime.NumCPU()
+	workers := sysres.CPUs()
 	if len(maxWorkers) > 0 && maxWorkers[0] > 0 {
 		workers = maxWorkers[0]
 	}

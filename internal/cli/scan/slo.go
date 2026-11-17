@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 const (
@@ -36,7 +36,7 @@ func (r *runner) applySLOs() {
 	}
 	pmi := r.pmi
 	if pmi == nil {
-		pmi = module.BuildPerModuleIndex(graph, r.sourceFiles, runtime.NumCPU())
+		pmi = module.BuildPerModuleIndex(graph, r.sourceFiles, sysres.CPUs())
 		r.pmi = pmi
 	}
 	r.allFindings = append(r.allFindings, evaluateSLOs(slos, graph, pmi.ModuleFiles, r.allFindings)...)

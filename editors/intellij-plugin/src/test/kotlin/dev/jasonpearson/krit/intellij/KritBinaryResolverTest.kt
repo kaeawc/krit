@@ -54,7 +54,7 @@ class KritBinaryResolverTest {
 
     @Test
     fun `returns null when no PATH and no override`() {
-        assertNull(KritBinaryResolver.find(env = emptyMap(), props = { null }))
+        assertNull(KritBinaryResolver.find(env = emptyMap(), props = { null }, downloaded = { null }))
     }
 
     @Test

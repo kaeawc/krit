@@ -43,6 +43,9 @@ class KritRuleCatalog(
     }
 
     private class Stored(
+        // Bumped when KritRuleInfo gains a field, so files written before it
+        // (which dropped the field) are fetched again.
+        val format: Int = 0,
         val path: String? = null,
         val size: Long = 0,
         val modified: Long = 0,
@@ -109,6 +112,7 @@ class KritRuleCatalog(
         return try {
             val stored = gson.fromJson(file.readText(), Stored::class.java) ?: return null
             // The file name is a hash of the key; check the key itself too.
+            if (stored.format != CACHE_FORMAT) return null
             if (stored.path != key.path || stored.size != key.size || stored.modified != key.modified) return null
             KritRuleList.parse(KritRuleList.toJson(stored.rules ?: return null))
         } catch (_: IOException) {
@@ -124,7 +128,7 @@ class KritRuleCatalog(
             dir.mkdirs()
             val target = File(dir, key.fileName())
             val tmp = File(dir, target.name + ".tmp")
-            tmp.writeText(gson.toJson(Stored(key.path, key.size, key.modified, rules)))
+            tmp.writeText(gson.toJson(Stored(CACHE_FORMAT, key.path, key.size, key.modified, rules)))
             if (!tmp.renameTo(target)) {
                 target.delete()
                 tmp.renameTo(target)
@@ -136,6 +140,9 @@ class KritRuleCatalog(
 
     companion object {
         private const val LIST_TIMEOUT_SECONDS = 20L
+
+        // 1: adds docsUrl.
+        internal const val CACHE_FORMAT = 1
 
         /**
          * Runs `krit --list-rules --format json --no-daemon` and returns its

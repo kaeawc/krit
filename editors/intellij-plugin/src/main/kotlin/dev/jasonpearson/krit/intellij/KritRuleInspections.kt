@@ -57,6 +57,34 @@ object KritRules {
         }
     }
 
+    /**
+     * Rule id to docs link for [project]'s binary, from the cached rule list
+     * only: it never runs krit, so it is safe on the highlighting thread.
+     * Empty until the list is loaded, and for a krit without docs URLs.
+     */
+    fun docsLinks(project: Project): Map<String, String> {
+        val rules = if (ApplicationManager.getApplication()?.isUnitTestMode == true) {
+            rulesForTest
+        } else {
+            val binary = KritBinaryResolver.find(project) ?: return emptyMap()
+            try {
+                catalog.cachedRulesFor(binary)
+            } catch (e: ProcessCanceledException) {
+                throw e
+            } catch (_: RuntimeException) {
+                null
+            }
+        } ?: return emptyMap()
+        docsLinksCache?.let { (list, links) -> if (list === rules) return links }
+        val links = KritDocsLinks.byRule(rules)
+        docsLinksCache = rules to links
+        return links
+    }
+
+    // The links of the last list asked for; lists are cached, so this is usually a hit.
+    @Volatile
+    private var docsLinksCache: Pair<List<KritRuleInfo>, Map<String, String>>? = null
+
     /** Drops the cached list of [project]'s binary and fetches it again. Blocks. */
     fun refresh(project: Project): List<KritRuleInfo>? {
         if (ApplicationManager.getApplication()?.isUnitTestMode == true) return rulesForTest
@@ -123,13 +151,11 @@ class KritRuleInspection(val rule: KritRuleInfo) : LocalInspectionTool() {
 
     override fun getStaticDescription(): String {
         val text = rule.description?.takeIf { it.isNotBlank() } ?: "Krit rule ${rule.id}."
-        return "<html><body>${escape(text)}<p>Reported by the krit analyzer " +
-            "(${escape(rule.category)}, ${escape(rule.severity)}). krit.yml decides whether the rule runs; " +
-            "turning this inspection off only hides its findings.</p></body></html>"
+        val docs = rule.docsLink?.let { "<p><a href=\"${KritDocsLinks.escape(it)}\">Rule documentation</a></p>" }.orEmpty()
+        return "<html><body>${KritDocsLinks.escape(text)}<p>Reported by the krit analyzer " +
+            "(${KritDocsLinks.escape(rule.category)}, ${KritDocsLinks.escape(rule.severity)}). krit.yml decides " +
+            "whether the rule runs; turning this inspection off only hides its findings.</p>$docs</body></html>"
     }
-
-    private fun escape(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 }
 
 /**

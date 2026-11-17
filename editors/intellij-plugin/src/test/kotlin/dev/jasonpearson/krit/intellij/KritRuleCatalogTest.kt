@@ -143,6 +143,28 @@ class KritRuleCatalogTest {
     }
 
     @Test
+    fun `docs URLs survive the disk cache`() {
+        output = KritRuleList.toJson(listOf(KritRuleInfo(id = "A", category = "style", docsUrl = "https://example.test/a")))
+        catalog().rulesFor(binary)
+
+        assertEquals("https://example.test/a", catalog().cachedRulesFor(binary)!!.single().docsUrl)
+    }
+
+    @Test
+    fun `a cache file from before the current format is fetched again`() {
+        val cacheDir = File(dir, "cache")
+        catalog(cacheDir).rulesFor(binary)
+        val file = File(cacheDir, KritRuleCatalog.Key.of(binary).fileName())
+        // A plugin without docsUrl wrote no format field.
+        file.writeText(file.readText().replace("\"format\":${KritRuleCatalog.CACHE_FORMAT},", ""))
+        calls.clear()
+
+        assertNull(catalog(cacheDir).cachedRulesFor(binary))
+        catalog(cacheDir).rulesFor(binary)
+        assertEquals(1, calls.size)
+    }
+
+    @Test
     fun `works without a disk cache`() {
         val catalog = catalog(cacheDir = null)
         catalog.rulesFor(binary)

@@ -24,7 +24,8 @@ object KritStatusText {
             if (state.findingCount == 0) "Krit: no findings; click to configure"
             else "Krit: ${state.findingCount} finding${if (state.findingCount == 1) "" else "s"}; click to configure"
         is KritState.MissingBinary ->
-            "Krit binary not found on PATH. Set KRIT_BINARY or -Dkrit.binary; click to configure."
+            "Krit binary not found. Set it in Settings → Tools → Krit, KRIT_BINARY, or -Dkrit.binary, " +
+                "put krit on PATH, or download it from the notification; click to configure."
         is KritState.Error -> "Krit error: ${state.message}; click for the IDE log"
     }
 }

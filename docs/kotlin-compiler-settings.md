@@ -252,15 +252,45 @@ sources outside the scan paths are compilation context, not additional checked
 files.
 Unscanned test and androidTest source sets and unrelated model projects are
 not added as context. Source sets explicitly covered by the scan paths remain
-included; scanning main, test and androidTest together can still produce
-cross-source-set redeclarations in the default scan. Set
-`KRIT_MODULE_SHARDS=isolate` to compile each scanned source set on its own
-instead: a test or androidTest set sees its project's main (a built jar, or its
-sources as context) but never a sibling set, so the compiler stops reporting
-redeclarations between them. The run applies only when a project has several
-scanned source sets and every set has its full dependency context (at most
-3000 unbuilt dependency files); otherwise the default compile runs. Per-set
-facts are cached by content, so only edited sets recompile. Missing projects or roots cannot be supplied from `projectDeps`
+included, so one compile of main, test and androidTest reports a class declared
+in both test and androidTest as a redeclaration, which the real build never
+sees. With `--fir`, the default scan compiles the scanned source sets together
+and then rechecks only the projects with a file gated on `Redeclaration` or
+`Conflicting overloads`. The recheck compiles each of that project's scanned
+source sets on its own: a test or androidTest set sees its project's main (a
+built jar, or its sources as context) but never a sibling set. Its verdicts
+replace the merged compile's for that project's files. A project with one
+scanned set is rechecked too, since the merged compile also puts its files
+next to other projects' sets. A project keeps its merged verdicts when a set's
+unbuilt dependency sources exceed 3000 files or a set's compile fails, and a
+gated file outside every exported source set (for example a `src/debug` or
+flavor directory of a variant the model did not export) is not rechecked.
+The recheck replaces FIR check verdicts only; the type oracle's facts still
+come from the merged compile. `--verbose` reports it as a `FIR source sets:`
+line. Rechecked sets are cached by content in the project state directory
+(`.krit/module-facts/source-sets`), so only edited sets recompile; `--no-cache`
+uses a temporary directory instead.
+
+`KRIT_MODULE_SHARDS` selects the compile:
+
+| Value | Compile |
+|---|---|
+| unset | Scanned source sets together; projects with a cross-source-set duplicate declaration are rechecked one source set at a time. |
+| `merged` | Scanned source sets together, with no recheck. |
+| `isolate` | Every scanned source set on its own, when a project has several scanned sets and every set has its full dependency context; otherwise the default. |
+| a number or `auto` | Module sharding (see [module sharding](module-sharding.md)). |
+
+Compiling every set on its own is not the default because it costs much more
+than the merged compile. In cold `--fir` scans of a small public multi-module
+project, `isolate` took clearly longer and used several times the CPU time and
+peak memory of the process tree, since each set compiles its project's main
+sources again on one of several JVMs. On a large Android project it also used
+several times the CPU time, and the isolated run left more files without facts
+than the module-sharding coverage limit allows, so Krit discarded it and ran
+the merged compile as well. The recheck pays the isolated cost only for the
+projects that need it.
+
+Missing projects or roots cannot be supplied from `projectDeps`
 alone; their source sets must be present in the exported model.
 Source-root matching resolves symlinks on both sides, falling back to absolute
 paths when resolution fails. If no source set matches any scan path, Krit falls
@@ -275,5 +305,5 @@ back to all model source roots and reports that fallback with `--verbose`.
   source set (not on the compilation's `compilerOptions`) are not read.
 * The oracle still compiles the selected roots and dependency context as one
   unit; scoped scans do not compile unrelated model projects unless no source
-  set matches. Per-module requests are available through `ModuleSpecsFromModel`,
-  but the default scan does not use them yet.
+  set matches. The default scan uses per-source-set requests
+  (`ModuleSpecsFromModel`) only for the duplicate-declaration recheck.

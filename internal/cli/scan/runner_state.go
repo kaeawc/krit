@@ -789,8 +789,17 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 	if enabled {
 		checker := r.productionFIRChecker()
 		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
+		opts.Isolator = SourceSetIsolator(r.paths, *r.f.NoCache, verboseWriter(*r.f.Verbose))
 	}
 	return opts
+}
+
+// verboseWriter is stderr in verbose mode, else nil.
+func verboseWriter(verbose bool) io.Writer {
+	if verbose {
+		return os.Stderr
+	}
+	return nil
 }
 
 func (r *runner) productionFIRChecker() *firchecks.ProductionFirChecker {

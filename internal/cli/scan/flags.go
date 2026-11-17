@@ -205,7 +205,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Fir = fs.Bool("fir", true, "Enable FIR checker pass (krit-fir JVM subprocess; default on)")
 	f.NoFir = fs.Bool("no-fir", false, "Disable the default-on FIR checker pass")
 	f.FailOnDegraded = fs.Bool("fail-on-degraded", false, "Exit 2 when the FIR pass is unavailable or fails instead of falling back to Go rules with a warning")
-	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Run the FIR checker and type-oracle cache misses one-shot; no krit-fir daemon outlives the scan (useful for hermetic CI runners)")
+	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Run the FIR checker and type-oracle cache misses one-shot; with --no-daemon, no krit-fir daemon outlives the scan (useful for hermetic CI runners)")
 	f.FixBinary = fs.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	f.WarningsAsErrors = fs.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")
 	f.MinConfidence = fs.Float64("min-confidence", 0, "Minimum confidence (0.0-1.0) for findings to be reported; 0 keeps all. Rules that don't set confidence are treated as 0 and dropped when this flag is > 0.")

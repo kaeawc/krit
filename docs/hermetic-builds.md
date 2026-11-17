@@ -48,7 +48,7 @@ action, pass:
 | Setting | Effect |
 | --- | --- |
 | `--no-daemon` or `KRIT_NO_DAEMON_AUTOSTART=1` | Run in-process; do not start or contact the krit daemon. |
-| `--no-fir-daemon` | Run the FIR checker and type-oracle cache misses one-shot, so no krit-fir daemon outlives the scan. |
+| `--no-fir-daemon` | Run the FIR checker and type-oracle cache misses one-shot, so an in-process scan leaves no krit-fir daemon behind. A scan delegated to the krit daemon still uses that daemon's resident type oracle, which stops when the krit daemon does, so pass `--no-daemon` as well. |
 
 `--output-types` (a standalone type-oracle dump) runs its cache misses one-shot
 under either `--no-daemon` or `--no-fir-daemon`. It compiles against the same

@@ -10,8 +10,9 @@ All notable changes to Krit will be documented in this file.
 - `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.
 - `VersionCatalogBuildSrcMismatch` names the conflicting buildSrc file relative to the project instead of by
   absolute path, so its message, and baseline entries for it, no longer depend on the checkout location.
-- The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing, and re-uploads it
-  once when the published release lacks it.
+  Baseline entries for this rule change once; regenerate the baseline to pick them up.
+- The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing. It creates the
+  release as a draft, retries each asset upload, and publishes only after checking the uploaded assets.
 - `SharedPreferencesForSensitiveKey` and `LogOfSharedPreferenceRead` now have FIR checkers, with the Go rules
   kept as the fallback. On files the compiler analyzes, the editor or preferences are the resolved
   `SharedPreferences` members, so a receiver held in a property, returned by a call or left implicit counts, and
@@ -215,7 +216,8 @@ All notable changes to Krit will be documented in this file.
 - On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory
   sizing reads the cgroup memory limit instead of the host's. A scan in a memory-limited cgroup sets a Go soft
   memory limit of three quarters of it unless `GOMEMLIMIT` is set.
-- `--no-fir-daemon` also runs the type oracle's cache misses one-shot, so no krit-fir daemon outlives the scan.
+- `--no-fir-daemon` also runs the type oracle's cache misses one-shot, so an in-process scan
+  (`--no-daemon --no-fir-daemon`) leaves no krit-fir daemon behind.
 - Cold `--fir` scans start parsing, and building the cross-file code index, while the oracle
   JVM compiles, instead of after it. The phases take the background result only when their
   input is identical, so findings do not change.

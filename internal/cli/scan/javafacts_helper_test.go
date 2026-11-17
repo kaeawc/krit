@@ -103,6 +103,10 @@ func TestCompileJavaFactsHelperCacheKeyIncludesJavaHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	javaHome := filepath.Dir(filepath.Dir(resolved))
+	if _, err := os.Stat(filepath.Join(javaHome, "bin", "javac")); err != nil {
+		// A version-manager shim is not inside a JDK home.
+		t.Skipf("javac on PATH is not inside a JDK home: %v", err)
+	}
 	originalRoot := javaFactsCacheRoot
 	cacheRoot := t.TempDir()
 	javaFactsCacheRoot = func() (string, error) { return cacheRoot, nil }

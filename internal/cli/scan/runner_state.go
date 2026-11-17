@@ -656,8 +656,8 @@ func (r *runner) runOracleIndex() (int, error) {
 			NoOracleFilter:  *r.f.NoOracleFilter,
 			Thorough:        r.depthPreset == DepthThorough,
 			UseDaemon:       *r.f.Daemon,
-			// --no-fir-daemon promises no persistent krit-fir JVM, which
-			// covers the oracle's small-miss daemon too.
+			// --no-fir-daemon leaves an in-process scan no persistent
+			// krit-fir JVM, including the oracle's small-miss daemon.
 			NoPersistentOracleDaemon: *r.f.NoFirDaemon,
 			OracleBackend:            oracleBackend,
 			OracleClasspath:          oracleClasspath,

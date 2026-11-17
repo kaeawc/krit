@@ -231,9 +231,10 @@ back to a full compile. See
 
 ### `--no-fir-daemon`
 
-Forces one-shot mode for the FIR checker — no persistent checker daemon.
-The type oracle can still use its own persistent helper, and already-running
-helpers are not stopped. See [Helper JVM lifetime and shutdown](#helper-jvm-lifetime-and-shutdown)
+Forces one-shot mode for the FIR checker and for the type oracle's cache-miss
+analysis in an in-process scan. A scan delegated to the krit daemon still uses
+that daemon's resident oracle, `--daemon` still starts one, and
+already-running helpers are not stopped. See [Helper JVM lifetime and shutdown](#helper-jvm-lifetime-and-shutdown)
 for combinations suitable for hermetic CI runners.
 
 ## On-disk caches

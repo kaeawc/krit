@@ -1139,6 +1139,7 @@ func (r *runner) outputPhase() int {
 		Version:            Version,
 		ExperimentNames:    experiment.Current().Names(),
 		JSONCompact:        *r.f.Output != "",
+		Reproducible:       *r.f.Reproducible,
 		PerfTimings:        perfSnap.Timings,
 		PerfRuleStats:      r.perfRuleStats,
 		CacheStats:         r.cacheStats,

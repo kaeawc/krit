@@ -331,6 +331,22 @@ func (c *FindingColumns) Clone() FindingColumns {
 	return clone
 }
 
+// RewriteSuggestedFixTargets returns a copy whose suggested-edit target files
+// are mapped through fn. Edits without a target file are left as they are.
+// The receiver is left unchanged.
+func (c *FindingColumns) RewriteSuggestedFixTargets(fn func(string) string) FindingColumns {
+	out := c.Clone()
+	for i := range out.SuggestedFixPool {
+		edits := out.SuggestedFixPool[i].Edits
+		for j := range edits {
+			if edits[j].TargetFile != "" {
+				edits[j].TargetFile = fn(edits[j].TargetFile)
+			}
+		}
+	}
+	return out
+}
+
 // RewriteFiles returns a copy whose file paths are mapped through fn and
 // re-sorted by the new spelling. The receiver is left unchanged.
 func (c *FindingColumns) RewriteFiles(fn func(string) string) FindingColumns {

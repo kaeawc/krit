@@ -1,8 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -93,5 +99,85 @@ func TestScopeFlagRejectsUnknownScope(t *testing.T) {
 	_, stderr, code := runKrit(t, "--no-daemon", "--only-scope=modules", "../../playground/android-app/")
 	if code != 2 || !strings.Contains(stderr, "unknown rule scope") {
 		t.Fatalf("exit %d, stderr %q; want exit 2 naming the unknown scope", code, stderr)
+	}
+}
+
+// copyTree copies the regular files under src into a new temp directory.
+func copyTree(t *testing.T, src string) string {
+	t.Helper()
+	dst := t.TempDir()
+	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+// reproducibleScan runs a --reproducible JSON scan of dir with its own state
+// directory and returns stdout.
+func reproducibleScan(t *testing.T, dir, stateDir string, extra ...string) []byte {
+	t.Helper()
+	args := append([]string{"--no-fir", "--no-daemon", "--no-type-oracle", "--reproducible", "-f", "json"}, extra...)
+	cmd := exec.Command(binPath, append(args, dir)...)
+	cmd.Env = append(os.Environ(), "KRIT_STATE_DIR="+stateDir)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+			t.Fatalf("krit %v: %v\n%s", extra, err, stderr.String())
+		}
+	}
+	return stdout.Bytes()
+}
+
+// --reproducible JSON is byte-identical across a cold and a warm cache, a
+// different worker count, --perf, and a relocated copy of the tree.
+func TestReproducibleJSONIsByteIdentical(t *testing.T) {
+	src := "../../playground/kotlin-webservice"
+	first, second := copyTree(t, src), copyTree(t, src)
+	state := t.TempDir()
+
+	cold := reproducibleScan(t, first, state, "-j", "1")
+	warm := reproducibleScan(t, first, state, "-j", "4", "--perf")
+	moved := reproducibleScan(t, second, t.TempDir())
+
+	var report map[string]any
+	if err := json.Unmarshal(cold, &report); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if findings, _ := report["findings"].([]any); len(findings) == 0 {
+		t.Fatal("expected findings on the playground")
+	}
+	for _, key := range []string{"cache", "caches", "cacheBudget", "perfTiming"} {
+		if _, ok := report[key]; ok {
+			t.Errorf("reproducible report has %q", key)
+		}
+	}
+	if !bytes.Equal(cold, warm) {
+		t.Errorf("cold and warm reproducible reports differ")
+	}
+	if !bytes.Equal(cold, moved) {
+		t.Errorf("reproducible report changed when the tree moved")
 	}
 }

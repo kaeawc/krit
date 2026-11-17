@@ -293,7 +293,7 @@ promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
 
-## Rule-set filters
+## Rule-set filters and reproducible output
 
 ### `--only-scope`, `--exclude-scope`, `--max-cost`
 
@@ -302,6 +302,12 @@ analysis" above for the response-shape rationale.
 scan would run the full rule set and report findings the caller filtered out.
 `daemonCompatibleFlags` keeps these scans in-process. Routing them would need
 the filters on the wire and in the daemon's findings-cache key.
+
+### `--reproducible`
+
+The daemon renders the JSON envelope, with its own duration and cache
+statistics, and the wire has no switch to drop them, so a `--reproducible`
+scan stays in-process.
 
 ## Cache clears
 

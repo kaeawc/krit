@@ -93,3 +93,30 @@ the files in the scan and from the classpath, so give each module action the
 module's compile classpath (see [FIR scan requirements](configuration.md#fir-scan-requirements)).
 The scope flags, like `--max-cost`, keep the scan in-process instead of
 delegating it to a krit daemon.
+
+## Reproducible output
+
+SARIF, Checkstyle and plain output depend only on the inputs. JSON output also
+carries `durationMs`, and cache statistics and `--perf` timings when they are
+collected, so two runs over the same tree differ. Pass `--reproducible` to drop
+them: `durationMs` is written as `0`, and `cache`, `caches`, `cacheBudget`,
+`perfTiming` and `perfRuleStats` are omitted. Suggested-fix edits then name
+their `targetFile` relative to `--base-path`, like finding paths, instead of
+by absolute path. The result is byte-identical across cold and warm caches,
+worker counts, and checkouts at different paths. `--perf` still prints its
+summary on stderr. A `--reproducible` scan stays in-process instead of
+delegating to a krit daemon.
+
+To keep a build-system action cacheable:
+
+- Pass `--no-cache`. The incremental cache stores absolute paths and
+  modification times, so it cannot move between machines; the build system's
+  own action cache replaces it.
+- Point `KRIT_STATE_DIR`, `KRIT_HOME`, `HOME` and `TMPDIR` at directories the
+  action owns (see [Cache location](configuration.md#cache-location)).
+- Set `KRIT_FIR_JAR` to a pinned jar and `KRIT_NO_JAR_DOWNLOAD=1`, so a run
+  never downloads.
+- Pass `--fail-on-degraded`, so a scan whose FIR pass could not run exits 2
+  instead of producing a Go-only result the build system would cache.
+- Treat exit codes 0 (no findings) and 1 (findings) as success and 2 or more as
+  failure.

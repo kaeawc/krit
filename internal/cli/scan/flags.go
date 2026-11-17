@@ -101,6 +101,7 @@ type scanFlags struct {
 	EnableRules              *string
 	MaxCost                  *string
 	OnlyScope                *string
+	Reproducible             *bool
 	ExcludeScope             *string
 	Experiment               *string
 	ExperimentOff            *string
@@ -145,6 +146,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	fs.StringVar(f.Format, "format", "json", "Alias for -f")
 	f.Report = fs.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	f.Perf = fs.Bool("perf", false, "Include performance timing in output")
+	f.Reproducible = fs.Bool("reproducible", false, "Omit run-dependent JSON fields (durationMs is 0; no cache statistics or perf timings) so the same inputs give byte-identical output")
 	f.PerfRules = fs.Bool("perf-rules", false, "Include per-rule execution ranking in JSON output and stderr table (implies --perf)")
 	f.CPUProfile = fs.String("cpuprofile", "", "Write CPU profile to file (in daemon mode profiles the daemon process; pair with --no-daemon to profile the short-lived CLI)")
 	f.MemProfile = fs.String("memprofile", "", "Write memory profile to file (in daemon mode profiles the daemon process; pair with --no-daemon to profile the short-lived CLI)")

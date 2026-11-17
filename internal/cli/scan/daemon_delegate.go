@@ -699,6 +699,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if scopeFlagsSet(f) || strings.TrimSpace(*f.MaxCost) != "" {
 		return false
 	}
+	// The daemon renders the JSON envelope with its own timings and cache
+	// statistics, and the wire has no reproducible switch.
+	if *f.Reproducible {
+		return false
+	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.
 	return true

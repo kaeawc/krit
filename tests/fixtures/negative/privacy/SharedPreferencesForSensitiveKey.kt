@@ -1,13 +1,7 @@
 package test
 
-interface SharedPreferences {
-    interface Editor {
-        fun putString(key: String, value: String): Editor
-        fun apply()
-    }
-    fun edit(): Editor
-}
+import android.content.SharedPreferences
 
-fun saveTheme(prefs: SharedPreferences, theme: String) {
-    prefs.edit().putString("app_theme", theme).apply()
+fun saveTheme(editor: SharedPreferences.Editor, theme: String) {
+    editor.putString("app_theme", theme).apply()
 }

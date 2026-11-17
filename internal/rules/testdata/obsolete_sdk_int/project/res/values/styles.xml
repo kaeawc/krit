@@ -1,0 +1,7 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="S" parent="android:Theme" tools:targetApi="19">
+        <item name="android:windowTranslucentStatus" tools:targetApi="19">true</item>
+        <item name="android:colorPrimary" tools:targetApi="21">#fff</item>
+    </style>
+    <string name="s" tools:targetApi="19">x</string>
+</resources>

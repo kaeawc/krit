@@ -15,6 +15,8 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/jdk"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -198,15 +200,15 @@ func printDoctor(w io.Writer, version string) {
 		fmt.Fprintln(w, "  config: none (run --init to create)")
 	}
 	fmt.Fprintf(w, "  default config: %s\n", config.DefaultConfigSource())
-	if javaPath, err := exec.LookPath("java"); err == nil {
+	if javaPath, err := jdk.Java(); err == nil {
 		fmt.Fprintf(w, "  java: %s\n", javaPath)
 	} else {
-		fmt.Fprintln(w, "  java: not found (optional — needed for type oracle)")
+		fmt.Fprintf(w, "  java: not found (optional — needed for type oracle): %v\n", err)
 	}
-	if javacPath, err := exec.LookPath("javac"); err == nil {
+	if javacPath, err := jdk.Javac(); err == nil {
 		fmt.Fprintf(w, "  javac: %s (Java semantic facts available)\n", javacPath)
 	} else {
-		fmt.Fprintln(w, "  javac: not found (optional — needed for Java semantic facts)")
+		fmt.Fprintf(w, "  javac: not found (optional — needed for Java semantic facts): %v\n", err)
 	}
 	if cwebpPath, err := exec.LookPath("cwebp"); err == nil {
 		fmt.Fprintf(w, "  cwebp: %s (WebP conversion available)\n", cwebpPath)
@@ -360,7 +362,10 @@ type ListedRule struct {
 	// Scripts is where the rule runs among Kotlin script (.kts) files: all,
 	// standalone, gradle or none. See docs/kotlin-scripts.md.
 	Scripts string `json:"scripts,omitempty"`
-	Plugin  bool   `json:"plugin,omitempty"`
+	// Scope is the rule's scope group, "file" or "project", as selected by
+	// --only-scope and --exclude-scope.
+	Scope  string `json:"scope,omitempty"`
+	Plugin bool   `json:"plugin,omitempty"`
 }
 
 // ListedRules is the `krit --list-rules --format json` document.
@@ -529,6 +534,7 @@ func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.
 			Description:   r.Description,
 			DocsURL:       api.RuleDocsURL(r),
 			Scripts:       rules.DescribeScriptScope(r),
+			Scope:         rules.ScopeGroup(r),
 		}
 		if lvl, ok := rules.GetV2FixLevel(r); ok {
 			entry.Fixable = true
@@ -586,6 +592,20 @@ type outputTypesOpts struct {
 	Verbose       bool
 	StoreDir      *string
 	Paths         []string
+	Compile       OracleCompileContext
+	// NoPersistentDaemon mirrors --no-daemon / --no-fir-daemon.
+	NoPersistentDaemon bool
+}
+
+// OracleCompileContext is the compile context the type oracle runs under: the
+// Gradle model's source roots, the model, config and environment classpath,
+// the JVM target, and the Kotlin compiler settings. A scan's oracle and the
+// --output-types dump use the same one, so they produce the same facts.
+type OracleCompileContext struct {
+	SourceDirs []string
+	Classpath  []string
+	JvmTarget  string
+	Kotlin     gradlemodel.KotlinSettings
 }
 
 // runOutputTypesFlag handles --output-types: a standalone type-oracle dump
@@ -597,11 +617,13 @@ func runOutputTypesFlag(opts outputTypesOpts) {
 		return
 	}
 	code := RunOutputTypesTo(os.Stderr, RunOutputTypesOpts{
-		OutputPath:    opts.OutputPath,
-		NoCacheOracle: opts.NoCacheOracle,
-		Verbose:       opts.Verbose,
-		Store:         resolvedStore(opts.StoreDir),
-		Paths:         opts.Paths,
+		OutputPath:         opts.OutputPath,
+		NoCacheOracle:      opts.NoCacheOracle,
+		Verbose:            opts.Verbose,
+		Store:              resolvedStore(opts.StoreDir),
+		Paths:              opts.Paths,
+		Compile:            opts.Compile,
+		NoPersistentDaemon: opts.NoPersistentDaemon,
 	})
 	os.Exit(code)
 }
@@ -620,7 +642,20 @@ type RunOutputTypesOpts struct {
 	// against its own root.
 	Store *store.FileStore
 	Paths []string
+	// Compile is the oracle compile context. Its source roots are added to the
+	// ones found under Paths, and its classpath, JVM target and Kotlin settings
+	// are passed to krit-fir.
+	Compile OracleCompileContext
+	// NoPersistentDaemon runs cache misses one-shot, so no krit-fir daemon
+	// outlives the dump.
+	NoPersistentDaemon bool
 }
+
+// Test seams over the oracle invocations RunOutputTypesTo makes.
+var (
+	invokeOutputTypesCached = oracle.InvokeCachedWithOptions
+	invokeOutputTypesFull   = oracle.InvokeWithFilesWithOptions
+)
 
 // RunOutputTypesTo performs the --output-types dump: locates the
 // krit-fir jar, finds Kotlin source directories under opts.Paths,
@@ -638,7 +673,8 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 		fmt.Fprintf(errOut, "error: %v\n", err)
 		return 2
 	}
-	sourceDirs := oracle.FindSourceDirs(opts.Paths)
+	// The same source roots a scan's oracle compiles (runJvmAnalyze).
+	sourceDirs := oracle.FilterFIRSourceDirs(oracle.UnionSourceDirs(oracle.FindSourceDirs(opts.Paths), opts.Compile.SourceDirs))
 	if len(sourceDirs) == 0 {
 		fmt.Fprintf(errOut, "error: no Kotlin source directories found\n")
 		return 2
@@ -649,16 +685,23 @@ func RunOutputTypesTo(errOut io.Writer, opts RunOutputTypesOpts) int {
 	// --output-types is a standalone oracle dump: no rules are loaded so
 	// there's no rule-classification filter to apply. Pass "" for the
 	// filter list path; both call paths handle that as "no filter".
+	invokeOpts := oracle.InvocationOptions{
+		Backend:            oracle.BackendFIR,
+		Classpath:          opts.Compile.Classpath,
+		JvmTarget:          opts.Compile.JvmTarget,
+		Kotlin:             opts.Compile.Kotlin,
+		NoPersistentDaemon: opts.NoPersistentDaemon,
+	}
 	if opts.NoCacheOracle {
-		_, err = oracle.Invoke(jarPath, sourceDirs, opts.OutputPath, opts.Verbose)
+		_, err = invokeOutputTypesFull(jarPath, sourceDirs, opts.OutputPath, "", opts.Verbose, invokeOpts)
 	} else {
 		invocationStore := opts.Store
 		if invocationStore != nil {
 			invocationStore = invocationStore.Clone()
 		}
-		releaseStoreScope := oracle.BindStoreScope(invocationStore, oracle.NewStoreScope(oracle.BackendFIR, jarPath))
-		_, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, invocationStore,
-			oracle.InvocationOptions{Backend: oracle.BackendFIR})
+		scope := oracle.NewStoreScopeWithSettings(oracle.BackendFIR, jarPath, opts.Compile.Classpath, opts.Compile.JvmTarget, opts.Compile.Kotlin)
+		releaseStoreScope := oracle.BindStoreScope(invocationStore, scope)
+		_, err = invokeOutputTypesCached(jarPath, sourceDirs, oracle.FindRepoDir(opts.Paths), opts.OutputPath, "", opts.Verbose, invocationStore, invokeOpts)
 		releaseStoreScope()
 	}
 	if err != nil {

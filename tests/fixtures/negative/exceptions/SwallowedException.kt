@@ -1,6 +1,8 @@
 package com.example.exceptions
 
-import com.example.logging.AppLog
+object AppLog {
+    fun e(tag: String, message: String, error: Throwable) {}
+}
 
 class Processor {
 
@@ -98,6 +100,7 @@ class Processor {
         return run {
             try {
                 doWork()
+                ""
             } catch (e: java.util.concurrent.ExecutionException) {
                 when (val cause = e.cause) {
                     is IllegalStateException -> stateError(cause)

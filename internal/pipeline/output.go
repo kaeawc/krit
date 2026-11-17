@@ -94,8 +94,16 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 	ruleCount := len(in.ActiveRules)
 
 	// Reports use one path spelling whatever form the scan paths took.
+	reportPath := ReportPathFunc(reportBasePath(in.BasePath, in.Paths), in.AbsolutePaths)
 	reported := columns
-	if rewritten := columns.RewriteFiles(ReportPathFunc(reportBasePath(in.BasePath, in.Paths), in.AbsolutePaths)); rewritten.N > 0 {
+	if rewritten := columns.RewriteFiles(reportPath); rewritten.N > 0 {
+		reported = &rewritten
+	}
+	// Suggested edits name their target by absolute path. A reproducible
+	// report spells them like finding paths so it does not depend on where
+	// the tree is checked out.
+	if in.Reproducible && len(reported.SuggestedFixPool) > 0 {
+		rewritten := reported.RewriteSuggestedFixTargets(reportPath)
 		reported = &rewritten
 	}
 
@@ -114,7 +122,7 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
-			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded},
+			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, Reproducible: in.Reproducible},
 			in.PerfRuleStats,
 		); err != nil {
 			return OutputResult{}, fmt.Errorf("format json: %w", err)

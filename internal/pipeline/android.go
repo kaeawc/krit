@@ -28,6 +28,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // AndroidInput is the entry value for the Android phase.
@@ -54,7 +55,7 @@ type AndroidInput struct {
 	// bundle loads avoid rehashing every source file after parse skip.
 	SourceHashes map[string]string
 	// Providers is an optional async scan provider bundle. When nil,
-	// Run constructs one lazily using runtime.NumCPU() workers.
+	// Run constructs one lazily using sysres.CPUs() workers.
 	Providers *AndroidProjectProviders
 	// Tracker, when non-nil, receives manifestAnalysis / resourceAnalysis
 	// / gradleAnalysis child Trackers.
@@ -280,7 +281,7 @@ func (AndroidPhase) scanLayoutDir(resDir string, providers *AndroidProjectProvid
 		idx, stats, err = future.Await()
 		t.scanDur += future.Duration()
 	} else {
-		idx, stats, err = android.ScanLayoutResourcesWithStatsWorkers(resDir, runtime.NumCPU())
+		idx, stats, err = android.ScanLayoutResourcesWithStatsWorkers(resDir, sysres.CPUs())
 		t.scanDur += time.Since(start)
 	}
 	t.waitDur += time.Since(start)
@@ -312,7 +313,7 @@ func (AndroidPhase) scanValuesDir(resDir string, providers *AndroidProjectProvid
 		idx, stats, err = future.Await()
 		t.scanDur += future.Duration()
 	} else {
-		idx, stats, err = android.ScanValuesResourcesWithStatsKindsWorkers(resDir, runtime.NumCPU(), valueKinds)
+		idx, stats, err = android.ScanValuesResourcesWithStatsKindsWorkers(resDir, sysres.CPUs(), valueKinds)
 		t.scanDur += time.Since(start)
 	}
 	t.waitDur += time.Since(start)
@@ -1233,7 +1234,7 @@ func (p AndroidPhase) runResourceDirs(in AndroidInput, resourceDeps rules.Androi
 		}
 		r.idx, r.cacheable = p.runResourceDir(in, resDirs[i], fps[i], resourceDeps, valueKinds, needIcons, needResourceSource, providers, r.collector, r.bundle, &r.t, &r.stats)
 	}
-	forEachParallel(len(resDirs), runtime.NumCPU(), runOne)
+	forEachParallel(len(resDirs), sysres.CPUs(), runOne)
 	// Merge in resDir order so output matches the serial loop.
 	for i := range results {
 		r := &results[i]
@@ -1788,7 +1789,7 @@ func (p AndroidPhase) Run(ctx context.Context, in AndroidInput) (AndroidResult, 
 	valueKinds := androidValuesScanKinds(resourceDeps)
 	providers := in.Providers
 	if providers == nil {
-		providers = NewAndroidProjectProviders(in.Project, CollectAndroidDependenciesV2(in.ActiveRules), runtime.NumCPU())
+		providers = NewAndroidProjectProviders(in.Project, CollectAndroidDependenciesV2(in.ActiveRules), sysres.CPUs())
 	}
 
 	tracker := in.Tracker

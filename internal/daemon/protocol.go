@@ -600,4 +600,12 @@ type DumpTypesArgs struct {
 	OutputPath    string   `json:"output_path"`
 	NoCacheOracle bool     `json:"no_cache_oracle,omitempty"`
 	Verbose       bool     `json:"verbose,omitempty"`
+	// The caller-resolved oracle compile context, as on AnalyzeProjectArgs,
+	// so the dump compiles against the same classpath as a scan.
+	OracleClasspath  []string                   `json:"oracle_classpath,omitempty"`
+	OracleSourceDirs []string                   `json:"oracle_source_dirs,omitempty"`
+	OracleJvmTarget  string                     `json:"oracle_jvm_target,omitempty"`
+	OracleKotlin     gradlemodel.KotlinSettings `json:"oracle_kotlin,omitzero"`
+	// NoFirDaemon mirrors --no-fir-daemon: cache misses run one-shot.
+	NoFirDaemon bool `json:"no_fir_daemon,omitempty"`
 }

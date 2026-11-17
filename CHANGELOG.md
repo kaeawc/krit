@@ -4,7 +4,95 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
+  on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
+  aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,
+  or `setType` after a `Uri` constructor argument) when both calls sit in the same block, including Kotlin
+  `intent.data =` and `intent.type =` assignments. `IntentWithNullActionLaunch` reports an `Intent()` that gets no
+  action or component and reaches `startActivity` or `sendBroadcast`; passing it to any other call, except logging
+  and printing calls, stops the check.
+- `AppLinkUrlError` and `AppLinkWarning`, ported from Android Lint 32.4.1's `AppLinksValidDetector` and checked
+  against the Lint CLI on synthetic and fuzzed manifests. They cover `<data>` scheme, host, port, path, MIME type and
+  case checks, the elements an `autoVerify` filter needs to be an Android App Link, VIEW filters without a URI,
+  scheme, host or `BROWSABLE` category, non-exported VIEW activities, and `http(s)` App Link filters without
+  `autoVerify`. Filters whose scheme or `autoVerify` is a resource reference are not judged, because the manifest
+  rules do not read resources. `tools:validation` test URLs, `<uri-relative-filter-group>` checks,
+  `AppLinkSplitToWebAndCustom` and the network-based `AppLinksAutoVerify` are not ported.
+- Android Lint manifest checks ported with Lint 32.4.1 semantics and checked against the Lint CLI on synthetic
+  manifests: `SystemPermissionTypo` and `CustomPermissionTypo` (edit-distance matches against the SDK and system
+  permission lists and the permissions declared in the manifest), `ReservedSystemPermission`,
+  `PermissionNamingConvention` (off by default, like Lint), `KnownPermissionError`, `LockedOrientationActivity`,
+  `NonResizeableActivity` (both skipped in library modules), `IntentFilterUniqueDataAttributes`, and the manifest
+  attribute part of `DiscouragedApi` (fixed orientation, aspect ratios and non-resizeable activities, which
+  Android 16 ignores on large screens).
+
 ### Fixed
+- `--output-types` no longer leaves a krit-fir daemon running under `--no-daemon` or `--no-fir-daemon`, and it
+  compiles against the scan's classpath, model source roots, JVM target and Kotlin settings.
+- `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.
+- `VersionCatalogBuildSrcMismatch` names the conflicting buildSrc file relative to the project instead of by
+  absolute path, so its message, and baseline entries for it, no longer depend on the checkout location.
+  Baseline entries for this rule change once; regenerate the baseline to pick them up.
+- The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing. It creates the
+  release as a draft, retries each asset upload, and publishes only after checking the uploaded assets.
+- `WakelockTimeout`, `SetWorldReadable` and `SetWorldWritable` now have FIR checkers, with the Go rules kept as the
+  fallback. On files the compiler analyzes, the receiver is the resolved `PowerManager.WakeLock` or `java.io.File`, so
+  an import alias, a type alias, a call result, `!!` or a smart cast is found, and `WakelockTimeout` also reports an
+  `acquire()` on an implicit receiver. The folded `true`/`false` arguments of the two file rules are read as before.
+- `OkHttpCallExecuteSync` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the call must resolve to `execute()` on `okhttp3.Call` or a class that implements it, so a call held in a
+  variable that is not named like a call is reported and an unrelated `execute()` on a `...Call`-named receiver is not.
+  A call inside a lambda the compiler does not run in place (`Thread { }`, a stored callback) is not on the
+  coroutine's thread and is no longer reported. The dispatcher, executor, Rx scheduler, cancellation-bridge and KDoc
+  exemptions are unchanged.
+- `UseCheckOrError` and `UseRequire` now have FIR checkers, with the Go rules kept as the fallback. On files the
+  compiler analyzes, the thrown class is the resolved constructor of `IllegalStateException` or
+  `IllegalArgumentException`, so an import alias or type alias of the exception is reported and a project class or
+  function that only shares the name is not. The message must be a non-null `String` or absent, as before.
+- `ThrowingNewInstanceOfSameException` and `ThrowingExceptionsWithoutMessageOrCause` now have FIR checkers, with the
+  Go rules kept as the fallback. On files the compiler analyzes, the thrown or called constructor and the caught
+  type are resolved classes (type aliases expanded), so a type alias or import alias of the exception is found, a
+  nested class or function that only shares the simple name is not reported, and the caught variable is the catch
+  parameter's symbol, so a lambda parameter that reuses the name no longer counts as the caught exception.
+- `SuspendFunWithFlowReturnType` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the return type is the resolved type (an import alias, a typealias or an inferred type of `Flow`,
+  `StateFlow`, `SharedFlow`, `MutableStateFlow` or `MutableSharedFlow` counts, a project type named `Flow` does
+  not), and the modifier is kept only when the body calls a function the compiler resolves as `suspend`, so a
+  member named like a suspend overload (`first`, `toList`) no longer hides the finding and a suspend call inside
+  an inline lambda counts.
+- `SystemPermission` (Lint's `ProtectedPermissions`) now uses Lint's list of about 740 system-only permissions
+  instead of 56, honours `android:maxSdkVersion` and the minimum SDK for permissions an ordinary app could hold on
+  older releases, reports at the `android:name` attribute with Lint's message, and is on by default as in Lint.
+- `UnusedPrivateFunction` and `UnusedPrivateClass` now have FIR checkers, with the Go rules kept as the
+  fallback. On files the compiler analyzes, a private function or class is used only when a resolved reference
+  (a call, callable reference, operator or delegate convention, type, constructor, qualifier or annotation)
+  points at it, so a same-named member, local or overload elsewhere in the file no longer hides an unused
+  declaration, and a `fun interface` is judged like any other class.
+- `SharedPreferencesForSensitiveKey` and `LogOfSharedPreferenceRead` now have FIR checkers, with the Go rules
+  kept as the fallback. On files the compiler analyzes, the editor or preferences are the resolved
+  `SharedPreferences` members, so a receiver held in a property, returned by a call or left implicit counts, and
+  an editor reached through `EncryptedSharedPreferences` is skipped. A logger is a resolved member of a class or
+  object named `Log` or `Timber`, so an aliased or fully qualified `android.util.Log` and
+  `Timber.tag(...).d(...)` count and a local value named `Log` does not.
+- `SqliteCursorWithoutClose` now has a FIR checker, with the Go rule kept as the fallback. On files the
+  compiler analyzes, the query is a resolved call to `SQLiteDatabase` or `SupportSQLiteDatabase`, so a
+  receiver written as a property chain (`helper.readableDatabase.rawQuery(...)`) or left implicit counts, and
+  only a resolved reference to the cursor, not any identifier of the same name, hands it over to other code.
+- `AssertTrueOnComparison` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the call must resolve to kotlin.test, JUnit 3, JUnit 4 or JUnit Jupiter, so a project helper that
+  reuses the name `assertTrue` is no longer reported, and an import-aliased `assertTrue` is.
+- `NullableToStringCall` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, the receiver or template part is nullable by the compiler's type, so a mutable property after a null
+  check, an implicit lambda parameter, a safe-call result and a type parameter are reported, and a stable smart
+  cast to non-null is not.
+- `CastNullableToNonNullableType` now has a FIR checker, with the Go rule kept as the fallback. On files the
+  compiler analyzes, the operand's nullability is the compiler's type (stable smart casts, platform types and
+  typealiases to nullable types are read exactly), so a cast Go's source inference could not resolve is reported.
+- `SwallowedException` now has a FIR checker, with the Go rule kept as the fallback. On files the compiler
+  analyzes, only an access to the catch parameter's own symbol counts as a use, so a logger call such as
+  `Timber.e(...)`, a lambda parameter or a local that reuses the name no longer hides a swallowed exception,
+  and a typealias of an ignored exception type is exempt like the type itself.
 - Source type inference no longer takes a call's return type from a same-name function that the call
   cannot reach: a private, local or private-class function in another file. When the reachable
   same-name declarations disagree, or one has no declared return type, the call's type is unknown
@@ -67,6 +155,12 @@ All notable changes to Krit will be documented in this file.
   covers them too.
 
 ### Added
+- `--only-scope` and `--exclude-scope` select rules by scope: `file` for per-file rules and `project` for
+  cross-file, module, Android and Gradle rules (individual dispatcher scopes also work). A build system can run
+  the per-file rules per module and the project rules once. `--list-rules --format json` reports each rule's
+  `scope`. See `docs/hermetic-builds.md`.
+- `--reproducible` makes JSON reports byte-identical across runs, caches, worker counts and checkout paths:
+  `durationMs` is 0, cache statistics and perf timings are omitted, and suggested-edit targets are relative.
 - `SuspiciousIndentation` ports Android Lint's check: a statement indented as if it belonged to the
   previous statement or to an unbraced `if`, `else` or loop, an unbraced body at the column of its
   control statement, and an indentation string that differs from the line above. It reports at most
@@ -173,6 +267,13 @@ All notable changes to Krit will be documented in this file.
   `tools/lintdata`; see `tools/lintdata/README.md`.
 
 ### Changed
+- Krit finds `java` and `javac` under `JAVA_HOME` before `PATH` everywhere it launches a JVM or checks for one
+  (jar download, Java facts helper, `--doctor`).
+- On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory
+  sizing reads the cgroup memory limit instead of the host's. A scan in a memory-limited cgroup sets a Go soft
+  memory limit of three quarters of it unless `GOMEMLIMIT` is set.
+- `--no-fir-daemon` also runs the type oracle's cache misses one-shot, so an in-process scan
+  (`--no-daemon --no-fir-daemon`) leaves no krit-fir daemon behind.
 - Cold `--fir` scans start parsing, and building the cross-file code index, while the oracle
   JVM compiles, instead of after it. The phases take the background result only when their
   input is identical, so findings do not change.

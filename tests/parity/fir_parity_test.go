@@ -146,14 +146,22 @@ var firCrossRuleAllowlist = map[string]string{
 	// await() is a suspend call that won't complete normally if the coroutine
 	// is cancelled, so the message is true; Go only matches call text that
 	// starts with a listed name and misses receiver-qualified calls.
-	"DefaultLocale|tests/fixtures/negative/potential-bugs/ImplicitDefaultLocale.kt":           "FIR reports every default-locale format call; Go follows Lint and skips formats without d/e/f/g/t conversions (DefaultLocale.kt patternOnly)",
-	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/InjectDispatcher.kt":         "launch lambda runs in its own coroutine, so the suspend caller never suspends; Go keeps the modifier for the launch call",
-	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SleepInsteadOfDelay.kt":      "Thread.sleep blocks and println does not suspend; Go cannot resolve the Java member call and keeps the modifier",
-	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
-	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt": "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+	"DefaultLocale|tests/fixtures/negative/potential-bugs/ImplicitDefaultLocale.kt":               "FIR reports every default-locale format call; Go follows Lint and skips formats without d/e/f/g/t conversions (DefaultLocale.kt patternOnly)",
+	"NullableToStringCall|tests/fixtures/negative/exceptions/ErrorUsageWithThrowable.kt":          "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
+	"NullableToStringCall|tests/fixtures/negative/exceptions/InstanceOfCheckForException.kt":      "toString() on a local initialised by a safe cast, a nullable type; Go does not type it (NullableToStringCallDivergence.kt safeCastLocal)",
+	"NullableToStringCall|tests/fixtures/negative/exceptions/PrintStackTrace.kt":                  "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
+	"NullableToStringCall|tests/fixtures/negative/exceptions/SwallowedException.kt":               "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
+	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/InjectDispatcher.kt":             "launch lambda runs in its own coroutine, so the suspend caller never suspends; Go keeps the modifier for the launch call",
+	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SuspendFunWithFlowReturnType.kt": "flow builder lambda runs when the flow is collected, so the suspend function never suspends; Go counts the lambda (RedundantSuspendModifierDivergence.kt buildsFlow)",
+	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SleepInsteadOfDelay.kt":          "Thread.sleep blocks and println does not suspend; Go cannot resolve the Java member call and keeps the modifier",
+	"RedundantSuspendModifier|tests/fixtures/positive/resource-cost/OkHttpCallExecuteSync.kt":     "okhttp3.Call.execute() blocks and is not a suspend call, so the suspend function never suspends; Go cannot resolve the call and keeps the modifier",
+	"RedundantSuspendModifier|tests/fixtures/negative/resource-cost/OkHttpCallExecuteSync.kt":     "okhttp3.Call.execute() blocks and is not a suspend call, so the suspend function never suspends; Go cannot resolve the call and keeps the modifier",
+	"SuspendFunInFinallySection|tests/fixtures/positive/coroutines/DeferredAwaitInFinally.kt":     "qualified cleanup.await() in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
+	"SuspendFunInFinallySection|tests/fixtures/negative/coroutines/DeferredAwaitInFinally.kt":     "qualified cleanup.await() inside runCatching in finally; Go misses qualified suspend calls (SuspendFunInFinallySectionDivergence.kt qualifiedAndUnlisted)",
 	// UnusedPrivateProperty matches the name through resolution; Go treats any other use of the name as a use.
 	"UnusedPrivateProperty|tests/fixtures/negative/android-lint/FragmentConstructor.kt": "private var whose name appears only as a parameter of another function (UnusedPrivatePropertyDivergence.kt ParameterNamed)",
 	"UnusedPrivateProperty|tests/fixtures/negative/coroutines/StateFlowMutableLeak.kt":  "unused constructor parameter whose name appears only as a member access (UnusedPrivatePropertyDivergence.kt PlainNamedLikeMember)",
+	"Wakelock|tests/fixtures/positive/android-lint/WakelockTimeout.kt":                  "acquire() with no release() on a PowerManager.WakeLock parameter; Go reads the annotation as PowerManager and cannot type the receiver (WakelockRecall.kt)",
 }
 
 // firMessageAllowlist lists reviewed message differences on a rule's own

@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/kaeawc/krit/internal/jdk"
 )
 
 // Metadata is everything needed to reproduce a benchmark and judge its noise.
@@ -57,7 +59,7 @@ func collectMetadata(corpus, kritBin string, o options) Metadata {
 		KritVersion:   output(kritBin, "--version"),
 		HelperJars:    helperJars(),
 		GoVersion:     runtime.Version(),
-		JavaVersion:   firstLine(combined("java", "-version")),
+		JavaVersion:   firstLine(javaVersion()),
 		KotlinVersion: kotlinVersion("tools/krit-fir/build.gradle.kts"),
 		OS:            output("uname", "-srm"),
 		CPUs:          runtime.NumCPU(),
@@ -161,6 +163,15 @@ func output(name string, args ...string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// javaVersion reports the JVM krit launches: JAVA_HOME first, then PATH.
+func javaVersion() string {
+	java, err := jdk.Java()
+	if err != nil {
+		return ""
+	}
+	return combined(java, "-version")
 }
 
 func combined(name string, args ...string) string {

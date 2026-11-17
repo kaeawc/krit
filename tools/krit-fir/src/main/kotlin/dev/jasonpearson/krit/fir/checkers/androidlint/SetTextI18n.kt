@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.ClassId
@@ -80,8 +80,7 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
 
     // Nullable, so a nullable or platform-typed receiver (`tv?.setText`,
     // `findViewById<TextView>(id)`) is a subtype too.
-    private val TEXT_VIEW = ClassId(FqName("android.widget"), Name.identifier("TextView"))
-        .constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val TEXT_VIEW = ClassId(FqName("android.widget"), Name.identifier("TextView")).nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

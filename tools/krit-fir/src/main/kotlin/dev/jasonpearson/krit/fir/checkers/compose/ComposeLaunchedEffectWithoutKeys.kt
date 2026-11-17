@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.qualifiedCall
+import dev.jasonpearson.krit.fir.support.trailingLambdaOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import com.intellij.lang.LighterASTNode
 import org.jetbrains.kotlin.KtFakeSourceElementKind
@@ -20,7 +21,6 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
@@ -68,7 +68,7 @@ internal object ComposeLaunchedEffectWithoutKeys : FirFunctionCallChecker(MppChe
         if (callee.callableId?.asSingleFqName() != launchedEffectFqName) return
 
         val arguments = expression.argumentList.arguments
-        val lambda = trailingLambda(arguments.lastOrNull() ?: return) ?: return
+        val lambda = trailingLambdaOf(arguments.lastOrNull() ?: return) ?: return
         if (!arguments.dropLast(1).all(::isConstantKey)) return
 
         val function = context.containingElements.filterIsInstance<FirNamedFunction>().lastOrNull() ?: return
@@ -84,11 +84,6 @@ internal object ComposeLaunchedEffectWithoutKeys : FirFunctionCallChecker(MppChe
         val noun = if (names.size == 1) "parameter " else "parameters "
         val verb = if (names.size == 1) " changes" else " change"
         report(source, "LaunchedEffect body reads enclosing $noun$list but is keyed only on constants; the effect won't re-run when $list$verb. Pass LaunchedEffect($list) { ... }.")
-    }
-
-    private fun trailingLambda(last: FirExpression): FirAnonymousFunctionExpression? {
-        val argument = if (last is FirFunctionTypeConversionExpression) last.expression else last
-        return (argument as? FirAnonymousFunctionExpression)?.takeIf { it.isTrailingLambda }
     }
 
     // Go compares the argument text, so only the spellings `Unit`, `true`, `false` and `null` are constants.

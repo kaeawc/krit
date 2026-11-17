@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 func clampWorkers(maxWorkers, workItems int) int {
@@ -724,7 +724,7 @@ func ScanResourceDir(resDir string) (*ResourceIndex, error) {
 // ScanResourceDirWithStats scans an Android res/ directory and returns the
 // resource index plus coarse timing for the scan internals.
 func ScanResourceDirWithStats(resDir string) (*ResourceIndex, ResourceScanStats, error) {
-	return ScanResourceDirWithStatsWorkers(resDir, runtime.NumCPU())
+	return ScanResourceDirWithStatsWorkers(resDir, sysres.CPUs())
 }
 
 // ScanResourceDirWithStatsWorkers scans an Android res/ directory with an

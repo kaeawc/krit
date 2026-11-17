@@ -137,6 +137,7 @@ class KritProjectService(private val project: Project) : Disposable {
         try {
             ApplicationManager.getApplication().executeOnPooledThread {
                 if (project.isDisposed) return@executeOnPooledThread
+                checkBinaryVersion()
                 val rules = KritRules.forProject(project)
                 if (rules.isEmpty()) return@executeOnPooledThread
                 ApplicationManager.getApplication().invokeLater({
@@ -694,20 +695,48 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
+    // Offers the GitHub download only when nothing is configured: a configured
+    // path that doesn't work would still win over a downloaded binary.
     private fun notifyMissingBinaryOnce() {
         if (!missingBinaryNotified.compareAndSet(false, true)) return
-        ApplicationManager.getApplication().invokeLater {
-            if (project.isDisposed) return@invokeLater
-            NotificationGroupManager.getInstance()
-                .getNotificationGroup("Krit")
-                .createNotification(
-                    "Krit binary not found",
-                    "Set -Dkrit.binary or KRIT_BINARY, or install krit on PATH.",
-                    NotificationType.WARNING,
-                )
-                .notify(project)
+        when (val resolution = KritBinaryResolver.resolve(project)) {
+            is KritBinaryResolver.Resolution.ConfiguredMissing -> KritBinaryDownloadTask.notify(
+                project,
+                "Krit binary not found",
+                KritBinaryMessages.configuredMissing(resolution),
+                NotificationType.WARNING,
+                settingsAction = true,
+            )
+            else -> KritBinaryDownloadTask.notify(
+                project,
+                "Krit binary not found",
+                KritBinaryMessages.NOT_FOUND,
+                NotificationType.WARNING,
+                settingsAction = true,
+                download = true,
+            )
         }
     }
+
+    // Warns once per binary (path, size, modification time) when its
+    // `krit --version` is outside the supported range. Runs krit: off the EDT.
+    private fun checkBinaryVersion() {
+        val binary = KritBinaryResolver.find(project) ?: return
+        val key = KritRuleCatalog.Key.of(binary)
+        if (versionCheckedFor == key) return
+        versionCheckedFor = key
+        val warning = KritCompatibility.warningFor(binaryVersions.versionOf(binary), key.path) ?: return
+        KritBinaryDownloadTask.notify(
+            project,
+            "Krit version not supported",
+            warning,
+            NotificationType.WARNING,
+            settingsAction = true,
+        )
+    }
+
+    @Volatile
+    private var versionCheckedFor: KritRuleCatalog.Key? = null
 
     private fun scheduleScan(delayMs: Long) {
         synchronized(scanLock) {
@@ -907,6 +936,8 @@ class KritProjectService(private val project: Project) : Disposable {
     }
 
     companion object {
+        private val binaryVersions = KritBinaryVersions()
+
         private val GENERATED_OR_BUILD_PATH_PARTS = listOf(
             "/.gradle/",
             "/.idea/",

@@ -5,9 +5,12 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.splitSqlConcatOperands
 import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
@@ -51,7 +54,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
@@ -60,8 +62,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
-import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -139,9 +139,8 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
 
     private val javaSql = FqName("java.sql")
     private val statement = ClassId(javaSql, Name.identifier("Statement"))
-    private val nullableStatement = statement.constructClassLikeType(emptyArray(), isMarkedNullable = true)
-    private val nullablePreparedStatement = ClassId(javaSql, Name.identifier("PreparedStatement"))
-        .constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val nullableStatement = statement.nullableClassType()
+    private val nullablePreparedStatement = ClassId(javaSql, Name.identifier("PreparedStatement")).nullableClassType()
 
     private val stringPlus = CallableId(StandardClassIds.String, Name.identifier("plus"))
     private const val MAX_DEPTH = 16
@@ -186,9 +185,7 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
 
     context(context: CheckerContext)
     private fun isStatementClass(owner: FirClassSymbol<*>): Boolean =
-        owner.classId == statement ||
-            lookupSuperTypes(owner, lookupInterfaces = true, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == statement }
+        isOrInheritsFrom(owner, statement, context.session, lookupInterfaces = true)
 
     // Whether the callee's first value parameter is a String (nullable or a
     // platform String), the SQL text of the JDBC overloads.
@@ -292,10 +289,8 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     }
 
     context(context: CheckerContext)
-    private fun isPreparedStatement(type: ConeKotlinType?): Boolean {
-        if (type == null || type.isNothingOrNullableNothing) return false
-        return type.isSubtypeOf(nullablePreparedStatement, context.session)
-    }
+    private fun isPreparedStatement(type: ConeKotlinType?): Boolean =
+        type != null && type.isNonNothingSubtypeOf(nullablePreparedStatement)
 
     // Go's first positional argument: the first VALUE_ARGUMENT without a name,
     // in the argument list of the call whose callee is [calleeSource]. A

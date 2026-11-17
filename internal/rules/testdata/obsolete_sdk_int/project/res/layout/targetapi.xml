@@ -1,0 +1,21 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="19"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="KITKAT"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="kitkat"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="L"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="l"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="lollipop_mr1"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="O"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="abc"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="0"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="1"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="21"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="22"/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi=" 19 "/>
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" tools:targetApi="19" tools:ignore="ObsoleteSdkInt"/>
+    <include layout="@layout/a" tools:targetApi="19"/>
+    <merge tools:targetApi="19"/>
+</LinearLayout>

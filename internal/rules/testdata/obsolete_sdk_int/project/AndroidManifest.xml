@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools" package="q.a">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>
+    <application tools:targetApi="19">
+        <activity android:name=".A" tools:targetApi="lollipop"/>
+        <activity android:name=".B" tools:targetApi="22"/>
+        <service android:name=".S" tools:targetApi="21"/>
+        <receiver android:name=".R" tools:targetApi="KITKAT"/>
+        <uses-library android:name="x" tools:targetApi="19"/>
+    </application>
+    <uses-permission android:name="p" tools:targetApi="19"/>
+    <permission android:name="q" tools:targetApi="19"/>
+</manifest>

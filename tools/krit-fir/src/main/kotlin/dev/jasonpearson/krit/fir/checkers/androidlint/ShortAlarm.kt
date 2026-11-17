@@ -5,6 +5,8 @@ import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
+import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -28,7 +30,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
@@ -36,7 +37,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
-import org.jetbrains.kotlin.fir.types.constructClassLikeType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
@@ -106,7 +106,7 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private val alarmManager = ClassId(FqName("android.app"), Name.identifier("AlarmManager"))
     private val pendingIntent = ClassId(FqName("android.app"), Name.identifier("PendingIntent"))
     private val onAlarmListener = ClassId(FqName("android.app"), FqName("AlarmManager.OnAlarmListener"), false)
-    private val alarmManagerType = alarmManager.constructClassLikeType(emptyArray(), isMarkedNullable = true)
+    private val alarmManagerType = alarmManager.nullableClassType()
     private val repeatingSetter = Name.identifier("setRepeating")
     private val integralKinds = setOf(
         ConstantValueKind.Int,
@@ -368,9 +368,7 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     // local and anonymous classes; only class ids already in hand are compared.
     context(context: CheckerContext)
     private fun isAlarmManager(symbol: FirClassLikeSymbol<*>): Boolean =
-        symbol.classId == alarmManager ||
-            lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId == alarmManager }
+        isOrInheritsFrom(symbol, alarmManager, context.session, lookupInterfaces = false)
 
     // The value of an integer literal (FIR drops parentheses around it and
     // folds underscores, hex, and binary spellings), or of a Kotlin const val

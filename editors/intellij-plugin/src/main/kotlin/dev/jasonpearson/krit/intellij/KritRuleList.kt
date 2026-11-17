@@ -15,8 +15,14 @@ data class KritRuleInfo(
     val fixable: Boolean = false,
     val fixLevel: String? = null,
     val description: String? = null,
+    // The rule's page on the krit docs site; absent from krits without docs.
+    val docsUrl: String? = null,
     val plugin: Boolean = false,
-)
+) {
+    /** [docsUrl] when it is an http(s) link, so a tooltip never links anything else. */
+    val docsLink: String?
+        get() = docsUrl?.trim()?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+}
 
 /** Parses the `krit --list-rules --format json` document. Free of IntelliJ classes. */
 object KritRuleList {

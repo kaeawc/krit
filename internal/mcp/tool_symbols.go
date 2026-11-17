@@ -2,10 +2,10 @@ package mcp
 
 import (
 	"encoding/json"
-	"runtime"
 	"sync"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // symbolsArgs are the arguments for the symbols tool.
@@ -146,7 +146,7 @@ func scanFilesForSymbolParallel(paths []string, name string) []refMatch {
 	if len(paths) == 0 {
 		return nil
 	}
-	workers := runtime.NumCPU()
+	workers := sysres.CPUs()
 	if workers > 8 {
 		workers = 8
 	}

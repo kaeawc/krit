@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 // TestTryDaemonDelegate_OutputTypesRoutesViaMetaVerb pins that the CLI
@@ -77,6 +79,38 @@ func TestTryDaemonDelegate_OutputTypesPropagatesFlags(t *testing.T) {
 	}
 	if !got.Verbose {
 		t.Errorf("Verbose not propagated")
+	}
+}
+
+// TestTryDaemonDelegate_OutputTypesForwardsCompileContext asserts the dump
+// compiles against the classpath, source roots, JVM target and Kotlin settings
+// a scan's oracle uses, and that --no-fir-daemon rides the wire.
+func TestTryDaemonDelegate_OutputTypesForwardsCompileContext(t *testing.T) {
+	var capturedArgs atomic.Value
+	socketDir := startMockDumpTypesDaemon(t, &capturedArgs, daemon.MetaResult{ExitCode: 0})
+	root := newRoot(t)
+	linkSock(t, root, filepath.Join(socketDir, "d.sock"))
+
+	f := freshScanFlags(t)
+	*f.OutputTypes = "/tmp/out.json"
+	*f.NoFirDaemon = true
+	f.modelClasspath = []string{"/deps/a.jar"}
+	f.modelSourceDirs = []string{"/src/main/kotlin"}
+	f.modelJvmTarget = "17"
+	f.modelKotlin = gradlemodel.KotlinSettings{LanguageVersion: "2.1"}
+
+	if handled, _ := tryDaemonDelegate(f, []string{root}, root); !handled {
+		t.Fatalf("expected handled=true; got fall-through")
+	}
+	got := capturedArgs.Load().(daemon.DumpTypesArgs)
+	if !slices.Contains(got.OracleClasspath, "/deps/a.jar") {
+		t.Errorf("OracleClasspath = %v, want it to contain /deps/a.jar", got.OracleClasspath)
+	}
+	if !slices.Equal(got.OracleSourceDirs, f.modelSourceDirs) || got.OracleJvmTarget != "17" || got.OracleKotlin.LanguageVersion != "2.1" {
+		t.Errorf("compile context not forwarded: %+v", got)
+	}
+	if !got.NoFirDaemon {
+		t.Error("NoFirDaemon not propagated")
 	}
 }
 

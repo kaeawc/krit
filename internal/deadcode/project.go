@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // ProjectFinding describes a declaration unreachable from project roots.
@@ -32,7 +32,7 @@ type ProjectOptions struct {
 	// Roots are user-supplied additional reachability roots, identified by
 	// FQN or simple name.
 	Roots []string
-	// Workers controls parser parallelism. Defaults to runtime.NumCPU().
+	// Workers controls parser parallelism. Defaults to sysres.CPUs().
 	Workers int
 	// Paths restricts scanning to these directories. Defaults to ScanRoot.
 	Paths []string
@@ -60,7 +60,7 @@ var servicesEntryRe = regexp.MustCompile(`(?m)^([\w.$]+)`)
 // non-private declarations not reachable from those roots.
 func AnalyzeProject(scanRoot string, opts ProjectOptions) ([]ProjectFinding, error) {
 	if opts.Workers < 1 {
-		opts.Workers = runtime.NumCPU()
+		opts.Workers = sysres.CPUs()
 	}
 	paths := opts.Paths
 	if len(paths) == 0 {

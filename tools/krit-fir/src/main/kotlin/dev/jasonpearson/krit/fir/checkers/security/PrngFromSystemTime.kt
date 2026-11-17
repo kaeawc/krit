@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -16,9 +18,7 @@ import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
@@ -27,7 +27,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.classId
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
@@ -174,7 +173,7 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
     // The class an expression evaluates to, type aliases expanded.
     context(context: CheckerContext)
     private fun classType(expression: FirExpression): ConeClassLikeType? =
-        expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
+        expression.resolvedType.expandedClassType()
 
     // The class a constructor call creates.
     context(context: CheckerContext)
@@ -193,8 +192,7 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
 
     context(context: CheckerContext)
     private fun extendsAny(symbol: FirClassLikeSymbol<*>, targets: Set<ClassId>): Boolean =
-        lookupSuperTypes(symbol, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-            .any { it.classId in targets }
+        inheritsFromAny(symbol, targets, context.session, lookupInterfaces = false)
 
     context(context: CheckerContext)
     private fun isOrExtendsAny(type: ConeClassLikeType, targets: Set<ClassId>): Boolean =

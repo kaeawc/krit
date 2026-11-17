@@ -1,0 +1,8 @@
+8:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+9:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+10:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+11:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+12:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+13:12 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+14:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)
+15:5 Unnecessary; `SDK_INT` is always >= 23 from outer annotation (`@RequiresApi(23)`)

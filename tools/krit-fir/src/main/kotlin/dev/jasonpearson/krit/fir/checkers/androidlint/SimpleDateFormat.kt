@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.expandedClassType
+import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -10,12 +12,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.Name
 
 // Flags a SimpleDateFormat constructor call that passes fewer than two
@@ -75,8 +73,7 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
         val constructor = expression.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol ?: return
         // The return type names the constructed class; for a typealias
         // constructor it is expanded to the aliased class.
-        val constructed = constructor.resolvedReturnType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
-            ?: return
+        val constructed = constructor.resolvedReturnType.expandedClassType() ?: return
         val classId = constructed.lookupTag.classId
         if (classId !in simpleDateFormatClassIds) {
             // A subclass counts when either the class or the call is named
@@ -96,7 +93,6 @@ internal object SimpleDateFormat : FirFunctionCallChecker(MppCheckerKind.Common)
     context(context: CheckerContext)
     private fun extendsSimpleDateFormat(constructor: FirConstructorSymbol): Boolean {
         val owner = constructor.getContainingClassSymbol() ?: return false
-        return lookupSuperTypes(owner, lookupInterfaces = false, deep = true, useSiteSession = context.session)
-            .any { it.lookupTag.classId in simpleDateFormatClassIds }
+        return inheritsFromAny(owner, simpleDateFormatClassIds, context.session, lookupInterfaces = false)
     }
 }

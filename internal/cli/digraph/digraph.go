@@ -5,11 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 
 	"github.com/kaeawc/krit/internal/di"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 func Run(args []string) int {
@@ -44,7 +44,7 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: collect files: %v\n", err)
 		return 1
 	}
-	parsed, errs := scanner.ScanFiles(context.Background(), files, runtime.NumCPU())
+	parsed, errs := scanner.ScanFiles(context.Background(), files, sysres.CPUs())
 	if len(errs) > 0 {
 		fmt.Fprintf(os.Stderr, "error: parse: %v\n", errs[0])
 		return 1

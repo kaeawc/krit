@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -40,7 +41,6 @@ import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirBackingFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
@@ -181,9 +181,7 @@ internal object InsecureTrustManager : FirDeclarationChecker<FirNamedFunction>(M
     // tags, which are bound to local and anonymous classes, so no class id is
     // resolved from a symbol that may be local.
     private fun isTrustManager(symbol: FirClassSymbol<*>, session: FirSession): Boolean =
-        symbol.classId == trustManager ||
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-                .any { it.classId == trustManager }
+        isOrInheritsFrom(symbol, trustManager, session, lookupInterfaces = true)
 
     @OptIn(SymbolInternals::class, DirectDeclarationsAccess::class)
     private fun serverCheckValidates(owner: FirClassSymbol<*>): Boolean =

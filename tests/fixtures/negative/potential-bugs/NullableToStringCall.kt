@@ -1,3 +1,4 @@
+// fir-parity: skip the fixture never compiles cleanly: it interpolates an unresolved reference, so Go stays authoritative for it; the FIR negatives are covered by compiler-tests data
 package potentialbugs
 
 class NullableToStringCall(val label: String)

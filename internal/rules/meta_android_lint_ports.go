@@ -319,3 +319,119 @@ func (r *DataBindingWithoutKaptRule) Meta() api.RuleDescriptor {
 func (r *SuspiciousIndentationRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "SuspiciousIndentation", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *NotificationID0Rule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NotificationId0", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *GetContentDescriptionOverrideRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "GetContentDescriptionOverride", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AccessibilityWindowStateChangedEventRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AccessibilityWindowStateChangedEvent", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AccessibilityFocusRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AccessibilityFocus", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ParcelClassLoaderRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ParcelClassLoader", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *BinderGetCallingInMainThreadRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "BinderGetCallingInMainThread", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *MutatingSharedPrefsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "MutatingSharedPrefs", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ObsoleteSdkIntRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ObsoleteSdkInt", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ObsoleteSdkIntResourceRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ObsoleteSdkIntResource", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ObsoleteSdkIntManifestRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ObsoleteSdkIntManifest", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ConstantLocaleRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ConstantLocale", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *NotConstructorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NotConstructor", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *CanvasSizeRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "CanvasSize", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WifiManagerLeakRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WifiManagerLeak", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *WifiManagerPotentialLeakRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "WifiManagerPotentialLeak", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DiffUtilEqualsRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DiffUtilEquals", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *ReservedSystemPermissionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ReservedSystemPermission", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *PermissionNamingConventionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "PermissionNamingConvention", RuleSet: "android-lint", DefaultActive: false, OptInReason: api.OptInReasonAndroidOnly}
+}
+
+func (r *KnownPermissionErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "KnownPermissionError", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SystemPermissionTypoRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SystemPermissionTypo", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *CustomPermissionTypoRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "CustomPermissionTypo", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *LockedOrientationActivityRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "LockedOrientationActivity", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *NonResizeableActivityRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NonResizeableActivity", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentFilterUniqueDataAttributesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentFilterUniqueDataAttributes", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DiscouragedAPIRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DiscouragedApi", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AppLinkURLErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AppLinkUrlError", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AppLinkWarningRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AppLinkWarning", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentResetRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentReset", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentWithNullActionLaunchRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentWithNullActionLaunch", RuleSet: "android-lint", DefaultActive: true}
+}

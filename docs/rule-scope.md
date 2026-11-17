@@ -65,7 +65,7 @@ These typically belong outside the built-in registry:
 ## Maturity and graduation
 
 New rules ship via `MaturityExperimental` (see
-[`internal/rules/api/rule.go`](../internal/rules/api/rule.go)) so users opt
+[`internal/rules/api/rule.go`](https://github.com/kaeawc/krit/blob/main/internal/rules/api/rule.go)) so users opt
 in via `--experimental` or `experimental: true` in `krit.yml`. Once a rule
 has soaked across at least one minor release with no false-positive bug
 reports it can graduate to `MaturityStable`.

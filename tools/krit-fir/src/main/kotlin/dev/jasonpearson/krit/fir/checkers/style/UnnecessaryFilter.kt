@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.style
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.trailingLambdaOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -15,7 +16,6 @@ import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.name.CallableId
@@ -107,7 +107,7 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
         }
         if (!terminalOk) return
 
-        val lambda = trailingLambdaOf(filterCall) ?: return
+        val lambda = onlyTrailingLambda(filterCall) ?: return
         val predicate = lambdaText(filterCall, lambda) ?: return
         // A return to the implicit filter label loses its target after the
         // suggested replacement changes the call name.
@@ -127,7 +127,7 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
             val filterCall = filterCallOf(expression.explicitReceiver) ?: return
             val filter = resolvedFunction(filterCall) ?: return
             if (filter.callableName.asString() != "filter" || !filter.isTopLevelIn(stdlibPackages)) return
-            val lambda = trailingLambdaOf(filterCall) ?: return
+            val lambda = onlyTrailingLambda(filterCall) ?: return
             val predicate = lambdaText(filterCall, lambda) ?: return
             if ("return@filter" in predicate) return
             report(expression.source, "Replace '.filter $predicate.size' with '.count $predicate'.")
@@ -151,12 +151,8 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
 
     // The filter's only argument when it is a trailing lambda, also when it
     // is converted to a SAM interface (FileCollection.filter(Spec)).
-    private fun trailingLambdaOf(filterCall: FirFunctionCall): FirAnonymousFunctionExpression? {
-        var argument = filterCall.argumentList.arguments.singleOrNull() ?: return null
-        if (argument is FirFunctionTypeConversionExpression) argument = argument.expression
-        val lambda = argument as? FirAnonymousFunctionExpression ?: return null
-        return if (lambda.isTrailingLambda) lambda else null
-    }
+    private fun onlyTrailingLambda(filterCall: FirFunctionCall): FirAnonymousFunctionExpression? =
+        filterCall.argumentList.arguments.singleOrNull()?.let(::trailingLambdaOf)
 
     private fun filterCallOf(receiver: FirExpression?): FirFunctionCall? = when (receiver) {
         is FirFunctionCall -> receiver

@@ -59,6 +59,7 @@ nav:
   - Migrating from detekt: detekt-migration.md
   - Kotlin compiler settings: kotlin-compiler-settings.md
   - Module sharding: module-sharding.md
+  - Hermetic and build-system runs: hermetic-builds.md
   - Kotlin scripts: kotlin-scripts.md
   - Rules: rules.md
   - Rule reference:

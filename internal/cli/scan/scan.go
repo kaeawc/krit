@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +27,7 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/store"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // resolveCrossFileCacheDir returns the directory that scanner.BuildIndexCached
@@ -178,7 +178,7 @@ func resolveParseCacheCap(flagMB int, cfg *config.Config) int64 {
 
 func newParseCacheAsyncWriter(workers int) *cacheutil.AsyncWriter {
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if workers > 4 {
 		workers = 4
@@ -230,6 +230,10 @@ func Run() int {
 	}
 	if *f.PerfRules {
 		*f.Perf = true
+	}
+	if _, _, err := parseScopeFlags(f); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
 	}
 
 	// Scaffold mode: -new-experiment short-circuits the normal scan path.

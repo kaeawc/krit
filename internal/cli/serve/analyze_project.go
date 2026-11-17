@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -322,7 +322,7 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 	if r.profileDispatch && len(res.FileTimings) > 0 {
 		profile := daemon.DispatchProfile{
 			WallMs:  res.PhaseTimingsMs.Dispatch,
-			Workers: runtime.NumCPU(),
+			Workers: sysres.CPUs(),
 			Timings: convertFileTimings(res.FileTimings),
 		}
 		profileBytes, err := json.Marshal(profile)

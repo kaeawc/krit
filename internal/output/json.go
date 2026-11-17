@@ -146,6 +146,11 @@ type JSONOptions struct {
 	BaselineSuppressed *int
 	// FirDegraded, when non-nil, is reported as summary.firDegraded.
 	FirDegraded *FirDegraded
+	// Reproducible drops everything that varies between runs of the same
+	// inputs: durationMs is written as 0, and cache statistics and perf
+	// timings are omitted. The output is then byte-identical across runs
+	// and machines.
+	Reproducible bool
 }
 
 // FormatJSONColumnsWithOptions is FormatJSONColumns with extra report options.
@@ -158,6 +163,9 @@ func FormatJSONColumnsWithOptions(w io.Writer, columns *scanner.FindingColumns, 
 	cacheBudget *cacheutil.BudgetReport,
 	opts JSONOptions,
 	perfRuleStats ...[]rules.RuleExecutionStat) error {
+	if opts.Reproducible {
+		start, perfTimings, cacheStats, caches, cacheBudget, perfRuleStats = time.Time{}, nil, nil, nil, nil, nil
+	}
 	return formatJSONColumnsImpl(w, columns, version, fileCount, ruleCount, start,
 		perfTimings, activeRules, experiments, cacheStats, caches, cacheBudget, !opts.Compact,
 		opts.BaselineSuppressed, opts.FirDegraded, perfRuleStats...)
@@ -210,6 +218,11 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	if len(perfRuleStats) > 0 {
 		perfRuleStatsArg = perfRuleStats[0]
 	}
+	// A zero start time means the run has no duration to report.
+	var durationMs int64
+	if !start.IsZero() {
+		durationMs = time.Since(start).Milliseconds()
+	}
 
 	// Compact mode (the daemon's wire format) bypasses json.Encoder so
 	// the 30 MB findings RawMessage doesn't get re-scanned through
@@ -222,7 +235,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 		return writeCompactReport(w,
 			cols.Len() == 0,
 			version,
-			time.Since(start).Milliseconds(),
+			durationMs,
 			fileCount,
 			ruleCount,
 			experiments,
@@ -253,7 +266,7 @@ func formatJSONColumnsImpl(w io.Writer, columns *scanner.FindingColumns, version
 	}{
 		Success:     cols.Len() == 0,
 		Version:     version,
-		DurationMs:  time.Since(start).Milliseconds(),
+		DurationMs:  durationMs,
 		Files:       fileCount,
 		Rules:       ruleCount,
 		Experiments: append([]string(nil), experiments...),

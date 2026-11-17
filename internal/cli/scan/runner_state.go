@@ -474,8 +474,10 @@ func (r *runner) ensureProjectModel() {
 }
 
 // selectScanRules applies --disable-rules, --enable-rules, --all-rules,
-// --experimental, --strict and --max-cost to the registry. It also returns
-// the rule count before the --max-cost filter and the resolved cost cap.
+// --experimental, --strict, --max-cost, --only-scope and --exclude-scope to
+// the registry. It also returns the rule count before the --max-cost filter
+// and the resolved cost cap. Run rejects invalid scope flags before the scan
+// starts, so a parse error here cannot happen.
 func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, beforeMaxCost int, maxCost api.Cost) {
 	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
 	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
@@ -490,7 +492,30 @@ func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, be
 		maxCost = c
 		selected = rules.FilterByMaxCost(selected, c)
 	}
+	only, exclude, _ := parseScopeFlags(f)
+	selected = rules.FilterByScope(selected, only, exclude)
 	return selected, beforeMaxCost, maxCost
+}
+
+// parseScopeFlags parses --only-scope and --exclude-scope.
+func parseScopeFlags(f *scanFlags) (only, exclude rules.ScopeSet, err error) {
+	if f.OnlyScope != nil {
+		if only, err = rules.ParseScopeSet(*f.OnlyScope); err != nil {
+			return nil, nil, fmt.Errorf("--only-scope: %w", err)
+		}
+	}
+	if f.ExcludeScope != nil {
+		if exclude, err = rules.ParseScopeSet(*f.ExcludeScope); err != nil {
+			return nil, nil, fmt.Errorf("--exclude-scope: %w", err)
+		}
+	}
+	return only, exclude, nil
+}
+
+// scopeFlagsSet reports whether --only-scope or --exclude-scope is set.
+func scopeFlagsSet(f *scanFlags) bool {
+	return (f.OnlyScope != nil && strings.TrimSpace(*f.OnlyScope) != "") ||
+		(f.ExcludeScope != nil && strings.TrimSpace(*f.ExcludeScope) != "")
 }
 
 // filterRules computes the active rule set from --disable-rules /
@@ -505,7 +530,7 @@ func (r *runner) filterRules() (handled bool, code int) {
 		var maxCost api.Cost
 		r.activeRules, before, maxCost = selectScanRules(r.f, r.cfg)
 		if *r.f.Verbose && len(r.activeRules) != before {
-			fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s filtered %d → %d rules\n",
+			fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s and rule scope filters %d → %d rules\n",
 				maxCost, before, len(r.activeRules))
 		}
 		if pipeline.RulesNeedProjectModel(r.activeRules) {
@@ -549,11 +574,13 @@ func (r *runner) bootstrapResolver() {
 		r.reporter = installDiagnosticReporter(*r.f.Verbose)
 
 		runOutputTypesFlag(outputTypesOpts{
-			OutputPath:    *r.f.OutputTypes,
-			NoCacheOracle: *r.f.NoCacheOracle,
-			Verbose:       *r.f.Verbose,
-			StoreDir:      r.f.StoreDir,
-			Paths:         flag.Args(),
+			OutputPath:         *r.f.OutputTypes,
+			NoCacheOracle:      *r.f.NoCacheOracle,
+			Verbose:            *r.f.Verbose,
+			StoreDir:           r.f.StoreDir,
+			Paths:              flag.Args(),
+			Compile:            r.oracleCompileContext(),
+			NoPersistentDaemon: outputTypesWithoutPersistentDaemon(r.f),
 		})
 		if *r.f.DumpOracleDiagnostics {
 			os.Exit(RunDumpOracleDiagnosticsTo(os.Stdout, os.Stderr, RunDumpOracleDiagnosticsOpts{
@@ -563,6 +590,23 @@ func (r *runner) bootstrapResolver() {
 			}))
 		}
 	})
+}
+
+// outputTypesWithoutPersistentDaemon reports whether --output-types must not
+// leave a krit-fir daemon running: under --no-daemon the dump runs in-process
+// and, like --no-fir-daemon, starts no JVM that outlives it.
+func outputTypesWithoutPersistentDaemon(f *scanFlags) bool {
+	return *f.NoDaemon || *f.NoFirDaemon
+}
+
+// oracleCompileContext is the compile context runOracleIndex gives the oracle.
+func (r *runner) oracleCompileContext() OracleCompileContext {
+	return OracleCompileContext{
+		SourceDirs: r.f.modelSourceDirs,
+		Classpath:  effectiveOracleClasspath(r.f.modelClasspath, r.cfg),
+		JvmTarget:  r.f.modelJvmTarget,
+		Kotlin:     r.f.modelKotlin,
+	}
 }
 
 // oracleExpansionScope is the compile scope the freshness gate must read the
@@ -600,30 +644,33 @@ func (r *runner) runOracleIndex() (int, error) {
 			return
 		}
 		in := pipeline.IndexInput{
-			ParseResult:         pipeline.ParseResult{ActiveRules: r.activeRules},
-			Reporter:            r.reporter,
-			Tracker:             r.tracker,
-			OracleEnabled:       r.resolver != nil && !*r.f.NoTypeOracle,
-			BaseResolver:        r.resolver,
-			OracleScanPaths:     flag.Args(),
-			KotlinFilePaths:     r.files,
-			InputTypesPath:      *r.f.InputTypes,
-			NoCacheOracle:       *r.f.NoCacheOracle,
-			NoOracleFilter:      *r.f.NoOracleFilter,
-			Thorough:            r.depthPreset == DepthThorough,
-			UseDaemon:           *r.f.Daemon,
-			OracleBackend:       oracleBackend,
-			OracleClasspath:     oracleClasspath,
-			OracleSourceDirs:    r.f.modelSourceDirs,
-			OracleJvmTarget:     r.f.modelJvmTarget,
-			OracleKotlin:        r.f.modelKotlin,
-			FIRCheckRider:       r.firCheckRider(),
-			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
-			IncludeGenerated:    *r.f.IncludeGenerated,
-			Store:               r.oracleStore,
-			OracleCacheWriter:   r.oracleCacheWriter,
-			StaleOraclePaths:    staleOraclePaths,
-			Verbose:             *r.f.Verbose,
+			ParseResult:     pipeline.ParseResult{ActiveRules: r.activeRules},
+			Reporter:        r.reporter,
+			Tracker:         r.tracker,
+			OracleEnabled:   r.resolver != nil && !*r.f.NoTypeOracle,
+			BaseResolver:    r.resolver,
+			OracleScanPaths: flag.Args(),
+			KotlinFilePaths: r.files,
+			InputTypesPath:  *r.f.InputTypes,
+			NoCacheOracle:   *r.f.NoCacheOracle,
+			NoOracleFilter:  *r.f.NoOracleFilter,
+			Thorough:        r.depthPreset == DepthThorough,
+			UseDaemon:       *r.f.Daemon,
+			// --no-fir-daemon leaves an in-process scan no persistent
+			// krit-fir JVM, including the oracle's small-miss daemon.
+			NoPersistentOracleDaemon: *r.f.NoFirDaemon,
+			OracleBackend:            oracleBackend,
+			OracleClasspath:          oracleClasspath,
+			OracleSourceDirs:         r.f.modelSourceDirs,
+			OracleJvmTarget:          r.f.modelJvmTarget,
+			OracleKotlin:             r.f.modelKotlin,
+			FIRCheckRider:            r.firCheckRider(),
+			GeneratedSourceDirs:      r.f.modelGeneratedSourceDirs,
+			IncludeGenerated:         *r.f.IncludeGenerated,
+			Store:                    r.oracleStore,
+			OracleCacheWriter:        r.oracleCacheWriter,
+			StaleOraclePaths:         staleOraclePaths,
+			Verbose:                  *r.f.Verbose,
 
 			PreloadedAnalysisCache: nil,
 		}
@@ -1092,6 +1139,7 @@ func (r *runner) outputPhase() int {
 		Version:            Version,
 		ExperimentNames:    experiment.Current().Names(),
 		JSONCompact:        *r.f.Output != "",
+		Reproducible:       *r.f.Reproducible,
 		PerfTimings:        perfSnap.Timings,
 		PerfRuleStats:      r.perfRuleStats,
 		CacheStats:         r.cacheStats,

@@ -275,7 +275,9 @@ daemon-routed and in-process invocations remain byte-equivalent.
 
 This routes the dump through the same resident oracle cache the daemon
 populates for analyze-project, so warm `--output-types` calls land on a hot
-cache instead of paying full JVM warmup again.
+cache instead of paying full JVM warmup again. The wire carries the CLI's
+oracle compile context (classpath, model source roots, JVM target and Kotlin
+settings) and `--no-fir-daemon`, as `AnalyzeProjectArgs` does.
 
 ### `--delta`
 
@@ -290,6 +292,22 @@ set via `pipeline.OutputPhase{}.Run` so format, base path, and warning
 promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
+
+## Rule-set filters and reproducible output
+
+### `--only-scope`, `--exclude-scope`, `--max-cost`
+
+`AnalyzeProjectArgs` carries `--enable-rules`, `--disable-rules`,
+`--all-rules` and `--experimental`, but no scope or cost filter, so a delegated
+scan would run the full rule set and report findings the caller filtered out.
+`daemonCompatibleFlags` keeps these scans in-process. Routing them would need
+the filters on the wire and in the daemon's findings-cache key.
+
+### `--reproducible`
+
+The daemon renders the JSON envelope, with its own duration and cache
+statistics, and the wire has no switch to drop them, so a `--reproducible`
+scan stays in-process.
 
 ## Cache clears
 

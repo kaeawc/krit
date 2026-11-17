@@ -1,0 +1,27 @@
+11:13 Unnecessary; `SDK_INT` is always >= 21
+12:13 Unnecessary; `SDK_INT` is always >= 21
+13:13 Unnecessary; `SDK_INT` is always >= 21
+15:13 Unnecessary; `SDK_INT` is never < 21
+16:13 Unnecessary; `SDK_INT` is never < 21
+17:13 Unnecessary; `SDK_INT` is always >= 21
+18:13 Unnecessary; `SDK_INT` is always >= 21
+19:13 Unnecessary; `SDK_INT` is never < 21
+21:13 Unnecessary; `SDK_INT` is never < 21
+22:13 Unnecessary; `SDK_INT` is always >= 21
+23:13 Unnecessary; `SDK_INT` is always >= 21
+24:13 Unnecessary; `SDK_INT` is always >= 21
+25:13 Unnecessary; `SDK_INT` is always >= 21
+26:17 Unnecessary; `SDK_INT` is always >= 21
+27:17 Unnecessary; `SDK_INT` is always >= 21
+28:21 Unnecessary; `SDK_INT` is always >= 21
+30:13 Unnecessary; `SDK_INT` is always >= 21
+36:13 Unnecessary; `SDK_INT` is always >= 21
+36:44 Unnecessary; `Build.VERSION.SDK_INT < 19` is never true here
+40:5 Unnecessary; `SDK_INT` is always >= 19
+42:5 Unnecessary; `SDK_INT` is always >= 21
+44:5 Unnecessary; `SDK_INT` is always >= 19
+46:5 Unnecessary; `SDK_INT` is always >= 19
+48:5 Unnecessary; `SDK_INT` is always >= 18
+50:5 Unnecessary; `SDK_INT` is always >= 16
+54:5 Unnecessary; `SDK_INT` is always >= 20
+56:5 Unnecessary; `SDK_INT` is always >= 19

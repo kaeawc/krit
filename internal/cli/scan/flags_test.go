@@ -2,8 +2,9 @@ package scan
 
 import (
 	"flag"
-	"runtime"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 func TestRegisterScanFlagsAllFieldsPopulated(t *testing.T) {
@@ -68,8 +69,8 @@ func TestRegisterScanFlagsKeyDefaults(t *testing.T) {
 	if got := *f.FixLevel; got != "idiomatic" {
 		t.Errorf("FixLevel default = %q; want \"idiomatic\"", got)
 	}
-	if got := *f.Jobs; got != runtime.NumCPU() {
-		t.Errorf("Jobs default = %d; want runtime.NumCPU() = %d", got, runtime.NumCPU())
+	if got := *f.Jobs; got != sysres.CPUs() {
+		t.Errorf("Jobs default = %d; want sysres.CPUs() = %d", got, sysres.CPUs())
 	}
 	if got := *f.SampleCount; got != 10 {
 		t.Errorf("SampleCount default = %d; want 10", got)

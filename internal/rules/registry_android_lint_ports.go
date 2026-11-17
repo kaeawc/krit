@@ -37,6 +37,15 @@ func registerAndroidLintPortRules() {
 	registerWearChecks()
 	registerLintGradleScriptChecks()
 	registerSuspiciousIndentation()
+	registerAccessibilityLintChecks()
+	registerParcelBinderLintChecks()
+	registerObsoleteSdkInt()
+	registerSourceHygieneLintChecks()
+	registerDiffUtilEquals()
+	registerManifestPermissionNameChecks()
+	registerManifestOrientationChecks()
+	registerManifestAppLinkChecks()
+	registerIntentLintChecks()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector
@@ -364,4 +373,132 @@ func registerWearChecks() {
 func registerSuspiciousIndentation() {
 	r := &SuspiciousIndentationRule{AndroidRule: lintAndroidRule("SuspiciousIndentation", "Suspicious indentation", ALCCorrectness, ALSError, 6)}
 	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check, []string{"statements", "block", "constructor_body"}, 0, nil)
+}
+
+func registerAccessibilityLintChecks() {
+	needs := api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsResolver
+	notificationID := &NotificationID0Rule{AndroidRule: lintAndroidRule("NotificationId0", "Notification Id is 0", ALCCorrectness, ALSError, 6)}
+	registerLintRule(notificationID.AndroidRule, notificationID, notificationID.Confidence(), notificationID.check, lintCallNodeTypes, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"startForeground"}})
+
+	contentDescription := &GetContentDescriptionOverrideRule{AndroidRule: lintAndroidRule("GetContentDescriptionOverride",
+		"Overriding `getContentDescription()` on a View", ALCAccessibility, ALSError, 9)}
+	registerLintRule(contentDescription.AndroidRule, contentDescription, contentDescription.Confidence(), contentDescription.check,
+		[]string{"function_declaration", "method_declaration"}, api.NeedsResolver, nil)
+
+	windowState := &AccessibilityWindowStateChangedEventRule{AndroidRule: lintAndroidRule("AccessibilityWindowStateChangedEvent",
+		"Use of accessibility window state change events", ALCAccessibility, ALSWarning, 5)}
+	registerLintRule(windowState.AndroidRule, windowState, windowState.Confidence(), windowState.check,
+		[]string{"call_expression", "method_invocation", "function_declaration", "method_declaration"}, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"sendAccessibilityEvent"}})
+
+	focus := &AccessibilityFocusRule{AndroidRule: lintAndroidRule("AccessibilityFocus", "Forcing accessibility focus", ALCAccessibility, ALSWarning, 5)}
+	registerLintRule(focus.AndroidRule, focus, focus.Confidence(), focus.check, lintCallNodeTypes, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"performAccessibilityAction"}})
+}
+
+func registerParcelBinderLintChecks() {
+	needs := api.NeedsTypeInfo | api.NeedsOracleCallTargets | api.NeedsResolver
+	callNodes := []string{"call_expression", "method_invocation"}
+
+	parcel := &ParcelClassLoaderRule{AndroidRule: lintAndroidRule("ParcelClassLoader", "Default Parcel Class Loader", ALCCorrectness, ALSWarning, 3)}
+	registerLintRule(parcel.AndroidRule, parcel, parcel.Confidence(), parcel.check, callNodes, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: sortedKeys(parcelMethodNames())})
+
+	binder := &BinderGetCallingInMainThreadRule{AndroidRule: lintAndroidRule("BinderGetCallingInMainThread",
+		"Incorrect usage of getCallingUid() or getCallingPid()", ALCSecurity, ALSError, 9)}
+	registerLintRule(binder.AndroidRule, binder, binder.Confidence(), binder.check, callNodes, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"getCallingUid", "getCallingPid"}})
+
+	prefs := &MutatingSharedPrefsRule{AndroidRule: lintAndroidRule("MutatingSharedPrefs", "Mutating an Immutable SharedPrefs Set", ALCCorrectness, ALSWarning, 6)}
+	registerLintRule(prefs.AndroidRule, prefs, prefs.Confidence(), prefs.check, callNodes, needs,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"getStringSet"}})
+}
+
+func registerObsoleteSdkInt() {
+	r := &ObsoleteSdkIntRule{AndroidRule: lintAndroidRule("ObsoleteSdkInt", "Obsolete SDK_INT Version Check", ALCPerformance, ALSWarning, 6)}
+	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check,
+		[]string{"comparison_expression", "equality_expression", "check_expression", "binary_expression", "annotation"}, 0, nil)
+	res := &ObsoleteSdkIntResourceRule{AndroidRule: lintAndroidRule("ObsoleteSdkIntResource", "Obsolete SDK_INT Version Check", ALCPerformance, ALSWarning, 6)}
+	registerLintResourceRule(res.AndroidRule, res, res.Confidence(), res.check)
+	man := &ObsoleteSdkIntManifestRule{AndroidRule: lintAndroidRule("ObsoleteSdkIntManifest", "Obsolete SDK_INT Version Check", ALCPerformance, ALSWarning, 6)}
+	registerLintManifestRule(man.AndroidRule, man, man.Confidence(), man.check)
+}
+
+func registerSourceHygieneLintChecks() {
+	locale := &ConstantLocaleRule{AndroidRule: lintAndroidRule("ConstantLocale", "Constant Locale", ALCI18N, ALSWarning, 6)}
+	registerLintCallRule(locale.AndroidRule, locale, locale.Confidence(), locale.check)
+
+	notCtor := &NotConstructorRule{AndroidRule: lintAndroidRule("NotConstructor", "Not a Constructor", ALCCorrectness, ALSWarning, 4)}
+	registerLintRule(notCtor.AndroidRule, notCtor, notCtor.Confidence(), notCtor.check,
+		[]string{"function_declaration", "method_declaration"}, 0, nil)
+
+	canvas := &CanvasSizeRule{AndroidRule: lintAndroidRule("CanvasSize", "Wrong Canvas Size", ALCCorrectness, ALSWarning, 6)}
+	registerLintRule(canvas.AndroidRule, canvas, canvas.Confidence(), canvas.check,
+		[]string{"call_expression", "method_invocation", "navigation_expression"}, api.NeedsTypeInfo|api.NeedsOracleCallTargets,
+		&api.JavaFactProfile{ReceiverTypesForCallees: []string{"getWidth", "getHeight"}})
+
+	leak := &WifiManagerLeakRule{AndroidRule: lintAndroidRule("WifiManagerLeak", "WifiManager Leak", ALCCorrectness, ALSError, 6)}
+	registerLintCallRule(leak.AndroidRule, leak, leak.Confidence(), leak.check)
+	potential := &WifiManagerPotentialLeakRule{AndroidRule: lintAndroidRule("WifiManagerPotentialLeak", "WifiManager Potential Leak", ALCCorrectness, ALSWarning, 6)}
+	registerLintCallRule(potential.AndroidRule, potential, potential.Confidence(), potential.check)
+}
+
+func registerDiffUtilEquals() {
+	r := &DiffUtilEqualsRule{AndroidRule: lintAndroidRule("DiffUtilEquals", "Suspicious DiffUtil Equality", ALCCorrectness, ALSError, 4)}
+	registerLintRule(r.AndroidRule, r, r.Confidence(), r.check,
+		[]string{"equality_expression", "binary_expression", "call_expression", "method_invocation"}, 0, nil)
+}
+
+func registerManifestPermissionNameChecks() {
+	reserved := &ReservedSystemPermissionRule{AndroidRule: lintAndroidRule("ReservedSystemPermission",
+		"Permission name is a reserved Android permission", ALCSecurity, ALSError, 5)}
+	registerLintManifestRule(reserved.AndroidRule, reserved, reserved.Confidence(), reserved.check)
+	naming := &PermissionNamingConventionRule{AndroidRule: lintAndroidRule("PermissionNamingConvention",
+		"Permission name does not follow recommended convention", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(naming.AndroidRule, naming, naming.Confidence(), naming.check)
+	known := &KnownPermissionErrorRule{AndroidRule: lintAndroidRule("KnownPermissionError",
+		"Value specified for permission is a known error", ALCSecurity, ALSError, 5)}
+	registerLintManifestRule(known.AndroidRule, known, known.Confidence(), known.check)
+	system := &SystemPermissionTypoRule{AndroidRule: lintAndroidRule("SystemPermissionTypo",
+		"Permission appears to be a standard permission with a typo", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(system.AndroidRule, system, system.Confidence(), system.check)
+	custom := &CustomPermissionTypoRule{AndroidRule: lintAndroidRule("CustomPermissionTypo",
+		"Permission appears to be a custom permission with a typo", ALCSecurity, ALSWarning, 5)}
+	registerLintManifestRule(custom.AndroidRule, custom, custom.Confidence(), custom.check)
+}
+
+func registerManifestOrientationChecks() {
+	locked := &LockedOrientationActivityRule{AndroidRule: lintAndroidRule("LockedOrientationActivity",
+		"Incompatible screenOrientation value", ALCCorrectness, ALSWarning, 4)}
+	registerLintManifestRule(locked.AndroidRule, locked, locked.Confidence(), locked.check)
+	resizeable := &NonResizeableActivityRule{AndroidRule: lintAndroidRule("NonResizeableActivity",
+		"Activity is set to be non-resizeable", ALCCorrectness, ALSWarning, 4)}
+	registerLintManifestRule(resizeable.AndroidRule, resizeable, resizeable.Confidence(), resizeable.check)
+	unique := &IntentFilterUniqueDataAttributesRule{AndroidRule: lintAndroidRule("IntentFilterUniqueDataAttributes",
+		"Data tags should only declare unique attributes", ALCCorrectness, ALSWarning, 5)}
+	registerLintManifestRule(unique.AndroidRule, unique, unique.Confidence(), unique.check)
+	discouraged := &DiscouragedAPIRule{AndroidRule: lintAndroidRule("DiscouragedApi", "Using discouraged APIs",
+		ALCCorrectness, ALSWarning, 2)}
+	registerLintManifestRule(discouraged.AndroidRule, discouraged, discouraged.Confidence(), discouraged.check)
+}
+
+func registerManifestAppLinkChecks() {
+	urlError := &AppLinkURLErrorRule{AndroidRule: lintAndroidRule("AppLinkUrlError", "URI invalid",
+		ALCCorrectness, ALSError, 5)}
+	registerLintManifestRule(urlError.AndroidRule, urlError, urlError.Confidence(), urlError.check)
+	warning := &AppLinkWarningRule{AndroidRule: lintAndroidRule("AppLinkWarning", "App Link warning",
+		ALCCorrectness, ALSWarning, 5)}
+	registerLintManifestRule(warning.AndroidRule, warning, warning.Confidence(), warning.check)
+}
+
+func registerIntentLintChecks() {
+	reset := &IntentResetRule{AndroidRule: lintAndroidRule("IntentReset", "Suspicious mix of `setType` and `setData`", ALCCorrectness, ALSWarning, 6)}
+	registerLintRule(reset.AndroidRule, reset, reset.Confidence(), reset.check,
+		[]string{"call_expression", "object_creation_expression"}, 0, nil)
+
+	nullAction := &IntentWithNullActionLaunchRule{AndroidRule: lintAndroidRule("IntentWithNullActionLaunch",
+		"Unsafe intent launched with no action set", ALCSecurity, ALSWarning, 9)}
+	registerLintRule(nullAction.AndroidRule, nullAction, nullAction.Confidence(), nullAction.check,
+		[]string{"call_expression", "object_creation_expression"}, 0, nil)
 }

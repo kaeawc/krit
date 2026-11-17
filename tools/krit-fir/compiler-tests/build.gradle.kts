@@ -82,4 +82,11 @@ tasks.test {
     if (stdlibJar != null) {
         systemProperty("kotlin.stdlib.jar", stdlibJar.absolutePath)
     }
+
+    // The real kotlin-test jar, for tests of rules that match kotlin.test (a stub cannot declare that package).
+    val kotlinTestJar = configurations.testRuntimeClasspath.get()
+        .firstOrNull { it.name.matches(Regex("kotlin-test-\\d.*\\.jar")) }
+    if (kotlinTestJar != null) {
+        systemProperty("kotlin.test.jar", kotlinTestJar.absolutePath)
+    }
 }

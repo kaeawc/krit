@@ -42,6 +42,10 @@ type InvocationOptions struct {
 	// the oracle's one-shot compilation (#739). Sharded and daemon miss
 	// analysis never carry it.
 	CheckRider *CheckRider
+	// NoPersistentDaemon runs cache-miss analysis one-shot even for a small
+	// miss set, so no krit-fir daemon outlives the caller. It overrides
+	// KRIT_DAEMON_CACHE=on.
+	NoPersistentDaemon bool
 }
 
 func (o InvocationOptions) tracker() perf.Tracker {

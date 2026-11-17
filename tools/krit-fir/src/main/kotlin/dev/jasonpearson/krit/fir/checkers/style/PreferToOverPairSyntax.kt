@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.style
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
@@ -14,7 +15,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
-import org.jetbrains.kotlin.name.ClassId
 
 // Flags a call to the kotlin.Pair constructor, `Pair(a, b)`: `a to b` says the
 // same thing with the infix function.
@@ -37,7 +37,7 @@ internal object PreferToOverPairSyntax : FirFunctionCallChecker(MppCheckerKind.C
         override val functionCallCheckers = setOf(PreferToOverPairSyntax)
     }
 
-    private val PAIR = ClassId.fromString("kotlin/Pair")
+    private val PAIR = classIdOf("kotlin", "Pair")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     @OptIn(SymbolInternals::class)

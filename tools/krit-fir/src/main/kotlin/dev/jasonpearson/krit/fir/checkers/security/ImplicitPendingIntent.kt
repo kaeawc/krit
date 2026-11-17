@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.containingTargetSdk
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -21,9 +22,6 @@ import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 // Flags android.app.PendingIntent.getActivity, getActivities, getBroadcast and getService when the flags
 // argument is an explicit flag expression with no FLAG_IMMUTABLE or FLAG_MUTABLE: Android 12 (API 31)
@@ -59,8 +57,8 @@ internal object ImplicitPendingIntent : FirFunctionCallChecker(MppCheckerKind.Co
     // FLAG_IMMUTABLE (1 shl 26) and FLAG_MUTABLE (1 shl 25).
     private const val MUTABILITY_BITS = 0x06000000L
 
-    private val pendingIntentId = ClassId(FqName("android.app"), Name.identifier("PendingIntent"))
-    private val intId = ClassId(FqName("kotlin"), Name.identifier("Int"))
+    private val pendingIntentId = classIdOf("android.app", "PendingIntent")
+    private val intId = classIdOf("kotlin", "Int")
     private val factoryNames = setOf("getActivity", "getBroadcast", "getService", "getActivities")
     private val mutabilityConstants = setOf("FLAG_IMMUTABLE", "FLAG_MUTABLE")
     private val flagOperators = setOf("or", "and", "xor", "plus")

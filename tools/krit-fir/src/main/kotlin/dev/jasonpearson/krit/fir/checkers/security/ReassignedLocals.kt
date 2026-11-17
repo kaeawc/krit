@@ -1,11 +1,11 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
+import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.isCompoundAssignment
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -36,9 +36,8 @@ internal fun assignedLocalValues(): Map<FirBasedSymbol<*>, List<FirExpression>>?
     root.fir.accept(object : FirVisitorVoid() {
         override fun visitElement(element: FirElement) {
             if (element is FirVariableAssignment) {
-                val lValue = element.lValue
-                val compound = lValue is FirDesugaredAssignmentValueReferenceExpression
-                val target = (if (compound) lValue.expressionRef.value else lValue) as? FirQualifiedAccessExpression
+                val compound = isCompoundAssignment(element)
+                val target = assignedAccess(element)
                 val symbol = target?.calleeReference?.toResolvedCallableSymbol()
                 if (symbol != null) {
                     val value = element.rValue

@@ -9,14 +9,19 @@ import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
  * Returns the expression the user wrote behind compiler-inserted receiver wrappers.
  *
  * Strips smart casts and the checked subject of a safe call, repeatedly and in any order. With
- * [throughNotNull] it also strips `!!`. Anything else is returned unchanged.
+ * [throughNotNull] it also strips `!!`; with [throughSafeCallSubject] false it keeps the safe-call subject.
+ * Anything else is returned unchanged.
  */
-fun unwrapSmartCasts(expression: FirExpression, throughNotNull: Boolean = false): FirExpression {
+fun unwrapSmartCasts(
+    expression: FirExpression,
+    throughNotNull: Boolean = false,
+    throughSafeCallSubject: Boolean = true,
+): FirExpression {
     var current = expression
     while (true) {
         current = when {
             current is FirSmartCastExpression -> current.originalExpression
-            current is FirCheckedSafeCallSubject -> current.originalReceiverRef.value
+            throughSafeCallSubject && current is FirCheckedSafeCallSubject -> current.originalReceiverRef.value
             throughNotNull && current is FirCheckNotNullCall ->
                 current.argumentList.arguments.firstOrNull() ?: return current
             else -> return current
@@ -26,5 +31,8 @@ fun unwrapSmartCasts(expression: FirExpression, throughNotNull: Boolean = false)
 
 /** Same as [unwrapSmartCasts] for an expression that may be absent. */
 @JvmName("unwrapSmartCastsOrNull")
-fun unwrapSmartCasts(expression: FirExpression?, throughNotNull: Boolean = false): FirExpression? =
-    expression?.let { unwrapSmartCasts(it, throughNotNull) }
+fun unwrapSmartCasts(
+    expression: FirExpression?,
+    throughNotNull: Boolean = false,
+    throughSafeCallSubject: Boolean = true,
+): FirExpression? = expression?.let { unwrapSmartCasts(it, throughNotNull, throughSafeCallSubject) }

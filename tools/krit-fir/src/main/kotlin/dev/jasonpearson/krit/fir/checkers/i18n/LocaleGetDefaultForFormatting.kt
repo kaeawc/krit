@@ -5,7 +5,9 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -35,7 +37,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.util.getChildren
@@ -85,13 +86,13 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
     }
 
     private val formatterClasses = setOf(
-        ClassId(FqName("java.time.format"), Name.identifier("DateTimeFormatter")),
-        ClassId(FqName("org.threeten.bp.format"), Name.identifier("DateTimeFormatter")),
+        classIdOf("java.time.format", "DateTimeFormatter"),
+        classIdOf("org.threeten.bp.format", "DateTimeFormatter"),
     )
     private val withLocale = Name.identifier("withLocale")
     private val localizedBy = Name.identifier("localizedBy")
     private val localeGetDefault = CallableId(
-        ClassId(FqName("java.util"), Name.identifier("Locale")),
+        classIdOf("java.util", "Locale"),
         Name.identifier("getDefault"),
     )
     private val formatterConstantPrefixes = listOf("ISO_", "RFC_", "BASIC_ISO_")
@@ -286,7 +287,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
 
     // `Locale.getDefault()`, the no-argument overload.
     private fun isLocaleGetDefault(argument: FirExpression): Boolean {
-        val value = if (argument is FirWrappedArgumentExpression) argument.expression else argument
+        val value = unwrapArgument(argument)
         val call = value as? FirFunctionCall ?: return false
         val id = call.calleeReference.toResolvedCallableSymbol()?.callableId ?: return false
         return id == localeGetDefault && call.argumentList.arguments.isEmpty()

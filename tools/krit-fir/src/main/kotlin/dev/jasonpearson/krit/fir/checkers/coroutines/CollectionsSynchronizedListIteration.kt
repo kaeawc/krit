@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
@@ -97,7 +98,7 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
     private const val MESSAGE =
         "Iterating over a Collections.synchronized* wrapper without external synchronization. The iterator is not thread-safe."
 
-    private val collections = ClassId(FqName("java.util"), Name.identifier("Collections"))
+    private val collections = classIdOf("java.util", "Collections")
     private val lazyId = CallableId(FqName("kotlin"), Name.identifier("lazy"))
     private val wrapperFactories = names(
         "synchronizedCollection",

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -9,9 +10,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirQualifiedAccessExpressionChecker
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Flags a use of a member of the deprecated `android.util.FloatMath`
@@ -47,12 +45,12 @@ internal object FloatMath : FirQualifiedAccessExpressionChecker(MppCheckerKind.C
     }
 
     private const val MESSAGE = "FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."
-    private val floatMath = ClassId(FqName("android.util"), Name.identifier("FloatMath"))
+    private val floatMathClassId = classIdOf("android.util", "FloatMath")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirQualifiedAccessExpression) {
         val symbol = expression.calleeReference.toResolvedCallableSymbol() ?: return
-        if (symbol.callableId?.classId != floatMath) return
+        if (symbol.callableId?.classId != floatMathClassId) return
         report(expression.explicitReceiver?.source ?: expression.calleeReference.source ?: expression.source, MESSAGE)
     }
 }

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.importedNameSource
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -22,7 +23,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -67,8 +67,8 @@ internal object WorldReadableFiles : FirQualifiedAccessExpressionChecker(MppChec
     private const val MESSAGE = "MODE_WORLD_READABLE is insecure. Use more restrictive file permissions."
     private val NAME = Name.identifier("MODE_WORLD_READABLE")
     private val owners = setOf(
-        ClassId(FqName("android.content"), Name.identifier("Context")),
-        ClassId(FqName("android.os"), Name.identifier("ParcelFileDescriptor")),
+        classIdOf("android.content", "Context"),
+        classIdOf("android.os", "ParcelFileDescriptor"),
     )
     private val constants = owners.mapTo(HashSet()) { CallableId(it, NAME) }
 

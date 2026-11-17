@@ -176,6 +176,36 @@ Those build files and manifests are not compiled sources, so the resolved
 levels themselves are part of the FIR cache fingerprint: editing a `minSdk` or
 `targetSdk` invalidates the cached FIR verdicts.
 
+### Use the shared helpers
+
+krit moves to every Kotlin release, and the FIR compiler internals change between
+releases. Checkers reach those internals through the helpers in
+`tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/support/`, so a release
+that changes an API needs a fix in one helper, not in every checker.
+
+| To | Use | Instead of |
+|----|-----|------------|
+| Name a class | `classIdOf(pkg, name)`, `nestedClassIdOf(pkg, "Outer.Inner")` | `ClassId(...)`, `ClassId.topLevel`, `ClassId.fromString` |
+| Build a type for `isSubtypeOf` | `classType()`, `nullableClassType()`, `nullableStarProjectedType(n)` | `constructClassLikeType` |
+| Test the supertype chain | `inheritsFrom`, `inheritsFromAny`, `isOrInheritsFrom` | `lookupSuperTypes` |
+| Read through smart casts, safe-call subjects, `!!` | `unwrapSmartCasts` (`throughNotNull`, `throughSafeCallSubject`) | `originalExpression`, `originalReceiverRef`, `FirCheckNotNullCall` arguments |
+| Read through named and spread arguments | `unwrapArgument`, `writtenArgumentName` | `FirWrappedArgumentExpression` |
+| Test for `null` | `isNullLiteral` | `ConstantValueKind.Null` |
+| Find a trailing lambda | `trailingLambdaOf`, `lambdaOwner` | `isTrailingLambda` |
+| Find what an assignment writes | `assignedAccess`, `isCompoundAssignment` | `FirDesugaredAssignmentValueReferenceExpression` |
+| Read the light tree | `lightChildren`, `significantChildren`, `lightText`, `lightSourceOf`, `identifierAnchor` and the other `LightSource.kt` anchors | `treeStructure.getChildren`, `treeStructure.toString`, `toKtLightSourceElement` |
+| Other shared reads | `pathTo`, `isNullableOperand`, `hasSuspendFunctionType`, `simpleName`, `firstArgumentNode`, `expandedClassType`, `isNonNothingSubtypeOf` | a private copy in the checker |
+
+When no helper covers a compiler-internal call you need, add the helper to
+`support/` first, with a unit test under `src/test/.../support/`, and call it
+from the checker. Do not add a new direct call to the checker.
+
+`FirHelperGuardTest` scans the checker sources for the patterns in the "Instead
+of" column. Existing uses are listed per file in
+`tools/krit-fir/src/test/resources/fir-helper-guard-allowlist.txt`, and the counts
+must match exactly. The allowlist only shrinks: a new use fails the test, and
+when you migrate a use, lower or delete its entry. Never add or raise an entry.
+
 ## 5. Options
 
 - Read options with `config()`. It returns the Go rule's options keyed by the Go

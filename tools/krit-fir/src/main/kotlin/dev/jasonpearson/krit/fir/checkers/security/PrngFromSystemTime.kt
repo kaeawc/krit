@@ -3,8 +3,10 @@ package dev.jasonpearson.krit.fir.checkers.security
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.inheritsFromAny
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -15,7 +17,6 @@ import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
@@ -99,27 +100,27 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
         "java.util.Random seeded from system time is predictable in security-sensitive code. " +
             "Use SecureRandom without a deterministic seed."
 
-    private val javaUtilRandom = ClassId(FqName("java.util"), Name.identifier("Random"))
-    private val randomClasses = setOf(javaUtilRandom, ClassId(FqName("kotlin.random"), Name.identifier("Random")))
+    private val javaUtilRandom = classIdOf("java.util", "Random")
+    private val randomClasses = setOf(javaUtilRandom, classIdOf("kotlin.random", "Random"))
     private val RANDOM = Name.identifier("Random")
 
     private val securityPackages = listOf("javax.crypto", "java.security", "javax.net.ssl")
 
-    private val system = ClassId(FqName("java.lang"), Name.identifier("System"))
+    private val system = classIdOf("java.lang", "System")
     private val systemClock = setOf(
         CallableId(system, Name.identifier("currentTimeMillis")),
         CallableId(system, Name.identifier("nanoTime")),
     )
-    private val date = ClassId(FqName("java.util"), Name.identifier("Date"))
+    private val date = classIdOf("java.util", "Date")
     private val calendars = setOf(
-        ClassId(FqName("java.util"), Name.identifier("Calendar")),
-        ClassId(FqName("android.icu.util"), Name.identifier("Calendar")),
-        ClassId(FqName("com.ibm.icu.util"), Name.identifier("Calendar")),
+        classIdOf("java.util", "Calendar"),
+        classIdOf("android.icu.util", "Calendar"),
+        classIdOf("com.ibm.icu.util", "Calendar"),
     )
     private val GET_INSTANCE = Name.identifier("getInstance")
     private val instantNow = setOf(
-        CallableId(ClassId(FqName("java.time"), Name.identifier("Instant")), Name.identifier("now")),
-        CallableId(ClassId(FqName("org.threeten.bp"), Name.identifier("Instant")), Name.identifier("now")),
+        CallableId(classIdOf("java.time", "Instant"), Name.identifier("now")),
+        CallableId(classIdOf("org.threeten.bp", "Instant"), Name.identifier("now")),
     )
 
     // Joda-Time: `toDate()` of a value built for the current instant.
@@ -130,8 +131,8 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
     // Arguments that keep a Joda constructor or now() at the current instant:
     // `DateTime(DateTimeZone.UTC)`, `DateTime.now(chronology)`.
     private val jodaZones = setOf(
-        ClassId(joda, Name.identifier("DateTimeZone")),
-        ClassId(joda, Name.identifier("Chronology")),
+        classIdOf(joda, "DateTimeZone"),
+        classIdOf(joda, "Chronology"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -308,6 +309,5 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
         return callee.unwrapFakeOverrides().callableId in ids && call.argumentList.arguments.isEmpty()
     }
 
-    private fun unwrap(expression: FirExpression?): FirExpression? =
-        if (expression is FirWrappedArgumentExpression) expression.expression else expression
+    private fun unwrap(expression: FirExpression?): FirExpression? = expression?.let(::unwrapArgument)
 }

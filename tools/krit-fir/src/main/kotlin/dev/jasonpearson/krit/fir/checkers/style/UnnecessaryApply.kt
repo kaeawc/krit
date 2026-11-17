@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.significantChildren
+import dev.jasonpearson.krit.fir.support.trailingLambdaOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
 import org.jetbrains.kotlin.fir.declarations.FirFunction
-import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.expressions.FirCatch
@@ -76,8 +76,7 @@ internal object UnnecessaryApply : FirFunctionCallChecker(MppCheckerKind.Common)
         if (callee.name.asString() != "apply") return
         if (callee.toResolvedCallableSymbol()?.callableId != applyId) return
         if (expression.explicitReceiver == null) return
-        val lambda = (expression.argumentList.arguments.singleOrNull() as? FirAnonymousFunctionExpression)
-            ?.takeIf { it.isTrailingLambda } ?: return
+        val lambda = expression.argumentList.arguments.singleOrNull()?.let(::trailingLambdaOf) ?: return
         val function = lambda.anonymousFunction
         val statement = singleStatement(function) ?: return
         val scan = scanRange(statement) ?: return

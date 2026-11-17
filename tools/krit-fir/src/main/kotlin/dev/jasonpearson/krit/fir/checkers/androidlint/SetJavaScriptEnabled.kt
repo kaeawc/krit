@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -16,7 +17,6 @@ import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.expressions.unwrapLValue
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
@@ -110,8 +110,7 @@ internal object SetJavaScriptEnabled : FirFunctionCallChecker(MppCheckerKind.Com
     context(context: CheckerContext)
     private fun isWebSettingsClass(symbol: FirClassLikeSymbol<*>): Boolean =
         symbol.classId.shortClassName == WEB_SETTINGS ||
-            lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = context.session)
-                .any { it.lookupTag.classId.shortClassName == WEB_SETTINGS }
+            inheritsFrom(symbol, context.session, lookupInterfaces = true) { it.shortClassName == WEB_SETTINGS }
 
     // FIR drops the parentheses, annotation, or label around a literal, so a
     // wrapped `true` is still a Boolean literal here.

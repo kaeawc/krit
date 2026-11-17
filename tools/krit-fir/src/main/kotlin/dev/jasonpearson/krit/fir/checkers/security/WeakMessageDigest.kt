@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
 import dev.jasonpearson.krit.fir.support.trimGoSpace
 import dev.jasonpearson.krit.fir.support.upperCodePoints
@@ -23,8 +24,6 @@ import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 // Flags `MessageDigest.getInstance("<weak algorithm>")` on the JDK's
@@ -68,7 +67,7 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
     private const val MESSAGE =
         "MessageDigest.getInstance uses a weak digest algorithm. Use SHA-256, SHA-384, SHA-512, or SHA-3 for security-sensitive hashing."
 
-    private val messageDigestClassId = ClassId(FqName("java.security"), Name.identifier("MessageDigest"))
+    private val messageDigestClassId = classIdOf("java.security", "MessageDigest")
     private val getInstanceId = CallableId(messageDigestClassId, Name.identifier("getInstance"))
     private val weakAlgorithms = setOf("MD2", "MD4", "MD5", "SHA-1", "SHA1", "SHA")
 

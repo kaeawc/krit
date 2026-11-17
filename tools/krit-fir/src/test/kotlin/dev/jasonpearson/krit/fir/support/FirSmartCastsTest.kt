@@ -73,6 +73,14 @@ class FirSmartCastsTest {
     }
 
     @Test
+    fun safeCallSubjectIsKeptOnRequest() {
+        val subject = safeCallSubject(access)
+        assertSame(subject, unwrapSmartCasts(subject, throughSafeCallSubject = false))
+        assertSame(subject, unwrapSmartCasts(smartCast(smartCast(subject)), throughSafeCallSubject = false))
+        assertSame(access, unwrapSmartCasts(smartCast(smartCast(access)), throughSafeCallSubject = false))
+    }
+
+    @Test
     fun notNullAssertionIsStrippedOnlyOnRequest() {
         val asserted = notNull(access)
         assertSame(asserted, unwrapSmartCasts(asserted))

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.potentialbugs
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.oracle.ErrorInvolvement
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNullLiteral
 import dev.jasonpearson.krit.fir.support.isNullableOperand
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -12,14 +13,12 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirTypeOperatorCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirExpression
-import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
 import org.jetbrains.kotlin.fir.types.canBeNull
-import org.jetbrains.kotlin.types.ConstantValueKind
 
 // Flags `expr as T` where the compiler types `expr` as nullable and T as non-nullable, so a null operand fails
 // the cast with an NPE-like TypeCastException. `as?` reports null instead.
@@ -40,7 +39,7 @@ internal object CastNullableToNonNullableType : FirTypeOperatorCallChecker(MppCh
         val source = expression.source ?: return
         if (source.kind !is KtRealSourceElementKind) return
         val operand = expression.argumentList.arguments.firstOrNull() ?: return
-        if (isNullLiteral(operand) || isCast(operand)) return
+        if (isNullLiteral(unwrapSmartCasts(operand)) || isCast(operand)) return
         // A class from a module with no build output is an error type, which the compiler treats as nullable.
         if (ErrorInvolvement.involvesError(operand)) return
         val target = (expression.conversionTypeRef as? FirResolvedTypeRef)?.coneType?.fullyExpandedType() ?: return
@@ -48,9 +47,6 @@ internal object CastNullableToNonNullableType : FirTypeOperatorCallChecker(MppCh
         if (!operand.isNullableOperand()) return
         report(source, "Casting a nullable type to a non-nullable type. Use 'as?' instead.")
     }
-
-    private fun isNullLiteral(operand: FirExpression): Boolean =
-        (unwrapSmartCasts(operand) as? FirLiteralExpression)?.kind == ConstantValueKind.Null
 
     // detekt reads the left side's type through a nested cast, so `(x as Any?) as T` never reports.
     private fun isCast(operand: FirExpression): Boolean =

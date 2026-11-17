@@ -3,6 +3,8 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
@@ -23,7 +25,6 @@ import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
@@ -38,9 +39,6 @@ import org.jetbrains.kotlin.fir.types.isSomeFunctionType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.fir.types.upperBoundIfFlexible
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go StateFlowMutableLeak rule: a publicly visible,
@@ -85,7 +83,7 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
 
     private val visibleForTesting = setOf("VisibleForTesting")
 
-    private val mutableStateFlow = ClassId(FqName("kotlinx.coroutines.flow"), Name.identifier("MutableStateFlow"))
+    private val mutableStateFlow = classIdOf("kotlinx.coroutines.flow", "MutableStateFlow")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirProperty) {
@@ -184,8 +182,7 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
     private fun isMutableStateFlowClass(type: ConeClassLikeType, session: FirSession): Boolean {
         if (type.classId == mutableStateFlow) return true
         val symbol = type.lookupTag.toRegularClassSymbol(session) ?: return false
-        return lookupSuperTypes(symbol, lookupInterfaces = true, deep = true, useSiteSession = session)
-            .any { it.classId == mutableStateFlow }
+        return inheritsFrom(symbol, session, lookupInterfaces = true) { it == mutableStateFlow }
     }
 
     private const val MAX_TYPE_DEPTH = 16

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
 import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import org.jetbrains.kotlin.KtNodeTypes
@@ -34,9 +35,6 @@ import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go FragmentConstructor rule (Android Lint `ValidFragment`): a
@@ -110,14 +108,14 @@ internal object FragmentConstructor :
         "Fragments should be static such that they can be re-instantiated by the system, and anonymous classes are not static."
 
     private val fragmentClassIds = setOf(
-        ClassId(FqName("android.app"), Name.identifier("Fragment")),
-        ClassId(FqName("androidx.fragment.app"), Name.identifier("Fragment")),
-        ClassId(FqName("android.support.v4.app"), Name.identifier("Fragment")),
+        classIdOf("android.app", "Fragment"),
+        classIdOf("androidx.fragment.app", "Fragment"),
+        classIdOf("android.support.v4.app", "Fragment"),
     )
 
     private val injectAnnotationNames = setOf("Inject", "AssistedInject")
 
-    private val jvmOverloadsClassId = ClassId(FqName("kotlin.jvm"), Name.identifier("JvmOverloads"))
+    private val jvmOverloadsClassId = classIdOf("kotlin.jvm", "JvmOverloads")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {

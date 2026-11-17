@@ -3,7 +3,9 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightText
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.contracts.description.LogicOperationKind
@@ -29,7 +31,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -82,7 +83,7 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
     private const val MESSAGE =
         "Unconditional logging call. Wrap in Log.isLoggable() or BuildConfig.DEBUG for performance."
 
-    private val logClassId = ClassId(FqName("android.util"), Name.identifier("Log"))
+    private val logClassId = classIdOf("android.util", "Log")
     private val levelNames = setOf("v", "d", "i", "w", "e").map(Name::identifier).toSet()
     private val isLoggable = CallableId(logClassId, Name.identifier("isLoggable"))
     private val buildConfigName = Name.identifier("BuildConfig")
@@ -193,7 +194,7 @@ internal object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), 
             node = lightChildren(source, node).lastOrNull { it.tokenType in receiverPathTypes } ?: return false
         }
         return node.tokenType == KtNodeTypes.REFERENCE_EXPRESSION &&
-            source.treeStructure.toString(node).toString() == buildConfigName.asString()
+            lightText(source, node) == buildConfigName.asString()
     }
 
     private val receiverPathTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.REFERENCE_EXPRESSION)

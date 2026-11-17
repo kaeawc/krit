@@ -2,6 +2,8 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -10,11 +12,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 
@@ -56,7 +55,7 @@ internal object RsaNoPadding : FirFunctionCallChecker(MppCheckerKind.Common), Fi
         override val functionCallCheckers = setOf(RsaNoPadding)
     }
 
-    private val cipherClassId = ClassId(FqName("javax.crypto"), Name.identifier("Cipher"))
+    private val cipherClassId = classIdOf("javax.crypto", "Cipher")
     private val getInstanceId = CallableId(cipherClassId, Name.identifier("getInstance"))
 
     private const val MESSAGE =
@@ -98,7 +97,7 @@ internal object RsaNoPadding : FirFunctionCallChecker(MppCheckerKind.Common), Fi
     private const val RAW_QUOTE = "\"\"\""
 
     private fun unwrap(argument: FirExpression): FirExpression =
-        if (argument is FirWrappedArgumentExpression) argument.expression else argument
+        unwrapArgument(argument)
 
     private fun isRsaNoPadding(algorithm: String): Boolean {
         val parts = algorithm.trim().uppercase().split("/")

@@ -4,8 +4,10 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstArgumentNode
 import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
+import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.trimGoSpace
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import dev.jasonpearson.krit.fir.support.upperCodePoints
@@ -60,7 +62,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.SpecialNames
@@ -143,8 +144,8 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     private const val MESSAGE =
         "Crypto key generator initialized with a weak literal key size. Use a size that meets the algorithm's current minimum strength."
 
-    private val keyGenerator = ClassId(FqName("javax.crypto"), Name.identifier("KeyGenerator"))
-    private val keyPairGenerator = ClassId(FqName("java.security"), Name.identifier("KeyPairGenerator"))
+    private val keyGenerator = classIdOf("javax.crypto", "KeyGenerator")
+    private val keyPairGenerator = classIdOf("java.security", "KeyPairGenerator")
     private val initIds = setOf(
         CallableId(keyGenerator, Name.identifier("init")),
         CallableId(keyPairGenerator, Name.identifier("initialize")),
@@ -303,8 +304,8 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     private val withId = CallableId(kotlinPackage, Name.identifier("with"))
     private val toId = CallableId(kotlinPackage, Name.identifier("to"))
     private val tupleClasses = setOf(
-        ClassId(kotlinPackage, Name.identifier("Pair")),
-        ClassId(kotlinPackage, Name.identifier("Triple")),
+        classIdOf(kotlinPackage, "Pair"),
+        classIdOf(kotlinPackage, "Triple"),
     )
     private val tupleParameters = listOf("first", "second", "third")
 
@@ -587,7 +588,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     // then an `l` suffix and without `_`, parsed as a signed decimal integer.
     private fun firstArgumentSize(source: KtSourceElement): Long? {
         val node = firstArgumentNode(source) ?: return null
-        var text = trimGoSpace(source.treeStructure.toString(node).toString())
+        var text = trimGoSpace(lightText(source, node))
         text = text.removeSuffix("L").removeSuffix("l").replace("_", "")
         return parseGoInt(text)
     }

@@ -344,15 +344,15 @@ class FirRuleWholeCompilationGateTest {
 
     @Test fun stripperRespectsLexicalStructure() {
         fun strip(s: String) = stripCommentsAndStrings(s)
-        // Nested block comments end at the matching close.
-        assertEquals("a\nb", strip("a/* x /* y */ still comment */\nb"))
+        // Nested block comments end at the matching close, and leave a space that separates tokens.
+        assertEquals("a \nb", strip("a/* x /* y */ still comment */\nb"))
         // Comment markers inside strings are not comments; string contents are blanked.
         assertEquals("val u = \"\"\nval v = 1 ", strip("val u = \"http://x /* y\"\nval v = 1 // tail"))
         // Raw strings may hold quotes, comment markers and newlines.
         assertEquals("val r = \"\"\"\n\"\"\"\nnext", strip("val r = \"\"\"a \"b\" // c\n/* d\"\"\"\nnext"))
         // Escapes and char literals (a char literal's content is blanked to x).
         assertEquals("val q = \"\" + 'x' ", strip("val q = \"a\\\"b\" + 'x' // c"))
-        assertEquals("val d = 'x'\nval e = 2 ", strip("val d = '\"'\nval e = 2 /* c */"))
+        assertEquals("val d = 'x'\nval e = 2  ", strip("val d = '\"'\nval e = 2 /* c */"))
         // Code after an unterminated-looking apostrophe in a comment still scans.
         assertEquals("x \ny", strip("x // don't\ny"))
     }
@@ -364,53 +364,4 @@ class FirRuleWholeCompilationGateTest {
                 val wide = compilationWide.containsMatchIn(line)
                 if (wide || bodyReads.any { it.containsMatchIn(line) }) line to wide else null
             }.toList()
-
-    /**
-     * Removes comments (line, and block comments which nest) and blanks the contents of string literals (plain and
-     * raw) and char literals, keeping the quotes and every newline so line structure survives.
-     */
-    private fun stripCommentsAndStrings(src: String): String {
-        val out = StringBuilder()
-        var i = 0
-        val n = src.length
-        while (i < n) {
-            val c = src[i]
-            when {
-                src.startsWith("//", i) -> while (i < n && src[i] != '\n') i++
-                src.startsWith("/*", i) -> {
-                    var depth = 1
-                    i += 2
-                    while (i < n && depth > 0) {
-                        when {
-                            src.startsWith("/*", i) -> { depth++; i += 2 }
-                            src.startsWith("*/", i) -> { depth--; i += 2 }
-                            else -> { if (src[i] == '\n') out.append('\n'); i++ }
-                        }
-                    }
-                }
-                src.startsWith("\"\"\"", i) -> {
-                    out.append("\"\"\"")
-                    i += 3
-                    while (i < n && !src.startsWith("\"\"\"", i)) { if (src[i] == '\n') out.append('\n'); i++ }
-                    // A raw string may end with extra quotes ("""" is one quote of content plus the close).
-                    while (i < n && src.startsWith("\"\"\"\"", i)) i++
-                    if (i < n) { out.append("\"\"\""); i += 3 }
-                }
-                c == '"' -> {
-                    out.append('"')
-                    i++
-                    while (i < n && src[i] != '"') { if (src[i] == '\\') i++; i++ }
-                    out.append('"')
-                    i++
-                }
-                c == '\'' -> {
-                    // A char literal is 'x' or '\x...'; an apostrophe that is not one is left alone.
-                    val close = if (i + 1 < n && src[i + 1] == '\\') src.indexOf('\'', i + 3) else if (i + 2 < n && src[i + 2] == '\'') i + 2 else -1
-                    if (close in (i + 1)..(i + 12)) { out.append('\'').append('x').append('\''); i = close + 1 } else { out.append(c); i++ }
-                }
-                else -> { out.append(c); i++ }
-            }
-        }
-        return out.toString()
-    }
 }

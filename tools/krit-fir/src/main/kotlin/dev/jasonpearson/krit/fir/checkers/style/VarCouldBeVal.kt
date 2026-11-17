@@ -3,8 +3,10 @@ package dev.jasonpearson.krit.fir.checkers.style
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.frameworkInjectedAnnotations
+import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.simpleName
 import dev.jasonpearson.krit.fir.support.unusedMemberSuppressions
 import org.jetbrains.kotlin.KtNodeTypes
@@ -22,9 +24,6 @@ import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
 import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.declarations.utils.visibility
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
-import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
-import org.jetbrains.kotlin.fir.expressions.FirExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.FirBackingFieldReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -72,7 +71,7 @@ internal object VarCouldBeVal : FirFileChecker(MppCheckerKind.Common), FirRule {
             override fun visitElement(element: FirElement) {
                 when (element) {
                     is FirProperty -> candidate(element, ignoreLateinit)?.let { candidates += it }
-                    is FirVariableAssignment -> writtenSymbol(element.lValue)?.let { written += it }
+                    is FirVariableAssignment -> writtenSymbol(element)?.let { written += it }
                     is FirCallableReferenceAccess -> element.calleeReference.toResolvedCallableSymbol()
                         ?.unwrapFakeOverrides()?.let { written += it }
                 }
@@ -87,10 +86,9 @@ internal object VarCouldBeVal : FirFileChecker(MppCheckerKind.Common), FirRule {
     }
 
     // The property a write goes to: the variable itself, or the backing field a getter or initializer writes.
-    private fun writtenSymbol(target: FirExpression): FirBasedSymbol<*>? {
+    private fun writtenSymbol(assignment: FirVariableAssignment): FirBasedSymbol<*>? {
         // `+=`, `++` and `--` write through a desugared reference to the original access.
-        val unwrapped = if (target is FirDesugaredAssignmentValueReferenceExpression) target.expressionRef.value else target
-        val access = unwrapped as? FirQualifiedAccessExpression ?: return null
+        val access = assignedAccess(assignment) ?: return null
         val reference = access.calleeReference
         if (reference is FirBackingFieldReference) return reference.resolvedSymbol.propertySymbol
         return reference.toResolvedCallableSymbol()?.unwrapFakeOverrides()
@@ -120,7 +118,7 @@ internal object VarCouldBeVal : FirFileChecker(MppCheckerKind.Common), FirRule {
             val name = annotation.simpleName()
             name in frameworkInjectedAnnotations || name == "Volatile" ||
                 (name == "Suppress" || name == "SuppressWarnings") &&
-                annotation.source?.let { s -> s.treeStructure.toString(s.lighterASTNode).toString() }
+                annotation.source?.let { s -> lightText(s, s.lighterASTNode) }
                     ?.let { text -> unusedMemberSuppressions.any { it in text } } == true
         }
     }

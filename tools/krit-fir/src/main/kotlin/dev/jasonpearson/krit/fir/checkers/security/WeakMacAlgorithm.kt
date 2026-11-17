@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
 import dev.jasonpearson.krit.fir.support.trimGoSpace
 import dev.jasonpearson.krit.fir.support.upperCodePoints
@@ -13,8 +14,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 // Flags `Mac.getInstance("<weak HMAC>")` on the JDK's javax.crypto.Mac, where
@@ -64,7 +63,7 @@ internal object WeakMacAlgorithm : FirFunctionCallChecker(MppCheckerKind.Common)
     private const val MESSAGE =
         "Mac.getInstance uses an HMAC algorithm backed by a weak digest. Use HmacSHA256, HmacSHA384, HmacSHA512, or SHA-3-based alternatives."
 
-    private val macClassId = ClassId(FqName("javax.crypto"), Name.identifier("Mac"))
+    private val macClassId = classIdOf("javax.crypto", "Mac")
     private val getInstanceId = CallableId(macClassId, Name.identifier("getInstance"))
     private val weakAlgorithms = setOf("HMACMD2", "HMACMD5", "HMACSHA0", "HMACSHA1")
 

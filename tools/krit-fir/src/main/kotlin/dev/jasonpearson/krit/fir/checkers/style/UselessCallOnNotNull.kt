@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.style
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -12,7 +13,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirSpreadArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.arguments
@@ -116,8 +116,7 @@ internal object UselessCallOnNotNull : FirFunctionCallChecker(MppCheckerKind.Com
     // is looked through, and a platform type counts as nullable.
     context(context: CheckerContext)
     private fun canBeNullByDeclaration(expression: FirExpression): Boolean {
-        var current = unwrapArgument(expression)
-        while (current is FirSmartCastExpression) current = current.originalExpression
+        val current = unwrapSmartCasts(unwrapArgument(expression), throughSafeCallSubject = false)
         return current.resolvedType.canBeNull(context.session)
     }
 }

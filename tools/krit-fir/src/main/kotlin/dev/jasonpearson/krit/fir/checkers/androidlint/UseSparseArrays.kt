@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.expandedClassType
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -14,9 +15,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
-import org.jetbrains.kotlin.name.Name
 
 // Flags an `android.util.SparseArray` constructor call whose only written type
 // argument is Int or Boolean, where SparseIntArray or SparseBooleanArray avoids
@@ -45,15 +43,15 @@ internal object UseSparseArrays : FirFunctionCallChecker(MppCheckerKind.Common),
         override val functionCallCheckers = setOf(UseSparseArrays)
     }
 
-    private val sparseArrayClassId = ClassId(FqName("android.util"), Name.identifier("SparseArray"))
+    private val sparseArrayClassId = classIdOf("android.util", "SparseArray")
 
     private val intClassIds = setOf(
-        ClassId(FqName("kotlin"), Name.identifier("Int")),
-        ClassId(FqName("java.lang"), Name.identifier("Integer")),
+        classIdOf("kotlin", "Int"),
+        classIdOf("java.lang", "Integer"),
     )
     private val booleanClassIds = setOf(
-        ClassId(FqName("kotlin"), Name.identifier("Boolean")),
-        ClassId(FqName("java.lang"), Name.identifier("Boolean")),
+        classIdOf("kotlin", "Boolean"),
+        classIdOf("java.lang", "Boolean"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

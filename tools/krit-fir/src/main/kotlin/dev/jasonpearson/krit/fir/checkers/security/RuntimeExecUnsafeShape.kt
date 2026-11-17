@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.security
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
@@ -26,8 +27,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
@@ -86,7 +85,7 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
     private const val COMPUTED_MESSAGE =
         "Runtime.exec(String) uses a computed command string. Pass a String array or ProcessBuilder argument list instead."
 
-    private val runtimeClassId = ClassId(FqName("java.lang"), Name.identifier("Runtime"))
+    private val runtimeClassId = classIdOf("java.lang", "Runtime")
     private val execId = CallableId(runtimeClassId, Name.identifier("exec"))
 
     private enum class Shape { STATIC, INTERPOLATED, COMPUTED }

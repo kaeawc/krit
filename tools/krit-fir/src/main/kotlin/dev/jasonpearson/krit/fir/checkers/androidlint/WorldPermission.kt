@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import dev.jasonpearson.krit.fir.support.unwrapArgument
@@ -20,8 +21,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.types.ConstantValueKind
@@ -33,7 +32,7 @@ private const val PERMISSION_INDEX = 0
 private const val OWNER_ONLY_INDEX = 1
 private const val MAX_CONSTANT_DEPTH = 6
 
-private val javaIoFile = ClassId(FqName("java.io"), Name.identifier("File"))
+private val javaIoFile = classIdOf("java.io", "File")
 private val booleanNot = CallableId(StandardClassIds.Boolean, Name.identifier("not"))
 
 /**

@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -22,8 +23,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.FirResolvedTypeRef
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -50,9 +49,9 @@ internal object ServiceCast : FirTypeOperatorCallChecker(MppCheckerKind.Common),
         override val typeOperatorCallCheckers = setOf(ServiceCast)
     }
 
-    private val contextClass = ClassId(FqName("android.content"), Name.identifier("Context"))
+    private val contextClass = classIdOf("android.content", "Context")
     private val getSystemService = Name.identifier("getSystemService")
-    private val kotlinAny = ClassId(FqName("kotlin"), Name.identifier("Any"))
+    private val kotlinAny = classIdOf("kotlin", "Any")
 
     // Service constants of android.content.Context and the manager each returns (simple names).
     private val expectedManager = mapOf(

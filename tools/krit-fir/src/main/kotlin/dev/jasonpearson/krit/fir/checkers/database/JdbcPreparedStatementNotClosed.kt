@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.database
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
@@ -44,8 +45,6 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.types.returnType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -106,8 +105,8 @@ internal object JdbcPreparedStatementNotClosed :
     private val close = Name.identifier("close")
     private const val MAX_TYPE_DEPTH = 16
     private val autoCloseable = setOf(
-        ClassId(FqName("java.lang"), Name.identifier("AutoCloseable")),
-        ClassId(FqName("kotlin"), Name.identifier("AutoCloseable")),
+        classIdOf("java.lang", "AutoCloseable"),
+        classIdOf("kotlin", "AutoCloseable"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.dihygiene
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstModifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -45,7 +46,6 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 
@@ -102,23 +102,23 @@ internal object BindsReturnTypeMatchesParam :
     }
 
     private val binds = setOf(
-        ClassId(FqName("dagger"), Name.identifier("Binds")),
-        ClassId(FqName("dev.zacsweers.metro"), Name.identifier("Binds")),
+        classIdOf("dagger", "Binds"),
+        classIdOf("dev.zacsweers.metro", "Binds"),
     )
 
     private val multibindings = setOf(
-        ClassId(FqName("dagger.multibindings"), Name.identifier("IntoSet")),
-        ClassId(FqName("dagger.multibindings"), Name.identifier("IntoMap")),
-        ClassId(FqName("dagger.multibindings"), Name.identifier("ElementsIntoSet")),
-        ClassId(FqName("dev.zacsweers.metro"), Name.identifier("IntoSet")),
-        ClassId(FqName("dev.zacsweers.metro"), Name.identifier("IntoMap")),
-        ClassId(FqName("dev.zacsweers.metro"), Name.identifier("ElementsIntoSet")),
+        classIdOf("dagger.multibindings", "IntoSet"),
+        classIdOf("dagger.multibindings", "IntoMap"),
+        classIdOf("dagger.multibindings", "ElementsIntoSet"),
+        classIdOf("dev.zacsweers.metro", "IntoSet"),
+        classIdOf("dev.zacsweers.metro", "IntoMap"),
+        classIdOf("dev.zacsweers.metro", "ElementsIntoSet"),
     )
 
     private val qualifierMarkers = setOf(
-        ClassId(FqName("javax.inject"), Name.identifier("Qualifier")),
-        ClassId(FqName("jakarta.inject"), Name.identifier("Qualifier")),
-        ClassId(FqName("dev.zacsweers.metro"), Name.identifier("Qualifier")),
+        classIdOf("javax.inject", "Qualifier"),
+        classIdOf("jakarta.inject", "Qualifier"),
+        classIdOf("dev.zacsweers.metro", "Qualifier"),
     )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)

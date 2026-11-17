@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.simpleName
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -27,7 +28,6 @@ import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
@@ -73,14 +73,14 @@ internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppChecker
     }
 
     private val coroutines = FqName("kotlinx.coroutines")
-    private val globalScope = ClassId.topLevel(FqName("kotlinx.coroutines.GlobalScope"))
+    private val globalScope = classIdOf("kotlinx.coroutines", "GlobalScope")
 
     // GlobalScope is an object, so only an expression of one of these types
     // can hold it.
     private val globalScopeHolders = setOf(
         globalScope,
-        ClassId.topLevel(FqName("kotlinx.coroutines.CoroutineScope")),
-        ClassId.topLevel(FqName("kotlin.Any")),
+        classIdOf("kotlinx.coroutines", "CoroutineScope"),
+        classIdOf("kotlin", "Any"),
     )
 
     // Calls that return a new scope, never GlobalScope itself.

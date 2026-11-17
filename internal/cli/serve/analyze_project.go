@@ -737,6 +737,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 			SourceDirs:          checker.SourceDirs,
 			Classpath:           checker.Classpath,
 			Tracker:             tracker,
+			Isolator:            scan.SourceSetIsolator(paths, args.GradleModel, args.NoGradleModel, args.NoCache, verboseIfEnabled(args.Verbose, verboseOut)),
 			OnDegraded: func(err error) {
 				if recordDegraded != nil {
 					recordDegraded(scan.CheckerFailureDegraded(err, parsed.ActiveRules))
@@ -761,6 +762,14 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 		}
 		return firchecks.StartPass(ctx, opts), nil
 	}
+}
+
+// verboseIfEnabled is w when verbose, else nil.
+func verboseIfEnabled(verbose bool, w io.Writer) io.Writer {
+	if verbose {
+		return w
+	}
+	return nil
 }
 
 // diskCacheWiring bundles the on-disk cache pointers buildProjectInput

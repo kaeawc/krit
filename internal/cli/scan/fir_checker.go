@@ -2,9 +2,12 @@ package scan
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/modshard"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -18,6 +21,19 @@ type firCheckerOpts = firchecks.PassOptions
 // verdict to base. No-op when opts.Enabled is false.
 func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Finding {
 	return firchecks.RunPass(opts, base)
+}
+
+// SourceSetIsolator returns the --fir pass's recheck of projects whose merged
+// compile reports a duplicate declaration between source sets, or nil when
+// KRIT_MODULE_SHARDS=merged turns it off or the scan reads no Gradle model.
+// modelDir and modelDisabled are the scan's --gradle-model and
+// --no-gradle-model. Verbose progress goes to verboseOut.
+func SourceSetIsolator(paths []string, modelDir string, modelDisabled, noCache bool, verboseOut io.Writer) firchecks.SourceSetIsolator {
+	var logf func(string, ...any)
+	if verboseOut != nil {
+		logf = func(format string, args ...any) { fmt.Fprintf(verboseOut, format, args...) }
+	}
+	return modshard.Isolator(paths, modelDir, modelDisabled, noCache, logf)
 }
 
 // FIRCompileContext returns the compile context the --fir pass checks

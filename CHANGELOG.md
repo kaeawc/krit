@@ -28,6 +28,13 @@ All notable changes to Krit will be documented in this file.
   Android 16 ignores on large screens).
 
 ### Fixed
+- `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit
+  compiles a project's scanned source sets together (#972). When that compile gates a file on
+  `Redeclaration` or `Conflicting overloads`, its project is rechecked with each scanned source set
+  compiled on its own, and those verdicts replace the merged ones for the project's gated files. Other projects keep the
+  single compile: compiling every source set on its own (`KRIT_MODULE_SHARDS=isolate`) took clearly
+  longer and several times the CPU time on the projects measured. `KRIT_MODULE_SHARDS=merged` turns the
+  recheck off.
 - `--output-types` no longer leaves a krit-fir daemon running under `--no-daemon` or `--no-fir-daemon`, and it
   compiles against the scan's classpath, model source roots, JVM target and Kotlin settings.
 - `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.

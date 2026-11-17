@@ -62,6 +62,11 @@ type PassOptions struct {
 	// OnDegraded, when set, is called once if the checker fails mid-scan and
 	// the results fall back to Go-only findings.
 	OnDegraded func(err error)
+	// Isolator, when set, rechecks the projects whose files the check gated on
+	// a duplicate declaration with each source set compiled on its own: a
+	// merged compile of main, test and androidTest reports a class declared in
+	// two of them as a redeclaration that the real build never sees.
+	Isolator SourceSetIsolator
 }
 
 // PendingPass owns an in-flight check. Check is not interruptible through the
@@ -82,6 +87,7 @@ type checkOutcome struct {
 	err                   error
 	duration              time.Duration
 	incrementalDiagnostic string
+	isolation             isolationOutcome
 }
 
 // Cancel abandons a pending verdict without waiting for a JVM check.
@@ -158,6 +164,18 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		checkStart := time.Now()
 		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
 		duration := time.Since(checkStart)
+		var isolation isolationOutcome
+		if err == nil && result != nil && opts.Isolator != nil {
+			isolation = isolateSourceSets(p.ctx, opts, requested, sourceDirs, classpath, ruleNames, configs, facts, result)
+			if isolation.gated > 0 {
+				perf.AddEntryDetails(sub, "firSourceSetIsolation", isolation.duration, map[string]int64{
+					"gated":      int64(isolation.gated),
+					"rechecked":  int64(isolation.rechecked),
+					"replaced":   int64(isolation.replaced),
+					"stillGated": int64(isolation.stillGated),
+				}, nil)
+			}
+		}
 		status := "ok"
 		if err != nil {
 			status = "error"
@@ -190,7 +208,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 			"rules": int64(len(ruleNames)),
 		}, details)
 		sub.End()
-		p.done <- checkOutcome{result: result, err: err, duration: duration, incrementalDiagnostic: incrementalDiagnostic}
+		p.done <- checkOutcome{result: result, err: err, duration: duration, incrementalDiagnostic: incrementalDiagnostic, isolation: isolation}
 	}()
 	return p
 }
@@ -288,6 +306,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	if verbose {
 		if outcome.incrementalDiagnostic != "" {
 			fmt.Fprintf(opts.VerboseOut, "verbose: %s\n", outcome.incrementalDiagnostic)
+		}
+		if outcome.isolation.gated > 0 {
+			writeIsolationOutcome(opts.VerboseOut, outcome.isolation)
 		}
 		fmt.Fprintf(opts.VerboseOut,
 			"verbose: FIR checker in %v (%d findings, %d files requested)\n",

@@ -30,7 +30,9 @@ Sharding applies only when all of these hold. Otherwise krit logs the reason
 | --- | --- |
 | `KRIT_MODULE_SHARDS=auto` | Use sharding with the default worker count: half the CPUs, between 2 and 8. |
 | `KRIT_MODULE_SHARDS=<n>` | Use sharding with `n` worker JVMs. `1` runs every module in one JVM, which is slower than the whole compile. |
-| `KRIT_MODULE_SHARDS=0` or unset | Whole-repository compile (default). |
+| `KRIT_MODULE_SHARDS=0` or unset | Whole-repository compile (default). With `--fir`, projects whose files the compile gates on a duplicate declaration between source sets are rechecked one source set at a time (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
+| `KRIT_MODULE_SHARDS=merged` | Whole-repository compile with no source-set recheck. |
+| `KRIT_MODULE_SHARDS=isolate` | Compile every scanned source set on its own (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
 | `KRIT_WORKER_AOT=0` | Do not use a JDK 25+ ahead-of-time cache for the workers. |
 | `KRIT_WORKER_JAVA` | Path to the `java` the workers use. By default a JDK 25+ is preferred when one is installed. |
 

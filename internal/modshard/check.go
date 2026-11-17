@@ -19,6 +19,8 @@ type checkContext struct {
 	testFiles   map[string]bool
 	scanPaths   map[string]string
 	sdkLevels   map[string]json.RawMessage
+	// classpath is the request's compile classpath: the model's entries plus any the user configured.
+	classpath []string
 }
 
 // parseCheckContext returns nil when there is no usable request.
@@ -34,12 +36,14 @@ func parseCheckContext(data []byte) *checkContext {
 		TestFiles   []string                   `json:"testFiles"`
 		ScanPaths   map[string]string          `json:"scanPaths"`
 		SDKLevels   map[string]json.RawMessage `json:"sdkLevels"`
+		Classpath   []string                   `json:"classpath"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil || len(raw.Rules) == 0 || len(raw.Files) == 0 {
 		return nil
 	}
 	c := &checkContext{ID: raw.ID, rules: append([]string(nil), raw.Rules...), ruleConfigs: raw.RuleConfigs,
-		files: map[string]bool{}, testFiles: map[string]bool{}, scanPaths: raw.ScanPaths, sdkLevels: raw.SDKLevels}
+		files: map[string]bool{}, testFiles: map[string]bool{}, scanPaths: raw.ScanPaths, sdkLevels: raw.SDKLevels,
+		classpath: raw.Classpath}
 	sort.Strings(c.rules)
 	for _, f := range raw.Files {
 		c.files[f.Path] = true

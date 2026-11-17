@@ -2,21 +2,16 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.hasSuspendFunctionType
 import dev.jasonpearson.krit.fir.support.modifierKeywordAnchor
+import dev.jasonpearson.krit.fir.support.suspendsInPlace
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
-import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
-import org.jetbrains.kotlin.fir.declarations.FirAnonymousObject
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
-import org.jetbrains.kotlin.fir.declarations.InlineStatus
 import org.jetbrains.kotlin.fir.declarations.utils.isAbstract
 import org.jetbrains.kotlin.fir.declarations.utils.isActual
 import org.jetbrains.kotlin.fir.declarations.utils.isExpect
@@ -26,14 +21,10 @@ import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
-import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
-import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
@@ -68,7 +59,6 @@ internal object RedundantSuspendModifier : FirDeclarationChecker<FirNamedFunctio
     }
 
     private val todo = CallableId(FqName("kotlin"), Name.identifier("TODO"))
-    private val coroutineContext = CallableId(FqName("kotlin.coroutines"), Name.identifier("coroutineContext"))
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirNamedFunction) {
@@ -78,9 +68,7 @@ internal object RedundantSuspendModifier : FirDeclarationChecker<FirNamedFunctio
         if (insideInterface()) return
         val body = declaration.body ?: return
         if (isPlaceholder(body)) return
-        val finder = SuspendFinder()
-        body.accept(finder)
-        if (finder.found) return
+        if (suspendsInPlace(body)) return
         val anchor = modifierKeywordAnchor(source, KtTokens.SUSPEND_KEYWORD) ?: source
         report(anchor, "Function '${declaration.name.asString()}' has a redundant suspend modifier. No suspend calls found inside.")
     }
@@ -101,52 +89,5 @@ internal object RedundantSuspendModifier : FirDeclarationChecker<FirNamedFunctio
     private fun insideInterface(): Boolean {
         val owner = context.containingDeclarations.lastOrNull { it is FirRegularClassSymbol } as? FirRegularClassSymbol
         return owner?.classKind == ClassKind.INTERFACE
-    }
-
-    private class SuspendFinder : FirVisitorVoid() {
-        var found = false
-
-        override fun visitElement(element: FirElement) {
-            if (!found) element.acceptChildren(this)
-        }
-
-        override fun visitFunctionCall(functionCall: FirFunctionCall) {
-            val callee = functionCall.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol
-            if (callee?.isSuspend == true) {
-                found = true
-                return
-            }
-            visitElement(functionCall)
-        }
-
-        override fun visitImplicitInvokeCall(implicitInvokeCall: FirImplicitInvokeCall) {
-            visitFunctionCall(implicitInvokeCall)
-        }
-
-        override fun visitPropertyAccessExpression(propertyAccessExpression: FirPropertyAccessExpression) {
-            if (propertyAccessExpression.calleeReference.toResolvedCallableSymbol()?.callableId == coroutineContext) {
-                found = true
-                return
-            }
-            visitElement(propertyAccessExpression)
-        }
-
-        override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction) {
-            val inPlace = anonymousFunction.inlineStatus == InlineStatus.Inline ||
-                anonymousFunction.inlineStatus == InlineStatus.CrossInline
-            if (inPlace && !hasSuspendFunctionType(anonymousFunction)) visitElement(anonymousFunction)
-        }
-
-        override fun visitNamedFunction(namedFunction: FirNamedFunction) {
-            // A local function owns its scope: its calls do not suspend the outer one.
-        }
-
-        override fun visitRegularClass(regularClass: FirRegularClass) {
-            // A local class owns its scope.
-        }
-
-        override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {
-            // An object literal owns its scope.
-        }
     }
 }

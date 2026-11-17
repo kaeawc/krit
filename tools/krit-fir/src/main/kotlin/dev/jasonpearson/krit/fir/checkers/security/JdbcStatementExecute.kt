@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -61,7 +62,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -289,10 +289,8 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     }
 
     context(context: CheckerContext)
-    private fun isPreparedStatement(type: ConeKotlinType?): Boolean {
-        if (type == null || type.isNothingOrNullableNothing) return false
-        return type.isSubtypeOf(nullablePreparedStatement, context.session)
-    }
+    private fun isPreparedStatement(type: ConeKotlinType?): Boolean =
+        type != null && type.isNonNothingSubtypeOf(nullablePreparedStatement)
 
     // Go's first positional argument: the first VALUE_ARGUMENT without a name,
     // in the argument list of the call whose callee is [calleeSource]. A

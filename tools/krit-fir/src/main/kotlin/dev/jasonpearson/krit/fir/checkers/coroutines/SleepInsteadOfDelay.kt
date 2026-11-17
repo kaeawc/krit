@@ -3,10 +3,9 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.hasSuspendFunctionType
-import dev.jasonpearson.krit.fir.support.lambdaOwner
+import dev.jasonpearson.krit.fir.support.runsInPlace
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -16,13 +15,11 @@ import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
-import org.jetbrains.kotlin.fir.declarations.InlineStatus
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
-import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -50,10 +47,6 @@ internal object SleepInsteadOfDelay : FirFunctionCallChecker(MppCheckerKind.Comm
     private const val MESSAGE = "This use of Thread.sleep() inside a suspend function should be replaced by delay()."
     private val threadFqName = FqName("java.lang.Thread")
     private val sleepName = Name.identifier("sleep")
-    private val inPlaceCrossinline = setOf(
-        CallableId(FqName("kotlin.coroutines"), Name.identifier("suspendCoroutine")),
-        CallableId(FqName("kotlinx.coroutines"), Name.identifier("suspendCancellableCoroutine")),
-    )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -94,16 +87,4 @@ internal object SleepInsteadOfDelay : FirFunctionCallChecker(MppCheckerKind.Comm
         }
         return false
     }
-
-    // An inline lambda runs where its call is. A crossinline lambda may be stored and run later in
-    // another context, so it counts as in place only for the calls that run it before they return.
-    private fun runsInPlace(elements: List<FirElement>, index: Int, lambda: FirAnonymousFunction): Boolean =
-        when (lambda.inlineStatus) {
-            InlineStatus.Inline -> true
-            InlineStatus.CrossInline -> {
-                val owner = lambdaOwner(elements, index, lambda)?.calleeReference?.toResolvedCallableSymbol()
-                owner?.callableId in inPlaceCrossinline
-            }
-            else -> false
-        }
 }

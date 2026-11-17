@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -10,11 +11,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -64,12 +62,10 @@ internal object UseSparseArrays : FirFunctionCallChecker(MppCheckerKind.Common),
         // The compiler fills in inferred type arguments too; only a written one counts.
         val written = expression.typeArguments.singleOrNull() ?: return
         if (written.source?.kind !is KtRealSourceElementKind) return
-        val constructed = expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
-            ?: return
+        val constructed = expression.resolvedType.expandedClassType() ?: return
         if (constructed.lookupTag.classId != sparseArrayClassId) return
         val argument = (constructed.typeArguments.singleOrNull() as? ConeKotlinTypeProjection)?.type ?: return
-        val argumentClass = (argument.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType)
-            ?.lookupTag?.classId
+        val argumentClass = argument.expandedClassType()?.lookupTag?.classId
         val suggestion = when (argumentClass) {
             in intClassIds -> "SparseIntArray"
             in booleanClassIds -> "SparseBooleanArray"

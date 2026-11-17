@@ -4,6 +4,7 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
@@ -35,8 +36,6 @@ import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
-import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -230,12 +229,9 @@ internal object ErrorUsageWithThrowable : FirFunctionCallChecker(MppCheckerKind.
     }
 
     context(context: CheckerContext)
-    private fun isThrowableType(type: ConeKotlinType): Boolean {
-        // `error(TODO())`: Nothing is a subtype of everything but is not a
-        // Throwable being passed along.
-        if (type.isNothingOrNullableNothing) return false
-        return type.isSubtypeOf(nullableThrowable, context.session)
-    }
+    private fun isThrowableType(type: ConeKotlinType): Boolean =
+        // `error(TODO())`: Nothing is a subtype of everything but is not a Throwable being passed along.
+        type.isNonNothingSubtypeOf(nullableThrowable)
 
     // Returns the source text of the first value argument's expression when the
     // call is the direct form `error(...)` — a CALL_EXPRESSION whose callee is

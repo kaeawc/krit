@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.synth">
+
+    <application android:label="Example">
+        <activity android:name=".Main" android:exported="true" android:resizeableActivity="false" />
+    </application>
+</manifest>

@@ -784,6 +784,72 @@
             }
           }
         },
+        "AppLinkUrlError": {
+          "description": "URI invalid [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AppLinkUrlError (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "AppLinkWarning": {
+          "description": "App Link warning [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AppLinkWarning (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ApplyPluginInKotlinDsl": {
           "description": "Legacy apply plugin in a Kotlin DSL script [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
           "type": "object",
@@ -1609,6 +1675,39 @@
             }
           }
         },
+        "CustomPermissionTypo": {
+          "description": "Permission appears to be a custom permission with a typo [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable CustomPermissionTypo (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CustomViewStyleable": {
           "description": "Mismatched Styleable/Custom View Name [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
@@ -2144,6 +2243,39 @@
           "properties": {
             "active": {
               "description": "Enable DisableBaselineAlignmentResource (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "DiscouragedApi": {
+          "description": "Using discouraged APIs [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable DiscouragedApi (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -4821,6 +4953,105 @@
             }
           }
         },
+        "IntentFilterUniqueDataAttributes": {
+          "description": "Data tags should only declare unique attributes [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IntentFilterUniqueDataAttributes (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IntentReset": {
+          "description": "Suspicious mix of `setType` and `setData` [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IntentReset (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "IntentWithNullActionLaunch": {
+          "description": "Unsafe intent launched with no action set [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable IntentWithNullActionLaunch (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "InvalidIdResource": {
           "description": "Malformed android:id value [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -5158,6 +5389,39 @@
           "properties": {
             "active": {
               "description": "Enable KeyboardInaccessibleWidget (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "KnownPermissionError": {
+          "description": "Value specified for permission is a known error [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable KnownPermissionError (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -5589,6 +5853,39 @@
               "description": "Enable LocaleFolder (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LockedOrientationActivity": {
+          "description": "Incompatible screenOrientation value [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LockedOrientationActivity (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -6917,6 +7214,39 @@
             }
           }
         },
+        "NonResizeableActivity": {
+          "description": "Activity is set to be non-resizeable [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NonResizeableActivity (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "NotConstructor": {
           "description": "Not a Constructor [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -7647,6 +7977,39 @@
             }
           }
         },
+        "PermissionNamingConvention": {
+          "description": "Permission name does not follow recommended convention [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable PermissionNamingConvention (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "PinSetExpiry": {
           "description": "Validate `\u003cpin-set\u003e` expiration attribute [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -8283,6 +8646,39 @@
               "description": "Enable ResAutoResource (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ReservedSystemPermission": {
+          "description": "Permission name is a reserved Android permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ReservedSystemPermission (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -10057,14 +10453,47 @@
           }
         },
         "SystemPermission": {
-          "description": "Requesting a permission only granted to system apps [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "description": "Using system app permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable SystemPermission (default: false).",
+              "description": "Enable SystemPermission (default: true).",
               "type": "boolean",
-              "default": false
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SystemPermissionTypo": {
+          "description": "Permission appears to be a standard permission with a typo [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SystemPermissionTypo (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

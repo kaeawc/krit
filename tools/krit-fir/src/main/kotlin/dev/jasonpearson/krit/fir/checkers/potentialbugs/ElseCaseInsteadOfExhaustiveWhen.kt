@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.potentialbugs
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -12,12 +13,9 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirWhenExpressionCh
 import org.jetbrains.kotlin.fir.expressions.ExhaustivenessStatus
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isNothing
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.StandardClassIds
 
@@ -45,8 +43,7 @@ internal object ElseCaseInsteadOfExhaustiveWhen : FirWhenExpressionChecker(MppCh
         val subject = expression.subjectVariable ?: return
         val elseBranch = expression.branches.firstOrNull { it.condition is FirElseIfTrueCondition } ?: return
         if (elseBranch.result.resolvedType.isNothing) return
-        val type = subject.returnTypeRef.coneType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
-            ?: return
+        val type = subject.returnTypeRef.coneType.expandedClassType() ?: return
         val classId = type.lookupTag.classId
         val ignored = (config()["ignoredSubjectTypes"] as? List<*>)?.mapNotNull { (it as? String)?.trim() }.orEmpty()
         if (classId.asFqNameString() in ignored) return

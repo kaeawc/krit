@@ -383,3 +383,55 @@ func (r *WifiManagerPotentialLeakRule) Meta() api.RuleDescriptor {
 func (r *DiffUtilEqualsRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "DiffUtilEquals", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *ReservedSystemPermissionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ReservedSystemPermission", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *PermissionNamingConventionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "PermissionNamingConvention", RuleSet: "android-lint", DefaultActive: false, OptInReason: api.OptInReasonAndroidOnly}
+}
+
+func (r *KnownPermissionErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "KnownPermissionError", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *SystemPermissionTypoRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "SystemPermissionTypo", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *CustomPermissionTypoRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "CustomPermissionTypo", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *LockedOrientationActivityRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "LockedOrientationActivity", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *NonResizeableActivityRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NonResizeableActivity", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentFilterUniqueDataAttributesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentFilterUniqueDataAttributes", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *DiscouragedAPIRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "DiscouragedApi", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AppLinkURLErrorRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AppLinkUrlError", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *AppLinkWarningRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "AppLinkWarning", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentResetRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentReset", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *IntentWithNullActionLaunchRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "IntentWithNullActionLaunch", RuleSet: "android-lint", DefaultActive: true}
+}

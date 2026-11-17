@@ -37,3 +37,21 @@ ancestors) instead of the host's `/proc/meminfo`:
 
 The krit-fir JVMs size their heaps with `-XX:MaxRAMPercentage`, which the JVM
 already computes from the container limit.
+
+## Background processes
+
+By default a scan may leave long-lived processes behind so the next run starts
+warm: the krit daemon, and krit-fir JVM daemons for the FIR checker and for
+small sets of type-oracle cache misses. To keep every process inside the
+action, pass:
+
+| Setting | Effect |
+| --- | --- |
+| `--no-daemon` or `KRIT_NO_DAEMON_AUTOSTART=1` | Run in-process; do not start or contact the krit daemon. |
+| `--no-fir-daemon` | Run the FIR checker and type-oracle cache misses one-shot, so no krit-fir daemon outlives the scan. |
+
+`--output-types` (a standalone type-oracle dump) runs its cache misses one-shot
+under either `--no-daemon` or `--no-fir-daemon`. It compiles against the same
+compile context a scan's oracle uses: the Gradle model's source roots and
+classpath, `oracle.classpath` from `krit.yml`, the JVM target and the Kotlin
+compiler settings.

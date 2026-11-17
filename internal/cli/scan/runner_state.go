@@ -549,11 +549,13 @@ func (r *runner) bootstrapResolver() {
 		r.reporter = installDiagnosticReporter(*r.f.Verbose)
 
 		runOutputTypesFlag(outputTypesOpts{
-			OutputPath:    *r.f.OutputTypes,
-			NoCacheOracle: *r.f.NoCacheOracle,
-			Verbose:       *r.f.Verbose,
-			StoreDir:      r.f.StoreDir,
-			Paths:         flag.Args(),
+			OutputPath:         *r.f.OutputTypes,
+			NoCacheOracle:      *r.f.NoCacheOracle,
+			Verbose:            *r.f.Verbose,
+			StoreDir:           r.f.StoreDir,
+			Paths:              flag.Args(),
+			Compile:            r.oracleCompileContext(),
+			NoPersistentDaemon: outputTypesWithoutPersistentDaemon(r.f),
 		})
 		if *r.f.DumpOracleDiagnostics {
 			os.Exit(RunDumpOracleDiagnosticsTo(os.Stdout, os.Stderr, RunDumpOracleDiagnosticsOpts{
@@ -563,6 +565,23 @@ func (r *runner) bootstrapResolver() {
 			}))
 		}
 	})
+}
+
+// outputTypesWithoutPersistentDaemon reports whether --output-types must not
+// leave a krit-fir daemon running: under --no-daemon the dump runs in-process
+// and, like --no-fir-daemon, starts no JVM that outlives it.
+func outputTypesWithoutPersistentDaemon(f *scanFlags) bool {
+	return *f.NoDaemon || *f.NoFirDaemon
+}
+
+// oracleCompileContext is the compile context runOracleIndex gives the oracle.
+func (r *runner) oracleCompileContext() OracleCompileContext {
+	return OracleCompileContext{
+		SourceDirs: r.f.modelSourceDirs,
+		Classpath:  effectiveOracleClasspath(r.f.modelClasspath, r.cfg),
+		JvmTarget:  r.f.modelJvmTarget,
+		Kotlin:     r.f.modelKotlin,
+	}
 }
 
 // oracleExpansionScope is the compile scope the freshness gate must read the
@@ -600,30 +619,33 @@ func (r *runner) runOracleIndex() (int, error) {
 			return
 		}
 		in := pipeline.IndexInput{
-			ParseResult:         pipeline.ParseResult{ActiveRules: r.activeRules},
-			Reporter:            r.reporter,
-			Tracker:             r.tracker,
-			OracleEnabled:       r.resolver != nil && !*r.f.NoTypeOracle,
-			BaseResolver:        r.resolver,
-			OracleScanPaths:     flag.Args(),
-			KotlinFilePaths:     r.files,
-			InputTypesPath:      *r.f.InputTypes,
-			NoCacheOracle:       *r.f.NoCacheOracle,
-			NoOracleFilter:      *r.f.NoOracleFilter,
-			Thorough:            r.depthPreset == DepthThorough,
-			UseDaemon:           *r.f.Daemon,
-			OracleBackend:       oracleBackend,
-			OracleClasspath:     oracleClasspath,
-			OracleSourceDirs:    r.f.modelSourceDirs,
-			OracleJvmTarget:     r.f.modelJvmTarget,
-			OracleKotlin:        r.f.modelKotlin,
-			FIRCheckRider:       r.firCheckRider(),
-			GeneratedSourceDirs: r.f.modelGeneratedSourceDirs,
-			IncludeGenerated:    *r.f.IncludeGenerated,
-			Store:               r.oracleStore,
-			OracleCacheWriter:   r.oracleCacheWriter,
-			StaleOraclePaths:    staleOraclePaths,
-			Verbose:             *r.f.Verbose,
+			ParseResult:     pipeline.ParseResult{ActiveRules: r.activeRules},
+			Reporter:        r.reporter,
+			Tracker:         r.tracker,
+			OracleEnabled:   r.resolver != nil && !*r.f.NoTypeOracle,
+			BaseResolver:    r.resolver,
+			OracleScanPaths: flag.Args(),
+			KotlinFilePaths: r.files,
+			InputTypesPath:  *r.f.InputTypes,
+			NoCacheOracle:   *r.f.NoCacheOracle,
+			NoOracleFilter:  *r.f.NoOracleFilter,
+			Thorough:        r.depthPreset == DepthThorough,
+			UseDaemon:       *r.f.Daemon,
+			// --no-fir-daemon promises no persistent krit-fir JVM, which
+			// covers the oracle's small-miss daemon too.
+			NoPersistentOracleDaemon: *r.f.NoFirDaemon,
+			OracleBackend:            oracleBackend,
+			OracleClasspath:          oracleClasspath,
+			OracleSourceDirs:         r.f.modelSourceDirs,
+			OracleJvmTarget:          r.f.modelJvmTarget,
+			OracleKotlin:             r.f.modelKotlin,
+			FIRCheckRider:            r.firCheckRider(),
+			GeneratedSourceDirs:      r.f.modelGeneratedSourceDirs,
+			IncludeGenerated:         *r.f.IncludeGenerated,
+			Store:                    r.oracleStore,
+			OracleCacheWriter:        r.oracleCacheWriter,
+			StaleOraclePaths:         staleOraclePaths,
+			Verbose:                  *r.f.Verbose,
 
 			PreloadedAnalysisCache: nil,
 		}

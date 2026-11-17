@@ -420,11 +420,16 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 			outputPath = abs
 		}
 		return client.DumpTypes(daemon.DumpTypesArgs{
-			Paths:         paths,
-			Cwd:           callerCwd(),
-			OutputPath:    outputPath,
-			NoCacheOracle: *f.NoCacheOracle,
-			Verbose:       *f.Verbose,
+			Paths:            paths,
+			Cwd:              callerCwd(),
+			OutputPath:       outputPath,
+			NoCacheOracle:    *f.NoCacheOracle,
+			Verbose:          *f.Verbose,
+			OracleClasspath:  effectiveOracleClasspath(f.modelClasspath, loadScanConfig(f)),
+			OracleSourceDirs: f.modelSourceDirs,
+			OracleJvmTarget:  f.modelJvmTarget,
+			OracleKotlin:     f.modelKotlin,
+			NoFirDaemon:      *f.NoFirDaemon,
 		})
 	}
 	return daemon.MetaResult{}, fmt.Errorf("unknown meta verb %d", verb)

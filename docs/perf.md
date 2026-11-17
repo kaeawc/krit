@@ -52,11 +52,12 @@ timer; it does not configure these JVM timeouts.
 
 - `--no-daemon` bypasses the Go project daemon for this invocation. It neither
   stops an existing daemon nor disables persistent FIR/oracle helpers.
-- `--no-fir-daemon` makes the FIR **checker** use a one-shot JVM. It does not
-  disable the type oracle's helper or stop helpers already running.
+- `--no-fir-daemon` makes the FIR checker and the type oracle's cache-miss
+  analysis use one-shot JVMs. It does not disable `--daemon`'s resident oracle
+  or stop helpers already running.
 - To avoid persistent helper startup for an in-process scan, combine
-  `--no-daemon --no-fir-daemon --no-type-oracle` (without custom rule jars).
-  This loses JVM-backed oracle facts while retaining the one-shot FIR checker.
+  `--no-daemon --no-fir-daemon` (without `--daemon` or custom rule jars).
+  `--output-types` also runs one-shot under `--no-daemon` alone.
 - `KRIT_EPHEMERAL_DAEMONS=1` scopes **newly started** TCP helpers to their
   launching process: they poll parent liveness every two seconds and use a
   two-minute client-wait timeout. It does not retroactively change a reused

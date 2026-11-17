@@ -970,6 +970,9 @@ func runMissAnalysis(
 }
 
 func oneShotMissAnalysisReason(misses int, opts InvocationOptions) (bool, string) {
+	if opts.NoPersistentDaemon {
+		return true, "persistent krit-fir daemon disabled"
+	}
 	// The generic oracle daemon registry does not key JVM target. An
 	// explicit FIR target uses the one-shot runner and its scoped cache.
 	if opts.JvmTarget != "" {

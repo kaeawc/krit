@@ -104,6 +104,16 @@ func TestKotlinSettingsKeepTheDaemonPath(t *testing.T) {
 	}
 }
 
+// NoPersistentDaemon keeps a small miss set on the one-shot path, even when
+// KRIT_DAEMON_CACHE=on asks for the daemon.
+func TestNoPersistentDaemonForcesOneShot(t *testing.T) {
+	t.Setenv("KRIT_DAEMON_CACHE", "on")
+	opts := InvocationOptions{Backend: BackendFIR, NoPersistentDaemon: true}
+	if use, reason := oneShotMissAnalysisReason(1, opts); !use || reason == "" {
+		t.Fatalf("oneShotMissAnalysisReason = (%v, %q), want a one-shot run with a reason", use, reason)
+	}
+}
+
 // A daemon launched for one set of Kotlin settings is never reused for another,
 // and the settings are passed at launch.
 func TestDaemonRegistryIsKeyedOnKotlinSettings(t *testing.T) {

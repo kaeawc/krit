@@ -275,7 +275,9 @@ daemon-routed and in-process invocations remain byte-equivalent.
 
 This routes the dump through the same resident oracle cache the daemon
 populates for analyze-project, so warm `--output-types` calls land on a hot
-cache instead of paying full JVM warmup again.
+cache instead of paying full JVM warmup again. The wire carries the CLI's
+oracle compile context (classpath, model source roots, JVM target and Kotlin
+settings) and `--no-fir-daemon`, as `AnalyzeProjectArgs` does.
 
 ### `--delta`
 

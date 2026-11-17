@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/arch"
@@ -14,6 +13,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type abiHashResult struct {
@@ -131,7 +131,7 @@ func resolveAbiHashTarget(target string) ([]*scanner.File, error) {
 		if err != nil {
 			return nil, fmt.Errorf("collecting %s: %w", target, err)
 		}
-		files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
+		files, _ := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
 		return files, nil
 	}
 	if !strings.HasSuffix(target, ".kt") {

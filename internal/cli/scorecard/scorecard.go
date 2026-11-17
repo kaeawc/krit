@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type Row struct {
@@ -73,7 +73,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	files, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
+	files, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, sysres.CPUs())
 	if len(parseErrs) > 0 {
 		return nil, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
@@ -89,7 +89,7 @@ func Build(paths []string, configPath string) ([]Row, error) {
 	active := rules.ActiveRulesV2(nil, nil, false, false, false)
 	findings := runRules(files, active)
 
-	pmi := module.BuildPerModuleIndex(graph, files, runtime.NumCPU())
+	pmi := module.BuildPerModuleIndex(graph, files, sysres.CPUs())
 	return rowsFromData(graph, pmi.ModuleFiles, findings), nil
 }
 

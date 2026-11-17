@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 func runWalkthrough(args []string, stdout, stderr io.Writer) int {
@@ -78,15 +78,15 @@ func BuildWalkthrough(root string, limit int) (Walkthrough, error) {
 	if err != nil {
 		return Walkthrough{}, fmt.Errorf("collecting Java files: %w", err)
 	}
-	kotlinFiles, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
+	kotlinFiles, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, sysres.CPUs())
 	if len(parseErrs) > 0 {
 		return Walkthrough{}, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
-	javaFiles, javaErrs := scanner.ScanJavaFiles(context.Background(), javaPaths, runtime.NumCPU())
+	javaFiles, javaErrs := scanner.ScanJavaFiles(context.Background(), javaPaths, sysres.CPUs())
 	if len(javaErrs) > 0 {
 		return Walkthrough{}, fmt.Errorf("parsing Java files: %w", javaErrs[0])
 	}
-	index := scanner.BuildIndexWithTracker(kotlinFiles, runtime.NumCPU(), nil, javaFiles...)
+	index := scanner.BuildIndexWithTracker(kotlinFiles, sysres.CPUs(), nil, javaFiles...)
 	stats := index.ClassLikeFanInStats(true)
 	if len(stats) == 0 {
 		return Walkthrough{}, fmt.Errorf("no class-like symbols found")

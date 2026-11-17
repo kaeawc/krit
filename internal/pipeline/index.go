@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,6 +31,7 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/store"
+	"github.com/kaeawc/krit/internal/sysres"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -42,7 +42,7 @@ import (
 // across edits, the CLI wires them through the IndexInput hooks). This
 // phase's job is the cheap, deterministic pieces that always need to run.
 type IndexPhase struct {
-	// Workers overrides the type-index worker count. Zero = runtime.NumCPU().
+	// Workers overrides the type-index worker count. Zero = sysres.CPUs().
 	Workers int
 	// ScanRoot, if non-empty, is passed to module.DiscoverModules.
 	// Empty means "use the first element of ParseResult.Paths, or '.'".
@@ -188,6 +188,9 @@ type IndexInput struct {
 	// UseDaemon mirrors --daemon: use the long-lived krit-fir daemon
 	// instead of one-shot invocation.
 	UseDaemon bool
+	// NoPersistentOracleDaemon mirrors --no-fir-daemon: cache-miss analysis
+	// runs one-shot, so no krit-fir daemon outlives the scan.
+	NoPersistentOracleDaemon bool
 	// OracleBackend selects which JVM daemon to spawn for the type
 	// oracle role. Empty means defer to oracle.DefaultBackend
 	// (krit-fir, the only backend). The value is the resolved
@@ -473,7 +476,7 @@ func (p IndexPhase) indexPrebuiltResolver(in IndexInput, caps api.Capabilities) 
 	}
 	workers := p.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if in.TypeIndexCacheDir != "" {
 		if cached, ok := in.PrebuiltResolver.(interface {
@@ -537,7 +540,7 @@ func (p IndexPhase) buildBaseResolver(ctx context.Context, in IndexInput, caps a
 	}
 	workers := p.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	build := func() typeinfer.TypeResolver {
 		r := typeinfer.NewResolver()
@@ -1402,6 +1405,10 @@ func (p IndexPhase) buildOracleFilterListPath(in IndexInput, oracleRules []*api.
 	return fp, func() { os.Remove(fp) }
 }
 
+// invokeCachedOracle runs the cached oracle invocation; a seam so tests can
+// observe the options without a JVM.
+var invokeCachedOracle = oracle.InvokeCachedWithOptions
+
 // runJvmAnalyze attempts to invoke krit-fir to produce an oracle JSON path.
 // Returns the path to the produced oracle JSON (empty on failure).
 func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPaths []string, loadOracleFilterFiles func() []*scanner.File, jvmTracker perf.Tracker) string {
@@ -1489,6 +1496,8 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		JvmTarget: in.OracleJvmTarget,
 		Kotlin:    in.OracleKotlin,
 		Backend:   backend,
+
+		NoPersistentDaemon: in.NoPersistentOracleDaemon,
 	}
 	if in.FIRCheckRider != nil {
 		invokeOpts.CheckRider = in.FIRCheckRider(jarPath, sourceDirs, in.OracleClasspath, in.compileTarget())
@@ -1508,7 +1517,7 @@ func (p IndexPhase) runJvmAnalyze(in IndexInput, oracleRules []*api.Rule, scanPa
 		jvmTracker.TrackVoid("findRepoDir", func() {
 			repoDir = oracle.FindRepoDir(scanPaths)
 		})
-		res, err = oracle.InvokeCachedWithOptions(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, invocationStore, invokeOpts)
+		res, err = invokeCachedOracle(jarPath, sourceDirs, repoDir, cacheDest, filterListPath, in.Verbose, invocationStore, invokeOpts)
 	}
 	if err != nil {
 		in.warnf("warning: krit-fir: %v\n", err)

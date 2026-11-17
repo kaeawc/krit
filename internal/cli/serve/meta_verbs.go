@@ -200,6 +200,13 @@ func handleDumpTypes(_ context.Context, state *daemonState, raw json.RawMessage)
 		Verbose:       args.Verbose,
 		Store:         daemonResolvedStore(state.root),
 		Paths:         paths,
+		Compile: scan.OracleCompileContext{
+			SourceDirs: args.OracleSourceDirs,
+			Classpath:  args.OracleClasspath,
+			JvmTarget:  args.OracleJvmTarget,
+			Kotlin:     args.OracleKotlin,
+		},
+		NoPersistentDaemon: args.NoFirDaemon,
 	})
 	return daemon.MetaResult{Stderr: stderr.Bytes(), ExitCode: code}, nil
 }

@@ -5,12 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 
 	"github.com/kaeawc/krit/internal/arch"
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // resolveModuleSurface discovers modules from cwd, scans the named module's
@@ -29,7 +29,7 @@ func resolveModuleSurface(modulePath string) ([]arch.APIEntry, error) {
 		return nil, fmt.Errorf("module %q not found", modulePath)
 	}
 	files := clishared.ScanModuleKotlinFiles(mod)
-	idx := scanner.BuildIndex(files, runtime.NumCPU())
+	idx := scanner.BuildIndex(files, sysres.CPUs())
 	return arch.ExtractSurface(idx.Symbols), nil
 }
 

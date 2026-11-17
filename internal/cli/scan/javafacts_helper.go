@@ -12,6 +12,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/javafacts"
+	"github.com/kaeawc/krit/internal/jdk"
 	javafactshelper "github.com/kaeawc/krit/tools/krit-java-facts"
 )
 
@@ -54,12 +55,12 @@ var resolveJavacIdentity = func(javac string) javacIdentity {
 // and JAVA_HOME. The .complete marker denotes a usable cache entry.
 // Concurrent callers populate via rename-into-place; a loser reuses the winner's completed entry.
 func compileJavaFactsHelper(_ []string) (classpath string, cleanup func(), warning string, err error) {
-	javac, lookupErr := exec.LookPath("javac")
+	javac, lookupErr := jdk.Javac()
 	if lookupErr != nil {
 		// Surfaces the lookup failure as a warning string, not an err
 		// — javac being absent is non-fatal: the caller falls back to
 		// pure-AST analysis.
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("javac not found")), nil //nolint:nilerr // lookup failure is intentionally surfaced as warning
+		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("javac not found: %w", lookupErr)), nil //nolint:nilerr // lookup failure is intentionally surfaced as warning
 	}
 	identity := resolveJavacIdentity(javac)
 

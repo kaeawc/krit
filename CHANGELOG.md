@@ -35,6 +35,14 @@ All notable changes to Krit will be documented in this file.
   single compile: compiling every source set on its own (`KRIT_MODULE_SHARDS=isolate`) took clearly
   longer and several times the CPU time on the projects measured. `KRIT_MODULE_SHARDS=merged` turns the
   recheck off.
+- `--output-types` no longer leaves a krit-fir daemon running under `--no-daemon` or `--no-fir-daemon`, and it
+  compiles against the scan's classpath, model source roots, JVM target and Kotlin settings.
+- `--max-cost` scans no longer delegate to a krit daemon, which ignored the filter and ran every rule.
+- `VersionCatalogBuildSrcMismatch` names the conflicting buildSrc file relative to the project instead of by
+  absolute path, so its message, and baseline entries for it, no longer depend on the checkout location.
+  Baseline entries for this rule change once; regenerate the baseline to pick them up.
+- The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing. It creates the
+  release as a draft, retries each asset upload, and publishes only after checking the uploaded assets.
 - `WakelockTimeout`, `SetWorldReadable` and `SetWorldWritable` now have FIR checkers, with the Go rules kept as the
   fallback. On files the compiler analyzes, the receiver is the resolved `PowerManager.WakeLock` or `java.io.File`, so
   an import alias, a type alias, a call result, `!!` or a smart cast is found, and `WakelockTimeout` also reports an
@@ -154,6 +162,12 @@ All notable changes to Krit will be documented in this file.
   covers them too.
 
 ### Added
+- `--only-scope` and `--exclude-scope` select rules by scope: `file` for per-file rules and `project` for
+  cross-file, module, Android and Gradle rules (individual dispatcher scopes also work). A build system can run
+  the per-file rules per module and the project rules once. `--list-rules --format json` reports each rule's
+  `scope`. See `docs/hermetic-builds.md`.
+- `--reproducible` makes JSON reports byte-identical across runs, caches, worker counts and checkout paths:
+  `durationMs` is 0, cache statistics and perf timings are omitted, and suggested-edit targets are relative.
 - `SuspiciousIndentation` ports Android Lint's check: a statement indented as if it belonged to the
   previous statement or to an unbraced `if`, `else` or loop, an unbraced body at the column of its
   control statement, and an indentation string that differs from the line above. It reports at most
@@ -260,6 +274,13 @@ All notable changes to Krit will be documented in this file.
   `tools/lintdata`; see `tools/lintdata/README.md`.
 
 ### Changed
+- Krit finds `java` and `javac` under `JAVA_HOME` before `PATH` everywhere it launches a JVM or checks for one
+  (jar download, Java facts helper, `--doctor`).
+- On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory
+  sizing reads the cgroup memory limit instead of the host's. A scan in a memory-limited cgroup sets a Go soft
+  memory limit of three quarters of it unless `GOMEMLIMIT` is set.
+- `--no-fir-daemon` also runs the type oracle's cache misses one-shot, so an in-process scan
+  (`--no-daemon --no-fir-daemon`) leaves no krit-fir daemon behind.
 - Cold `--fir` scans start parsing, and building the cross-file code index, while the oracle
   JVM compiles, instead of after it. The phases take the background result only when their
   input is identical, so findings do not change.

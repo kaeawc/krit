@@ -60,7 +60,7 @@ func (r *VersionCatalogBuildSrcMismatchRule) check(ctx *api.Context) {
 			if !strings.HasSuffix(fi.Name(), ".kt") {
 				return nil
 			}
-			r.scanKotlin(ctx, catalogPath, path, coords)
+			r.scanKotlin(ctx, catalogPath, path, projectRelativePath(pmi.Graph.RootDir, path), coords)
 			return nil
 		})
 	}
@@ -79,6 +79,16 @@ func readCatalogCoordinates(cat *module.VersionCatalog) map[string]catalogCoord 
 	return out
 }
 
+// projectRelativePath spells path relative to rootDir with forward slashes, so
+// a message naming it does not depend on where the project is checked out.
+func projectRelativePath(rootDir, path string) string {
+	rel, err := filepath.Rel(rootDir, path)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}
+
 func buildSrcDirs(rootDir string) []string {
 	var dirs []string
 	for _, sub := range []string{"buildSrc", "build-logic"} {
@@ -90,7 +100,7 @@ func buildSrcDirs(rootDir string) []string {
 	return dirs
 }
 
-func (r *VersionCatalogBuildSrcMismatchRule) scanKotlin(ctx *api.Context, catalogPath, path string, coords map[string]catalogCoord) {
+func (r *VersionCatalogBuildSrcMismatchRule) scanKotlin(ctx *api.Context, catalogPath, path, displayPath string, coords map[string]catalogCoord) {
 	file, err := scanner.ParseFile(context.Background(), path)
 	if err != nil || file == nil || file.FlatTree == nil {
 		return
@@ -125,7 +135,7 @@ func (r *VersionCatalogBuildSrcMismatchRule) scanKotlin(ctx *api.Context, catalo
 				RuleSet:    r.RuleSetName,
 				Rule:       r.RuleName,
 				Severity:   r.Sev,
-				Message:    fmt.Sprintf("Version catalog alias '%s' pins %s:%s to %s, but %s:%d uses %s. Reconcile to keep the catalog the single source of truth.", coord.Alias, group, name, coord.Version, path, row, version),
+				Message:    fmt.Sprintf("Version catalog alias '%s' pins %s:%s to %s, but %s:%d uses %s. Reconcile to keep the catalog the single source of truth.", coord.Alias, group, name, coord.Version, displayPath, row, version),
 				Confidence: r.Confidence(),
 			})
 		})

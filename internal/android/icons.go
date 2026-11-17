@@ -11,10 +11,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/sysres"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -69,7 +69,7 @@ func (idx *IconIndex) AllIcons() []*IconFile {
 
 // ScanIconDirs scans res/drawable-* and res/mipmap-* directories for icon resources.
 func ScanIconDirs(resDir string) (*IconIndex, error) {
-	return ScanIconDirsWithWorkers(resDir, runtime.NumCPU())
+	return ScanIconDirsWithWorkers(resDir, sysres.CPUs())
 }
 
 func ScanIconDirsWithWorkers(resDir string, maxWorkers int) (*IconIndex, error) {

@@ -7,12 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/module"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // Run implements `krit gen <artifact>`.
@@ -104,11 +104,11 @@ func BuildModuleReadmeSummary(root, modulePath string) (ModuleReadmeSummary, err
 	if err != nil {
 		return ModuleReadmeSummary{}, fmt.Errorf("collecting Kotlin files: %w", err)
 	}
-	parsed, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, runtime.NumCPU())
+	parsed, parseErrs := scanner.ScanFiles(context.Background(), kotlinPaths, sysres.CPUs())
 	if len(parseErrs) > 0 {
 		return ModuleReadmeSummary{}, fmt.Errorf("parsing Kotlin files: %w", parseErrs[0])
 	}
-	pmi := module.BuildPerModuleIndex(graph, parsed, runtime.NumCPU())
+	pmi := module.BuildPerModuleIndex(graph, parsed, sysres.CPUs())
 	summary := ModuleReadmeSummary{
 		Module:       modulePath,
 		DependsOn:    uniqueDependencyPaths(mod.Dependencies),

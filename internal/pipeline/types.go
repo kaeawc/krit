@@ -83,7 +83,7 @@ type ParseInput struct {
 	// consistent across parse and cache phases.
 	JavaPaths []string
 	// Workers overrides ParsePhase.Workers. Zero falls through to
-	// ParsePhase.Workers which itself defaults to runtime.NumCPU().
+	// ParsePhase.Workers which itself defaults to sysres.CPUs().
 	// Main plugs its phaseWorkerCount("parse", ...) result here.
 	Workers int
 	// SkipJavaCollection, when true, suppresses the NeedsCrossFile-driven
@@ -530,6 +530,10 @@ type OutputInput struct {
 	// MinConfidence, when >0, drops findings whose confidence is below
 	// the threshold before format dispatch.
 	MinConfidence float64
+	// Reproducible, when true, makes the "json" formatter drop run-dependent
+	// fields (duration, cache statistics, perf timings) so identical inputs
+	// give byte-identical output.
+	Reproducible bool
 	// JSONCompact, when true, disables JSON pretty-printing in the
 	// "json" formatter. The daemon's streaming response path sets
 	// this so the wire-level JSON has no internal newlines (the

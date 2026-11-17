@@ -1,45 +1,15 @@
 package modshard
 
-import (
-	"context"
-	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
-	"strings"
-)
+import "github.com/kaeawc/krit/internal/sysres"
 
-// totalMemoryMB is the machine's physical memory, or 0 when unknown.
-func totalMemoryMB() int {
-	switch runtime.GOOS {
-	case "darwin":
-		out, err := exec.CommandContext(context.Background(), "sysctl", "-n", "hw.memsize").Output()
-		if err != nil {
-			return 0
-		}
-		bytes, _ := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-		return int(bytes >> 20)
-	case "linux":
-		data, err := os.ReadFile("/proc/meminfo")
-		if err != nil {
-			return 0
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
-				fields := strings.Fields(rest)
-				if len(fields) > 0 {
-					kb, _ := strconv.Atoi(fields[0])
-					return kb >> 10
-				}
-			}
-		}
-	}
-	return 0
-}
+// totalMemoryMB is the memory this process may use, or 0 when unknown. On Linux
+// it is the cgroup limit when one is set, so a sandboxed run sizes its workers
+// to the sandbox rather than the host.
+var totalMemoryMB = sysres.MemoryLimitMB
 
 // workerHeapMB is each worker JVM's heap cap. A few GB covers the largest modules; the cap shrinks
-// when many workers would together take more than 40% of the machine's memory, so the workers do not
-// push it into swap.
+// when many workers would together take more than 40% of the available memory, so the workers do not
+// push the machine into swap or the sandbox past its limit.
 func workerHeapMB(workers int) int {
 	const most, least = 5120, 1536
 	total := totalMemoryMB()

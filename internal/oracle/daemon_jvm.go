@@ -2,7 +2,6 @@ package oracle
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/jdk"
 	"github.com/kaeawc/krit/internal/jvmaot"
 )
 
@@ -113,16 +113,7 @@ func jdkMajorVersion(javaPath string) int {
 
 // JavaPath selects the launcher used by krit-fir. JAVA_HOME takes precedence
 // when it is set, so preflight and the actual subprocess use the same JVM.
-func JavaPath() (string, error) {
-	if home := os.Getenv("JAVA_HOME"); home != "" {
-		path := filepath.Join(home, "bin", "java")
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path, nil
-		}
-		return "", fmt.Errorf("JAVA_HOME does not contain bin/java: %s", home)
-	}
-	return exec.LookPath("java")
-}
+func JavaPath() (string, error) { return jdk.Java() }
 
 // JavaMajorVersion reads the launcher version without the process-wide cache:
 // tests and long-lived servers may change JAVA_HOME between scans.

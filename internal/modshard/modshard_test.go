@@ -427,3 +427,17 @@ func TestMergeCachedTreatsATornCoveredListAsAMiss(t *testing.T) {
 		t.Fatalf("torn covered list must trigger a re-merge: %v %v", covered, err)
 	}
 }
+
+func TestWorkerHeapMBUsesAvailableMemory(t *testing.T) {
+	prev := totalMemoryMB
+	t.Cleanup(func() { totalMemoryMB = prev })
+	// A 16 GB sandbox with two workers gets 40% split between them.
+	totalMemoryMB = func() int { return 16384 }
+	if got := workerHeapMB(2); got != 16384*40/100/2 {
+		t.Errorf("workerHeapMB(2) = %d, want %d", got, 16384*40/100/2)
+	}
+	totalMemoryMB = func() int { return 0 }
+	if got := workerHeapMB(2); got != 5120 {
+		t.Errorf("workerHeapMB with unknown memory = %d, want 5120", got)
+	}
+}

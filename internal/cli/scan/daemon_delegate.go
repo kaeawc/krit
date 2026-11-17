@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -420,11 +421,16 @@ func callMetaVerb(client *daemonclient.Client, f *scanFlags, paths []string, ver
 			outputPath = abs
 		}
 		return client.DumpTypes(daemon.DumpTypesArgs{
-			Paths:         paths,
-			Cwd:           callerCwd(),
-			OutputPath:    outputPath,
-			NoCacheOracle: *f.NoCacheOracle,
-			Verbose:       *f.Verbose,
+			Paths:            paths,
+			Cwd:              callerCwd(),
+			OutputPath:       outputPath,
+			NoCacheOracle:    *f.NoCacheOracle,
+			Verbose:          *f.Verbose,
+			OracleClasspath:  effectiveOracleClasspath(f.modelClasspath, loadScanConfig(f)),
+			OracleSourceDirs: f.modelSourceDirs,
+			OracleJvmTarget:  f.modelJvmTarget,
+			OracleKotlin:     f.modelKotlin,
+			NoFirDaemon:      *f.NoFirDaemon,
 		})
 	}
 	return daemon.MetaResult{}, fmt.Errorf("unknown meta verb %d", verb)
@@ -687,6 +693,16 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 		if s != "" {
 			return false
 		}
+	}
+	// The analyze-project wire carries no rule-scope or cost filter, so a
+	// delegated scan would run the full rule set.
+	if scopeFlagsSet(f) || strings.TrimSpace(*f.MaxCost) != "" {
+		return false
+	}
+	// The daemon renders the JSON envelope with its own timings and cache
+	// statistics, and the wire has no reproducible switch.
+	if *f.Reproducible {
+		return false
 	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.

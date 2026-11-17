@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -49,5 +50,36 @@ func TestOracleJarStatusMissing(t *testing.T) {
 	oracle.Version = "dev"
 	if got := oracleJarStatus(oracle.BackendFIR); !strings.Contains(got, "cd tools/krit-fir && ./gradlew shadowJar") {
 		t.Errorf("dev status = %q", got)
+	}
+}
+
+func TestPrintDoctorReportsJavaHomeTools(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]string{"java": "java", "javac": "javac"}
+	if runtime.GOOS == "windows" {
+		names = map[string]string{"java": "java.exe", "javac": "javac.exe"}
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(bin, name), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("JAVA_HOME", home)
+
+	var out bytes.Buffer
+	printDoctor(&out, "dev")
+	got := out.String()
+	for _, want := range []string{
+		"java: " + filepath.Join(bin, names["java"]) + "\n",
+		"javac: " + filepath.Join(bin, names["javac"]) + " ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, got)
+		}
 	}
 }

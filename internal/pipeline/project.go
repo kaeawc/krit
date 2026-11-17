@@ -89,7 +89,7 @@ type ProjectArgs struct {
 	// daemon's existing hash contract.
 	EditorConfigEnabled bool
 	// Workers overrides per-phase worker counts. Zero falls back to
-	// runtime.NumCPU().
+	// sysres.CPUs().
 	Workers int
 	// StartTime is the wall-clock origin used by Output's JSON header.
 	// Zero means time.Now() is captured at RunProject entry.

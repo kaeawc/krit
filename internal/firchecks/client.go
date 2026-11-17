@@ -235,7 +235,7 @@ func startFirDaemonWithAOT(jarPath string, verbose, allowAOT bool, target ...Com
 func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, target ...CompileTarget) (*FirDaemon, error) {
 	javaPath, err := oracle.JavaPath()
 	if err != nil {
-		return nil, fmt.Errorf("java not found in PATH: %w", err)
+		return nil, fmt.Errorf("java not found: %w", err)
 	}
 
 	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.LauncherMajorVersion(javaPath), verbose, mode)

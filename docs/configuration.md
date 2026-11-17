@@ -53,6 +53,10 @@ Run everything at once (including opt-in rules):
 krit --all-rules .
 ```
 
+`--only-scope` and `--exclude-scope` select rules by scope, `file` for rules
+that look at one file at a time and `project` for the rest; see
+[Hermetic and build-system runs](hermetic-builds.md#sharding-rules-by-scope).
+
 ## Kotlin scripts
 
 `.kts` files (Gradle build scripts, `*.main.kts`) are scanned with a script-aware rule policy. The `scripts:` block selects it; see [Kotlin scripts](kotlin-scripts.md).

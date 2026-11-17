@@ -293,6 +293,16 @@ promotion match the in-process flow. The wire addition was shared with
 `--rule-audit` / `--baseline-audit`; see "Audits that ship with the
 analysis" above for the response-shape rationale.
 
+## Rule-set filters
+
+### `--only-scope`, `--exclude-scope`, `--max-cost`
+
+`AnalyzeProjectArgs` carries `--enable-rules`, `--disable-rules`,
+`--all-rules` and `--experimental`, but no scope or cost filter, so a delegated
+scan would run the full rule set and report findings the caller filtered out.
+`daemonCompatibleFlags` keeps these scans in-process. Routing them would need
+the filters on the wire and in the daemon's findings-cache key.
+
 ## Cache clears
 
 ### `--clear-cache` (now routed via daemon)

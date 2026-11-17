@@ -231,6 +231,10 @@ func Run() int {
 	if *f.PerfRules {
 		*f.Perf = true
 	}
+	if _, _, err := parseScopeFlags(f); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 2
+	}
 
 	// Scaffold mode: -new-experiment short-circuits the normal scan path.
 	runNewExperimentScaffoldFlag(NewExperimentOpts{

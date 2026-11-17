@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -692,6 +693,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 		if s != "" {
 			return false
 		}
+	}
+	// The analyze-project wire carries no rule-scope or cost filter, so a
+	// delegated scan would run the full rule set.
+	if scopeFlagsSet(f) || strings.TrimSpace(*f.MaxCost) != "" {
+		return false
 	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.

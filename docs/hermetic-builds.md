@@ -55,3 +55,41 @@ under either `--no-daemon` or `--no-fir-daemon`. It compiles against the same
 compile context a scan's oracle uses: the Gradle model's source roots and
 classpath, `oracle.classpath` from `krit.yml`, the JVM target and the Kotlin
 compiler settings.
+
+## Sharding rules by scope
+
+A build system that runs one action per module gets wrong results from rules
+that look across files: dead-code and unused-resource rules, for example,
+report a declaration as unused when its only caller is in another module.
+`--only-scope` and `--exclude-scope` split the rule set so each module can run
+the per-file rules while one whole-repository action runs the rest:
+
+```bash
+# One action per module, cacheable on the module's own inputs.
+krit --only-scope=file --no-daemon --no-cache -f sarif -o app.sarif app/
+
+# One action for the whole repository, Go-only.
+krit --only-scope=project --no-fir --no-daemon --no-cache -f sarif -o project.sarif .
+```
+
+Both flags take a comma-separated list. The groups are:
+
+| Group | Rules |
+| --- | --- |
+| `file` | Rules whose findings for a file depend only on that file and on type information: the per-file AST, line-scanning and per-file aggregate passes. |
+| `project` | Every other rule: cross-file and module-index rules, rules over all parsed files, and Android manifest, resource, icon and Gradle rules. |
+
+The individual dispatcher scopes are also accepted: `per-file-node`,
+`per-file-all-nodes`, `line-pass`, `aggregate`, `cross-file`,
+`module-index`, `parsed-files`, `manifest`, `resource`, `resource-source`,
+`icons` and `gradle`. An unknown value exits with status 2. When both flags are
+set, `--only-scope` selects and `--exclude-scope` then removes. The two groups
+partition the rule set, so a `file` run and a `project` run over the same tree
+report the same findings as one unfiltered run.
+
+`krit --list-rules --format json` reports each rule's group in its `scope`
+field. File-scope rules that use type information still resolve types from
+the files in the scan and from the classpath, so give each module action the
+module's compile classpath (see [FIR scan requirements](configuration.md#fir-scan-requirements)).
+The scope flags, like `--max-cost`, keep the scan in-process instead of
+delegating it to a krit daemon.

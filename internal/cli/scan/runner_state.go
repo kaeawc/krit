@@ -474,8 +474,10 @@ func (r *runner) ensureProjectModel() {
 }
 
 // selectScanRules applies --disable-rules, --enable-rules, --all-rules,
-// --experimental, --strict and --max-cost to the registry. It also returns
-// the rule count before the --max-cost filter and the resolved cost cap.
+// --experimental, --strict, --max-cost, --only-scope and --exclude-scope to
+// the registry. It also returns the rule count before the --max-cost filter
+// and the resolved cost cap. Run rejects invalid scope flags before the scan
+// starts, so a parse error here cannot happen.
 func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, beforeMaxCost int, maxCost api.Cost) {
 	disabledSet := clishared.ParseRuleNameSetCSV(*f.DisableRules)
 	enabledSet := clishared.ParseRuleNameSetCSV(*f.EnableRules)
@@ -490,7 +492,30 @@ func selectScanRules(f *scanFlags, cfg *config.Config) (selected []*api.Rule, be
 		maxCost = c
 		selected = rules.FilterByMaxCost(selected, c)
 	}
+	only, exclude, _ := parseScopeFlags(f)
+	selected = rules.FilterByScope(selected, only, exclude)
 	return selected, beforeMaxCost, maxCost
+}
+
+// parseScopeFlags parses --only-scope and --exclude-scope.
+func parseScopeFlags(f *scanFlags) (only, exclude rules.ScopeSet, err error) {
+	if f.OnlyScope != nil {
+		if only, err = rules.ParseScopeSet(*f.OnlyScope); err != nil {
+			return nil, nil, fmt.Errorf("--only-scope: %w", err)
+		}
+	}
+	if f.ExcludeScope != nil {
+		if exclude, err = rules.ParseScopeSet(*f.ExcludeScope); err != nil {
+			return nil, nil, fmt.Errorf("--exclude-scope: %w", err)
+		}
+	}
+	return only, exclude, nil
+}
+
+// scopeFlagsSet reports whether --only-scope or --exclude-scope is set.
+func scopeFlagsSet(f *scanFlags) bool {
+	return (f.OnlyScope != nil && strings.TrimSpace(*f.OnlyScope) != "") ||
+		(f.ExcludeScope != nil && strings.TrimSpace(*f.ExcludeScope) != "")
 }
 
 // filterRules computes the active rule set from --disable-rules /
@@ -505,7 +530,7 @@ func (r *runner) filterRules() (handled bool, code int) {
 		var maxCost api.Cost
 		r.activeRules, before, maxCost = selectScanRules(r.f, r.cfg)
 		if *r.f.Verbose && len(r.activeRules) != before {
-			fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s filtered %d → %d rules\n",
+			fmt.Fprintf(os.Stderr, "verbose: --max-cost=%s and rule scope filters %d → %d rules\n",
 				maxCost, before, len(r.activeRules))
 		}
 		if pipeline.RulesNeedProjectModel(r.activeRules) {

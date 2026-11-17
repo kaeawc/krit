@@ -362,7 +362,10 @@ type ListedRule struct {
 	// Scripts is where the rule runs among Kotlin script (.kts) files: all,
 	// standalone, gradle or none. See docs/kotlin-scripts.md.
 	Scripts string `json:"scripts,omitempty"`
-	Plugin  bool   `json:"plugin,omitempty"`
+	// Scope is the rule's scope group, "file" or "project", as selected by
+	// --only-scope and --exclude-scope.
+	Scope  string `json:"scope,omitempty"`
+	Plugin bool   `json:"plugin,omitempty"`
 }
 
 // ListedRules is the `krit --list-rules --format json` document.
@@ -531,6 +534,7 @@ func writeListRulesJSON(w, stderrW io.Writer, registry []*api.Rule, matcher api.
 			Description:   r.Description,
 			DocsURL:       api.RuleDocsURL(r),
 			Scripts:       rules.DescribeScriptScope(r),
+			Scope:         rules.ScopeGroup(r),
 		}
 		if lvl, ok := rules.GetV2FixLevel(r); ok {
 			entry.Fixable = true

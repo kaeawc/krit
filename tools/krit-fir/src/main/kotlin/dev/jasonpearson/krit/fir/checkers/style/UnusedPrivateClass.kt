@@ -126,8 +126,9 @@ internal object UnusedPrivateClass : FirFileChecker(MppCheckerKind.Common), FirR
         val source = declaration.source ?: return null
         if (source.kind !is KtRealSourceElementKind || source.elementType != KtNodeTypes.CLASS) return null
         val identifier = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        val name = lightText(source, identifier).trim('`')
-        if (name.isEmpty()) return null
-        return Candidate(name, declaration.symbol.classId, lightSourceOf(identifier, source))
+        // Go's message keeps the name as written, backticks included.
+        val written = lightText(source, identifier)
+        if (written.trim('`').isEmpty()) return null
+        return Candidate(written, declaration.symbol.classId, lightSourceOf(identifier, source))
     }
 }

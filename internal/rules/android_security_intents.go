@@ -262,11 +262,13 @@ func startActivityHasGuardBetween(file *scanner.File, launch uint32, intentVar s
 	return guarded
 }
 
+// getForegroundService checks the flags like getService, so it throws too.
 var implicitPendingIntentMethods = map[string]bool{
-	"getActivity":   true,
-	"getBroadcast":  true,
-	"getService":    true,
-	"getActivities": true,
+	"getActivity":          true,
+	"getBroadcast":         true,
+	"getService":           true,
+	"getForegroundService": true,
+	"getActivities":        true,
 }
 
 func implicitPendingIntentCall(file *scanner.File, idx uint32) bool {

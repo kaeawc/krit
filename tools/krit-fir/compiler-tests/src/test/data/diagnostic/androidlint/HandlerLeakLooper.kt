@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 28, 33, 36, 48, 52
-// The Looper exemption for inner Handler classes, as Go applies it: a primary
-// constructor parameter whose type names Looper, referenced in the arguments
-// of the `Handler(...)` superclass call.
+// go-lines: 26, 34, 48, 50, 63
+// The Looper exemptions, as in Lint 32.4.1 (HandlerDetector) and Go: an inner
+// Handler class one of whose own constructors takes a parameter typed Looper,
+// whether or not it passes it to Handler, and an anonymous Handler whose
+// superclass constructor call has a Looper argument.
 package test
 
 import android.os.Handler
@@ -24,33 +25,40 @@ class Screen {
     // The main looper is not a constructor parameter.
     <!HandlerLeak!>inner<!> class MainLooper : Handler(Looper.getMainLooper())
 
-    // The Looper parameter is not passed to Handler.
-    <!HandlerLeak!>inner<!> class NotPassed(looper: Looper) : Handler() {
+    // Lint only asks for a Looper parameter, not that it reaches Handler.
+    inner class NotPassed(looper: Looper) : Handler() {
         val l = looper
     }
 
     // A parameter that is not a Looper does not exempt the class.
     <!HandlerLeak!>inner<!> class NotLooper(looper: Any) : Handler(looper as Looper)
 
-    // Go reads only the primary constructor.
-    <!HandlerLeak!>inner<!> class Secondary : Handler {
+    // A secondary constructor's Looper parameter counts too.
+    inner class Secondary : Handler {
         constructor(looper: Looper) : super(looper)
     }
 
-    // The superclass call must name Handler itself.
     open inner class Base(looper: Looper) : Handler(looper)
 
-    // Go misses this: it does not follow the base class Base to Handler.
-    // ViaBase is an inner Handler class the exemption does not cover.
-    <!HandlerLeak!>inner<!> class ViaBase(looper: Looper) : Base(looper)
+    // The exemption reads the class's own constructors, whatever its
+    // superclass; Go does not follow Base to Handler at all.
+    inner class ViaBase(looper: Looper) : Base(looper)
 
-    // Anonymous Handlers are reported even with a Looper, as in Go.
-    fun create(looper: Looper): Handler = <!HandlerLeak!>object<!> : Handler(looper) {}
+    // Neither a list of Loopers nor a vararg is a Looper parameter.
+    <!HandlerLeak!>inner<!> class LooperList(loopers: List<Looper>) : Handler(loopers.first())
 
-    // Go's tree-sitter reads `$looper` as an interpolated identifier, which it
-    // does not count, so the Looper parameter is not passed to Handler.
-    <!HandlerLeak!>inner<!> class ShortTemplate(looper: Looper) : Handler(Looper.getMainLooper().also { println("$looper") })
+    <!HandlerLeak!>inner<!> class LooperVararg(vararg loopers: Looper) : Handler(loopers.first())
 
-    // `${looper}` holds an ordinary identifier: exempt, as in Go.
-    inner class BlockTemplate(looper: Looper) : Handler(Looper.getMainLooper().also { println("${looper}") })
+    // An anonymous Handler built on a Looper argument.
+    fun create(looper: Looper): Handler = object : Handler(looper) {}
+
+    fun createMain(): Handler = object : Handler(Looper.getMainLooper()) {}
+
+    fun createWithCallback(cb: Handler.Callback): Handler = object : Handler(Looper.getMainLooper(), cb) {}
+
+    // `l` does not name a looper; Go's resolver types the parameter instead.
+    fun createShortName(l: Looper): Handler = object : Handler(l) {}
+
+    // A callback is not a Looper.
+    fun createCallbackOnly(cb: Handler.Callback): Handler = <!HandlerLeak!>object<!> : Handler(cb) {}
 }

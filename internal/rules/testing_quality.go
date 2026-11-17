@@ -45,11 +45,11 @@ type AssertTrueOnComparisonRule struct {
 func testingQualityAssertTrueOnComparisonKnownCall(file *scanner.File, idx uint32) bool {
 	navExpr, _ := flatCallExpressionParts(file, idx)
 	if navExpr == 0 {
-		return true
+		return testingQualityReceiverlessAssertTrueIsLibrary(file)
 	}
 	segments := flatNavigationChainIdentifiers(file, navExpr)
 	if len(segments) <= 1 || segments[len(segments)-1] != "assertTrue" {
-		return true
+		return testingQualityReceiverlessAssertTrueIsLibrary(file)
 	}
 	receiver := strings.Join(segments[:len(segments)-1], ".")
 	switch receiver {
@@ -61,6 +61,24 @@ func testingQualityAssertTrueOnComparisonKnownCall(file *scanner.File, idx uint3
 	default:
 		return false
 	}
+}
+
+// testingQualityReceiverlessAssertTrueIsLibrary reports whether a receiverless assertTrue can be a library one:
+// a function the file declares or an import from another package shadows the library function.
+func testingQualityReceiverlessAssertTrueIsLibrary(file *scanner.File) bool {
+	if fileDeclaresFunctionNamed(file, "assertTrue") {
+		return false
+	}
+	imported, ok := fileFactsCache().Imports(file).Aliases["assertTrue"]
+	if !ok {
+		return true
+	}
+	switch imported {
+	case "org.junit.Assert.assertTrue", "junit.framework.Assert.assertTrue", "junit.framework.TestCase.assertTrue",
+		"org.junit.jupiter.api.Assertions.assertTrue", "kotlin.test.assertTrue":
+		return true
+	}
+	return false
 }
 
 // Confidence reports a tier-2 (medium) base confidence. Testing-quality rule. Detection matches

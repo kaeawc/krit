@@ -56,6 +56,8 @@ class Negatives {
 
     fun implicitReceiver(): String = toString()
 
-    // The implicit receiver of a scope function has no written receiver expression to report on.
-    fun scopeReceiver(value: String?): String = with(value) { toString() }
+    // A non-null implicit receiver calls the member `Any.toString()`.
+    fun nonNullScopeReceiver(value: String): String = with(value) { toString() }
 }
+
+fun String.nonNullExtensionReceiver(): String = toString()

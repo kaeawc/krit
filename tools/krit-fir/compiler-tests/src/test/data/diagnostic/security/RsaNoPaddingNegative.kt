@@ -8,7 +8,7 @@ package test
 
 import javax.crypto.Cipher
 
-const val RSA_NO_PADDING = "RSA/ECB/NoPadding"
+const val PADDED = "RSA/ECB/" + "PKCS1Padding"
 
 object KeyCipher {
     fun getInstance(transformation: String): String = transformation
@@ -34,12 +34,18 @@ class Crypto(private val mode: String) {
 
     fun concatenated(): Cipher = Cipher.getInstance("RSA/ECB/" + "NoPadding")
 
-    fun constant(): Cipher = Cipher.getInstance(RSA_NO_PADDING)
+    // A var may hold another value when the call runs.
+    private var current = "RSA/ECB/NoPadding"
 
-    fun variable(): Cipher {
-        val transformation = "RSA/ECB/NoPadding"
+    fun mutable(): Cipher = Cipher.getInstance(current)
+
+    fun localVar(): Cipher {
+        var transformation = "RSA/ECB/NoPadding"
+        transformation = mode
         return Cipher.getInstance(transformation)
     }
+
+    fun paddedConstant(): Cipher = Cipher.getInstance(PADDED)
 
     // Local lookalikes: same method name, different owner.
     fun lookalikeObject(): String = KeyCipher.getInstance("RSA/ECB/NoPadding")

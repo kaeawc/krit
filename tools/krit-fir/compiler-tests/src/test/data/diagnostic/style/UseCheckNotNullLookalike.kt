@@ -1,8 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 21, 22, 27, 35, 41, 51, 56
+// go-lines: 30, 54, 59
 // Lookalikes: calls named `check` that do not resolve to kotlin.check, so
-// checkNotNull is not a replacement for them. Go matches the callee name alone
-// and reports every call below; the checker requires kotlin.check.
+// checkNotNull is not a replacement for them. The checker requires
+// kotlin.check. Go skips a call on a receiver other than `kotlin` and a bare
+// call in a class or block that declares a `check` function or property;
+// it still reports a `check` reached through a `with` receiver or an
+// extension receiver, which it cannot see from the call.
 package test
 
 class Validator {

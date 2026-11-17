@@ -1,10 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 22, 23, 25
-// Intervals Go misses. Go reads the interval's text and parses it as a decimal
-// integer, so it drops a literal with underscores (the parse fails), a hex or
-// binary literal, a parenthesized literal, and a named constant. Each call
-// below sets a repeating alarm to 5 or 10 seconds, which is the finding the
-// message describes, so FIR reports the interval argument of each.
+// Interval spellings. Go parses a literal with underscores, a hex literal, and
+// a parenthesized literal, but drops a binary literal and every named
+// constant. Each call below sets a repeating alarm to 5 or 10 seconds, which
+// is the finding the message describes, so FIR reports the interval argument
+// of each.
 package test.recall
 
 import android.app.AlarmManager

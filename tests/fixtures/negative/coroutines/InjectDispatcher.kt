@@ -114,6 +114,13 @@ class ImageCache(private val ioDispatcher: CoroutineDispatcher) {
     }
 }
 
+// A parameter's default value is the injection point itself.
+class Loader(val dispatcher: CoroutineDispatcher)
+
+class Cache(private val loader: Loader = Loader(Dispatchers.IO)) {
+    fun reload(other: Loader = Loader(Dispatchers.Default)) = other
+}
+
 fun fetchFromNetwork() = Unit
 fun renderResult() = Unit
 

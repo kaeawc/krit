@@ -76,8 +76,8 @@ class UseAnyOrNoneInsteadOfFindCounterpartTest {
 
             fun isNull(catalog: Catalog): Boolean = catalog.find { it.isEmpty() } == null
         """.trimIndent()
-        // Only `!= null`: there is no none. (Library.kt passes a function
-        // value, not a lambda, so its own comparison is not reported.)
+        // Only `!= null`: there is no none. (Library.kt's comparison is the
+        // body of the any it would suggest, so it is not reported.)
         assertEquals(
             listOf("Main.kt" to 5),
             findingLines(mapOf("Library.kt" to library, "Main.kt" to main)),

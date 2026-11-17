@@ -186,6 +186,27 @@ class NarrowedRulesFileLocalTest {
             emptyList(),
             findings(rule, mapOf("B.kt" to "package p\nconst val QUERY = \"SELECT 1\"\n", "A.kt" to "$header\n$use\n")),
         )
+        // A member val of a class (not an object) of another file is an instance's data, so it is reported on a
+        // slice and on a full compile alike, as are stdlib members such as Throwable.message.
+        val model = "package p\nclass User(val id: String)\ndata class Request(val table: String)\n"
+        for (call in listOf(
+            "\"SELECT * FROM t WHERE id = \" + user.id",
+            "\"SELECT * FROM t WHERE id = \${user.id}\"",
+            "\"DROP TABLE \" + request.table",
+            "\"SELECT * FROM t WHERE m = \" + e.message",
+        )) {
+            assertEquals(
+                listOf("A.kt" to 4),
+                findings(
+                    rule,
+                    mapOf(
+                        "B.kt" to model,
+                        "A.kt" to "$header\nfun run(s: Statement, user: User, request: Request, e: Exception) { s.execute($call) }\n",
+                    ),
+                ),
+                call,
+            )
+        }
     }
 
     // CollectionsSynchronizedListIteration: a val holding the wrapper.
@@ -300,18 +321,23 @@ class NarrowedRulesFileLocalTest {
         )
     }
 
-    // ShowToast: a property assigned in the file under check. One declared in another file is followed as a class
-    // file has it, with no initializer, so a toast shown through it counts as shown.
+    // ShowToast: a toast assigned to a member or top-level property escapes to code that may show it, as in Go and
+    // Lint, wherever the property is declared. A property's initializer toast is followed only when the initializer
+    // is the property's one write in the file.
     @Test fun showToast() {
         val rule = "ShowToast"
         val header = "package p\nimport android.widget.Toast\nimport android.content.Context\n"
-        val property = "lateinit var ctx: Context\nvar saved: Toast? = Toast.makeText(ctx, \"x\", 0)\n"
-        val use = "fun g(c: Context) {\n    saved = Toast.makeText(c, \"y\", 0)\n    saved?.show()\n}\n"
-        // A property with a non-null initializer in this file is not followed: the assigned toast is reported
-        // (line 8: the header is 3 lines, the property 2, then a blank line and `fun g`).
-        assertTrue(("All.kt" to 8) in findings(rule, one("$header$property\n$use")))
+        val property = "lateinit var ctx: Context\nvar saved: Toast? = Toast.makeText(ctx, \"x\", Toast.LENGTH_SHORT)\n"
+        val use = "fun g(c: Context) {\n    saved = Toast.makeText(c, \"y\", Toast.LENGTH_SHORT)\n    saved?.show()\n}\n"
+        // In one file g writes the property too, so the initializer toast (line 5) is not followed and is reported;
+        // g's toast escapes into the property.
+        assertEquals(listOf("All.kt" to 5), findings(rule, one("$header$property\n$use")))
         // The toast bare statement still fires with no property involved.
-        assertEquals(listOf("All.kt" to 6), findings(rule, one("$header\nfun bare(c: Context) {\n    Toast.makeText(c, \"y\", 0)\n}\n")))
+        val bare = "$header\nfun bare(c: Context) {\n    Toast.makeText(c, \"y\", Toast.LENGTH_SHORT)\n}\n"
+        assertEquals(listOf("All.kt" to 6), findings(rule, one(bare)))
+        // A literal duration is reported on its own, shown or not: twice on a bare toast.
+        val duration = "$header\nfun bare(c: Context) {\n    Toast.makeText(c, \"y\", 2000)\n}\n"
+        assertEquals(listOf("All.kt" to 6, "All.kt" to 6), findings(rule, one(duration)))
         // (B.kt's own initializer toast is never shown in B and is reported there, in either case.)
         assertEquals(
             emptyList(),

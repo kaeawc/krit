@@ -84,14 +84,12 @@ class WeakMacAlgorithmTest {
                     }
                 """.trimIndent(),
                 expected = 0,
-                // Go reports this because the star import satisfies its mention
-                // check; FIR is correct because the explicit import wins.
-                why = "the explicit lookalike import wins over javax.crypto.* (deliberate precision fix)",
+                why = "the explicit lookalike import wins over javax.crypto.* (Go is silent too)",
             ),
-            // In the next three cases Go's mention check is satisfied by
-            // something other than an import of javax.crypto.Mac, so Go
-            // reports; FIR is correct because the explicit import of the
-            // lookalike decides what the bare `Mac` resolves to.
+            // In the next three cases something other than an import of
+            // javax.crypto.Mac mentions it, but the explicit import of the
+            // lookalike decides what the bare `Mac` resolves to (Go is silent
+            // too).
             Case(
                 "MacImportsOtherPackageCommentMention.kt",
                 """
@@ -106,9 +104,7 @@ class WeakMacAlgorithmTest {
                     }
                 """.trimIndent(),
                 expected = 0,
-                // Go's byte search for "javax.crypto.Mac" finds the comment
-                // and KDoc text.
-                why = "a comment or KDoc naming javax.crypto.Mac does not change the imported lookalike (deliberate precision fix)",
+                why = "a comment or KDoc naming javax.crypto.Mac does not change the imported lookalike",
             ),
             Case(
                 "MacImportsOtherPackageMacSpi.kt",
@@ -125,9 +121,7 @@ class WeakMacAlgorithmTest {
                     }
                 """.trimIndent(),
                 expected = 0,
-                // Go's byte search for "javax.crypto.Mac" matches inside
-                // "javax.crypto.MacSpi".
-                why = "importing javax.crypto.MacSpi does not make the imported lookalike the JDK Mac (deliberate precision fix)",
+                why = "importing javax.crypto.MacSpi does not make the imported lookalike the JDK Mac",
             ),
             Case(
                 "MacImportsOtherPackageAliasedJdk.kt",
@@ -144,9 +138,7 @@ class WeakMacAlgorithmTest {
                     }
                 """.trimIndent(),
                 expected = 0,
-                // Go's byte search for "javax.crypto.Mac" matches the aliased
-                // import, which binds JMac, not Mac.
-                why = "javax.crypto.Mac imported as JMac leaves the bare Mac bound to the lookalike (deliberate precision fix)",
+                why = "javax.crypto.Mac imported as JMac leaves the bare Mac bound to the lookalike",
             ),
             Case(
                 "MacInheritedNestedClass.kt",

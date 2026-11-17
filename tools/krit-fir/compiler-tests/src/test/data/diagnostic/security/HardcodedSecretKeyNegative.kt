@@ -27,18 +27,17 @@ class Crypto(private val keyStore: KeyStore, private val prefs: Map<String, Stri
         keyStore.getKey("alias", null) as SecretKey
     }
 
-    // Not a literal list: empty, a converted value, or a spread.
+    // Not hardcoded bytes: empty, or a spread of a runtime array. Converted
+    // literals and a const read are in HardcodedSecretKeyReads.
     fun notLiteralLists(param: ByteArray) {
         SecretKeySpec(byteArrayOf(), "AES")
-        SecretKeySpec(byteArrayOf(1.toByte(), 2), "AES")
         SecretKeySpec(byteArrayOf(*param), "AES")
-        SecretKeySpec(byteArrayOf(1, 2).copyOf(16), "AES")
     }
 
     // Go only reads the literal bytes when the argument starts with the
-    // string literal (or is the byteArrayOf call itself).
+    // string literal (or is the byteArrayOf call itself); FIR agrees here, as
+    // the bytes are joined to a runtime array or read through a safe call.
     fun notLeadingLiteral(param: ByteArray) {
-        SecretKeySpec(KEY_TEXT.toByteArray(), "AES")
         SecretKeySpec(param + "p@ssw0rd12345678".toByteArray(), "AES")
         SecretKeySpec("p@ssw0rd12345678"?.toByteArray()!!, "AES")
     }

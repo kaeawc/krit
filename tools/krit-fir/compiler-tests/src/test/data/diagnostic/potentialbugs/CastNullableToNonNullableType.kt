@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 17, 21, 26, 31, 36, 41, 46
+// go-lines: 11, 17, 21, 26, 31, 36, 41, 46, 51
 package test
 
 data class Box<T>(val value: T)
@@ -44,6 +44,11 @@ class Positives {
 
     fun <T> unboundedOperand(input: T) {
         val result = <!CastNullableToNonNullableType!>input as Any<!>
+        println(result)
+    }
+
+    fun functionTypeTarget(input: Any?) {
+        val result = <!CastNullableToNonNullableType!>input as (() -> Unit)<!>
         println(result)
     }
 }

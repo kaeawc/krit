@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -291,6 +292,9 @@ func weakMessageDigestReceiverTextIsJavaSecurity(file *scanner.File, receiver st
 	if receiver != "MessageDigest" {
 		return false
 	}
+	if weakCryptoImportsOtherClassAs(file, "MessageDigest", "java.security.MessageDigest") {
+		return false
+	}
 	if weakMessageDigestFileDeclaresMessageDigest(file) {
 		return false
 	}
@@ -509,6 +513,9 @@ func weakMacReceiverTextIsJavaxCrypto(file *scanner.File, receiver string) bool 
 	if receiver != "Mac" {
 		return false
 	}
+	if weakCryptoImportsOtherClassAs(file, "Mac", "javax.crypto.Mac") {
+		return false
+	}
 	if weakMacFileDeclaresMac(file) {
 		return false
 	}
@@ -528,6 +535,20 @@ func weakMacFileDeclaresMac(file *scanner.File) bool {
 		})
 	}
 	return found
+}
+
+// weakCryptoImportsOtherClassAs reports whether an explicit import binds name to a class other than fqn.
+// That import wins over a star import, and a mention of fqn elsewhere in the file does not change it.
+func weakCryptoImportsOtherClassAs(file *scanner.File, name, fqn string) bool {
+	var imported string
+	if file.Language == scanner.LangJava {
+		if facts := javafacts.SourceFactsForFile(file); facts != nil {
+			imported = facts.Imports[name]
+		}
+	} else {
+		imported = fileFactsCache().Imports(file).Aliases[name]
+	}
+	return imported != "" && imported != fqn
 }
 
 func weakGetInstanceFirstStringArg(file *scanner.File, call uint32) (string, bool) {

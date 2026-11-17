@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.inheritsFrom
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -20,6 +21,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirFunctionConversionKind
+import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
@@ -82,7 +85,10 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *
  * A SAM-constructor lambda, `HostnameVerifier { _, _ -> true }`, is reported on
  * the call, as Go reports it: the call creates a `javax.net.ssl.HostnameVerifier`
- * and its lambda body is the literal `true`.
+ * and its lambda body is the literal `true`. A lambda argument SAM-converted to
+ * `javax.net.ssl.HostnameVerifier`
+ * (`HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }`) is reported
+ * on the lambda; Go misses it (AllowAllHostnameVerifierSamConversion.kt).
  */
 internal object AllowAllHostnameVerifier :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
@@ -127,6 +133,7 @@ internal object AllowAllHostnameVerifier :
         override fun check(expression: FirFunctionCall) {
             val source = expression.source ?: return
             if (source.kind !is KtRealSourceElementKind) return
+            reportSamConversions(expression)
             val created = expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible()
             if (created.classId != hostnameVerifier) return
             if (expression.calleeReference.toResolvedCallableSymbol()?.name?.asString() != "HostnameVerifier") return
@@ -135,6 +142,20 @@ internal object AllowAllHostnameVerifier :
             val body = lambda.body ?: return
             if (!alwaysReturnsTrue(body)) return
             report(source, MESSAGE)
+        }
+
+        // `setDefaultHostnameVerifier { _, _ -> true }`: a lambda argument the compiler converts to a HostnameVerifier.
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        private fun reportSamConversions(call: FirFunctionCall) {
+            for (argument in call.argumentList.arguments) {
+                val conversion = unwrapArgument(argument) as? FirFunctionTypeConversionExpression ?: continue
+                if (conversion.kind !is FirFunctionConversionKind.Sam) continue
+                if (conversion.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId != hostnameVerifier) continue
+                val lambda = (conversion.expression as? FirAnonymousFunctionExpression)?.anonymousFunction ?: continue
+                val body = lambda.body ?: continue
+                if (!alwaysReturnsTrue(body)) continue
+                report(lambda.source ?: continue, MESSAGE)
+            }
         }
     }
 

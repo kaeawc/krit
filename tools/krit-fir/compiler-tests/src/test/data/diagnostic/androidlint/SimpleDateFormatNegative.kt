@@ -1,20 +1,17 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negatives for SimpleDateFormat: every call with two or more arguments, a
-// subclass constructor, superclass delegation, and a constructor reference.
-// Go reports none of these either: it accepts any second argument, and
-// superclass delegation and `::SimpleDateFormat` are not call expressions of
-// SimpleDateFormat.
+// Negatives for SimpleDateFormat: every constructor with a Locale parameter, a
+// subclass constructor named otherwise, a superclass delegation with a
+// locale, and a constructor reference. Go reports none of these either.
 package test
 
-import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class RootFormat(pattern: String) : SimpleDateFormat(pattern)
+class RootFormat(pattern: String) : SimpleDateFormat(pattern, Locale.ROOT)
 
 class DelegatingFormat : SimpleDateFormat {
-    constructor(pattern: String) : super(pattern)
+    constructor(pattern: String) : super(pattern, Locale.US)
 }
 
 class Formats {
@@ -23,8 +20,6 @@ class Formats {
     fun withRoot(): SimpleDateFormat = SimpleDateFormat("yyyy", Locale.ROOT)
 
     fun withDefault(): SimpleDateFormat = SimpleDateFormat("yyyy", Locale.getDefault())
-
-    fun withSymbols(): SimpleDateFormat = SimpleDateFormat("yyyy", DateFormatSymbols(Locale.US))
 
     fun qualifiedWithLocale(): java.text.SimpleDateFormat = java.text.SimpleDateFormat("yyyy", Locale.US)
 
@@ -40,7 +35,7 @@ class Formats {
 
     fun delegating(): SimpleDateFormat = DelegatingFormat("yyyy")
 
-    fun anonymousSubclass(): SimpleDateFormat = object : SimpleDateFormat("yyyy") {}
+    fun anonymousSubclass(): SimpleDateFormat = object : SimpleDateFormat("yyyy", Locale.US) {}
 
     fun reference(patterns: List<String>): List<SimpleDateFormat> = patterns.map(::SimpleDateFormat)
 

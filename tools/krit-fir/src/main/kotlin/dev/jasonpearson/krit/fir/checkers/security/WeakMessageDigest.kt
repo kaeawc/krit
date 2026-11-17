@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstArgumentStringContent
 import dev.jasonpearson.krit.fir.support.trimGoSpace
 import dev.jasonpearson.krit.fir.support.upperCodePoints
+import dev.jasonpearson.krit.fir.support.writtenArgumentName
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirNamedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
@@ -47,10 +47,9 @@ import org.jetbrains.kotlin.name.Name
 // from the file's imports and declarations; FIR reads the resolved call:
 // - Precision: Go accepts a bare `MessageDigest` whenever the file imports or
 //   mentions java.security.MessageDigest (a `java.security.*` star import
-//   counts) and declares no MessageDigest itself, so it also reports when that
-//   name resolves to another class: an explicit import of another class as or
-//   named MessageDigest, or a same-package MessageDigest declared in another
-//   file (which wins over a star import).
+//   counts), declares no MessageDigest itself, and imports no other class as
+//   MessageDigest, so it also reports a same-package MessageDigest declared in
+//   another file (which wins over a star import).
 // - Recall (Go misses these true positives): an import alias, typealias,
 //   parenthesized, or backticked spelling of java.security.MessageDigest, and
 //   a statically imported getInstance (WeakMessageDigest); a bare
@@ -96,7 +95,7 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
         val elements = context.containingElements
         val function = elements.filterIsInstance<FirNamedFunction>().lastOrNull()
         val cls = elements.filterIsInstance<FirRegularClass>().lastOrNull { it.classKind != ClassKind.OBJECT }
-        val property = elements.lastOrNull { it is FirNamedFunction || it is FirProperty } as? FirProperty
+        val property = (elements.lastOrNull(::isPropertyScope) as? FirProperty)?.takeIf { it.initializes(call) }
         val names = listOfNotNull(function?.name?.asString(), cls?.name?.asString(), property?.name?.asString())
 
         val flow = if (function != null) resultNames(function, call, property) else emptyList()
@@ -111,6 +110,16 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
         if ("sign" in words) return false
         if (benignHints.any { it in joined }) return true
         return "id" in words
+    }
+
+    // Go's initializerAssignedName looks for the nearest property below a function or class declaration.
+    private fun isPropertyScope(e: FirElement): Boolean = e is FirProperty || e is FirNamedFunction || e is FirRegularClass
+
+    // Go reads only the expression after `=`: a getter or delegate does not name the value.
+    private fun FirProperty.initializes(e: FirElement): Boolean {
+        val outer = initializer?.source ?: return false
+        val inner = e.source ?: return false
+        return outer.startOffset <= inner.startOffset && inner.endOffset <= outer.endOffset
     }
 
     private fun hasSecurityHint(joined: String, names: List<String>): Boolean =
@@ -136,7 +145,7 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
     }
 
     // The names that receive the output of digest() on the getInstance result [call]: a property it initializes,
-    // an assignment target, or a named argument.
+    // an assignment target, or a named argument (read from source, since resolution drops the name wrapper).
     private fun resultNames(function: FirNamedFunction, call: FirFunctionCall, digestVar: FirProperty?): List<String> {
         val names = ArrayList<String>()
         fun isDigestOnTarget(e: FirElement?): Boolean {
@@ -148,16 +157,19 @@ internal object WeakMessageDigest : FirFunctionCallChecker(MppCheckerKind.Common
             return digestVar != null && symbol == digestVar.symbol
         }
         function.accept(object : FirVisitorVoid() {
-            private val owners = ArrayDeque<String>()
+            // The nearest property scope; null for a function or class, which ends Go's property search.
+            private val owners = ArrayDeque<FirProperty?>()
 
             override fun visitElement(element: FirElement) {
-                if (isDigestOnTarget(element)) owners.lastOrNull()?.let(names::add)
+                if (isDigestOnTarget(element)) {
+                    owners.lastOrNull()?.takeIf { it.initializes(element) }?.let { names += it.name.asString() }
+                    writtenArgumentName(element as FirFunctionCall)?.let(names::add)
+                }
                 if (element is FirVariableAssignment && isDigestOnTarget(element.rValue)) {
                     (element.lValue as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()?.name?.asString()?.let(names::add)
                 }
-                if (element is FirNamedArgumentExpression && isDigestOnTarget(element.expression)) names += element.name.asString()
-                if (element is FirProperty) {
-                    owners.addLast(element.name.asString())
+                if (isPropertyScope(element)) {
+                    owners.addLast(element as? FirProperty)
                     element.acceptChildren(this)
                     owners.removeLast()
                     return

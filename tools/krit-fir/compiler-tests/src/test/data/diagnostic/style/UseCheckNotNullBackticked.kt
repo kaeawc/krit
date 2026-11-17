@@ -11,5 +11,5 @@ fun backticked(x: Any?) {
 }
 
 fun backtickedQualified(x: Any?) {
-    <!UseCheckNotNull!>kotlin.`check`(x != null)<!>
+    kotlin.<!UseCheckNotNull!>`check`(x != null)<!>
 }

@@ -111,6 +111,8 @@ class Negatives {
         }
     }
 
+    // A platform type is not nullable here, as in UnsafeCallOnNullableType. detekt 1.23.8 reports this cast: its
+    // isNullable() is true for a flexible type.
     fun platformType(): String {
         val builder = java.lang.StringBuilder("x")
         return builder.toString() as String

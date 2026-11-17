@@ -35,7 +35,7 @@ class Holder {
 
     val withArgument: (Int) -> MutableStateFlow<Int> = { MutableStateFlow(it) }
 
-    <!StateFlowMutableLeak!>val<!> leaked = MutableStateFlow(7)
+    val <!StateFlowMutableLeak!>leaked<!> = MutableStateFlow(7)
 }
 
 /** Mutable by design: callers push state through it. */

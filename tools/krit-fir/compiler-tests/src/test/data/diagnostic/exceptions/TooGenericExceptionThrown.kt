@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 13, 16, 19, 25, 29, 33, 42, 53, 55, 57, 66
+// go-lines: 10, 13, 16, 19, 25, 29, 33, 53, 55, 57, 66
 package test
 
 import java.io.IOException
@@ -7,63 +7,63 @@ import java.io.IOException
 class ConfigLoader {
     fun load(path: String): String {
         if (path.isEmpty()) {
-            throw <!TooGenericExceptionThrown!>Exception("bad path")<!>
+            <!TooGenericExceptionThrown!>throw Exception("bad path")<!>
         }
         if (path.startsWith("/")) {
-            throw <!TooGenericExceptionThrown!>RuntimeException("absolute path")<!>
+            <!TooGenericExceptionThrown!>throw RuntimeException("absolute path")<!>
         }
         if (path.endsWith(".xml")) {
-            throw <!TooGenericExceptionThrown!>Error("xml")<!>
+            <!TooGenericExceptionThrown!>throw Error("xml")<!>
         }
         if (!path.endsWith(".yml")) {
-            throw <!TooGenericExceptionThrown!>Throwable("unsupported format")<!>
+            <!TooGenericExceptionThrown!>throw Throwable("unsupported format")<!>
         }
         return path
     }
 
     companion object {
-        fun fail(): Nothing = throw <!TooGenericExceptionThrown!>Exception("companion")<!>
+        fun fail(): Nothing = <!TooGenericExceptionThrown!>throw Exception("companion")<!>
     }
 
     init {
-        if (System.nanoTime() < 0) throw <!TooGenericExceptionThrown!>Error("init")<!>
+        if (System.nanoTime() < 0) <!TooGenericExceptionThrown!>throw Error("init")<!>
     }
 
     val size: Int
-        get() = throw <!TooGenericExceptionThrown!>RuntimeException("getter")<!>
+        get() = <!TooGenericExceptionThrown!>throw RuntimeException("getter")<!>
 }
 
-// Qualified names, parentheses, and a throw split over two lines (reported on
-// the `throw` line, like Go).
-fun qualified(): Nothing = throw <!TooGenericExceptionThrown!>kotlin.Exception("q")<!>
-fun javaQualified(): Nothing = throw <!TooGenericExceptionThrown!>java.lang.RuntimeException("q")<!>
-fun parenthesized(): Nothing = throw (<!TooGenericExceptionThrown!>Error("paren")<!>)
+// Qualified names and parentheses: Go and detekt read only an unqualified
+// callee. A split generic throw is in TooGenericExceptionThrownFilesTest.
+fun qualified(): Nothing = <!TooGenericExceptionThrown!>throw kotlin.Exception("q")<!>
+fun javaQualified(): Nothing = <!TooGenericExceptionThrown!>throw java.lang.RuntimeException("q")<!>
+fun parenthesized(): Nothing = <!TooGenericExceptionThrown!>throw (Error("paren"))<!>
 fun multiLine() {
     throw
-        <!TooGenericExceptionThrown!>Exception("next line")<!>
+        IllegalStateException("next line")
 }
 
 // The value thrown by an elvis fallback or by the first branch of an `if`.
-fun elvis(cause: Throwable?): Nothing = throw cause ?: <!TooGenericExceptionThrown!>Exception("fallback")<!>
+fun elvis(cause: Throwable?): Nothing = <!TooGenericExceptionThrown!>throw cause ?: Exception("fallback")<!>
 fun firstBranch(strict: Boolean): Nothing =
-    throw if (strict) <!TooGenericExceptionThrown!>Exception("strict")<!> else IllegalStateException("lenient")
+    <!TooGenericExceptionThrown!>throw if (strict) Exception("strict") else IllegalStateException("lenient")<!>
 
 // Lambdas, local functions, and members of an anonymous object.
 fun run(block: () -> Unit) = block()
-fun inLambda() = run { throw <!TooGenericExceptionThrown!>RuntimeException("lambda")<!> }
+fun inLambda() = run { <!TooGenericExceptionThrown!>throw RuntimeException("lambda")<!> }
 fun inLocal() {
-    fun local(): Nothing = throw <!TooGenericExceptionThrown!>Throwable("local")<!>
+    fun local(): Nothing = <!TooGenericExceptionThrown!>throw Throwable("local")<!>
     val handler = object {
-        fun fail(): Nothing = throw <!TooGenericExceptionThrown!>Exception("anonymous")<!>
+        fun fail(): Nothing = <!TooGenericExceptionThrown!>throw Exception("anonymous")<!>
     }
     handler.fail()
     local()
 }
 
-// A function named like the class it returns: Go reads the call's name, and
-// the value thrown is an Error.
+// A function named like the class it returns: Go and detekt read the call's
+// name, and the value thrown is an Error.
 fun Error(code: Int): Error = Error("code $code")
-fun factory(): Nothing = throw <!TooGenericExceptionThrown!>Error(3)<!>
+fun factory(): Nothing = <!TooGenericExceptionThrown!>throw Error(3)<!>
 
 // Specific exception types are fine.
 fun specific(path: String) {

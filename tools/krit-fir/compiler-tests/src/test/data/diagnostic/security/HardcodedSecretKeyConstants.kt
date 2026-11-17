@@ -88,10 +88,10 @@ class Crypto(private val holder: Holder) {
         <!HardcodedSecretKey!>SecretKeySpec<!>(Base64.getDecoder().decode(Manifest.permission.CAMERA), "AES")
     }
 
-    // A read that is not a string-to-bytes call on a leading literal is not
-    // reported by Go, and FIR matches it.
+    // The bytes of a hardcoded read with no leading literal: Go misses these;
+    // more forms are in HardcodedSecretKeyReads.
     fun notLeadingLiteral() {
-        SecretKeySpec(KEY_B64.toByteArray(), "AES")
-        SecretKeySpec(Manifest.permission.CAMERA.toByteArray(), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(KEY_B64.toByteArray(), "AES")
+        <!HardcodedSecretKey!>SecretKeySpec<!>(Manifest.permission.CAMERA.toByteArray(), "AES")
     }
 }

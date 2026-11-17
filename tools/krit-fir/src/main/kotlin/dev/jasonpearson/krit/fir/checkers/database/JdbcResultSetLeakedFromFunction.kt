@@ -7,10 +7,11 @@ import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
-import org.jetbrains.kotlin.fir.analysis.checkers.unsubstitutedScope
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
+import org.jetbrains.kotlin.fir.analysis.checkers.processOverriddenFunctionsSafe
+import org.jetbrains.kotlin.fir.analysis.checkers.unsubstitutedScope
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
@@ -24,7 +25,9 @@ import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.util.getChildren
@@ -35,7 +38,9 @@ import org.jetbrains.kotlin.util.getChildren
  * nullable or not, reported on the function's first line (its modifier list,
  * else `fun`), like Go. Top-level, member, interface default, object,
  * companion, anonymous-object, local, extension, override, and suspend
- * functions all count, as every Go `function_declaration` does; functions
+ * functions all count, as every Go `function_declaration` does, except an
+ * override of a `java.sql`/`javax.sql` member, whose return type the JDBC API
+ * fixes (Go reads the class's supertypes for it); functions
  * without a body (abstract, interface, expect, external), anonymous functions,
  * lambdas, and property accessors do not, as in Go. Compiler-generated
  * functions (a data class's `componentN`/`copy`) have no source to report.
@@ -72,6 +77,7 @@ internal object JdbcResultSetLeakedFromFunction :
     private val resultSet = classIdOf("java.sql", RESULT_SET)
     private val close = Name.identifier("close")
     private const val MAX_TYPE_DEPTH = 16
+    private val jdbcPackages = setOf(FqName("java.sql"), FqName("javax.sql"), FqName("javax.sql.rowset"))
     private val autoCloseable = setOf(
         classIdOf("java.lang", "AutoCloseable"),
         classIdOf("kotlin", "AutoCloseable"),
@@ -83,6 +89,7 @@ internal object JdbcResultSetLeakedFromFunction :
         if (source.kind !is KtRealSourceElementKind) return
         if (declaration.body == null) return
         if (!returnsResultSet(declaration)) return
+        if (overridesJdbcApi(declaration)) return
         val name = functionNameText(source) ?: declaration.name.asString()
         report(
             source,
@@ -100,6 +107,19 @@ internal object JdbcResultSetLeakedFromFunction :
             shortName(declared) == RESULT_SET ||
             writtenTypeName(declaration) == RESULT_SET
         return named && isCloseable(expanded, depth = 0)
+    }
+
+    // An override of a `java.sql` or `javax.sql` member (`Statement.executeQuery`,
+    // `DatabaseMetaData.getTables`): the JDBC API fixes its return type, so
+    // there is no block-taking signature to switch to.
+    context(context: CheckerContext)
+    private fun overridesJdbcApi(declaration: FirNamedFunction): Boolean {
+        if (!declaration.status.isOverride) return false
+        var jdbc = false
+        declaration.symbol.processOverriddenFunctionsSafe {
+            if (it.unwrapFakeOverrides().callableId.packageName in jdbcPackages) jdbc = true
+        }
+        return jdbc
     }
 
     // The simple name of a class, type alias, or type parameter type.

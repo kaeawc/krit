@@ -14,8 +14,8 @@ func registerPotentialbugsNullsafetyBangbangRules() {
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"postfix_expression"}, Confidence: api.ConfidenceHigh,
-			Needs:          api.NeedsResolver | api.NeedsOracleExprType,
+			NodeTypes: []string{"postfix_expression", "directly_assignable_expression"}, Confidence: api.ConfidenceHigh,
+			Needs:          api.NeedsResolver | api.NeedsOracleExprType | api.NeedsOracleSupertypes | api.NeedsOracleMembers,
 			Oracle:         &api.OracleFilter{Identifiers: []string{"!!"}},
 			Implementation: r,
 			Check:          r.check,

@@ -6,9 +6,10 @@ import (
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-// LocaleGetDefaultForFormattingRule flags `Locale.getDefault()` passed to a
-// formatter used in a persistence or network IO context (a `DateTimeFormatter`
-// ISO/RFC constant). For machine-readable output the locale should be
+// LocaleGetDefaultForFormattingRule flags `Locale.getDefault()` passed to
+// `withLocale` or `localizedBy` on a formatter used in a persistence or network
+// IO context (a `DateTimeFormatter` ISO/RFC constant). `localizedBy` also takes
+// the locale's numbering system and calendar, which change the output. For machine-readable output the locale should be
 // `Locale.ROOT` or `Locale.US` so the bytes do not vary by device locale.
 type LocaleGetDefaultForFormattingRule struct {
 	FlatDispatchBase
@@ -36,7 +37,8 @@ func (r *LocaleGetDefaultForFormattingRule) check(ctx *api.Context) {
 	if navExpr == 0 || args == 0 {
 		return
 	}
-	if flatNavigationExpressionLastIdentifier(file, navExpr) != "withLocale" {
+	method := flatNavigationExpressionLastIdentifier(file, navExpr)
+	if method != "withLocale" && method != "localizedBy" {
 		return
 	}
 
@@ -64,5 +66,5 @@ func (r *LocaleGetDefaultForFormattingRule) check(ctx *api.Context) {
 	}
 
 	ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
-		"'withLocale(Locale.getDefault())' on a persistence/network formatter; pass Locale.ROOT (or Locale.US) so output is locale-independent.")
+		"'"+method+"(Locale.getDefault())' on a persistence/network formatter; pass Locale.ROOT (or Locale.US) so output is locale-independent.")
 }

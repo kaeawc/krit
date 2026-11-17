@@ -45,7 +45,7 @@ internal object ComposePainterResourceInLoop : FirFunctionCallChecker(MppChecker
     // Lazy list builders including the singular `item`, which still marks a lazy list lambda.
     private val lazyBuilders = lazyLoops + "item"
 
-    // Inline iteration helpers; outside a lazy list they run a small, fixed number of times.
+    // Inline iteration helpers; outside a lazy list or a `for` loop they run a small, fixed number of times.
     private val inlineLoops = setOf("forEach", "forEachIndexed", "map", "mapIndexed", "repeat")
 
     private const val FOR = "for"
@@ -70,7 +70,8 @@ internal object ComposePainterResourceInLoop : FirFunctionCallChecker(MppChecker
         if (loops.isEmpty()) return
         if (readsPerIterationValue(expression, loops, source.startOffset)) return
         if (guardedInsideLoop(ancestors)) return
-        if (kind in inlineLoops && ancestors.none { it is FirFunctionCall && builderName(it) != null }) return
+        // An inline loop repeats per item only inside a lazy list builder or a `for` loop.
+        if (kind in inlineLoops && ancestors.none { (it is FirFunctionCall && builderName(it) != null) || isForLoop(it) }) return
 
         val inLambda = ancestors.any { it is FirFunctionCall && loopCallKind(it) != null }
         report(source, if (inLambda) LAMBDA_MESSAGE else FOR_MESSAGE)

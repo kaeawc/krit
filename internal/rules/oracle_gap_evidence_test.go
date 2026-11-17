@@ -260,3 +260,40 @@ class Probe {
 func positionKey(file *scanner.File, idx uint32) string {
 	return fmt.Sprintf("%d:%d", file.FlatRow(idx)+1, file.FlatCol(idx)+1)
 }
+
+// A safe-call subject is nullable even when the oracle types the expression at its start as the selector's
+// non-null type, so without a `null ->` branch the else still covers null and is not redundant.
+func TestElseCaseInsteadOfExhaustiveWhen_SafeCallSubjectWithNonNullOracleFact(t *testing.T) {
+	file := parseInline(t, `
+package test
+
+enum class Kind { File, Directory }
+class Meta(val kind: Kind)
+
+fun a(meta: Meta?): Int = when (meta?.kind) {
+    Kind.File -> 1
+    Kind.Directory -> 2
+    else -> 0
+}
+
+fun b(meta: Meta?): Int = when (meta?.kind) {
+    Kind.File -> 1
+    Kind.Directory -> 2
+    null -> 3
+    else -> 0
+}
+`)
+	kind := &typeinfer.ResolvedType{Name: "Kind", FQN: "test.Kind", Kind: typeinfer.TypeClass, Resolved: true}
+	fake := oracle.NewFakeOracle()
+	fake.Enums["test.Kind"] = []string{"File", "Directory"}
+	fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+	file.FlatWalkNodes(0, "navigation_expression", func(idx uint32) {
+		if strings.TrimSpace(file.FlatNodeText(idx)) == "meta?.kind" {
+			fake.Expressions[file.Path][positionKey(file, idx)] = kind
+		}
+	})
+	findings := runRuleOnFileWithFakeOracle(t, "ElseCaseInsteadOfExhaustiveWhen", file, fake)
+	if len(findings) != 1 || findings[0].Line != 13 {
+		t.Fatalf("expected one finding on line 13 (the when with a null branch), got %v", findings)
+	}
+}

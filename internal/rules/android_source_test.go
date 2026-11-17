@@ -515,6 +515,7 @@ func TestLogTag(t *testing.T) {
 	t.Run("flags tag over 23 characters", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class Foo {
     fun log() {
         Log.d("ThisIsAVeryLongTagNameThatExceedsTwentyThreeChars", "message")
@@ -528,6 +529,7 @@ class Foo {
 	t.Run("tag within limit does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class Foo {
     fun log() {
         Log.d("MyTag", "message")
@@ -541,6 +543,7 @@ class Foo {
 	t.Run("tag exactly 23 chars does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class Foo {
     fun log() {
         Log.d("12345678901234567890123", "message")
@@ -548,6 +551,57 @@ class Foo {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("a Log that the imports show is not android.util.Log does not trigger", func(t *testing.T) {
+		for name, header := range map[string]string{
+			"other import":   "import com.missing.Log\nimport android.util.*",
+			"no import":      "",
+			"same-file Log":  "import android.util.Log\nobject Log { fun d(tag: String, msg: String) {} }",
+			"aliased import": "import android.util.Log as AndroidLog",
+		} {
+			findings := runRuleByName(t, "LongLogTag", "package test\n"+header+`
+class Foo {
+    fun log() {
+        Log.d("ThisIsAVeryLongTagNameThatExceedsLimit", "message")
+    }
+}`)
+			if len(findings) != 0 {
+				t.Errorf("%s: expected 0 findings, got %d", name, len(findings))
+			}
+		}
+		findings := runRuleByName(t, "LongLogTag", `package test
+import android.util.*
+class Foo {
+    fun log() {
+        Log.d("ThisIsAVeryLongTagNameThatExceedsLimit", "message")
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("star import of android.util: expected 1 finding, got %d", len(findings))
+		}
+	})
+
+	t.Run("isLoggable and println tags are checked", func(t *testing.T) {
+		findings := runRuleByName(t, "LongLogTag", `
+package test
+import android.util.Log
+class Foo {
+    fun log() {
+        if (Log.isLoggable("ThisIsAVeryLongTagNameThatExceedsLimit", Log.DEBUG)) {
+            Log.println(Log.DEBUG, "ThisIsAVeryLongTagNameThatExceedsLimit", "message")
+        }
+        Log.println(Log.DEBUG, "Short", "ThisIsAVeryLongMessageThatIsNotATag")
+        Log.isLoggable("Short", Log.DEBUG)
+    }
+}`)
+		var lines []int
+		for _, f := range findings {
+			lines = append(lines, f.Line)
+		}
+		if len(lines) != 2 || lines[0] != 6 || lines[1] != 7 {
+			t.Fatalf("expected findings on lines 6 and 7, got %v", lines)
 		}
 	})
 }

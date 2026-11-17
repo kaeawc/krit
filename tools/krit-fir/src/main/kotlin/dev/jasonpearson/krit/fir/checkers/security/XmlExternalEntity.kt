@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.classIdOf
@@ -15,6 +16,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.declarations.FirFile
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
+import org.jetbrains.kotlin.fir.declarations.utils.isConst
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
@@ -23,7 +26,9 @@ import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -37,8 +42,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
 //
 // Mirrors the Go XmlExternalEntity rule:
 // - The scope is the nearest named function around the call (lambdas and anonymous functions belong to it),
-//   else the nearest class or object (property initializers, init blocks, constructors, accessors), else the
-//   file. Everything in the scope that starts after the creation counts, nested functions and lambdas
+//   else the nearest class or object other than a companion (property initializers, init blocks, constructors,
+//   accessors), else the file. Everything in the scope that starts after the creation counts, nested functions and lambdas
 //   included. A call chained on the factory (`newInstance().newDocumentBuilder().parse(x)`) counts too.
 // - The scope parses when it calls `parse`, `createXMLStreamReader`, `createXMLEventReader`,
 //   `createFilteredReader` or `newSchema`, or `transform` with a StreamSource or SAXSource argument.
@@ -53,6 +58,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
 //   needs the receiver spelled with the JAXP class name. `setXIncludeAware(false)` and
 //   `setExpandEntityReferences(false)` count as the property assignments they stand for, so Go's report on a
 //   factory hardened that way is dropped.
+// - Precision: a project constant that holds a setting's string (`const val DISALLOW = "http://apache.org/..."`)
+//   names that setting; Go reads only the constant's name, so it reports a factory hardened with one.
 // - Precision: only calls that resolve to a javax.xml or org.xml type count as hardening or parsing. Go
 //   matches by name, so it takes a `setFeature` on a project class as hardening and a `parse` on any
 //   non-capitalised receiver as parsing. A factory class from another package with the same simple name
@@ -116,7 +123,7 @@ internal object XmlExternalEntity : FirFunctionCallChecker(MppCheckerKind.Common
         val factory = factoryName(expression) ?: return
         val source = expression.source ?: return
         val scope = scopeOf(context.containingElements) ?: return
-        val facts = ScopeFacts(factory, source.startOffset, source.endOffset, context.session)
+        val facts = ScopeFacts(factory, source.startOffset, source.endOffset, context.session, context.containingFileSymbol)
         scope.accept(facts)
         if (facts.hardened || !facts.parses) return
         report(source, MESSAGE)
@@ -131,8 +138,11 @@ internal object XmlExternalEntity : FirFunctionCallChecker(MppCheckerKind.Common
         return name.takeIf { factoryPackages[it] == owner.packageFqName.asString() }
     }
 
+    // Go's class_declaration or object_declaration: a companion object is a separate node to Go, so a factory created in
+    // a companion belongs to the class around it, where its methods parse.
     private fun scopeOf(path: List<FirElement>): FirElement? =
-        path.lastOrNull { it is FirNamedFunction || it is FirRegularClass } ?: path.firstOrNull { it is FirFile }
+        path.lastOrNull { it is FirNamedFunction || (it is FirRegularClass && !it.isCompanion) }
+            ?: path.firstOrNull { it is FirFile }
 
     private fun isXmlType(classId: ClassId?): Boolean {
         val pkg = classId?.packageFqName?.asString() ?: return false
@@ -144,6 +154,7 @@ internal object XmlExternalEntity : FirFunctionCallChecker(MppCheckerKind.Common
         private val start: Int,
         private val end: Int,
         private val session: FirSession,
+        private val fileSymbol: FirFileSymbol?,
     ) : FirVisitorVoid() {
         var hardened = false
             private set
@@ -224,24 +235,35 @@ internal object XmlExternalEntity : FirFunctionCallChecker(MppCheckerKind.Common
 
         // Go's xxeCallIsHardening: the first argument names the setting, the second is its literal value.
         private fun isHardening(call: FirFunctionCall, callee: FirFunctionSymbol<*>, name: String): Boolean {
-            val key = keyOf(argumentAt(call, callee, 0) ?: return false) ?: return false
+            val keys = keysOf(argumentAt(call, callee, 0) ?: return false)
             val value = unwrapArgument(argumentAt(call, callee, 1) ?: return false)
-            return when {
-                name == "setFeature" && key == SECURE_PROCESSING ->
-                    booleanOf(value) == true && factory in secureProcessingFactories
-                name == "setFeature" -> featureHardening[key]?.let { booleanOf(value) == it } == true
-                key in accessExternalKeys -> stringOf(value) == ""
-                key in inputFactoryKeys -> booleanOf(value) == false
-                else -> false
+            return keys.any { key ->
+                when {
+                    name == "setFeature" && key == SECURE_PROCESSING ->
+                        booleanOf(value) == true && factory in secureProcessingFactories
+                    name == "setFeature" -> featureHardening[key]?.let { booleanOf(value) == it } == true
+                    key in accessExternalKeys -> stringOf(value) == ""
+                    key in inputFactoryKeys -> booleanOf(value) == false
+                    else -> false
+                }
             }
         }
 
-        // A string literal's content, or the name of the constant the argument reads.
-        private fun keyOf(argument: FirExpression): String? {
+        // A string literal's content, or the name of the constant the argument reads and the string it holds: a
+        // project constant such as `const val DISALLOW_DOCTYPE = "http://apache.org/..."` names the same setting.
+        private fun keysOf(argument: FirExpression): List<String> {
             val expression = unwrapArgument(argument)
-            stringOf(expression)?.let { return if (it.startsWith(SECURE_PROCESSING_URL_PREFIX)) SECURE_PROCESSING else it }
-            return (expression as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()?.name?.asString()
+            stringOf(expression)?.let { return listOf(normalizedKey(it)) }
+            val access = expression as? FirQualifiedAccessExpression ?: return emptyList()
+            val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return emptyList()
+            val value = (symbol as? FirPropertySymbol)?.takeIf { it.isConst }
+                ?.followableInitializer(fileSymbol, session)
+                ?.let { stringOf(unwrapArgument(it)) }
+            return listOfNotNull(symbol.name.asString(), value?.let(::normalizedKey))
         }
+
+        private fun normalizedKey(key: String): String =
+            if (key.startsWith(SECURE_PROCESSING_URL_PREFIX)) SECURE_PROCESSING else key
 
         private fun stringOf(expression: FirExpression): String? =
             (expression as? FirLiteralExpression)?.takeIf { it.kind == ConstantValueKind.String }?.value as? String

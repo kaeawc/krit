@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 7, 11, 15, 20, 27, 34, 38, 41, 45, 49, 53, 57, 61, 65, 71, 77
+// go-lines: 7, 11, 15, 20, 27, 34, 38, 41, 45, 49, 53, 57, 61, 65, 71, 77, 83, 87
 // Positives: a throw of a new IllegalArgumentException that is the whole body of an if branch or a loop.
 package test.userequire
 
@@ -76,4 +76,13 @@ class Holder(val value: String?) {
     fun member() {
         if (value == null) <!UseRequire!>throw IllegalArgumentException("no value")<!>
     }
+}
+
+// A `;` is not a statement, so the throw is still the whole braced body.
+fun trailingSemicolon(cond: Boolean) {
+    if (cond) { <!UseRequire!>throw IllegalArgumentException("trailing")<!>; }
+}
+
+fun leadingSemicolon(cond: Boolean) {
+    if (cond) { ; <!UseRequire!>throw IllegalArgumentException("leading")<!> }
 }

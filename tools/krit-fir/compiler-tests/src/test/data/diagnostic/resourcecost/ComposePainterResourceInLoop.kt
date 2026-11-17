@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 34, 43, 52, 63, 75, 76, 87
+// go-lines: 25, 34, 43, 52, 63, 75, 76, 87, 102
 // painterResource() whose result is the same every iteration of a list or loop body.
 package test
 
@@ -89,6 +89,18 @@ fun MultiLine(rows: List<String>) {
                 ),
                 null,
             )
+        }
+    }
+}
+
+// An inline helper inside a for loop runs once per element of the outer loop.
+@Composable
+fun ForEachInsideFor(rows: List<List<String>>) {
+    Column {
+        for (row in rows) {
+            row.forEach { cell ->
+                Icon(<!ComposePainterResourceInLoop!>painterResource<!>(R.drawable.marker), cell)
+            }
         }
     }
 }

@@ -59,7 +59,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
 // Deliberate differences from Go, each pinned in the golden data:
 // - Precision: Go matches the call by name and does not resolve it. FIR does
 //   not report a project function, member or extension of the same name
-//   (including a same-package `String.capitalize()` shim), the
+//   (Go only sees a `String.capitalize()` shim imported by name or declared
+//   in the same file, not one declared elsewhere in the package), the
 //   locale-independent `Char.toLowerCase()` / `Char.toUpperCase()`, or a call
 //   that resolves to a Locale overload with a Locale held in a variable,
 //   passed as null, fully qualified (`java.util.Locale.US`) or passed by name
@@ -71,7 +72,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
 //   through an import alias, and calls whose first argument merely mentions
 //   `Locale.` but is the pattern or a format argument
 //   (`String.format(Locale.US.toString(), x)`), which still format with the
-//   default locale. Go misses those.
+//   default locale, and a pattern passed by name (`format = "%d"`, which Go
+//   reads with its name and so as display text). Go misses those.
 internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ImplicitDefaultLocale"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -180,10 +182,12 @@ internal object ImplicitDefaultLocale : FirFunctionCallChecker(MppCheckerKind.Co
             ?: return false
         val first = lightChildren(source, arguments).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
             ?: return false
-        val name = referenceSimpleName(source, argumentExpression(source, first))
+        val expression = argumentExpression(source, first)
+        val name = referenceSimpleName(source, expression)
         val constValue = name?.let { constStringPropertyValue(source, it) }
         if (constValue != null && isLocaleInsensitiveFormat(constValue)) return true
-        val text = lightText(source, first).trim()
+        // The pattern as passed: `format = "%d"` is the literal "%d". Go reads the whole argument, name included.
+        val text = lightText(source, expression ?: first).trim()
         val isLiteral = text.startsWith("\"")
         if (isLiteral && isLocaleInsensitiveFormat(text)) return true
         // A resource string or parameter is display text, where the default locale is right.

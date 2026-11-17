@@ -1,12 +1,12 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 29, 30
-// Divergence (precision): declarations of the user's own that are only named
-// BitmapFactory. Go matches the receiver by the last segment of its text, so
-// it reports `BitmapFactory.decodeFile(path)` and
-// `Codecs.BitmapFactory.decodeStream(path)` here, but neither decodes an
-// Android bitmap: the message ("BitmapFactory.decodeFile without
-// BitmapFactory.Options may decode a full-size bitmap") is false of this
-// code. Other receivers with decode methods are reported by neither.
+// go-lines: none
+// Negatives: declarations of the user's own that are only named
+// BitmapFactory. Neither decodes an Android bitmap, so the message
+// ("BitmapFactory.decodeFile without BitmapFactory.Options may decode a
+// full-size bitmap") would be false of this code. Go skips a receiver the
+// file declares or does not import from android.graphics, and a qualifier
+// other than android.graphics. Other receivers with decode methods are
+// reported by neither.
 package test
 
 object BitmapFactory {

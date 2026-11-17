@@ -7,5 +7,5 @@ package test
 import java.lang.System as JavaSystem
 
 fun aliasedSystem() {
-    <!PrintlnInProduction!>JavaSystem.err.println("aliased System")<!>
+    JavaSystem.err.<!PrintlnInProduction!>println<!>("aliased System")
 }

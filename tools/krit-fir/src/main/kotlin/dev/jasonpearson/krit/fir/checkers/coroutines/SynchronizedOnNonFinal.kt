@@ -77,11 +77,17 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
             if (!isNonFinal(lock.calleeReference.toResolvedCallableSymbol())) return
             val name = source.text?.toString() ?: return
             report(
-                expression.source,
+                calleeAnchor(expression),
                 "synchronized() on non-final property '$name'. Reassignment changes the monitor object. Use val instead of var.",
             )
             return
         }
+    }
+
+    // Go reports a qualified call such as `kotlin.synchronized(lock)` on the callee name.
+    private fun calleeAnchor(expression: FirFunctionCall): KtSourceElement? {
+        if (expression is FirImplicitInvokeCall) return expression.source
+        return expression.calleeReference.source?.takeIf { it.kind is KtRealSourceElementKind } ?: expression.source
     }
 
     // A property or a Java field that can be reassigned: a Kotlin `var`

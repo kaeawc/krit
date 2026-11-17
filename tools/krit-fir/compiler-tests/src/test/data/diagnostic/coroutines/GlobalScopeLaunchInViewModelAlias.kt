@@ -16,10 +16,10 @@ class UserViewModel {
     private val scope = AppScope
 
     fun load() {
-        <!GlobalScopeLaunchInViewModel!>AppScope<!>.launch { }
-        <!GlobalScopeLaunchInViewModel!>Background<!>.launch { }
-        <!GlobalScopeLaunchInViewModel!>scope<!>.async { }
+        AppScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        Background.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        scope.<!GlobalScopeLaunchInViewModel!>async<!> { }
         val local = AppScope
-        <!GlobalScopeLaunchInViewModel!>local<!>.launch { }
+        local.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 }

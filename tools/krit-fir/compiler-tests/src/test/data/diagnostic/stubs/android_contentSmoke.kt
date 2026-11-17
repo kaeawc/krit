@@ -2,6 +2,7 @@
 package stubs
 
 import android.content.BroadcastReceiver
+import android.content.ClipboardManager
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
@@ -83,4 +84,9 @@ fun registerAndSave(context: Context, receiver: BroadcastReceiver, dialog: Dialo
     context.startActivity(Intent.createChooser(share, "Share"))
     context.revokeUriPermission(shared, Intent.FLAG_GRANT_READ_URI_PERMISSION)
     <!PrintlnInProduction!>println<!>("$committed $stored $granted")
+}
+
+fun smokeClipboard(context: Context) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    if (clipboard.hasPrimaryClip()) clipboard.clearPrimaryClip()
 }

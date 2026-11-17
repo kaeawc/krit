@@ -78,3 +78,10 @@ fun whenSubject(db: SQLiteDatabase) {
         else -> cursor.moveToFirst()
     }
 }
+
+// Go leaves this alone: a `let` may return the cursor, so Go reads the returned name as a
+// hand-over. The property holds a column read from the cursor, which stays open.
+fun letReadReturned(db: SQLiteDatabase): String? {
+    val <!SqliteCursorWithoutClose!>name<!> = db.rawQuery("SELECT name FROM t", null).let { if (it.moveToFirst()) it.getString(0) else null }
+    return name
+}

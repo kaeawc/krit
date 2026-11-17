@@ -15,7 +15,7 @@ fun notInPlace(block: () -> Unit) {}
 // Go sees an unknown call name and stops; the project function is inline,
 // so the lambda runs in the suspend caller.
 suspend fun projectInline() {
-    inPlace { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
+    inPlace { Thread.<!SleepInsteadOfDelay!>sleep<!>(10) }
 }
 
 // Neither engine reports: the lambda of a non-inline function is not a coroutine body.
@@ -29,13 +29,13 @@ suspend fun runSuspending(block: suspend () -> Unit) {}
 
 fun projectSuspendBuilder(scope: CoroutineScope) {
     scope.launch {
-        runSuspending { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
+        runSuspending { Thread.<!SleepInsteadOfDelay!>sleep<!>(10) }
     }
 }
 
 // Go stops at the unknown call names; these crossinline blocks run before the
 // function suspends, so the sleep blocks the coroutine's thread.
 suspend fun suspendingBlocks() {
-    suspendCoroutine<Int> { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
-    suspendCancellableCoroutine<Int> { <!SleepInsteadOfDelay!>Thread.sleep(10)<!> }
+    suspendCoroutine<Int> { Thread.<!SleepInsteadOfDelay!>sleep<!>(10) }
+    suspendCancellableCoroutine<Int> { Thread.<!SleepInsteadOfDelay!>sleep<!>(10) }
 }

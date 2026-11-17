@@ -600,6 +600,54 @@ func composeResyncsStateFromParam(file *scanner.File, fn, lambda uint32, variabl
 	return found
 }
 
+// composeResyncsThroughRememberedValue reports a parameter written back into the remembered object outside the
+// calculation: an assignment in an also/apply/let/run block chained on the remember call, or a set*/update*/sync*
+// call on the remembered variable that passes the parameter.
+func composeResyncsThroughRememberedValue(file *scanner.File, fn, call, lambda uint32, variable, param string) bool {
+	wordRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(param) + `\b`)
+	if nav, ok := file.FlatParent(call); ok && file.FlatType(nav) == "navigation_expression" && file.FlatNamedChild(nav, 0) == call {
+		if scope, ok := file.FlatParent(nav); ok && file.FlatType(scope) == "call_expression" {
+			switch flatCallExpressionName(file, scope) {
+			case "also", "apply", "let", "run":
+				found := false
+				if body := flatCallTrailingLambda(file, scope); body != 0 {
+					file.FlatWalkNodes(body, "assignment", func(a uint32) {
+						if wordRe.MatchString(file.FlatNodeText(a)) {
+							found = true
+						}
+					})
+				}
+				if found {
+					return true
+				}
+			}
+		}
+	}
+	if variable == "" {
+		return false
+	}
+	lStart, lEnd := file.FlatStartByte(lambda), file.FlatEndByte(lambda)
+	found := false
+	file.FlatWalkNodes(fn, "call_expression", func(c uint32) {
+		if found || file.FlatStartByte(c) >= lStart && file.FlatEndByte(c) <= lEnd {
+			return
+		}
+		name := flatCallExpressionName(file, c)
+		if !strings.HasPrefix(name, "set") && !strings.HasPrefix(name, "update") && !strings.HasPrefix(name, "sync") {
+			return
+		}
+		nav, _ := flatCallExpressionParts(file, c)
+		if nav == 0 || file.FlatNamedChildCount(nav) == 0 {
+			return
+		}
+		receiver := file.FlatNamedChild(nav, 0)
+		if file.FlatType(receiver) == "simple_identifier" && file.FlatNodeTextEquals(receiver, variable) && wordRe.MatchString(file.FlatNodeText(c)) {
+			found = true
+		}
+	})
+	return found
+}
+
 // composeKeyRuleExemptFunction reports a composable whose keyless remember or constant-keyed effect is deliberate scaffolding:
 // a preview or sample helper, a @VisibleForTesting function or one in a Fake/Test class, or a private function that
 // only @Preview functions in the same file call.

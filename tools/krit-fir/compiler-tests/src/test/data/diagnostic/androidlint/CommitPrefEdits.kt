@@ -1,11 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 24, 28, 32, 37, 43, 50, 57, 69, 74, 80, 83, 90, 95, 100, 109, 115
+// go-lines: 19, 24, 28, 32, 37, 43, 50, 57, 69, 74, 80, 84, 91, 96, 101, 110, 116
 // SharedPreferences.edit() calls whose Editor is never committed or applied,
 // the shape the Go rule reports, in every kind of function container, and the
-// finalized forms Go leaves alone. Go also leaves alone an Editor that escapes
-// the function (returned, passed on, or stored by a getter or a nested class's
-// init block or constructor call); the checker still reports those, so go-lines
-// omits them.
+// finalized forms Go leaves alone. Like Lint and Go, the checker also leaves
+// alone an Editor that escapes the function (returned, passed on, or stored
+// by a getter or a nested class's init block or constructor call): its new
+// owner may finalize it.
 package test
 
 import android.content.SharedPreferences
@@ -58,11 +58,11 @@ class Prefs(private val prefs: SharedPreferences, private val nullable: SharedPr
     }
 
     fun returned(): SharedPreferences.Editor {
-        return <!CommitPrefEdits!>prefs.edit()<!>
+        return prefs.edit()
     }
 
     fun passed() {
-        consume(<!CommitPrefEdits!>prefs.edit()<!>)
+        consume(prefs.edit())
     }
 
     fun inLambda(items: List<String>) {
@@ -80,10 +80,11 @@ class Prefs(private val prefs: SharedPreferences, private val nullable: SharedPr
         <!CommitPrefEdits!>prefs.edit()<!>
     }
 
+    // The parameter holds the Editor and the body never finalizes it.
     fun defaultValue(editor: SharedPreferences.Editor = <!CommitPrefEdits!>prefs.edit()<!>) {}
 
     val getter: SharedPreferences.Editor
-        get() = <!CommitPrefEdits!>prefs.edit()<!>
+        get() = prefs.edit()
 
     fun objectExpression() = object : Runnable {
         override fun run() {
@@ -298,20 +299,21 @@ class HeaderHolder(prefs: SharedPreferences) : EditorHolder(prefs.edit())
 
 class HeaderDefault(prefs: SharedPreferences, val editor: SharedPreferences.Editor = prefs.edit())
 
-// Inside a function, the checker reports an edit call in a nested class's init
-// block or secondary constructor like any other in the function. Go skips it:
-// the Editor is held by the class or passed to its super constructor.
+// Inside a function, an edit call in a nested class's init block or secondary
+// constructor is checked like any other in the function. Here the Editor is
+// held by the class or passed to its super constructor, so neither Go nor the
+// checker reports it.
 fun localInitHeld(prefs: SharedPreferences): Any = object {
     private val editor: SharedPreferences.Editor
 
     init {
-        editor = <!CommitPrefEdits!>prefs.edit()<!>
+        editor = prefs.edit()
     }
 }
 
 fun localHolder(prefs: SharedPreferences): EditorHolder {
     class Local : EditorHolder {
-        constructor(p: SharedPreferences) : super(<!CommitPrefEdits!>p.edit()<!>)
+        constructor(p: SharedPreferences) : super(p.edit())
     }
     return Local(prefs)
 }

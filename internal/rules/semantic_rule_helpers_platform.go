@@ -38,6 +38,28 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 	}
 }
 
+// logReceiverImportsAndroidLog reports whether the `Log` receiver of a call
+// written `Log.x(...)` can only be android.util.Log from the file's own text:
+// the file imports android.util.Log (explicitly or through android.util.*),
+// imports no other class as `Log`, and declares no `Log` of its own. It is the
+// evidence a rule falls back to when the oracle cannot resolve the call, for
+// example in a file that does not compile.
+func logReceiverImportsAndroidLog(file *scanner.File) bool {
+	imports := fileFactsCache().Imports(file)
+	if imports == nil {
+		return false
+	}
+	// An explicit import under the name Log wins over a star import; an
+	// android.util.Log imported under an alias leaves Log unbound.
+	visible := false
+	if fqn, ok := imports.Aliases["Log"]; ok {
+		visible = fqn == "android.util.Log"
+	} else {
+		_, visible = imports.Wildcards["android.util.*"]
+	}
+	return visible && !fileDeclaresSimpleTypeNameLocal(file, "Log")
+}
+
 // fileDeclaresSimpleTypeNameLocal reports whether `file` declares a
 // top-level class / interface / object / type alias whose simple name is
 // `name`. Used to reject same-file lookalikes (e.g. a local `class Log`)
@@ -162,6 +184,125 @@ func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {
 	return receiverDeclaredFromCall(ctx.File, call, "newWakeLock")
 }
 
+// lintActivityKnownNames are framework Activity subclasses a class may extend
+// without the resolver seeing the hierarchy.
+var lintActivityKnownNames = map[string]struct{}{
+	"Activity": {}, "ComponentActivity": {}, "FragmentActivity": {}, "AppCompatActivity": {},
+	"ListActivity": {}, "PreferenceActivity": {}, "TabActivity": {}, "ActivityGroup": {},
+}
+
+// wakeLockReleaseInActivityOnDestroy mirrors Lint's onDestroy check: a
+// WakeLock release() whose nearest enclosing method (lambdas and local
+// functions sit inside it) is onDestroy of an android.app.Activity subclass.
+func wakeLockReleaseInActivityOnDestroy(ctx *api.Context, call uint32) bool {
+	file := ctx.File
+	if flatCallExpressionName(file, call) != "release" {
+		return false
+	}
+	method := uint32(0)
+	for current, ok := file.FlatParent(call); ok && method == 0; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_declaration":
+			if parent, ok := file.FlatParent(current); ok && flatIsClassBody(file, parent) {
+				method = current
+			}
+		case "getter", "setter", "secondary_constructor", "anonymous_initializer", "source_file":
+			return false
+		}
+	}
+	if method == 0 || extractIdentifierFlat(file, method) != "onDestroy" {
+		return false
+	}
+	cls, ok := flatEnclosingAncestor(file, method, "class_declaration", "object_declaration", "object_literal")
+	if !ok || file.FlatType(cls) != "class_declaration" || !lintClassExtends(ctx, cls, "android.app.Activity", lintActivityKnownNames) {
+		return false
+	}
+	return semanticCallTargetOrReceiverType(ctx, call,
+		[]string{"android.os.PowerManager.WakeLock"},
+		[]string{"android.os.PowerManager.WakeLock", "WakeLock"},
+	) || receiverDeclaredFromCall(file, call, "newWakeLock")
+}
+
+// wakeLockReleaseScope is where a release of the acquire's receiver may sit.
+// Lint never asks for the release in the acquiring function (acquire in
+// onResume, release in onPause), so it is the acquire's top-level class, or
+// the file for a top-level function. A local declared in the function lives
+// only there, and Go matches a release by name, so a local of another
+// function with the same name must not count.
+func wakeLockReleaseScope(file *scanner.File, call, fn uint32) uint32 {
+	receiver := astReceiverNodeFromCall(file, call)
+	if root := androidReceiverChainRoot(file, receiver); root != "" && flatDeclaresLocalBefore(file, fn, root, call) {
+		return fn
+	}
+	scope := uint32(0)
+	for current, ok := file.FlatParent(call); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "class_declaration", "object_declaration":
+			scope = current
+		}
+	}
+	return scope
+}
+
+// flatDeclaresLocalBefore reports whether fn declares a local named name
+// before the node at.
+func flatDeclaresLocalBefore(file *scanner.File, fn uint32, name string, at uint32) bool {
+	found := false
+	file.FlatWalkAllNodes(fn, func(n uint32) {
+		if found || file.FlatStartByte(n) >= file.FlatStartByte(at) {
+			return
+		}
+		if t := file.FlatType(n); t == "property_declaration" && extractIdentifierFlat(file, n) == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// wakeLockReceiverIsParameter reports whether the acquire's receiver chain
+// starts at a parameter of an enclosing function, or at the receiver of the
+// extension function it sits in (a bare or `this` call outside a lambda).
+func wakeLockReceiverIsParameter(file *scanner.File, call uint32) bool {
+	receiver := astReceiverNodeFromCall(file, call)
+	root := ""
+	if receiver != 0 {
+		root = androidReceiverChainRoot(file, receiver)
+	}
+	if receiver == 0 || root == "this" {
+		scope, ok := flatEnclosingAncestor(file, call, "function_declaration", "lambda_literal", "anonymous_function")
+		return ok && file.FlatType(scope) == "function_declaration" && flatIsExtensionFunction(file, scope)
+	}
+	if root == "" || root == "super" {
+		return false
+	}
+	for fn, ok := flatEnclosingFunction(file, call); ok; fn, ok = flatEnclosingFunction(file, fn) {
+		params, found := file.FlatFindChild(fn, "function_value_parameters")
+		if !found {
+			continue
+		}
+		for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+			if file.FlatType(p) == "parameter" && extractIdentifierFlat(file, p) == root {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// flatIsExtensionFunction reports whether a Kotlin function_declaration
+// declares a receiver type (`fun Type.name()`).
+func flatIsExtensionFunction(file *scanner.File, fn uint32) bool {
+	for c := file.FlatFirstChild(fn); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "simple_identifier":
+			return false
+		case ".":
+			return true
+		}
+	}
+	return false
+}
+
 func wakeLockReleaseCallOnSameReceiver(ctx *api.Context, acquire, release uint32) bool {
 	if flatCallExpressionName(ctx.File, release) != "release" {
 		return false
@@ -190,7 +331,13 @@ func setJavaScriptEnabledCall(ctx *api.Context, call uint32) bool {
 		return true
 	}
 	receiver := semanticsReceiverNode(ctx, call)
-	return receiver != 0 && navigationReceiverHasTypedRoot(ctx.File, receiver, "WebView") && navigationChainContainsSegment(ctx.File, receiver, "settings")
+	if receiver != 0 && navigationReceiverHasTypedRoot(ctx.File, receiver, "WebView") &&
+		navigationChainContainsSegment(ctx.File, receiver, "settings") {
+		return true
+	}
+	// Without types, the shared WebSettings receiver heuristics: a `settings` chain or name in a file that uses the
+	// WebView API, or the implicit receiver of `settings.apply { }` / `with(settings) { }`.
+	return isWebSettingsReceiverAt(ctx.File, call, kotlinCallReceiverChain(ctx.File, call))
 }
 
 func setJavaScriptEnabledJavaCall(ctx *api.Context, call uint32) bool {
@@ -229,6 +376,10 @@ func webSettingsAssignmentTarget(ctx *api.Context, assignment uint32) bool {
 		return false
 	}
 	if directlyAssignableWebSettingsTarget(file, assignment, target) {
+		return true
+	}
+	if segments := directlyAssignableSegments(file, target); len(segments) >= 1 &&
+		isWebSettingsReceiverAt(file, assignment, strings.Join(segments[:len(segments)-1], ".")) {
 		return true
 	}
 	receiver := assignmentReceiverBeforeFinal(file, target)

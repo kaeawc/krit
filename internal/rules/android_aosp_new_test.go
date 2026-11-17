@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -358,6 +359,32 @@ class MyHelper private constructor() {
 }`)
 		if len(findings) != 0 {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
+		}
+	})
+
+	t.Run("private test fake in a test source is clean", func(t *testing.T) {
+		src := `package app
+import android.app.Service
+class HostTest {
+    private class FakeService : Service()
+}`
+		if findings := runRuleByNameOnPath(t, "Instantiatable", "src/test/kotlin/app/HostTest.kt", src); len(findings) != 0 {
+			t.Fatalf("expected 0 findings in a test source, got %v", findings)
+		}
+		if findings := runRuleByNameOnPath(t, "Instantiatable", "src/main/kotlin/app/Host.kt", src); len(findings) != 1 {
+			t.Fatalf("expected 1 finding in a main source, got %v", findings)
+		}
+	})
+
+	t.Run("inner Activity triggers", func(t *testing.T) {
+		findings := runRuleByName(t, "Instantiatable", `
+package test
+class Outer {
+    inner class MyActivity : Activity()
+    class NestedActivity : Activity()
+}`)
+		if len(findings) != 1 || findings[0].Line != 4 || !strings.Contains(findings[0].Message, "inner modifier") {
+			t.Fatalf("expected 1 inner-class finding on line 4, got %v", findings)
 		}
 	})
 }

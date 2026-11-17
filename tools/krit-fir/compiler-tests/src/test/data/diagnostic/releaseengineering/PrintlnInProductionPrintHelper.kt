@@ -25,5 +25,5 @@ class Tracer {
 }
 
 fun printer(line: String) {
-    <!PrintlnInProduction!>println(line)<!>
+    <!PrintlnInProduction!>println<!>(line)
 }

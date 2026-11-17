@@ -17,7 +17,7 @@ fun <T> replayMutableSharedFlow(): MutableSharedFlow<T> = MutableSharedFlow(repl
 
 fun <T> blockLossy(): MutableSharedFlow<T> {
     // The factory's own local declaration is reported, like Go.
-    <!SharedFlowWithoutReplay!>val<!> flow = MutableSharedFlow<T>()
+    val <!SharedFlowWithoutReplay!>flow<!> = MutableSharedFlow<T>()
     return flow
 }
 
@@ -35,20 +35,20 @@ interface FlowFactory {
 class EventBus(factory: FlowFactory) {
     // Go reports these by their spelling; FIR reports them because the
     // factory returns a MutableSharedFlow created with no arguments.
-    <!SharedFlowWithoutReplay!>val<!> bus: MutableSharedFlow<Int> = lossy<Int>()
+    val <!SharedFlowWithoutReplay!>bus<!>: MutableSharedFlow<Int> = lossy<Int>()
 
-    <!SharedFlowWithoutReplay!>val<!> suffixed: MutableSharedFlow<Int> = createMutableSharedFlow()
+    val <!SharedFlowWithoutReplay!>suffixed<!>: MutableSharedFlow<Int> = createMutableSharedFlow()
 
-    <!SharedFlowWithoutReplay!>val<!> blockMade: MutableSharedFlow<Int> = blockLossy<Int>()
+    val <!SharedFlowWithoutReplay!>blockMade<!>: MutableSharedFlow<Int> = blockLossy<Int>()
 
     // Go misses these: without an explicit type argument, or without the
     // declared type, the text holds neither "MutableSharedFlow<" plus ">()"
     // nor "MutableSharedFlow()". The factory still returns a lossy flow.
-    <!SharedFlowWithoutReplay!>val<!> untyped: MutableSharedFlow<Int> = lossy()
+    val <!SharedFlowWithoutReplay!>untyped<!>: MutableSharedFlow<Int> = lossy()
 
-    <!SharedFlowWithoutReplay!>val<!> inferred = lossy<Int>()
+    val <!SharedFlowWithoutReplay!>inferred<!> = lossy<Int>()
 
-    <!SharedFlowWithoutReplay!>val<!> viaChain: MutableSharedFlow<Int> = chained()
+    val <!SharedFlowWithoutReplay!>viaChain<!>: MutableSharedFlow<Int> = chained()
 
     // Go reports this because the name ends in "MutableSharedFlow()"; FIR is
     // correct because the factory's only flow passes replay.

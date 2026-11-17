@@ -75,15 +75,15 @@ object ObjectModule {
 @IntoMap
 fun provideTopLevel(): Handler = HandlerImpl()
 
-// Go's @Provides/@Binds test is a substring match, so @BindsOptionalOf and
-// @BindsInstance count as well; both functions are @IntoMap without a key.
+// @BindsOptionalOf and @BindsInstance declare no binding @IntoMap contributes
+// to (Dagger rejects @IntoMap there for another reason), so neither reports.
 @Module
 abstract class OddBindingsModule {
-    <!IntoMapMissingKey!>@BindsOptionalOf<!>
+    @BindsOptionalOf
     @IntoMap
     abstract fun optionalHandler(): Handler
 
-    <!IntoMapMissingKey!>@BindsInstance<!>
+    @BindsInstance
     @IntoMap
     abstract fun instanceHandler(): Handler
 }

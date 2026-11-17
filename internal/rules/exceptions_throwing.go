@@ -205,9 +205,86 @@ type ObjectExtendsThrowableRule struct {
 // the `Throwable` identifier. Classified per roadmap/17.
 func (r *ObjectExtendsThrowableRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var throwableBaseTypes = []string{"Throwable", "Exception", "Error", "RuntimeException",
-	"IllegalStateException", "IllegalArgumentException", "IOException",
-	"UnsupportedOperationException"}
+// objectThrowableSuperNames are the Throwable classes an object's superclass is matched against by name.
+var objectThrowableSuperNames = map[string]bool{
+	"Throwable": true, "Exception": true, "Error": true, "RuntimeException": true,
+	"IllegalStateException": true, "IllegalArgumentException": true, "IOException": true,
+	"UnsupportedOperationException": true,
+}
+
+// objectThrowableQualifiers are the packages a qualified superclass name may be spelled with.
+var objectThrowableQualifiers = map[string]bool{"": true, "kotlin": true, "java.lang": true, "java.io": true}
+
+// objectExtendsThrowableFlat reports an object whose superclass is one of objectThrowableSuperNames. The
+// superclass is the delegation specifier that calls a constructor; interfaces, their type arguments and `by`
+// delegates never make an object a Throwable. A simple name declared or imported by the project is another class.
+func objectExtendsThrowableFlat(ctx *api.Context, idx uint32) bool {
+	file := ctx.File
+	for spec := file.FlatFirstChild(idx); spec != 0; spec = file.FlatNextSib(spec) {
+		if file.FlatType(spec) != "delegation_specifier" {
+			continue
+		}
+		call, ok := file.FlatFindChild(spec, "constructor_invocation")
+		if !ok {
+			continue
+		}
+		userType, ok := file.FlatFindChild(call, "user_type")
+		if !ok {
+			return false
+		}
+		var parts []string
+		for c := file.FlatFirstChild(userType); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "type_identifier" {
+				parts = append(parts, file.FlatNodeText(c))
+			}
+		}
+		if len(parts) == 0 {
+			return false
+		}
+		name := parts[len(parts)-1]
+		qualifier := strings.Join(parts[:len(parts)-1], ".")
+		if !objectThrowableSuperNames[name] || !objectThrowableQualifiers[qualifier] {
+			return false
+		}
+		return qualifier != "" || !objectSuperNameIsProjectClass(ctx, name)
+	}
+	return false
+}
+
+// objectSuperNameIsProjectClass reports a simple name that the file declares or imports from a project package,
+// or that names a class indexed in the file's own package: either hides the default-imported Throwable.
+func objectSuperNameIsProjectClass(ctx *api.Context, name string) bool {
+	file := ctx.File
+	found := false
+	file.FlatWalkAllNodes(0, func(n uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(n) {
+		case "class_declaration", "object_declaration", "type_alias":
+			if id, ok := file.FlatFindChild(n, "type_identifier"); ok && file.FlatNodeTextEquals(id, name) {
+				found = true
+			}
+		case "import_header":
+			path := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(file.FlatNodeText(n)), "import"))
+			if as := strings.Index(path, " as "); as >= 0 {
+				found = strings.TrimSpace(path[as+4:]) == name
+				return
+			}
+			if strings.HasSuffix(path, "."+name) {
+				found = !objectThrowableQualifiers[strings.TrimSuffix(path, "."+name)]
+			}
+		}
+	})
+	if found || ctx.Resolver == nil {
+		return found
+	}
+	info := ctx.Resolver.ClassHierarchy(name)
+	if info == nil || !strings.HasSuffix(info.FQN, "."+name) {
+		return false
+	}
+	return strings.TrimSuffix(info.FQN, "."+name) == sourcePackageName(file)
+}
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {
 	file.FlatWalkNodes(idx, "jump_expression", func(n uint32) {
@@ -299,8 +376,21 @@ func throwTargetHasExtraArgumentFlat(file *scanner.File, target uint32, varName 
 		if !file.FlatIsNamed(child) {
 			continue
 		}
+		// `e.message ?: ""` and `e.message + "!"` start with the caught name but build a new value.
+		if expr := flatValueArgumentExpression(file, child); expr != 0 {
+			switch file.FlatType(expr) {
+			case "simple_identifier", "navigation_expression", "call_expression", "postfix_expression", "parenthesized_expression":
+			default:
+				return true
+			}
+		}
 		text := strings.TrimSpace(file.FlatNodeText(child))
 		text = strings.TrimSpace(text[strings.LastIndex(text, "=")+1:])
+		// `(e)` and `e!!` are the caught exception itself.
+		for len(text) > 1 && text[0] == '(' && text[len(text)-1] == ')' {
+			text = strings.TrimSpace(text[1 : len(text)-1])
+		}
+		text = strings.TrimSuffix(text, "!!")
 		if varName == "" || (text != varName && !strings.HasPrefix(text, varName+".") && !strings.HasPrefix(text, varName+"?.")) {
 			return true
 		}

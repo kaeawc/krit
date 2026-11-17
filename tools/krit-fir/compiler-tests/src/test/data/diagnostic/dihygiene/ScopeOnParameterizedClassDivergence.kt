@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 33, 39, 46
-// Go matches `@<ScopeName>` as text anywhere in the class's modifier list.
-// These generic classes carry no DI scope, so the message ("@Singleton on
-// generic class ... shares one instance") is false of them.
+// go-lines: 36, 41
+// Generic classes whose modifier text mentions a scope name without carrying
+// the scope. They carry no DI scope, so the message ("@Singleton on generic
+// class ... shares one instance") is false of them, and neither Go nor FIR
+// reports them.
 package test
 
 import dagger.hilt.android.scopes.ActivityScoped
@@ -13,23 +14,19 @@ annotation class SingletonHolder
 
 annotation class UserScopedCache
 
-// Go reports this because `@SingletonHolder` starts with `@Singleton`; FIR is
-// correct to drop it because SingletonHolder is not a scope.
+// `@SingletonHolder` only starts with `@Singleton`.
 @SingletonHolder
 class PrefixLookalike<T>
 
-// Go reports this because `@UserScopedCache` starts with `@UserScoped`; FIR is
-// correct to drop it because UserScopedCache is not a scope.
+// `@UserScopedCache` only starts with `@UserScoped`.
 @UserScopedCache
 class PrefixLookalikeUserScoped<T>
 
-// Go reports this because the qualifier's string argument holds `@Singleton`;
-// FIR is correct to drop it because the class has only a qualifier.
+// The qualifier's string argument holds `@Singleton`.
 @Named("@Singleton")
 class InStringArgument<T>
 
-// Go reports this because the comment between the annotations holds
-// `@Singleton`; FIR is correct to drop it because the class is not scoped.
+// The comment between the annotations holds `@Singleton`.
 @Deprecated("replaced")
 // was @Singleton before the cache became per-screen
 @Suppress("unused")
@@ -39,9 +36,7 @@ class InComment<T>
 <!ScopeOnParameterizedClass!>@SingletonHolder<!> @Singleton
 class LookalikeAndScope<T>
 
-// Both report this line, but Go's message names `@Singleton`, the first list
-// entry the modifier text starts with (from `@SingletonHolder`), while FIR's
-// names `@ActivityScoped`, the scope the class actually carries. Go's message
-// is false of the class (it is not a singleton), so the messages differ.
+// Both report this line and name `@ActivityScoped`, the scope the class
+// carries, not the `@SingletonHolder` lookalike.
 <!ScopeOnParameterizedClass!>@SingletonHolder<!> @ActivityScoped
 class Mixed<T>

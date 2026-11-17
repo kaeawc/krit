@@ -30,19 +30,19 @@ class ReceiverViewModel {
     fun spellings() {
         <!GlobalScopeLaunchInViewModel!>(<!>GlobalScope).launch { }
         <!GlobalScopeLaunchInViewModel!>kotlinx<!>.coroutines.`GlobalScope`.launch { }
-        <!GlobalScopeLaunchInViewModel!>`GlobalScope`<!>.async { 1 }
+        `GlobalScope`.<!GlobalScopeLaunchInViewModel!>async<!> { 1 }
         <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.`launch` { }
     }
 
     fun casts(a: Any, b: Any, c: Any) {
         <!GlobalScopeLaunchInViewModel!>(<!>a as GlobalScope).launch { }
         <!GlobalScopeLaunchInViewModel!>(<!>b as? GlobalScope)?.launch { }
-        if (c is GlobalScope) <!GlobalScopeLaunchInViewModel!>c<!>.launch { }
+        if (c is GlobalScope) c.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     fun receivers() {
-        GlobalScope.apply { <!GlobalScopeLaunchInViewModel!>this<!>.launch { } }
-        with(GlobalScope) { <!GlobalScopeLaunchInViewModel!>this<!>.async { 1 } }
+        GlobalScope.apply { this.<!GlobalScopeLaunchInViewModel!>launch<!> { } }
+        with(GlobalScope) { this.<!GlobalScopeLaunchInViewModel!>async<!> { 1 } }
         <!GlobalScopeLaunchInViewModel!>gs<!>!!.launch { }
         <!GlobalScopeLaunchInViewModel!>this<!>.held.launch { }
         <!GlobalScopeLaunchInViewModel!>arrayOf<!>(GlobalScope).first().launch { }

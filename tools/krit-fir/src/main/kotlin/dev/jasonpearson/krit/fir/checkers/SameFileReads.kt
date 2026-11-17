@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.fir.declarations.utils.isConst
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpressionEvaluator
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.resolve.providers.firProvider
 import org.jetbrains.kotlin.fir.resolve.providers.getContainingFile
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
@@ -16,11 +17,13 @@ import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertyAccessorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 
 // The only way a rule that is not tiered (`FirRule.wholeCompilationTier`) may read another declaration's
 // body or initializer. An incremental slice compiles the changed files from source and takes the rest of the
@@ -109,6 +112,20 @@ fun FirPropertySymbol.followableInitializer(file: FirFileSymbol?, session: FirSe
 context(context: CheckerContext)
 fun FirPropertySymbol.followableInitializer(): FirExpression? =
     followableInitializer(context.containingFileSymbol, context.session)
+
+/**
+ * The String a constant holds: a `const val`'s evaluated value (see [followableInitializer]), or the constant
+ * initializer of a final Java field (`static final String RSA = "RSA"`). Class files keep both, so the value is the
+ * same on a slice and on a full compile. Null for any other variable, and for a constant of another type.
+ */
+fun FirVariableSymbol<*>.constantStringValue(session: FirSession): String? {
+    val value = when (this) {
+        is FirPropertySymbol -> if (isConst) followableInitializer(null, session) else null
+        is FirFieldSymbol -> if (isVal) resolvedInitializer else null
+        else -> null
+    }
+    return (value as? FirLiteralExpression)?.value as? String
+}
 
 /** The delegate expression of this property when it lies in [file]; null otherwise. LOCAL: guarded. */
 @OptIn(SymbolInternals::class)

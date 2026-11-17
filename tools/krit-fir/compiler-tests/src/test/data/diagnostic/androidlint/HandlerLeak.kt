@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 16, 21, 24, 29, 33, 53, 56, 61
-// Inner Handler classes and anonymous Handler objects, as Go reports them.
+// go-lines: 11, 16, 21, 24, 34, 54, 57, 62
+// Inner Handler classes and anonymous Handler objects, as Lint and Go report them.
 package test
 
 import android.os.Handler
@@ -25,8 +25,9 @@ class Screen {
         override fun handleMessage(msg: Message) {}
     }
 
+    // Built on an explicit Looper: Lint and Go skip it.
     fun inFunction() {
-        val h = <!HandlerLeak!>object<!> : Handler(Looper.getMainLooper()) {}
+        val h = object : Handler(Looper.getMainLooper()) {}
         h.sendEmptyMessage(1)
     }
 
@@ -49,7 +50,7 @@ class Screen {
     }
 }
 
-// Anonymous Handlers are reported wherever they are declared, as in Go.
+// Anonymous Handlers are reported wherever they are declared, as in Lint and Go.
 val topLevel = <!HandlerLeak!>object<!> : Handler() {}
 
 object Holder {

@@ -1,14 +1,15 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 29, 36, 43, 60, 70
-// Scopes for Wakelock: the acquire belongs to its nearest enclosing named
-// function, looking through lambdas, anonymous functions, and local classes
-// and objects; a member function of a local class is its own function. An
-// acquire outside any named function is not reported, as in Go.
+// go-lines: 26, 34, 43, 73, 96
+// Scopes for Wakelock: an acquire is reported only inside a named function,
+// looking through lambdas, anonymous functions, and local classes and
+// objects; a member function of a local class is its own function. An acquire
+// outside any named function is not reported, as in Go. A release anywhere in
+// the file counts, inside or outside a nested scope.
 package test
 
 import android.os.PowerManager.WakeLock
 
-class Scopes(private val lock: WakeLock) {
+class OutsideFunctions(private val lock: WakeLock) {
     init {
         lock.acquire()
     }
@@ -17,54 +18,79 @@ class Scopes(private val lock: WakeLock) {
 
     val lazyAcquire: Unit
         get() = lock.acquire()
+}
 
-    fun inLambda() {
+class InLambda(private val lock: WakeLock) {
+    fun run() {
         run {
             <!Wakelock!>lock.acquire()<!>
         }
     }
+}
 
-    fun inAnonymousFunction() {
+class InAnonymousFunction(private val lock: WakeLock) {
+    fun run() {
         val block = fun() {
             <!Wakelock!>lock.acquire()<!>
         }
         block()
     }
+}
 
-    fun inLocalFunction() {
+class InLocalFunction(private val lock: WakeLock) {
+    fun run() {
         fun start() {
             <!Wakelock!>lock.acquire()<!>
         }
         start()
     }
+}
 
-    fun localFunctionReleasedOutside() {
+class LocalFunctionReleasedOutside(private val lock: WakeLock) {
+    fun run() {
         fun start() {
-            <!Wakelock!>lock.acquire()<!>
+            lock.acquire()
         }
         start()
         lock.release()
     }
+}
 
-    fun localFunctionReleasedInside() {
+class LocalFunctionReleasedInside(private val lock: WakeLock) {
+    fun run() {
         fun start() {
             lock.acquire()
             lock.release()
         }
         start()
     }
+}
 
-    fun anonymousObjectMember() {
+class AnonymousObjectMember(private val lock: WakeLock) {
+    fun run() {
         val task = object : Runnable {
             override fun run() {
                 <!Wakelock!>lock.acquire()<!>
             }
         }
         task.run()
+    }
+}
+
+class AnonymousObjectMemberReleased(private val lock: WakeLock) {
+    fun run() {
+        val task = object : Runnable {
+            override fun run() {
+                lock.acquire()
+            }
+        }
+        task.run()
         lock.release()
     }
+}
 
-    fun anonymousObjectInit() {
+class AnonymousObjectInit(private val lock: WakeLock) {
+    fun run() {
         val task = object {
             init {
                 <!Wakelock!>lock.acquire()<!>
@@ -72,8 +98,10 @@ class Scopes(private val lock: WakeLock) {
         }
         task.hashCode()
     }
+}
 
-    fun anonymousObjectInitReleased() {
+class AnonymousObjectInitReleased(private val lock: WakeLock) {
+    fun run() {
         val task = object {
             init {
                 lock.acquire()
@@ -82,8 +110,10 @@ class Scopes(private val lock: WakeLock) {
         task.hashCode()
         lock.release()
     }
+}
 
-    fun releasedInLocalClassMember() {
+class ReleasedInLocalClassMember(private val lock: WakeLock) {
+    fun run() {
         lock.acquire()
         class Cleanup {
             fun done() {
@@ -91,5 +121,21 @@ class Scopes(private val lock: WakeLock) {
             }
         }
         Cleanup().done()
+    }
+}
+
+// A local in one function is not the same variable as a local of the same
+// name in another, so the release in stop() does not clear it. Go misses
+// this: it cannot type a local initialized by calling a function-typed
+// property.
+class LocalsByFunction(private val make: () -> WakeLock) {
+    fun start() {
+        val lock = make()
+        <!Wakelock!>lock.acquire()<!>
+    }
+
+    fun stop() {
+        val lock = make()
+        lock.release()
     }
 }

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 15, 20, 24, 28, 32, 38, 44, 48, 53, 58, 63, 68, 72, 80, 86, 90, 93, 98
+// go-lines: 10, 15, 20, 24, 28, 32, 38, 44, 48, 53, 58, 63, 68, 72, 80, 86, 90, 93, 98, 105, 109
 // Positive: kotlin.require(x != null) on a nullable operand should trigger
 // UseRequireNotNull.
 package test
@@ -29,13 +29,13 @@ fun parenthesized(x: Any?) {
 }
 
 fun qualified(x: Any?) {
-    <!UseRequireNotNull!>kotlin.require(x != null)<!>
+    kotlin.<!UseRequireNotNull!>require(x != null)<!>
 }
 
-// Reported on the line the call expression starts on.
+// Reported at the callee name after the qualifier, as Go and detekt do.
 fun multiline(x: Any?) {
-    <!UseRequireNotNull!>kotlin<!>
-        .require(
+    kotlin
+        .<!UseRequireNotNull!>require(<!>
             x != null,
         )
 }
@@ -97,4 +97,14 @@ fun inAnonymousObject(x: Any?) = object {
     fun go() {
         <!UseRequireNotNull!>require(x != null)<!>
     }
+}
+
+// The lazy message may be the second argument inside the parentheses, as
+// detekt reads only the first: requireNotNull(x, { .. }) is the replacement.
+fun lambdaInParentheses(x: Any?) {
+    <!UseRequireNotNull!>require(x != null, { "x must not be null" })<!>
+}
+
+fun namedMessage(x: Any?) {
+    <!UseRequireNotNull!>require(value = x != null, lazyMessage = { "x must not be null" })<!>
 }

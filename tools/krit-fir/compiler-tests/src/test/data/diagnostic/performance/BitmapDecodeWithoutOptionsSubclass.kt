@@ -10,7 +10,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 
 class MyFactory : BitmapFactory() {
-    fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>decodeFile(path)<!>
+    fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 
     fun loadWithOptions(path: String): Bitmap? = decodeFile(path, Options())
 }

@@ -120,7 +120,8 @@ func findDirectDispatcherArgumentsFlat(file *scanner.File, args uint32, names ma
 		if arg == 0 || file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) == 0 {
 			continue
 		}
-		out = appendInjectDispatcherOperandsFlat(file, file.FlatNamedChild(arg, 0), names, out)
+		// The value, not the label, of a named argument (`context = Dispatchers.IO`).
+		out = appendInjectDispatcherOperandsFlat(file, flatValueArgumentExpression(file, arg), names, out)
 	}
 	return out
 }
@@ -139,16 +140,14 @@ func appendInjectDispatcherOperandsFlat(file *scanner.File, value uint32, names 
 	}
 	switch file.FlatType(value) {
 	case "navigation_expression":
-		receiver := ""
-		if file.FlatNamedChildCount(value) > 0 {
-			first := file.FlatNamedChild(value, 0)
-			if file.FlatType(first) == "simple_identifier" {
-				receiver = file.FlatNodeText(first)
-			}
-		}
-		member := flatNavigationExpressionLastIdentifier(file, value)
-		if receiver == "Dispatchers" && names[member] {
+		if member := injectDispatcherMemberName(flatNavigationChainIdentifiers(file, value)); names[member] {
 			out = append(out, injectDispatcherOperand{node: value, name: member})
+		}
+	case "call_expression":
+		// `Dispatchers.IO.limitedParallelism(n)` is a view of the hardcoded dispatcher.
+		if nav, _ := flatCallExpressionParts(file, value); nav != 0 && file.FlatNamedChildCount(nav) > 0 &&
+			flatNavigationExpressionLastIdentifier(file, nav) == "limitedParallelism" {
+			return appendInjectDispatcherOperandsFlat(file, file.FlatNamedChild(nav, 0), names, out)
 		}
 	case "parenthesized_expression":
 		if file.FlatNamedChildCount(value) == 1 {
@@ -233,13 +232,30 @@ func injectDispatcherReceiverName(file *scanner.File, callIdx uint32) string {
 	return ""
 }
 
+// injectDispatcherMemberName returns the member of a `Dispatchers.<name>` or
+// `kotlinx.coroutines.Dispatchers.<name>` navigation chain, or "" for any
+// other chain.
+func injectDispatcherMemberName(segments []string) string {
+	switch {
+	case len(segments) == 2 && segments[0] == "Dispatchers":
+		return segments[1]
+	case len(segments) == 4 && segments[0] == "kotlinx" && segments[1] == "coroutines" && segments[2] == "Dispatchers":
+		return segments[3]
+	}
+	return ""
+}
+
 func injectDispatcherReferenceConfirmed(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
 	segments := flatNavigationChainIdentifiers(file, idx)
-	if len(segments) != 2 || segments[0] != "Dispatchers" {
+	if injectDispatcherMemberName(segments) == "" {
 		return false
+	}
+	if len(segments) == 4 {
+		// Fully qualified: no import or shadowing declaration can redirect it.
+		return true
 	}
 	if fileDeclaresIdentifierNamed(file, idx, "Dispatchers") {
 		return false
@@ -279,6 +295,10 @@ func injectDispatcherReferenceConfirmed(file *scanner.File, idx uint32) bool {
 // distinguish extensions explicitly.
 func injectDispatcherHasInjectableHost(file *scanner.File, idx uint32) bool {
 	if file == nil || idx == 0 {
+		return false
+	}
+	// A parameter's default value is the injection point itself, as detekt treats it.
+	if _, inParameter := flatEnclosingAncestor(file, idx, "class_parameter", "function_value_parameters"); inParameter {
 		return false
 	}
 	_, hasType := flatEnclosingAncestor(file, idx,

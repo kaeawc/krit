@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 22, 26
+// go-lines: 18, 22, 26, 31
 // Only a conversion whose result is shown as user-facing text is reported: an
 // argument of a UI text call or the value assigned to a UI text property.
 // Everything else is a locale-invariant use and takes no display locale.
@@ -24,6 +24,11 @@ fun passedToSetter(label: Label, userName: String) {
 
 fun templateInSetter(label: Label, userName: String) {
     label.setTitle("Hi ${<!UpperLowerInvariantMisuse!>userName.uppercase()<!>}")
+}
+
+// A compound assignment writes the property too.
+fun appendedToText(label: Label, userName: String) {
+    label.text += <!UpperLowerInvariantMisuse!>userName.lowercase()<!>
 }
 
 fun notAUiProperty(label: Label, userName: String) {

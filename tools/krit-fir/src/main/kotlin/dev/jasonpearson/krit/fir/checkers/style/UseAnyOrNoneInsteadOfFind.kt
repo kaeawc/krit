@@ -45,8 +45,8 @@ import org.jetbrains.kotlin.name.Name
 // - the comparison is `==` or `!=` (not `===` / `!==`) with a `null`
 //   literal on one side;
 // - the other side is a call of find / firstOrNull / lastOrNull that passes a
-//   predicate lambda (the no-predicate `firstOrNull()` is not reported), on a
-//   plain or safe-call (`?.`) receiver;
+//   predicate (the no-predicate `firstOrNull()` is not reported), on a plain or
+//   safe-call (`?.`) receiver;
 // - the finding is reported on the comparison, and the message names the
 //   function and the operator as written: `Use '.any {}' instead of
 //   '.find {} != null'.`
@@ -66,8 +66,9 @@ import org.jetbrains.kotlin.name.Name
 // - Recall: Go needs the call written as `receiver.name { ... }` with the
 //   lambda trailing. The checker also reports an implicit receiver (inside
 //   `with(list)` or a List subclass), a lambda passed in parentheses (or by
-//   name), a parenthesized call, a parenthesized `(null)`, a backticked name,
-//   and an import alias of the stdlib function.
+//   name), a callable reference or other function-typed predicate (detekt
+//   reports these too), a parenthesized call, a parenthesized `(null)`, a
+//   backticked name, and an import alias of the stdlib function.
 internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UseAnyOrNoneInsteadOfFind"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -111,7 +112,9 @@ internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCh
         val callableId = callee.callableId ?: return
         val name = callableId.callableName.asString()
         if (name !in findFunctions) return
-        if (!hasPredicateLambda(call)) return
+        if (!hasPredicateArgument(call)) return
+        // `fun Bag.any(p) = find(p) != null` implements the replacement; using it there would recurse.
+        if (context.containingDeclarations.any { it is FirNamedFunctionSymbol && it.name == replacement }) return
         if (!hasPredicateCounterpart(call, callee, callableId.packageName, replacement)) return
 
         report(source, "Use '.$replacement {}' instead of '.$name {} $operator null'.")
@@ -183,9 +186,13 @@ internal object UseAnyOrNoneInsteadOfFind : FirEqualityOperatorCallChecker(MppCh
         else -> null
     }
 
-    private fun hasPredicateLambda(call: FirFunctionCall): Boolean =
+    // A lambda, or a function-typed argument such as `::isValid` or a predicate variable,
+    // which detekt reports too: `any(::isValid)` is the same call.
+    context(context: CheckerContext)
+    private fun hasPredicateArgument(call: FirFunctionCall): Boolean =
         call.argumentList.arguments.any { argument ->
             val unwrapped = unwrapArgument(argument)
-            unwrapped is FirAnonymousFunctionExpression && unwrapped.anonymousFunction.isLambda
+            (unwrapped is FirAnonymousFunctionExpression && unwrapped.anonymousFunction.isLambda) ||
+                unwrapped.resolvedType.fullyExpandedType().lowerBoundIfFlexible().isSomeFunctionType(context.session)
         }
 }

@@ -6,5 +6,5 @@ package test
 import java.lang.Thread as JavaThread
 
 suspend fun aliased() {
-    <!SleepInsteadOfDelay!>JavaThread.sleep(10)<!>
+    JavaThread.<!SleepInsteadOfDelay!>sleep<!>(10)
 }

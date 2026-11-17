@@ -3240,6 +3240,48 @@ fun Chart(dataset: List<Int>, scale: Int) {
 	}
 }
 
+func TestComposeRememberWithoutKey_ResyncsThroughRememberedValue(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Row(scope: Scope, index: Int, label: String, colors: Colors) {
+    val target = remember { DragState(scope, index) }.also { it.index = index }
+    val applied = remember { Holder(label) }.apply { this.label = label }
+    val palette = remember { colors.copy() }
+    palette.updateColors(colors)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the drag state to be reported, got %d: %v", len(findings), findings)
+	}
+	if msg := findings[0].Message; !strings.Contains(msg, "parameter scope ") || strings.Contains(msg, "index") {
+		t.Fatalf("the re-synced index must leave the key list, got %q", msg)
+	}
+}
+
+func TestComposeRememberWithoutKey_RememberedValueUseIsNotResync(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Row(locale: Locale, index: Int, other: Int) {
+    val formatter = remember { Formatter(locale) }
+    use(formatter.format(locale))
+    val holder = remember { Holder(index) }.also { use(it, index) }
+    val copy = remember { Holder(other) }
+    holder.updateIndex(other)
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("a read, a non-assignment and another variable's update are not re-syncs, got %d: %v", len(findings), findings)
+	}
+}
+
 func TestComposeSideEffectInComposition_RememberedHolderReadOnlyInCallbacks(t *testing.T) {
 	skipped := runRuleByName(t, "ComposeSideEffectInComposition", `
 package test

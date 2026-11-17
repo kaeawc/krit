@@ -17,13 +17,13 @@ class Guarded {
     private val fixed = Any()
 
     fun wrapper() {
-        <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
         synchronized(fixed) { }
     }
 
     fun invokeConvention() {
         val synchronized = Locker()
-        <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
         synchronized(fixed) { }
     }
 
@@ -31,7 +31,7 @@ class Guarded {
     fun smartCastInvoke(candidate: Any) {
         val synchronized = candidate
         if (synchronized is Locker) {
-            <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
             synchronized(fixed) { }
         }
     }
@@ -43,6 +43,6 @@ class MemberLookalike {
     fun <R> synchronized(times: Int, block: () -> R): R = block()
 
     fun use() {
-        <!SynchronizedOnNonFinal!>synchronized(count) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(count) { }
     }
 }

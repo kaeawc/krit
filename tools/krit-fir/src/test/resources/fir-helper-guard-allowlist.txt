@@ -66,5 +66,4 @@ style/UnnecessaryFilter.kt safe-call-subject-unwrap 1
 style/UseCheckNotNull.kt smart-cast-unwrap 1
 style/UseOrEmpty.kt not-null-unwrap 1
 style/UseOrEmpty.kt smart-cast-unwrap 1
-style/UselessCallOnNotNull.kt safe-call-subject-unwrap 1
 testingquality/AssertNullableWithNotNullAssertion.kt smart-cast-unwrap 1

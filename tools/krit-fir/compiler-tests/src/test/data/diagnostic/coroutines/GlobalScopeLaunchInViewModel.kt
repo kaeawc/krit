@@ -1,10 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 21, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 40, 41, 43, 51, 56, 61, 68, 74, 81, 89, 93, 97, 101, 103, 110
+// go-lines: 19, 22, 26, 27, 28, 29, 30, 32, 33, 34, 35, 36, 41, 42, 44, 52, 57, 62, 69, 75, 82, 90, 94, 98, 102, 104, 111
 // Positive: GlobalScope.launch/async inside a class whose name ends in
 // ViewModel or Presenter. The nearest enclosing class decides; objects,
 // companion objects, object literals, and enum-entry bodies are looked
-// through, as Go's class_declaration walk does. Reported on the call's first
-// line (the receiver), the line the Go rule reports.
+// through, as Go's class_declaration walk does. Reported on the builder's
+// name, so a chain split across lines is reported on its `.launch` line, the
+// line the Go rule reports.
 package test
 
 import kotlinx.coroutines.CoroutineStart
@@ -15,32 +16,32 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 class UserViewModel {
-    val job = <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+    val job = GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
 
     init {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     fun load() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch(Dispatchers.IO) { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch(context = Dispatchers.IO, start = CoroutineStart.LAZY) { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async { 1 }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async(Dispatchers.Default) { 1 }.start()
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>
-            .launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!>(Dispatchers.IO) { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!>(context = Dispatchers.IO, start = CoroutineStart.LAZY) { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!> { 1 }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!>(Dispatchers.Default) { 1 }.start()
+        GlobalScope
+            .<!GlobalScopeLaunchInViewModel!>launch<!> { }
         <!GlobalScopeLaunchInViewModel!>kotlinx<!>.coroutines.GlobalScope.launch { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>?.launch { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async { 2 }
+        GlobalScope?.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> {
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!> { 2 }
         }
     }
 
     fun nested() {
-        listOf(1).forEach { <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { } }
-        val block = fun() { <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { } }
+        listOf(1).forEach { GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { } }
+        val block = fun() { GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { } }
         fun local() {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         }
         block()
         local()
@@ -48,37 +49,37 @@ class UserViewModel {
 
     private val listener = object : Runnable {
         override fun run() {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         }
     }
 
     object Helper {
-        fun start() = <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        fun start() = GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     companion object {
         fun start() {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async { }
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!> { }
         }
     }
 }
 
 class LoginPresenter {
     fun attach() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async { "user" }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!> { "user" }
     }
 }
 
 interface ScreenPresenter {
     fun start() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 }
 
 enum class ModeViewModel {
     FAST {
         override fun go() {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         }
     },
     ;
@@ -86,28 +87,28 @@ enum class ModeViewModel {
     abstract fun go()
 }
 
-class FeedViewModel(val job: Job = <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { })
+class FeedViewModel(val job: Job = GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { })
 
 abstract class BaseViewModel(val job: Job)
 
-class DetailViewModel : BaseViewModel(<!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { })
+class DetailViewModel : BaseViewModel(GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { })
 
 class EditViewModel(id: Int) : BaseViewModel(Job()) {
     constructor() : this(0) {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     val lazyJob: Job
-        get() = <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        get() = GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
 
-    fun restart(job: Job = <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }) = job
+    fun restart(job: Job = GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }) = job
 }
 
 // Only the class's name decides; a local class counts as its own owner.
 fun outer() {
     class LocalViewModel {
         fun f() {
-            <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+            GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         }
     }
 }

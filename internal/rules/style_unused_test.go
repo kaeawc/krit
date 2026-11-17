@@ -1,6 +1,7 @@
 package rules_test
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -1828,5 +1829,35 @@ class A(
 	want := "Private property `unusedProp` is unused."
 	if findings[0].Message != want {
 		t.Errorf("message = %q, want %q", findings[0].Message, want)
+	}
+}
+
+// Go writes a backticked name as the source spells it; the FIR checkers use the same text
+// (UnusedBacktickedNameMessageTest in compiler-tests), so a finding reads alike from either engine.
+func TestUnusedPrivateMembers_BacktickedNameMessages(t *testing.T) {
+	src := withBackticks(`
+package test
+
+class Holder(~plain in~: Int) {
+    private val ~in~ = 2
+    private fun ~run it~() = 3
+}
+
+private class ~Name Clash~
+`)
+	want := map[string]string{
+		"UnusedPrivateProperty": withBackticks("Private property ~~in~~ is unused.|Private property ~~plain in~~ is unused."),
+		"UnusedPrivateFunction": withBackticks("Private function ~~run it~~ is unused."),
+		"UnusedPrivateClass":    withBackticks("Private class ~Name Clash~ is unused."),
+	}
+	for rule, messages := range want {
+		var got []string
+		for _, f := range runRuleByName(t, rule, src) {
+			got = append(got, f.Message)
+		}
+		sort.Strings(got)
+		if strings.Join(got, "|") != messages {
+			t.Errorf("%s: got %q, want %q", rule, got, messages)
+		}
 	}
 }

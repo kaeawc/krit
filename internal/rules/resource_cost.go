@@ -1,12 +1,14 @@
 package rules
 
 import (
+	"bytes"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -39,6 +41,9 @@ func resourceCostInsideLoopLambda(file *scanner.File, idx uint32) bool {
 	}
 	return false
 }
+
+// composePainterResourceFQNs are the Compose painter loaders ComposePainterResourceInLoop targets.
+var composePainterResourceFQNs = []string{"androidx.compose.ui.res.painterResource", "org.jetbrains.compose.resources.painterResource"}
 
 // resourceCostInlineLoopCallNames are inline iteration helpers; outside a lazy list they run a fixed, small number of times.
 var resourceCostInlineLoopCallNames = map[string]bool{"forEach": true, "forEachIndexed": true, "map": true, "mapIndexed": true, "repeat": true}
@@ -331,6 +336,41 @@ func javaHTTPClientCallLooksReal(file *scanner.File, idx uint32) bool {
 	}
 	receiver := databaseCallReceiverName(file, idx)
 	return receiver == "HttpClient" || strings.HasSuffix(receiver, ".HttpClient")
+}
+
+// okHTTPFileReferencesLibrary reports a file that imports or names okhttp3, which a name-based guess at an
+// okhttp3.Call needs: without it a receiver named `call` is another library's call.
+func okHTTPFileReferencesLibrary(file *scanner.File) bool {
+	return fileFactsCache().Imports(file).HasAnyPrefix("okhttp3.") || bytes.Contains(file.Content, []byte("okhttp3."))
+}
+
+// okHTTPResolvedCallTarget reports an execute() call that the type facts resolve to a member of okhttp3.Call.
+func okHTTPResolvedCallTarget(ctx *api.Context, idx uint32) bool {
+	target, ok := semantics.ResolveCallTarget(ctx, idx)
+	return ok && target.Resolved && semanticTargetOwnerMatches(target.QualifiedName, "okhttp3.Call")
+}
+
+// okHTTPInjectedDispatcherNames are lower-case dispatcher holders, such as `appDispatchers.io`, that put the work
+// on a background thread.
+var okHTTPInjectedDispatcherNames = []string{"dispatchers.io", "dispatchers.default"}
+
+// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call or lambda, up to the function, whose text names an
+// injected IO or default dispatcher.
+func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "call_expression", "lambda_literal":
+			lower := strings.ToLower(file.FlatNodeText(current))
+			for _, name := range okHTTPInjectedDispatcherNames {
+				if strings.Contains(lower, name) {
+					return true
+				}
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 func okHTTPReceiverDeclaredAsCall(file *scanner.File, fn uint32, receiver string) bool {
@@ -661,6 +701,7 @@ func cursorColumnArgIsLoopInvariant(file *scanner.File, call uint32, loopLocals 
 
 // bufferedReadFillsLargeBuffer reports whether a FileInputStream.read call fills a buffer known to hold 8 KiB
 // or more, which already moves data in large chunks. Reads into buffers of unknown size are not exempt.
+// The buffer may be a val of the enclosing function or of the file, and its size a constant expression.
 func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 	first := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), 0)
 	expr := flatValueArgumentExpression(file, first)
@@ -670,8 +711,8 @@ func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 	size, known := byteArraySizeLiteral(file, expr)
 	if !known && file.FlatType(expr) == "simple_identifier" {
 		name := file.FlatNodeText(expr)
-		if fn, ok := flatEnclosingCallable(file, call); ok {
-			file.FlatWalkNodes(fn, "property_declaration", func(prop uint32) {
+		lookup := func(root uint32) {
+			file.FlatWalkNodes(root, "property_declaration", func(prop uint32) {
 				if known || composePropertyNameFlat(file, prop) != name || declarationIsVarFlat(file, prop) {
 					return
 				}
@@ -680,12 +721,22 @@ func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 				}
 			})
 		}
+		// A local shadows a member or top-level val of the same name.
+		if fn, ok := flatEnclosingCallable(file, call); ok {
+			lookup(fn)
+		}
+		if !known {
+			lookup(0)
+		}
 	}
 	return known && size >= 8192
 }
 
-// byteArraySizeLiteral returns N for a `ByteArray(N)` expression with an integer literal size.
-func byteArraySizeLiteral(file *scanner.File, expr uint32) (int, bool) {
+// kotlinDefaultBufferSize is kotlin.io.DEFAULT_BUFFER_SIZE, which Kotlin imports by default.
+const kotlinDefaultBufferSize = 8192
+
+// byteArraySizeLiteral returns N for a `ByteArray(N)` expression whose size folds to a constant.
+func byteArraySizeLiteral(file *scanner.File, expr uint32) (int64, bool) {
 	if file.FlatType(expr) != "call_expression" || flatCallExpressionName(file, expr) != "ByteArray" {
 		return 0, false
 	}
@@ -695,8 +746,14 @@ func byteArraySizeLiteral(file *scanner.File, expr uint32) (int, bool) {
 	if size == 0 {
 		return 0, false
 	}
-	n, err := strconv.Atoi(strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(size)), "_", ""))
-	return n, err == nil
+	if n, ok := lintEvalIntLenient(file, size, nil); ok {
+		return n, true
+	}
+	switch strings.TrimSpace(file.FlatNodeText(size)) {
+	case "DEFAULT_BUFFER_SIZE", "kotlin.io.DEFAULT_BUFFER_SIZE":
+		return kotlinDefaultBufferSize, true
+	}
+	return 0, false
 }
 
 const workManagerMinPeriodicMillis = 15 * 60 * 1000

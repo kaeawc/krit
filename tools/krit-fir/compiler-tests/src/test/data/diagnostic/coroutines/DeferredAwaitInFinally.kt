@@ -42,13 +42,13 @@ suspend fun safeCall(cleanup: Deferred<Unit>?) {
     }
 }
 
-// Reported on the line the call expression starts on: the receiver's.
+// Reported on the callee name: a chain split across lines on its `.await()` line.
 suspend fun splitChain(cleanup: Deferred<Unit>) {
     try {
         println("working")
     } finally {
-        <!DeferredAwaitInFinally!>cleanup<!>
-            .await()
+        cleanup
+            .<!DeferredAwaitInFinally!>await<!>()
     }
 }
 
@@ -180,6 +180,6 @@ suspend fun launchedOnScope(scope: CoroutineScope, cleanup: Deferred<Unit>) {
         scope.launch(block = { <!DeferredAwaitInFinally!>cleanup.await()<!> })
         scope.launch { listOf(cleanup).forEach { <!DeferredAwaitInFinally!>it.await()<!> } }
         supervisorScope { launch { <!DeferredAwaitInFinally!>cleanup.await()<!> } }
-        <!DeferredAwaitInFinally!>scope<!>.async { <!DeferredAwaitInFinally!>cleanup.await()<!> }.await()
+        scope.<!DeferredAwaitInFinally!>async<!> { <!DeferredAwaitInFinally!>cleanup.await()<!> }.await()
     }
 }

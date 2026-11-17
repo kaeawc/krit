@@ -74,3 +74,21 @@ class RequireBlockBodyShouldFire {
         return makeFoo()!!
     }
 }
+
+// An array or list element is not a map lookup, so this rule reports its `!!`.
+class IndexedElements(private val slots: Array<String?>, private val names: List<String?>) {
+    fun arrayElement(): String = slots[0]!!
+
+    fun listElement(): Int = names[1]!!.length
+}
+
+// An assignment target that starts with `x!!`.
+class AssignmentTarget {
+    class Size(var width: Int)
+
+    private var size: Size? = null
+
+    fun resize(width: Int) {
+        size!!.width = width
+    }
+}

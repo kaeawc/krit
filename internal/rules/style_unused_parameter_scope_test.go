@@ -1,6 +1,9 @@
 package rules_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnusedParameter_WhenSubjectInsideTrailingLambda(t *testing.T) {
 	findings := runRuleByName(t, "UnusedParameter", `
@@ -163,3 +166,36 @@ constructor(
 		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
 	}
 }
+
+// A backticked parameter is read through the same backticked name; the reference must match it.
+func TestUnusedParameter_BacktickedNameUsedWithBackticks(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", withBackticks(`
+package test
+
+class Cipher {
+  fun encrypt(~in~: ByteArray) = native(~in~)
+  fun decrypt(~is~: ByteArray): ByteArray {
+    return native("${~is~}".toByteArray())
+  }
+  private fun native(bytes: ByteArray) = bytes
+}
+`))
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d: %v", len(findings), findings)
+	}
+}
+
+// An unused backticked parameter is still reported, with the name as written.
+func TestUnusedParameter_BacktickedNameUnused(t *testing.T) {
+	findings := runRuleByName(t, "UnusedParameter", withBackticks(`
+package test
+
+fun encrypt(~in~: ByteArray) = 1
+`))
+	if want := withBackticks("Parameter '~in~' is unused."); len(findings) != 1 || findings[0].Message != want {
+		t.Fatalf("expected one finding %q, got %v", want, findings)
+	}
+}
+
+// withBackticks writes a Kotlin backtick for each ~, which a Go raw string cannot hold.
+func withBackticks(s string) string { return strings.ReplaceAll(s, "~", "`") }

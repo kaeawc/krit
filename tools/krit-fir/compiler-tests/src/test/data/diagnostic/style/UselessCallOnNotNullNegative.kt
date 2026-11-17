@@ -32,9 +32,6 @@ fun smartCast(x: String?): String {
     return ""
 }
 
-// A safe call on a nullable receiver.
-fun safeCall(x: String?): String? = x?.orEmpty()
-
 fun nullArgument(): List<String> = listOfNotNull(null)
 
 fun nullableArgument(a: String?): List<String> = listOfNotNull(a)

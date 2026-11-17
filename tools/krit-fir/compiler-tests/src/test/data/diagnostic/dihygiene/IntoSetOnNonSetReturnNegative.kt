@@ -43,10 +43,11 @@ class PluginModule {
     @IntoSet
     fun notABinding(): List<Plugin> = emptyList()
 
-    // Go reads only a declared return type; an inferred one is not checked.
+    // An inferred single element (inferred collections are in
+    // IntoSetOnNonSetReturnInferred.kt).
     @Provides
     @IntoSet
-    fun inferred() = listOf<Plugin>()
+    fun inferred() = PluginImpl()
 
     // Types outside Go's wrapper list, collections or not.
     @Provides
@@ -94,12 +95,12 @@ class PluginModule {
         return helper().firstOrNull() ?: PluginImpl()
     }
 
-    // Property accessors are not function declarations, so neither Go nor
-    // FIR checks them.
+    // A property binding of a single element (property bindings of a
+    // collection are in IntoSetOnNonSetReturnProperty.kt).
     @get:Provides
     @get:IntoSet
-    val property: List<Plugin>
-        get() = emptyList()
+    val property: Plugin
+        get() = PluginImpl()
 }
 
 @Module

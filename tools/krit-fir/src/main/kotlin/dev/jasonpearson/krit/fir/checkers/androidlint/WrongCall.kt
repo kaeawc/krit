@@ -1,46 +1,53 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
-import dev.jasonpearson.krit.fir.support.lightSourceOf
-import dev.jasonpearson.krit.fir.support.qualifiedCall
+import org.jetbrains.kotlin.KtRealSourceElementKind
+import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
-import org.jetbrains.kotlin.fir.declarations.utils.isOverride
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSuperReceiverExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousInitializerSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertyAccessorSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.name.Name
 
 /**
- * Flags a direct call of a View's `onDraw`, `onMeasure`, or `onLayout` on an
- * explicit receiver (`child.onDraw(canvas)`), where the caller almost always
- * meant `draw`, `measure`, or `layout`.
+ * Flags a call of a View's `onDraw`, `onMeasure`, or `onLayout`, where the
+ * caller almost always meant `draw`, `measure`, or `layout`, as Android
+ * Lint's WrongCall does.
  *
- * Like the Go rule, the call must have an explicit receiver (a bare
- * `onDraw(canvas)` is not reported), a `super` receiver is allowed, and a
- * call anywhere inside an `override` of the same name (the nearest enclosing
- * named function, looking through lambdas, anonymous functions, and local
- * classes) is not reported. The finding sits on the first line of the call expression
- * (the receiver's first line), with Go's message.
+ * The callee must be a member function (not an extension) of
+ * `android.view.View` or of a subtype of it, including local and anonymous
+ * subclasses, called on any receiver: explicit (`this.onDraw(c)`,
+ * `other.onDraw(c)`), implicit (`onDraw(c)` in a View subclass or in
+ * `with(view) { ... }`), or `super`. A `super` call is reported unless the
+ * nearest enclosing method has the callback's name (`super.onDraw(c)` in
+ * `onDraw` is the normal chain-up; in `onMeasure` it is not). As in Lint,
+ * lambdas and local functions are not methods, an init block belongs to the
+ * constructor, and a super call in a property initializer, which has no
+ * method, is not reported. The finding sits on the callee name, with Lint's
+ * message.
  *
- * The View proof comes from the resolved callee: it must be a member function
- * (not an extension) of `android.view.View` or of a subtype of it, including
- * local and anonymous subclasses. K2 rejects most of the shapes the Go rule
- * targets, because the three callbacks are protected: `child.onDraw(canvas)`
- * on a `View`-typed child from inside a View subclass is
- * `INVISIBLE_REFERENCE`, so that file is not authoritative and Go keeps its
- * findings there. The shapes that compile are a receiver whose type is the
- * calling View subclass itself (`this.onDraw(c)`, `other.onDraw(c)` with
- * `other: MyView`), and a subclass that widens a callback to `public`.
+ * Like Lint, which does not analyze test sources, it skips test files.
+ *
+ * K2 rejects `child.onDraw(canvas)` on a `View`-typed child from inside a
+ * View subclass (the callbacks are protected, `INVISIBLE_REFERENCE`), so that
+ * file is not authoritative and Go keeps its findings there.
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: Go proves the receiver is a View by the simple name `View` or
@@ -54,19 +61,17 @@ import org.jetbrains.kotlin.name.Name
  *   exact signature, which K2 picks over the invisible protected member), a
  *   function-typed property named like a callback, or an interface method a
  *   View subclass inherits. None of them calls a View callback.
- * - Super: Go skips only a receiver spelled exactly `super`. This checker
- *   skips every super receiver, including `super<View>` and `super@Outer`:
- *   a super call deliberately runs the superclass implementation, which
- *   draw / measure / layout cannot do.
- * - Recall: resolution sees receivers Go misses: `this@Outer` from an inner
- *   class (Go's fallback reads only the nearest class), an object expression
- *   extending View (Go's fallback needs a class or object declaration), a View
- *   receiver whose chain starts with a name Go treats as a known non-View
- *   builder root (`Tab`, `Preference`, ...), and receivers Go cannot type
- *   outside a View subclass (a local inferred from a generic call or holding
- *   an object expression, a type parameter with a View-subclass or
- *   intersection bound, a scope-function `this` / `it`, a cast, a
- *   parenthesized receiver split over lines, a `?.let { it }` chain).
+ * - Recall: resolution sees receivers Go misses: `this@Outer` and
+ *   `super@Outer` from an inner class (Go's fallback reads only the nearest
+ *   class), an object expression extending View (Go's fallback needs a class
+ *   or object declaration), a View receiver whose chain starts with a name Go
+ *   treats as a known non-View builder root (`Tab`, `Preference`, ...), an
+ *   implicit receiver inside a lambda (Go skips a bare call in a lambda, which
+ *   may have a receiver of its own), and receivers Go cannot type outside a
+ *   View subclass (a local inferred from a generic call or holding an object
+ *   expression, a type parameter with a View-subclass or intersection bound,
+ *   a scope-function `this` / `it`, a cast, a parenthesized receiver split
+ *   over lines, a `?.let { it }` chain).
  */
 internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "WrongCall"
@@ -85,22 +90,35 @@ internal object WrongCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
         if (callee.name !in callbacks) return
-        val receiver = expression.explicitReceiver ?: return
-        // A super call runs the superclass implementation on purpose, which
-        // draw / measure / layout cannot do. Go allows the plain `super`
-        // spelling; the qualified and labeled spellings are the same dispatch.
-        if (receiver is FirSuperReceiverExpression) return
+        // Lint does not analyze test sources.
+        if (isInTestFile()) return
         if (callee.receiverParameterSymbol != null) return
         val owner = callee.getContainingClassSymbol() ?: return
         if (!isView(owner)) return
-        val enclosing = context.containingDeclarations.filterIsInstance<FirNamedFunctionSymbol>().lastOrNull()
-        // A same-named override may forward to another receiver.
-        if (enclosing != null && enclosing.isOverride && enclosing.name == callee.name) return
-        val source = expression.source ?: return
-        report(
-            qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source,
-            "Suspicious method call; should probably call draw/measure/layout instead of ${callee.name}.",
-        )
+        if (expression.explicitReceiver is FirSuperReceiverExpression && !superCallReported(callee.name)) return
+        val source = expression.calleeReference.source ?: return
+        if (source.kind !is KtRealSourceElementKind) return
+        val name = callee.name.asString()
+        val intended = name[2].lowercaseChar() + name.substring(3)
+        report(source, "Suspicious method call; should probably call \"`$intended`\" rather than \"`$name`\"")
+    }
+
+    // Lint reports a super call unless its nearest enclosing method has the
+    // callback's name; lambdas, local functions, local variables, and
+    // parameter defaults sit inside the method they belong to.
+    context(context: CheckerContext)
+    private fun superCallReported(name: Name): Boolean {
+        for (symbol in context.containingDeclarations.asReversed()) {
+            when (symbol) {
+                is FirAnonymousFunctionSymbol, is FirValueParameterSymbol -> continue
+                is FirNamedFunctionSymbol ->
+                    if (symbol.rawStatus.visibility == Visibilities.Local) continue else return symbol.name != name
+                is FirConstructorSymbol, is FirPropertyAccessorSymbol, is FirAnonymousInitializerSymbol -> return true
+                is FirPropertySymbol -> if (symbol.isLocal) continue else return false
+                else -> return false
+            }
+        }
+        return false
     }
 
     // The containing class comes from the symbol's lookup tag, which is bound to

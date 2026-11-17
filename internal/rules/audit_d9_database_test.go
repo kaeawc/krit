@@ -156,14 +156,14 @@ fun f(c: Connection) {
     return stmt.use { it.executeQuery() }
 }
 `, 0},
-		{"stmt returned still reported like FIR", "JdbcPreparedStatementNotClosed", `
+		{"stmt returned is handed to the caller like FIR", "JdbcPreparedStatementNotClosed", `
 package test
 import java.sql.Connection
 fun f(c: Connection): java.sql.PreparedStatement {
     val stmt = c.prepareStatement("select 1")
     return stmt
 }
-`, 1},
+`, 0},
 	})
 }
 

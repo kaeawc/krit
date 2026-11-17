@@ -347,6 +347,8 @@ type InstantiatableRule struct {
 // Classified per roadmap/17.
 func (r *InstantiatableRule) Confidence() float64 { return api.ConfidenceMedium }
 
+const instantiatableInnerMessage = "This inner class is registered as an Android component but cannot be instantiated. Remove the inner modifier."
+
 // componentSuperclasses omits BroadcastReceiver: a receiver registered at runtime may be private.
 var componentSuperclasses = []string{"Activity", "AppCompatActivity", "ComponentActivity", "FragmentActivity", "Service", "IntentService", "ContentProvider", "Application"}
 

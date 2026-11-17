@@ -41,14 +41,14 @@ import org.jetbrains.kotlin.text
  *
  * Mirrors the Go rule: a class (or, here, an object) whose superclass closure holds
  * `RecyclerView.Adapter`, with no `ListAdapter` in it, is searched as a whole, nested classes and
- * lambdas included. The call is the first one in source order. Any written reference to a class
+ * lambdas included, except that a call inside a nested adapter belongs to that adapter alone. The
+ * call is the first one in source order. Any written reference to a class
  * named `DiffUtil` or `ListAdapter` inside the class (a type, a type argument, a qualifier such as
  * `DiffUtil.calculateDiff`) clears it. Test files are skipped. Java classes stay with Go.
  *
  * Deliberate differences from Go, each pinned in the golden data (`RecyclerAdapterWithoutDiffUtil*.kt`):
- * - Go needs a direct supertype whose name ends in `Adapter`, or the resolver's hierarchy for such a
- *   name. The closure here also sees an adapter reached through a base class of any name, and an
- *   adapter that is an `object`, which Go does not visit.
+ * - Go reaches the adapter through supertype names and its source resolver; the closure here also
+ *   sees an adapter that is an `object`, which Go does not visit, and a base class Go cannot index.
  * - Go matches the call by name. Here it must resolve to a member of `RecyclerView.Adapter`, so a
  *   `notifyDataSetChanged` on another adapter type (`BaseAdapter` for a `ListView`) or a same-named
  *   function is not reported.
@@ -116,17 +116,26 @@ internal object RecyclerAdapterWithoutDiffUtil : FirClassChecker(MppCheckerKind.
             expanded.typeArguments.any { argument -> argument.type?.let { namesClearingClass(it, session) } == true }
     }
 
+    private fun isAdapter(declaration: FirRegularClass, session: FirSession): Boolean =
+        superClosure(declaration.symbol, session).any { it in adapterClassIds }
+
     // One walk over the class body: the first live call and whether a clearing name is written.
     private class Scan(private val session: FirSession) : FirVisitorVoid() {
         var firstCall: FirFunctionCall? = null
         var mentionsClearingName = false
         private var suppressedDepth = 0
 
+        // A nested adapter's calls are its own finding (or exempt, for a ListAdapter); its clearing names still count.
+        private var nestedAdapterDepth = 0
+
         override fun visitElement(element: FirElement) {
             val suppressed = suppresses(element)
+            val nestedAdapter = element is FirRegularClass && isAdapter(element, session)
             if (suppressed) suppressedDepth++
+            if (nestedAdapter) nestedAdapterDepth++
             inspect(element)
             element.acceptChildren(this)
+            if (nestedAdapter) nestedAdapterDepth--
             if (suppressed) suppressedDepth--
         }
 
@@ -146,7 +155,7 @@ internal object RecyclerAdapterWithoutDiffUtil : FirClassChecker(MppCheckerKind.
         }
 
         private fun inspectCall(call: FirFunctionCall) {
-            if (suppressedDepth > 0 || call.calleeReference.name != notifyDataSetChanged) return
+            if (suppressedDepth > 0 || nestedAdapterDepth > 0 || call.calleeReference.name != notifyDataSetChanged) return
             val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
             val owner = callee.getContainingClassSymbol() as? FirClassSymbol<*> ?: return
             if (owner.classId !in adapterClassIds && superClosure(owner, session).none { it in adapterClassIds }) return

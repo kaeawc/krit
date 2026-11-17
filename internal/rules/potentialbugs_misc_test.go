@@ -1098,6 +1098,53 @@ fun main() {
 	}
 }
 
+func TestImplicitDefaultLocale_ShadowedCaseConversion(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want int
+	}{
+		{"imported shim", `
+package test
+import app.util.capitalize
+fun title(s: String) = s.capitalize()
+`, 0},
+		{"aliased shim", `
+package test
+import app.util.upper as toUpperCase
+fun title(s: String) = s.toUpperCase()
+`, 0},
+		{"same-file String extension", `
+package test
+fun String.decapitalize(): String = this
+fun title(s: String) = s.decapitalize()
+`, 0},
+		{"stdlib import", `
+package test
+import kotlin.text.capitalize
+fun title(s: String) = s.capitalize()
+`, 1},
+		{"shim of another name", `
+package test
+import app.util.capitalize
+fun title(s: String) = s.toUpperCase()
+`, 1},
+		{"member of another class", `
+package test
+class Name { fun capitalize(): Name = this }
+fun title(s: String) = s.capitalize()
+`, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := runRuleByName(t, "ImplicitDefaultLocale", tt.code)
+			if len(findings) != tt.want {
+				t.Fatalf("expected %d findings, got %d: %v", tt.want, len(findings), findings)
+			}
+		})
+	}
+}
+
 func TestImplicitDefaultLocale_FormatSpecifierPolicy(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 22
-// An assertTrue that is not a test library function. Go reports every receiverless call by name.
+// go-lines: none
+// An assertTrue that is not a test library function. Go skips a receiverless call when the file declares an assertTrue.
 package test.asserttrueoncomparison.lookalike
 
 fun assertTrue(condition: Boolean) {}

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 20, 24, 29, 32, 35, 40, 42, 46, 49x2, 53, 56, 59, 62, 65, 66, 71, 76, 80
+// go-lines: 16, 20, 24, 29, 32, 35, 40, 42, 46, 49x2, 53, 56, 59, 62, 65, 66, 71, 76, 80, 89, 91, 104, 108
 // Operands the compiler types as nullable.
 package test.unsafecall.positive
 
@@ -83,3 +83,28 @@ class Scopes(private val maybe: String?, private val other: Controller?) {
     }
 }
 
+// An index operand that is not a map lookup is this rule's own finding; MapGetWithNotNullAssertionOperator
+// reports only `map[key]!!`.
+class Elements(private val slots: Array<Controller?>, private val items: List<String?>) {
+    fun arrayElement(): Controller = slots[0]<!UnsafeCallOnNullableType!>!!<!>
+
+    fun listElement(index: Int): Int = items[index]<!UnsafeCallOnNullableType!>!!<!>.length
+
+    // Go does not type a call result as an array, so it leaves this index to the map rule and misses it.
+    fun nullsArray(): Controller = arrayOfNulls<Controller>(2)[1]<!UnsafeCallOnNullableType!>!!<!>
+}
+
+class Width(var value: Int)
+
+// An assignment whose target starts with `x!!`.
+class AssignmentTargets {
+    private var current: Width? = null
+
+    fun assign(value: Int) {
+        current<!UnsafeCallOnNullableType!>!!<!>.value = value
+    }
+
+    fun augmented(value: Int) {
+        current<!UnsafeCallOnNullableType!>!!<!>.value += value
+    }
+}

@@ -45,6 +45,35 @@ fun main() {
 	}
 }
 
+// detekt's nearest KtNamedFunction is the anonymous function, which is not main; a lambda is passed through.
+func TestExitOutsideMain_AnonymousFunctionInsideMain(t *testing.T) {
+	findings := runRuleByName(t, "ExitOutsideMain", `
+package test
+fun main() {
+    listOf(1).forEach(fun(code: Int) { exitProcess(code) })
+    listOf(1).forEach { exitProcess(it) }
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 4 {
+		t.Fatalf("expected one finding on line 4 (the anonymous function), got %v", findings)
+	}
+}
+
+// detekt reports the call itself, so a qualifier on the line above does not move the finding.
+func TestExitOutsideMain_AnchorsOnCalleeBelowQualifier(t *testing.T) {
+	findings := runRuleByName(t, "ExitOutsideMain", `
+package test
+fun shutdown() {
+    java.lang.System
+        .exit(4)
+    System.exit(1)
+}
+`)
+	if len(findings) != 2 || findings[0].Line != 5 || findings[0].Col != 10 || findings[1].Line != 6 || findings[1].Col != 12 {
+		t.Fatalf("expected findings at 5:10 and 6:12, got %v", findings)
+	}
+}
+
 func TestExitOutsideMain_IgnoresNonSystemExitReceiver(t *testing.T) {
 	findings := runRuleByName(t, "ExitOutsideMain", `
 package test

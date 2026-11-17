@@ -43,29 +43,35 @@ func (r *UnreachableCatchBlockRule) checkFlatNode(ctx *api.Context) {
 			keyword:  catchKeywordNode(file, child),
 		})
 	}
-	for i := 0; i < len(catches); i++ {
-		for j := i + 1; j < len(catches); j++ {
-			parentType := catches[i].typeName
-			childType := catches[j].typeName
-			keyword := catches[j].keyword
-			if parentType == childType {
-				ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
-					fmt.Sprintf("Duplicate catch block for '%s'.", simpleTypeName(childType))), file, keyword))
-				continue
-			}
-			if ctx.Resolver != nil {
-				if ctx.Resolver.IsExceptionSubtype(childType, parentType) {
-					ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
-						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", simpleTypeName(childType), simpleTypeName(parentType))), file, keyword))
-				}
-			} else {
-				if typeinfer.IsSubtypeOfException(childType, parentType) {
-					ctx.Emit(withNodeSpan(r.Finding(file, 0, 0,
-						fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", simpleTypeName(childType), simpleTypeName(parentType))), file, keyword))
-				}
+	// Each unreachable clause is reported once, naming the first earlier
+	// clause that catches its type, as detekt reports one finding per clause.
+	for j := 1; j < len(catches); j++ {
+		childType := catches[j].typeName
+		for i := 0; i < j; i++ {
+			if message, ok := r.shadowMessage(ctx, catches[i].typeName, childType); ok {
+				ctx.Emit(withNodeSpan(r.Finding(file, 0, 0, message), file, catches[j].keyword))
+				break
 			}
 		}
 	}
+}
+
+// shadowMessage reports whether a catch of parentType above makes a catch
+// of childType unreachable, with the message for that case.
+func (r *UnreachableCatchBlockRule) shadowMessage(ctx *api.Context, parentType, childType string) (string, bool) {
+	if parentType == childType {
+		return fmt.Sprintf("Duplicate catch block for '%s'.", simpleTypeName(childType)), true
+	}
+	var subtype bool
+	if ctx.Resolver != nil {
+		subtype = ctx.Resolver.IsExceptionSubtype(childType, parentType)
+	} else {
+		subtype = typeinfer.IsSubtypeOfException(childType, parentType)
+	}
+	if !subtype {
+		return "", false
+	}
+	return fmt.Sprintf("Catch block for '%s' is unreachable because '%s' is caught above.", simpleTypeName(childType), simpleTypeName(parentType)), true
 }
 
 func extractCatchTypeFlat(file *scanner.File, catchNode uint32) string {

@@ -1,9 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 20, 24
-// Lookalikes: a member `require` that is not kotlin.require. Divergence on
-// every call below: Go reports any call named `require`, including a member
-// call through an explicit or implicit receiver; none of them is
-// kotlin.require, so kotlin.requireNotNull is not their replacement.
+// go-lines: 25
+// Lookalikes: a member `require` that is not kotlin.require, so
+// kotlin.requireNotNull is not their replacement. Go skips the call on an
+// explicit receiver and the bare call in the class that declares `require`;
+// it still reports the call through a `with` receiver (divergence), which it
+// cannot see from the call.
 package test
 
 class Validator {

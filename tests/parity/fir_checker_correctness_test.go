@@ -278,14 +278,28 @@ fun f() {
 }
 fun use(x: String?) {}
 `,
+		// Unchecked cast to a non-reified type parameter: the JVM checks only
+		// the erased bound Any?, so the cast cannot throw -> no flag.
+		"Unchecked.kt": `package cast5
+class Store(private val values: Map<String, Any?>) {
+    fun <T> get(key: String): T? = values[key] as T?
+}
+`,
+		// The erased bound CharSequence is checked, so an Any operand can
+		// throw -> flag.
+		"BoundCanFail.kt": `package cast6
+fun <T : CharSequence> f(x: Any): T? = x as T?
+`,
 	}
 	f := firCheck(t, []string{"UnsafeCastWhenNullable"}, sources)
 	rule := "UnsafeCastWhenNullable"
 	want := map[string]int{
-		"Downcast.kt":  1,
-		"TypedNull.kt": 0,
-		"Widening.kt":  0,
-		"SafeCast.kt":  0,
+		"Downcast.kt":     1,
+		"TypedNull.kt":    0,
+		"Widening.kt":     0,
+		"SafeCast.kt":     0,
+		"Unchecked.kt":    0,
+		"BoundCanFail.kt": 1,
 	}
 	for file, exp := range want {
 		if got := rulesOf(f[file], rule); got != exp {

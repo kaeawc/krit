@@ -19,7 +19,7 @@ import java.io.Reader
 // protected non-final field, and Thread.name has setName.
 class MyReader : Reader() {
     override fun read(cbuf: CharArray, off: Int, len: Int): Int {
-        <!SynchronizedOnNonFinal!>synchronized(lock) { return -1 }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(lock) { return -1 }
     }
 
     override fun close() {
@@ -31,7 +31,7 @@ class MyReader : Reader() {
 
 class MyThread : Thread() {
     fun f() {
-        <!SynchronizedOnNonFinal!>synchronized(name) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(name) { }
     }
 
     fun g() {
@@ -47,19 +47,19 @@ class MyThread : Thread() {
 // View.tag is the synthetic property over getTag/setTag.
 class MyStream(out: OutputStream) : FilterOutputStream(out) {
     override fun flush() {
-        <!SynchronizedOnNonFinal!>synchronized(out) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(out) { }
     }
 }
 
 class LoaderThread : Thread() {
     fun f() {
-        <!SynchronizedOnNonFinal!>synchronized(contextClassLoader) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(contextClassLoader) { }
     }
 }
 
 class TaggedView(context: Context) : View(context) {
     fun use() {
-        <!SynchronizedOnNonFinal!>synchronized(tag) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(tag) { }
     }
 }
 

@@ -106,9 +106,10 @@ class SimpleDateFormatIcu4jTest {
         return result.diags.filter { it.name == "SimpleDateFormat" }.map { it.file to it.line }
     }
 
-    // Go reports each of these by the call name. The imported and qualified
-    // ICU4J calls use the default format locale; so does a project subclass
-    // named SimpleDateFormat.
+    // Go reports each call by its name. The imported and qualified ICU4J calls
+    // use the default format locale; so does a project subclass named
+    // SimpleDateFormat, and its delegation to the one-argument constructor,
+    // which Lint reports and Go does not.
     @Test fun importedAndQualifiedIcu4jCallsReport() {
         val sources = mapOf(
             "Icu.kt" to """
@@ -128,12 +129,13 @@ class SimpleDateFormatIcu4jTest {
                 }
             """.trimIndent(),
         )
-        assertEquals(listOf("Icu.kt" to 6, "Icu.kt" to 8, "Icu.kt" to 13), findings(sources))
+        assertEquals(listOf("Icu.kt" to 6, "Icu.kt" to 8, "Icu.kt" to 11, "Icu.kt" to 13), findings(sources))
     }
 
-    // Two or more arguments are never reported, whatever the second one is;
-    // Go does not report them either.
-    @Test fun icu4jCallsWithTwoOrMoreArgumentsDoNotReport() {
+    // A constructor with a Locale or ULocale parameter states the locale. Go
+    // accepts any two arguments; the (pattern, symbols) constructor still uses
+    // the default locale for the calendar and digits, so FIR reports it.
+    @Test fun icu4jCallsWithoutALocaleReport() {
         val sources = mapOf(
             "IcuNegative.kt" to """
                 package demo
@@ -154,6 +156,6 @@ class SimpleDateFormatIcu4jTest {
                 fun symbolsAndLocale(): Any = SimpleDateFormat("yyyy", DateFormatSymbols(Locale.US), ULocale.US)
             """.trimIndent(),
         )
-        assertEquals(emptyList(), findings(sources))
+        assertEquals(listOf("IcuNegative.kt" to 12), findings(sources))
     }
 }

@@ -1,15 +1,13 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// A toast stored in a variable counts as shown only through a read its value
-// can reach: after the store, not in an exclusive `if`/`when` branch, not
-// across another write, a jump, or the end of an enclosing loop iteration or
-// lambda. A member or top-level property is followed, through the whole file,
-// only when the store is its one write (a `null` initializer aside) and is on
-// `this`; otherwise it is not followed at all, as in Go (Go does not follow
-// assignments). Every toast marked below is reported by Go too, and all but
-// the one in `Twice.display()` are never shown. Divergence (precision): the
-// unmarked last store in each of the first three functions is shown, so FIR
-// does not report it; Go does, since it does not follow assignments.
+// A toast stored in a local variable counts as shown only through a read its
+// value can reach: after the store, not in an exclusive `if`/`when` branch,
+// not across another write, a jump, or the end of an enclosing loop iteration
+// or lambda. Divergence (recall): every marked toast is never shown, and Lint
+// reports it; Go reads every assignment as an escape and reports none. A toast
+// assigned to a member or top-level property escapes to code that may show it
+// (another function, another instance), so neither Go, Lint, nor FIR reports
+// the stores in `Twice`, `otherInstance`, and `prepareTop`.
 package test.showtoast.overwrite
 
 import android.content.Context
@@ -83,11 +81,11 @@ class Twice(private val context: Context) {
     private var toast: Toast? = null
 
     fun prepare() {
-        toast = <!ShowToast!>Toast.makeText(context, "a", Toast.LENGTH_SHORT)<!>
+        toast = Toast.makeText(context, "a", Toast.LENGTH_SHORT)
     }
 
     fun display() {
-        toast = <!ShowToast!>Toast.makeText(context, "b", Toast.LENGTH_SHORT)<!>
+        toast = Toast.makeText(context, "b", Toast.LENGTH_SHORT)
         toast?.show()
     }
 }
@@ -97,14 +95,14 @@ class Holder {
 }
 
 fun otherInstance(context: Context, a: Holder, b: Holder) {
-    a.toast = <!ShowToast!>Toast.makeText(context, "a", Toast.LENGTH_SHORT)<!>
+    a.toast = Toast.makeText(context, "a", Toast.LENGTH_SHORT)
     b.toast?.show()
 }
 
 var topToast: Toast? = null
 
 fun prepareTop(context: Context) {
-    topToast = <!ShowToast!>Toast.makeText(context, "a", Toast.LENGTH_SHORT)<!>
+    topToast = Toast.makeText(context, "a", Toast.LENGTH_SHORT)
 }
 
 fun clearTop() {

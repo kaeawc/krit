@@ -13,6 +13,7 @@ import dev.jasonpearson.krit.fir.support.splitSqlConcatOperands
 import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
 import dev.jasonpearson.krit.fir.support.sqlLastIdentifierSegment
 import dev.jasonpearson.krit.fir.support.sqlSchemaConstantName
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -21,12 +22,21 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.utils.isConst
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
+import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.CallableId
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
@@ -49,8 +59,8 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   upper-case name with an underscore; the last dotted segment counts);
  * - a concatenation (or a single operand) is reported as computed when an
  *   operand is neither `null`, a constant-looking name, nor text starting
- *   with a quote that holds no `$` (so a chain such as
- *   `"ls %1\$s".format(dir)` is computed, and `"ls %s".format(dir)` is not).
+ *   with a quote that holds no `$` (so Go calls a chain such as
+ *   `"ls %1\$s".format(dir)` computed, and `"ls %s".format(dir)` static).
  *
  * Deliberate differences from Go, pinned by goldens and listed in the PR:
  * - Recall: Go requires the syntactic receiver `Runtime.getRuntime()` (or
@@ -66,6 +76,12 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   concatenates a non-static operand (`"${BASE_DIR}/ls " + dir`). FIR
  *   classifies the parenthesized group's own operands, and falls through to
  *   the concatenation check after the constant-only interpolation exemption.
+ * - Recall: Go reads a `format` or `plus` chain on a literal without a `$` as
+ *   static text (`"ls %s".format(dir)`, `"ls ".plus(dir)`) and misses
+ *   `String.format("ls %s", dir)`, which starts with no quote. FIR reports a
+ *   command that is, or holds as a template entry or `+` operand, a
+ *   kotlin.text or java.lang.String `format`, or a String `plus`, with an input
+ *   that is not a literal, a `const val`, or a constant-looking name.
  * - Precision: Go reports exec(String[]) when the array argument's text
  *   contains an interpolation or a top-level `+` (`listOf("ls", "$dir")
  *   .toTypedArray()`, `base + dir` on an array), reports a command made only
@@ -90,6 +106,13 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
 
     private enum class Shape { STATIC, INTERPOLATED, COMPUTED }
 
+    private const val MAX_DEPTH = 16
+    private val formatIds = setOf(
+        CallableId(FqName("kotlin.text"), Name.identifier("format")),
+        CallableId(classIdOf("java.lang", "String"), Name.identifier("format")),
+    )
+    private val stringPlus = CallableId(StandardClassIds.String, Name.identifier("plus"))
+
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
@@ -102,14 +125,57 @@ internal object RuntimeExecUnsafeShape : FirFunctionCallChecker(MppCheckerKind.C
         val argument = commandArgument(source) ?: return
         val text = lightText(source, argument).trim()
         val interpolated = containsTemplateEntry(source, argument)
-        if (!looksLikeStringCommand(text, interpolated)) return
-
-        val message = when (shape(text, interpolated)) {
-            Shape.STATIC -> return
-            Shape.INTERPOLATED -> INTERPOLATED_MESSAGE
-            Shape.COMPUTED -> COMPUTED_MESSAGE
+        val shape = if (looksLikeStringCommand(text, interpolated)) shape(text, interpolated) else Shape.STATIC
+        val message = when {
+            shape == Shape.INTERPOLATED -> INTERPOLATED_MESSAGE
+            shape == Shape.COMPUTED -> COMPUTED_MESSAGE
+            splicesData(expression.argumentList.arguments.single(), 0) -> COMPUTED_MESSAGE
+            else -> return
         }
         report(lightSourceOf(argument, source), message)
+    }
+
+    // True when the command is formatted or appended with a value that is not
+    // constant: `"ls %s".format(dir)`, `String.format("ls %s", dir)`,
+    // `"ls ".plus(dir)`, also inside a template or `+` operand. Go reads a
+    // chain on a literal without a `$` as static text.
+    private fun splicesData(expression: FirExpression, depth: Int): Boolean {
+        if (depth > MAX_DEPTH) return false
+        return when (val value = unwrapArgument(expression)) {
+            is FirStringConcatenationCall -> value.argumentList.arguments.any { splicesData(it, depth + 1) }
+            is FirFunctionCall -> when (value.calleeReference.toResolvedCallableSymbol()?.callableId) {
+                in formatIds, stringPlus -> !isConstant(value, depth + 1)
+                else -> false
+            }
+            else -> false
+        }
+    }
+
+    // A value fixed in the source: a literal, `null`, a `const val` or a
+    // constant-looking name (as Go's operand test reads names), or a template,
+    // format, or `plus` made only of these.
+    private fun isConstant(expression: FirExpression, depth: Int): Boolean {
+        if (depth > MAX_DEPTH) return false
+        return when (val value = unwrapArgument(expression)) {
+            is FirLiteralExpression -> true
+            is FirStringConcatenationCall -> value.argumentList.arguments.all { isConstant(it, depth + 1) }
+            is FirPropertyAccessExpression -> {
+                val symbol = value.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol
+                symbol != null && (symbol.isConst || sqlSchemaConstantName(symbol.name.asString()))
+            }
+            is FirFunctionCall -> when (value.calleeReference.toResolvedCallableSymbol()?.callableId) {
+                in formatIds, stringPlus -> {
+                    // `String.format(...)` is called on the String companion.
+                    val receiver = value.explicitReceiver?.takeUnless { it is FirResolvedQualifier }
+                    val inputs = listOfNotNull(receiver) + value.argumentList.arguments.flatMap {
+                        if (it is FirVarargArgumentsExpression) it.arguments else listOf(it)
+                    }
+                    inputs.all { isConstant(it, depth + 1) }
+                }
+                else -> false
+            }
+            else -> false
+        }
     }
 
     // The single value argument's expression in the call's syntax tree, with

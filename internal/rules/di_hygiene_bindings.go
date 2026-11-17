@@ -1,7 +1,9 @@
 package rules
 
 import (
+	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -147,6 +149,69 @@ type BindsReturnTypeMatchesParamRule struct {
 
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
 func (r *BindsReturnTypeMatchesParamRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// bindsNonKeyAnnotations never qualify a binding key, so they may sit on a @Binds function alone.
+var bindsNonKeyAnnotations = map[string]bool{
+	"Binds": true, "Suppress": true, "JvmSuppressWildcards": true, "Deprecated": true,
+	"JvmStatic": true, "Throws": true, "OptIn": true, "SingleIn": true,
+}
+
+// bindsIsMultibinding reports a @Binds contribution into a set or map, which is never a no-op.
+func bindsIsMultibinding(file *scanner.File, fn uint32) bool {
+	return hasAnnotationFlat(file, fn, "IntoSet") || hasAnnotationFlat(file, fn, "IntoMap") ||
+		hasAnnotationFlat(file, fn, "ElementsIntoSet")
+}
+
+// bindsKeyAnnotationsDiffer reports whether the function and its parameter carry different annotations
+// as text, other than ones that never qualify a key, so the binding may alias one qualified key to
+// another rather than bind a key to itself.
+func bindsKeyAnnotationsDiffer(file *scanner.File, fn uint32) bool {
+	fnKeys := bindsKeyAnnotationTexts(annotationNodeTextsFlat(file, fn))
+	var paramTexts []string
+	if params, ok := file.FlatFindChild(fn, "function_value_parameters"); ok {
+		for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "parameter" {
+				break
+			}
+			if file.FlatType(child) != "parameter_modifiers" {
+				continue
+			}
+			for ann := file.FlatFirstChild(child); ann != 0; ann = file.FlatNextSib(ann) {
+				if file.FlatType(ann) == "annotation" {
+					paramTexts = append(paramTexts, file.FlatNodeText(ann))
+				}
+			}
+		}
+	}
+	return !slices.Equal(fnKeys, bindsKeyAnnotationTexts(paramTexts))
+}
+
+// bindsKeyAnnotationTexts returns the sorted annotation texts that may qualify a key, without
+// whitespace and with the annotation's name reduced to its simple name.
+func bindsKeyAnnotationTexts(texts []string) []string {
+	var keys []string
+	for _, text := range texts {
+		compact := strings.Join(strings.Fields(text), "")
+		ref := strings.TrimPrefix(compact, "@")
+		if colon := strings.Index(ref, ":"); colon >= 0 && !strings.ContainsAny(ref[:colon], ".([") {
+			ref = ref[colon+1:]
+		}
+		end := 0
+		for end < len(ref) && (isIdentByte(ref[end]) || ref[end] == '.') {
+			end++
+		}
+		name := ref[:end]
+		if dot := strings.LastIndex(name, "."); dot >= 0 {
+			name = name[dot+1:]
+		}
+		if bindsNonKeyAnnotations[name] || slices.Contains(scopeAnnotationNames, name) {
+			continue
+		}
+		keys = append(keys, name+ref[end:])
+	}
+	slices.Sort(keys)
+	return keys
+}
 
 // firstFunctionParameterNameAndType returns the (name, type) of the first
 // parameter of `fn` (a function_declaration). Returns ("", "") if absent.
@@ -324,6 +389,213 @@ func firstScopeAnnotationFlat(file *scanner.File, idx uint32) string {
 	for _, name := range scopeAnnotationNames {
 		if hasAnnotationFlat(file, idx, name) {
 			return name
+		}
+	}
+	return ""
+}
+
+// scopeOnParameterizedClassScopeFlat returns the first scope name written as an annotation on idx,
+// reading only annotation nodes so a scope named in a comment between them does not count. An
+// unqualified name the file declares as its own annotation class without a scope meta-annotation, and
+// does not import, is not a scope.
+func scopeOnParameterizedClassScopeFlat(file *scanner.File, idx uint32) string {
+	annotations := annotationNodeTextsFlat(file, idx)
+	if len(annotations) == 0 {
+		return ""
+	}
+	for _, name := range scopeAnnotationNames {
+		for _, text := range annotations {
+			if !annotationTextListHasName(text, name) {
+				continue
+			}
+			if annotationQualifiesName(text, name) || !localNonScopeAnnotation(file, name) {
+				return name
+			}
+		}
+	}
+	return ""
+}
+
+// annotationNodeTextsFlat returns the text of each annotation node in idx's modifier list and in the
+// modifier and annotation siblings before it, the places hasAnnotationFlat reads, without comments.
+func annotationNodeTextsFlat(file *scanner.File, idx uint32) []string {
+	var texts []string
+	addModifiers := func(mods uint32) {
+		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "annotation" {
+				texts = append(texts, file.FlatNodeText(child))
+			}
+		}
+	}
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
+		addModifiers(mods)
+	}
+	for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "modifiers":
+			addModifiers(prev)
+			continue
+		case "annotation":
+			texts = append(texts, file.FlatNodeText(prev))
+			continue
+		}
+		break
+	}
+	return texts
+}
+
+// annotationQualifiesName reports whether the annotation text names name through a qualified
+// reference (`@javax.inject.Singleton`), which no local declaration shadows.
+func annotationQualifiesName(text, name string) bool {
+	ref := strings.TrimPrefix(strings.TrimSpace(text), "@")
+	if colon := strings.Index(ref, ":"); colon >= 0 && !strings.ContainsAny(ref[:colon], ".([ ") {
+		ref = ref[colon+1:]
+	}
+	end := 0
+	for end < len(ref) && (isIdentByte(ref[end]) || ref[end] == '.') {
+		end++
+	}
+	return strings.HasSuffix(ref[:end], "."+name)
+}
+
+// unmarkedScopePackages declare scopes that carry no scope meta-annotation: Koin's single definition,
+// EJB's singleton session bean and the JSF managed-bean scopes, as the FIR checker lists them.
+var unmarkedScopePackages = []string{
+	"org.koin.core.annotation", "javax.ejb", "jakarta.ejb", "javax.faces.bean", "jakarta.faces.bean",
+}
+
+var scopeMetaAnnotationRe = regexp.MustCompile(`@(?:[\w.]+\.)?(?:Scope|ScopeAnnotation|NormalScope)\b`)
+
+// localNonScopeAnnotation reports whether the file declares its own annotation class name, without a
+// scope meta-annotation, and does not import name, so an unqualified @name is that local annotation.
+func localNonScopeAnnotation(file *scanner.File, name string) bool {
+	if _, imported := diImportedPackage(file, name); imported {
+		return false
+	}
+	if slices.Contains(unmarkedScopePackages, filePackageName(file)) {
+		return false
+	}
+	header, ok := localAnnotationClassHeader(file, name)
+	return ok && !scopeMetaAnnotationRe.MatchString(header)
+}
+
+// localAnnotationClassHeader returns the annotations and modifiers written before the file's own
+// `annotation class name` declaration, and whether the file declares one.
+func localAnnotationClassHeader(file *scanner.File, name string) (string, bool) {
+	if !bytes.Contains(file.Content, []byte("class "+name)) {
+		return "", false
+	}
+	m := localAnnotationClassRe(name).FindSubmatch(file.Content)
+	if m == nil {
+		return "", false
+	}
+	return string(m[1]), true
+}
+
+// localAnnotationClassRes match a file's own `annotation class <name>` declaration, with the
+// annotations and modifiers before it, for each annotation name the DI rules look up.
+var localAnnotationClassRes = func() map[string]*regexp.Regexp {
+	res := map[string]*regexp.Regexp{}
+	for _, name := range append([]string{"Binds", "Provides", "IntoMap", "IntoSet"}, scopeAnnotationNames...) {
+		res[name] = compileLocalAnnotationClassRe(name)
+	}
+	return res
+}()
+
+func compileLocalAnnotationClassRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`((?:@[\w.]+(?:\([^()]*\))?\s+|(?:public|internal|private)\s+)*)annotation\s+class\s+` + regexp.QuoteMeta(name) + `\b`)
+}
+
+func localAnnotationClassRe(name string) *regexp.Regexp {
+	if re, ok := localAnnotationClassRes[name]; ok {
+		return re
+	}
+	return compileLocalAnnotationClassRe(name)
+}
+
+// diImportedPackage returns the package the file imports name from, by its own name or an import
+// alias, and whether it imports name at all.
+func diImportedPackage(file *scanner.File, name string) (string, bool) {
+	for _, line := range file.Lines {
+		trimmed := strings.TrimSpace(line)
+		if !fileHeaderLine(trimmed) {
+			break
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) < 2 || fields[0] != "import" {
+			continue
+		}
+		path := strings.TrimSuffix(fields[1], ";")
+		dot := strings.LastIndex(path, ".")
+		if dot < 0 {
+			continue
+		}
+		pkg, simple := path[:dot], path[dot+1:]
+		if len(fields) >= 4 && fields[2] == "as" {
+			if strings.TrimSuffix(fields[3], ";") == name {
+				if simple != name {
+					// An alias of another class: no package declares it under name.
+					return "", true
+				}
+				return pkg, true
+			}
+			continue
+		}
+		if simple == name {
+			return pkg, true
+		}
+	}
+	return "", false
+}
+
+// fileHeaderLine reports whether a trimmed line can sit in the file header, before the first
+// declaration: blank, a comment, a file annotation, or the package or an import directive.
+func fileHeaderLine(trimmed string) bool {
+	return trimmed == "" || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") ||
+		strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "@file:") ||
+		strings.HasPrefix(trimmed, "package ") || strings.HasPrefix(trimmed, "import ")
+}
+
+// Packages declaring the DI annotation each binding rule means, as its FIR checker matches by class id.
+var (
+	daggerOrMetroBindsPackages   = []string{"dagger", "dev.zacsweers.metro"}
+	diProvidesPackages           = []string{"dagger", "dev.zacsweers.metro", "me.tatarka.inject.annotations"}
+	daggerOrMetroIntoMapPackages = []string{"dagger.multibindings", "dev.zacsweers.metro"}
+	diIntoSetPackages            = []string{"dagger.multibindings", "dev.zacsweers.metro", "me.tatarka.inject.annotations"}
+)
+
+// hasDIAnnotationFlat is hasAnnotationFlat for a DI annotation declared in one of packages. An
+// unqualified use does not count when the file imports name from another package or declares its own
+// annotation class name without importing it, since then the annotation is not the DI framework's.
+func hasDIAnnotationFlat(file *scanner.File, idx uint32, name string, packages []string) bool {
+	// The simple name also matches a qualified use, so this rejects most functions in one scan.
+	if !hasAnnotationFlat(file, idx, name) {
+		return false
+	}
+	for _, pkg := range packages {
+		if hasAnnotationFlat(file, idx, pkg+"."+name) {
+			return true
+		}
+	}
+	if pkg, imported := diImportedPackage(file, name); imported {
+		return slices.Contains(packages, pkg)
+	}
+	if slices.Contains(packages, filePackageName(file)) {
+		return true
+	}
+	_, local := localAnnotationClassHeader(file, name)
+	return !local
+}
+
+// filePackageName returns the file's package, or "" for the default package.
+func filePackageName(file *scanner.File) string {
+	for _, line := range file.Lines {
+		trimmed := strings.TrimSpace(line)
+		if !fileHeaderLine(trimmed) || strings.HasPrefix(trimmed, "import ") {
+			break
+		}
+		if fields := strings.Fields(trimmed); len(fields) >= 2 && fields[0] == "package" {
+			return strings.TrimSuffix(fields[1], ";")
 		}
 	}
 	return ""

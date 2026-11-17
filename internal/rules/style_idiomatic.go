@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -10,60 +11,160 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-func flatNonNullCheckText(file *scanner.File, idx uint32, funcName string) (argText string, lambdaText string, ok bool) {
+// nonNullCheckCall is a `check(x != null)` / `require(x != null)` call matched by flatNonNullCheck.
+type nonNullCheckCall struct {
+	// operand is the expression compared with null, and operandText its source text.
+	operand     uint32
+	operandText string
+	// messageText is the source text of a lazy message passed inside the parentheses, or "".
+	messageText string
+	// lambdaText is the source text of a trailing lazy-message lambda, or "".
+	lambdaText string
+}
+
+// flatNonNullCheck matches a call of kotlin.<funcName> whose first value argument, parentheses stripped, is
+// `x != null` or `null != x`. A lazy message may follow inside the parentheses or as a trailing lambda, as detekt
+// reads the first argument only. Without type information the callee is matched by name, so calls that cannot be
+// the stdlib function are skipped: one on a receiver other than `kotlin`, a name the file imports from elsewhere,
+// and a bare call in a scope that declares a function of that name.
+func flatNonNullCheck(file *scanner.File, idx uint32, funcName string) (nonNullCheckCall, bool) {
+	var none nonNullCheckCall
 	if file == nil || file.FlatType(idx) != "call_expression" {
-		return "", "", false
+		return none, false
 	}
-	if flatCallExpressionName(file, idx) != funcName {
-		return "", "", false
+	if flatCallExpressionName(file, idx) != funcName || nonNullCheckCalleeIsLookalike(file, idx, funcName) {
+		return none, false
 	}
 	suffix, _ := file.FlatFindChild(idx, "call_suffix")
 	if suffix == 0 {
-		return "", "", false
+		return none, false
 	}
 	args := flatCallSuffixValueArgs(file, suffix)
 	if args == 0 {
-		return "", "", false
+		return none, false
 	}
-	var arg uint32
+	var values []uint32
 	for child := file.FlatFirstChild(args); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "value_argument" {
-			continue
+		if file.FlatType(child) == "value_argument" {
+			values = append(values, child)
 		}
-		if arg != 0 {
-			return "", "", false
-		}
-		arg = child
 	}
-	if arg == 0 {
-		return "", "", false
+	if len(values) == 0 || len(values) > 2 {
+		return none, false
 	}
-	eq := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, arg))
+	eq := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, values[0]))
 	if eq == 0 || file.FlatType(eq) != "equality_expression" || file.FlatChildCount(eq) < 3 {
-		return "", "", false
+		return none, false
 	}
 	left := file.FlatChild(eq, 0)
 	op := file.FlatChild(eq, 1)
 	right := file.FlatChild(eq, file.FlatChildCount(eq)-1)
 	if left == 0 || op == 0 || right == 0 || !file.FlatNodeTextEquals(op, "!=") {
-		return "", "", false
+		return none, false
 	}
-	leftText := strings.TrimSpace(file.FlatNodeText(left))
-	rightText := strings.TrimSpace(file.FlatNodeText(right))
-	if leftText == "null" {
-		argText = rightText
-	} else if rightText == "null" {
-		argText = leftText
-	} else {
-		return "", "", false
+	call := nonNullCheckCall{}
+	switch {
+	case strings.TrimSpace(file.FlatNodeText(left)) == "null":
+		call.operand = right
+	case strings.TrimSpace(file.FlatNodeText(right)) == "null":
+		call.operand = left
+	default:
+		return none, false
 	}
-	if argText == "" {
-		return "", "", false
+	call.operandText = strings.TrimSpace(file.FlatNodeText(call.operand))
+	if call.operandText == "" {
+		return none, false
+	}
+	if len(values) == 2 {
+		call.messageText = strings.TrimSpace(file.FlatNodeText(values[1]))
 	}
 	if lambda := flatCallSuffixLambdaNode(file, suffix); lambda != 0 {
-		lambdaText = file.FlatNodeText(lambda)
+		call.lambdaText = file.FlatNodeText(lambda)
 	}
-	return argText, lambdaText, true
+	return call, true
+}
+
+// nonNullCheckCalleeIsLookalike reports a call named funcName that is not kotlin.<funcName>: a call on a receiver
+// other than `kotlin`, a bare call when the file imports funcName from another declaration or hides it by
+// importing kotlin.<funcName> under an alias, and a bare call in a file, class or block that declares a
+// non-extension function or a property named funcName.
+func nonNullCheckCalleeIsLookalike(file *scanner.File, idx uint32, funcName string) bool {
+	if nav, _ := flatCallExpressionParts(file, idx); nav != 0 {
+		receiver := file.FlatNamedChild(nav, 0)
+		return receiver == 0 || strings.TrimSpace(file.FlatNodeText(receiver)) != "kotlin"
+	}
+	stdlib := "kotlin." + funcName
+	imports := lintImportsOf(file)
+	if imported, ok := imports.bySimple[funcName]; ok {
+		return imported != stdlib
+	}
+	for _, imported := range imports.bySimple {
+		if imported == stdlib {
+			return true
+		}
+	}
+	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "source_file", "class_body", "enum_class_body", "statements":
+		default:
+			continue
+		}
+		for child := file.FlatFirstChild(cur); child != 0; child = file.FlatNextSib(child) {
+			if nonNullCheckDeclaresCallable(file, child, funcName) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// nonNullCheckDeclaresCallable reports whether decl declares a non-extension function or a property named name,
+// either of which a bare call `name(...)` in its scope reaches before the default import of the stdlib function.
+// An extension needs its receiver in scope, which the file alone does not show.
+func nonNullCheckDeclaresCallable(file *scanner.File, decl uint32, name string) bool {
+	switch file.FlatType(decl) {
+	case "function_declaration":
+		return extractIdentifierFlat(file, decl) == name && !flatFunctionDeclarationIsExtension(file, decl)
+	case "property_declaration":
+		if v, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
+			return extractIdentifierFlat(file, v) == name
+		}
+	}
+	return false
+}
+
+// emitNonNullCheck reports kotlin.<funcName>(x != null) on a value that can be null, with a fix to
+// <funcName>NotNull(x).
+func emitNonNullCheck(ctx *api.Context, rule BaseRule, funcName, message string) {
+	idx, file := ctx.Idx, ctx.File
+	call, ok := flatNonNullCheck(file, idx, funcName)
+	if !ok {
+		return
+	}
+	if ctx.Resolver != nil {
+		// Resolve at the operand: with compiler facts, the call's own position holds the call's type (Unit).
+		resolved := ctx.Resolver.ResolveByNameFlat(call.operandText, call.operand, file)
+		// A platform type (compiler facts spell it `String!`) can hold null, as the FIR checker reads it.
+		if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() && !isPlatformType(resolved) {
+			return
+		}
+	}
+	f := rule.Finding(file, callLine(file, idx), callCol(file, idx), message)
+	replacement := funcName + "NotNull(" + call.operandText
+	if call.messageText != "" {
+		replacement += ", " + call.messageText
+	}
+	replacement += ")"
+	if call.lambdaText != "" {
+		replacement += " " + call.lambdaText
+	}
+	f.Fix = &scanner.Fix{
+		ByteMode:    true,
+		StartByte:   int(file.FlatStartByte(idx)),
+		EndByte:     int(file.FlatEndByte(idx)),
+		Replacement: replacement,
+	}
+	ctx.Emit(f)
 }
 
 func flatNavigationReceiver(file *scanner.File, nav uint32) uint32 {
@@ -191,15 +292,95 @@ func throwArgumentsAreEmptyOrString(ctx *api.Context, call uint32) bool {
 	}
 	if ctx.Resolver != nil {
 		if t := ctx.Resolver.ResolveFlatNode(expr, file); t != nil && t.Kind != typeinfer.TypeUnknown {
-			// detekt's KotlinBuiltIns.isString is false for String?.
-			return !t.Nullable && (t.Name == "String" || t.FQN == "kotlin.String")
+			// detekt's KotlinBuiltIns.isString is false for String? and true for the platform type String!. The
+			// oracle may only record the operand of `x!!`, which is nullable while the assertion is not.
+			nullable := t.IsNullable() && !isNotNullAssertion(file, expr)
+			return !nullable && (strings.TrimRight(t.Name, "?!") == "String" || strings.TrimRight(t.FQN, "?!") == "kotlin.String")
 		}
 	}
 	// Without a type, anything that does not look like an exception is taken for a message.
-	if file.FlatType(expr) == "simple_identifier" && throwIsCaughtParameter(file, expr) {
-		return false
+	if file.FlatType(expr) == "simple_identifier" {
+		if throwIsCaughtParameter(file, expr) {
+			return false
+		}
+		// A name declared with another type is not a message even when that type does not resolve.
+		if typeName, found := declaredTypeNameOfIdentifier(file, expr, file.FlatNodeText(expr)); found && typeName != "String" {
+			return false
+		}
 	}
 	return !causeArgumentRe.MatchString(strings.TrimSpace(file.FlatNodeText(args[0])))
+}
+
+// isPlatformType reports a Java platform type such as `String!`, which can hold null although the oracle does not
+// mark it nullable.
+func isPlatformType(t *typeinfer.ResolvedType) bool {
+	return strings.HasSuffix(t.Name, "!") || strings.HasSuffix(t.FQN, "!")
+}
+
+// isNotNullAssertion reports an `x!!` expression.
+func isNotNullAssertion(file *scanner.File, expr uint32) bool {
+	return file.FlatType(expr) == "postfix_expression" && strings.HasSuffix(strings.TrimSpace(file.FlatNodeText(expr)), "!!")
+}
+
+// stdlibIdiomFQNs lists the stdlib declarations the idiom rules match by simple name.
+var stdlibIdiomFQNs = map[string][]string{
+	"check":                    {"kotlin.check"},
+	"require":                  {"kotlin.require"},
+	"IllegalStateException":    {"kotlin.IllegalStateException", "java.lang.IllegalStateException"},
+	"IllegalArgumentException": {"kotlin.IllegalArgumentException", "java.lang.IllegalArgumentException"},
+	"listOf":                   {"kotlin.collections.listOf"},
+	"listOfNotNull":            {"kotlin.collections.listOfNotNull"},
+	"setOf":                    {"kotlin.collections.setOf"},
+	"mapOf":                    {"kotlin.collections.mapOf"},
+	"arrayOf":                  {"kotlin.arrayOf"},
+	"sequenceOf":               {"kotlin.sequences.sequenceOf"},
+	"emptyList":                {"kotlin.collections.emptyList"},
+	"emptySet":                 {"kotlin.collections.emptySet"},
+	"emptyMap":                 {"kotlin.collections.emptyMap"},
+	"emptyArray":               {"kotlin.emptyArray"},
+	"emptySequence":            {"kotlin.sequences.emptySequence"},
+}
+
+// importBindsStdlibNameElsewhere reports whether an explicit or aliased import binds name to something other than its
+// stdlib declaration, which hides the default import so an unqualified name is not the stdlib one.
+func importBindsStdlibNameElsewhere(file *scanner.File, name string) bool {
+	stdlib := stdlibIdiomFQNs[name]
+	// Imports sit in the file's top-level import list, so the rest of the tree is not walked.
+	for top := file.FlatFirstChild(0); top != 0; top = file.FlatNextSib(top) {
+		if file.FlatType(top) != "import_list" && file.FlatType(top) != "import_header" {
+			continue
+		}
+		headers := []uint32{top}
+		if file.FlatType(top) == "import_list" {
+			headers = headers[:0]
+			for h := file.FlatFirstChild(top); h != 0; h = file.FlatNextSib(h) {
+				if file.FlatType(h) == "import_header" {
+					headers = append(headers, h)
+				}
+			}
+		}
+		for _, header := range headers {
+			path, alias, wildcard := getInstanceImportHeaderParts(file, header)
+			if wildcard {
+				continue
+			}
+			bound := alias
+			if bound == "" {
+				bound = path[strings.LastIndex(path, ".")+1:]
+			}
+			if bound == name && !slices.Contains(stdlib, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// unqualifiedCalleeShadowed reports whether call's callee is a plain name that an import binds elsewhere.
+func unqualifiedCalleeShadowed(file *scanner.File, call uint32) bool {
+	callee := file.FlatFirstChild(call)
+	return callee != 0 && file.FlatType(callee) == "simple_identifier" &&
+		importBindsStdlibNameElsewhere(file, strings.Trim(file.FlatNodeText(callee), "`"))
 }
 
 // throwIsCaughtParameter reports whether the identifier is the parameter of the nearest enclosing catch.
@@ -271,7 +452,7 @@ func flatThrowPattern(ctx *api.Context, base BaseRule, exceptionType, replacemen
 		return
 	}
 	call := firstCallExpression(file, idx)
-	if call == 0 || throwCalleeName(file, call) != exceptionType {
+	if call == 0 || throwCalleeName(file, call) != exceptionType || unqualifiedCalleeShadowed(file, call) {
 		return
 	}
 	if conditionalOnly {
@@ -636,6 +817,31 @@ func declaredTypeNameInScope(file *scanner.File, scope uint32, name string) (str
 	return result, found
 }
 
+// Declared types whose read-only orEmpty() returns the same kind as the fallback: a mutable or JDK collection
+// still widens to the read-only List, Set or Map that the Elvis itself has.
+var (
+	orEmptyListTypes = map[string]bool{"List": true, "Collection": true, "MutableList": true, "MutableCollection": true, "ArrayList": true}
+	orEmptySetTypes  = map[string]bool{"Set": true, "MutableSet": true, "HashSet": true, "LinkedHashSet": true}
+	orEmptyMapTypes  = map[string]bool{"Map": true, "MutableMap": true, "HashMap": true, "LinkedHashMap": true}
+)
+
+// orEmptyOperandsMatch reports false when a plain name on the left of the Elvis, or an operand of a nested Elvis
+// there, is declared with a type whose orEmpty() does not match the fallback.
+func orEmptyOperandsMatch(file *scanner.File, elvis, left uint32, rightText string) bool {
+	switch file.FlatType(left) {
+	case "simple_identifier":
+		typeName, found := declaredTypeNameOfIdentifier(file, elvis, file.FlatNodeText(left))
+		return !found || orEmptyReceiverMatches(typeName, rightText)
+	case "elvis_expression":
+		if file.FlatChildCount(left) < 3 {
+			return true
+		}
+		return orEmptyOperandsMatch(file, elvis, file.FlatChild(left, 0), rightText) &&
+			orEmptyOperandsMatch(file, elvis, file.FlatChild(left, file.FlatChildCount(left)-1), rightText)
+	}
+	return true
+}
+
 // orEmptyReceiverMatches reports whether a receiver of the declared type has an orEmpty() whose
 // result type equals the empty value written on the right of the elvis.
 func orEmptyReceiverMatches(typeName, rhs string) bool {
@@ -643,11 +849,11 @@ func orEmptyReceiverMatches(typeName, rhs string) bool {
 	case strings.HasPrefix(rhs, `""`):
 		return typeName == "String"
 	case strings.HasPrefix(rhs, "emptyList(") || strings.HasPrefix(rhs, "listOf("):
-		return typeName == "List" || typeName == "Collection"
+		return orEmptyListTypes[typeName]
 	case strings.HasPrefix(rhs, "emptySet(") || strings.HasPrefix(rhs, "setOf("):
-		return typeName == "Set"
+		return orEmptySetTypes[typeName]
 	case strings.HasPrefix(rhs, "emptyMap(") || strings.HasPrefix(rhs, "mapOf("):
-		return typeName == "Map"
+		return orEmptyMapTypes[typeName]
 	case strings.HasPrefix(rhs, "emptySequence(") || strings.HasPrefix(rhs, "sequenceOf("):
 		return typeName == "Sequence"
 	}

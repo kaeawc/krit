@@ -1,56 +1,55 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 12, 14, 16, 18, 20, 22, 24, 28, 31, 34, 37, 42, 47, 50, 53
+// go-lines: 10, 12, 14, 16, 18, 20, 22, 24, 28, 31, 34, 37, 41, 46, 49, 52
 // Named objects that extend Throwable directly, the shapes Go reports: the
-// finding sits on the declaration's first line (its modifier list, else
-// `object`), like Go.
+// finding sits on the object's name, like Go, whatever modifiers and
+// annotations come before it.
 package test
 
 import java.io.Serializable
 
-<!ObjectExtendsThrowable!>object<!> SingletonException : Exception("singleton error")
+object <!ObjectExtendsThrowable!>SingletonException<!> : Exception("singleton error")
 
-<!ObjectExtendsThrowable!>object<!> SingletonRuntime : RuntimeException()
+object <!ObjectExtendsThrowable!>SingletonRuntime<!> : RuntimeException()
 
-<!ObjectExtendsThrowable!>object<!> SingletonThrowable : Throwable()
+object <!ObjectExtendsThrowable!>SingletonThrowable<!> : Throwable()
 
-<!ObjectExtendsThrowable!>object<!> SingletonError : Error("fatal")
+object <!ObjectExtendsThrowable!>SingletonError<!> : Error("fatal")
 
-<!ObjectExtendsThrowable!>object<!> QualifiedJava : java.lang.RuntimeException()
+object <!ObjectExtendsThrowable!>QualifiedJava<!> : java.lang.RuntimeException()
 
-<!ObjectExtendsThrowable!>object<!> QualifiedKotlin : kotlin.Error()
+object <!ObjectExtendsThrowable!>QualifiedKotlin<!> : kotlin.Error()
 
-<!ObjectExtendsThrowable!>object<!> WithInterface : Serializable, Exception("with interface")
+object <!ObjectExtendsThrowable!>WithInterface<!> : Serializable, Exception("with interface")
 
-<!ObjectExtendsThrowable!>object<!> WithBody : Exception("with body") {
+object <!ObjectExtendsThrowable!>WithBody<!> : Exception("with body") {
     private fun readResolve(): Any = WithBody
 }
 
-<!ObjectExtendsThrowable!>data<!> object DataSingleton : Exception()
+data object <!ObjectExtendsThrowable!>DataSingleton<!> : Exception()
 
-<!ObjectExtendsThrowable!>@Suppress("unused")<!>
-object Annotated : Exception()
+@Suppress("unused")
+object <!ObjectExtendsThrowable!>Annotated<!> : Exception()
 
-/** KDoc is not part of the declaration's first line, in Go or here. */
-<!ObjectExtendsThrowable!>object<!> Documented : Exception()
+/** KDoc does not move the finding, in Go or here. */
+object <!ObjectExtendsThrowable!>Documented<!> : Exception()
 
-<!ObjectExtendsThrowable!>internal<!> object
-    SplitHeader : Exception()
+internal object
+    <!ObjectExtendsThrowable!>SplitHeader<!> : Exception()
 
-// K2 places an object's diagnostics at `object`; this one is moved to the
-// first modifier, where Go reports.
-<!ObjectExtendsThrowable!>internal<!>
-object ModifierAbove : Exception()
+// A modifier on its own line does not move the finding.
+internal
+object <!ObjectExtendsThrowable!>ModifierAbove<!> : Exception()
 
 /** KDoc before annotations. */
-<!ObjectExtendsThrowable!>@Suppress("unused")<!>
+@Suppress("unused")
 @Deprecated("old")
-private object StackedAnnotations : Exception()
+private object <!ObjectExtendsThrowable!>StackedAnnotations<!> : Exception()
 
 class Outer {
-    <!ObjectExtendsThrowable!>object<!> Nested : RuntimeException()
+    object <!ObjectExtendsThrowable!>Nested<!> : RuntimeException()
 
     interface Inner {
-        <!ObjectExtendsThrowable!>object<!> Deep : Throwable()
+        object <!ObjectExtendsThrowable!>Deep<!> : Throwable()
     }
 }
 

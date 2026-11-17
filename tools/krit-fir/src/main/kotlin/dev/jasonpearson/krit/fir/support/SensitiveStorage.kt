@@ -1,24 +1,33 @@
 package dev.jasonpearson.krit.fir.support
 
+import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
+import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
+import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
+import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.unwrapSmartcastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
 
@@ -63,14 +72,16 @@ fun isSensitiveStorageKey(key: String): Boolean {
 
 /**
  * The key text of [argument] when it is a string literal or template, as written between the quotes (templates
- * keep their `$name` text, as Go reads the source). Null for any other expression, including a constant.
+ * keep their `$name` text, as Go reads the source). A `+` chain that starts and ends with a literal
+ * (`"user_" + id + "_token"`) is read the same way, from its first quote to its last, as Go does. Null for any
+ * other expression, including a constant.
  */
 fun storageKeyLiteral(argument: FirExpression): String? {
     val expression = unwrapArgument(argument)
     if (expression is FirLiteralExpression) {
         return (expression.value as? String)?.takeIf { expression.kind == ConstantValueKind.String }
     }
-    if (expression !is FirStringConcatenationCall) return null
+    if (expression !is FirStringConcatenationCall && !isStringPlus(expression)) return null
     val source = expression.source?.takeIf { it.kind is KtRealSourceElementKind } ?: return null
     val text = lightText(source, source.lighterASTNode)
     return when {
@@ -80,39 +91,77 @@ fun storageKeyLiteral(argument: FirExpression): String? {
     }
 }
 
-/** Whether [call] resolves to a member of `android.content.SharedPreferences` or one of its subtypes. */
+private val STRING_PLUS = CallableId(ClassId(FqName("kotlin"), Name.identifier("String")), Name.identifier("plus"))
+
+private fun isStringPlus(expression: FirExpression): Boolean =
+    expression is FirFunctionCall && expression.calleeReference.toResolvedCallableSymbol()?.callableId == STRING_PLUS
+
+/**
+ * Whether [call] resolves to a member of `android.content.SharedPreferences` or one of its subtypes, or to an
+ * extension function on one (`fun SharedPreferences.getString(key: String)`), as Go matches the receiver type.
+ */
 context(context: CheckerContext)
 fun isSharedPreferencesMember(call: FirFunctionCall): Boolean = isMemberOf(call, SHARED_PREFERENCES)
 
-/** Whether [call] resolves to a member of `android.content.SharedPreferences.Editor` or one of its subtypes. */
+/** [isSharedPreferencesMember] for `android.content.SharedPreferences.Editor`. */
 context(context: CheckerContext)
 fun isSharedPreferencesEditorMember(call: FirFunctionCall): Boolean = isMemberOf(call, SHARED_PREFERENCES_EDITOR)
 
 context(context: CheckerContext)
 private fun isMemberOf(call: FirFunctionCall, target: ClassId): Boolean {
-    val owner = call.calleeReference.toResolvedCallableSymbol()?.getContainingClassSymbol() ?: return false
+    val callee = call.calleeReference.toResolvedCallableSymbol() ?: return false
+    val owner = callee.getContainingClassSymbol()
+        ?: return callee.resolvedReceiverType?.isNonNothingSubtypeOf(target.nullableClassType()) == true
     return isOrInheritsFrom(owner, target, context.session, lookupInterfaces = true)
 }
 
 /**
  * Whether [call]'s receiver chain is encrypted storage: the receiver, or any receiver or qualifier it is built
  * from, has type `EncryptedSharedPreferences` or `EncryptedFile` (or a subtype), or is reached through one of
- * them (`EncryptedSharedPreferences.create(...).edit()`). A local `val` is followed to its initializer, so
- * `val prefs = EncryptedSharedPreferences.create(...)` makes `prefs.edit()` encrypted.
+ * them (`EncryptedSharedPreferences.create(...).edit()`). The receiver is the implicit one when the call has no
+ * explicit receiver, so `prefs.edit { putString(...) }` is encrypted when `prefs` is. A `val` declared in the
+ * file under check (local, member or top-level) is followed to its initializer or `by lazy { }` result, so
+ * `private val prefs = EncryptedSharedPreferences.create(...)` makes `prefs.edit()` encrypted.
  */
 context(context: CheckerContext)
-fun hasEncryptedStorageReceiver(call: FirFunctionCall): Boolean = isEncryptedChain(call.explicitReceiver, depth = 0)
+fun hasEncryptedStorageReceiver(call: FirFunctionCall, enclosingCalls: List<FirFunctionCall> = emptyList()): Boolean =
+    isEncryptedChain(call.explicitReceiver ?: implicitStorageReceiver(call, enclosingCalls), depth = 0)
 
-// A local initializer is the only read of another declaration; it is in the file under check.
+// `prefs.edit { putString(..) }`, `with(prefs.edit()) { .. }`: the implicit receiver is a lambda's, so the chain
+// continues at what the call taking the lambda is made on (its receiver, or the other argument of `with`). That
+// call is one of [enclosingCalls] (innermost last), for a checker that walks into a call's arguments itself, or
+// one the checker context encloses.
+context(context: CheckerContext)
+private fun implicitStorageReceiver(call: FirFunctionCall, enclosingCalls: List<FirFunctionCall>): FirExpression? {
+    val receiver = (call.dispatchReceiver ?: call.extensionReceiver)?.unwrapSmartcastExpression()
+        as? FirThisReceiverExpression ?: return null
+    val parameter = receiver.calleeReference.boundSymbol as? FirReceiverParameterSymbol ?: return null
+    val lambda = parameter.containingDeclarationSymbol as? FirAnonymousFunctionSymbol ?: return null
+    val passesLambda = { argument: FirExpression ->
+        (unwrapArgument(argument) as? FirAnonymousFunctionExpression)?.anonymousFunction?.symbol == lambda
+    }
+    val takesLambda = { candidate: Any? -> candidate is FirFunctionCall && candidate.argumentList.arguments.any(passesLambda) }
+    val owner = (enclosingCalls.lastOrNull(takesLambda) ?: context.callsOrAssignments.lastOrNull(takesLambda))
+        as? FirFunctionCall ?: return null
+    if (owner.calleeReference.toResolvedCallableSymbol()?.callableId == WITH) {
+        return owner.argumentList.arguments.firstOrNull { !passesLambda(it) }
+    }
+    return owner.explicitReceiver
+}
+
+private val WITH = CallableId(FqName("kotlin"), Name.identifier("with"))
+
+// Only a declaration of the file under check is followed: another file's initializer is unknown on an
+// incremental slice.
 context(context: CheckerContext)
 private fun isEncryptedChain(start: FirExpression?, depth: Int): Boolean {
     var current = start
     while (current != null) {
         val expression = current.unwrapSmartcastExpression()
         if (isEncryptedType(expression) || isEncryptedOwner(expression)) return true
-        val local = (expression as? FirPropertyAccessExpression)?.calleeReference?.toResolvedCallableSymbol()
-        if (local is FirPropertySymbol && local.isLocal && !local.isVar && depth < MAX_LOCAL_DEPTH &&
-            isEncryptedChain(local.resolvedInitializer, depth + 1)
+        val property = (expression as? FirPropertyAccessExpression)?.calleeReference?.toResolvedCallableSymbol()
+        if (property is FirPropertySymbol && !property.isVar && depth < MAX_LOCAL_DEPTH &&
+            storedValues(property).any { isEncryptedChain(it, depth + 1) }
         ) {
             return true
         }
@@ -120,6 +169,19 @@ private fun isEncryptedChain(start: FirExpression?, depth: Int): Boolean {
     }
     return false
 }
+
+// The initializer of [property], or the result of its `by lazy { }` block.
+context(context: CheckerContext)
+private fun storedValues(property: FirPropertySymbol): List<FirExpression> {
+    val lazy = property.delegateInCheckedFile() as? FirFunctionCall
+    val lazyResult = lazy?.takeIf { it.calleeReference.toResolvedCallableSymbol()?.callableId == LAZY }
+        ?.argumentList?.arguments?.lastOrNull()
+        ?.let { (unwrapArgument(it) as? FirAnonymousFunctionExpression)?.anonymousFunction?.body?.statements?.lastOrNull() }
+        ?.let { if (it is FirReturnExpression) it.result else it as? FirExpression }
+    return listOfNotNull(property.initializerInCheckedFile(), lazyResult)
+}
+
+private val LAZY = CallableId(FqName("kotlin"), Name.identifier("lazy"))
 
 private const val MAX_LOCAL_DEPTH = 4
 

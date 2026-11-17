@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 13, 14, 15, 19, 20, 24, 28, 32, 42, 46, 49
+// go-lines: 12, 13, 14, 15, 19, 20, 24, 28, 32, 42, 46, 49, 54
 // Positives that match Go: a PendingIntent factory whose flags are visible and hold no
 // FLAG_IMMUTABLE or FLAG_MUTABLE.
 package test.implicitpendingintent
@@ -48,4 +48,9 @@ class Notifier(private val context: Context) {
     fun inLambda(intent: Intent) {
         run { <!ImplicitPendingIntent!>PendingIntent.getService(context, 2, intent, PendingIntent.FLAG_UPDATE_CURRENT)<!> }
     }
+}
+
+fun foregroundService(context: Context, intent: Intent) {
+    <!ImplicitPendingIntent!>PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)<!>
+    PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 }

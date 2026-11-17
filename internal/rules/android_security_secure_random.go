@@ -493,15 +493,35 @@ func secureRandomJavaIdentifierIsSecureRandom(file *scanner.File, name string) b
 		return false
 	}
 	found := false
-	file.FlatWalkNodes(0, "local_variable_declaration", func(decl uint32) {
+	// A field declares its names like a local; Lint types either receiver.
+	for _, kind := range []string{"local_variable_declaration", "field_declaration"} {
+		file.FlatWalkNodes(0, kind, func(decl uint32) {
+			if found {
+				return
+			}
+			if !secureRandomJavaLocalDeclarationNames(file, decl, name) {
+				return
+			}
+			if secureRandomJavaLocalDeclarationIsSecureRandom(file, decl) {
+				found = true
+			}
+		})
+	}
+	file.FlatWalkNodes(0, "formal_parameter", func(param uint32) {
 		if found {
 			return
 		}
-		if !secureRandomJavaLocalDeclarationNames(file, decl, name) {
+		ident, ok := file.FlatFindChild(param, "identifier")
+		if !ok || file.FlatNodeString(ident, nil) != name {
 			return
 		}
-		if secureRandomJavaLocalDeclarationIsSecureRandom(file, decl) {
-			found = true
+		for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "type_identifier", "scoped_type_identifier":
+				if secureRandomJavaTypeNodeNamesSecureRandom(file, child) {
+					found = true
+				}
+			}
 		}
 	})
 	return found

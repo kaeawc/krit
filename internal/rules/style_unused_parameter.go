@@ -377,7 +377,8 @@ func unusedParameterEndsStrandedRegion(file *scanner.File, sib uint32) bool {
 }
 
 func unusedParameterResolveReferenceFlat(file *scanner.File, scope uint32, paramIdx uint32, ref uint32, paramName string, paramIsFunctionType bool) unusedParameterReferenceMatch {
-	if unusedParameterReferenceNameFlat(file, ref) != paramName {
+	// The reference name has its backticks removed, so compare it with the bare parameter name.
+	if unusedParameterReferenceNameFlat(file, ref) != strings.Trim(paramName, "`") {
 		return unusedParameterNoMatch
 	}
 	if file.FlatType(ref) == "simple_identifier" {

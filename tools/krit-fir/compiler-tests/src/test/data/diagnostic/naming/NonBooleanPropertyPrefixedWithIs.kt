@@ -1,52 +1,54 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 11, 13, 19, 21, 23, 26, 29, 31, 34, 38, 41, 45, 46, 49, 57, 61, 65, 70, 75, 77, 80, 85, 90, 94, 102, 105, 108, 114
-// Positive: properties named is* whose type is not Boolean. Each is reported
-// on the property's first line (modifier list, else val/var), the line the Go
-// rule reports. Every case here is also a Go finding.
+// go-lines: 9, 11, 13, 20, 22, 24, 27, 30, 33, 35, 37, 40, 43, 47, 48, 51, 59, 63, 67, 72, 77, 79, 84, 87, 92, 96, 101
+// Positive: properties named `is` + uppercase letter whose type is not
+// Boolean. Each is reported on the property's name, the line the Go rule
+// reports. Every case here is also a Go finding.
 package test
 
 class Example {
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isName: String = "hello"
+    val <!NonBooleanPropertyPrefixedWithIs!>isName<!>: String = "hello"
 
-    <!NonBooleanPropertyPrefixedWithIs!>var<!> isCount: Int = 0
+    var <!NonBooleanPropertyPrefixedWithIs!>isCount<!>: Int = 0
 
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isNullableName: String? = null
+    val <!NonBooleanPropertyPrefixedWithIs!>isNullableName<!>: String? = null
 
     /**
-     * KDoc is not part of the reported line.
+     * KDoc and an annotation on their own lines do not move the finding off
+     * the name's line.
      */
-    <!NonBooleanPropertyPrefixedWithIs!>@Volatile<!>
-    var isAnnotated: Long = 0L
+    @Volatile
+    var <!NonBooleanPropertyPrefixedWithIs!>isAnnotated<!>: Long = 0L
 
-    <!NonBooleanPropertyPrefixedWithIs!>private<!> val isPrivate: List<String> = emptyList()
+    private val <!NonBooleanPropertyPrefixedWithIs!>isPrivate<!>: List<String> = emptyList()
 
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isGetter: Int
+    val <!NonBooleanPropertyPrefixedWithIs!>isGetter<!>: Int
         get() = 1
 
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isLazy: String by lazy { "lazy" }
+    val <!NonBooleanPropertyPrefixedWithIs!>isLazy<!>: String by lazy { "lazy" }
 
-    // A function type is not Boolean, even when it returns one.
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isPredicate: () -> Boolean = { true }
+    // A function type counts only when it returns Boolean.
+    val <!NonBooleanPropertyPrefixedWithIs!>isProducer<!>: () -> String = { "" }
 
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isFlags: Map<String, Boolean> = emptyMap()
+    // ...and a function returning a function returning Boolean does not.
+    val <!NonBooleanPropertyPrefixedWithIs!>isCurried<!>: () -> () -> Boolean = { { true } }
 
-    // Go matches the prefix literally: 'issues' starts with "is".
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> issues: List<String> = emptyList()
+    val <!NonBooleanPropertyPrefixedWithIs!>isFlags<!>: Map<String, Boolean> = emptyMap()
 
-    // The initializer text contains ": ", so Go reports it without a declared
-    // type; the inferred type is String.
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isLabel = "key: value"
+    val <!NonBooleanPropertyPrefixedWithIs!>isNullableList<!>: List<Boolean>? = null
+
+    // Any uppercase letter after `is` counts, as in Character.isUpperCase.
+    val <!NonBooleanPropertyPrefixedWithIs!>isÜmlaut<!>: Int = 1
 
     companion object {
-        <!NonBooleanPropertyPrefixedWithIs!>const<!> val isConstant: String = "c"
+        const val <!NonBooleanPropertyPrefixedWithIs!>isConstant<!>: String = "c"
     }
 
     fun local(): String {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isLocal: String = "a"
-        <!NonBooleanPropertyPrefixedWithIs!>var<!> isCounter: Int = 0
+        val <!NonBooleanPropertyPrefixedWithIs!>isLocal<!>: String = "a"
+        var <!NonBooleanPropertyPrefixedWithIs!>isCounter<!>: Int = 0
         isCounter++
         val lambda = {
-            <!NonBooleanPropertyPrefixedWithIs!>val<!> isInLambda: String = "b"
+            val <!NonBooleanPropertyPrefixedWithIs!>isInLambda<!>: String = "b"
             isInLambda
         }
         return isLocal + isCounter + lambda()
@@ -54,64 +56,49 @@ class Example {
 }
 
 interface Api {
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isAbstract: String
+    val <!NonBooleanPropertyPrefixedWithIs!>isAbstract<!>: String
 }
 
 class Impl : Api {
-    <!NonBooleanPropertyPrefixedWithIs!>override<!> val isAbstract: String = "impl"
+    override val <!NonBooleanPropertyPrefixedWithIs!>isAbstract<!>: String = "impl"
 }
 
 object Holder {
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isObject: Int = 1
+    val <!NonBooleanPropertyPrefixedWithIs!>isObject<!>: Int = 1
 }
 
 enum class Mode {
     A {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isEntry: Int = 1
+        val <!NonBooleanPropertyPrefixedWithIs!>isEntry<!>: Int = 1
     },
     B,
 }
 
-<!NonBooleanPropertyPrefixedWithIs!>val<!> isTopLevel: String = "top"
+val <!NonBooleanPropertyPrefixedWithIs!>isTopLevel<!>: String = "top"
 
-<!NonBooleanPropertyPrefixedWithIs!>val<!> String.isExtension: Int
+val String.<!NonBooleanPropertyPrefixedWithIs!>isExtension<!>: Int
     get() = length
 
-<!NonBooleanPropertyPrefixedWithIs!>val<!> <T> List<T>.isFirst: T
-    get() = first()
-
-// A type parameter is not Boolean.
+// A type argument does not make the type a type parameter.
 class Box<T>(value: T) {
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isValue: T = value
+    val <!NonBooleanPropertyPrefixedWithIs!>isValues<!>: List<T> = listOf(value)
+
+    // A type parameter is unknown as the property's type, not as a return type.
+    val <!NonBooleanPropertyPrefixedWithIs!>isSupplier<!>: () -> T = { value }
 }
 
 // Nothing declared explicitly is reported like any other declared type.
 abstract class Declared {
-    <!NonBooleanPropertyPrefixedWithIs!>abstract<!> val isNothing: Nothing
+    abstract val <!NonBooleanPropertyPrefixedWithIs!>isNothing<!>: Nothing
 }
 
 val anonymous = object {
-    <!NonBooleanPropertyPrefixedWithIs!>val<!> isInAnonymous: String = "anon"
-}
-
-// An inferred Nothing is not Boolean either. On a member or top-level
-// property K2 rejects it, but a local compiles, and Go reports these because
-// the text contains ": ".
-fun inferredNothing(flag: Boolean) {
-    if (flag) {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isNothing = error("bad: state")
-    }
-    if (!flag) {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isTodo = TODO("wire up: later")
-    }
-    if (flag) {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isThrow = throw IllegalStateException("a: b")
-    }
+    val <!NonBooleanPropertyPrefixedWithIs!>isInAnonymous<!>: String = "anon"
 }
 
 fun localClass(): Int {
     class Local {
-        <!NonBooleanPropertyPrefixedWithIs!>val<!> isInLocalClass: Int = 1
+        val <!NonBooleanPropertyPrefixedWithIs!>isInLocalClass<!>: Int = 1
     }
     return Local().isInLocalClass
 }

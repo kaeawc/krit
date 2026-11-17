@@ -2,7 +2,6 @@ package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
-import dev.jasonpearson.krit.fir.checkers.initializerIn
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -12,10 +11,10 @@ import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
+import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -32,8 +31,10 @@ import org.jetbrains.kotlin.fir.declarations.utils.isCompanion
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirArgumentList
 import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
+import org.jetbrains.kotlin.fir.expressions.FirDelegatedConstructorCall
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -49,6 +50,7 @@ import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
+import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWhenBranch
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
@@ -88,11 +90,17 @@ import org.jetbrains.kotlin.name.Name
 //   `toast`, `this.toast`) follows the call in the nearest enclosing named
 //   function; with no enclosing function, anywhere in the nearest enclosing
 //   class or named object (a companion object counts as its outer class).
-// Anything else is reported: a toast returned, passed to another function,
-// stored in a collection, or created as a bare statement. The finding is on
-// the first line of the call, with Go's message. A property assigned here but
-// declared in another file is followed as one with no initializer (a class
-// file keeps none).
+// - the toast escapes to code that may show it, as in Go and Lint: it is
+//   passed as an argument to any call (`sink(toast)`, `toasts.add(toast)`),
+//   returned (`return toast`, an expression body), or assigned to a member or
+//   top-level property.
+// A literal duration (`Toast.makeText(context, "Hi", 2000)`) is reported on the
+// argument, shown or not, with Lint's message, as Go does.
+// Anything else is reported: a toast created as a bare statement, only
+// configured, or held in a lambda's value. The finding is on the first line of
+// the call, with Go's message. A property initialized here but declared in
+// another file is followed as one with no initializer (a class file keeps
+// none).
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Recall: the call is identified by resolution, so a fully qualified
@@ -113,9 +121,10 @@ import org.jetbrains.kotlin.name.Name
 //   shown in a property getter or a top-level lambda; or through a
 //   top-level or member property shown from elsewhere in the file. A
 //   variable is followed by the declaration its reads resolve to, and only
-//   to reads the stored value reaches (Flow.variableShown): a toast
-//   overwritten, skipped by a jump or branch, or stored on another instance
-//   before the only `show` is still reported, as in Go (ShowToastOverwrite).
+//   to reads the stored value reaches (Flow.variableShown).
+// - Recall: a toast stored in a local variable and overwritten, or skipped by
+//   a jump or branch, before the only `show` is reported, as Lint reports it;
+//   Go reads every assignment as an escape (ShowToastOverwrite).
 internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "ShowToast"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -123,6 +132,8 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     }
 
     private const val MESSAGE = "Toast created but not shown: did you forget to call `show()`?"
+    private const val DURATION_MESSAGE =
+        "Expected duration `Toast.LENGTH_SHORT` or `Toast.LENGTH_LONG`, a custom duration value is not supported"
     private const val FLOW_BUDGET = 4
 
     private val toastClassId = classIdOf("android.widget", "Toast")
@@ -152,11 +163,23 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         val callee = expression.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides() ?: return
         val callableId = callee.callableId ?: return
         if (callableId.callableName != makeText || callableId.classId != toastClassId) return
+        literalDuration(expression)?.let { report(it, DURATION_MESSAGE) }
         val file = context.containingFileSymbol?.fir ?: return
         val path = pathTo(file, expression) ?: return
         if (goShown(expression, path)) return
-        if (Flow(file, context.session).shown(expression, path, FLOW_BUDGET)) return
+        if (Flow(file).shown(expression, path, FLOW_BUDGET)) return
         report(expression.source, MESSAGE)
+    }
+
+    // The duration of a three-argument makeText call when it is an integer
+    // literal, which Lint and Go report whether or not the toast is shown. FIR
+    // drops parentheses, as Lint skips them; a negative number is a prefix
+    // expression, not a literal.
+    private fun literalDuration(call: FirFunctionCall): KtSourceElement? {
+        val arguments = call.argumentList.arguments
+        if (arguments.size != 3) return null
+        val source = (arguments[2] as? FirLiteralExpression)?.source ?: return null
+        return source.takeIf { it.kind is KtRealSourceElementKind && it.elementType == KtNodeTypes.INTEGER_CONSTANT }
     }
 
     // The elements enclosing [target] in [root], outermost first; null when
@@ -346,7 +369,7 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
     // scope function (into its lambda's receiver or parameter, and on
     // through `also`/`apply`/`takeIf`/`takeUnless`), and into a variable
     // (initializer or assignment), whose later reads are followed in turn.
-    private class Flow(private val file: FirFile, private val session: FirSession) {
+    private class Flow(private val file: FirFile) {
 
         fun shown(occurrence: FirExpression, path: List<FirElement>, budget: Int): Boolean {
             if (budget <= 0) return false
@@ -386,12 +409,20 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
                     parent is FirFunctionCall && scopeId(parent) == scopeWith &&
                         parent.argumentList.arguments.firstOrNull() === current ->
                         return lambdaOf(parent)?.let { receiverShown(it, budget) } == true
+                    // The toast escapes to code that may show it, as in Go
+                    // (toastResultEscapes) and Lint: an argument of any call,
+                    // a returned value, or a member or top-level property.
+                    parent is FirVarargArgumentsExpression && parent.arguments.any { it === current } -> current = parent
+                    (parent is FirFunctionCall || parent is FirDelegatedConstructorCall) &&
+                        (parent as FirCall).argumentList.arguments.any { it === current } -> return true
+                    parent is FirReturnExpression && parent.result === current -> return !isLambdaValue(parent)
                     parent is FirProperty && parent.initializer === current ->
                         return variableShown(parent.symbol, parent, budget)
                     parent is FirValueParameter && parent.defaultValue === current ->
                         return variableShown(parent.symbol, parent, budget)
                     parent is FirVariableAssignment && parent.rValue === current -> {
                         val target = storedSymbol(parent) ?: return false
+                        if (target is FirPropertySymbol && !target.isLocal) return true
                         return variableShown(target, parent, budget)
                     }
                     else -> return false
@@ -399,6 +430,12 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
             }
             return false
         }
+
+        // A lambda's last statement is its value, not a written return: Go and
+        // Lint read `run { Toast.makeText(..) }` as a toast never shown.
+        private fun isLambdaValue(expression: FirReturnExpression): Boolean =
+            expression.target.labeledElement is FirAnonymousFunction &&
+                expression.source?.kind is KtFakeSourceElementKind
 
         private enum class Use { SHOWN, PASSED, DROPPED }
 
@@ -455,37 +492,24 @@ internal object ShowToast : FirFunctionCallChecker(MppCheckerKind.Common), FirRu
         // value is shown.
         // - A parameter is never reassigned, and its default value is
         //   computed before the body runs: any read in the file.
-        // - A member or top-level property: any read in the file, but only
-        //   when [store] is on `this` (or no receiver) and is the property's
-        //   only write in the file (a `null` initializer aside). Otherwise
-        //   the property is not followed: another write may replace the
-        //   toast before any read, or the read may be on another instance.
+        // - A member or top-level property initialized with the toast: any
+        //   read in the file, but only when the initializer is the property's
+        //   only write in the file. Otherwise the property is not followed:
+        //   another write may replace the toast before any read. (A toast
+        //   assigned to such a property escapes, see [shown].)
         // - A local variable: a read the stored value reaches (readReached).
         private fun variableShown(variable: FirVariableSymbol<*>, store: FirElement, budget: Int): Boolean {
             val follow = { read: FirExpression, path: List<FirElement> -> shown(read, path, budget - 1) }
             return when {
                 variable is FirValueParameterSymbol -> anyRead(file, { readSymbol(it) == variable }, follow)
                 variable is FirPropertySymbol && !variable.isLocal ->
-                    onlyStore(variable, store) && anyRead(file, { readSymbol(it) == variable }, follow)
+                    onlyStore(variable) && anyRead(file, { readSymbol(it) == variable }, follow)
                 else -> readReachedShown(variable, store, follow)
             }
         }
 
-        private fun onlyStore(variable: FirPropertySymbol, store: FirElement): Boolean {
-            if (store is FirVariableAssignment) {
-                val receiver = (store.lValue as? FirQualifiedAccessExpression)?.explicitReceiver
-                if (receiver != null && receiver !is FirThisReceiverExpression) return false
-            }
-            if (store !is FirProperty) {
-                // A property of another file shows no initializer, as in a class file, so it counts as
-                // initialized with null there.
-                val initializer = variable.initializerIn(file.symbol, session)
-                if (initializer != null && !(initializer is FirLiteralExpression && initializer.value == null)) return false
-            }
-            return !visit(file) { element, _ ->
-                element is FirVariableAssignment && element !== store && storedSymbol(element) == variable
-            }
-        }
+        private fun onlyStore(variable: FirPropertySymbol): Boolean =
+            !visit(file) { element, _ -> element is FirVariableAssignment && storedSymbol(element) == variable }
 
         // A read of the local [variable] that the value [store] puts there
         // reaches, whose value is shown. The read must come after the store,

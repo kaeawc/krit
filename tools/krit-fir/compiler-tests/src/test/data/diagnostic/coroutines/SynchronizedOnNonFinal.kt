@@ -20,14 +20,14 @@ class Worker {
     var nullable: Any? = null
 
     fun members() {
-        <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(typed) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(late) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(observed) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(withAccessors) { }<!>
-        <!SynchronizedOnNonFinal!>kotlin.synchronized(lock) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(lock, { })<!>
-        val result = <!SynchronizedOnNonFinal!>synchronized(lock) { 1 }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(typed) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(late) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(observed) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(withAccessors) { }
+        kotlin.<!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(lock, { })
+        val result = <!SynchronizedOnNonFinal!>synchronized<!>(lock) { 1 }
         println(result)
     }
 
@@ -46,25 +46,25 @@ class Worker {
         var local: Any? = null
         local = Any()
         // A stable local var smart-cast to Any is still the var.
-        <!SynchronizedOnNonFinal!>synchronized(local) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(local) { }
     }
 
     fun localVar() {
         var localLock = Any()
-        <!SynchronizedOnNonFinal!>synchronized(localLock) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(localLock) { }
         localLock = Any()
     }
 
     fun nestedScopes() {
         run {
-            <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
         }
         val task = Runnable {
-            <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
         }
         task.run()
         fun local() {
-            <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
         }
         local()
     }
@@ -73,12 +73,12 @@ class Worker {
         var shared = Any()
 
         fun fromCompanion() {
-            <!SynchronizedOnNonFinal!>synchronized(shared) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(shared) { }
         }
     }
 
     fun companionLock() {
-        <!SynchronizedOnNonFinal!>synchronized(shared) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(shared) { }
     }
 
     // A member of an object expression: Go's nearest class is Worker, whose
@@ -87,7 +87,7 @@ class Worker {
         var inner = Any()
 
         override fun run() {
-            <!SynchronizedOnNonFinal!>synchronized(inner) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(inner) { }
         }
     }
 }
@@ -96,7 +96,7 @@ object Registry {
     private var monitor = Any()
 
     fun use() {
-        <!SynchronizedOnNonFinal!>synchronized(monitor) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(monitor) { }
     }
 }
 
@@ -104,7 +104,7 @@ interface Holder {
     var held: Any
 
     fun use() {
-        <!SynchronizedOnNonFinal!>synchronized(held) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(held) { }
     }
 }
 
@@ -114,6 +114,6 @@ enum class Mode {
     var modeLock = Any()
 
     fun use() {
-        <!SynchronizedOnNonFinal!>synchronized(modeLock) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(modeLock) { }
     }
 }

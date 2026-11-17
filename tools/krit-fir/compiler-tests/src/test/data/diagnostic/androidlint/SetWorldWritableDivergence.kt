@@ -40,3 +40,17 @@ fun smartCast(file: Any) {
         <!SetWorldWritable!>file.setWritable(true, false)<!>
     }
 }
+
+// Android Lint reports a call on a File subclass that overrides setWritable; Go does not type the subclass.
+class LoggingFile(path: String) : java.io.File(path) {
+    override fun setWritable(writable: Boolean, ownerOnly: Boolean): Boolean = super.setWritable(writable, ownerOnly)
+}
+
+fun subclassOverride(file: LoggingFile) {
+    <!SetWorldWritable!>file.setWritable(true, false)<!>
+}
+
+// Android Lint folds `&&` and `||` of constants; Go does not.
+fun logicOperators(file: java.io.File) {
+    <!SetWorldWritable!>file.setWritable(true && !false, false || false)<!>
+}

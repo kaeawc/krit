@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
@@ -32,8 +33,12 @@ import org.jetbrains.kotlin.lexer.KtTokens
 /**
  * Port of the Go Instantiatable rule: an Android component class (an
  * Activity, Service, ContentProvider, or Application) that
- * the framework cannot instantiate because the class is `private` or its
- * primary constructor is `private`. Like Go, only class-like declarations are
+ * the framework cannot instantiate because the class is `private`, is an
+ * `inner` class (its constructors take the outer instance, as Android Lint's
+ * "should be static" check reports), or its primary constructor is `private`.
+ * Test files are skipped, as in Go: a component declared in a test source is
+ * not registered in the app's manifest, and Robolectric creates test fakes
+ * through reflection. Like Go, only class-like declarations are
  * visited (classes at any nesting, including local classes and members of
  * object expressions; not `object`s), a class carrying the `private` modifier
  * is reported whatever its constructors, and the finding sits
@@ -82,6 +87,9 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
         "This class is registered as an Android component but cannot be instantiated. " +
             "Remove the private constructor or add a public no-arg constructor."
 
+    private const val INNER_MESSAGE =
+        "This inner class is registered as an Android component but cannot be instantiated. Remove the inner modifier."
+
     private val componentClassIds = setOf(
         classIdOf("android.app", "Activity"),
         classIdOf("android.app", "Service"),
@@ -95,15 +103,26 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
     override fun check(declaration: FirRegularClass) {
         // Go visits class_declaration nodes only, never object declarations.
         if (declaration.classKind == ClassKind.OBJECT) return
+        // A test source is not registered in the app's manifest, as in Go.
+        if (isInTestFile()) return
         val source = declaration.source ?: return
         if (source.kind !is KtRealSourceElementKind) return
         val session = context.session
         if (!isComponent(declaration, session)) return
+        if (isPrivateClass(declaration, source)) {
+            report(firstLine(source), MESSAGE)
+            return
+        }
+        // An inner class's constructors take the outer instance, so the framework cannot call them.
+        if (declaration.status.isInner) {
+            report(firstLine(source), INNER_MESSAGE)
+            return
+        }
         val constructors = declaration.constructors(session)
         val privateConstructor = constructors.any { it.isExplicitPrivatePrimary() } ||
             (constructors.none { it.isPrimary } && constructors.isNotEmpty() && constructors.all { it.isPrivate() })
-        val notInstantiatable = isPrivateClass(declaration, source) ||
-            (privateConstructor && !(noArgExemptionApplies(declaration) && constructors.any { it.isPublicNoArg(session) }))
+        val notInstantiatable =
+            privateConstructor && !(noArgExemptionApplies(declaration) && constructors.any { it.isPublicNoArg(session) })
         if (!notInstantiatable) return
         report(firstLine(source), MESSAGE)
     }
@@ -119,14 +138,12 @@ internal object Instantiatable : FirRegularClassChecker(MppCheckerKind.Common), 
     }
 
     // A public no-arg secondary constructor makes the class instantiable only
-    // for a concrete, non-inner, non-local class. An abstract class cannot be
-    // instantiated whatever its constructors; an inner class's constructors
-    // take the outer instance and a local class's take its captured values in
-    // bytecode, so the framework cannot call them with no arguments. Those
-    // keep Go's finding.
+    // for a concrete, non-local class (an inner class is reported before). An
+    // abstract class cannot be instantiated whatever its constructors; a local
+    // class's constructors take its captured values in bytecode, so the
+    // framework cannot call them with no arguments. Those keep Go's finding.
     private fun noArgExemptionApplies(declaration: FirRegularClass): Boolean =
         declaration.status.modality != Modality.ABSTRACT &&
-            !declaration.status.isInner &&
             !declaration.symbol.classId.isLocal
 
     // Supertypes are read from their own lookup tags, so no class id is

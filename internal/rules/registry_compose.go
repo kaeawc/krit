@@ -377,7 +377,7 @@ func registerComposeRememberWithoutKey() {
 				if composeParamReadOnlyInTrackingBlock(file, lambda, name, paramTypes[name]) {
 					continue
 				}
-				if composeResyncsStateFromParam(file, fn, lambda, variable, name) {
+				if composeResyncsStateFromParam(file, fn, lambda, variable, name) || composeResyncsThroughRememberedValue(file, fn, idx, lambda, variable, name) {
 					continue
 				}
 				// An invoke-only factory lambda builds a one-shot holder; keying on it would rebuild the object.

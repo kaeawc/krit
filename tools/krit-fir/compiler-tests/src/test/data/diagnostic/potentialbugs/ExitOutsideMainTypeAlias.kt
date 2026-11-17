@@ -9,7 +9,7 @@ package test
 typealias Sys = java.lang.System
 
 fun typeAliasedSystem() {
-    <!ExitOutsideMain!>Sys.exit(1)<!>
+    Sys.<!ExitOutsideMain!>exit<!>(1)
 }
 
 fun main() {

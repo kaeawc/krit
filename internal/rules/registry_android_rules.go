@@ -152,6 +152,15 @@ func registerAndroidRules() {
 			Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// Lint does not analyze test sources, where acquire() is a mock verification.
+				if scanner.IsTestFile(file.Path) {
+					return
+				}
+				if wakeLockReleaseInActivityOnDestroy(ctx, idx) {
+					ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
+						"Wakelocks should be released in `onPause`, not `onDestroy`")
+					return
+				}
 				if !wakeLockAcquireCall(ctx, idx) {
 					return
 				}
@@ -163,8 +172,12 @@ func registerAndroidRules() {
 				if !ok {
 					return
 				}
+				// A lock reached through a parameter is the caller's to release.
+				if wakeLockReceiverIsParameter(file, idx) {
+					return
+				}
 				foundRelease := false
-				file.FlatWalkNodes(fn, "call_expression", func(call uint32) {
+				file.FlatWalkNodes(wakeLockReleaseScope(file, idx, fn), "call_expression", func(call uint32) {
 					if foundRelease {
 						return
 					}
@@ -209,8 +222,8 @@ func registerAndroidRules() {
 					if firstArg == 0 {
 						return
 					}
-					expr := flatValueArgumentExpression(file, firstArg)
-					if !isBooleanLiteralTrue(file, expr) {
+					// Lint's ConstantEvaluator folds the value: a constant or `!false` enables JavaScript too.
+					if on, known := lintEvalBool(file, flatValueArgumentExpression(file, firstArg)); !known || !on {
 						return
 					}
 				case "method_invocation":
@@ -221,7 +234,7 @@ func registerAndroidRules() {
 					if !webSettingsAssignmentTarget(ctx, idx) {
 						return
 					}
-					if !isBooleanLiteralTrue(file, assignmentRHS(file, idx)) {
+					if on, known := lintEvalBool(file, assignmentRHS(file, idx)); !known || !on {
 						return
 					}
 				default:

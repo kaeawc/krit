@@ -23,13 +23,13 @@ class HolderViewModel {
     private val chained: CoroutineScope = scope
 
     fun a() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         <!GlobalScopeLaunchInViewModel!>this<!>.GlobalScope.async { 1 }
-        <!GlobalScopeLaunchInViewModel!>scope<!>.launch { }
-        <!GlobalScopeLaunchInViewModel!>chained<!>.launch { }
+        scope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        chained.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         val local: CoroutineScope = kotlinx.coroutines.GlobalScope
-        <!GlobalScopeLaunchInViewModel!>local<!>.launch { }
-        <!GlobalScopeLaunchInViewModel!>maybe<!>?.launch { }
+        local.<!GlobalScopeLaunchInViewModel!>launch<!> { }
+        maybe?.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     private val maybe: CoroutineScope? = kotlinx.coroutines.GlobalScope
@@ -39,22 +39,22 @@ class ParamViewModel(private val GlobalScope: CoroutineScope) {
     private val getterScope: CoroutineScope get() = GlobalScope
 
     fun b() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     fun e(GlobalScope: CoroutineScope) {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
         (GlobalScope).launch { }
     }
 
     fun n(GlobalScope: CoroutineScope?) {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>?.launch { }
+        GlobalScope?.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     fun f(other: CoroutineScope) {
         var GlobalScope: CoroutineScope = kotlinx.coroutines.GlobalScope
         GlobalScope = other
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { }
     }
 
     fun g(scope: CoroutineScope) {
@@ -68,6 +68,6 @@ class GetterPresenter {
         get() = kotlinx.coroutines.GlobalScope
 
     fun h() {
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.async { 1 }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>async<!> { 1 }
     }
 }

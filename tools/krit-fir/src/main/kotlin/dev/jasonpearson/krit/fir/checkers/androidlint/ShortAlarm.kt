@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.FirEvaluatorResult
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -21,12 +22,14 @@ import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.utils.isConst
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.FirExpressionEvaluator
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirStatement
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
+import org.jetbrains.kotlin.fir.expressions.PrivateConstantEvaluatorAPI
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
@@ -57,7 +60,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * "Value will be forced up to N as of Android 5.1; don't rely on this to be exact".
  *
  * Like the Go rule, the argument must be a known number: an integer literal
- * (`5000L`, `30000`), not a parameter, a variable, a call, or an expression.
+ * (`5000L`, `30000`), a sign (`-1L`), or a product or sum of them
+ * (`30 * 1000L`), not a parameter, a `var`, or a call.
  *
  * Go matches the call by name alone, whatever its receiver. The message is
  * about the alarm the call sets, so this checker reports a call whose
@@ -84,10 +88,10 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   no body, so only its signature is read (a class file keeps it): it is reported when that looks like an
  *   alarm API (a wrapper with a PendingIntent parameter), not otherwise (an unrelated
  *   `Poller.setRepeating(name, delay, intervalMs, task: Runnable)`).
- * - Recall: FIR reads the literal's value, so a value Go cannot parse is
- *   reported: a literal with underscores (`5_000L`), a hex or binary literal,
- *   a parenthesized literal, and a reference to a Kotlin `const val` whose
- *   value is such a literal (ShortAlarmRecall).
+ * - Recall: FIR folds the argument as Lint's ConstantEvaluator does, so a
+ *   value Go cannot fold is reported: a Kotlin `const val`, a difference, a
+ *   conversion (`100.toLong()`), arithmetic on a constant (`30 * SECOND`), and
+ *   a local `val` holding such a value (ShortAlarmRecall, ShortAlarmFolded).
  * - Tree-sitter joins a statement that starts with `(` to the previous line's
  *   call, so Go reports the earlier line and misses the later one; FIR reads
  *   the statements as Kotlin does (ShortAlarmDivergence).
@@ -370,21 +374,34 @@ internal object ShortAlarm : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private fun isAlarmManager(symbol: FirClassLikeSymbol<*>): Boolean =
         isOrInheritsFrom(symbol, alarmManager, context.session, lookupInterfaces = false)
 
-    // The value of an integer literal (FIR drops parentheses around it and
-    // folds underscores, hex, and binary spellings), or of a Kotlin const val
-    // whose initializer is one; null for anything else.
+    // The value of a constant integer expression, as Lint's ConstantEvaluator
+    // folds it: a literal (FIR drops parentheses and folds underscores, hex,
+    // and binary spellings), arithmetic, a sign, or a conversion of constants,
+    // a Kotlin const val, or a local val whose initializer is one of these;
+    // null for anything else.
+    @OptIn(PrivateConstantEvaluatorAPI::class)
     context(context: CheckerContext)
-    private fun integralValue(expression: FirExpression, seen: MutableSet<FirPropertySymbol>): Long? = when (expression) {
-        is FirLiteralExpression ->
-            if (expression.kind in integralKinds) (expression.value as? Number)?.toLong() else null
-        is FirPropertyAccessExpression -> {
-            val property = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol
-            if (property == null || !property.isConst || !seen.add(property)) {
-                null
-            } else {
-                property.followableInitializer()?.let { integralValue(it, seen) }
+    private fun integralValue(expression: FirExpression, seen: MutableSet<FirPropertySymbol>): Long? {
+        val folded = (FirExpressionEvaluator.evaluateExpression(expression, context.session) as? FirEvaluatorResult.Evaluated)
+            ?.result as? FirLiteralExpression
+        literalValue(folded)?.let { return it }
+        return when (expression) {
+            is FirLiteralExpression -> literalValue(expression)
+            is FirPropertyAccessExpression -> {
+                val property = expression.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol
+                when {
+                    property == null || !seen.add(property) -> null
+                    property.isConst -> property.followableInitializer()?.let { integralValue(it, seen) }
+                    // A local val holds its initializer's value wherever it is read.
+                    property.isLocal && property.isVal && !property.hasDelegate ->
+                        property.resolvedInitializer?.let { integralValue(it, seen) }
+                    else -> null
+                }
             }
+            else -> null
         }
-        else -> null
     }
+
+    private fun literalValue(literal: FirLiteralExpression?): Long? =
+        if (literal != null && literal.kind in integralKinds) (literal.value as? Number)?.toLong() else null
 }

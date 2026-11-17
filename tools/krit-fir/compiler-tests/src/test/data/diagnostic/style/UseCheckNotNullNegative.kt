@@ -23,10 +23,10 @@ fun identity(x: Any?) {
     check(x !== null)
 }
 
-// The lazy message passed inside the parentheses makes two value arguments.
-fun messageInParentheses(x: Any?) {
-    check(x != null, { "x must not be null" })
-    check(value = x != null, lazyMessage = { "x must not be null" })
+// The first argument is the message, not the comparison; detekt reads only
+// the first argument.
+fun messageFirst(x: Any?) {
+    check(lazyMessage = { "x must not be null" }, value = x != null)
 }
 
 // A non-null declared type: Go resolves the name and skips it.

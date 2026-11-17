@@ -366,7 +366,7 @@ func registerPotentialbugsMiscRules() {
 				firstArg, argCount := flatValueArgumentStats(file, args)
 
 				if implicitLocaleMethods[methodName] {
-					if argCount != 0 {
+					if argCount != 0 || implicitLocaleMethodShadowed(file, methodName) {
 						return
 					}
 					if receiverIdx != 0 {

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 68, 69, 70
+// go-lines: 68, 69, 70, 83
 // printStackTrace overloads that take arguments (the PrintStream / PrintWriter
 // overloads, or a project-declared overload) print wherever the argument
 // sends them, which is often a buffer rather than the console. Like Go, such a
@@ -71,9 +71,8 @@ fun caught(work: () -> Unit) {
     }
 }
 
-// Go misses this because it only compares the receiver with the nearest
-// enclosing catch's variable, the inner one; `outer` is still a caught
-// exception printed to the console.
+// Reported, as in Go: `outer` is still a caught exception printed to the
+// console.
 fun nestedCatch(work: () -> Unit) {
     try {
         work()

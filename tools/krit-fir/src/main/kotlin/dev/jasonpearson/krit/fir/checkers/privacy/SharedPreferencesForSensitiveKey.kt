@@ -20,7 +20,8 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 /**
  * Flags `putString`, `putInt` and `putStringSet` on a `SharedPreferences.Editor` whose key is a string literal that
  * names a secret (`auth_token`, `apiKey`; see `isSensitiveStorageKey`), reported on the key argument. Sensitive
- * values belong in EncryptedSharedPreferences or the Keystore, so an editor reached through either is skipped.
+ * values belong in EncryptedSharedPreferences or the Keystore, so an editor reached through either is skipped, also
+ * when a `val` of this file holds them or the put is in an editor lambda (`prefs.edit { }`) on one.
  *
  * Go matches the call by name and proves the owner only from names its resolver knows or a same-file declaration.
  * This checker resolves the callee, so an editor held in a property, returned by a call, or reached through an
@@ -38,12 +39,11 @@ internal object SharedPreferencesForSensitiveKey : FirFunctionCallChecker(MppChe
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
         if (callee.name.asString() !in putters || !isSharedPreferencesEditorMember(expression)) return
-        if (hasEncryptedStorageReceiver(expression)) return
         val keyParameter = callee.valueParameterSymbols.firstOrNull() ?: return
         val key = expression.resolvedArgumentMapping?.entries?.firstOrNull { it.value.symbol == keyParameter }?.key
             ?: return
         val body = storageKeyLiteral(key) ?: return
-        if (!isSensitiveStorageKey(body)) return
+        if (!isSensitiveStorageKey(body) || hasEncryptedStorageReceiver(expression)) return
         report(
             unwrapArgument(key).source,
             "SharedPreferences key \"$body\" looks sensitive. Use EncryptedSharedPreferences or the Android Keystore for sensitive data.",

@@ -9,41 +9,42 @@ import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.text
 import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.containingClassLookupTag
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirUnusedCheckerBase
-import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
-import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirStatement
-import org.jetbrains.kotlin.fir.expressions.FirTryExpression
-import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.resolve.toClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
+import org.jetbrains.kotlin.name.FqName
 
 // Flags a call statement whose result is discarded although the result is what the call is for: a callee
-// annotated @CheckReturnValue or @CheckResult, or a stdlib call that builds a lazy Sequence, Flow or Stream
-// (or a function value) and does nothing until the result is used.
+// annotated @CheckReturnValue or @CheckResult (or declared in a class annotated so), or a stdlib call that
+// builds a lazy Sequence, Flow or Stream (or a function value) and does nothing until the result is used.
 //
 // Go reads the callee's annotations and return type from the oracle and decides "discarded" from the parse
 // tree around the call, then drops findings with a set of text heuristics (builder callbacks, test setup
 // names, emitter receivers, Result handlers). This checker takes the same two pieces of evidence from the
 // compiler. "Discarded" is the compiler's own unused-value analysis (the statement position of a block, an
-// `if`/`when`/`try` branch or a loop body whose value nobody reads), so a last statement of a lambda counts as
-// used, like Go. The heuristics that only exist to correct a guessed receiver or return type are not needed
-// when the callee and type are resolved.
+// `if`/`when`/`try` branch or a loop body whose value nobody reads), plus the last statement of a lambda
+// coerced to Unit and the lambda value of a discarded `let`, `run` or `with`, as detekt reports them. Go
+// reads the last statement of any lambda as used. The heuristics that only exist to correct a guessed
+// receiver or return type are not needed when the callee and type are resolved.
 //
 // Kept from Go because they express intent: the in-place mutator names, the `ignoreFunctionCall` option,
 // assertion-library calls, `verify(...)` chains, a `subscribe` with handlers, `subscribeWith`, a lambda with a
@@ -84,6 +85,8 @@ internal object IgnoredReturnValue : FirRule {
 
     private val inPlaceMutations = setOf("clear", "dispose", "fill", "reverse", "shuffle", "sort")
     private val scopeFunctions = setOf("let", "run", "with", "apply", "also", "use")
+    private val lambdaResultScopeFunctions = setOf("let", "run", "with")
+    private val kotlinPackage = FqName("kotlin")
     private val verificationCalls = setOf("verify", "coVerify", "verifyBlocking")
     private val testDisposableCalls = setOf("test", "offer", "subscribe")
     private val assertionPrefixes = listOf(
@@ -100,51 +103,46 @@ internal object IgnoredReturnValue : FirRule {
     )
     private val purePackages = listOf("kotlin.", "kotlinx.coroutines.", "java.util.")
 
-    // The compiler's unused-value walk, asked to report each discarded call to [evaluate]. A block that the
-    // compiler coerces to Unit (a callback lambda) marks every statement of it as unused, its last one too.
-    // Go reads the last statement of a lambda as the lambda's value, so that one is kept out, along with the
-    // last statements of the `if`, `when` and `try` branches it ends with.
+    // The compiler's unused-value walk, asked to report each discarded call to [evaluate]. The last statement
+    // of a block the compiler coerces to Unit (a callback lambda such as `forEach { }`) is discarded too, as
+    // detekt's isUsedAsExpression reads it; Go keeps it as the lambda's value.
     private class Checker : FirUnusedCheckerBase() {
         context(context: CheckerContext)
         override fun isEnabled(): Boolean = true
 
         context(context: CheckerContext, reporter: DiagnosticReporter)
         protected override fun createVisitor(): UsageVisitorBase = object : UsageVisitorBase(context, reporter) {
-            private val tailBlocks = HashSet<FirBlock>()
-            private val tails = HashSet<FirStatement>()
-
-            override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction, data: UsageState) {
-                if (anonymousFunction.isLambda) anonymousFunction.body?.let { tailBlocks += it }
-                super.visitAnonymousFunction(anonymousFunction, data)
-            }
-
-            override fun visitBlock(block: FirBlock, data: UsageState) {
-                if (block in tailBlocks) block.statements.lastOrNull()?.let { tails += it }
-                super.visitBlock(block, data)
-            }
-
-            override fun visitWhenExpression(whenExpression: FirWhenExpression, data: UsageState) {
-                if (whenExpression in tails) whenExpression.branches.mapTo(tailBlocks) { it.result }
-                super.visitWhenExpression(whenExpression, data)
-            }
-
-            override fun visitTryExpression(tryExpression: FirTryExpression, data: UsageState) {
-                if (tryExpression in tails) {
-                    tailBlocks += tryExpression.tryBlock
-                    tryExpression.catches.mapTo(tailBlocks) { it.block }
-                }
-                super.visitTryExpression(tryExpression, data)
-            }
-
             override fun checkExpression(expression: FirExpression, state: UsageState) {
-                val discarded = state == UsageState.Unused || (state == UsageState.UnusedFromCoercion && expression !in tails)
-                if (!discarded) return
-                val call = expression as? FirFunctionCall
-                    ?: (expression as? FirSafeCallExpression)?.selector as? FirFunctionCall
-                    ?: return
-                evaluate(call, expression)
+                if (state != UsageState.Unused && state != UsageState.UnusedFromCoercion) return
+                evaluateDiscarded(expression)
             }
         }
+    }
+
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    private fun evaluateDiscarded(expression: FirExpression) {
+        val call = expression as? FirFunctionCall
+            ?: (expression as? FirSafeCallExpression)?.selector as? FirFunctionCall
+            ?: return
+        val tail = lambdaResultOfScopeCall(call)
+        if (tail != null) {
+            evaluateDiscarded(tail)
+        } else {
+            evaluate(call, expression)
+        }
+    }
+
+    // A discarded `let`, `run` or `with` discards its lambda's value too, so the call that yields it is
+    // judged as a statement, as detekt does.
+    private fun lambdaResultOfScopeCall(call: FirFunctionCall): FirExpression? {
+        val callee = call.calleeReference.toResolvedCallableSymbol() ?: return null
+        val id = callee.callableId ?: return null
+        if (id.classId != null || id.packageName != kotlinPackage || id.callableName.asString() !in lambdaResultScopeFunctions) return null
+        val lambda = call.argumentList.arguments.asReversed()
+            .firstNotNullOfOrNull { unwrapArgument(it) as? FirAnonymousFunctionExpression }
+            ?.anonymousFunction ?: return null
+        val last = lambda.body?.statements?.lastOrNull() ?: return null
+        return if (last is FirReturnExpression) last.result.takeIf { last.target.labeledElement == lambda } else last as? FirExpression
     }
 
     private class Call(
@@ -154,7 +152,10 @@ internal object IgnoredReturnValue : FirRule {
         val target: String,
         val annotations: List<String>,
         val type: ConeClassLikeType?,
+        classAnnotations: () -> List<String>,
     ) {
+        // Read only when the callee itself carries no must-use annotation.
+        val classAnnotations: List<String> by lazy(LazyThreadSafetyMode.NONE, classAnnotations)
         val typeFqn: String? get() = type?.lookupTag?.classId?.asFqNameString()
     }
 
@@ -171,9 +172,21 @@ internal object IgnoredReturnValue : FirRule {
         val type = resolved as? ConeClassLikeType
         if (inVerification(statement) || returnsFromEnclosingFunction(statement)) return
         if (name == "subscribeWith" && call.argumentList.arguments.isNotEmpty()) return
-        val info = Call(call, statement, name, target, calleeAnnotationFqns(callee, context.session), type)
+        val info = Call(
+            call, statement, name, target, calleeAnnotationFqns(callee, context.session), type,
+        ) { containingClassAnnotations(callee) }
         if (isSubscribeWithHandlers(info)) return
         reportEvidence(info)
+    }
+
+    // The annotations of the class that declares the callee: errorprone's `@CheckReturnValue` on a class
+    // covers its methods and constructors, and detekt reads them from the callee's containing declaration.
+    context(context: CheckerContext)
+    private fun containingClassAnnotations(callee: FirCallableSymbol<*>): List<String> {
+        val owner = callee.containingClassLookupTag()?.toClassSymbol(context.session) ?: return emptyList()
+        return owner.resolvedAnnotationsWithClassIds.mapNotNull {
+            it.toAnnotationClassId(context.session)?.asSingleFqName()?.asString()
+        }
     }
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -187,6 +200,16 @@ internal object IgnoredReturnValue : FirRule {
             if (isInTestFile() && info.name in testDisposableCalls) return
             report(anchor, annotatedMessage(info.name, annotated))
             return
+        }
+        // A class-level annotation applies unless the class or the member opts out.
+        if (!hasAnnotation(info.classAnnotations, ignoreAnnotations, ignoreAnnotationList)) {
+            val classAnnotated = info.classAnnotations.firstOrNull { hasAnnotation(listOf(it), checkAnnotations, checkAnnotationList) }
+            if (classAnnotated != null) {
+                if (isInTestFile() && info.name in testDisposableCalls) return
+                val simple = classAnnotated.substringAfterLast('.')
+                report(anchor, "Return value of '${info.name}' is ignored. Its class is annotated with @$simple ($classAnnotated).")
+                return
+            }
         }
         if (info.name in scopeFunctions) return
         val type = info.type ?: return

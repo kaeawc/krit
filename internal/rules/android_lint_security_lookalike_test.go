@@ -266,3 +266,27 @@ class A {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+// Lint types the receiver, so a SecureRandom parameter or field is seeded as a local is.
+func TestSecureRandomJavaParameterAndFieldReceivers(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+import java.util.Random;
+
+class A {
+  private final SecureRandom field = new SecureRandom();
+  private final Random plain = new Random();
+
+  void param(SecureRandom sr, Random other) {
+    sr.setSeed(7L);
+    field.setSeed(System.currentTimeMillis());
+    other.setSeed(7L);
+    plain.setSeed(7L);
+  }
+}
+`))
+	if want := "11:5,12:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}

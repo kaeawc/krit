@@ -1,9 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 23, 24
 // A project class named View, not android.view.View. Its onDraw / onLayout
-// are not View callbacks, so the message ("should probably call
-// draw/measure/layout instead") is not true of these calls and FIR reports
-// neither.
+// are not View callbacks, so the message ("should probably call `draw`
+// rather than `onDraw`") is not true of these calls and FIR reports neither,
+// as Lint, which needs a member of android.view.View or a subclass, does not.
 package test
 
 import android.graphics.Canvas

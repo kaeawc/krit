@@ -465,7 +465,7 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 			return
 		}
 		if handlerClassExtendsAndroidHandler(ctx, file, idx) {
-			if handlerClassHasLooperSuperConstructor(file, idx) {
+			if handlerClassHasLooperConstructorParameter(file, idx) {
 				return
 			}
 			// Java reports the class name like Lint; Kotlin keeps the declaration start the FIR twin reports.
@@ -483,7 +483,12 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 		for i := 0; i < file.FlatChildCount(idx); i++ {
 			child := file.FlatChild(idx, i)
 			if handlerSupertypeIsHandler(ctx, file, child) {
-				// Lint skips a Handler built on an explicit Looper; the Kotlin FIR twin does not model that yet.
+				// Lint skips an anonymous Handler built on an explicit Looper.
+				if ci, ok := file.FlatFindChild(child, "constructor_invocation"); ok {
+					if args, ok := file.FlatFindChild(ci, "value_arguments"); ok && handlerArgumentsPassLooper(ctx, args) {
+						return
+					}
+				}
 				ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					handlerAnonymousMessage))
 				return
@@ -496,7 +501,7 @@ func (r *HandlerLeakRule) check(ctx *api.Context) {
 		if !handlerJavaObjectCreationIsAnonymousHandler(ctx, file, idx) {
 			return
 		}
-		if args, ok := file.FlatFindChild(idx, "argument_list"); ok && strings.Contains(strings.ToLower(file.FlatNodeText(args)), "looper") {
+		if args, ok := file.FlatFindChild(idx, "argument_list"); ok && handlerArgumentsPassLooper(ctx, args) {
 			return
 		}
 		ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1, handlerAnonymousMessage))
@@ -528,10 +533,7 @@ func handlerClassQualifiedName(file *scanner.File, cls uint32) string {
 		}
 		cur = parent
 	}
-	// Java names carry the package like Lint; the Kotlin FIR twin cannot, so Kotlin names stop at the nesting.
-	if file.Language != scanner.LangJava {
-		return strings.Join(parts, ".")
-	}
+	// The package-qualified name, as Lint prints it.
 	return qualifySourceName(sourcePackageName(file), strings.Join(parts, "."))
 }
 
@@ -691,130 +693,139 @@ func handlerSupertypesContain(supertypes []string, want string) bool {
 	return false
 }
 
-func handlerClassHasLooperSuperConstructor(file *scanner.File, classIdx uint32) bool {
+// handlerClassHasLooperConstructorParameter mirrors Lint's hasLooperConstructorParameter: a constructor of the class
+// itself (primary or secondary in Kotlin) takes a parameter typed Looper, whether or not it reaches the Handler
+// constructor. Lint takes such a Handler to run on a caller-chosen thread.
+func handlerClassHasLooperConstructorParameter(file *scanner.File, classIdx uint32) bool {
 	if file == nil || classIdx == 0 {
 		return false
 	}
 	if file.Language == scanner.LangJava {
 		body, _ := file.FlatFindChild(classIdx, "class_body")
 		for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "constructor_declaration" && handlerJavaConstructorPassesLooperToSuper(file, child) {
+			if file.FlatType(child) != "constructor_declaration" {
+				continue
+			}
+			params, _ := file.FlatFindChild(child, "formal_parameters")
+			for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+				if file.FlatType(param) == "formal_parameter" && handlerJavaParameterIsLooper(file, param) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if ctor, ok := file.FlatFindChild(classIdx, "primary_constructor"); ok {
+		for param := file.FlatFirstChild(ctor); param != 0; param = file.FlatNextSib(param) {
+			if file.FlatType(param) == "class_parameter" && handlerKotlinParameterIsLooper(file, param) {
 				return true
 			}
 		}
-		return false
 	}
-	return handlerKotlinPrimaryConstructorPassesLooperToHandler(file, classIdx)
-}
-
-func handlerJavaConstructorPassesLooperToSuper(file *scanner.File, ctor uint32) bool {
-	params, _ := file.FlatFindChild(ctor, "formal_parameters")
-	looperNames := map[string]bool{}
-	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "formal_parameter" {
-			continue
+	body, _ := file.FlatFindChild(classIdx, "class_body")
+	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
+		if handlerKotlinSecondaryTakesLooper(file, child) {
+			return true
 		}
-		var hasLooper bool
-		var name string
-		for part := file.FlatFirstChild(child); part != 0; part = file.FlatNextSib(part) {
-			switch file.FlatType(part) {
-			case "type_identifier", "scoped_type_identifier", "scoped_identifier":
-				if handlerTypeNameIsLooper(file.FlatNodeText(part)) {
-					hasLooper = true
+		// tree-sitter sometimes wraps a member in an ERROR node; the class's own members are one level down.
+		if file.FlatType(child) == "ERROR" {
+			for inner := file.FlatFirstChild(child); inner != 0; inner = file.FlatNextSib(inner) {
+				if handlerKotlinSecondaryTakesLooper(file, inner) {
+					return true
 				}
-			case "identifier":
-				name = file.FlatNodeText(part)
 			}
 		}
-		if hasLooper && name != "" {
-			looperNames[name] = true
-		}
 	}
-	if len(looperNames) == 0 {
+	return false
+}
+
+func handlerKotlinSecondaryTakesLooper(file *scanner.File, ctor uint32) bool {
+	if file.FlatType(ctor) != "secondary_constructor" {
 		return false
 	}
-	body, _ := file.FlatFindChild(ctor, "constructor_body")
-	for child := file.FlatFirstChild(body); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "explicit_constructor_invocation" || !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(child)), "super") {
-			continue
-		}
-		if handlerArgumentListUsesAnyName(file, child, looperNames) {
+	params, _ := file.FlatFindChild(ctor, "function_value_parameters")
+	for param := file.FlatFirstChild(params); param != 0; param = file.FlatNextSib(param) {
+		if file.FlatType(param) == "parameter" && handlerKotlinParameterIsLooper(file, param) {
 			return true
 		}
 	}
 	return false
 }
 
-func handlerKotlinPrimaryConstructorPassesLooperToHandler(file *scanner.File, classIdx uint32) bool {
-	params, _ := file.FlatFindChild(classIdx, "primary_constructor")
-	looperNames := map[string]bool{}
-	file.FlatWalkAllNodes(params, func(idx uint32) {
-		if file.FlatType(idx) != "class_parameter" {
-			return
-		}
-		nameNode, _ := file.FlatFindChild(idx, "simple_identifier")
-		if nameNode == 0 {
-			return
-		}
-		if handlerKotlinNodeContainsLooperType(file, idx) {
-			looperNames[file.FlatNodeText(nameNode)] = true
-		}
-	})
-	if len(looperNames) == 0 {
+// handlerKotlinParameterIsLooper reports a Kotlin parameter whose declared type is Looper, nullable or not. A vararg
+// parameter is an array of Loopers, which Lint does not count.
+func handlerKotlinParameterIsLooper(file *scanner.File, param uint32) bool {
+	if prev, ok := file.FlatPrevSibling(param); ok && file.FlatType(prev) == "parameter_modifiers" && strings.Contains(file.FlatNodeText(prev), "vararg") {
 		return false
 	}
-	for child := file.FlatFirstChild(classIdx); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatType(child) != "delegation_specifier" {
-			continue
-		}
-		if handlerKotlinDelegationInvokesHandlerWithLooper(file, child, looperNames) {
-			return true
-		}
-	}
-	return false
-}
-
-func handlerKotlinNodeContainsLooperType(file *scanner.File, idx uint32) bool {
-	found := false
-	file.FlatWalkAllNodes(idx, func(child uint32) {
-		if file.FlatType(child) == "type_identifier" && handlerTypeNameIsLooper(file.FlatNodeText(child)) {
-			found = true
-		}
-	})
-	return found
-}
-
-func handlerKotlinDelegationInvokesHandlerWithLooper(file *scanner.File, delegIdx uint32, looperNames map[string]bool) bool {
-	ctor, _ := file.FlatFindChild(delegIdx, "constructor_invocation")
-	if ctor == 0 {
-		return false
-	}
-	userType, _ := file.FlatFindChild(ctor, "user_type")
-	typeNode := flatLastChildOfType(file, userType, "type_identifier")
-	if userType == 0 || typeNode == 0 || file.FlatNodeText(typeNode) != "Handler" {
-		return false
-	}
-	args, _ := file.FlatFindChild(ctor, "value_arguments")
-	return handlerArgumentListUsesAnyName(file, args, looperNames)
-}
-
-func handlerArgumentListUsesAnyName(file *scanner.File, idx uint32, names map[string]bool) bool {
-	used := false
-	file.FlatWalkAllNodes(idx, func(child uint32) {
-		if used {
-			return
-		}
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
-		case "identifier", "simple_identifier":
-			used = names[file.FlatNodeText(child)]
+		case "modifiers":
+			if strings.Contains(file.FlatNodeText(child), "vararg") {
+				return false
+			}
+		case "user_type", "nullable_type":
+			return handlerTypeNameIsLooper(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(child)), "?"))
 		}
-	})
-	return used
+	}
+	return false
+}
+
+// handlerJavaParameterIsLooper reports a Java formal parameter whose declared type is Looper.
+func handlerJavaParameterIsLooper(file *scanner.File, param uint32) bool {
+	for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier", "scoped_identifier":
+			return handlerTypeNameIsLooper(file.FlatNodeText(child))
+		}
+	}
+	return false
+}
+
+// handlerArgumentsPassLooper mirrors Lint's hasLooperArgument for an anonymous Handler: an argument of its superclass
+// constructor call is a Looper. Without types, an argument whose text names a looper (`Looper.getMainLooper()`,
+// `thread.looper`) or whose resolved type is Looper counts.
+func handlerArgumentsPassLooper(ctx *api.Context, args uint32) bool {
+	file := ctx.File
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if !file.FlatIsNamed(arg) {
+			continue
+		}
+		expr := arg
+		if file.FlatType(arg) == "value_argument" {
+			expr = flatValueArgumentExpression(file, arg)
+		}
+		if expr == 0 {
+			continue
+		}
+		if strings.Contains(strings.ToLower(file.FlatNodeText(expr)), "looper") || handlerExprIsLooper(ctx, expr) {
+			return true
+		}
+	}
+	return false
+}
+
+// handlerExprIsLooper reports an expression typed android.os.Looper: by the resolver, or for a bare name, by the
+// declared type of the parameter, local, or field it names.
+func handlerExprIsLooper(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	isName := file.FlatType(expr) == "simple_identifier" || file.FlatType(expr) == "identifier"
+	if isName && handlerTypeNameIsLooper(strings.TrimSuffix(lintDeclaredTypeText(file, expr, file.FlatNodeText(expr)), "?")) {
+		return true
+	}
+	if ctx.Resolver == nil {
+		return false
+	}
+	typ := ctx.Resolver.ResolveFlatNode(expr, file)
+	if (typ == nil || typ.Kind == typeinfer.TypeUnknown) && isName {
+		typ = ctx.Resolver.ResolveByNameFlat(file.FlatNodeText(expr), expr, file)
+	}
+	return typ != nil && (typ.FQN == "android.os.Looper" || (typ.FQN == "" && typ.Name == "Looper"))
 }
 
 func handlerTypeNameIsLooper(typeName string) bool {
 	typeName = strings.TrimSpace(typeName)
-	return typeName == "Looper" || typeName == "android.os.Looper" || strings.HasSuffix(typeName, ".Looper")
+	return typeName == "Looper" || typeName == "android.os.Looper"
 }
 
 // floatMathReceiverIsFloatMath checks if navigation_expression starts with "FloatMath" receiver.

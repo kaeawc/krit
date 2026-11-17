@@ -90,6 +90,8 @@ func exitOutsideMainKotlinRuntimeReceiver(file *scanner.File, idx uint32) bool {
 	return text == "Runtime.getRuntime()" || text == "java.lang.Runtime.getRuntime()"
 }
 
+// exitOutsideMainInsideMain follows detekt: the nearest enclosing named or anonymous function must be main. An
+// anonymous `fun(x: Int) { ... }` is a function of its own, like detekt's KtNamedFunction; a lambda is passed through.
 func exitOutsideMainInsideMain(file *scanner.File, idx uint32) bool {
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
@@ -97,6 +99,8 @@ func exitOutsideMainInsideMain(file *scanner.File, idx uint32) bool {
 			return extractIdentifierFlat(file, parent) == "main"
 		case "function_declaration":
 			return kotlinIsMainFunction(file, parent)
+		case "anonymous_function":
+			return false
 		}
 	}
 	return false

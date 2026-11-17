@@ -12,23 +12,23 @@ package test
 import kotlin.system.exitProcess
 
 fun backtickedExitProcess() {
-    <!ExitOutsideMain!>`exitProcess`(1)<!>
+    <!ExitOutsideMain!>`exitProcess`<!>(1)
 }
 
 fun backtickedQualifiedExitProcess() {
-    <!ExitOutsideMain!>kotlin.system.`exitProcess`(3)<!>
+    kotlin.system.<!ExitOutsideMain!>`exitProcess`<!>(3)
 }
 
 fun backtickedSystemReceiver() {
-    <!ExitOutsideMain!>`System`.exit(1)<!>
+    `System`.<!ExitOutsideMain!>exit<!>(1)
 }
 
 fun backtickedQualifiedSystemReceiver() {
-    <!ExitOutsideMain!>java.lang.`System`.exit(2)<!>
+    java.lang.`System`.<!ExitOutsideMain!>exit<!>(2)
 }
 
 fun backtickedExitName() {
-    <!ExitOutsideMain!>System.`exit`(1)<!>
+    System.<!ExitOutsideMain!>`exit`<!>(1)
 }
 
 fun main() {

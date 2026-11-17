@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 24, 30, 41, 42, 67, 68, 77, 84
+// go-lines: 17, 31, 80
 // Lookalikes: project declarations and import aliases spelled like the stdlib
 // factories. None of these calls is a stdlib factory, so the empty
 // counterpart is not a replacement for it.
@@ -20,7 +20,8 @@ fun samePackage() {
 class Defaults {
     fun listOf(): List<String> = arrayListOf("default")
 
-    // Divergence: Go reports the member call spelled `listOf`.
+    // Go does not see the member; it skips the call only because this file
+    // imports another `listOf`.
     fun use(): List<String> = listOf()
 }
 
@@ -35,7 +36,8 @@ class Builder {
     fun sequenceOf(): Sequence<String> = generateSequence { "default" }
 }
 
-// Divergence: Go reports the implicit-receiver member calls.
+// Go does not see the implicit-receiver members; it skips these calls only
+// because this file imports other `arrayOf` and `sequenceOf` declarations.
 fun implicitReceiver(builder: Builder) {
     with(builder) {
         println(arrayOf())
@@ -61,8 +63,9 @@ object Factories {
     }
 }
 
-// Divergence: Go reports the imported function call spelled `listOf` and the
-// imported object's invoke call spelled `sequenceOf`.
+// Go skips the imported function call spelled `listOf` and the imported
+// object's invoke call spelled `sequenceOf` too: an explicit import that binds
+// the name elsewhere hides the stdlib factory.
 fun imported() {
     println(listOf())
     println(sequenceOf())
@@ -77,8 +80,8 @@ fun propertyInvoke() {
     println(listOfNotNull())
 }
 
-// Divergence: `arrayOf` is imported as an alias of `emptyArray`, so the call is
-// already the empty counterpart. Go reports it by its written name.
+// `arrayOf` is imported as an alias of `emptyArray`, so the call is already the
+// empty counterpart. Go skips it too, as the alias hides the stdlib name.
 // UseEmptyCounterpartAnnotationAlias.kt covers the annotation form.
 fun aliasedCounterpart() {
     val a: Array<String> = arrayOf()

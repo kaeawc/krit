@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 16
+// go-lines: none
 // Lookalike: an explicit import of another `check` takes priority over the
 // default import of kotlin.check, so the calls below are not kotlin.check.
-// Go matches the callee name alone and reports them; the checker does not.
+// Neither Go nor the checker reports them: Go skips a name the file imports
+// from another declaration.
 package test
 
 import test.Guards.check

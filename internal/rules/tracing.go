@@ -222,6 +222,11 @@ func localEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name s
 		case "navigation_suffix", "value_argument_label", "directly_assignable_expression":
 			// A store into the variable does not hand it to other code.
 			return
+		case "call_expression":
+			// Invoking a function-typed variable (`make()`) hands nothing over.
+			if file.FlatFirstChild(parent) == id {
+				return
+			}
 		}
 		escaped = true
 	})

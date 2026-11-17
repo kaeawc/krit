@@ -28,26 +28,20 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 // Passing Options (even `null`) selects the other overload and is not
 // reported, as Go does not report it.
 //
-// Like the Go rule, the finding sits on the first line of the call
-// expression (the receiver's line for a qualified call) and names the called
-// method.
+// Like the Go rule, the finding sits on the called method's name, so a call
+// split across lines reports on the method's line, and names the method.
 //
 // Decodes inside a file, class or function named for Thumb, Tiny, Icon or Avatar, and decodeByteArray of
 // a header-plus-tail concatenation, are small images and are not reported.
 //
 // Deliberate differences from Go, each pinned in the golden data:
-// - Recall (Go misses these true positives): Go counts one value argument, so
-//   the Options-less `decodeResource(res, id)`, `decodeByteArray(data, off,
-//   len)`, and `decodeFileDescriptor(fd)` overloads are reported here too
-//   (Go's method list stops at decodeFile, decodeResource, and decodeStream,
-//   and decodeResource without Options takes two arguments). Go also needs
-//   the receiver spelled `BitmapFactory` or `<qualifier>.BitmapFactory`, so
-//   an import alias, a typealias, and a statically imported decode method
+// - Recall: Go reads the receiver as the file spells it, so a typealias of
+//   BitmapFactory and an inherited decode called unqualified in a subclass
 //   are reported here and missed by Go.
-// - Precision: Go matches the receiver by its last segment of text, so it
-//   also reports a declaration of the user's own that is only named
-//   BitmapFactory. This checker requires the call to resolve to
-//   android.graphics.BitmapFactory.
+// - Precision: Go sees one file, so under `import android.graphics.*` it takes
+//   a simple `BitmapFactory` for Android's even where a same-package class of
+//   that name in another file shadows it. This checker requires the call to
+//   resolve to android.graphics.BitmapFactory.
 internal object BitmapDecodeWithoutOptions : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "BitmapDecodeWithoutOptions"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -75,7 +69,7 @@ internal object BitmapDecodeWithoutOptions : FirFunctionCallChecker(MppCheckerKi
         if (callee.valueParameterSymbols.any { isOptions(it.resolvedReturnType) }) return
         if (inSmallImageContext() || (method == "decodeByteArray" && isConcatenatedBytes(expression.argumentList.arguments.firstOrNull()))) return
         report(
-            expression.source,
+            expression.calleeReference.source ?: expression.source,
             "BitmapFactory.$method without BitmapFactory.Options may decode a full-size bitmap. " +
                 "Pass BitmapFactory.Options to control memory usage.",
         )

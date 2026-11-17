@@ -50,6 +50,20 @@ fun qualifiedCall(source: KtSourceElement): LighterASTNode? {
 }
 
 private val qualifiedExpressionTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
+
+/**
+ * The CALL_EXPRESSION of a call whose source is [source]: the source itself,
+ * or the selector of a qualified call (`kotlin.require(...)`), looking through
+ * nested qualifiers. Null when the source is neither. Go and detekt report a
+ * qualified call there, at the callee name, not at the receiver.
+ */
+fun selectorCallExpression(source: KtSourceElement): LighterASTNode? = selectorCallExpression(source, source.lighterASTNode)
+
+private fun selectorCallExpression(source: KtSourceElement, node: LighterASTNode): LighterASTNode? = when (node.tokenType) {
+    KtNodeTypes.CALL_EXPRESSION -> node
+    in qualifiedExpressionTypes -> significantChildren(source, node).lastOrNull()?.let { selectorCallExpression(source, it) }
+    else -> null
+}
 private val accessTokens = setOf(KtTokens.DOT, KtTokens.SAFE_ACCESS)
 
 /** The source text of [node], a node in [source]'s tree, as written. */

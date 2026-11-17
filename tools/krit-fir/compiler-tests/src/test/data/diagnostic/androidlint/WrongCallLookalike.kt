@@ -4,10 +4,10 @@
 // android.view.View, function-typed properties and interface methods named
 // like the callbacks, and non-View receivers called from inside a View
 // subclass. None of them calls a View's onDraw / onMeasure / onLayout, so the
-// message ("should probably call draw/measure/layout instead") is not true of
+// message ("should probably call `draw` rather than `onDraw`") is not true of
 // them and FIR does not report them. The comments name the ones Go reports and
-// why. The one marker is a judgment call kept as Go has it (see
-// OverloadView).
+// why. The one marker is an overload declared in a View subclass, which
+// Lint reports too (see OverloadView).
 package test
 
 import android.content.Context
@@ -87,16 +87,16 @@ fun sketch(v: PView) {
     v.onDraw(1)
 }
 
-// Judgment call, kept as Go has it: an onDraw overload declared directly in a
-// View subclass is not a View callback either, but its owner is a View, and
-// FIR reports it as Go does. Only a callee whose owner is not a View (the
+// An onDraw overload declared directly in a View subclass is not a View
+// callback either, but its owner is a View, and Lint (a member of a View
+// subclass) and Go both report it. Only a callee whose owner is not a View (the
 // extensions, the lambda property, and Sketcher.onDraw above) is dropped.
 class OverloadView(context: Context) : View(context) {
     fun onDraw(canvas: Canvas, extra: Int) {
     }
 
     fun f(other: OverloadView, canvas: Canvas) {
-        <!WrongCall!>other.onDraw(canvas, 1)<!>
+        other.<!WrongCall!>onDraw<!>(canvas, 1)
     }
 }
 

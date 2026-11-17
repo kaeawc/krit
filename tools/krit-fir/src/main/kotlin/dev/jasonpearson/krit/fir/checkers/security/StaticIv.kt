@@ -61,15 +61,18 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * it is one of Go's literal byte sources:
  *  - `byteArrayOf(...)` (`kotlin.byteArrayOf`) whose elements are all integer
  *    literals, optionally signed; an empty call does not count, as in Go;
+ *  - `ByteArray(size)` without an init lambda, whose bytes are all zero (a
+ *    source Go does not match);
  *  - `"<literal>".toByteArray(...)` or `.encodeToByteArray(...)`, or
  *    `"<hex>".hexToByteArray(...)` from `kotlin.text`, on a literal string;
  *  - a Base64 decode of a literal string or of literal bytes: `decode` on any
  *    class named `Base64` (android.util, kotlin.io.encoding, BouncyCastle, a
  *    project codec), or `java.util.Base64.Decoder.decode`.
- * A literal string is a string literal (raw or not), a template whose entries
- * are literals, `const val`s, or properties (val or var, final or open, not
- * lateinit; a local var only when its function assigns it literal values only)
- * initialized with a literal string, or a `kotlin.text` call
+ * A literal string is a string literal (raw or not); a String `const val` or
+ * property (val or var, final or open, not lateinit; a local var only when
+ * its function assigns it literal values only) initialized with a literal
+ * string; a template whose entries are literals or such properties; or a
+ * `kotlin.text` call
  * (`trimIndent()`, `replace(" ", "")`) on a literal string with literal
  * arguments.
  *
@@ -94,7 +97,9 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *    number parser rejects, an annotated argument, a copy chained on
  *    `byteArrayOf`, decoder forms Go's text match misses, a decode of literal
  *    bytes, a parenthesized string concatenation, and a String transform
- *    before toByteArray (StaticIvGoMisses).
+ *    before toByteArray (StaticIvGoMisses); a zero-filled `ByteArray(size)`,
+ *    and toByteArray or decode called on a literal string property itself
+ *    rather than on a template over it (StaticIvConstants).
  *  - Go false positives FIR skips, where the IV is not literal bytes: a string
  *    template with a runtime entry, or over a local var its function also
  *    assigns a runtime value (StaticIvLocalVars); a chain that mixes in runtime or random
@@ -128,8 +133,9 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     )
     private val regex = classIdOf(kotlinText, "Regex")
 
+    private val byteArray = classIdOf(kotlinPackage, "ByteArray")
     private val byteArrays = setOf(
-        classIdOf(kotlinPackage, "ByteArray"),
+        byteArray,
         classIdOf(kotlinPackage, "UByteArray"),
     )
 
@@ -236,6 +242,9 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         val callee = call.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides() ?: return null
         val callableId = callee.callableId ?: return null
         return when {
+            // `ByteArray(16)`: every byte is zero, whatever the size.
+            call.calleeReference.toResolvedCallableSymbol() is FirConstructorSymbol &&
+                call.resolvedType.classId == byteArray -> if (callArguments(call).size == 1) Root.STRICT else null
             callableId == byteArrayOf -> {
                 val elements = callArguments(call)
                 if (elements.isNotEmpty() && elements.all { isIntegerLiteral(it) }) Root.STRICT else null
@@ -447,6 +456,9 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
         val value = unwrap(expression)
         return when (value) {
             is FirLiteralExpression -> value.value is String
+            // `IV.toByteArray()` on a literal-initialized String property.
+            is FirPropertyAccessExpression ->
+                value.resolvedType.lowerBoundIfFlexible().classId == StandardClassIds.String && isLiteralProperty(value, seen)
             is FirStringConcatenationCall -> value.argumentList.arguments.all { entry ->
                 val part = unwrap(entry)
                 part is FirLiteralExpression || isLiteralProperty(part, seen) || isLiteralString(part, seen)

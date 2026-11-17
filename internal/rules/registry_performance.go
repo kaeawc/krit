@@ -99,37 +99,28 @@ func registerPerformanceRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				navExpr, args := flatCallExpressionParts(file, idx)
-				if navExpr == 0 || args == 0 {
+				_, args := flatCallExpressionParts(file, idx)
+				if args == 0 {
 					return
 				}
-				methodName := flatNavigationExpressionLastIdentifier(file, navExpr)
-				if !bitmapDecodeMethods[methodName] {
-					return
-				}
-				if file.FlatNamedChildCount(navExpr) == 0 {
-					return
-				}
-				receiver := file.FlatNamedChild(navExpr, 0)
-				receiverText := strings.TrimSpace(file.FlatNodeText(receiver))
-				if i := strings.LastIndex(receiverText, "."); i >= 0 {
-					receiverText = receiverText[i+1:]
-				}
-				if receiverText != "BitmapFactory" {
+				methodName := bitmapDecodeCallMethod(file, idx)
+				if methodName == "" {
 					return
 				}
 				argCount := 0
+				var firstArg uint32
 				for i := 0; i < file.FlatChildCount(args); i++ {
-					if file.FlatType(file.FlatChild(args, i)) == "value_argument" {
+					if arg := file.FlatChild(args, i); file.FlatType(arg) == "value_argument" {
+						if argCount == 0 && file.FlatNamedChildCount(arg) > 0 {
+							firstArg = file.FlatNamedChild(arg, file.FlatNamedChildCount(arg)-1)
+						}
 						argCount++
 					}
 				}
-				// decodeResource(res, id) takes two arguments before the optional Options.
-				wantArgs := 1
-				if methodName == "decodeResource" {
-					wantArgs = 2
+				if argCount != bitmapDecodeArgCounts[methodName] || bitmapDecodeInSmallImageContext(file, idx) {
+					return
 				}
-				if argCount != wantArgs || bitmapDecodeInSmallImageContext(file, idx) {
+				if methodName == "decodeByteArray" && firstArg != 0 && bitmapDecodeJoinedBytes(file, firstArg) {
 					return
 				}
 				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
@@ -313,7 +304,7 @@ func registerPerformanceRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				// detekt: <Boolean|Byte|Short|Integer|Long|Float|Double>(...).toString(), the constructor
-				// call used as the receiver of toString().
+				// call used as the receiver of toString(), when the name means the java.lang wrapper.
 				first := file.FlatFirstChild(idx)
 				if file.FlatType(first) != "simple_identifier" || !temporaryInstantiationWrappers[file.FlatNodeText(first)] {
 					return
@@ -323,7 +314,14 @@ func registerPerformanceRules() {
 					return
 				}
 				suffix, ok := file.FlatFindChild(nav, "navigation_suffix")
-				if !ok || !file.FlatNodeTextEquals(suffix, ".toString") {
+				if !ok {
+					return
+				}
+				// detekt also matches the safe call `Integer(x)?.toString()`.
+				if member := strings.Join(strings.Fields(file.FlatNodeText(suffix)), ""); member != ".toString" && member != "?.toString" {
+					return
+				}
+				if !temporaryInstantiationIsJavaLangWrapper(file, idx, file.FlatNodeText(first)) {
 					return
 				}
 				outer, ok := file.FlatParent(nav)
@@ -420,6 +418,21 @@ func registerPerformanceRules() {
 
 var temporaryInstantiationWrappers = map[string]bool{
 	"Boolean": true, "Byte": true, "Short": true, "Integer": true, "Long": true, "Float": true, "Double": true,
+}
+
+// temporaryInstantiationIsJavaLangWrapper reports whether the wrapper's simple name at call can mean
+// the java.lang class: no enclosing declaration takes the name and no import binds it elsewhere.
+// Every name but Integer is also a kotlin type, which wins over the default java.lang import, so
+// those need an explicit java.lang import.
+func temporaryInstantiationIsJavaLangWrapper(file *scanner.File, call uint32, name string) bool {
+	if typeDeclaredInEnclosingScope(file, call, name) {
+		return false
+	}
+	imports := fileFactsCache().Imports(file)
+	if fqn, imported := imports.Aliases[name]; imported {
+		return fqn == "java.lang."+name
+	}
+	return name == "Integer" || imports.HasFQN("java.lang."+name)
 }
 
 // callParenArguments returns the source text of each argument in parentheses of a call_expression.

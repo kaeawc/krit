@@ -138,6 +138,45 @@ fun testSize(list: List<Int>, a: Int, b: Int) {
 	}
 }
 
+func TestAssertTrueOnComparison_NegativeProjectAssertTrue(t *testing.T) {
+	declared := runRuleByName(t, "AssertTrueOnComparison", `
+package test
+
+fun assertTrue(condition: Boolean) {}
+
+fun testCompute(actual: Int) {
+    assertTrue(actual == 42)
+}
+`)
+	if len(declared) != 0 {
+		t.Fatalf("expected no findings for a file-declared assertTrue, got %d", len(declared))
+	}
+	imported := runRuleByName(t, "AssertTrueOnComparison", `
+package test
+
+import com.example.checks.assertTrue
+
+fun testCompute(actual: Int) {
+    assertTrue(actual == 42)
+}
+`)
+	if len(imported) != 0 {
+		t.Fatalf("expected no findings for an assertTrue imported from a project package, got %d", len(imported))
+	}
+	library := runRuleByName(t, "AssertTrueOnComparison", `
+package test
+
+import kotlin.test.assertTrue
+
+fun testCompute(actual: Int) {
+    assertTrue(actual == 42)
+}
+`)
+	if len(library) != 1 {
+		t.Fatalf("expected 1 finding for kotlin.test.assertTrue, got %d", len(library))
+	}
+}
+
 func TestAssertTrueOnComparison_PositiveJUnitReceiver(t *testing.T) {
 	findings := runRuleByName(t, "AssertTrueOnComparison", `
 package test
@@ -360,6 +399,34 @@ fun testNullableAssertion(maybeX: String?) {
 `)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestAssertNullableWithNotNullAssertion_NegativeProjectImportedName(t *testing.T) {
+	project := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.example.checks.assertEquals
+
+fun testNullableAssertion(maybeX: String?) {
+    assertEquals("x", maybeX!!)
+}
+`)
+	if len(project) != 0 {
+		t.Fatalf("expected no findings for assertEquals imported from a project package, got %d", len(project))
+	}
+	library := runRuleByName(t, "AssertNullableWithNotNullAssertion", `
+package test
+
+import com.example.checks.assertEquals
+import org.junit.Assert
+
+fun testNullableAssertion(maybeX: String?) {
+    Assert.assertEquals("x", maybeX!!)
+}
+`)
+	if len(library) != 1 {
+		t.Fatalf("expected 1 finding for the qualified JUnit call, got %d", len(library))
 	}
 }
 

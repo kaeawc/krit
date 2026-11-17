@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
 import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
@@ -15,8 +16,8 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirCatch
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
+import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirOperation
@@ -38,8 +39,8 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 
 /**
- * Flags `printStackTrace()` called on a Throwable: the output goes to the
- * console instead of a logger.
+ * Flags `printStackTrace()` called on a Throwable, and `Thread.dumpStack()`:
+ * the output goes to the console instead of a logger.
  *
  * The call counts when it resolves to the stdlib `kotlin.printStackTrace`
  * extensions (`()`, `(PrintStream)`, `(PrintWriter)`), or when the receiver it
@@ -47,8 +48,13 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * any class) whose receiver argument is a Throwable, or a member whose
  * containing class, or bound receiver, is a Throwable. Like Go, the body of a
  * project-declared overload does not matter, and the finding sits on the call
- * expression's first line (its receiver's). Go also skips `.gradle.kts`
- * scripts, matched here on the scan's own spelling of the path.
+ * expression's first line (its receiver's). `java.lang.Thread.dumpStack()`
+ * is reported on its callee name, like Go and detekt.
+ *
+ * A caught exception's printStackTrace() is reported in every source file,
+ * like Go and detekt. A receiver only FIR proves is a Throwable (the recall
+ * shapes below) is not reported in test sources, tooling paths and logging
+ * sinks, which print to the console on purpose.
  *
  * An overload that takes arguments (the PrintStream / PrintWriter overloads,
  * or a project-declared one) prints wherever its arguments send the trace,
@@ -60,17 +66,16 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Recall: Go proves the receiver is a Throwable only by its spelling: the
- *   receiver's last identifier must equal the variable of the nearest
- *   enclosing `catch`. For the no-argument call it misses every other
- *   Throwable receiver (a local or parameter, `e.cause`,
- *   `result.exceptionOrNull()`, a constructor call, an outer catch's variable
- *   read inside a nested catch, `this`, an implicit receiver, an import alias
- *   of the stdlib function). Each of those prints the trace to the console,
- *   so it is reported. An outer catch's variable is reported with arguments
- *   too: it is still a caught exception.
- * - Precision: a receiver spelled like the caught variable that is not the
- *   Throwable (a shadowing local, `this.e`, `other.e`) is not a Throwable's
- *   printStackTrace(), so it is not reported.
+ *   receiver must be the bare name of an enclosing `catch`'s variable, not
+ *   hidden by a local or lambda parameter. For the no-argument call it misses
+ *   every other Throwable receiver (a local or parameter, `e.cause`,
+ *   `result.exceptionOrNull()`, a constructor call, `this`, an implicit
+ *   receiver, an import alias of the stdlib function). Each of those prints
+ *   the trace to the console, so it is reported.
+ * - Go matches `dumpStack()` by a receiver named `Thread`. A call that
+ *   resolves to `java.lang.Thread.dumpStack()` without that receiver (a
+ *   static import, a Thread subclass) is reported here, and a project class
+ *   named `Thread` with its own `dumpStack()` is not.
  */
 internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "PrintStackTrace"
@@ -81,22 +86,27 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
     private const val MESSAGE = "Do not print a stack trace. These debug statements should be removed or replaced with a logger."
     private val PRINT_STACK_TRACE = Name.identifier("printStackTrace")
     private val STDLIB_PRINT_STACK_TRACE = CallableId(StandardClassIds.BASE_KOTLIN_PACKAGE, PRINT_STACK_TRACE)
+    private val THREAD_DUMP_STACK = CallableId(classIdOf("java.lang", "Thread"), Name.identifier("dumpStack"))
     private val nullableThrowable = StandardClassIds.Throwable.nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
+        if (callee.callableId == THREAD_DUMP_STACK) {
+            report(expression.calleeReference.source ?: expression.source, MESSAGE)
+            return
+        }
         if (callee.name != PRINT_STACK_TRACE) return
         if (isSuperCall(expression)) return
         if (!isThrowablePrintStackTrace(expression, callee)) return
+        val caught = isCaughtException(expression.explicitReceiver)
         // An overload with arguments prints wherever they send it, often into
         // a buffer (`printStackTrace(PrintWriter(sw))`). Like Go, it counts
         // only on a caught exception.
         val takesArguments = (callee as? FirFunctionSymbol<*>)?.valueParameterSymbols?.isNotEmpty() == true
-        if (takesArguments && !isCaughtException(expression.explicitReceiver)) return
-        if (containingScanPath()?.endsWith(".gradle.kts") == true) return
-        // Test sources, tooling paths and logging sinks print to the console on purpose, as in Go.
-        if (isInTestFile() || isPrintToolingPath(containingScanPath()) || insideLoggingSink()) return
+        if (takesArguments && !caught) return
+        // Go and detekt report a caught exception everywhere; only the shapes they miss skip console-output code.
+        if (!caught && (isInTestFile() || isPrintToolingPath(containingScanPath()) || insideLoggingSink())) return
         report(expression.source, MESSAGE)
     }
 

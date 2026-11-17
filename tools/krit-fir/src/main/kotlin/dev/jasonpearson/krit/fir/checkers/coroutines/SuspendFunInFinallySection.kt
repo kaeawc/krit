@@ -48,17 +48,13 @@ import org.jetbrains.kotlin.text
 //
 // Mirrors the Go SuspendFunInFinallySection rule, which walks every call inside
 // a `finally` block (lambdas, local functions and nested `try` included) and
-// reports a call whose text starts with a name from a fixed list of well-known
-// suspend functions and coroutine builders (`delay(`, `withContext(`,
-// `launch {`, ...). That text match only sees unqualified calls, and reads the
-// name, not the declaration. The checker walks the code the finally block
-// runs in its own coroutine, and reports:
-// - any call that resolves to a suspend function, qualified or not, whatever
-//   its name (`job.join()`, `deferred.await()`, a project suspend function),
-//   which Go misses when it is qualified or not on the list;
-// - an unqualified kotlinx.coroutines `launch` / `async`, which Go reports
-//   too: a child started in a cancelled scope is cancelled before its body
-//   runs.
+// reports an unqualified call whose name is on a fixed list of well-known
+// suspend functions (`delay`, `withContext`, `join`, ...). That match only sees
+// unqualified calls, and reads the name, not the declaration. The checker
+// walks the code the finally block runs in its own coroutine, and reports any
+// call that resolves to a suspend function, qualified or not, whatever its
+// name (`job.join()`, `deferred.await()`, a project suspend function), which
+// Go misses when it is qualified or not on the list.
 // It walks into lambdas that run in place: those passed to an inline function
 // (`with`, `runCatching`), to a suspend function (`withContext`,
 // `coroutineScope`, `withTimeout`, a project `retry { }`), and the body of a
@@ -68,13 +64,18 @@ import org.jetbrains.kotlin.text
 // It does not report:
 // - a call that only shares a name with a suspend function (a project
 //   `fun delay(ms: Long)`, `Thread.join()`), which Go reports by the name;
-// - `runBlocking` itself, which Go reports by the name: it is not a suspend
-//   function;
+// - `launch`, `async` and `runBlocking` themselves, like Go: they are not
+//   suspend functions (their bodies are walked as described above);
+// - `currentCoroutineContext()`, which Go does not list: it only reads the
+//   context, so it never suspends and runs even after cancellation;
 // - a `withContext` / `launch` / `async` / `runBlocking` whose context makes
 //   NonCancellable the Job (`NonCancellable`, `Dispatchers.IO +
 //   NonCancellable`, but not `NonCancellable + job`, where the right-hand Job
-//   replaces it) and everything inside it, which Go reports: that is the
-//   idiomatic fix, and its body runs even when the caller is cancelled;
+//   replaces it) and everything inside it: that is the idiomatic fix, and its
+//   body runs even when the caller is cancelled. Go skips a `withContext`
+//   whose arguments mention NonCancellable and the calls inside it, including
+//   `NonCancellable + job`, and reports the body of such a launch, async or
+//   runBlocking;
 // - code that does not run in the finally block's coroutine, which Go reports
 //   by the name: a lambda passed to a non-suspend, non-inline function (the
 //   body of `scope.launch { }`, `GlobalScope.launch { }`, `flow { }`,
@@ -99,6 +100,7 @@ internal object SuspendFunInFinallySection : FirExpressionChecker<FirTryExpressi
     private val withContext = CallableId(coroutinesPackage, Name.identifier("withContext"))
     private val runBlocking = CallableId(coroutinesPackage, Name.identifier("runBlocking"))
     private val contextTakingBuilders = setOf(launch, async, withContext, runBlocking)
+    private val currentCoroutineContext = CallableId(coroutinesPackage, Name.identifier("currentCoroutineContext"))
     private val contextParameter = Name.identifier("context")
     private val plus = Name.identifier("plus")
     private val sequenceScope = classIdOf("kotlin.sequences", "SequenceScope")
@@ -185,9 +187,7 @@ internal object SuspendFunInFinallySection : FirExpressionChecker<FirTryExpressi
         // safe call (`job?.join()`) carries a fake kind but is the written call.
         if (source.kind is KtFakeSourceElementKind && source.kind != KtFakeSourceElementKind.DesugaredSafeCallExpression) return true
         if (isSequenceYield(call, symbol)) return true
-        val reported = (symbol.isSuspend && callableId != runBlocking) ||
-            ((callableId == launch || callableId == async) && call.explicitReceiver == null)
-        if (reported) {
+        if (symbol.isSuspend && callableId != currentCoroutineContext) {
             val name = writtenName(call) ?: symbol.name.asString()
             report(source, "Suspend function '$name' called in finally block. This may not execute if the coroutine is cancelled.")
         }

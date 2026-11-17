@@ -66,33 +66,35 @@ import org.jetbrains.kotlin.text
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`BindsReturnTypeMatchesParam*.kt`):
- * - Go matches `@Binds` as a substring of the function's modifier text, so it
- *   also reports a `@BindsInstance` or `@BindsOptionalOf` function and a
- *   function annotated with a user annotation class named `Binds`. Only
+ * - Go reads the annotation's simple name, so it reports a function annotated
+ *   with a project annotation class named `Binds` that the file neither
+ *   declares nor imports (one declared elsewhere in its package). Only
  *   Dagger's and Metro's `@Binds` declare a binding, so only those count.
- * - Go compares the type text alone. A binding whose function and parameter
- *   carry different qualifiers (`@Named("a")` on one side only, a type alias
- *   of a qualifier included) aliases one key to another, and a multibinding
- *   contribution (`@IntoSet`, `@IntoMap`, `@ElementsIntoSet`) binds into a
- *   collection, so neither is a no-op and neither is reported here.
- *   Qualifiers are compared by their constant argument values, an omitted
- *   argument taking the annotation's default, so `@Named(KEY)` and
- *   `@Named("a")` (with `const val KEY = "a"`) are the same key; only
- *   qualifier classes that differ, or arguments that provably evaluate to
- *   different constants, make different keys. An argument that cannot be
- *   evaluated counts as equal, so Go's finding stands. A `vararg`
- *   parameter's type is an array, and a `suspend` function type is not the
- *   plain function type Go reads once it drops the `suspend` modifier (on
- *   either side), so those types do not match.
+ * - A binding whose function and parameter carry different qualifiers
+ *   (`@Named("a")` on one side only, a type alias of a qualifier included)
+ *   aliases one key to another, and a multibinding contribution (`@IntoSet`,
+ *   `@IntoMap`, `@ElementsIntoSet`) binds into a collection, so neither is a
+ *   no-op and neither is reported, here or by Go. Qualifiers are compared by
+ *   their constant argument values, an omitted argument taking the
+ *   annotation's default, so `@Named(KEY)` and `@Named("a")` (with
+ *   `const val KEY = "a"`) are the same key; only qualifier classes that
+ *   differ, or arguments that provably evaluate to different constants, make
+ *   different keys. An argument that cannot be evaluated counts as equal. Go
+ *   compares the annotations as text, so it misses a same-key binding whose
+ *   qualifiers are written differently, and one whose function carries an
+ *   annotation that is not a qualifier. A `vararg` parameter's type is an
+ *   array, and a `suspend` function type is not the plain function type Go
+ *   reads once it drops the `suspend` modifier (on either side), so those
+ *   types do not match.
  * - Resolution sees matching types Go's text comparison misses: a qualified
  *   name against a simple one, a type alias, different whitespace, an
  *   equivalent projection (`List<out Foo>` against `List<Foo>`, `Box<*>`
  *   against `Box<out Any?>`), a definitely non-null type (`T & Any`), for
- *   which Go reads no text, and an import alias or fully qualified use of
- *   `@Binds`. Go also counts the named parameters of a function-typed
- *   parameter (`(x: Foo) -> Unit`) and the parameters of a method in an
- *   object expression in a default value as parameters of the binding, so it
- *   skips those single-parameter bindings.
+ *   which Go reads no text, and an import alias of `@Binds`. Go also counts
+ *   the named parameters of a function-typed parameter (`(x: Foo) -> Unit`)
+ *   and the parameters of a method in an object expression in a default
+ *   value as parameters of the binding, so it skips those single-parameter
+ *   bindings.
  */
 internal object BindsReturnTypeMatchesParam :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {

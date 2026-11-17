@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 18
+// go-lines: 17, 19
 // Positives for SimpleDateFormat: a typealias named SimpleDateFormat for a
 // project subclass of java.text.SimpleDateFormat. The call builds a
 // SimpleDateFormat and passes no locale; Go reports it by the call name, so
@@ -9,7 +9,8 @@ package test
 
 import java.util.Date
 
-open class RootFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+// The delegation passes no locale either (SimpleDateFormatLocale.kt).
+open class RootFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
 
 typealias SimpleDateFormat = RootFormat
 

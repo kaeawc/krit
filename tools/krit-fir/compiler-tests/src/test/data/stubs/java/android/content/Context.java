@@ -32,6 +32,8 @@ public abstract class Context {
 
     public static final String CAMERA_SERVICE = "camera";
 
+    public static final String CLIPBOARD_SERVICE = "clipboard";
+
     public static final String CONNECTIVITY_SERVICE = "connectivity";
 
     public static final String LAYOUT_INFLATER_SERVICE = "layout_inflater";

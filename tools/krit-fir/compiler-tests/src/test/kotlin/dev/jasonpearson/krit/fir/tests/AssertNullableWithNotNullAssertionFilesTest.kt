@@ -119,6 +119,30 @@ class AssertNullableWithNotNullAssertionFilesTest {
         )
     }
 
+    @Test fun aCheckWrittenWithBangOrSafeCallCoversTheOperand() {
+        val source = """
+            package checked
+
+            import com.google.common.truth.Truth.assertThat
+
+            class Box(val icon: String?)
+
+            fun check(box: Box?, other: Box?) {
+                assertThat(box!!.icon).isNotNull()
+                assertThat(box.icon!!.length).isEqualTo(1)
+                assertThat(other?.icon).isNotNull()
+                assertThat(other!!.icon!!.length).isEqualTo(1)
+            }
+        """.trimIndent()
+        // Line 8 reports the unchecked `box!!`; line 9 is covered by the check on line 8.
+        val diags = diagnostics(mapOf("CheckedTest.kt" to source))
+        assertEquals(listOf(8, 11), diags.map { it.line })
+        assertEquals(
+            "Avoid `!!` in assertion arguments; use `assertThat(other).isNotNull()` first, then use a local val or smart-cast.",
+            diags.last().message.substringAfter("] "),
+        )
+    }
+
     @Test fun longOperandsAreCutToSixtyCharacters() {
         val source = """
             package long

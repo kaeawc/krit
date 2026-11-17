@@ -73,6 +73,25 @@ class StaticIvTest {
                 why = "Go reports each: the text holds `Base64.decode(` and a quote, and the data is a literal",
             ),
             Case(
+                "AndroidDecodeConstant.kt",
+                """
+                    package androiddecodeconstant
+
+                    import android.util.Base64
+                    import javax.crypto.spec.IvParameterSpec
+
+                    const val IV_TEXT = "AAAA"
+                    private val IV_PROPERTY = "AAAAAAAAAAAAAAAAAAAAAA=="
+
+                    class Crypto {
+                        fun constant() = IvParameterSpec(Base64.decode(IV_TEXT, Base64.DEFAULT))
+                        fun property() = IvParameterSpec(Base64.decode(IV_PROPERTY, 0))
+                    }
+                """.trimIndent(),
+                expected = 2,
+                why = "Go misses each: the decoded data is a literal-initialized String, with no quote in the argument",
+            ),
+            Case(
                 "AndroidDecodeNegative.kt",
                 """
                     package androiddecodenegative
@@ -80,11 +99,8 @@ class StaticIvTest {
                     import android.util.Base64
                     import javax.crypto.spec.IvParameterSpec
 
-                    const val IV_TEXT = "AAAA"
-
                     class Crypto(private val stored: String, private val keys: Map<String, String>) {
                         fun stored() = IvParameterSpec(Base64.decode(stored, Base64.DEFAULT))
-                        fun constant() = IvParameterSpec(Base64.decode(IV_TEXT, Base64.DEFAULT))
                         // Go reports this: the quote belongs to the map key.
                         fun keyed() = IvParameterSpec(Base64.decode(keys.getValue("iv"), Base64.DEFAULT))
                     }

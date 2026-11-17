@@ -9,3 +9,15 @@ suspend fun doWork(cleanup: Deferred<Unit>) {
         runCatching { cleanup.await() }
     }
 }
+
+suspend fun doCaughtWork(cleanup: Deferred<Unit>) {
+    try {
+        println("working")
+    } finally {
+        try {
+            cleanup.await()
+        } catch (e: Exception) {
+            println("cleanup failed")
+        }
+    }
+}

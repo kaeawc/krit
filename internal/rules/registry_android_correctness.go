@@ -783,23 +783,33 @@ func registerAndroidCorrectnessSimpleDateFormat() {
 			if flatCallExpressionName(file, idx) != "SimpleDateFormat" || !simpleDateFormatIsJavaText(file, idx) {
 				return
 			}
-			// Require at least two args (pattern + Locale). Single-arg form uses default locale.
+			// Require a second argument (pattern + Locale). Single-arg form uses default locale.
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 				return
 			}
-			count := 0
+			var values []uint32
 			for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 				if file.FlatType(arg) == "value_argument" {
-					count++
+					values = append(values, arg)
 				}
 			}
-			if count < 2 {
+			// (pattern, DateFormatSymbols) still formats with the default locale, as Lint reports.
+			if len(values) < 2 || (len(values) == 2 && simpleDateFormatSymbolsArgument(file.FlatNodeText(flatValueArgumentExpression(file, values[1])))) {
 				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 			}
 		},
 	})
+}
+
+// simpleDateFormatSymbolsArgument reports whether a second constructor argument
+// builds a DateFormatSymbols: the (pattern, symbols) constructor takes no
+// locale, so the calendar and digits still follow the default locale.
+func simpleDateFormatSymbolsArgument(text string) bool {
+	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "new "))
+	text = strings.TrimPrefix(text, "java.text.")
+	return strings.HasPrefix(text, "DateFormatSymbols(") || strings.HasPrefix(text, "DateFormatSymbols.getInstance(")
 }
 
 // simpleDateFormatIsJavaText rejects a qualified call outside java.text and a bare call whose
@@ -981,57 +991,7 @@ func registerAndroidCorrectnessWrongCall() {
 		NodeTypes:  []string{"call_expression"},
 		Needs:      api.NeedsTypeInfo,
 		Confidence: r.Confidence(), Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			name := flatCallExpressionName(file, idx)
-			if name != "onDraw" && name != "onMeasure" && name != "onLayout" {
-				return
-			}
-			// Must have a navigation receiver (i.e. obj.onDraw()), not a bare call or override.
-			navExpr, _ := flatCallExpressionParts(file, idx)
-			if navExpr == 0 {
-				return
-			}
-			// Skip if the receiver is "super".
-			recv := file.FlatFirstChild(navExpr)
-			if recv != 0 && file.FlatNodeText(recv) == "super" {
-				return
-			}
-			// A same-named override may legitimately forward to another receiver.
-			if fn, inFn := flatEnclosingAncestor(file, idx, "function_declaration"); inFn &&
-				file.FlatHasModifier(fn, "override") && extractIdentifierFlat(file, fn) == name {
-				return
-			}
-			// Receiver-type proof: require positive evidence the call is
-			// a View method. Either the receiver resolves to a View
-			// subtype, or the enclosing class extends View (so the
-			// `obj.onDraw()` call really is dispatching to a View method
-			// implementation). Without proof, refuse to fire — a method
-			// named `onDraw` on a non-View class is an unrelated callback.
-			recvNamed := file.FlatNamedChild(navExpr, 0)
-			if recvNamed != 0 {
-				// Hard skip: receiver chain rooted at a known non-View
-				// symbol (NotificationCompat, RemoteViews, ...).
-				if androidReceiverIsKnownNonView(file, recvNamed) {
-					return
-				}
-				if ctx.Resolver != nil {
-					typ := ctx.Resolver.ResolveFlatNode(recvNamed, file)
-					if typ != nil && typ.Name != "" {
-						if !androidTypeIsViewSubtype(ctx.Resolver, typ) {
-							return
-						}
-						ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
-						return
-					}
-				}
-			}
-			// Fallback: require the enclosing class extends View.
-			if !androidEnclosingClassExtendsView(file, idx, ctx.Resolver) {
-				return
-			}
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "Suspicious method call; should probably call draw/measure/layout instead of "+name+".")
-		},
+		Check: checkWrongCall,
 	})
 }
 
@@ -1077,7 +1037,7 @@ func checkSimpleDateFormatJava(ctx *api.Context, idx uint32) {
 		return
 	}
 	args := javaArgumentExpressions(file, idx)
-	if len(args) < 2 {
+	if len(args) < 2 || (len(args) == 2 && simpleDateFormatSymbolsArgument(file.FlatNodeText(args[1]))) {
 		ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "To get local formatting use `getDateInstance()`, `getDateTimeInstance()`, or `getTimeInstance()`, or use `new SimpleDateFormat(String template, Locale locale)` with for example `Locale.US` for ASCII dates.")
 	}
 }

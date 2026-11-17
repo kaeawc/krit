@@ -6,7 +6,6 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func registerStyleIdiomaticRules() {
@@ -19,30 +18,7 @@ func registerStyleIdiomaticRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
 			Needs: api.NeedsResolver, Implementation: r,
 			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				argText, suffixText, ok := flatNonNullCheckText(file, idx, "check")
-				if !ok {
-					return
-				}
-				if ctx.Resolver != nil {
-					resolved := ctx.Resolver.ResolveByNameFlat(argText, idx, file)
-					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-						return
-					}
-				}
-				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
-					"Use checkNotNull() instead of check() for checking not-null.")
-				replacement := "checkNotNull(" + argText + ")"
-				if suffixText != "" {
-					replacement += " " + suffixText
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: replacement,
-				}
-				ctx.Emit(f)
+				emitNonNullCheck(ctx, r.BaseRule, "check", "Use checkNotNull() instead of check() for checking not-null.")
 			},
 		})
 	}
@@ -53,30 +29,7 @@ func registerStyleIdiomaticRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic,
 			Needs: api.NeedsResolver, Implementation: r,
 			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				argText, suffixText, ok := flatNonNullCheckText(file, idx, "require")
-				if !ok {
-					return
-				}
-				if ctx.Resolver != nil {
-					resolved := ctx.Resolver.ResolveByNameFlat(argText, idx, file)
-					if resolved != nil && resolved.Kind != typeinfer.TypeUnknown && !resolved.IsNullable() {
-						return
-					}
-				}
-				f := r.Finding(file, callLine(file, idx), callCol(file, idx),
-					"Use requireNotNull() instead of require() for checking not-null.")
-				replacement := "requireNotNull(" + argText + ")"
-				if suffixText != "" {
-					replacement += " " + suffixText
-				}
-				f.Fix = &scanner.Fix{
-					ByteMode:    true,
-					StartByte:   int(file.FlatStartByte(idx)),
-					EndByte:     int(file.FlatEndByte(idx)),
-					Replacement: replacement,
-				}
-				ctx.Emit(f)
+				emitNonNullCheck(ctx, r.BaseRule, "require", "Use requireNotNull() instead of require() for checking not-null.")
 			},
 		})
 	}
@@ -134,6 +87,9 @@ func registerStyleIdiomaticRules() {
 				if !flatIsEmptyRHS(file, right) {
 					return
 				}
+				if file.FlatType(right) == "call_expression" && unqualifiedCalleeShadowed(file, right) {
+					return
+				}
 				if hasFlatAncestorTypeName(file, idx, "string_literal", "raw_string_literal", "line_string_literal", "multi_line_string_literal") {
 					return
 				}
@@ -151,10 +107,8 @@ func registerStyleIdiomaticRules() {
 					return
 				}
 				// orEmpty() only exists for a matching nullable receiver type; skip when the declared type clearly differs.
-				if file.FlatType(left) == "simple_identifier" {
-					if typeName, found := declaredTypeNameOfIdentifier(file, idx, leftText); found && !orEmptyReceiverMatches(typeName, rightText) {
-						return
-					}
+				if !orEmptyOperandsMatch(file, idx, left, rightText) {
+					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					fmt.Sprintf("Use '.orEmpty()' instead of '?: %s'.", rightText))
@@ -278,7 +232,7 @@ func registerStyleIdiomaticRules() {
 				}
 				calleeName := file.FlatNodeText(callee)
 				replacement, ok := emptyCounterparts[calleeName]
-				if !ok {
+				if !ok || importBindsStdlibNameElsewhere(file, calleeName) {
 					return
 				}
 				suffix, _ := file.FlatFindChild(idx, "call_suffix")

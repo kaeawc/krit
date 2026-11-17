@@ -504,7 +504,74 @@ fun DemoContent() {
 	}
 }
 
+// Text has no default import, so a file without an AndroidX import of it calls its own Text.
+func TestComposeRawTextLiteral_TextMustComeFromAndroidX(t *testing.T) {
+	cases := []struct {
+		name, imports, call string
+		want                int
+	}{
+		{"design-system wildcard", "import com.example.design.*", `Text("Hello")`, 0},
+		{"no Text import", "", `Text("Hello")`, 0},
+		{"qualified non-AndroidX owner", "import com.example.design.Theme", `Theme.Text("Hello")`, 0},
+		{"material3 wildcard", "import androidx.compose.material3.*", `Text("Hello")`, 1},
+		{"qualified AndroidX call", "", `androidx.compose.material.Text("Hello")`, 1},
+		{"explicit AndroidX import", "import androidx.compose.material3.Text", `Text("Hello")`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "ComposeRawTextLiteral", `
+package test
+
+`+tc.imports+`
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Header() {
+    `+tc.call+`
+}
+`)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
 // --- ComposeSemanticsMissingRole ---
+
+// An extension needs an import, so a modifier the file does not import from foundation is a project lookalike.
+func TestComposeSemanticsMissingRole_ModifierMustComeFromFoundation(t *testing.T) {
+	cases := []struct {
+		name, imports, call string
+		want                int
+	}{
+		{"no import", "", `Modifier.clickable { onClick() }`, 0},
+		{"other package", "import com.example.ui.clickable", `Modifier.clickable { onClick() }`, 0},
+		{"foundation wildcard", "import androidx.compose.foundation.*", `Modifier.clickable { onClick() }`, 1},
+		{"selection wildcard", "import androidx.compose.foundation.selection.*", `Modifier.toggleable(value = true, onValueChange = {})`, 1},
+		{"explicit import", "import androidx.compose.foundation.selection.selectable", `Modifier.selectable(selected = true) { onClick() }`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByName(t, "ComposeSemanticsMissingRole", `
+package test
+
+`+tc.imports+`
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun Example(onClick: () -> Unit) {
+    Row(`+tc.call+`) {}
+}
+`)
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
 
 func TestComposeSemanticsMissingRole_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ComposeSemanticsMissingRole", `

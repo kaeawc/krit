@@ -43,6 +43,58 @@ All notable changes to Krit will be documented in this file.
   Baseline entries for this rule change once; regenerate the baseline to pick them up.
 - The release workflow fails when the `krit-fir-<tag>.jar` asset or its checksum is missing. It creates the
   release as a draft, retries each asset upload, and publishes only after checking the uploaded assets.
+- `ComposeRawTextLiteral` on files the compiler analyzes now counts letters outside the Basic Multilingual Plane
+  (mathematical bold, some scripts), as the Go rule does. On files that fall back to Go, a `Text` call is reported
+  only when it can be the AndroidX one: an `androidx.` qualified call, an AndroidX import of `Text`, or a wildcard
+  import of an AndroidX material or text package. A design-system `Text` from a wildcard import or a qualified
+  owner such as `Theme.Text(...)` is no longer reported there, matching the FIR checker.
+- `ComposeSemanticsMissingRole` on files that fall back to Go now needs the file to import the foundation
+  `clickable`, `toggleable` or `selectable` (by name or package wildcard), so a project modifier with the same name
+  is not reported, matching the FIR checker.
+- FIR checkers for five crypto and command rules miss fewer real cases. The Go fallback rules are unchanged:
+  - `RsaNoPadding` reads a transformation held by a `const val`, a final Java constant field, or a local `val` set to a
+    string literal.
+  - `StaticIv` reports a zero-filled `ByteArray(size)` IV, and `toByteArray()` or a Base64 decode called directly on
+    a String constant or a property set to a literal. A template over that property was already reported.
+  - `WeakKeySize` follows `init`/`initialize` chained on `getInstance(...)` or called inside `apply`, `run`, `with`,
+    `also` or `let` on the generator. It also reads an algorithm from a Java constant such as
+    `KeyProperties.KEY_ALGORITHM_RSA`.
+  - `PrngFromSystemTime` reports `java.util.Random.setSeed` with a clock seed (not `SecureRandom.setSeed`, which adds
+    to the seed), a clock read stored in a local `val` first, and the Android `SystemClock` uptime clocks.
+  - `RuntimeExecUnsafeShape` reports a command built with `format` or `plus` from a value that is not constant
+    (`"ls %s".format(dir)`, `String.format("ls %s", dir)`), even when the literal holds no `$`.
+- `InstanceOfCheckForException` (FIR) no longer reports an `is`, `!is` or `as` check on the caught exception when the
+  checked type is not a subtype of the caught type, such as an interface check (`e is Retryable`) or an upcast
+  (`e as Any`). No catch clause can replace such a check. This matches detekt 1.23.8. When either type is unresolved
+  the check is still reported, as the Go fallback does.
+- `TooGenericExceptionThrown` (FIR) reports on the `throw` expression, as detekt and the Go rule do. Before, it
+  reported on the constructor call, so a throw split over lines, or a generic exception in an elvis or `if` on a later
+  line, was reported on a different line.
+- `PrintStackTrace` with `--fir` reports `Thread.dumpStack()` again, as Go and detekt do, and reports a caught
+  exception's `printStackTrace()` in test sources, tooling paths and logging sinks, which the FIR checker skipped
+  although Go reports them. Only the receivers Go does not report (a parameter, a local, `e.cause`) still skip
+  those files. The Go rule no longer reports a receiver spelled like the caught variable that is another value (a
+  shadowing local or lambda parameter, `this.e`), and it now reports an outer catch's variable inside a nested catch.
+- `ObjectExtendsThrowable` with `--fir` reports on the object's name, the line Go reports, instead of the first
+  annotation or modifier. The Go rule reads the superclass alone: it no longer reports an object that only mentions
+  an exception type in an interface type argument, a constructor argument or a `by` delegate, or that extends a
+  project class named like a Throwable, and it now checks companion objects and the same superclass names in every
+  container.
+- `ThrowingNewInstanceOfSameException` (Go rule) no longer reports a constructor argument that builds a new value
+  from the caught exception (`e.message ?: ""`, `e.message + "!"`) or a caught name hidden by a lambda parameter or
+  local, matching the FIR checker.
+- `UnnecessaryFilter`'s FIR checker reports on the terminal call's name, where the Go rule reports, instead of the
+  start of the chain. A chain split over several lines now gets the same line in both engines and keeps the Go
+  autofix.
+- `UseAnyOrNoneInsteadOfFind`'s FIR checker also reports a predicate passed as a function reference, a function value
+  or an anonymous function (`list.find(::isValid) != null`), as detekt does.
+- The Go fallback of `PreferToOverPairSyntax` no longer skips every `Pair(a, b)` when some project file declares a
+  class named `Pair`; that class counts only when it is in the file's package or star-imported. A bare `Pair` in a
+  file that imports `kotlin.Pair` under an alias is not reported, because the alias hides the default import.
+- The Go fallback of `UnnecessaryLet` counts `it::member` and a parenthesized `(it)` as uses of the parameter, so it
+  no longer suggests "a simple if" for them. A `?.let { }` that ends the lambda of `withTimeout`,
+  `withTimeoutOrNull`, `withLock`, `withPermit`, `runInterruptible`, `measureTimedValue`, `firstNotNullOf(OrNull)` and
+  a few other calls that return their lambda's result is now treated as used, as detekt does.
 - `WakelockTimeout`, `SetWorldReadable` and `SetWorldWritable` now have FIR checkers, with the Go rules kept as the
   fallback. On files the compiler analyzes, the receiver is the resolved `PowerManager.WakeLock` or `java.io.File`, so
   an import alias, a type alias, a call result, `!!` or a smart cast is found, and `WakelockTimeout` also reports an

@@ -1,12 +1,12 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24
-// Divergence: Go matches "@IntoMap", "@Provides", and "@Binds" as substrings
-// of the function's annotation text, so it reports every function below. None
-// carries Dagger's @IntoMap: the first uses a project annotation named
-// IntoMap, the second one whose name only starts with IntoMap, and the third
-// has "@IntoMap" only inside a string argument. None is a Dagger map
+// go-lines: none
+// None of the functions below carries Dagger's @IntoMap: the first uses a
+// project annotation named IntoMap (declared in this file, Dagger's not
+// imported), the second one whose name only starts with IntoMap, and the
+// third has "@IntoMap" only inside a string argument. None is a Dagger map
 // contribution, so the message ("@IntoMap function ... Dagger requires a key
-// annotation on every map contribution") is not true of them. No finding here.
+// annotation on every map contribution") is not true of them. Neither Go nor
+// FIR reports them.
 package test
 
 import dagger.Provides

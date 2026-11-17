@@ -28,7 +28,8 @@ import org.jetbrains.kotlin.name.Name
 // `toString` that is not the stdlib `Any?.toString()` extension (a project `Foo?.toString()`) are not reported,
 // and a template part is reported by its own type. The compiler's type replaces Go's source inference, so a
 // stable smart cast to non-null and a platform type are not nullable, and an inferred or typealiased nullable
-// type is.
+// type is. A bare `toString()` on a nullable implicit receiver (`fun T?.f() = toString()`, `with(x) { toString() }`)
+// is reported as detekt reports it; Go does not type implicit receivers.
 internal object NullableToStringCall : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "NullableToStringCall"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -48,7 +49,8 @@ internal object NullableToStringCall : FirFunctionCallChecker(MppCheckerKind.Com
         val source = expression.source ?: return
         if (source.kind !is KtRealSourceElementKind) return
         if (expression.calleeReference.name != TO_STRING || expression.arguments.isNotEmpty()) return
-        val receiver = expression.explicitReceiver ?: return
+        // A bare `toString()` reads an implicit receiver: the nullable `this` of a `T?` extension or of `with(x)`.
+        val receiver = expression.explicitReceiver ?: expression.extensionReceiver ?: return
         if (receiver is FirCheckedSafeCallSubject) return
         if (expression.calleeReference.toResolvedCallableSymbol()?.callableId != STDLIB_TO_STRING) return
         if (ErrorInvolvement.involvesError(receiver) || !receiver.isNullableOperand()) return

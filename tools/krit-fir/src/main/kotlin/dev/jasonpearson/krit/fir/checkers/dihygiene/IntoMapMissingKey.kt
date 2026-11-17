@@ -32,37 +32,28 @@ import org.jetbrains.kotlin.name.FqName
  * abstract, interface, object, companion, anonymous-object, and local
  * functions all count, as every Go `function_declaration` does.
  *
- * Go's binding test is the text `@Provides` or `@Binds` at the start of an
- * annotation, so a binding annotation here is any annotation whose written
- * name (an import alias's own name included), type alias name, or class name
- * starts with `Provides` or `Binds`: Dagger's and Metro's `@Provides` and
- * `@Binds`, Dagger's `@BindsInstance` and `@BindsOptionalOf`, and project
- * annotations named or import-aliased that way. A map key annotation is one
- * whose written, type alias, or class name ends in `Key` (other than `Key`
- * and `MapKey`), the name test Go applies, or one whose class is
- * meta-annotated with Dagger's or Metro's `@MapKey`, the annotation Dagger
- * itself requires.
+ * A binding annotation is Dagger's or Metro's `@Provides` or `@Binds`,
+ * matched by class id through any import or type alias, as Go matches those
+ * two names. A map key annotation is one whose written, type alias, or class
+ * name ends in `Key` (other than `Key` and `MapKey`), the name test Go
+ * applies, or one whose class is meta-annotated with Dagger's or Metro's
+ * `@MapKey`, the annotation Dagger itself requires.
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`IntoMapMissingKey*.kt`):
- * - Go matches `@IntoMap`, `@Provides`, and `@Binds` as substrings of the
- *   annotation text, so it reports a function whose `@IntoMap` is a project
- *   or other-framework lookalike (kotlin-inject's `@IntoMap` contributes a
- *   `Pair` and needs no key), whose annotation name only starts with
- *   `IntoMap`, or whose `@IntoMap` text sits inside another annotation's
- *   string argument. None of those is a Dagger map contribution, so none is
- *   reported here.
+ * - Go reads the annotation's simple name, so it reports a function whose
+ *   `@IntoMap` is another framework's (kotlin-inject's `@IntoMap` contributes
+ *   a `Pair` and needs no key) or a project annotation the file neither
+ *   declares nor imports. Likewise its `@Provides` or `@Binds` may be a
+ *   project annotation of that name. None of those is a Dagger map
+ *   contribution, so none is reported here.
  * - Go reads the written key name, so it reports a function whose key is an
  *   import or type alias (`@SK("x")` for `StringKey`), a `@MapKey` annotation
  *   whose name does not end in `Key` or is exactly `Key`, or a key inside a
  *   bracketed group that starts with another annotation
  *   (`@[Named("x") StringKey("a")]`, whose name Go reads as `[Named`). Those
  *   functions have a map key, so they are not reported here.
- * - Go also finds `@Provides` or `@Binds` inside another annotation's string
- *   argument (`@Named("@Provides")`), so it reports a Dagger `@IntoMap`
- *   function that has no binding annotation. That function is not a map
- *   contribution, so it is not reported here.
- * - Go misses a fully qualified, import-aliased, or type-aliased `@IntoMap`,
+ * - Go misses an import-aliased or type-aliased `@IntoMap`,
  *   `@Provides`, or `@Binds`, and the bracketed `@[Provides IntoMap]` and
  *   `@[IntoMap]` forms.
  *   Those are map contributions without a key, so they are reported here.
@@ -80,6 +71,13 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
     private val intoMap = setOf(
         classIdOf(daggerMultibindings, "IntoMap"),
         classIdOf(metro, "IntoMap"),
+    )
+
+    private val bindings = setOf(
+        classIdOf(dagger, "Provides"),
+        classIdOf(dagger, "Binds"),
+        classIdOf(metro, "Provides"),
+        classIdOf(metro, "Binds"),
     )
 
     private val mapKey = setOf(
@@ -104,11 +102,11 @@ internal object IntoMapMissingKey : FirDeclarationChecker<FirNamedFunction>(MppC
         )
     }
 
-    // Go's binding test: an annotation whose name starts with Provides or
-    // Binds. The @IntoMap class id already ties the function to Dagger or
-    // Metro.
+    // Only these declare a binding that @IntoMap contributes to a map;
+    // Dagger rejects @IntoMap on any other method for a reason other than
+    // its key.
     private fun isBindingAnnotation(annotation: FirAnnotation, session: FirSession): Boolean =
-        annotationNames(annotation, session).any { it.startsWith("Provides") || it.startsWith("Binds") }
+        expandedType(annotation, session)?.lookupTag?.classId in bindings
 
     // The names Go's name tests see and the resolved names: the short name
     // written in the source (an import alias's own name, which the resolved

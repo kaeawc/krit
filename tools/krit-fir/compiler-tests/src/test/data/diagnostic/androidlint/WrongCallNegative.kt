@@ -1,9 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 20, 24
-// Negatives for WrongCall: super calls, calls inside an override of the same
-// name, bare calls with no explicit receiver,
+// go-lines: none
+// Negatives for WrongCall: super calls in a method of the callback's name,
 // the right draw / measure / layout calls, and onDraw-named members of
-// classes that are not Views.
+// classes that are not Views, including bare calls inside them.
 package test
 
 import android.content.Context
@@ -17,20 +16,6 @@ class GaugeView(context: Context) : View(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        <!WrongCall!>this.onDraw(Canvas())<!>
-    }
-
-    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        post { <!WrongCall!>this.onMeasure(0, 0)<!> }
-    }
-
-    fun helperSuper(canvas: Canvas) {
-        super.onDraw(canvas)
-    }
-
-    fun bare(canvas: Canvas) {
-        onDraw(canvas)
-        onMeasure(0, 0)
     }
 
     fun rightCalls(other: GaugeView) {
@@ -45,6 +30,11 @@ class Renderer {
     }
 
     fun onMeasure(width: Int, height: Int) {
+    }
+
+    fun redraw(canvas: Canvas) {
+        onDraw(canvas)
+        onMeasure(1, 2)
     }
 }
 

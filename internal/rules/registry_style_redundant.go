@@ -461,7 +461,7 @@ func registerStyleUselessCallOnNotNull() {
 	r := &UselessCallOnNotNullRule{BaseRule: BaseRule{RuleName: "UselessCallOnNotNull", RuleSetName: "style", Sev: "warning", Desc: "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null."}}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Needs: api.NeedsResolver | api.NeedsOracleExprType, Fix: api.FixIdiomatic, Implementation: r,
+		NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceMedium, Needs: api.NeedsResolver | api.NeedsOracleExprType | api.NeedsOracleSupertypes | api.NeedsOracleMembers, Fix: api.FixIdiomatic, Implementation: r,
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			if file.FlatType(idx) != "call_expression" {
@@ -491,8 +491,10 @@ func registerStyleUselessCallOnNotNull() {
 						if strings.Contains(recText, "?.") {
 							return
 						}
+						// `x?.orEmpty()` only runs on a non-null `x`, so detekt reports it whatever x's declared type is.
+						safeCall := strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(flatLastChildOfType(file, navExpr, "navigation_suffix"))), "?.")
 						if !nonNull && ctx.Resolver != nil {
-							resolved := uselessCallReceiverType(ctx, receiverNode)
+							resolved := uselessCallReceiverType(ctx, receiverNode, safeCall)
 							if resolved != nil && resolved.Resolved && resolved.Kind != typeinfer.TypeUnknown {
 								validTypes := orEmptyValidTypes
 								if methodName == "isNullOrEmpty" || methodName == "isNullOrBlank" {
@@ -501,7 +503,7 @@ func registerStyleUselessCallOnNotNull() {
 								if !validTypes[resolved.Name] {
 									return
 								}
-								if !resolved.IsNullable() {
+								if !resolved.IsNullable() || safeCall {
 									nonNull = true
 								}
 							}
@@ -516,9 +518,14 @@ func registerStyleUselessCallOnNotNull() {
 							f := r.Finding(file, callLine(file, idx), callCol(file, idx), msg)
 							if replacement == "" {
 								if start, _, ok := flatCallExpressionMethodSpan(file, idx, methodName); ok {
+									// Remove the whole `.` or `?.` operator; leaving the `?` of `s?.orEmpty()` does not parse.
+									from := start - 1
+									if from > 0 && file.Content[from-1] == '?' {
+										from--
+									}
 									f.Fix = &scanner.Fix{
 										ByteMode:    true,
-										StartByte:   start - 1,
+										StartByte:   from,
 										EndByte:     int(file.FlatEndByte(idx)),
 										Replacement: "",
 									}
@@ -593,9 +600,10 @@ func registerStyleUselessCallOnNotNull() {
 
 // uselessCallReceiverType resolves the receiver's type. When the compiler analyzed the file only its fact
 // counts, because the name-based fallback guesses wrong for properties declared in other modules.
-func uselessCallReceiverType(ctx *api.Context, receiver uint32) *typeinfer.ResolvedType {
+// A safe call takes any declared nullability, so it skips the declared-type checks.
+func uselessCallReceiverType(ctx *api.Context, receiver uint32, safeCall bool) *typeinfer.ResolvedType {
 	// Detekt reads the declared type, so a name declared nullable is not useless even when smart-cast non-null here.
-	if ctx.File.FlatType(receiver) == "simple_identifier" && identifierDeclaredNullable(ctx.File, receiver) {
+	if !safeCall && ctx.File.FlatType(receiver) == "simple_identifier" && identifierDeclaredNullable(ctx.File, receiver) {
 		return nil
 	}
 	if !compilerAnalyzedFile(ctx) {
@@ -605,7 +613,42 @@ func uselessCallReceiverType(ctx *api.Context, receiver uint32) *typeinfer.Resol
 	if !ok {
 		return nil
 	}
+	if !safeCall && memberDeclaredNullable(resolver, ctx.File, receiver) {
+		return nil
+	}
 	return resolver.OracleExpressionFlat(ctx.File, receiver)
+}
+
+// memberDeclaredNullable reports whether `owner.name` reads a property the compiler declares nullable. The
+// oracle records the smart-cast type of the access (after `!x.name.isNullOrBlank()`), while detekt reads the
+// declared one.
+func memberDeclaredNullable(resolver *oracle.CompositeResolver, file *scanner.File, nav uint32) bool {
+	if file.FlatType(nav) != "navigation_expression" || resolver.Oracle() == nil {
+		return false
+	}
+	owner := file.FlatNamedChild(nav, 0)
+	suffix := flatLastChildOfType(file, nav, "navigation_suffix")
+	if owner == 0 || suffix == 0 || strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(suffix)), "?.") {
+		return false
+	}
+	name, ok := file.FlatFindChild(suffix, "simple_identifier")
+	if !ok {
+		return false
+	}
+	ownerType := resolver.OracleExpressionFlat(file, owner)
+	if ownerType == nil || ownerType.FQN == "" {
+		return false
+	}
+	info := resolver.Oracle().LookupClass(ownerType.FQN)
+	if info == nil {
+		return false
+	}
+	for _, m := range info.Members {
+		if m.Kind == "property" && m.Type != nil && file.FlatNodeTextEquals(name, m.Name) {
+			return m.Type.IsNullable()
+		}
+	}
+	return false
 }
 
 // resolvedTypeArgsEqual reports whether both types carry the same, fully known type arguments.

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 28, 35, 36, 37, 42, 43, 50, 60, 61, 74, 111, 117, 123, 134, 142, 143
+// go-lines: 23, 28, 35, 36, 37, 42, 43, 62, 75, 112, 118, 124, 135, 144
 // Divergences from Go, each decided by the message ("PreparedStatement '<name>'
 // should be wrapped in use { } or explicitly closed with .close().").
 package test
@@ -44,8 +44,9 @@ fun nullableClosedOnTheSpot(conn: Connection?) {
     println(listOf(done, used))
 }
 
-// Go reports `result` too: the statement is made by the nested `stmt`, which
-// is closed. `result` holds no statement, so no finding.
+// Go leaves `result` alone because it reads `println(result)` as a hand-over
+// of whatever `run` returns. The statement is made by the nested `stmt`, which
+// is closed, and `result` holds no statement, so no finding either way.
 fun nestedProperty(conn: Connection) {
     val result = run {
         val stmt = conn.prepareStatement("SELECT 1")
@@ -54,8 +55,8 @@ fun nestedProperty(conn: Connection) {
     println(result)
 }
 
-// Go reports both `result` and the nested `stmt` when the nested one leaks.
-// Only `stmt` holds the statement; `result` is a Boolean.
+// Both report the nested `stmt`, which leaks. Go leaves `result` alone because
+// it reads `println(result)` as a hand-over; `result` is a Boolean anyway.
 fun nestedLeak(conn: Connection) {
     val result = run {
         <!JdbcPreparedStatementNotClosed!>val<!> stmt = conn.prepareStatement("SELECT 1")
@@ -135,9 +136,9 @@ val topStmt = divergenceConnection().prepareStatement("SELECT 1")
 
 fun divergenceConnection(): Connection = TODO()
 
-// Go reports `holder` too: the statement is made by the member `s` of the
-// anonymous object, which is reported on its own. `holder` is not a
-// statement, so no finding on it.
+// Both report the member `s` of the anonymous object, which makes the
+// statement. Go leaves `holder` alone because it reads `println(holder)` as a
+// hand-over; `holder` is not a statement, so no finding on it.
 fun anonymousHolder(conn: Connection) {
     val holder = object {
         <!JdbcPreparedStatementNotClosed!>val<!> s = conn.prepareStatement("SELECT 1")

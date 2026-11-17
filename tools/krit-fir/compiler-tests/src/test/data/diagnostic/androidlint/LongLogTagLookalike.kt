@@ -1,10 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 28, 29
-// Divergence (precision): these `Log` classes are project and local
-// declarations, not android.util.Log, and have no 23-character tag limit, so
-// FIR does not report them. Go matches the receiver name `Log` and drops
-// these calls only when the Kotlin oracle resolves them elsewhere; without it
-// (as here) it reports each call on a receiver spelled `Log` with a long tag.
+// go-lines: none
+// These `Log` classes are project and local declarations, not
+// android.util.Log, and have no 23-character tag limit, so neither engine
+// reports them. Without the oracle, Go reads the imports: the file does not
+// import android.util.Log and declares a `Log` of its own.
 package test.longlogtag.lookalike
 
 object Log {

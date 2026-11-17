@@ -1,7 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 13, 20
-// Project classes named like the generic exceptions are not generic: neither
-// Go (which skips a name the file declares a class for) nor FIR reports them.
+// go-lines: 14, 21
+// Divergence (precision): project classes named like the generic exceptions
+// are not generic. Go, like detekt, matches the written name and reports the
+// unqualified ones.
 package test
 
 class Exception(message: String) : Throwable(message)

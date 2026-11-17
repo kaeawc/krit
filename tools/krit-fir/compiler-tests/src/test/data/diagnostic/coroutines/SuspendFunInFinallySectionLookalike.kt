@@ -1,10 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 33, 34, 43, 44, 57, 66
 // Project and Java functions that only share a name with a well-known suspend
-// function or coroutine builder. Go matches the call text against its name list and
-// reports every call below; FIR is correct to drop them because none of these
-// calls is a suspend function or starts a coroutine, so nothing is skipped
-// when the caller is cancelled.
+// function or coroutine builder. Go matches the call name against its list and
+// reports every call below except the launch, which it never reports; FIR is
+// correct to drop them because none of these calls is a suspend function, so
+// nothing is skipped when the caller is cancelled.
 package test
 
 fun delay(ms: Long) {

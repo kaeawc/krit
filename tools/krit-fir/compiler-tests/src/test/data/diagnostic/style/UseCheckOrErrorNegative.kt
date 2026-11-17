@@ -45,6 +45,12 @@ fun onlyStatementInLambdaWithParameter(items: List<Int>) {
     items.forEach { item -> throw IllegalStateException("only statement $item") }
 }
 
+// A `;` is not a statement, so the throw is still the lambda's only statement.
+fun onlyStatementInLambdaWithSemicolon(items: List<Int>) {
+    items.forEach { throw IllegalStateException("trailing"); }
+    items.forEach { ; throw IllegalStateException("leading") }
+}
+
 fun builtOutsideThrow(cond: Boolean) {
     val error = IllegalStateException("built first")
     if (cond) throw error

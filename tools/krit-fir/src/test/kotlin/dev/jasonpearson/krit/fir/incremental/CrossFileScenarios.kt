@@ -215,6 +215,22 @@ internal val crossFileScenarios = listOf(
         differs = false,
     ),
     CrossFileScenario(
+        "JdbcStatementExecute control: class member val in B (instance data, reported on both)", "JdbcStatementExecute",
+        mapOf(
+            "B.kt" to "package p\nclass User(val id: String)\n",
+            "A.kt" to "package p\nimport java.sql.Statement\nfun run(s: Statement, u: User) { s.execute(\"SELECT * FROM t WHERE id = \" + u.id) }\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
+        "HardcodedSecretKey control: bytes of a const key in B (reported on both)", "HardcodedSecretKey",
+        mapOf(
+            "B.kt" to "package p\nobject Keys { const val K = \"p@ssw0rd12345678\" }\n",
+            "A.kt" to "package p\nimport javax.crypto.spec.SecretKeySpec\nfun key() = SecretKeySpec(Keys.K.toByteArray(), \"AES\")\n",
+        ),
+        differs = false,
+    ),
+    CrossFileScenario(
         "ShortAlarm control: unrelated Poller.setRepeating in B (signature is not an alarm API)", "ShortAlarm",
         mapOf(
             "B.kt" to "package p\nclass Poller { fun setRepeating(name: String, delay: Long, intervalMs: Long, task: Runnable) {} }\n",

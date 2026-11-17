@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.constantStringValue
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
@@ -15,6 +16,7 @@ import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -24,7 +26,6 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.impl.FirDefaultPropertyGetter
-import org.jetbrains.kotlin.fir.declarations.utils.isConst
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
@@ -33,7 +34,6 @@ import org.jetbrains.kotlin.fir.expressions.FirComponentCall
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
@@ -41,7 +41,6 @@ import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
-import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
@@ -73,12 +72,14 @@ import org.jetbrains.kotlin.name.SpecialNames
  * and ECDSA 224, AES 128, any HmacSHA* 256), where the generator is a
  * variable named by a bare identifier whose value comes from
  * `KeyGenerator.getInstance(<alg>)` or `KeyPairGenerator.getInstance(<alg>)`
- * with a string literal or `const val` algorithm.
+ * with a string literal or constant (`const val` or final Java field) algorithm.
  *
  * Mirrors the Go rule's evidence on top of FIR resolution:
  * - the call must resolve to KeyGenerator.init or KeyPairGenerator.initialize
  *   (any overload), with a bare variable as its receiver (`gen.init(64)`,
- *   `gen?.init(64)`, a smart-cast `gen`);
+ *   `gen?.init(64)`, a smart-cast `gen`). FIR also takes a getInstance call as
+ *   the receiver, and the `this` of an apply/run/with lambda or the `it` of an
+ *   also/let lambda, read through to the scope function's receiver;
  * - the size is the first argument's source text, read as Go reads it: a
  *   decimal integer with an optional sign, `_` separators, and an `L`/`l`
  *   suffix, so a hex literal or a constant never counts;
@@ -94,7 +95,7 @@ import org.jetbrains.kotlin.name.SpecialNames
  *   Triple, or `to` operand. Any other value takes, as Go does, the first
  *   getInstance call inside it whose nearest enclosing write is that write;
  * - the algorithm is a string literal's source text (escape entries kept, as
- *   Go reads it) or a `const val`'s value, normalized as Go does: surrounding
+ *   Go reads it) or a constant's value, normalized as Go does: surrounding
  *   whitespace trimmed with Go's unicode.IsSpace set, `-` removed, uppercased.
  * The writes searched are those of the declaration that holds every write of
  * a local variable (the outermost enclosing function, property initializer, or
@@ -116,7 +117,8 @@ import org.jetbrains.kotlin.name.SpecialNames
  *   WeakKeySizeDeclaredName): the getInstance
  *   receiver spelled through an import alias, a typealias, or parentheses, or
  *   in a file that also declares an unrelated class named KeyGenerator or
- *   KeyPairGenerator; a `const val` algorithm; a write outside Go's enclosing
+ *   KeyPairGenerator; a `const val` or Java constant algorithm
+ *   (`KeyProperties.KEY_ALGORITHM_RSA`); a write outside Go's enclosing
  *   function_declaration (a local variable used in a local function, local
  *   class or anonymous object method, a variable in an init block, property
  *   initializer or getter, or constructor parameter default); a final member
@@ -125,7 +127,10 @@ import org.jetbrains.kotlin.name.SpecialNames
  *   a `when` subject variable; a later conditional write whose algorithm makes
  *   the size weak; a variable named like one declared earlier in the
  *   function; a destructuring entry whose own operand is weak; an annotated,
- *   labeled, or comment-led argument; a parenthesized or backticked receiver.
+ *   labeled, or comment-led argument; a parenthesized or backticked receiver;
+ *   an init call chained on getInstance, or made on a scope function's `this`
+ *   or `it` (`KeyGenerator.getInstance("AES").apply { init(64) }`,
+ *   WeakKeySizeScopes).
  * - Precision (Go reports these, but the generator does not hold the
  *   algorithm Go reads, WeakKeySizePrecision and WeakKeySizeMemberWrites):
  *   another variable sharing a getInstance variable's name; a variable
@@ -140,6 +145,9 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(WeakKeySize)
     }
+
+    // Scope functions followed from an `it` or `this` to the generator.
+    private const val MAX_SCOPE_DEPTH = 8
 
     private const val MESSAGE =
         "Crypto key generator initialized with a weak literal key size. Use a size that meets the algorithm's current minimum strength."
@@ -160,15 +168,70 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         if (callee.callableId !in initIds) return
         val source = expression.source ?: return
-        val access = variableReceiver(expression.explicitReceiver) ?: return
-        val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirVariableSymbol<*> ?: return
         val size = firstArgumentSize(source) ?: return
-        val algorithms = algorithmsReaching(symbol, access, source.startOffset)
+        val algorithms = generatorAlgorithms(expression, source.startOffset) ?: return
         val weak = algorithms.any { algorithm ->
             val threshold = threshold(algorithm)
             threshold != null && size < threshold
         }
         if (weak) report(source, MESSAGE)
+    }
+
+    // The algorithms the generator [call] initializes may hold: a bare
+    // variable's (see algorithmsReaching), a getInstance call's own
+    // (`KeyGenerator.getInstance("AES").init(64)`), or, for the `this` of an
+    // apply/run/with lambda or the `it` of an also/let lambda, those of the
+    // scope function's receiver. Null when the generator is none of these.
+    context(context: CheckerContext)
+    private fun generatorAlgorithms(call: FirFunctionCall, callStart: Int): List<String>? {
+        var receiver = call.explicitReceiver ?: call.dispatchReceiver
+        repeat(MAX_SCOPE_DEPTH) {
+            val value = unwrapSmartCasts(receiver) ?: return null
+            if (value is FirFunctionCall && value.calleeReference.toResolvedCallableSymbol()?.callableId in getInstanceIds) {
+                return listOfNotNull(instanceAlgorithm(value, context.session))
+            }
+            // A lambda parameter of another call (`forEach { gen -> }`) is read
+            // as a variable, by name as Go does.
+            val owner = scopeLambda(value)?.let { (lambda, asThis) -> scopeReceiver(lambda, asThis) }
+            if (owner == null) {
+                val access = variableReceiver(value) ?: return null
+                val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirVariableSymbol<*> ?: return null
+                return algorithmsReaching(symbol, access, callStart)
+            }
+            receiver = owner
+        }
+        return null
+    }
+
+    // The lambda whose `this` ([second] true) or parameter ([second] false)
+    // [value] reads, or null when it reads neither.
+    private fun scopeLambda(value: FirExpression): Pair<FirAnonymousFunctionSymbol, Boolean>? = when (value) {
+        is FirThisReceiverExpression -> when (val bound = value.calleeReference.boundSymbol) {
+            is FirReceiverParameterSymbol -> (bound.containingDeclarationSymbol as? FirAnonymousFunctionSymbol)?.let { it to true }
+            else -> null
+        }
+        is FirPropertyAccessExpression -> {
+            val parameter = value.calleeReference.toResolvedCallableSymbol() as? FirValueParameterSymbol
+            val lambda = parameter?.containingDeclarationSymbol as? FirAnonymousFunctionSymbol
+            if (value.explicitReceiver == null && lambda != null) lambda to false else null
+        }
+        else -> null
+    }
+
+    // The receiver a scope function passes to [lambda] as `this` (apply, run,
+    // with) or as its parameter (also, let); null for any other call.
+    context(context: CheckerContext)
+    private fun scopeReceiver(lambda: FirAnonymousFunctionSymbol, asThis: Boolean): FirExpression? {
+        val call = context.containingElements.asReversed().firstNotNullOfOrNull { element ->
+            (element as? FirFunctionCall)?.takeIf { lambdaArgument(it)?.symbol == lambda }
+        } ?: return null
+        val id = call.calleeReference.toResolvedCallableSymbol()?.callableId
+        return when {
+            asThis && id == withId -> call.argumentList.arguments.firstOrNull()
+            (asThis && id in receiverScopes) || (!asThis && id in parameterScopes) ->
+                call.explicitReceiver ?: call.extensionReceiver
+            else -> null
+        }
     }
 
     // The access to the variable a bare-identifier receiver names: `gen`,
@@ -193,7 +256,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         val own = if (symbol is FirPropertySymbol && !isLocal(symbol) && symbol.isDeclaredInCheckedFile() &&
             isFinalInitializedVal(symbol)
         ) {
-            val writes = Writes().also { symbol.fir.accept(it) }
+            val writes = Writes(context.session).also { symbol.fir.accept(it) }
             writes.of(symbol, local = false, owner = null).firstOrNull()?.let { writes.value(it).algorithms }.orEmpty()
         } else {
             writtenAlgorithms(symbol, access, callStart)
@@ -230,7 +293,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                     it !is FirClassLikeSymbol<*> && it !is FirFileSymbol && it !is FirAnonymousFunctionSymbol
                 }
         } ?: return emptyList()
-        val writes = Writes().also { region.fir.accept(it) }
+        val writes = Writes(context.session).also { region.fir.accept(it) }
         val owner = if (local) null else writes.ownerOf(access)
         // A write counts once it has completed: a call inside its own value
         // (`gen = KG("AES").also { gen.init(128) }`) still sees the old value.
@@ -251,7 +314,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     context(context: CheckerContext)
     private fun goAlgorithmByName(name: Name, callStart: Int): String? {
         val function = context.containingDeclarations.lastOrNull { it is FirNamedFunctionSymbol } ?: return null
-        val writes = Writes().also { function.fir.accept(it) }
+        val writes = Writes(context.session).also { function.fir.accept(it) }
         return writes.firstLiteralNamed(name, callStart)
     }
 
@@ -300,6 +363,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     private val returningScopes = setOf("run", "with", "let").mapTo(HashSet()) { CallableId(kotlinPackage, Name.identifier(it)) }
     private val selfScopes = setOf("also", "apply").mapTo(HashSet()) { CallableId(kotlinPackage, Name.identifier(it)) }
     private val receiverScopes = setOf("run", "with", "apply").mapTo(HashSet()) { CallableId(kotlinPackage, Name.identifier(it)) }
+    private val parameterScopes = setOf("also", "let").mapTo(HashSet()) { CallableId(kotlinPackage, Name.identifier(it)) }
     private val applyId = CallableId(kotlinPackage, Name.identifier("apply"))
     private val withId = CallableId(kotlinPackage, Name.identifier("with"))
     private val toId = CallableId(kotlinPackage, Name.identifier("to"))
@@ -314,7 +378,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
 
     // Collects every write in a declaration, attributing each qualifying
     // getInstance call to its nearest enclosing write.
-    private class Writes : FirVisitorVoid() {
+    private class Writes(private val session: FirSession) : FirVisitorVoid() {
         private val all = ArrayList<Write>()
         private val blockOf = HashMap<FirElement, KtSourceElement?>()
         private val destructs = HashMap<FirBasedSymbol<*>, Write>()
@@ -458,7 +522,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                 is FirFunctionCall -> {
                     val id = expression.calleeReference.toResolvedCallableSymbol()?.callableId
                     when (id) {
-                        in getInstanceIds -> instanceAlgorithm(expression)?.let { Value(listOf(it), exact = true) } ?: unknown
+                        in getInstanceIds -> instanceAlgorithm(expression, session)?.let { Value(listOf(it), exact = true) } ?: unknown
                         in returningScopes -> {
                             val lambda = lambdaArgument(expression)
                             if (lambda == null) attributed(expression, write) else trace(lambda.body, write, next)
@@ -530,7 +594,7 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
                     val start = element.source?.startOffset
                     if (write != null && start != null && id in getInstanceIds) {
                         val literal = element.source?.let(::firstArgumentStringContent)
-                        val known = literal ?: constantString(element.argumentList.arguments.firstOrNull(), 0)
+                        val known = literal ?: constantString(element.argumentList.arguments.firstOrNull(), session)
                         if (known != null) write.instances += Instance(start, literal, known)
                     }
                     if (id in receiverScopes) {
@@ -563,25 +627,16 @@ internal object WeakKeySize : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         (call.argumentList.arguments.lastOrNull() as? FirAnonymousFunctionExpression)?.anonymousFunction
 
     // The algorithm of a getInstance call: its string literal first
-    // argument as Go reads it, or the value of a `const val` argument.
-    private fun instanceAlgorithm(call: FirFunctionCall): String? =
-        call.source?.let(::firstArgumentStringContent) ?: constantString(call.argumentList.arguments.firstOrNull(), 0)
+    // argument as Go reads it, or the value of a constant argument.
+    private fun instanceAlgorithm(call: FirFunctionCall, session: FirSession): String? =
+        call.source?.let(::firstArgumentStringContent) ?: constantString(call.argumentList.arguments.firstOrNull(), session)
 
-    // The value of a reference to a string `const val`.
-    @OptIn(SymbolInternals::class)
-    private fun constantString(expression: FirExpression?, depth: Int): String? {
+    // The value of a String `const val` or final Java constant field
+    // (`KeyProperties.KEY_ALGORITHM_RSA`).
+    private fun constantString(expression: FirExpression?, session: FirSession): String? {
         val access = unwrapSmartCasts(expression) as? FirPropertyAccessExpression ?: return null
-        val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
-        if (!symbol.isConst || depth > 8) return null
-        return constantValue(symbol.resolvedInitializer, depth + 1)
-    }
-
-    private fun constantValue(expression: FirExpression?, depth: Int): String? = when (val value = unwrapSmartCasts(expression)) {
-        is FirLiteralExpression -> value.value as? String
-        is FirStringConcatenationCall -> value.argumentList.arguments
-            .map { constantValue(it, depth) ?: return null }
-            .joinToString("")
-        else -> constantString(value, depth)
+        val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirVariableSymbol<*> ?: return null
+        return symbol.constantStringValue(session)
     }
 
     // Go's reading of the size: the argument text, trimmed, without an `L`

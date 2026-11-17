@@ -32,7 +32,8 @@ import org.jetbrains.kotlin.name.Name
 //   receiver does not count;
 // - the receiver type is the one the declaration gives it: a smart cast does
 //   not make `.orEmpty()` useless, as in detekt, which reads the declared
-//   type;
+//   type. After `?.` the receiver is non-null whatever its type, so
+//   `x?.orEmpty()` is reported, as in detekt;
 // - the `*OfNotNull` call has at least one argument and none is spread;
 // - the finding is reported on the callee name, with Go's messages:
 //   "Remove redundant call to orEmpty", "Replace isNullOrEmpty with isEmpty",
@@ -96,8 +97,8 @@ internal object UselessCallOnNotNull : FirFunctionCallChecker(MppCheckerKind.Com
     context(context: CheckerContext)
     private fun receiverMessage(call: FirFunctionCall, callableId: CallableId): String? {
         val written = call.explicitReceiver ?: return null
-        val receiver = if (written is FirCheckedSafeCallSubject) written.originalReceiverRef.value else written
-        if (canBeNullByDeclaration(receiver)) return null
+        // `x?.orEmpty()` only runs on a non-null `x`, whatever its declared type, as detekt reports.
+        if (written !is FirCheckedSafeCallSubject && canBeNullByDeclaration(written)) return null
         val name = callableId.callableName.asString()
         val replacement = nullTolerantCalls.getValue(callableId)
         return if (replacement == null) "Remove redundant call to $name" else "Replace $name with $replacement"

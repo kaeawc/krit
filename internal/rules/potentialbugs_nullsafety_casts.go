@@ -254,9 +254,12 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 		}
 	}
 	// An unresolved target may be a typealias of a nullable type, so only a resolved non-null target reports.
-	targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
-	if targetType == nil || !targetType.Resolved || targetType.Kind == typeinfer.TypeUnknown || targetType.IsNullable() {
-		return
+	// A function type such as `(() -> Unit)` is written out, so it is non-null as it stands.
+	if !castTargetIsFunctionType(file, cast.target) {
+		targetType := ctx.Resolver.ResolveFlatNode(cast.target, file)
+		if targetType == nil || !targetType.Resolved || targetType.Kind == typeinfer.TypeUnknown || targetType.IsNullable() {
+			return
+		}
 	}
 	if !castNullableToNonNullableSourceIsNullable(ctx, cast.source) {
 		return
@@ -271,6 +274,21 @@ func (r *CastNullableToNonNullableTypeRule) check(ctx *api.Context) {
 		Replacement: "as?",
 	}
 	ctx.Emit(f)
+}
+
+// castTargetIsFunctionType reports a non-null function type target, through parentheses.
+func castTargetIsFunctionType(file *scanner.File, target uint32) bool {
+	for target != 0 && file.FlatType(target) == "parenthesized_type" {
+		inner := uint32(0)
+		for child := file.FlatFirstChild(target); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) {
+				inner = child
+				break
+			}
+		}
+		target = inner
+	}
+	return target != 0 && file.FlatType(target) == "function_type"
 }
 
 // castNullableToNonNullableSourceIsNullable consults the oracle's

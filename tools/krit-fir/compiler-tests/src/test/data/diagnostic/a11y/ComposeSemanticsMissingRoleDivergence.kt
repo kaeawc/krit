@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 49
+// go-lines: 50, 63
 // Where the checker reads resolution and Go reads names and the words of the chain.
 package test
 
@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.clickable as tappable
@@ -47,4 +48,17 @@ fun Modifier.clickable(label: String, onTap: () -> Unit): Modifier = this
 @Composable
 fun LocalLookalike(onTap: () -> Unit) {
     Row(Modifier.clickable("Open") { onTap() }) {}
+}
+
+// Go reads the chain root from its first written name, so a fully qualified Modifier is not a root to it.
+@Composable
+fun QualifiedRoot(onClick: () -> Unit) {
+    Row(androidx.compose.ui.Modifier.<!ComposeSemanticsMissingRole!>clickable<!> { onClick() }) {}
+}
+
+// Go recognizes a positional role only when it is written `Role.X`; the checker sees the argument bound to `role`.
+@Composable
+fun PositionalRoleValue(onClick: () -> Unit) {
+    val role = Role.Button
+    Row(Modifier.clickable(true, null, role) { onClick() }) {}
 }

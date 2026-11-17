@@ -1361,3 +1361,71 @@ fun g(t: String) {
 		t.Fatalf("lines = %v, want %v", lines, want)
 	}
 }
+
+// An explicit import that binds the name to another declaration hides the stdlib one, so the call or throw is not
+// the stdlib idiom; importing the stdlib declaration itself keeps the finding.
+func TestStdlibIdiomRules_SkipNameImportedFromElsewhere(t *testing.T) {
+	cases := []struct {
+		rule, foreign, stdlib, body string
+	}{
+		{"UseCheckOrError", "import com.example.errors.IllegalStateException", "import java.lang.IllegalStateException",
+			"fun f(c: Boolean) { if (c) throw IllegalStateException(\"m\") }"},
+		{"UseRequire", "import com.example.errors.IllegalArgumentException", "import kotlin.IllegalArgumentException",
+			"fun f(c: Boolean) { if (c) throw IllegalArgumentException(\"m\") }"},
+		{"UseCheckNotNull", "import com.example.preconditions.check", "import kotlin.check",
+			"fun f(x: String?) { check(x != null) }"},
+		{"UseEmptyCounterpart", "import com.example.collections.listOf", "import kotlin.collections.listOf",
+			"val f = listOf<Int>()"},
+		{"UseOrEmpty", "import com.example.collections.emptyList", "import kotlin.collections.emptyList",
+			"fun f(x: List<Int>?) = x ?: emptyList()"},
+		{"UseOrEmpty", "import com.example.other.thing as emptyList", "import kotlin.collections.emptyList",
+			"fun f(x: List<Int>?) = x ?: emptyList()"},
+	}
+	for _, c := range cases {
+		if got := runRuleByName(t, c.rule, "package test\n"+c.foreign+"\n"+c.body+"\n"); len(got) != 0 {
+			t.Errorf("%s with %q: expected no findings, got %v", c.rule, c.foreign, got)
+		}
+		if got := runRuleByName(t, c.rule, "package test\n"+c.stdlib+"\n"+c.body+"\n"); len(got) != 1 {
+			t.Errorf("%s with %q: expected one finding, got %v", c.rule, c.stdlib, got)
+		}
+	}
+}
+
+// A parameter declared with a type other than String is not a message, even when the type does not resolve.
+func TestUseCheckOrError_SkipsParameterDeclaredWithOtherType(t *testing.T) {
+	findings := runRuleByName(t, "UseCheckOrError", `package test
+import com.example.Thing
+fun f(t: Thing) { throw IllegalStateException(t) }
+fun g(t: String) { throw IllegalStateException(t) }
+fun h(t: kotlin.String) { throw IllegalStateException(t) }
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{4, 5}; !slices.Equal(lines, want) {
+		t.Fatalf("expected findings on lines %v, got %v", want, lines)
+	}
+}
+
+// Each operand of a nested Elvis on the left must have an orEmpty() matching the fallback; a mutable or JDK
+// collection type still has the read-only orEmpty().
+func TestUseOrEmpty_DeclaredTypesOfLeftOperands(t *testing.T) {
+	findings := runRuleByName(t, "UseOrEmpty", `package test
+class Item
+fun mixed(item: Item?, text: String?) = item ?: text ?: ""
+fun strings(a: String?, b: String?) = a ?: b ?: ""
+fun mutable(xs: MutableList<Int>?) = xs ?: emptyList()
+fun arrayList(xs: ArrayList<Int>?) = xs ?: emptyList()
+fun hashSet(xs: HashSet<Int>?) = xs ?: emptySet()
+fun mutableMap(m: MutableMap<String, Int>?) = m ?: emptyMap()
+fun charSequence(c: CharSequence?) = c ?: ""
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{4, 5, 6, 7, 8}; !slices.Equal(lines, want) {
+		t.Fatalf("expected findings on lines %v, got %v", want, lines)
+	}
+}

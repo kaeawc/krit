@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 28
+// go-lines: 18, 30
 // True positives: each call is the static String.format without a Locale, so
 // it formats with the default locale. Go matches the call by name: the receiver
 // text must be `String` or `java.lang.String`, and the first positional (or
@@ -10,6 +10,8 @@ package test
 import java.util.Locale
 
 typealias Text = String
+
+const val US_PATTERN = "%d "
 
 class Recall {
     // Go reports `java.lang.String.format`; it misses the other receiver spellings.
@@ -29,8 +31,8 @@ class Recall {
 
     // Go skips it because the pattern argument mentions `Locale`; the pattern
     // was picked for Locale.US but is still formatted in the default locale.
-    fun patternMentionsLocale(patterns: Map<Locale, String>, value: Int): String =
-        <!DefaultLocale!>String.format(patterns.getValue(Locale.US), value)<!>
+    fun patternMentionsLocale(value: Int): String =
+        <!DefaultLocale!>String.format(US_PATTERN + Locale.US.country, value)<!>
 }
 
 class CompanionExpressions {

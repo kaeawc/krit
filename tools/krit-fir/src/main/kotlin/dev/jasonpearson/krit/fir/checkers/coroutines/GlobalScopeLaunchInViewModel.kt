@@ -35,7 +35,8 @@ import org.jetbrains.kotlin.text
 /**
  * Port of the Go GlobalScopeLaunchInViewModel rule: a `launch` or `async` call
  * on `GlobalScope` inside a class whose name ends in `ViewModel` or
- * `Presenter`, reported on the call.
+ * `Presenter`, reported on the builder's name, as Go reports a chain split
+ * across lines on the `.launch` line.
  *
  * Mirrored from Go:
  * - the call must be named `launch` or `async` and have an explicit receiver;
@@ -121,7 +122,7 @@ internal object GlobalScopeLaunchInViewModel : FirFunctionCallChecker(MppChecker
         // @OptIn(DelicateCoroutinesApi::class) on the call's declarations or the file marks the use as intentional.
         if (context.containingElements.any { it is FirDeclaration && it.optsInToDelicateApi() }) return
 
-        report(source, "GlobalScope.$method in $ownerName. Use viewModelScope instead for lifecycle-aware cancellation.")
+        report(expression.calleeReference.source ?: source, "GlobalScope.$method in $ownerName. Use viewModelScope instead for lifecycle-aware cancellation.")
     }
 
     private fun FirDeclaration.optsInToDelicateApi(): Boolean =

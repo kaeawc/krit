@@ -1,46 +1,42 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 16, 23, 31, 32, 44, 57, 67
-// Objects declared in a companion object body or an enum class body. Go's
-// declaration index never descends into either container, so the resolver
-// has no hierarchy for these objects and Go falls back to searching the whole
-// object's text for `: Exception`, `: IllegalStateException(`, and the other
-// names in its fallback list.
+// go-lines: 13, 15, 22, 30
+// Objects declared in a companion object body or an enum class body, which
+// Go's declaration index never descends into. Go reads each object's own
+// superclass from the source, so the container does not matter, in Go or
+// here.
 package test
 
-// --- Positives: Throwable objects Go reports through that text fallback ---
+// --- Positives: Throwable objects ---
 
 class CompanionHost {
     companion object {
-        <!ObjectExtendsThrowable!>object<!> Busy : IllegalStateException()
+        object <!ObjectExtendsThrowable!>Busy<!> : IllegalStateException()
 
-        <!ObjectExtendsThrowable!>object<!> Closed : Exception("closed")
+        object <!ObjectExtendsThrowable!>Closed<!> : Exception("closed")
     }
 }
 
 enum class EnumHost {
     A;
 
-    <!ObjectExtendsThrowable!>object<!> EInner : Exception()
+    object <!ObjectExtendsThrowable!>EInner<!> : Exception()
 }
 
 class NestedHost {
     companion object {
-        // Go reports this because the nested object's text below contains
-        // `: Exception()`; FIR is correct to drop it because Outer2 extends
-        // nothing and is not a Throwable.
+        // Not reported: Outer2 extends nothing; only the nested object is a
+        // Throwable.
         object Outer2 {
-            <!ObjectExtendsThrowable!>object<!> Inner2 : Exception()
+            object <!ObjectExtendsThrowable!>Inner2<!> : Exception()
         }
     }
 }
 
-// --- Negatives: Go reports these only because of the text fallback ---
+// --- Negatives: objects that only mention an exception type ---
 
 class C1 {
     companion object {
-        // Go reports this because the member type annotation `: Exception?`
-        // matches its text search; FIR is correct to drop it because
-        // InCompanion extends nothing and is not a Throwable.
+        // A member type annotation `: Exception?`; InCompanion extends nothing.
         object InCompanion {
             val cause: Exception? = null
         }
@@ -51,9 +47,8 @@ interface ErrorHandler
 
 class HandlerHost {
     companion object {
-        // Go reports this because `: ErrorHandler` starts with `: Error`;
-        // FIR is correct to drop it because HandlerHolder is an ErrorHandler,
-        // not a Throwable.
+        // `: ErrorHandler` starts with `: Error`; HandlerHolder is an
+        // ErrorHandler.
         object HandlerHolder : ErrorHandler
     }
 }
@@ -61,9 +56,7 @@ class HandlerHost {
 enum class E {
     A;
 
-    // Go reports this because the member type annotation `: Error?` matches
-    // its text search; FIR is correct to drop it because EInner2 extends
-    // nothing and is not a Throwable.
+    // A member type annotation `: Error?`; EInner2 extends nothing.
     object EInner2 {
         val e: Error? = null
     }

@@ -37,8 +37,9 @@ import org.jetbrains.kotlin.text
 //   (`import kotlin.collections.first as head`) is not reported, since K2
 //   drops the aliased name from the default imports, so the suggested
 //   `.first { }` would not resolve;
-// - the message quotes the lambda as written (including an explicit label) and the
-//   finding sits on the first line of the whole call chain.
+// - the message quotes the lambda as written (including an explicit label); the
+//   finding sits on the terminal's name (`first`), and a `.size` finding on the
+//   first line of the whole chain.
 //
 // Deliberate differences from Go, each pinned in the golden data:
 // - Precision: the terminal must be the stdlib function of that name
@@ -114,7 +115,11 @@ internal object UnnecessaryFilter : FirFunctionCallChecker(MppCheckerKind.Common
         if ("return@filter" in predicate) return
 
         val replacement = replacements[name] ?: name
-        report(expression.source, "Replace '.filter $predicate.$name()' with '.$replacement $predicate'.")
+        // On the terminal's name, where Go reports, so a split chain lands on the same line.
+        report(
+            expression.calleeReference.source ?: expression.source,
+            "Replace '.filter $predicate.$name()' with '.$replacement $predicate'.",
+        )
     }
 
     // `xs.filter { p }.size` is `xs.count { p }`.

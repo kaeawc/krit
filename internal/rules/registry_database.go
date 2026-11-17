@@ -318,7 +318,8 @@ func registerDatabaseRules() {
 					return
 				}
 				// A returned or stored cursor is closed by its new owner.
-				if scope, ok := file.FlatParent(idx); ok && localEscapesAfterDeclaration(file, scope, idx, cursorName) {
+				if scope, ok := file.FlatParent(idx); ok && propertyMayHoldCallResult(file, idx, callIdx) &&
+					resourceHandedOverAfter(file, scope, idx, cursorName) {
 					return
 				}
 				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Cursor '%s' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().", cursorName))
@@ -573,10 +574,16 @@ func registerDatabaseRules() {
 				if stmtName == "" {
 					return
 				}
-				if !jdbcPreparedStatementCallFlat(file, idx) {
+				callIdx, ok := jdbcPreparedStatementCallFlat(file, idx)
+				if !ok {
 					return
 				}
 				if jdbcPreparedStatementHasCleanupFlat(file, idx, stmtName) {
+					return
+				}
+				// A returned, stored, or passed statement is closed by its new owner.
+				if scope, ok := file.FlatParent(idx); ok && propertyMayHoldCallResult(file, idx, callIdx) &&
+					resourceHandedOverAfter(file, scope, idx, stmtName) {
 					return
 				}
 				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("PreparedStatement '%s' should be wrapped in use { } or explicitly closed with .close().", stmtName))

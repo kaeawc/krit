@@ -650,16 +650,18 @@ func registerNamingNonBooleanPropertyPrefixedWithIs() {
 		Check: func(ctx *api.Context) {
 			idx, file := ctx.Idx, ctx.File
 			name := extractIdentifierFlat(file, idx)
-			if name == "" || !strings.HasPrefix(name, "is") {
+			if !hasIsPrefix(name) {
 				return
 			}
-			if isBooleanPropertyFlat(file, idx) {
+			// Without a declared type the inferred type is unknown here.
+			typeNode, declared := nonBooleanIsDeclaredType(file, idx)
+			if typeNode != 0 && nonBooleanIsSkipsType(file, idx, typeNode) {
 				return
 			}
-			text := file.FlatNodeText(idx)
-			if strings.Contains(text, ": ") {
-				ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Non-Boolean property '%s' should not be prefixed with 'is'", name))
+			if typeNode == 0 && (declared == "" || nonBooleanIsRecoveredBoolean(declared)) {
+				return
 			}
+			ctx.EmitAt(declLine(file, idx), declCol(file, idx), fmt.Sprintf("Non-Boolean property '%s' should not be prefixed with 'is'", name))
 		},
 	})
 }

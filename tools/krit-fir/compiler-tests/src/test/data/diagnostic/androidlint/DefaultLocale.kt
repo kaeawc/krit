@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14, 20, 26, 29, 35, 42, 45, 50, 54, 58, 62, 64, 66, 68, 70, 73, 81, 83, 85
+// go-lines: 14, 21, 25, 28, 31, 37, 44, 47, 52, 56, 60, 64, 66, 68, 70, 72, 75, 83, 85, 87
 // Positives for DefaultLocale, reported by the Go rule too except where noted: the static
 // String.format without a Locale, and the no-argument String.toLowerCase() /
 // toUpperCase(). K2 rejects the stdlib toLowerCase() / toUpperCase() as
@@ -13,17 +13,19 @@ import java.util.Date
 class Formatter {
     fun decimal(value: Double): String = <!DefaultLocale!>String.format("%.2f", value)<!>
 
-    // Go follows Lint and skips formats without a d, e, f, g, t or T conversion
-    // (this one, `%s`); FIR reports every default-locale format call.
-    fun patternOnly(): String = <!DefaultLocale!>String.format("progress %% done")<!>
+    // Lint, Go and FIR skip a pattern without a locale-specific conversion
+    // (d, e, E, f, g, G, t or T); this one has only `%%`
+    // (DefaultLocaleLintFilters.kt).
+    fun patternOnly(): String = String.format("progress %% done")
 
     fun date(): String = <!DefaultLocale!>String.format("%tF", Date())<!>
 
     // A Locale later in the argument list is a format argument, not the
     // locale: Go only reads the first argument.
-    fun localeAsValue(): String = <!DefaultLocale!>String.format("%s", java.util.Locale.US)<!>
+    fun localeAsValue(): String = <!DefaultLocale!>String.format("%d %s", 1, java.util.Locale.US)<!>
 
-    fun nested(value: Int): String = <!DefaultLocale!>String.format("%s", String.format("%d", value))<!>
+    // The outer pattern has only `%s`.
+    fun nested(value: Int): String = String.format("%s", <!DefaultLocale!>String.format("%d", value)<!>)
 
     fun splitReceiver(value: Int): String {
         val text = <!DefaultLocale!>String<!>

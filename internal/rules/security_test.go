@@ -790,6 +790,46 @@ class XmlLoader {
 	}
 }
 
+// A factory class of the same simple name from another package, or declared in the file, is not a JAXP factory.
+func TestXmlExternalEntity_LookalikeFactories(t *testing.T) {
+	for name, src := range map[string]string{
+		"imported from another package": `
+package test
+import com.example.xml.DocumentBuilderFactory
+fun load(input: java.io.InputStream) {
+    DocumentBuilderFactory.newInstance().newParser().parse(input)
+}`,
+		"qualified with another package": `
+package test
+fun load(input: java.io.InputStream) {
+    com.example.xml.DocumentBuilderFactory.newInstance().newParser().parse(input)
+}`,
+		"declared in the file": `
+package test
+object SAXParserFactory {
+    fun newInstance(): SAXParserFactory = this
+    fun parse(input: java.io.InputStream) {}
+}
+fun load(input: java.io.InputStream) {
+    SAXParserFactory.newInstance().parse(input)
+}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if findings := runRuleByName(t, "XmlExternalEntity", src); len(findings) != 0 {
+				t.Fatalf("expected 0 findings, got %d", len(findings))
+			}
+		})
+	}
+	qualified := runRuleByName(t, "XmlExternalEntity", `
+package test
+fun load(input: java.io.InputStream) {
+    javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+}`)
+	if len(qualified) != 1 {
+		t.Fatalf("expected 1 finding for the qualified JAXP factory, got %d", len(qualified))
+	}
+}
+
 func TestXmlExternalEntity_JavaPositive(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "XmlExternalEntity", `
 package test;

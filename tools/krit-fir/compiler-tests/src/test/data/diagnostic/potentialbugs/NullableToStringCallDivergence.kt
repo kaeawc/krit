@@ -43,4 +43,11 @@ class Divergences {
         val safe = input as? CharSequence
         return <!NullableToStringCall!>safe.toString()<!>
     }
+
+    // Go does not type an implicit receiver. A bare `toString()` on the nullable `this` of a scope function calls
+    // the stdlib `Any?.toString()`, as detekt reports.
+    fun scopeReceiver(value: String?): String = with(value) { <!NullableToStringCall!>toString()<!> }
 }
+
+// Go does not type the nullable receiver of an extension function either.
+fun String?.extensionReceiver(): String = <!NullableToStringCall!>toString()<!>

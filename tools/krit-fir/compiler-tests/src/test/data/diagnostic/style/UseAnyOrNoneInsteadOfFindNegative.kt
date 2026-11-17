@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negatives Go also leaves alone: already any / none, no predicate lambda,
+// Negatives Go also leaves alone: already any / none, no predicate,
 // identity comparisons, comparisons with something other than `null`, and a
 // find result that is not compared directly.
 package test
@@ -13,16 +13,6 @@ fun alreadyNone(list: List<Int>): Boolean = list.none { it > 0 }
 fun noPredicate(list: List<Int>): Boolean = list.firstOrNull() != null
 
 fun lastNoPredicate(list: List<Int>): Boolean = list.lastOrNull() == null
-
-fun isPositive(value: Int): Boolean = value > 0
-
-// A function reference or a function value instead of a lambda.
-fun functionReference(list: List<Int>): Boolean = list.find(::isPositive) != null
-
-fun functionValue(list: List<Int>, predicate: (Int) -> Boolean): Boolean = list.find(predicate) != null
-
-// An anonymous function is not a lambda.
-fun anonymousFunction(list: List<Int>): Boolean = list.find(fun(value: Int): Boolean = value > 0) != null
 
 // Identity comparisons: Go matches only `==` and `!=`.
 fun identity(list: List<Int>): Boolean = list.find { it > 0 } !== null
@@ -49,3 +39,10 @@ fun otherFunctions(list: List<Int>): Boolean =
     list.singleOrNull { it > 0 } != null || list.indexOfFirst { it > 0 } != -1
 
 fun regex(text: String): Boolean = Regex("[0-9]").find(text) != null
+
+// The comparison implements the replacement itself: `any { }` here would call itself.
+class Bag(private val items: List<Int>) {
+    fun find(predicate: (Int) -> Boolean): Int? = items.find(predicate)
+    fun any(predicate: (Int) -> Boolean): Boolean = find(predicate) != null
+    fun none(predicate: (Int) -> Boolean): Boolean = find { predicate(it) } == null
+}

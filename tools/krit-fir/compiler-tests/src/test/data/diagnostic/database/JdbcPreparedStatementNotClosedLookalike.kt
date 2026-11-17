@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 30, 47, 48, 49
+// go-lines: 28, 30, 48
 // Lookalikes: a `prepareStatement` of another library. Go matches the call by
 // name only.
 package test
@@ -28,11 +28,12 @@ fun closeable(session: Session, legacy: LegacySession) {
     <!JdbcPreparedStatementNotClosed!>val<!> stmt = session.prepareStatement("SELECT 1")
     stmt.run()
     <!JdbcPreparedStatementNotClosed!>val<!> old = legacy.prepareStatement("SELECT 1")
-    println(old)
+    old.hashCode()
 }
 
-// Divergence: Go reports these because the call is named prepareStatement.
-// None returns anything closeable, so there is no statement to close.
+// Divergence: Go reports `query` because the call is named prepareStatement
+// (it reads the later `text` and `generic` as hand-overs). None returns
+// anything closeable, so there is no statement to close.
 class Query(val sql: String)
 
 class Builder {

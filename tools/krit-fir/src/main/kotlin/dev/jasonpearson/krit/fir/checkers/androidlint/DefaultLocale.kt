@@ -1,18 +1,32 @@
 package dev.jasonpearson.krit.fir.checkers.androidlint
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
+import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
+import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
+import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.utils.isConst
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirFunctionCallOrigin
+import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
+import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
+import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.name.FqName
@@ -24,7 +38,17 @@ import org.jetbrains.kotlin.name.StandardClassIds
 // - `String.format(pattern, args...)`: the stdlib `String.Companion.format`
 //   overload without a Locale, or the JDK's static
 //   `java.lang.String.format(String, Object...)`. The overloads that take a
-//   Locale first are never reported;
+//   Locale first are never reported. As in Lint's LocaleDetector (and Go), the
+//   pattern must fold to text (literals, templates, `+`, `const`s, final `val`s
+//   of the same file) with a
+//   locale-specific conversion (d, e, E, f, g, G, t, T), and the call must not
+//   sit under a throw or be an argument of a single-letter android.util.Log
+//   call. Like Go, the parts of the pattern that do not fold are skipped
+//   (Lint gives up on them), and a `%tY`-style date-time conversion counts
+//   (Lint reads its suffix letter as the conversion), since both format with
+//   the locale;
+// - kotlin.text's `capitalize()` / `decapitalize()` without a Locale, which
+//   Lint reports too;
 // - the no-argument `String.toLowerCase()` / `toUpperCase()`: the stdlib
 //   extensions on kotlin.String and the JDK members of java.lang.String. K2
 //   rejects the stdlib ones (DEPRECATION_ERROR since Kotlin 2.1), so they only
@@ -83,6 +107,15 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
     private val stringCompanion = StandardClassIds.String.createNestedClassId(Name.identifier("Companion"))
     private val format = Name.identifier("format")
     private val caseNames = setOf(Name.identifier("toLowerCase"), Name.identifier("toUpperCase"))
+    private val capitalizeNames = setOf(Name.identifier("capitalize"), Name.identifier("decapitalize"))
+    private val plus = Name.identifier("plus")
+    private val androidLog = classIdOf("android.util", "Log")
+
+    // Conversions whose output depends on the locale, as in Lint's isLocaleSpecific.
+    private val localeConversions = setOf("d", "e", "E", "f", "g", "G", "t", "T")
+
+    // Lint's StringFormatDetector specifier pattern; group 6 is the conversion.
+    private val specifier = Regex("""%(\d+\$)?([-+#, 0(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])""")
     private val icuUCharacter = setOf(
         classIdOf("android.icu.lang", "UCharacter"),
         classIdOf("com.ibm.icu.lang", "UCharacter"),
@@ -96,6 +129,7 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         val message = when (callee.name) {
             format -> FORMAT_MESSAGE.takeIf { isDefaultLocaleFormat(callee) }
             in caseNames -> caseMessage(callee.name.asString()).takeIf { isDefaultLocaleCaseConversion(callee) }
+            in capitalizeNames -> caseMessage(callee.name.asString()).takeIf { isDefaultLocaleCapitalize(callee) }
             else -> null
         } ?: return
         // Owner proof: the kotlin.text top-level extension, a java.lang.String
@@ -104,6 +138,7 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
         val jdk = callableId.classId == javaString
         val icu = callableId.classId in icuUCharacter
         if (!stdlib && !jdk && !icu) return
+        if (callee.name == format && !formatReportable(expression, callee)) return
         val source = expression.source ?: return
         report(qualifiedCall(source)?.let { lightSourceOf(it, source) } ?: source, message)
     }
@@ -139,5 +174,87 @@ internal object DefaultLocale : FirFunctionCallChecker(MppCheckerKind.Common), F
             null -> callee.resolvedReceiverType?.lowerBoundIfFlexible()?.classId == StandardClassIds.String
             else -> false
         }
+    }
+
+    // kotlin.text's `String.capitalize()` / `decapitalize()` without a Locale.
+    private fun isDefaultLocaleCapitalize(callee: FirFunctionSymbol<*>): Boolean =
+        callee.callableId?.classId == null && callee.valueParameterSymbols.isEmpty() &&
+            callee.resolvedReceiverType?.lowerBoundIfFlexible()?.classId == StandardClassIds.String
+
+    // Lint's LocaleDetector.checkFormat, as Go applies it: the pattern folds to
+    // a string with a locale-specific conversion (d, e, E, f, g, G, t, T, or a
+    // `t`/`T` date-time prefix), and the call is neither under a throw nor an
+    // argument of a single-letter android.util.Log call.
+    context(context: CheckerContext)
+    private fun formatReportable(call: FirFunctionCall, callee: FirFunctionSymbol<*>): Boolean {
+        val patternParameter = callee.valueParameterSymbols.firstOrNull() ?: return false
+        val argument = call.resolvedArgumentMapping?.entries?.firstOrNull { it.value.symbol == patternParameter }?.key
+            ?: return false
+        val pattern = constantText(argument, 0) ?: return false
+        if (specifier.findAll(pattern).none { it.groupValues[5].isNotEmpty() || it.groupValues[6] in localeConversions }) {
+            return false
+        }
+        return !inThrowOrLogArgument(call)
+    }
+
+    // The text of a string expression: literals, templates, `+`, and final
+    // `val`s with an initializer. Parts that are not constant are dropped, as
+    // in Go's lintEvalString; null when no part is constant.
+    context(context: CheckerContext)
+    private fun constantText(expression: FirExpression?, depth: Int): String? {
+        if (expression == null || depth > 6) return null
+        val unwrapped = unwrapArgument(expression)
+        return when (val e = unwrapSmartCasts(unwrapped)) {
+            is FirLiteralExpression -> e.value as? String
+            is FirStringConcatenationCall -> joinKnown(e.argumentList.arguments.map { constantText(it, depth) })
+            is FirFunctionCall -> {
+                val callee = e.calleeReference.toResolvedCallableSymbol()
+                if (callee?.name != plus || callee.callableId?.classId != StandardClassIds.String) return null
+                joinKnown(listOf(constantText(e.explicitReceiver, depth), constantText(e.argumentList.arguments.singleOrNull(), depth)))
+            }
+            // A `const` wherever it is declared, or a final `val` of this file:
+            // a slice compile reads other files' declarations without their
+            // initializers.
+            is FirPropertyAccessExpression -> {
+                val symbol = e.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return null
+                if (!symbol.isConst && (!symbol.isVal || symbol.resolvedStatus.modality != Modality.FINAL)) return null
+                constantText(symbol.followableInitializer(), depth + 1)
+            }
+            else -> null
+        }
+    }
+
+    private fun joinKnown(parts: List<String?>): String? =
+        if (parts.all { it == null }) null else parts.filterNotNull().joinToString("")
+
+    // Lint: a throw anywhere above the call, or a single-letter android.util.Log
+    // call as the nearest call the format call is an argument of. A call it is
+    // the receiver of (`String.format(...).trim()`) and an operator or infix
+    // call (`"a" + String.format(...)`) are not that call, as in UAST.
+    context(context: CheckerContext)
+    private fun inThrowOrLogArgument(call: FirFunctionCall): Boolean {
+        val path = context.containingElements
+        var child: FirElement = call
+        var logChecked = false
+        for (i in path.indices.reversed()) {
+            val parent = path[i]
+            if (parent === call) continue
+            when (parent) {
+                is FirThrowExpression -> return true
+                is FirFunctionCall -> if (!logChecked && parent.origin == FirFunctionCallOrigin.Regular &&
+                    child !== parent.explicitReceiver
+                ) {
+                    logChecked = true
+                    if (isLogCall(parent)) return true
+                }
+            }
+            child = parent
+        }
+        return false
+    }
+
+    private fun isLogCall(call: FirFunctionCall): Boolean {
+        val callee = call.calleeReference.toResolvedCallableSymbol() ?: return false
+        return callee.name.asString().length == 1 && callee.callableId?.classId == androidLog
     }
 }

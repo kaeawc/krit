@@ -182,6 +182,32 @@ fun main() {
 	}
 }
 
+func TestUnreachableCatchBlock_OneFindingPerShadowedClause(t *testing.T) {
+	findings := runRuleByName(t, "UnreachableCatchBlock", `
+package test
+
+fun main() {
+    try {
+        doSomething()
+    } catch (e: Throwable) {
+        handle(e)
+    } catch (e: Exception) {
+        handle(e)
+    } catch (e: RuntimeException) {
+        handle(e)
+    }
+}
+`)
+	if len(findings) != 2 {
+		t.Fatalf("expected one finding for each of the two shadowed clauses, got %d: %v", len(findings), findings)
+	}
+	for _, f := range findings {
+		if !strings.Contains(f.Message, "because 'Throwable' is caught above") {
+			t.Fatalf("expected the first shadowing clause to be named, got %q", f.Message)
+		}
+	}
+}
+
 func TestUnreachableCatchBlock_MessageNamesTypesBySimpleName(t *testing.T) {
 	findings := runRuleByName(t, "UnreachableCatchBlock", `
 package test

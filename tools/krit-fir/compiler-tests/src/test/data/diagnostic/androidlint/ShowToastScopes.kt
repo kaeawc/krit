@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 35, 43, 53, 73, 87, 139, 144, 149, 163
+// go-lines: 35, 43, 53, 73, 89, 142, 147, 152, 166, 174
 // Go's evidence, kept as Go reads it. Any enclosing call named `show` counts,
 // up to the nearest named function (not across it), whatever it shows; a
 // receiverless `show()` in the receiver's `apply` lambda counts; and a
@@ -82,9 +82,11 @@ class Stage {
     infix fun show(toast: Toast) {}
 }
 
-// An infix call is not a call expression in Go's tree.
+// Divergence (precision): the toast is an argument of the infix call, so it
+// escapes to `show`, as an argument of any call does. Go reports it: an infix
+// call is not a call expression in Go's tree, so it sees no argument.
 fun infixShow(context: Context, stage: Stage) {
-    stage show <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
+    stage show Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
 }
 
 fun wrap(toast: Toast): Toast = toast
@@ -121,7 +123,8 @@ fun wrappedSafeApply(context: Context) {
 }
 
 fun wrappedSafeApplyWithoutShow(context: Context) {
-    wrap(<!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>)?.apply { cancel() }
+    // The toast escapes into wrap(), as in Go.
+    wrap(Toast.makeText(context, "Hello", Toast.LENGTH_SHORT))?.apply { cancel() }
 }
 
 class Marquee {
@@ -168,6 +171,6 @@ fun inApplyLambdaWithArguments(context: Context, marquee: Marquee) {
 // A `show` on the name before the call does not count.
 fun shownOnlyBefore(context: Context, toasts: List<Toast>) {
     for (toast in toasts) toast.show()
-    val toast = wrap(<!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>)
+    val toast = <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
     toast.cancel()
 }

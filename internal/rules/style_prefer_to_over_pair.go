@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -129,6 +130,12 @@ func pairCalleeIsKotlinPair(ctx *api.Context, name string, qualified bool) bool 
 	if name != "Pair" {
 		return false
 	}
+	// `import kotlin.Pair as P` removes the default import of the name, so a bare `Pair` no longer resolves.
+	for _, fqn := range imports.Aliases {
+		if fqn == kotlinPairFQN {
+			return false
+		}
+	}
 	for _, w := range pairShadowingWildcards {
 		if _, ok := imports.Wildcards[w]; ok {
 			return false
@@ -138,11 +145,27 @@ func pairCalleeIsKotlinPair(ctx *api.Context, name string, qualified bool) bool 
 		return false
 	}
 	if ctx.Resolver != nil {
-		if info := ctx.Resolver.ClassHierarchy("Pair"); info != nil && info.FQN != "" && info.FQN != kotlinPairFQN {
+		if info := ctx.Resolver.ClassHierarchy("Pair"); info != nil && info.FQN != "" && info.FQN != kotlinPairFQN &&
+			pairClassVisible(file, imports, info.FQN) {
 			return false
 		}
 	}
 	return true
+}
+
+// pairClassVisible reports whether a project class with this FQN is in scope as `Pair` without an explicit
+// import: it is in the file's own package or a star import covers it. A `Pair` elsewhere in the project
+// does not shadow kotlin.Pair here.
+func pairClassVisible(file *scanner.File, imports *filefacts.ImportFacts, fqn string) bool {
+	pkg := ""
+	if dot := strings.LastIndex(fqn, "."); dot >= 0 {
+		pkg = fqn[:dot]
+	}
+	if pkg == sourcePackageName(file) {
+		return true
+	}
+	_, starred := imports.Wildcards[pkg+".*"]
+	return starred
 }
 
 // pairLookalikeInScope reports whether a class, typealias or function named

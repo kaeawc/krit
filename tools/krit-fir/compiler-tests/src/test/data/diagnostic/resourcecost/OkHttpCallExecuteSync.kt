@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 24, 28, 32, 36, 39, 41, 44, 48
+// go-lines: 19, 25, 29, 33, 37, 40, 42, 45, 50, 54
 // Synchronous okhttp3.Call.execute() in a suspend function with no sign of a background context.
 package test.okhttpcallexecutesync
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -44,6 +45,11 @@ class Fetcher(private val client: OkHttpClient) {
         scope.launch { call.<!OkHttpCallExecuteSync!>execute<!>() }
     }
 
+    // The main dispatcher of an injected holder is not a background thread.
+    suspend fun injectedMain(call: Call, dispatchers: AppDispatchers): Response = withContext(dispatchers.main) {
+        call.<!OkHttpCallExecuteSync!>execute<!>()
+    }
+
     suspend fun localSuspend(call: Call) {
         suspend fun inner(): Response = call.<!OkHttpCallExecuteSync!>execute<!>()
         inner()
@@ -51,3 +57,5 @@ class Fetcher(private val client: OkHttpClient) {
 }
 
 abstract class RealCall : Call
+
+class AppDispatchers(val io: CoroutineDispatcher, val main: CoroutineDispatcher)

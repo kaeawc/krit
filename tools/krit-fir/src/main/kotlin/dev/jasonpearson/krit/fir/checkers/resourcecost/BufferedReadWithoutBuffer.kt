@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.resourcecost
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.assignedAccess
 import dev.jasonpearson.krit.fir.support.classIdOf
@@ -8,6 +9,7 @@ import dev.jasonpearson.krit.fir.support.isCompoundAssignment
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
+import org.jetbrains.kotlin.fir.FirEvaluatorResult
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -25,6 +27,7 @@ import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.FirExpressionEvaluator
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirLoop
@@ -41,6 +44,7 @@ import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
+import org.jetbrains.kotlin.fir.expressions.PrivateConstantEvaluatorAPI
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
@@ -77,9 +81,10 @@ import java.util.IdentityHashMap
  *   FileInputStream(p)).read()`, `(FileInputStream(p) as InputStream).read()`,
  *   `run { DataInputStream(FileInputStream(p)) }.read()`, `object :
  *   FilterInputStream(FileInputStream(p)) {}.read()`);
- * - a read into a buffer known to hold 8 KiB or more (`ByteArray(8192)`, or a
- *   local val initialized with one) is not reported, since a BufferedInputStream
- *   adds nothing there; buffers of unknown size are still reported;
+ * - a read into a buffer known to hold 8 KiB or more (`ByteArray(8192)`,
+ *   `ByteArray(DEFAULT_BUFFER_SIZE)`, `ByteArray(8 * 1024)`, or a val
+ *   initialized with one) is not reported, since a BufferedInputStream adds
+ *   nothing there; buffers of unknown size are still reported;
  * - a `buffered()` / `BufferedInputStream(...)` call among the stream's
  *   sources makes the read buffered, even when another source is a raw
  *   FileInputStream (`SequenceInputStream(BufferedInputStream(a), b)`,
@@ -150,16 +155,22 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
 
     // A read into a buffer of 8 KiB or more already moves data in large chunks, so
     // a BufferedInputStream adds nothing. Buffers of unknown size are still reported.
+    // The buffer may be a val (local, member or top level) and its size a constant
+    // expression (`DEFAULT_BUFFER_SIZE`, `8 * 1024`, a `const val`).
+    @OptIn(PrivateConstantEvaluatorAPI::class)
+    context(context: CheckerContext)
     private fun fillsLargeBuffer(call: FirFunctionCall): Boolean {
         var buffer = call.argumentList.arguments.firstOrNull() ?: return false
         if (buffer is FirPropertyAccessExpression) {
             val symbol = buffer.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol ?: return false
-            if (!symbol.isLocal || !symbol.isVal) return false
-            buffer = symbol.resolvedInitializer ?: return false
+            if (!symbol.isVal) return false
+            buffer = symbol.followableInitializer() ?: return false
         }
         val constructor = buffer as? FirFunctionCall ?: return false
         if (constructor.calleeReference.toResolvedCallableSymbol()?.callableId?.classId != BYTE_ARRAY) return false
-        val size = (constructor.argumentList.arguments.firstOrNull() as? FirLiteralExpression)?.value as? Number
+        val sizeArgument = constructor.argumentList.arguments.firstOrNull() ?: return false
+        val evaluated = FirExpressionEvaluator.evaluateExpression(sizeArgument, context.session) as? FirEvaluatorResult.Evaluated
+        val size = ((evaluated?.result ?: sizeArgument) as? FirLiteralExpression)?.value as? Number
         return size != null && size.toLong() >= LARGE_BUFFER_BYTES
     }
 

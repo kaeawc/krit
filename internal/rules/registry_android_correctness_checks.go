@@ -590,6 +590,10 @@ func registerAndroidCorrectnessChecksShortAlarm() {
 			if !bytes.Contains(file.Content, []byte("AlarmManager")) {
 				return
 			}
+			// An AlarmManager imported from another package is not the platform's.
+			if imp, ok := fileFactsCache().Imports(file).Aliases["AlarmManager"]; ok && imp != "android.app.AlarmManager" {
+				return
+			}
 			_, args := flatCallExpressionParts(file, idx)
 			if args == 0 {
 				return

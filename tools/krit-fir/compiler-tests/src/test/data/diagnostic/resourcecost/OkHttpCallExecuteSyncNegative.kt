@@ -5,6 +5,7 @@ package test.okhttpcallexecutesyncnegative
 
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,13 @@ class Fetcher(private val client: OkHttpClient, private val backgroundExecutor: 
         call.enqueue(callback)
     }
 
+    // An injected holder's IO or default dispatcher.
+    suspend fun injectedIo(call: Call, appDispatchers: AppDispatchers): Response =
+        withContext(appDispatchers.io) { call.execute() }
+
+    suspend fun injectedDefault(call: Call, dispatchers: AppDispatchers): Response =
+        withContext(dispatchers.default) { call.execute() }
+
     /** Callers must run this on [Dispatchers.IO]. */
     suspend fun documented(call: Call): Response = call.execute()
 
@@ -53,6 +61,8 @@ class Fetcher(private val client: OkHttpClient, private val backgroundExecutor: 
         scope.launch { call.execute() }
     }
 }
+
+class AppDispatchers(val io: CoroutineDispatcher, val default: CoroutineDispatcher, val main: CoroutineDispatcher)
 
 // Not an okhttp3.Call: Go reports it by the receiver name (see OkHttpCallExecuteSyncDivergence).
 class Tracker {

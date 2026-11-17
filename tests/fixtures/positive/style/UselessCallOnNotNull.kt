@@ -4,6 +4,11 @@ fun redundant(): String {
     return "hello".orEmpty()
 }
 
+// After `?.` the receiver is non-null, so `orEmpty()` there is redundant whatever the declared type.
+fun safe(nullableStr: String?): String {
+    return nullableStr?.orEmpty() ?: ""
+}
+
 class KnownThing
 
 fun resolvedArgument(value: KnownThing) {

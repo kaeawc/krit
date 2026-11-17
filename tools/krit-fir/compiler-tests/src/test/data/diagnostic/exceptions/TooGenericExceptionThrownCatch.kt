@@ -1,7 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 13, 15, 17, 22, 23, 28, 31
-// Go's exemption: a generic exception that wraps the exception caught by the
-// nearest enclosing catch, passed directly as an argument.
+// go-lines: 13, 14, 16, 18, 23, 24, 29, 32
+// Divergence (exemption): FIR skips a generic exception that wraps the exception
+// caught by the nearest enclosing catch, passed directly as an argument. Go's
+// Kotlin rule, like detekt, reports it; Go keeps the exemption for Java.
 package test
 
 import java.io.IOException
@@ -13,34 +14,34 @@ fun wrapsCaught() {
     try { io() } catch (e: IOException) { throw RuntimeException("context", e) }
     // Named arguments need a Kotlin constructor: kotlin.Throwable.
     try { io() } catch (e: IOException) { throw Throwable(cause = e, message = "named") }
-    // The nearest catch encloses the lambda, as in Go.
+    // The nearest catch encloses the lambda.
     try { io() } catch (e: IOException) { listOf(1).forEach { throw RuntimeException(e) } }
 }
 
 fun doesNotWrapCaught(outside: Throwable) {
     // Not the caught exception itself.
-    try { io() } catch (e: IOException) { throw <!TooGenericExceptionThrown!>RuntimeException("cause", e.cause)<!> }
-    try { io() } catch (e: IOException) { throw <!TooGenericExceptionThrown!>RuntimeException(e.message)<!> }
+    try { io() } catch (e: IOException) { <!TooGenericExceptionThrown!>throw RuntimeException("cause", e.cause)<!> }
+    try { io() } catch (e: IOException) { <!TooGenericExceptionThrown!>throw RuntimeException(e.message)<!> }
     // Only the nearest catch counts: `e` belongs to the outer one.
     try {
         io()
     } catch (e: IOException) {
-        try { io() } catch (inner: IllegalStateException) { throw <!TooGenericExceptionThrown!>RuntimeException(e)<!> }
+        try { io() } catch (inner: IllegalStateException) { <!TooGenericExceptionThrown!>throw RuntimeException(e)<!> }
     }
     // Outside any catch, a Throwable argument is no exemption.
-    throw <!TooGenericExceptionThrown!>RuntimeException(outside)<!>
+    <!TooGenericExceptionThrown!>throw RuntimeException(outside)<!>
 }
 
 fun failing(): Nothing = error("failing")
 
 // The value of a thrown try expression. Its catch block is the nearest catch
 // of the value it produces: wrapping that catch's parameter is exempt, as in
-// `catch (e) { throw RuntimeException(e) }`. Go reads only the first call
-// inside the throw, failing(), and reports neither.
+// `catch (e) { throw RuntimeException(e) }`. Go does not read a thrown `try`
+// and reports neither.
 fun thrownTryWrapsCaught(): Nothing =
     throw try { failing() } catch (e: IllegalStateException) { RuntimeException(e) }
 
 // Divergence (recall): this catch block's value drops the caught exception,
-// and Go, reading only failing(), misses it.
+// and Go misses it.
 fun thrownTryDropsCaught(): Nothing =
-    throw try { failing() } catch (e: IllegalStateException) { <!TooGenericExceptionThrown!>RuntimeException("dropped")<!> }
+    <!TooGenericExceptionThrown!>throw try { failing() } catch (e: IllegalStateException) { RuntimeException("dropped") }<!>

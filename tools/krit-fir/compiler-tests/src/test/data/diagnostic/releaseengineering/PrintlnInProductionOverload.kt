@@ -9,6 +9,6 @@ package test
 fun println(value: Int): Int = value
 
 fun overloaded() {
-    <!PrintlnInProduction!>println("does not fit the Int overload")<!>
+    <!PrintlnInProduction!>println<!>("does not fit the Int overload")
     require(println(1) == 1)
 }

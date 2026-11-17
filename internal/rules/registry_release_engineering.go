@@ -159,7 +159,7 @@ func registerReleaseEngineeringRules() {
 				if printlnInsideGradleTaskAction(file, idx) || printCallInsideLoggingSink(file, idx) {
 					return
 				}
-				// Exclude if inside a top-level fun main()
+				// Exclude if inside a top-level fun main() or a @JvmStatic main entry point of an object
 				if enclosing, ok := flatEnclosingFunction(file, idx); ok && enclosing != 0 {
 					funcText := flatFunctionName(file, enclosing)
 					if funcText == "main" {
@@ -167,6 +167,9 @@ func registerReleaseEngineeringRules() {
 							if file.FlatType(parent) == "source_file" {
 								return
 							}
+						}
+						if kotlinIsMainFunction(file, enclosing) {
+							return
 						}
 					}
 				}

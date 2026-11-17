@@ -5,6 +5,9 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.nullableClassType
+import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
+import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
@@ -30,8 +33,10 @@ import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirDelegatedConstructorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirFunctionCallOrigin
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
@@ -67,6 +72,10 @@ import org.jetbrains.kotlin.name.Name
 // - An edit call in the initializer of `val editor = ...` is finalized by a
 //   later `editor.commit()` / `editor.apply()` anywhere in the enclosing
 //   function (nested lambdas included).
+// - As in Lint and Go, an Editor that escapes is not reported: the edit chain
+//   or its variable is returned (or is an expression body), passed as an
+//   argument of a call, or assigned to a variable that is not local
+//   (CommitPrefEditsEscapes).
 // - The finding is on the line where the call expression starts (its
 //   receiver, for a chain split across lines), and only inside a function,
 //   accessor, or anonymous function: Go reports nothing in a class or
@@ -88,9 +97,10 @@ import org.jetbrains.kotlin.name.Name
 //   `.also(fun(e: Editor) { e.apply() })`;
 // - a finalizing chain on the variable: `editor.putString(k, v).apply()`
 //   (Go only reads a call written `editor.apply()`);
-// - an assignment to an existing variable, `editor = prefs.edit()`, followed
-//   by `editor.apply()` (Go only reads `val`/`var` initializers).
-// Those are not reported (Go reports them). The variable is matched by symbol,
+// Those are not reported (Go reports them). An assignment to an existing local
+// variable, `editor = prefs.edit()`, is followed like an initializer, so it is
+// reported when nothing finalizes it (Go reads any assignment as handing the
+// Editor on). The variable is matched by symbol,
 // not by name, so a finalizing call on another variable with the same name
 // does not finalize it (Go takes it), and neither does a call on a member with
 // the same name (`this.editor.apply()`, Go matches the last name). A cast of
@@ -102,8 +112,7 @@ import org.jetbrains.kotlin.name.Name
 // a call, or handed to a scope function there may be committed by any member,
 // and an edit call in a secondary constructor's delegation call or parameter
 // defaults is handed to another constructor; none of those is reported (nor by
-// Go). In a class declared inside a function, Go reports all of them, and so
-// does the checker.
+// Go).
 internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CommitPrefEdits"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -141,10 +150,11 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
             (0 until scopeIndex).none { isFunctionScope(path[it]) }
         if (outsideFunctions && scope is FirConstructor && inConstructorHeader(path, start, scopeIndex)) return
         if (ancestorFinalizes(path, start, expression)) return
+        if (chainEscapes(path, start, scopeIndex, expression)) return
         if (flowsToFinalizingScope(path, start, scopeIndex, expression, context.session)) return
         val variable = assignedVariable(path, start, scopeIndex, expression)
         if (variable != null &&
-            finalizedLater(path[scopeIndex], variable, expression, context.session)
+            (variableEscapes(path[scopeIndex], variable) || finalizedLater(path[scopeIndex], variable, expression, context.session))
         ) {
             return
         }
@@ -200,6 +210,88 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
             current = path[i]
         }
         return false
+    }
+
+    // Go's editorChainEscapes, as Lint has it: the edit call, through the calls
+    // made on it, is returned (an explicit return or an expression body),
+    // passed as an argument of a call (a scope function's subject included),
+    // or assigned to a variable that is not local. Then
+    // another owner finalizes the Editor. A local variable is followed by
+    // [assignedVariable].
+    private fun chainEscapes(path: List<FirElement>, start: Int, scopeIndex: Int, expression: FirFunctionCall): Boolean {
+        var current: FirElement = expression
+        for (i in start downTo scopeIndex + 1) {
+            when (val parent = path[i]) {
+                is FirFunctionCall -> if (parent.explicitReceiver !== current) return false
+                is FirSafeCallExpression -> if (parent.receiver !== current && parent.selector !== current) return false
+                is FirCheckNotNullCall, is FirSmartCastExpression -> {}
+                is FirTypeOperatorCall -> if (!isCast(parent)) return false
+                // `!!` and casts hold their operand in an argument list too.
+                is FirArgumentList -> {
+                    val owner = path.getOrNull(i - 1)
+                    if (owner !is FirCheckNotNullCall && owner !is FirTypeOperatorCall) return isCallArguments(owner)
+                }
+                is FirWrappedArgumentExpression, is FirDelegatedConstructorCall -> return true
+                is FirReturnExpression -> return handsOnReturn(parent)
+                is FirVariableAssignment -> {
+                    if (parent.rValue !== current) return false
+                    val symbol = (parent.lValue as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedBaseSymbol()
+                    return !isLocalVariable(symbol)
+                }
+                else -> return false
+            }
+            current = path[i]
+        }
+        return false
+    }
+
+    // A variable declared in a body. A member of a local class or object is
+    // local to the compiler too, but any of its members may finalize it.
+    private fun isLocalVariable(symbol: FirBasedSymbol<*>?): Boolean =
+        symbol is FirPropertySymbol && symbol.isLocal && symbol.dispatchReceiverType == null
+
+    // The arguments of a call written as one (`f(x)`), not of an operator,
+    // infix call, string template, or comparison, which Go does not read as
+    // arguments.
+    private fun isCallArguments(owner: FirElement?): Boolean =
+        (owner is FirFunctionCall && owner.origin == FirFunctionCallOrigin.Regular) || owner is FirDelegatedConstructorCall
+
+    // A lambda's last statement is not a return out of the function.
+    private fun handsOnReturn(expression: FirReturnExpression): Boolean =
+        expression.source?.kind !is KtFakeSourceElementKind.ImplicitReturn.FromLastStatement
+
+    // Go's variableEscapes: anywhere in the body, [variable] is returned,
+    // passed as an argument of a call, or assigned to another variable.
+    private fun variableEscapes(scope: FirElement, variable: FirBasedSymbol<*>): Boolean {
+        val stack = ArrayList<FirElement>()
+        var escapes = false
+        scope.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (escapes) return
+                if (stack.isNotEmpty() && refersTo(element, variable) && handsOn(stack, element)) {
+                    escapes = true
+                    return
+                }
+                stack.add(element)
+                element.acceptChildren(this)
+                stack.removeAt(stack.lastIndex)
+            }
+        })
+        return escapes
+    }
+
+    private fun refersTo(element: FirElement, variable: FirBasedSymbol<*>): Boolean {
+        val access = if (element is FirExpression) unwrapSmartCasts(element, throughSafeCallSubject = false) else element
+        return access is FirQualifiedAccessExpression && access !is FirFunctionCall &&
+            access.calleeReference.toResolvedBaseSymbol() == variable
+    }
+
+    private fun handsOn(stack: List<FirElement>, child: FirElement): Boolean = when (val parent = stack.last()) {
+        is FirArgumentList -> isCallArguments(stack.getOrNull(stack.lastIndex - 1))
+        is FirWrappedArgumentExpression -> true
+        is FirReturnExpression -> handsOnReturn(parent)
+        is FirVariableAssignment -> parent.rValue === child
+        else -> false
     }
 
     private fun isCast(call: FirTypeOperatorCall): Boolean =
@@ -338,17 +430,9 @@ internal object CommitPrefEdits : FirFunctionCallChecker(MppCheckerKind.Common),
     private fun isWith(call: FirFunctionCall): Boolean = isScopeFunction(call) && call.calleeReference.name == WITH
 
     private fun withSubject(call: FirFunctionCall): FirExpression? =
-        call.argumentList.arguments.firstOrNull()?.let(::unwrap)
+        call.argumentList.arguments.firstOrNull()?.let(::unwrapArgument)
 
-    private fun unwrap(element: FirElement): FirElement = when (element) {
-        is FirWrappedArgumentExpression -> unwrap(element.expression)
-        else -> element
-    }
-
-    private fun unwrap(expression: FirExpression): FirExpression = when (expression) {
-        is FirWrappedArgumentExpression -> unwrap(expression.expression)
-        else -> expression
-    }
+    private fun unwrap(element: FirElement): FirElement = if (element is FirExpression) unwrapArgument(element) else element
 
     // True when the scope function's lambda calls commit() or apply() on the
     // Editor it received: through its receiver (`apply`, `run`, `with`) or its

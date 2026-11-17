@@ -1,11 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 17, 18
-// Deliberate precision fix: an explicit import aliases another javax.crypto
-// class to Mac, which wins over the star import. Go reports these calls
-// because the star import satisfies its javax.crypto.Mac mention check and the
-// file declares no Mac; FIR is correct because the receiver resolves to
-// javax.crypto.KeyGenerator, not javax.crypto.Mac. The fully qualified JDK
-// call still fires.
+// go-lines: 16
+// Negative: an explicit import aliases another javax.crypto class to Mac,
+// which wins over the star import, so the bare calls are
+// javax.crypto.KeyGenerator's, not javax.crypto.Mac's (Go is silent too). The
+// fully qualified JDK call still fires.
 package test
 
 import javax.crypto.*

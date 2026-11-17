@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 19, 28, 37, 42, 44
+// go-lines: 16, 19, 23, 29, 38, 43, 45, 48
 // Components declared in local scopes: members of an `object { ... }`
 // expression and of a local class. FIR gives a class declared `private` there
 // Local visibility, but the class still carries the `private` modifier Go
@@ -18,8 +18,9 @@ val top = object {
     // A private primary constructor in an object expression.
     <!Instantiatable!>inner<!> class PrivateCtorInTopObject private constructor() : Activity()
 
-    // Negative: a public inner class with a public constructor.
-    inner class PublicInTopObject : Activity()
+    // An inner class, even a public one with a public constructor: its
+    // constructor takes the outer instance, as Android Lint reports.
+    <!Instantiatable!>inner<!> class PublicInTopObject : Activity()
 }
 
 class Host {
@@ -43,7 +44,7 @@ fun localScopes() {
 
         <!Instantiatable!>inner<!> class PrivateCtorInLocalClass private constructor() : Activity()
 
-        // Negative: a public inner class of a local class.
-        inner class PublicInLocalClass : Activity()
+        // A public inner class of a local class.
+        <!Instantiatable!>inner<!> class PublicInLocalClass : Activity()
     }
 }

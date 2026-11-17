@@ -8,5 +8,5 @@ package test
 typealias Sys = java.lang.System
 
 fun typealiasedSystem() {
-    <!PrintlnInProduction!>Sys.out.println("typealiased System")<!>
+    Sys.out.<!PrintlnInProduction!>println<!>("typealiased System")
 }

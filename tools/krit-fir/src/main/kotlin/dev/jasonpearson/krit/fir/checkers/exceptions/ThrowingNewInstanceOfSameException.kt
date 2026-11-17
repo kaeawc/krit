@@ -38,12 +38,13 @@ import org.jetbrains.kotlin.fir.types.resolvedType
 //
 // Same as Go: the throw is any `throw` inside the catch body (lambdas and nested catches included); the
 // constructor takes exactly one argument; that argument is the caught variable itself, or a member chain
-// on it (`e.cause`, `e?.message`), optionally passed by name; a `_` parameter is never reported. The
-// finding sits on the `throw`.
+// on it (`e.cause`, `e?.message`), optionally passed by name; an argument that builds a new value from it
+// (`e.message + "!"`, `e.message ?: ""`) adds context; a `_` parameter is never reported. The finding
+// sits on the `throw`.
 //
 // Deliberate differences from Go: the thrown value must be a constructor call (Go also reports a
-// same-named factory function), and an argument that only starts with the caught name textually
-// (`e.message + "!"`, `e.message ?: ""`) adds context, so it is not a wrapper of the caught exception.
+// same-named factory function), and a nested class sharing the caught class's simple name is another
+// class.
 internal object ThrowingNewInstanceOfSameException :
     FirExpressionChecker<FirThrowExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "ThrowingNewInstanceOfSameException"

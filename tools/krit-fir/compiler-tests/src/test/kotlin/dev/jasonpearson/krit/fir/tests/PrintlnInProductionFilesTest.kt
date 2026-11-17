@@ -149,19 +149,22 @@ class PrintlnInProductionFilesTest {
     }
 
     // Go tests the scan's own spelling of the path, which the request carries
-    // (FirRule.scanPath). `krit samples/proj` scans `samples/proj/src/X.kt`:
-    // no `/samples/` in it, so Go reports the file, even though its absolute
-    // path holds `/samples/`; a `/sample/` below the scan root still counts.
-    // When Go scanned the absolute path itself (no scan spelling in the
-    // request), the checkout's `/samples/` directory counts, as it does in Go.
+    // (FirRule.scanPath). `krit .` run inside `samples/` scans `proj/src/X.kt`:
+    // no samples directory in it, so Go reports the file, even though its
+    // absolute path holds `/samples/`; a `sample` directory in the spelling,
+    // its first component included, still counts. When Go scanned the
+    // absolute path itself (no scan spelling in the request), the checkout's
+    // `/samples/` directory counts, as it does in Go.
     @Test fun markersAreMatchedOnTheScanSpelling() {
         val sources = mapOf(
             "samples/proj/src/X.kt" to printer("x"),
             "samples/proj/app/sample/Y.kt" to printer("y"),
+            "samples/proj/Z.kt" to printer("z"),
         )
         val relative = mapOf(
-            "samples/proj/src/X.kt" to "samples/proj/src/X.kt",
-            "samples/proj/app/sample/Y.kt" to "samples/proj/app/sample/Y.kt",
+            "samples/proj/src/X.kt" to "proj/src/X.kt",
+            "samples/proj/app/sample/Y.kt" to "proj/app/sample/Y.kt",
+            "samples/proj/Z.kt" to "samples/proj/Z.kt",
         )
         assertEquals(mapOf("X.kt" to 1), findings(sources, scanPaths = relative))
         assertEquals(emptyMap(), findings(sources))

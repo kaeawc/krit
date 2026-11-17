@@ -9,41 +9,41 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.InputStream
 
-fun file(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+fun file(path: String): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 
-fun stream(input: InputStream): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeStream(input)<!>
+fun stream(input: InputStream): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeStream<!>(input)
 
-fun qualified(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>android.graphics.BitmapFactory.decodeFile(path)<!>
+fun qualified(path: String): Bitmap? = android.graphics.BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 
-fun chained(path: String): Int = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>.width
+fun chained(path: String): Int = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path).width
 
 fun statement(path: String) {
-    <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+    BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 }
 
-fun inLambda(paths: List<String>): List<Bitmap?> = paths.map { <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(it)<!> }
+fun inLambda(paths: List<String>): List<Bitmap?> = paths.map { BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(it) }
 
-fun nullableArgument(path: String?): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+fun nullableArgument(path: String?): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 
 class Loader(private val input: InputStream) {
-    val eager: Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeStream(input)<!>
+    val eager: Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeStream<!>(input)
 
-    fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+    fun load(path: String): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 
     companion object {
-        fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+        fun load(path: String): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
     }
 }
 
 object Singleton {
-    fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+    fun load(path: String): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 }
 
 val anonymous = object {
-    fun load(path: String): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+    fun load(path: String): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
 }
 
 fun local(path: String): Bitmap? {
-    fun inner(): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeFile(path)<!>
+    fun inner(): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeFile<!>(path)
     return inner()
 }

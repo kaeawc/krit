@@ -4,7 +4,9 @@ import com.intellij.lang.LighterASTNode
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
+import dev.jasonpearson.krit.fir.support.selectorCallExpression
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
@@ -29,25 +31,28 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 // Flags `require(x != null)` (or `require(null != x)`, optionally with a
-// trailing message lambda): `requireNotNull(x)` states the intent and returns
-// the value as non-null.
+// lazy message inside the parentheses or as a trailing lambda):
+// `requireNotNull(x)` states the intent and returns the value as non-null.
 //
 // Mirrors the Go UseRequireNotNull rule, which matches the call's written
-// shape: a call named `require` with exactly one value argument in the
-// parentheses (a trailing lambda is not a value argument) whose expression,
-// after unwrapping parentheses, is `a != b` with one operand spelled exactly
-// `null`. Go skips the call when source inference resolves the other operand
-// as a known non-nullable type. FIR keeps the written-shape match, except that
-// a parenthesized `(null)` still counts as `null` (Go misses it; UseCheckNotNull
-// reports the same shape), and decides the rest semantically:
+// shape: a call named `require` whose first value argument in the
+// parentheses, after unwrapping parentheses, is `a != b` with one operand
+// spelled exactly `null`; a second argument there is the lazy message, as
+// detekt reads only the first. Go skips the call when source inference
+// resolves the other operand as a known non-nullable type. FIR keeps the
+// written-shape match, except that a parenthesized `(null)` still counts as
+// `null` (Go misses it; UseCheckNotNull reports the same shape), and decides
+// the rest semantically:
 // - the call must resolve to `kotlin.require`, so a local, member or
-//   same-package `require` lookalike is not flagged (Go reports any callee
-//   named `require`), while an import alias of `kotlin.require` is (Go
+//   same-package `require` lookalike is not flagged (Go skips the lookalikes
+//   it can see in the file), while an import alias of `kotlin.require` is (Go
 //   matches the written name only);
 // - the operand is skipped when its type cannot be null, for any expression
 //   (Go can only resolve a plain name, so it reports `obj.nonNull != null`)
 //   and not when it can (a type parameter with a nullable bound, which Go
 //   resolves as non-nullable).
+// The finding is anchored on the call expression after any `kotlin.`
+// qualifier, so it starts at the callee name, as in Go and detekt.
 // The golden data pins both directions.
 internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "UseRequireNotNull"
@@ -65,7 +70,8 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         if (callee.callableId != kotlinRequire) return
         val source = expression.source ?: return
-        val operandIndex = writtenNonNullOperandIndex(source) ?: return
+        val call = selectorCallExpression(source) ?: return
+        val operandIndex = writtenNonNullOperandIndex(source, call) ?: return
 
         val condition = expression.resolvedArgumentMapping
             ?.entries
@@ -79,7 +85,7 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
         val operand = equality.argumentList.arguments.getOrNull(operandIndex) ?: return
         if (isNonNullable(operand)) return
 
-        report(source, MESSAGE)
+        report(lightSourceOf(call, source), MESSAGE)
     }
 
     context(context: CheckerContext)
@@ -89,17 +95,16 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
     }
 
     // Matches the call's written shape the way Go does, and returns the index
-    // (0 = left, 1 = right) of the operand compared with `null`: the call's
-    // parentheses hold exactly one value argument whose expression, after
-    // unwrapping parentheses, is a `!=` comparison with one side spelled
-    // `null`. Returns null when the shape does not match.
-    private fun writtenNonNullOperandIndex(source: KtSourceElement): Int? {
-        val call = callExpressionNode(source, source.lighterASTNode) ?: return null
+    // (0 = left, 1 = right) of the operand compared with `null`: the first of
+    // at most two value arguments in the call's parentheses has an
+    // expression that, after unwrapping parentheses, is a `!=` comparison
+    // with one side spelled `null`. Returns null when the shape does not match.
+    private fun writtenNonNullOperandIndex(source: KtSourceElement, call: LighterASTNode): Int? {
         val argumentList = significantChildren(source, call)
             .firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return null
-        val argument = lightChildren(source, argumentList)
-            .filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
-            .singleOrNull() ?: return null
+        val arguments = lightChildren(source, argumentList).filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }
+        if (arguments.size > 2) return null
+        val argument = arguments.firstOrNull() ?: return null
         val value = significantChildren(source, argument).firstOrNull {
             it.tokenType != KtNodeTypes.VALUE_ARGUMENT_NAME &&
                 it.tokenType != KtTokens.EQ &&
@@ -126,13 +131,4 @@ internal object UseRequireNotNull : FirFunctionCallChecker(MppCheckerKind.Common
 
     private fun isNullLiteral(source: KtSourceElement, node: LighterASTNode): Boolean =
         lightText(source, unwrapLightParens(source, node)) == "null"
-
-    // The CALL_EXPRESSION of a call's source: the source itself, or the
-    // selector of a qualified call (`kotlin.require(...)`).
-    private fun callExpressionNode(source: KtSourceElement, node: LighterASTNode): LighterASTNode? = when (node.tokenType) {
-        KtNodeTypes.CALL_EXPRESSION -> node
-        KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
-            significantChildren(source, node).lastOrNull()?.let { callExpressionNode(source, it) }
-        else -> null
-    }
 }

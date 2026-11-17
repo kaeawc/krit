@@ -1,10 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 37, 42, 47, 52, 57, 62, 67, 76, 82, 88, 94, 100, 106
+// go-lines: none
 // Qualifiers compare by their constant argument values, with omitted arguments
 // filled in from the annotation's defaults: two qualifiers written differently
 // that evaluate to the same arguments are the same key, so the binding is
 // still a no-op. Only qualifiers whose values provably differ are a different
-// key.
+// key. Go compares the annotations as text, so it misses the first module's
+// same-key bindings and, like FIR, leaves the second module alone.
 package test
 
 import dagger.Binds
@@ -71,38 +72,32 @@ abstract class SameQualifierModule {
 
 @Module
 abstract class DifferentQualifierModule {
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the const holds "a", so the qualifiers differ.
+    // Neither reports this: the const holds "a", so the qualifiers differ.
     @Binds
     @Named(KEY)
     abstract fun constDiffers(@Named("b") foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the enum entries differ.
+    // Neither reports this: the enum entries differ.
     @Binds
     @Q(Color.RED)
     abstract fun enumDiffers(@Q(Color.BLUE) foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the default level 1 differs from 2.
+    // Neither reports this: the default level 1 differs from 2.
     @Binds
     @Lvl
     abstract fun defaultDiffers(@Lvl(2) foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the default name "" differs from "x".
+    // Neither reports this: the default name "" differs from "x".
     @Binds
     @Named
     abstract fun namedDefaultDiffers(@Named("x") foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the class literals differ.
+    // Neither reports this: the class literals differ.
     @Binds
     @Typed(Foo::class)
     abstract fun classDiffers(@Typed(Any::class) foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the vararg values differ.
+    // Neither reports this: the vararg values differ.
     @Binds
     @Tags("a")
     abstract fun varargsDiffer(@Tags("a", "b") foo: Foo): Foo

@@ -3,6 +3,7 @@ package coroutines
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,9 @@ class CollectInOnCreateWithoutLifecycleActivity : AppCompatActivity() {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.state.collect { render(it) }
             }
+        }
+        lifecycleScope.launch {
+            vm.state.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect { render(it) }
         }
     }
 

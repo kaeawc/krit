@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.hasSuspendFunctionType
 import dev.jasonpearson.krit.fir.support.runsInPlace
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -36,8 +37,9 @@ import org.jetbrains.kotlin.name.Name
 // variable initializers. A crossinline lambda can run later outside the
 // coroutine, so it is looked through only for suspendCoroutine and
 // suspendCancellableCoroutine, which run it before they suspend. Like Go it
-// also reports a `Thread::sleep` reference passed as a call argument, and it
-// reports once per call on the line the call starts.
+// also reports a `Thread::sleep` reference passed as a call argument, on the
+// reference, and reports a call on the callee name `sleep`, where Go and
+// detekt put it, so a chain split across lines keeps the finding on `.sleep`.
 internal object SleepInsteadOfDelay : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SleepInsteadOfDelay"
     override val expressionCheckers = object : ExpressionCheckers() {
@@ -50,16 +52,20 @@ internal object SleepInsteadOfDelay : FirFunctionCallChecker(MppCheckerKind.Comm
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
-        val sleepCall = isThreadSleep(expression.calleeReference.toResolvedCallableSymbol())
-        val sleepReference = expression.argumentList.arguments.any {
-            val argument = unwrapArgument(it)
-            argument is FirCallableReferenceAccess && isThreadSleep(argument.calleeReference.toResolvedCallableSymbol())
-        }
-        if (!sleepCall && !sleepReference) return
-        val source = expression.source ?: return
+        val anchor = if (isThreadSleep(expression.calleeReference.toResolvedCallableSymbol())) {
+            expression.calleeReference.source?.takeIf { it.kind is KtRealSourceElementKind } ?: expression.source
+        } else {
+            sleepReferenceArgument(expression)?.source
+        } ?: return
         if (!inSuspendContext()) return
-        report(source, MESSAGE)
+        report(anchor, MESSAGE)
     }
+
+    private fun sleepReferenceArgument(expression: FirFunctionCall): FirCallableReferenceAccess? =
+        expression.argumentList.arguments.firstNotNullOfOrNull {
+            (unwrapArgument(it) as? FirCallableReferenceAccess)
+                ?.takeIf { reference -> isThreadSleep(reference.calleeReference.toResolvedCallableSymbol()) }
+        }
 
     private fun isThreadSleep(symbol: FirCallableSymbol<*>?): Boolean {
         val id = symbol?.callableId ?: return false

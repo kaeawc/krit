@@ -80,8 +80,7 @@ import org.jetbrains.kotlin.name.Name
  *   present, so those accesses are reported.
  * - Recall: resolution sees map receivers Go cannot type (a `super`
  *   receiver, a companion object's property, a scope-function `it`, a type
- *   parameter bounded by Map, a Java method's result, the receiver
- *   `a[k]!!` of a second lookup, a JDK map such as `Properties` or
+ *   parameter bounded by Map, a Java method's result, a JDK map such as `Properties` or
  *   `ConcurrentHashMap`, an anonymous object) and keys whose type Go cannot
  *   prove equal to the map's key type (a subtype), plus the stdlib
  *   `Map<out K, V>.get(key)` extension, and lookups that are the target of
@@ -104,13 +103,22 @@ internal object MapGetWithNotNullAssertionOperator : FirCheckNotNullCallChecker(
     override fun check(expression: FirCheckNotNullCall) {
         val source = expression.source ?: return
         if (source.kind is KtFakeSourceElementKind) return
-        val call = lookupCall(expression.argument) ?: return
-        val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return
-        if (callee.name != GET || !isMapGet(callee)) return
+        if (!isMapLookup(expression.argument)) return
         val access = writtenAccess(source) ?: return
         if (isInTestFile()) return
         if (isContainsKeyGuarded(source, access) || isEarlyReturnGuarded(source, access)) return
         report(source, MESSAGE)
+    }
+
+    /**
+     * Whether [argument], the operand of a `!!`, is a call that resolves to a map lookup: `Map.get`, a member
+     * overriding it or the stdlib `Map<out K, V>.get(key)` extension. UnsafeCallOnNullableType leaves such an
+     * index access to this rule.
+     */
+    context(context: CheckerContext)
+    internal fun isMapLookup(argument: FirExpression): Boolean {
+        val callee = lookupCall(argument)?.calleeReference?.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
+        return callee.name == GET && isMapGet(callee)
     }
 
     private fun lookupCall(argument: FirExpression): FirFunctionCall? = when (argument) {

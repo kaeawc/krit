@@ -15,15 +15,24 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirDeclarationChecker
+import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirPropertyChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjectionIn
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjectionOut
+import org.jetbrains.kotlin.fir.types.ConeStarProjection
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
+import org.jetbrains.kotlin.fir.types.ConeTypeProjection
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.types.isMarkedNullable
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.fir.types.renderReadable
+import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.text
 
@@ -37,8 +46,10 @@ import org.jetbrains.kotlin.text
  * function's first line (its modifier list), like Go. Every named function
  * counts, as every Go `function_declaration` does: top-level, member,
  * interface, object, companion, local, extension, and abstract functions
- * (a `@Binds` has no body). Property accessors and functions without a
- * declared return type are skipped, as in Go.
+ * (a `@Binds` has no body). A member or top-level property whose getter is
+ * the binding (Metro's `@Provides @IntoSet val`, Dagger's
+ * `@get:Provides @get:IntoSet val`) counts too, the way Metro's own
+ * `SUSPICIOUS_SET_INTO_SET` warning reads it; its message says "property".
  *
  * The annotations are matched by class id: Dagger's `dagger.multibindings
  * .IntoSet` with `dagger.Provides` / `dagger.Binds`, and the same-named
@@ -53,25 +64,25 @@ import org.jetbrains.kotlin.text
  * Deliberate differences from Go, which matches the annotation text
  * (`@IntoSet` anywhere in the modifier list) and the last dotted segment of
  * the declared type's text (see the golden data, `IntoSetOnNonSetReturn*.kt`):
- * - Go reports same-named annotations that are not a DI framework's (a local
- *   `annotation class IntoSet`), annotation text that is not an annotation
- *   (`@Named("@IntoSet")`) or is a different one (`@BindsOptionalOf`
- *   contains `@Binds`), a declared type whose name matches but is not a
- *   collection (a local `class List`, a type alias named `Collection`, a
- *   nested `Holder.Set`, a type parameter named `Set` bounded by a
+ * - Go reports same-named annotations that are not a DI framework's (an
+ *   `IntoSet` declared elsewhere in the package), a declared type whose name matches but is
+ *   not a collection (a local `class List`, a type alias named `Collection`,
+ *   a nested `Holder.Set`, a type parameter named `Set` bounded by a
  *   non-collection), and a function type whose text contains a collection
  *   name (`() -> kotlin.collections.List<T>`). None contributes a collection
  *   wrapper to a multibound set, so none is reported here.
  * - Resolution sees a collection wrapper Go misses: a type alias or import
- *   alias of a collection, a parenthesized collection type, and an
- *   annotation written by its fully qualified name, through an import alias,
- *   or in the `@[Provides IntoSet]` form.
+ *   alias of a collection, a parenthesized collection type, an expression
+ *   body's inferred return type (quoted with simple class names), a property
+ *   binding, which Go does not read, and an annotation written through an
+ *   import alias or in the `@[Provides IntoSet]` form.
  */
 internal object IntoSetOnNonSetReturn :
     FirDeclarationChecker<FirNamedFunction>(MppCheckerKind.Common), FirRule {
     override val ruleId = "IntoSetOnNonSetReturn"
     override val declarationCheckers = object : DeclarationCheckers() {
         override val namedFunctionCheckers = setOf(IntoSetOnNonSetReturn)
+        override val propertyCheckers = setOf(PropertyBinding)
     }
 
     private val dagger = FqName("dagger")
@@ -127,19 +138,42 @@ internal object IntoSetOnNonSetReturn :
         if (annotations.none { it in intoSet }) return
         if (annotations.none { it in providesOrBinds }) return
 
-        // Go reads only a declared return type.
         val typeRef = declaration.returnTypeRef
-        val typeSource = typeRef.source ?: return
-        if (typeSource.kind !is KtRealSourceElementKind) return
-        val typeText = writtenTypeText(typeSource)
+        val typeSource = typeRef.source?.takeIf { it.kind is KtRealSourceElementKind }
+        // Go reads only a declared return type; an expression body's inferred
+        // type is read from resolution.
+        if (typeSource == null && declaration.body == null) return
+        val typeText = typeSource?.let(::writtenTypeText) ?: inferredTypeText(typeRef.coneType)
         val wrapper = collectionWrapper(typeRef.coneType, typeText, context.session) ?: return
 
         val name = identifierText(source) ?: declaration.name.asString()
-        report(
-            source,
-            "@IntoSet function '$name' returns '$typeText', a collection wrapper; the DI framework collects it by return type, " +
-                "so the contribution will be a Set<$wrapper> entry rather than the intended elements.",
-        )
+        report(source, message("function", name, typeText, wrapper))
+    }
+
+    private fun message(kind: String, name: String, typeText: String, wrapper: String): String =
+        "@IntoSet $kind '$name' returns '$typeText', a collection wrapper; the DI framework collects it by return type, " +
+            "so the contribution will be a Set<$wrapper> entry rather than the intended elements."
+
+    // A property binding: the annotations sit on the property (Metro) or, with
+    // a `get:` use-site target, on its getter (Dagger). Go reads only
+    // function declarations.
+    private object PropertyBinding : FirPropertyChecker(MppCheckerKind.Common) {
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        override fun check(declaration: FirProperty) {
+            val source = declaration.source ?: return
+            if (source.kind !is KtRealSourceElementKind || declaration.isLocal) return
+            val session = context.session
+            val annotations = (declaration.annotations + declaration.getter?.annotations.orEmpty())
+                .mapNotNull { it.toAnnotationClassId(session) }
+            if (annotations.none { it in intoSet }) return
+            if (annotations.none { it in providesOrBinds }) return
+            val typeRef = declaration.returnTypeRef
+            val typeSource = typeRef.source?.takeIf { it.kind is KtRealSourceElementKind }
+            val typeText = typeSource?.let(::writtenTypeText) ?: inferredTypeText(typeRef.coneType)
+            val wrapper = collectionWrapper(typeRef.coneType, typeText, session) ?: return
+            val name = identifierText(source) ?: declaration.name.asString()
+            report(source, message("property", name, typeText, wrapper))
+        }
     }
 
     // The wrapper name the message quotes, or null when the declared type is
@@ -192,6 +226,31 @@ internal object IntoSetOnNonSetReturn :
     }
 
     private const val MAX_BOUND_DEPTH = 8
+
+    // An inferred type quoted the way it would be written: simple class names,
+    // and a platform type's lower bound (`MutableList<Plugin>`, not
+    // `(Mutable)List<Plugin!>!`).
+    private fun inferredTypeText(type: ConeKotlinType): String {
+        val bound = type.lowerBoundIfFlexible()
+        val nullable = if (bound.isMarkedNullable) "?" else ""
+        return when (bound) {
+            is ConeClassLikeType -> {
+                val arguments = bound.typeArguments.takeIf { it.isNotEmpty() }
+                    ?.joinToString(", ", "<", ">", transform = ::projectionText).orEmpty()
+                bound.lookupTag.name.asString() + arguments + nullable
+            }
+            is ConeTypeParameterType -> bound.lookupTag.name.asString() + nullable
+            else -> bound.renderReadable()
+        }
+    }
+
+    private fun projectionText(projection: ConeTypeProjection): String = when (projection) {
+        is ConeStarProjection -> "*"
+        is ConeKotlinTypeProjectionOut -> "out " + inferredTypeText(projection.type)
+        is ConeKotlinTypeProjectionIn -> "in " + inferredTypeText(projection.type)
+        is ConeKotlinType -> inferredTypeText(projection)
+        else -> projection.type?.let(::inferredTypeText) ?: "*"
+    }
 
     // The declared type as Go quotes it: the type reference's text without
     // any type annotations in front of it (`@JvmSuppressWildcards List<T>`

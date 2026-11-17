@@ -1149,9 +1149,19 @@ func composePassesPositionalRole(file *scanner.File, args uint32) bool {
 	return false
 }
 
-// composeTextCallMayBeCompose reports false when the file imports or declares a non-AndroidX Text, such as a design-system wrapper.
-func composeTextCallMayBeCompose(file *scanner.File) bool {
-	if fqn, ok := fileFactsCache().Imports(file).Aliases["Text"]; ok && !strings.HasPrefix(fqn, "androidx.") {
+// composeTextCallMayBeCompose reports whether the Text call at idx can be an AndroidX Text. Text has no default
+// import, so the call needs an androidx qualifier, an AndroidX import of Text, or a wildcard import of a package
+// that declares one; a same-file Text declaration shadows the import.
+func composeTextCallMayBeCompose(file *scanner.File, idx uint32) bool {
+	if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 {
+		return strings.HasPrefix(file.FlatNodeText(navExpr), "androidx.")
+	}
+	imports := fileFactsCache().Imports(file)
+	if fqn, ok := imports.Aliases["Text"]; ok {
+		if !strings.HasPrefix(fqn, "androidx.") {
+			return false
+		}
+	} else if !composeImportsAndroidxTextPackage(imports.Wildcards) {
 		return false
 	}
 	declared := false
@@ -1161,6 +1171,43 @@ func composeTextCallMayBeCompose(file *scanner.File) bool {
 		}
 	})
 	return !declared
+}
+
+// composeImportsAndroidxTextPackage reports a wildcard import of an AndroidX package that declares a Text composable:
+// Compose, Wear and TV material (`...material.*`, `...material3.*`) and Glance (`androidx.glance.text.*`).
+func composeImportsAndroidxTextPackage(wildcards map[string]struct{}) bool {
+	for w := range wildcards {
+		pkg := strings.TrimSuffix(w, ".*")
+		if !strings.HasPrefix(pkg, "androidx.") {
+			continue
+		}
+		switch pkg[strings.LastIndex(pkg, ".")+1:] {
+		case "material", "material3", "text":
+			return true
+		}
+	}
+	return false
+}
+
+// composeInteractionModifierFQNs are the foundation modifiers ComposeSemanticsMissingRole reports.
+var composeInteractionModifierFQNs = map[string]string{
+	"clickable":  "androidx.compose.foundation.clickable",
+	"toggleable": "androidx.compose.foundation.selection.toggleable",
+	"selectable": "androidx.compose.foundation.selection.selectable",
+}
+
+// composeInteractionModifierImported reports whether the modifier name can resolve to the foundation one. An
+// extension needs an import, so a file that imports the name from elsewhere, or not at all, calls a lookalike.
+func composeInteractionModifierImported(file *scanner.File, name string) bool {
+	fqn := composeInteractionModifierFQNs[name]
+	imports := fileFactsCache().Imports(file)
+	if _, ok := imports.FQNs[fqn]; ok {
+		return true
+	}
+	if _, bound := imports.Aliases[name]; bound {
+		return false
+	}
+	return imports.HasFQN(fqn)
 }
 
 // composeRawTextLiteralText returns the literal text of a string, excluding interpolated expressions.

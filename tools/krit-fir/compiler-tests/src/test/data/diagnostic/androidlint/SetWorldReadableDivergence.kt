@@ -40,3 +40,17 @@ fun smartCast(file: Any) {
         <!SetWorldReadable!>file.setReadable(true, false)<!>
     }
 }
+
+// Android Lint reports a call on a File subclass that overrides setReadable; Go does not type the subclass.
+class LoggingFile(path: String) : java.io.File(path) {
+    override fun setReadable(readable: Boolean, ownerOnly: Boolean): Boolean = super.setReadable(readable, ownerOnly)
+}
+
+fun subclassOverride(file: LoggingFile) {
+    <!SetWorldReadable!>file.setReadable(true, false)<!>
+}
+
+// Android Lint folds `&&` and `||` of constants; Go does not.
+fun logicOperators(file: java.io.File) {
+    <!SetWorldReadable!>file.setReadable(true && !false, false || false)<!>
+}

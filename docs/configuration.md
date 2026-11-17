@@ -147,7 +147,9 @@ newer, a resolvable `krit-fir.jar`,
 and a declared classpath source. If any requirement is missing, or the FIR
 checker fails mid-scan, the scan warns on stderr, lists the default-on rules
 that fell back to their Go implementation, and continues with normal exit
-codes. JSON reports carry `summary.firDegraded` and SARIF reports carry a
+codes. Krit finds `java` under `$JAVA_HOME/bin` when `JAVA_HOME` is set and on
+`PATH` otherwise; see [Hermetic and build-system runs](hermetic-builds.md).
+JSON reports carry `summary.firDegraded` and SARIF reports carry a
 `toolExecutionNotifications` entry. Pass `--fail-on-degraded` to exit `2` with
 the same message instead, for CI. With `--no-fir`, Krit uses the Go-only
 checker path without a warning.

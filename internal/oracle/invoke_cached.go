@@ -769,7 +769,7 @@ func runOracleOneShot(
 		var err error
 		javaPath, err = JavaPath()
 		if err != nil {
-			return fmt.Errorf("java not found in PATH: %w", err)
+			return fmt.Errorf("java not found: %w", err)
 		}
 		return nil
 	}); err != nil {

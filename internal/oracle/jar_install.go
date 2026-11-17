@@ -12,7 +12,6 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -40,10 +39,11 @@ const NoJarDownloadEnv = "KRIT_NO_JAR_DOWNLOAD"
 // tests can point downloads at an httptest server.
 var releaseDownloadBase = "https://github.com/kaeawc/krit/releases/download"
 
-// javaAvailable reports whether a java launcher is on PATH. A package var so
-// download tests don't depend on the host having a JDK.
+// javaAvailable reports whether a java launcher exists, under JAVA_HOME when
+// it is set and on PATH otherwise. A package var so download tests don't
+// depend on the host having a JDK.
 var javaAvailable = func() bool {
-	_, err := exec.LookPath("java")
+	_, err := JavaPath()
 	return err == nil
 }
 
@@ -55,7 +55,7 @@ const jarDownloadTimeout = 5 * time.Minute
 var ensureJarMu sync.Mutex
 
 // ErrJarDownloadSkipped marks a missing jar that auto-download deliberately
-// did not fetch: a dev build, KRIT_NO_JAR_DOWNLOAD=1, or no java on PATH.
+// did not fetch: a dev build, KRIT_NO_JAR_DOWNLOAD=1, or no java launcher.
 // Nothing failed, so callers log it verbosely rather than warning.
 var ErrJarDownloadSkipped = errors.New("auto-download skipped")
 
@@ -195,7 +195,7 @@ func EnsureBackendJar(ctx context.Context, b Backend, scanPaths []string, verbos
 	}
 	// The jar is useless without a JVM; don't spend the download on it.
 	if !javaAvailable() {
-		return "", missingJarError(b, downloadSkipped("java not found in PATH"))
+		return "", missingJarError(b, downloadSkipped("java not found"))
 	}
 	target, err := installedJarPath(b)
 	if err != nil {

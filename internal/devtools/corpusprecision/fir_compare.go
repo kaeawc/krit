@@ -142,7 +142,11 @@ func firCheckerRules(root string) (map[string]bool, string, error) {
 	if jar == "" {
 		return nil, "", errors.New("error: krit-fir jar missing; build with `cd tools/krit-fir && ./gradlew shadowJar` or set KRIT_FIR_JAR")
 	}
-	cmd := exec.CommandContext(context.Background(), "java", "-jar", jar, "--list-rules")
+	java, err := oracle.JavaPath()
+	if err != nil {
+		return nil, "", fmt.Errorf("error: find java: %w", err)
+	}
+	cmd := exec.CommandContext(context.Background(), java, "-jar", jar, "--list-rules")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, "", fmt.Errorf("error: list FIR checkers from jar: %w", err)

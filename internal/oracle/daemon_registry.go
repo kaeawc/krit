@@ -617,7 +617,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	jarPath = AbsolutePath(jarPath)
 	javaPath, err := JavaPath()
 	if err != nil {
-		return nil, fmt.Errorf("java not found in PATH: %w", err)
+		return nil, fmt.Errorf("java not found: %w", err)
 	}
 
 	args := buildJVMBaseArgs()
@@ -1003,7 +1003,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 
 	javaPath, err := JavaPath()
 	if err != nil {
-		return nil, fmt.Errorf("java not found in PATH: %w", err)
+		return nil, fmt.Errorf("java not found: %w", err)
 	}
 
 	args := buildJVMBaseArgs()

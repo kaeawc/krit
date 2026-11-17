@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/jdk"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -198,15 +199,15 @@ func printDoctor(w io.Writer, version string) {
 		fmt.Fprintln(w, "  config: none (run --init to create)")
 	}
 	fmt.Fprintf(w, "  default config: %s\n", config.DefaultConfigSource())
-	if javaPath, err := exec.LookPath("java"); err == nil {
+	if javaPath, err := jdk.Java(); err == nil {
 		fmt.Fprintf(w, "  java: %s\n", javaPath)
 	} else {
-		fmt.Fprintln(w, "  java: not found (optional — needed for type oracle)")
+		fmt.Fprintf(w, "  java: not found (optional — needed for type oracle): %v\n", err)
 	}
-	if javacPath, err := exec.LookPath("javac"); err == nil {
+	if javacPath, err := jdk.Javac(); err == nil {
 		fmt.Fprintf(w, "  javac: %s (Java semantic facts available)\n", javacPath)
 	} else {
-		fmt.Fprintln(w, "  javac: not found (optional — needed for Java semantic facts)")
+		fmt.Fprintf(w, "  javac: not found (optional — needed for Java semantic facts): %v\n", err)
 	}
 	if cwebpPath, err := exec.LookPath("cwebp"); err == nil {
 		fmt.Fprintf(w, "  cwebp: %s (WebP conversion available)\n", cwebpPath)

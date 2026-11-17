@@ -180,6 +180,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"AccessibilityWindowStateChangedEvent":    {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_accessibility_test.go"}},
 		"AccessibilityFocus":                      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_accessibility_test.go"}},
 		"ParcelClassLoader":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
+		"IntentReset":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
+		"IntentWithNullActionLaunch":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
 		"BinderGetCallingInMainThread":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
 		"MutatingSharedPrefs":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
 		"ObsoleteSdkInt":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_obsolete_sdk_int_test.go"}},

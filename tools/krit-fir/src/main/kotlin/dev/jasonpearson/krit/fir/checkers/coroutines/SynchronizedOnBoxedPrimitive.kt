@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import org.jetbrains.kotlin.KtNodeTypes
@@ -29,12 +30,10 @@ import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.ConeTypeParameterType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isAnyOrNullableAny
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
@@ -237,7 +236,7 @@ internal object SynchronizedOnBoxedPrimitive : FirFunctionCallChecker(MppChecker
     // nullability and platform flexibility, or null for any other type.
     context(context: CheckerContext)
     private fun primitiveName(type: ConeKotlinType): String? {
-        val classType = type.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType ?: return null
+        val classType = type.expandedClassType() ?: return null
         val classId = classType.lookupTag.classId
         if (classId.packageFqName != kotlinPackage || classId.isNestedClass) return null
         return classId.shortClassName.asString().takeIf { it in boxedPrimitiveTypes }

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.database
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
 import dev.jasonpearson.krit.fir.support.identifierText
@@ -189,7 +190,7 @@ internal object JdbcPreparedStatementNotClosed :
     context(context: CheckerContext)
     private fun holdsCloseable(type: ConeKotlinType): Boolean {
         if (isCloseable(type, depth = 0)) return true
-        val function = type.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType ?: return false
+        val function = type.expandedClassType() ?: return false
         if (!function.isSomeFunctionType(context.session)) return false
         return isCloseable(function.returnType(context.session), depth = 0)
     }

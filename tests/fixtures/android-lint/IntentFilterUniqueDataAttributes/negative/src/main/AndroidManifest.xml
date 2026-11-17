@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.synth">
+
+    <application android:label="Example">
+        <activity android:name=".Main" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <data android:scheme="https" />
+                <data android:host="example.com" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -8,6 +8,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -174,6 +175,10 @@ fun <T> merge(vararg flows: Flow<T>): Flow<T> = TODO()
 
 fun <T> Flow<T>.stateIn(scope: CoroutineScope, started: SharingStarted, initialValue: T): StateFlow<T> = TODO()
 
-suspend fun <T> Flow<T>.stateIn(scope: CoroutineScope): StateFlow<T> = TODO()
+// The real function suspends until the first value arrives.
+suspend fun <T> Flow<T>.stateIn(@Suppress("unused") scope: CoroutineScope): StateFlow<T> {
+    delay(0)
+    TODO()
+}
 
 fun <T> Flow<T>.shareIn(scope: CoroutineScope, started: SharingStarted, replay: Int = 0): SharedFlow<T> = TODO()

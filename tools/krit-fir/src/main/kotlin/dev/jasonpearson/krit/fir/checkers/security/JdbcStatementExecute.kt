@@ -6,6 +6,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.isDeclaredInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
@@ -14,8 +15,6 @@ import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.splitSqlConcatOperands
 import dev.jasonpearson.krit.fir.support.sqlInterpolationUsesOnlySchemaConstants
-import dev.jasonpearson.krit.fir.support.sqlLastIdentifierSegment
-import dev.jasonpearson.krit.fir.support.sqlSchemaConstantName
 import dev.jasonpearson.krit.fir.support.sqlStaticOperand
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapLightParens
@@ -62,7 +61,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -289,10 +287,8 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
     }
 
     context(context: CheckerContext)
-    private fun isPreparedStatement(type: ConeKotlinType?): Boolean {
-        if (type == null || type.isNothingOrNullableNothing) return false
-        return type.isSubtypeOf(nullablePreparedStatement, context.session)
-    }
+    private fun isPreparedStatement(type: ConeKotlinType?): Boolean =
+        type != null && type.isNonNothingSubtypeOf(nullablePreparedStatement)
 
     // Go's first positional argument: the first VALUE_ARGUMENT without a name,
     // in the argument list of the call whose callee is [calleeSource]. A

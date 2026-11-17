@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
@@ -33,13 +34,10 @@ import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.moduleData
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.references.toResolvedVariableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
@@ -201,8 +199,7 @@ internal object TooGenericExceptionThrown :
     context(context: CheckerContext)
     private fun genericClassName(call: FirFunctionCall, names: Set<String>): String? {
         val callee = call.calleeReference.toResolvedCallableSymbol() ?: return null
-        val type = call.resolvedType.fullyExpandedType().lowerBoundIfFlexible() as? ConeClassLikeType
-            ?: return null
+        val type = call.resolvedType.expandedClassType() ?: return null
         val classId = type.lookupTag.classId
         if (classId.isLocal) return null
         val name = classId.shortClassName.asString()

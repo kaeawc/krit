@@ -246,7 +246,6 @@ negative StringSpanInContentDescription
 negative StringTrailingWhitespace
 negative Suspicious0dpResource
 negative SwitchIntDef
-negative SystemPermission
 negative TargetNewer
 negative TestFixtureAccessedFromProduction
 negative TextFieldsResource
@@ -527,7 +526,6 @@ positive StringSpanInContentDescription
 positive StringTrailingWhitespace
 positive Suspicious0dpResource
 positive SwitchIntDef
-positive SystemPermission
 positive TargetNewer
 positive TestFixtureAccessedFromProduction
 positive TextFieldsResource

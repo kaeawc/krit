@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.insideLoggingSink
+import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
 import dev.jasonpearson.krit.fir.support.nullableClassType
@@ -31,8 +32,6 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
-import org.jetbrains.kotlin.fir.types.isNothingOrNullableNothing
-import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
@@ -158,8 +157,5 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
     }
 
     context(context: CheckerContext)
-    private fun isThrowableType(type: ConeKotlinType): Boolean {
-        if (type.isNothingOrNullableNothing) return false
-        return type.isSubtypeOf(nullableThrowable, context.session)
-    }
+    private fun isThrowableType(type: ConeKotlinType): Boolean = type.isNonNothingSubtypeOf(nullableThrowable)
 }

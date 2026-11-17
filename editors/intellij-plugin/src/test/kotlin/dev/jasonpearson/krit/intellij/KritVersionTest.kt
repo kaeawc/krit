@@ -52,7 +52,8 @@ class KritVersionTest {
         assertTrue(old.contains("Update krit"))
         assertTrue(old.contains(KritCompatibility.rangeText))
 
-        assertTrue(KritCompatibility.warningFor(KritVersion(1, 0, 0), "/opt/krit")!!.contains("Update the Krit plugin"))
+        val newer = assertNotNull(KritCompatibility.warningFor(KritVersion(1, 0, 0), "/opt/krit"))
+        assertTrue(newer.contains("Update the Krit plugin"))
         assertNull(KritCompatibility.warningFor(KritVersion(0, 3, 0), "/opt/krit"))
         assertNull(KritCompatibility.warningFor(null, "/opt/krit"))
     }

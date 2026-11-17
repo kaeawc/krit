@@ -80,7 +80,9 @@ object KritBinaryDownloadTask {
                 .getNotificationGroup("Krit")
                 .createNotification(title, content, type)
             if (download) {
-                notification.addAction(NotificationAction.createSimpleExpiring("Download krit from GitHub") { start(project) })
+                notification.addAction(
+                    NotificationAction.createSimpleExpiring("Download krit from GitHub") { start(project) },
+                )
             }
             if (settingsAction) {
                 notification.addAction(NotificationAction.createSimple("Open Krit settings") {

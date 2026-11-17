@@ -151,7 +151,9 @@ class KritRuleInspection(val rule: KritRuleInfo) : LocalInspectionTool() {
 
     override fun getStaticDescription(): String {
         val text = rule.description?.takeIf { it.isNotBlank() } ?: "Krit rule ${rule.id}."
-        val docs = rule.docsLink?.let { "<p><a href=\"${KritDocsLinks.escape(it)}\">Rule documentation</a></p>" }.orEmpty()
+        val docs = rule.docsLink
+            ?.let { "<p><a href=\"${KritDocsLinks.escape(it)}\">Rule documentation</a></p>" }
+            .orEmpty()
         return "<html><body>${KritDocsLinks.escape(text)}<p>Reported by the krit analyzer " +
             "(${KritDocsLinks.escape(rule.category)}, ${KritDocsLinks.escape(rule.severity)}). krit.yml decides " +
             "whether the rule runs; turning this inspection off only hides its findings.</p>$docs</body></html>"

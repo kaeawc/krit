@@ -718,8 +718,8 @@ class KritProjectService(private val project: Project) : Disposable {
         }
     }
 
-    // Warns once per binary (path, size, modification time) when its `krit --version` is outside the range
-    // this plugin supports. Runs krit, so call it off the EDT.
+    // Warns once per binary (path, size, modification time) when its
+    // `krit --version` is outside the supported range. Runs krit: off the EDT.
     private fun checkBinaryVersion() {
         val binary = KritBinaryResolver.find(project) ?: return
         val key = KritRuleCatalog.Key.of(binary)

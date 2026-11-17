@@ -13,21 +13,14 @@ data class KritVersion(
     val preRelease: String? = null,
 ) : Comparable<KritVersion> {
     // A pre-release sorts before its release; pre-release tags compare as text.
-    override fun compareTo(other: KritVersion): Int {
-        compareValues(major, other.major).takeIf { it != 0 }?.let { return it }
-        compareValues(minor, other.minor).takeIf { it != 0 }?.let { return it }
-        compareValues(patch, other.patch).takeIf { it != 0 }?.let { return it }
-        return when {
-            preRelease == other.preRelease -> 0
-            preRelease == null -> 1
-            other.preRelease == null -> -1
-            else -> preRelease.compareTo(other.preRelease)
-        }
-    }
+    override fun compareTo(other: KritVersion): Int = ORDER.compare(this, other)
 
     override fun toString(): String = "$major.$minor.$patch" + (preRelease?.let { "-$it" } ?: "")
 
     companion object {
+        private val ORDER = compareBy<KritVersion>({ it.major }, { it.minor }, { it.patch })
+            .thenBy(nullsLast<String>()) { it.preRelease }
+
         private val PATTERN = Regex("""(?<![\w.])v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.]+))?""")
 
         /**
@@ -37,9 +30,9 @@ data class KritVersion(
          */
         fun parse(text: String?): KritVersion? {
             val match = PATTERN.find(text ?: return null) ?: return null
-            val (major, minor, patch, pre) = match.destructured
+            val groups = match.groupValues
             return try {
-                KritVersion(major.toInt(), minor.toInt(), patch.toInt(), pre.ifEmpty { null })
+                KritVersion(groups[1].toInt(), groups[2].toInt(), groups[3].toInt(), groups[4].ifEmpty { null })
             } catch (_: NumberFormatException) {
                 null
             }

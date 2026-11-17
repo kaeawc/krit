@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.intellij
 
 import com.google.gson.Gson
 import com.google.gson.JsonParseException
+import com.google.gson.annotations.SerializedName
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.IOException
@@ -42,7 +43,8 @@ data class KritPlatform(val os: String, val arch: String) {
             return KritPlatform(os, arch)
         }
 
-        fun current(): KritPlatform? = of(System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
+        fun current(): KritPlatform? =
+            of(System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
     }
 }
 
@@ -77,10 +79,13 @@ class KritBinaryInstaller(
 
     data class Release(val version: KritVersion, val assets: List<Asset>)
 
-    private class ApiAsset(val name: String? = null, val browser_download_url: String? = null)
+    private class ApiAsset(
+        val name: String? = null,
+        @SerializedName("browser_download_url") val downloadUrl: String? = null,
+    )
 
     private class ApiRelease(
-        val tag_name: String? = null,
+        @SerializedName("tag_name") val tagName: String? = null,
         val draft: Boolean = false,
         val prerelease: Boolean = false,
         val assets: List<ApiAsset>? = null,
@@ -176,7 +181,10 @@ class KritBinaryInstaller(
 
         private fun reason(e: IOException): String = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
 
-        /** The published (not draft, not pre-release) releases in a GitHub releases API response; null when it isn't one. */
+        /**
+         * The published (not draft, not pre-release) releases in a GitHub
+         * releases API response; null when it isn't one.
+         */
         // Gson leaves nulls in non-null Kotlin types for JSON nulls.
         @Suppress("SENSELESS_COMPARISON", "USELESS_ELVIS")
         fun parseReleases(json: String): List<Release>? {
@@ -188,10 +196,10 @@ class KritBinaryInstaller(
                 return null
             } ?: return null
             return parsed.filter { it != null && !it.draft && !it.prerelease }.mapNotNull { r ->
-                val version = KritVersion.parse(r.tag_name) ?: return@mapNotNull null
+                val version = KritVersion.parse(r.tagName) ?: return@mapNotNull null
                 val assets = r.assets.orEmpty().filter { it != null }.mapNotNull { a ->
                     val name = a.name ?: return@mapNotNull null
-                    val url = a.browser_download_url?.takeIf { it.startsWith("https://") } ?: return@mapNotNull null
+                    val url = a.downloadUrl?.takeIf { it.startsWith("https://") } ?: return@mapNotNull null
                     Asset(name, url)
                 }
                 Release(version, assets)
@@ -400,7 +408,9 @@ class KritBinaryInstaller(
                     if (binary.isFile && binary.canExecute()) version to binary else null
                 }
             return installed
-                .sortedWith(compareBy<Pair<KritVersion, File>>({ KritCompatibility.isCompatible(it.first) }, { it.first }))
+                .sortedWith(
+                    compareBy<Pair<KritVersion, File>>({ KritCompatibility.isCompatible(it.first) }, { it.first }),
+                )
                 .lastOrNull()
                 ?.second
         }

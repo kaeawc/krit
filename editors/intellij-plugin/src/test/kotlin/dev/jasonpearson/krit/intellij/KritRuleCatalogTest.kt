@@ -7,6 +7,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class KritRuleCatalogTest {
@@ -147,7 +148,8 @@ class KritRuleCatalogTest {
         output = KritRuleList.toJson(listOf(KritRuleInfo(id = "A", category = "style", docsUrl = "https://example.test/a")))
         catalog().rulesFor(binary)
 
-        assertEquals("https://example.test/a", catalog().cachedRulesFor(binary)!!.single().docsUrl)
+        val cached = assertNotNull(catalog().cachedRulesFor(binary))
+        assertEquals("https://example.test/a", cached.single().docsUrl)
     }
 
     @Test

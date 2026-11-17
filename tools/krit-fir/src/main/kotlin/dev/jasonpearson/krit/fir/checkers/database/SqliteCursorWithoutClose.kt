@@ -70,7 +70,7 @@ internal object SqliteCursorWithoutClose :
 
     private val queryNames = setOf(Name.identifier("rawQuery"), Name.identifier("query"))
     private val closeNames = setOf("close", "use")
-    private val use = "use"
+    private const val USE = "use"
     private val databaseTypes = setOf(
         classIdOf("android.database.sqlite", "SQLiteDatabase"),
         classIdOf("androidx.sqlite.db", "SupportSQLiteDatabase"),
@@ -122,7 +122,7 @@ internal object SqliteCursorWithoutClose :
                         if (callee in closeNames) {
                             element.explicitReceiver?.let { closedOnTheSpot += unwrapSmartCasts(it, throughNotNull = true) }
                         }
-                        if (callee == use) usesAnywhere = true
+                        if (callee == USE) usesAnywhere = true
                         if (nested == 0 && element !in closedOnTheSpot && isDatabaseQuery(element)) found = true
                     }
                     else -> Unit

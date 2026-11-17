@@ -45,12 +45,12 @@ internal object FloatMath : FirQualifiedAccessExpressionChecker(MppCheckerKind.C
     }
 
     private const val MESSAGE = "FloatMath is deprecated. Use kotlin.math or java.lang.Math instead."
-    private val floatMath = classIdOf("android.util", "FloatMath")
+    private val floatMathClassId = classIdOf("android.util", "FloatMath")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirQualifiedAccessExpression) {
         val symbol = expression.calleeReference.toResolvedCallableSymbol() ?: return
-        if (symbol.callableId?.classId != floatMath) return
+        if (symbol.callableId?.classId != floatMathClassId) return
         report(expression.explicitReceiver?.source ?: expression.calleeReference.source ?: expression.source, MESSAGE)
     }
 }

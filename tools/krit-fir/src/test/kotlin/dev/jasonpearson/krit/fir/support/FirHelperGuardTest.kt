@@ -84,6 +84,26 @@ class FirHelperGuardTest {
         )
     }
 
+    @Test fun scannerSeesCodeInStringTemplatesOnly() {
+        val d = "$"
+        val q = "\"\"\""
+        val src = """
+            val a = "id: $d{ClassId(pkg, name)}"
+            val b = "$d{"ClassId("}"
+            val c = $q$d{lookupSuperTypes(s, "$d{"x"}")}$q
+        """.trimIndent()
+        assertEquals(mapOf("class-id-constructor" to 1, "supertype-walk" to 1), countPatterns(src))
+    }
+
+    @Test fun scannerCountsEachUseOnALineAndAcrossLines() {
+        val src = """
+            val a = (x as FirCheckNotNullCall).argumentList.arguments to (y as FirCheckNotNullCall).argumentList.arguments
+            val b = ClassId
+                .topLevel(FqName("a.B"))
+        """.trimIndent()
+        assertEquals(mapOf("not-null-unwrap" to 2, "class-id-factory" to 1), countPatterns(src))
+    }
+
     private data class Key(val file: String, val pattern: String) : Comparable<Key> {
         override fun compareTo(other: Key) = compareValuesBy(this, other, Key::file, Key::pattern)
     }
@@ -131,7 +151,7 @@ internal val helperPatterns = listOf(
         Regex("""\boriginalReceiverRef\b""")),
     HelperPattern("not-null-unwrap", "FirCheckNotNullCall arguments",
         "unwrapSmartCasts(throughNotNull = true)",
-        Regex("""\bFirCheckNotNullCall\b.*\barguments\b""")),
+        Regex("""\bFirCheckNotNullCall\b(?:(?!\bFirCheckNotNullCall\b).)*?\barguments\b""")),
     HelperPattern("argument-unwrap", "FirWrappedArgumentExpression", "unwrapArgument",
         Regex("""\bFirWrappedArgumentExpression\b""")),
     HelperPattern("null-literal", "ConstantValueKind.Null", "isNullLiteral",
@@ -151,7 +171,9 @@ internal val helperPatterns = listOf(
 
 /** Matches of each [helperPatterns] entry in the code of [source], ignoring comments, strings, and imports. */
 internal fun countPatterns(source: String): Map<String, Int> {
-    val code = stripCommentsAndStrings(source).lineSequence().map { it.trim() }
-        .filter { !it.startsWith("import ") && !it.startsWith("package ") }.toList()
-    return helperPatterns.associate { p -> p.id to code.sumOf { p.regex.findAll(it).count() } }.filterValues { it > 0 }
+    // Match the whole text, so a use split over lines still counts; `.` in a pattern stays on one line.
+    val code = stripCommentsAndStrings(source).lineSequence()
+        .filter { line -> line.trim().let { !it.startsWith("import ") && !it.startsWith("package ") } }
+        .joinToString("\n")
+    return helperPatterns.associate { p -> p.id to p.regex.findAll(code).count() }.filterValues { it > 0 }
 }

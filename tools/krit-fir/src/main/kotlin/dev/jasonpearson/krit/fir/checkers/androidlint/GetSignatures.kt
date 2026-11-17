@@ -133,7 +133,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
 
     private const val GET_SIGNATURES_BIT = 0x40L
     private val getPackageInfo = Name.identifier("getPackageInfo")
-    private val getSignatures = Name.identifier("GET_SIGNATURES")
+    private val getSignaturesFlag = Name.identifier("GET_SIGNATURES")
     private val packageManager = classIdOf("android.content.pm", "PackageManager")
     private val sdkInt = Name.identifier("SDK_INT")
     private const val SDK_INT_SPELLING = "Build.VERSION.SDK_INT"
@@ -511,7 +511,7 @@ internal object GetSignatures : FirFunctionCallChecker(MppCheckerKind.Common), F
     @OptIn(SymbolInternals::class)
     context(context: CheckerContext)
     private fun isGetSignatures(symbol: FirCallableSymbol<*>): Boolean {
-        if (symbol.name != getSignatures) return false
+        if (symbol.name != getSignaturesFlag) return false
         val initializer = when (val original = symbol.unwrapFakeOverrides()) {
             // A property of another file shows its initializer only when it is a const.
             is FirPropertySymbol -> original.followableInitializer()

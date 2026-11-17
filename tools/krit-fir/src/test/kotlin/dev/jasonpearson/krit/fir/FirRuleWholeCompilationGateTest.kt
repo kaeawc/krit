@@ -344,15 +344,15 @@ class FirRuleWholeCompilationGateTest {
 
     @Test fun stripperRespectsLexicalStructure() {
         fun strip(s: String) = stripCommentsAndStrings(s)
-        // Nested block comments end at the matching close.
-        assertEquals("a\nb", strip("a/* x /* y */ still comment */\nb"))
+        // Nested block comments end at the matching close, and leave a space that separates tokens.
+        assertEquals("a \nb", strip("a/* x /* y */ still comment */\nb"))
         // Comment markers inside strings are not comments; string contents are blanked.
         assertEquals("val u = \"\"\nval v = 1 ", strip("val u = \"http://x /* y\"\nval v = 1 // tail"))
         // Raw strings may hold quotes, comment markers and newlines.
         assertEquals("val r = \"\"\"\n\"\"\"\nnext", strip("val r = \"\"\"a \"b\" // c\n/* d\"\"\"\nnext"))
         // Escapes and char literals (a char literal's content is blanked to x).
         assertEquals("val q = \"\" + 'x' ", strip("val q = \"a\\\"b\" + 'x' // c"))
-        assertEquals("val d = 'x'\nval e = 2 ", strip("val d = '\"'\nval e = 2 /* c */"))
+        assertEquals("val d = 'x'\nval e = 2  ", strip("val d = '\"'\nval e = 2 /* c */"))
         // Code after an unterminated-looking apostrophe in a comment still scans.
         assertEquals("x \ny", strip("x // don't\ny"))
     }

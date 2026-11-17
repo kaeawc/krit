@@ -313,6 +313,10 @@ func jarAssetName(b Backend, tag string) string {
 	return b.jarBaseName() + "-" + tag + ".jar"
 }
 
+// ReleaseAssetName is the GitHub release asset a CLI built for tag downloads
+// for this backend, e.g. krit-fir-v1.2.3.jar.
+func (b Backend) ReleaseAssetName(tag string) string { return jarAssetName(b, tag) }
+
 func jarReleaseURL(b Backend) string {
 	tag := versionTag()
 	if tag == "" {

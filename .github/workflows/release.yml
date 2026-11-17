@@ -167,6 +167,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
+      # Runs internal/devtools/releaseassets, which checks the krit-fir jar
+      # before and after the release is created.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod }
 
       - name: Import GPG signing key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
@@ -184,12 +188,16 @@ jobs:
 
       - name: Assemble dist/
         shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
           mkdir -p dist
           cp staging/*.tar.gz staging/*.zip dist/ 2>/dev/null || true
           cp staging/*.sbom.json dist/ 2>/dev/null || true
-          cp staging/*.jar dist/ 2>/dev/null || true
+          # Released CLIs download this jar; a release without it degrades
+          # every FIR scan, so a missing jar fails the job here.
+          cp "staging/krit-fir-${TAG}.jar" dist/
           ls -la dist/
 
       - name: Generate combined checksums.txt
@@ -204,6 +212,11 @@ jobs:
           done
           sort -k2 checksums.txt -o checksums.txt
           cat checksums.txt
+
+      - name: Verify krit-fir jar and checksum
+        env:
+          TAG: ${{ github.ref_name }}
+        run: go run ./internal/devtools/releaseassets --tag "$TAG" --dir dist
 
       - name: Sign combined checksums.txt
         shell: bash
@@ -238,6 +251,27 @@ jobs:
             --generate-notes \
             $prerelease_flag \
             $(ls *.tar.gz *.zip *.jar *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null)
+
+      # gh release create can leave a release without some assets when an
+      # upload fails. Re-upload the assets the jar download depends on once,
+      # then fail the job if any is still missing.
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          assets="$RUNNER_TEMP/release-assets.txt"
+          list_assets() {
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' > "$assets"
+          }
+          list_assets
+          if ! go run ./internal/devtools/releaseassets --tag "$TAG" --published "$assets"; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              "dist/krit-fir-${TAG}.jar" dist/checksums.txt dist/checksums.txt.sig
+            list_assets
+            go run ./internal/devtools/releaseassets --tag "$TAG" --published "$assets"
+          fi
 
       # Package managers only track stable releases. Tags with a SemVer
       # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)

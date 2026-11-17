@@ -8,7 +8,10 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
 
-class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
+/** A file's findings with the docs links of their rules (see [KritDocsLinks]). */
+data class KritAnnotations(val findings: List<KritFinding>, val docsLinks: Map<String, String> = emptyMap())
+
+class KritExternalAnnotator : ExternalAnnotator<PsiFile, KritAnnotations>() {
     override fun collectInformation(file: PsiFile): PsiFile? {
         val name = file.virtualFile?.name ?: return null
         if (!KritFileFilter.isSupported(name)) {
@@ -17,26 +20,32 @@ class KritExternalAnnotator : ExternalAnnotator<PsiFile, List<KritFinding>>() {
         return file
     }
 
-    override fun doAnnotate(collectedInfo: PsiFile?): List<KritFinding> {
-        val file = collectedInfo ?: return emptyList()
-        val path = file.virtualFile?.path ?: return emptyList()
+    override fun doAnnotate(collectedInfo: PsiFile?): KritAnnotations {
+        val file = collectedInfo ?: return KritAnnotations(emptyList())
+        val path = file.virtualFile?.path ?: return KritAnnotations(emptyList())
         val service = file.project.service<KritProjectService>()
-        return service.findingsFor(path)
+        val findings = service.findingsFor(path)
+        if (findings.isEmpty()) return KritAnnotations(findings)
+        // Read here, off the EDT: resolving the binary touches the disk.
+        return KritAnnotations(findings, KritRules.docsLinks(file.project))
     }
 
     // Per-rule inspections turned off in the profile hide their findings
     // here too, and a level changed there replaces krit's severity (see
     // KritRuleFilter for the precedence with krit.yml).
-    override fun apply(file: PsiFile, annotationResult: List<KritFinding>?, holder: AnnotationHolder) {
-        val findings = annotationResult.orEmpty()
+    override fun apply(file: PsiFile, annotationResult: KritAnnotations?, holder: AnnotationHolder) {
+        val findings = annotationResult?.findings.orEmpty()
         if (findings.isEmpty()) return
         val profile = KritProfileRules.profileOf(file.project)
         val shown = KritRuleFilter.apply(findings) { rule ->
             profile?.let { KritProfileRules.settingFor(it, file, rule) }
         }
         for ((finding, level) in shown) {
-            val annotation = holder.newAnnotation(KritSeverity.highlightSeverity(level), finding.displayMessage)
+            var annotation = holder.newAnnotation(KritSeverity.highlightSeverity(level), finding.displayMessage)
                 .range(KritRanges.rangeFor(file, finding))
+            KritDocsLinks.tooltip(finding, annotationResult?.docsLinks?.get(finding.rule))?.let {
+                annotation = annotation.tooltip(it)
+            }
             for (intention in KritIntentions.forFinding(finding)) {
                 annotation.withFix(intention)
             }

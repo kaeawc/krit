@@ -7,6 +7,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class KritRuleCatalogTest {
@@ -138,6 +139,29 @@ class KritRuleCatalogTest {
         // hand-copied cache) is not trusted either.
         file.writeText(file.readText().replace(binary.absolutePath.replace("\\", "\\\\"), "/elsewhere/krit"))
         calls.clear()
+        catalog(cacheDir).rulesFor(binary)
+        assertEquals(1, calls.size)
+    }
+
+    @Test
+    fun `docs URLs survive the disk cache`() {
+        output = KritRuleList.toJson(listOf(KritRuleInfo(id = "A", category = "style", docsUrl = "https://example.test/a")))
+        catalog().rulesFor(binary)
+
+        val cached = assertNotNull(catalog().cachedRulesFor(binary))
+        assertEquals("https://example.test/a", cached.single().docsUrl)
+    }
+
+    @Test
+    fun `a cache file from before the current format is fetched again`() {
+        val cacheDir = File(dir, "cache")
+        catalog(cacheDir).rulesFor(binary)
+        val file = File(cacheDir, KritRuleCatalog.Key.of(binary).fileName())
+        // A plugin without docsUrl wrote no format field.
+        file.writeText(file.readText().replace("\"format\":${KritRuleCatalog.CACHE_FORMAT},", ""))
+        calls.clear()
+
+        assertNull(catalog(cacheDir).cachedRulesFor(binary))
         catalog(cacheDir).rulesFor(binary)
         assertEquals(1, calls.size)
     }

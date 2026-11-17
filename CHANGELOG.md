@@ -30,8 +30,8 @@ All notable changes to Krit will be documented in this file.
 ### Fixed
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit
   compiles a project's scanned source sets together (#972). When that compile gates a file on
-  `Redeclaration` or `Conflicting overloads`, the files of its project are rechecked with each scanned
-  source set compiled on its own, and those verdicts replace the merged ones. Other projects keep the
+  `Redeclaration` or `Conflicting overloads`, its project is rechecked with each scanned source set
+  compiled on its own, and those verdicts replace the merged ones for the project's gated files. Other projects keep the
   single compile: compiling every source set on its own (`KRIT_MODULE_SHARDS=isolate`) took clearly
   longer and several times the CPU time on the projects measured. `KRIT_MODULE_SHARDS=merged` turns the
   recheck off.

@@ -171,6 +171,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 				perf.AddEntryDetails(sub, "firSourceSetIsolation", isolation.duration, map[string]int64{
 					"gated":      int64(isolation.gated),
 					"rechecked":  int64(isolation.rechecked),
+					"replaced":   int64(isolation.replaced),
 					"stillGated": int64(isolation.stillGated),
 				}, nil)
 			}

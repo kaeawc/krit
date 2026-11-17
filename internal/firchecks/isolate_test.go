@@ -130,6 +130,25 @@ func TestPassKeepsMergedVerdictWhenTheRecheckFails(t *testing.T) {
 	}
 }
 
+func TestPassKeepsTheMergedVerdictOfFilesItAlreadyAnswered(t *testing.T) {
+	p := isolationProject(t)
+	// The recheck lacks some context for main: it crashes there and reports a stray finding.
+	isolator := func(_ context.Context, _ string, _ []string, _ []byte) ([]byte, []string, error) {
+		main := p.fir(isolateMainFile, "Dispatchers.IO", verdictRule)
+		resp, _ := json.Marshal(map[string]any{
+			"id": isolateRequestID, "rules": []string{verdictRule},
+			"findings": []FirFinding{{Path: main.File, Line: main.Line, Col: main.Col, Rule: verdictRule, Message: "stray", Confidence: 1}},
+			"crashed":  map[string]string{main.File: "isolated compile crashed"},
+		})
+		return resp, []string{p.abs(isolateAndroidFile), p.abs(isolateMainFile), p.abs(isolateTestFile)}, nil
+	}
+	got := RunPass(isolationOptions(p, redeclarationChecker(p), isolator, nil), isolationGoFindings(p))
+	// main keeps FIR's merged verdict (no finding); the two gated files take the clean recheck.
+	if d := describe(got); len(d) != 0 {
+		t.Fatalf("no finding should survive: %v", d)
+	}
+}
+
 func TestPassDoesNotRecheckOtherCompilerErrors(t *testing.T) {
 	p := isolationProject(t)
 	checker := NewFakeFirChecker()
@@ -193,9 +212,9 @@ func TestReplaceFilesKeepsOtherFilesAndIncrementalAccount(t *testing.T) {
 
 func TestIsolationOutcomeListsFilesStillGated(t *testing.T) {
 	var out strings.Builder
-	writeIsolationOutcome(&out, isolationOutcome{gated: 2, rechecked: 5, stillGated: 1, still: []string{"/p/A.kt: Redeclaration: class A"}})
+	writeIsolationOutcome(&out, isolationOutcome{gated: 2, rechecked: 5, replaced: 2, stillGated: 1, still: []string{"/p/A.kt: Redeclaration: class A"}})
 	for _, line := range []string{
-		"verbose: FIR source sets: 2 files gated by duplicate declarations; rechecked 5 files with each source set compiled on its own in 0s, 1 still gated by one\n",
+		"verbose: FIR source sets: 2 files gated by duplicate declarations; rechecked 5 files with each source set compiled on its own in 0s, replaced 2 gated verdicts, 1 still gated by one\n",
 		"verbose: FIR source sets: still gated: /p/A.kt: Redeclaration: class A\n",
 	} {
 		if !strings.Contains(out.String(), line) {

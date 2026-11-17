@@ -259,12 +259,15 @@ and then rechecks only the projects with a file gated on `Redeclaration` or
 `Conflicting overloads`. The recheck compiles each of that project's scanned
 source sets on its own: a test or androidTest set sees its project's main (a
 built jar, or its sources as context) but never a sibling set. Its verdicts
-replace the merged compile's for that project's files. A project with one
-scanned set is rechecked too, since the merged compile also puts its files
-next to other projects' sets. A project keeps its merged verdicts when a set's
-unbuilt dependency sources exceed 3000 files or a set's compile fails, and a
-gated file outside every exported source set (for example a `src/debug` or
-flavor directory of a variant the model did not export) is not rechecked.
+replace the merged compile's for that project's gated files; files the merged
+compile answered keep that answer. A project with one scanned set is rechecked
+too, since the merged compile also puts its files next to other projects'
+sets. A project keeps its merged verdicts when a set's unbuilt dependency
+sources exceed 3000 files or one of its source files belongs to another
+project too. A source set whose compile fails keeps its merged verdicts, while
+the project's other sets still take theirs. A gated file outside every
+exported source set (for example a `src/debug` or flavor directory of a
+variant the model did not export) is not rechecked.
 The recheck reads the same Gradle model as the scan (`--gradle-model`,
 `--no-gradle-model`) and keeps any configured `oracle.classpath` or
 `CLASSPATH` entries. It replaces FIR check verdicts only; the type oracle's facts still

@@ -89,7 +89,7 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	units, skipped := isolationUnits(all, gated)
 	addUserClasspath(units, model, check.classpath)
 	for _, project := range skipped {
-		logf("verbose: FIR source sets: %s keeps its merged verdicts (dependency sources exceed the context limit)\n", project)
+		logf("verbose: FIR source sets: %s keeps its merged verdicts (dependency sources exceed the context limit, or a source file belongs to another project too)\n", project)
 	}
 	if len(units) == 0 {
 		return nil, nil, nil
@@ -122,16 +122,21 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 }
 
 // isolationUnits returns the units of every project that owns a gated file, and the owning projects
-// left out because a unit lost dependency context. A project with one scanned set qualifies too: the
+// left out because a unit lost dependency context or shares a source file with another project. A project with one scanned set qualifies too: the
 // whole-repository compile also merges it with other projects' sets, which can declare the same class.
 func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped []string) {
 	owner := map[string]string{}
+	shared := map[string]bool{}
 	byProject := map[string][]Unit{}
 	for _, u := range units {
 		project := projectOf(u.Spec.ID)
 		byProject[project] = append(byProject[project], u)
 		for _, f := range u.Sources {
-			owner[filepath.Clean(f)] = project
+			path := filepath.Clean(f)
+			if prev, ok := owner[path]; ok && prev != project {
+				shared[prev], shared[project] = true, true
+			}
+			owner[path] = project
 		}
 	}
 	wanted := map[string]bool{}
@@ -153,12 +158,12 @@ func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped []string
 	}
 	sort.Strings(projects)
 	for _, p := range projects {
-		group := byProject[p]
-		if incompleteContext(group) != "" {
+		// A source file another project also lists would be answered by both.
+		if shared[p] || incompleteContext(byProject[p]) != "" {
 			skipped = append(skipped, p)
 			continue
 		}
-		kept = append(kept, group...)
+		kept = append(kept, byProject[p]...)
 	}
 	return kept, skipped
 }

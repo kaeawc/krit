@@ -48,16 +48,19 @@ func duplicateDeclarationGated(result *Result) []string {
 
 // isolationOutcome summarizes a recheck for the verbose log.
 type isolationOutcome struct {
-	gated, rechecked, stillGated int
-	duration                     time.Duration
-	err                          error
+	gated, rechecked, replaced, stillGated int
+	duration                               time.Duration
+	err                                    error
 	// still lists the gated files the recheck left gated on a duplicate
 	// declaration, with that reason.
 	still []string
 }
 
-// isolateSourceSets replaces result's verdicts for the projects the isolator
-// rechecks. Any failure keeps the merged verdicts, which only gate files.
+// isolateSourceSets replaces result's verdicts for the files the merged check
+// gated in the projects the isolator rechecks. Files the merged check already
+// answered keep that answer, so a recheck that lacks some context (a compiler
+// plugin, test fixtures, a JVM target only the scan configured) can only leave
+// a gated file gated. Any failure keeps the merged verdicts.
 func isolateSourceSets(ctx context.Context, opts PassOptions, requested, sourceDirs, classpath, rules []string, configs RuleConfigs, facts FileFacts, result *Result) (out isolationOutcome) {
 	gated := duplicateDeclarationGated(result)
 	out.gated = len(gated)
@@ -93,12 +96,17 @@ func isolateSourceSets(ctx context.Context, opts PassOptions, requested, sourceD
 		out.err = fmt.Errorf("the isolated check registered no checkers")
 		return out
 	}
-	files := make([]string, len(rechecked))
-	for i, path := range rechecked {
-		files[i] = spelling.Caller(path)
+	var files []string
+	for _, path := range rechecked {
+		path = spelling.Caller(path)
+		_, gatedFile := result.ErrorFiles[path]
+		_, crashed := result.Crashed[path]
+		if gatedFile || crashed {
+			files = append(files, path)
+		}
 	}
 	result.replaceFiles(files, resp)
-	out.rechecked = len(files)
+	out.rechecked, out.replaced = len(rechecked), len(files)
 	for _, path := range gated {
 		if reason := result.ErrorFiles[path]; duplicateDeclaration(reason) {
 			out.stillGated++
@@ -173,6 +181,6 @@ func (o isolationOutcome) String() string {
 	if o.rechecked == 0 {
 		return fmt.Sprintf("%d files gated by duplicate declarations; no project qualified for an isolated recheck", o.gated)
 	}
-	return fmt.Sprintf("%d files gated by duplicate declarations; rechecked %d files with each source set compiled on its own in %v, %d still gated by one",
-		o.gated, o.rechecked, o.duration.Round(time.Millisecond), o.stillGated)
+	return fmt.Sprintf("%d files gated by duplicate declarations; rechecked %d files with each source set compiled on its own in %v, replaced %d gated verdicts, %d still gated by one",
+		o.gated, o.rechecked, o.duration.Round(time.Millisecond), o.replaced, o.stillGated)
 }

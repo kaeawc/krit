@@ -218,3 +218,15 @@ func TestProjectsSharingFilesFlagsOverlappingSets(t *testing.T) {
 		t.Fatalf("only :a has a file in two sets: %v", got)
 	}
 }
+
+func TestIsolationUnitsSkipProjectsSharingASourceFile(t *testing.T) {
+	units := []Unit{
+		{Spec: firchecks.ModuleSpec{ID: ":a:main"}, Sources: []string{"/r/shared/S.kt", "/r/a/A.kt"}},
+		{Spec: firchecks.ModuleSpec{ID: ":b:main"}, Sources: []string{"/r/shared/S.kt"}},
+		{Spec: firchecks.ModuleSpec{ID: ":c:main"}, Sources: []string{"/r/c/C.kt"}},
+	}
+	kept, skipped := isolationUnits(units, []string{"/r/a/A.kt", "/r/shared/S.kt", "/r/c/C.kt"})
+	if len(kept) != 1 || kept[0].Spec.ID != ":c:main" || !slices.Equal(skipped, []string{":a", ":b"}) {
+		t.Fatalf("projects listing the same file keep their merged verdicts: %+v %v", kept, skipped)
+	}
+}

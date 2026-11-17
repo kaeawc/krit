@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/manifest"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -316,78 +317,56 @@ func (r *UniquePermissionRule) checkUniqueNames(ctx *api.Context, root *android.
 // Rule: SystemPermissionRule
 // ---------------------------------------------------------------------------
 
-// SystemPermissionRule flags uses-permission requests for permissions that
-// only system apps can hold, which an ordinary app is never granted.
+// SystemPermissionRule mirrors Lint's ProtectedPermissions: a uses-permission request for a permission that only
+// system apps can hold, which an ordinary app is never granted.
 type SystemPermissionRule struct {
 	ManifestBase
 	AndroidRule
 }
 
-// systemOnlyPermissions lists permissions granted only to apps signed with the
-// platform key or installed in the system image (AOSP SystemPermissionsDetector).
-var systemOnlyPermissions = map[string]bool{
-	"android.permission.ACCESS_CHECKIN_PROPERTIES":      true,
-	"android.permission.ACCESS_SURFACE_FLINGER":         true,
-	"android.permission.BACKUP":                         true,
-	"android.permission.BIND_APPWIDGET":                 true,
-	"android.permission.BIND_DEVICE_ADMIN":              true,
-	"android.permission.BIND_INPUT_METHOD":              true,
-	"android.permission.BIND_REMOTEVIEWS":               true,
-	"android.permission.BIND_TEXT_SERVICE":              true,
-	"android.permission.BIND_VPN_SERVICE":               true,
-	"android.permission.BIND_WALLPAPER":                 true,
-	"android.permission.BRICK":                          true,
-	"android.permission.BROADCAST_PACKAGE_REMOVED":      true,
-	"android.permission.BROADCAST_SMS":                  true,
-	"android.permission.BROADCAST_WAP_PUSH":             true,
-	"android.permission.CALL_PRIVILEGED":                true,
-	"android.permission.CHANGE_COMPONENT_ENABLED_STATE": true,
-	"android.permission.CLEAR_APP_USER_DATA":            true,
-	"android.permission.CONFIRM_FULL_BACKUP":            true,
-	"android.permission.CONTROL_LOCATION_UPDATES":       true,
-	"android.permission.DELETE_CACHE_FILES":             true,
-	"android.permission.DELETE_PACKAGES":                true,
-	"android.permission.DEVICE_POWER":                   true,
-	"android.permission.DIAGNOSTIC":                     true,
-	"android.permission.DUMP":                           true,
-	"android.permission.FACTORY_TEST":                   true,
-	"android.permission.FORCE_BACK":                     true,
-	"android.permission.GLOBAL_SEARCH":                  true,
-	"android.permission.HARDWARE_TEST":                  true,
-	"android.permission.INJECT_EVENTS":                  true,
-	"android.permission.INSTALL_LOCATION_PROVIDER":      true,
-	"android.permission.INSTALL_PACKAGES":               true,
-	"android.permission.INTERNAL_SYSTEM_WINDOW":         true,
-	"android.permission.MANAGE_APP_TOKENS":              true,
-	"android.permission.MASTER_CLEAR":                   true,
-	"android.permission.MODIFY_PHONE_STATE":             true,
-	"android.permission.MOUNT_FORMAT_FILESYSTEMS":       true,
-	"android.permission.MOUNT_UNMOUNT_FILESYSTEMS":      true,
-	"android.permission.READ_FRAME_BUFFER":              true,
-	"android.permission.READ_INPUT_STATE":               true,
-	"android.permission.READ_LOGS":                      true,
-	"android.permission.REBOOT":                         true,
-	"android.permission.SET_ACTIVITY_WATCHER":           true,
-	"android.permission.SET_ORIENTATION":                true,
-	"android.permission.SET_POINTER_SPEED":              true,
-	"android.permission.SET_PROCESS_LIMIT":              true,
-	"android.permission.SET_TIME":                       true,
-	"android.permission.SHUTDOWN":                       true,
-	"android.permission.STATUS_BAR":                     true,
-	"android.permission.UPDATE_DEVICE_STATS":            true,
-	"android.permission.WRITE_APN_SETTINGS":             true,
-	"android.permission.WRITE_GSERVICES":                true,
-	"android.permission.WRITE_SECURE_SETTINGS":          true,
+// lastNonSignatureAPILevel returns the last API level at which an ordinary app could still hold the permission, or
+// -1 when it was always restricted (Lint's SystemPermissionsDetector.getLastNonSignatureApiLevel).
+func lastNonSignatureAPILevel(permission string) int {
+	switch permission {
+	case "android.permission.READ_LOGS", "android.permission.SET_ALWAYS_FINISH", "android.permission.SET_ANIMATION_SCALE",
+		"android.permission.SET_DEBUG_APP", "android.permission.SET_PROCESS_LIMIT", "android.permission.SIGNAL_PERSISTENT_PROCESSES":
+		return 15
+	case "android.permission.CHANGE_CONFIGURATION", "android.permission.MOUNT_FORMAT_FILESYSTEMS",
+		"android.permission.MOUNT_UNMOUNT_FILESYSTEMS":
+		return 16
+	case "android.permission.ACCESS_MOCK_LOCATION", "android.permission.CLEAR_APP_CACHE":
+		return 22
+	case "android.permission.SET_TIME_ZONE":
+		return 25
+	case "android.permission.SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE":
+		return 33
+	}
+	return -1
 }
 
 func (r *SystemPermissionRule) check(ctx *api.Context) {
 	m := ctx.Manifest
-	for _, perm := range m.UsesPermissions {
-		if systemOnlyPermissions[perm] {
-			ctx.Emit(baseFinding(m.Path, permissionLine(m.UsesPermissionLines, perm), r.BaseRule,
-				fmt.Sprintf("Permission `%s` is only granted to system apps.", perm)))
+	minSdk := manifestMinSdk(m)
+	manifestWalk(m.Root, func(n, _ *manifest.Node) {
+		if n.Tag != "uses-permission" {
+			return
 		}
-	}
+		name, ok := n.Attr("android:name")
+		if !ok || !isSystemPermissionName(name.Value) {
+			return
+		}
+		level := lastNonSignatureAPILevel(name.Value)
+		if level != -1 {
+			// An ordinary app could hold the permission up to this level, so a cap at or below it is fine.
+			if maxSdk, err := strconv.Atoi(n.AttrValue("android:maxSdkVersion")); err == nil && maxSdk <= level {
+				return
+			}
+			if minSdk > level {
+				return
+			}
+		}
+		emitManifestAtAttr(ctx, name, "Permission is only granted to system apps")
+	})
 }
 
 // ---------------------------------------------------------------------------

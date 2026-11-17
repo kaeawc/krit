@@ -159,6 +159,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_parcel_binder_test.go
+  IntentReset:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_intent_reset_test.go
+  IntentWithNullActionLaunch:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_intent_reset_test.go
   BinderGetCallingInMainThread:
     status: supported
     fixtures:

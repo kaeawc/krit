@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.security.assignedLocalValues
 import dev.jasonpearson.krit.fir.checkers.security.isLocalVar
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
@@ -20,14 +21,11 @@ import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.argument
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
@@ -121,8 +119,7 @@ internal object SecureRandom : FirFunctionCallChecker(MppCheckerKind.Common), Fi
             is FirConstructorSymbol -> {
                 // The return type names the constructed class; for a typealias
                 // constructor it is expanded to the aliased class.
-                val constructed = callee.resolvedReturnType.fullyExpandedType().lowerBoundIfFlexible()
-                    as? ConeClassLikeType ?: return
+                val constructed = callee.resolvedReturnType.expandedClassType() ?: return
                 if (constructed.lookupTag.classId != randomClassId) return
                 report(expression.source, RANDOM_MESSAGE)
             }

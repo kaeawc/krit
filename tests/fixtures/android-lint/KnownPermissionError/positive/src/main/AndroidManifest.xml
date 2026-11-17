@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.synth">
+
+    <application android:label="Example">
+        <service android:name=".Sync" android:exported="false" android:permission="true" />
+    </application>
+</manifest>

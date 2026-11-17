@@ -108,8 +108,7 @@ func (r *SystemPermissionRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "SystemPermission",
 		RuleSet:       "android-lint",
-		DefaultActive: false,
-		OptInReason:   api.OptInReasonAndroidOnly,
+		DefaultActive: true,
 	}
 }
 

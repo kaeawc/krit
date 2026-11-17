@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.checkers.resourcecost
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.hasSuspendFunctionType
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
@@ -24,8 +25,6 @@ import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -58,7 +57,7 @@ internal object OkHttpCallExecuteSync : FirFunctionCallChecker(MppCheckerKind.Co
         "Synchronous OkHttp Call.execute() in a suspend function has no IO dispatcher evidence; wrap the call in " +
             "withContext(Dispatchers.IO) or use an async OkHttp/Retrofit adapter."
 
-    private val call = ClassId(FqName("okhttp3"), Name.identifier("Call"))
+    private val call = classIdOf("okhttp3", "Call")
     private val execute = Name.identifier("execute")
     private val submit = Name.identifier("submit")
     private val cancellableBridge = Name.identifier("suspendCancellableCoroutine")

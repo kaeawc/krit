@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.qualifiedCall
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -13,8 +14,6 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.name.ClassId
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
 /**
@@ -49,7 +48,7 @@ internal object WakelockTimeout : FirFunctionCallChecker(MppCheckerKind.Common),
             "your user's battery."
 
     private val acquire = Name.identifier("acquire")
-    private val wakeLock = ClassId(FqName("android.os"), FqName("PowerManager.WakeLock"), false)
+    private val wakeLock = nestedClassIdOf("android.os", "PowerManager.WakeLock")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

@@ -194,7 +194,7 @@ that changes an API needs a fix in one helper, not in every checker.
 | Find a trailing lambda | `trailingLambdaOf`, `lambdaOwner` | `isTrailingLambda` |
 | Find what an assignment writes | `assignedAccess`, `isCompoundAssignment` | `FirDesugaredAssignmentValueReferenceExpression` |
 | Read the light tree | `lightChildren`, `significantChildren`, `lightText`, `lightSourceOf`, `identifierAnchor` and the other `LightSource.kt` anchors | `treeStructure.getChildren`, `treeStructure.toString`, `toKtLightSourceElement` |
-| Other shared reads | `pathTo`, `isNullableOperand`, `hasSuspendFunctionType`, `simpleName`, `firstArgumentNode` | a private copy in the checker |
+| Other shared reads | `pathTo`, `isNullableOperand`, `hasSuspendFunctionType`, `simpleName`, `firstArgumentNode`, `expandedClassType`, `isNonNothingSubtypeOf` | a private copy in the checker |
 
 When no helper covers a compiler-internal call you need, add the helper to
 `support/` first, with a unit test under `src/test/.../support/`, and call it

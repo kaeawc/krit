@@ -11,9 +11,10 @@ Krit ships from `v*` tags:
   plugin, VS Code extension, and `install.sh` all download these archives
   and verify them against `checksums.txt`. Released CLIs download
   `krit-fir-<tag>.jar` the same way, so the release job fails when that jar
-  is missing, is not a jar, or has no matching `checksums.txt` line, and it
-  checks the published release for the jar and re-uploads it once when an
-  upload was lost (`internal/devtools/releaseassets`).
+  is missing, is not a jar, or has no matching `checksums.txt` line. The
+  release is created as a draft, each asset upload is retried up to three
+  times, and the draft is published only after the uploaded asset list is
+  checked (`internal/devtools/releaseassets`).
 - **Package managers** — stable `vX.Y.Z` tags only. `release.yml` pushes
   the Homebrew cask (`scripts/release/update-brew-tap.sh`) and Scoop
   manifest (`scripts/release/update-scoop-bucket.sh`), and renders winget

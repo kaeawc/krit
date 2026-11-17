@@ -5,10 +5,11 @@
 //
 //	go run ./internal/devtools/releaseassets --tag v1.2.3 --dir dist
 //
-// After publishing, check the asset names the release reports:
+// After uploading, check the asset names the release reports, optionally
+// against the full list of names that were uploaded:
 //
 //	gh release view v1.2.3 --json assets -q '.assets[].name' > assets.txt
-//	go run ./internal/devtools/releaseassets --tag v1.2.3 --published assets.txt
+//	go run ./internal/devtools/releaseassets --tag v1.2.3 --published assets.txt --expect uploaded.txt
 package main
 
 import (
@@ -30,6 +31,7 @@ func main() {
 	tag := flag.String("tag", "", "release tag, e.g. v1.2.3")
 	dir := flag.String("dir", "", "assembled release directory to check")
 	published := flag.String("published", "", "file listing the published asset names, one per line")
+	expect := flag.String("expect", "", "with --published: file listing further asset names the release must have")
 	flag.Parse()
 	if *tag == "" || (*dir == "") == (*published == "") {
 		fmt.Fprintln(os.Stderr, "usage: releaseassets --tag TAG (--dir DIR | --published FILE)")
@@ -39,7 +41,7 @@ func main() {
 	if *dir != "" {
 		err = checkDir(*dir, *tag)
 	} else {
-		err = checkPublishedFile(*published, *tag)
+		err = checkPublishedFile(*published, *expect, *tag)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "release assets: %v\n", err)
@@ -119,33 +121,56 @@ func checksumFor(content []byte, name string) ([]byte, error) {
 	return nil, fmt.Errorf("checksums.txt has no line for %s", name)
 }
 
-func checkPublishedFile(path, tag string) error {
+func checkPublishedFile(path, expectPath, tag string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return checkPublished(f, tag)
+	var expected []string
+	if expectPath != "" {
+		e, err := os.Open(expectPath)
+		if err != nil {
+			return err
+		}
+		defer e.Close()
+		if expected, err = readNames(e); err != nil {
+			return err
+		}
+	}
+	return checkPublished(f, tag, expected)
+}
+
+// readNames reads one asset name per line, skipping blank lines.
+func readNames(r io.Reader) ([]string, error) {
+	var names []string
+	s := bufio.NewScanner(r)
+	for s.Scan() {
+		if name := strings.TrimSpace(filepath.Base(s.Text())); name != "" && name != "." {
+			names = append(names, name)
+		}
+	}
+	return names, s.Err()
 }
 
 // checkPublished verifies the published asset names include every required
-// asset.
-func checkPublished(r io.Reader, tag string) error {
-	have := map[string]bool{}
-	s := bufio.NewScanner(r)
-	for s.Scan() {
-		if name := strings.TrimSpace(s.Text()); name != "" {
-			have[name] = true
-		}
-	}
-	if err := s.Err(); err != nil {
+// asset and every name in expected.
+func checkPublished(r io.Reader, tag string, expected []string) error {
+	names, err := readNames(r)
+	if err != nil {
 		return err
 	}
+	have := map[string]bool{}
+	for _, name := range names {
+		have[name] = true
+	}
 	var missing []string
-	for _, name := range requiredPublished(tag) {
-		if !have[name] {
-			missing = append(missing, name)
+	for _, name := range append(requiredPublished(tag), expected...) {
+		if have[name] {
+			continue
 		}
+		have[name] = true // report each missing name once
+		missing = append(missing, name)
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("release %s is missing %s", tag, strings.Join(missing, ", "))

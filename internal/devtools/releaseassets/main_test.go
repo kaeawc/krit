@@ -91,12 +91,19 @@ func TestCheckDir(t *testing.T) {
 
 func TestCheckPublished(t *testing.T) {
 	all := "krit_1.2.3_linux_amd64.tar.gz\nkrit-fir-v1.2.3.jar\nchecksums.txt\nchecksums.txt.sig\n"
-	if err := checkPublished(strings.NewReader(all), tag); err != nil {
+	if err := checkPublished(strings.NewReader(all), tag, nil); err != nil {
 		t.Fatalf("complete release: %v", err)
 	}
 	withoutJar := strings.Replace(all, "krit-fir-v1.2.3.jar\n", "", 1)
-	if err := checkPublished(strings.NewReader(withoutJar), tag); err == nil || !strings.Contains(err.Error(), "krit-fir-v1.2.3.jar") {
+	if err := checkPublished(strings.NewReader(withoutJar), tag, nil); err == nil || !strings.Contains(err.Error(), "krit-fir-v1.2.3.jar") {
 		t.Fatalf("release without the jar: error = %v", err)
+	}
+	// Every uploaded name must be present, and a duplicated expected name is
+	// reported once.
+	expected := []string{"krit_1.2.3_linux_amd64.tar.gz", "krit_1.2.3_windows_amd64.zip", "krit_1.2.3_windows_amd64.zip"}
+	err := checkPublished(strings.NewReader(all), tag, expected)
+	if err == nil || !strings.HasSuffix(err.Error(), "missing krit_1.2.3_windows_amd64.zip") {
+		t.Fatalf("release without an uploaded archive: error = %v", err)
 	}
 }
 

@@ -1,10 +1,10 @@
 package dev.jasonpearson.krit.fir
 
 /**
- * Removes comments (line, and block comments which nest) and blanks the contents of string literals (plain and
- * raw) and char literals, keeping the quotes and every newline so line structure survives. Code inside a string
- * template (`${...}`) is kept, and literals inside it are blanked too. Used by the tests that scan checker sources
- * on disk.
+ * Removes comments (line, and block comments which nest and leave a space) and blanks the contents of string
+ * literals (plain and raw) and char literals, keeping the quotes and every newline so line structure survives. Code
+ * inside a string template (`${...}` and `$name`) is kept, and literals inside it are blanked too. Used by the tests
+ * that scan checker sources on disk.
  */
 internal fun stripCommentsAndStrings(src: String): String = SourceStripper(src).strip()
 
@@ -49,6 +49,8 @@ private class SourceStripper(private val src: String) {
     }
 
     private fun skipBlockComment() {
+        // A comment separates tokens, so it leaves a space behind.
+        out.append(' ')
         var depth = 1
         i += 2
         while (i < src.length && depth > 0) {
@@ -74,6 +76,7 @@ private class SourceStripper(private val src: String) {
             when {
                 !raw && src[i] == '\\' -> i += 2
                 src.startsWith("\${", i) -> template()
+                src[i] == '$' && src.getOrNull(i + 1)?.isIdentifierStart() == true -> simpleTemplate()
                 else -> blank()
             }
         }
@@ -84,6 +87,15 @@ private class SourceStripper(private val src: String) {
             i += quote.length
         }
     }
+
+    /** Copies a `$name` template: the name is code. */
+    private fun simpleTemplate() {
+        val end = (i + 1 until src.length).firstOrNull { !src[it].isLetterOrDigit() && src[it] != '_' } ?: src.length
+        out.append(src, i, end)
+        i = end
+    }
+
+    private fun Char.isIdentifierStart(): Boolean = isLetter() || this == '_'
 
     private fun template() {
         out.append("\${")

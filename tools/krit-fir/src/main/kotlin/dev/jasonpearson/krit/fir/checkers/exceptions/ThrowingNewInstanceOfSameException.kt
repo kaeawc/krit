@@ -89,7 +89,7 @@ internal object ThrowingNewInstanceOfSameException :
             current = when (current) {
                 is FirSafeCallExpression -> unwrapSmartCasts(current.receiver)
                 is FirCheckNotNullCall ->
-                    unwrapSmartCasts(current, throughNotNull = true).takeIf { it !== current } ?: return null
+                    unwrapSmartCasts(current, throughNotNull = true).takeIf { it != current } ?: return null
                 is FirPropertyAccessExpression -> {
                     val receiver = current.explicitReceiver ?: return current
                     unwrapSmartCasts(receiver)

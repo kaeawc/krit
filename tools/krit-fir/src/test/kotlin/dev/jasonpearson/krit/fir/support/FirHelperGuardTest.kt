@@ -93,6 +93,15 @@ class FirHelperGuardTest {
             val c = $q$d{lookupSuperTypes(s, "$d{"x"}")}$q
         """.trimIndent()
         assertEquals(mapOf("class-id-constructor" to 1, "supertype-walk" to 1), countPatterns(src))
+        val simple = """
+            val a = with(e) { "$d{originalExpression}" }
+            val b = with(e) { "${d}originalExpression and $d$d" }
+        """.trimIndent()
+        assertEquals(mapOf("smart-cast-unwrap" to 2), countPatterns(simple))
+    }
+
+    @Test fun blockCommentSeparatesTokens() {
+        assertEquals(mapOf("class-id-constructor" to 1), countPatterns("fun f() = return/* why */ClassId(pkg, name)"))
     }
 
     @Test fun scannerCountsEachUseOnALineAndAcrossLines() {

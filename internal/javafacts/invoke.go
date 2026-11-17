@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kaeawc/krit/internal/jdk"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
+// Options configures one helper run. An empty Java resolves the launcher
+// through jdk.Java, so JAVA_HOME wins over PATH.
 type Options struct {
 	Java       string
 	Classpath  string
@@ -20,7 +23,6 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		Java:       "java",
 		HelperMain: "dev.jasonpearson.krit.javafacts.Main",
 		Timeout:    30 * time.Second,
 	}
@@ -41,7 +43,11 @@ func Invoke(ctx context.Context, helperClasspath string, files []string, opts Op
 		return nil, UnavailableWarning(fmt.Errorf("helper classpath is empty")), nil
 	}
 	if opts.Java == "" {
-		opts.Java = "java"
+		java, err := jdk.Java()
+		if err != nil {
+			return nil, UnavailableWarning(err), nil //nolint:nilerr // a missing JVM degrades to source analysis
+		}
+		opts.Java = java
 	}
 	if opts.HelperMain == "" {
 		opts.HelperMain = "dev.jasonpearson.krit.javafacts.Main"

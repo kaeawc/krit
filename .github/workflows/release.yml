@@ -167,6 +167,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
+      # Runs internal/devtools/releaseassets, which checks the krit-fir jar
+      # before and after the release is created.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version-file: go.mod }
 
       - name: Import GPG signing key
         uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
@@ -184,12 +188,16 @@ jobs:
 
       - name: Assemble dist/
         shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           set -euxo pipefail
           mkdir -p dist
           cp staging/*.tar.gz staging/*.zip dist/ 2>/dev/null || true
           cp staging/*.sbom.json dist/ 2>/dev/null || true
-          cp staging/*.jar dist/ 2>/dev/null || true
+          # Released CLIs download this jar; a release without it degrades
+          # every FIR scan, so a missing jar fails the job here.
+          cp "staging/krit-fir-${TAG}.jar" dist/
           ls -la dist/
 
       - name: Generate combined checksums.txt
@@ -205,6 +213,11 @@ jobs:
           sort -k2 checksums.txt -o checksums.txt
           cat checksums.txt
 
+      - name: Verify krit-fir jar and checksum
+        env:
+          TAG: ${{ github.ref_name }}
+        run: go run ./internal/devtools/releaseassets --tag "$TAG" --dir dist
+
       - name: Sign combined checksums.txt
         shell: bash
         env:
@@ -217,13 +230,21 @@ jobs:
             --passphrase-fd 0 --local-user "$GPG_FINGERPRINT" \
             --output checksums.txt.sig --detach-sign checksums.txt
 
-      - name: Create GitHub release
+      # The release stays a draft until every asset is uploaded and verified,
+      # so a failed upload never leaves a published release without the
+      # krit-fir jar that released CLIs download. A re-run of the job reuses
+      # the draft.
+      - name: Create draft GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          cd dist
+          gh --version
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; reusing it."
+            exit 0
+          fi
           # Any tag with a SemVer prerelease suffix (e.g. v1.5.0-nightly.20260516,
           # v1.5.0-beta.1, v1.5.0-rc1) is marked as a GitHub prerelease so it
           # doesn't show up under the "Latest" badge.
@@ -231,13 +252,58 @@ jobs:
           case "$TAG" in
             *-*) prerelease_flag="--prerelease" ;;
           esac
-          # shellcheck disable=SC2046
+          # shellcheck disable=SC2086
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$TAG" \
             --generate-notes \
-            $prerelease_flag \
-            $(ls *.tar.gz *.zip *.jar *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null)
+            --draft \
+            $prerelease_flag
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          { ls *.tar.gz *.zip *.jar *.sbom.json checksums.txt checksums.txt.sig 2>/dev/null || true; } > "$RUNNER_TEMP/release-upload.txt"
+          cat "$RUNNER_TEMP/release-upload.txt"
+          while IFS= read -r asset; do
+            for attempt in 1 2 3; do
+              if gh release upload "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --clobber; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::upload of $asset failed after $attempt attempts"
+                exit 1
+              fi
+              sleep $((attempt * 10))
+            done
+          done < "$RUNNER_TEMP/release-upload.txt"
+
+      - name: Verify uploaded release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' > "$RUNNER_TEMP/release-assets.txt"
+          go run ./internal/devtools/releaseassets --tag "$TAG" \
+            --published "$RUNNER_TEMP/release-assets.txt" \
+            --expect "$RUNNER_TEMP/release-upload.txt"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          latest_flag="--latest"
+          case "$TAG" in
+            *-*) latest_flag="--latest=false" ;;
+          esac
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false "$latest_flag"
 
       # Package managers only track stable releases. Tags with a SemVer
       # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)

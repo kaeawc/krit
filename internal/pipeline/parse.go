@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // ParsePhase is the first phase of the Krit analysis pipeline. It collects
@@ -20,7 +20,7 @@ import (
 // same suppression map, and collects Java sources when any active rule
 // declares NeedsCrossFile, NeedsParsedFiles, or Java source dispatch.
 type ParsePhase struct {
-	// Workers overrides the parse worker count. Zero = runtime.NumCPU().
+	// Workers overrides the parse worker count. Zero = sysres.CPUs().
 	// When ParseInput.Workers is non-zero, that takes precedence.
 	Workers int
 }
@@ -54,7 +54,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 		workers = p.Workers
 	}
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 
 	kotlinPaths := in.KotlinPaths

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/proc"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 func Run(args []string) int {
@@ -48,7 +48,7 @@ func Run(args []string) int {
 }
 
 func SelectTests(root string, files []*scanner.File, changedPaths []string) []string {
-	idx := scanner.BuildIndex(files, runtime.NumCPU())
+	idx := scanner.BuildIndex(files, sysres.CPUs())
 	changedSet := changedPathSet(root, changedPaths)
 	changedNames := make(map[string]bool)
 	for _, sym := range idx.Symbols {

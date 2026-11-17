@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -32,7 +32,7 @@ import (
 // machinery and stays in the CLI driver until a follow-up refactor.
 type CrossFilePhase struct {
 	// Workers overrides the cross-file index worker count. Zero =
-	// runtime.NumCPU().
+	// sysres.CPUs().
 	Workers int
 }
 
@@ -619,7 +619,7 @@ func runConcurrentCrossRules(ctx context.Context, ruleSet []*api.Rule, codeIndex
 		return
 	}
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if workers > len(ruleSet) {
 		workers = len(ruleSet)

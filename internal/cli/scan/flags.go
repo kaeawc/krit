@@ -2,10 +2,10 @@ package scan
 
 import (
 	"flag"
-	"runtime"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/output"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // scanFlags bundles every CLI flag the scan default verb declares.
@@ -100,6 +100,9 @@ type scanFlags struct {
 	DisableRelated           *bool
 	EnableRules              *string
 	MaxCost                  *string
+	OnlyScope                *string
+	Reproducible             *bool
+	ExcludeScope             *string
 	Experiment               *string
 	ExperimentOff            *string
 	ListExperiments          *bool
@@ -143,13 +146,14 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	fs.StringVar(f.Format, "format", "json", "Alias for -f")
 	f.Report = fs.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
 	f.Perf = fs.Bool("perf", false, "Include performance timing in output")
+	f.Reproducible = fs.Bool("reproducible", false, "Omit run-dependent JSON fields (durationMs is 0; no cache statistics or perf timings) so the same inputs give byte-identical output")
 	f.PerfRules = fs.Bool("perf-rules", false, "Include per-rule execution ranking in JSON output and stderr table (implies --perf)")
 	f.CPUProfile = fs.String("cpuprofile", "", "Write CPU profile to file (in daemon mode profiles the daemon process; pair with --no-daemon to profile the short-lived CLI)")
 	f.MemProfile = fs.String("memprofile", "", "Write memory profile to file (in daemon mode profiles the daemon process; pair with --no-daemon to profile the short-lived CLI)")
 	f.ProfileDispatch = fs.Bool("profile-dispatch", false, "Debug: emit per-file dispatch timing distribution to stderr (works in both daemon and in-process modes)")
 	f.IncludeGenerated = fs.Bool("include-generated", false, "Include files under */generated/* directories (default: skipped, not user-maintained code)")
 	f.Output = fs.String("o", "", "Write output to file")
-	f.Jobs = fs.Int("j", runtime.NumCPU(), "Number of parallel jobs")
+	f.Jobs = fs.Int("j", sysres.CPUs(), "Number of parallel jobs (default GOMAXPROCS, which follows a Linux cgroup CPU quota)")
 	f.Quiet = fs.Bool("q", false, "Only print findings")
 	f.Verbose = fs.Bool("v", false, "Verbose output")
 	f.Fix = fs.Bool("fix", false, "Apply auto-fixes to files")
@@ -201,7 +205,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Fir = fs.Bool("fir", true, "Enable FIR checker pass (krit-fir JVM subprocess; default on)")
 	f.NoFir = fs.Bool("no-fir", false, "Disable the default-on FIR checker pass")
 	f.FailOnDegraded = fs.Bool("fail-on-degraded", false, "Exit 2 when the FIR pass is unavailable or fails instead of falling back to Go rules with a warning")
-	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Force one-shot mode for FIR checker (no persistent daemon; useful for hermetic CI runners)")
+	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Run the FIR checker and type-oracle cache misses one-shot; with --no-daemon, no krit-fir daemon outlives the scan (useful for hermetic CI runners)")
 	f.FixBinary = fs.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	f.WarningsAsErrors = fs.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")
 	f.MinConfidence = fs.Float64("min-confidence", 0, "Minimum confidence (0.0-1.0) for findings to be reported; 0 keeps all. Rules that don't set confidence are treated as 0 and dropped when this flag is > 0.")
@@ -215,6 +219,8 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.DisableRelated = fs.Bool("disable-related", false, "Also disable every rule listed in the RelatedRules metadata of each --disable-rules entry (non-transitive: only one hop is followed).")
 	f.EnableRules = fs.String("enable-rules", "", "Comma-separated rules to enable (overrides config)")
 	f.MaxCost = fs.String("max-cost", "", "Maximum rule weight class to run: trivial, line, ast (fast), crossfile (balanced), oracle, fir (thorough). Filters the active rule set so higher-cost rules are skipped.")
+	f.OnlyScope = fs.String("only-scope", "", "Run only rules in these comma-separated scopes: file (per-file rules), project (cross-file, module, Android and Gradle rules), or a dispatcher scope such as cross-file or line-pass")
+	f.ExcludeScope = fs.String("exclude-scope", "", "Skip rules in these comma-separated scopes (same values as --only-scope)")
 	f.Experiment = fs.String("experiment", "", "Comma-separated experiment feature flags to enable")
 	f.ExperimentOff = fs.String("experiment-off", "", "Comma-separated experiment feature flags to disable")
 	f.ListExperiments = fs.Bool("list-experiments", false, "List available experiment feature flags")

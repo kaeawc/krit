@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/kaeawc/krit/internal/selfexec"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // defaultSimulateCommits caps a Simulate call when neither Since nor
@@ -90,7 +90,7 @@ func Simulate(opts SimulateOptions) (*SimulateResult, error) {
 	}
 	workers := opts.Workers
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	maxCommits := opts.MaxCommits
 	if maxCommits == 0 && opts.Since == 0 {
@@ -207,7 +207,7 @@ func collectSidecarPoints(repoRoot, rule string, commits []commitMeta, workers i
 		return nil, commits
 	}
 	if workers <= 0 {
-		workers = runtime.NumCPU()
+		workers = sysres.CPUs()
 	}
 	if workers > len(commits) {
 		workers = len(commits)

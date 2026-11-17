@@ -360,3 +360,11 @@ func TestEnsureBackendJar_FailedDownloadNotRetriedInProcess(t *testing.T) {
 		t.Errorf("expected one download attempt, got %d requests", requests)
 	}
 }
+
+func TestJavaAvailableHonoursJavaHome(t *testing.T) {
+	// The real check, not the test seam other download tests replace.
+	t.Setenv("JAVA_HOME", t.TempDir())
+	if javaAvailable() {
+		t.Fatal("javaAvailable() = true for a JAVA_HOME without bin/java")
+	}
+}

@@ -92,8 +92,20 @@ func TestCompileJavaFactsHelperCacheKeyIncludesJavacIdentity(t *testing.T) {
 }
 
 func TestCompileJavaFactsHelperCacheKeyIncludesJavaHome(t *testing.T) {
-	if _, err := exec.LookPath("javac"); err != nil {
+	javac, err := exec.LookPath("javac")
+	if err != nil {
 		t.Skip("javac is not available")
+	}
+	// JAVA_HOME must contain bin/javac, so the second compile names the JDK
+	// that the PATH javac belongs to.
+	resolved, err := filepath.EvalSymlinks(javac)
+	if err != nil {
+		t.Fatal(err)
+	}
+	javaHome := filepath.Dir(filepath.Dir(resolved))
+	if _, err := os.Stat(filepath.Join(javaHome, "bin", "javac")); err != nil {
+		// A version-manager shim is not inside a JDK home.
+		t.Skipf("javac on PATH is not inside a JDK home: %v", err)
 	}
 	originalRoot := javaFactsCacheRoot
 	cacheRoot := t.TempDir()
@@ -113,7 +125,7 @@ func TestCompileJavaFactsHelperCacheKeyIncludesJavaHome(t *testing.T) {
 	if err != nil || warning != "" {
 		t.Fatalf("first compile: warning=%q err=%v", warning, err)
 	}
-	t.Setenv("JAVA_HOME", "/fake/jdk-b")
+	t.Setenv("JAVA_HOME", javaHome)
 	secondPath, secondCleanup, warning, err := compileJavaFactsHelper(nil)
 	if secondCleanup != nil {
 		defer secondCleanup()

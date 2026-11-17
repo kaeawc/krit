@@ -13,7 +13,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/proc"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 const (
@@ -306,8 +306,8 @@ func buildIndex(root string) *scanner.CodeIndex {
 	if err != nil {
 		return nil
 	}
-	files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
-	return scanner.BuildIndex(files, runtime.NumCPU())
+	files, _ := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
+	return scanner.BuildIndex(files, sysres.CPUs())
 }
 
 // declarationFilesByName indexes Symbols by simple name so callers can

@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -34,6 +33,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // Version is the krit binary version reported by `status`. cmd/krit
@@ -1329,7 +1329,7 @@ func resolveAbiHashTargetForDaemon(state *daemonState, target string) ([]*scanne
 		if err != nil {
 			return nil, fmt.Errorf("collecting %s: %w", target, err)
 		}
-		files, _ := scanner.ScanFiles(context.Background(), paths, runtime.NumCPU())
+		files, _ := scanner.ScanFiles(context.Background(), paths, sysres.CPUs())
 		return files, nil
 	}
 	if !strings.HasSuffix(path, ".kt") {

@@ -6,10 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 
 	krename "github.com/kaeawc/krit/internal/rename"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 type renameCommand struct {
@@ -25,7 +25,7 @@ func Run(args []string) int {
 	cmd := renameCommand{}
 	fs := flag.NewFlagSet("rename", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.IntVar(&cmd.Jobs, "j", runtime.NumCPU(), "Number of parallel jobs")
+	fs.IntVar(&cmd.Jobs, "j", sysres.CPUs(), "Number of parallel jobs")
 	fs.BoolVar(&cmd.Apply, "apply", false, "Apply the rename to the working tree (default: dry-run)")
 	fs.BoolVar(&cmd.AllowMultipleDeclarations, "allow-multiple-declarations", false, "Bypass the multi-decl ambiguity guard (e.g. for legitimate Kotlin overload sets sharing an FQN)")
 	fs.Usage = func() {

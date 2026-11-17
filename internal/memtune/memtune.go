@@ -5,6 +5,10 @@
 // dominates peak RSS. Collections are cheap relative to analysis work (a few
 // percent of CPU), so this package lowers the GC percent as the live heap
 // grows, keeping headroom near a fixed number of bytes instead.
+//
+// Inside a cgroup with a memory limit (a container or a build-system sandbox)
+// the package also sets a Go soft memory limit below the cgroup limit, so the
+// collector works harder before the kernel kills the process.
 package memtune
 
 import (
@@ -13,6 +17,8 @@ import (
 	"runtime/metrics"
 	"sync"
 	"time"
+
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 const (
@@ -45,17 +51,57 @@ func PercentForLive(liveBytes uint64) int {
 	return pct
 }
 
-// Start adjusts the GC percent in the background as the live heap grows. It is
-// a no-op when GOGC or GOMEMLIMIT is set, so explicit user tuning wins. The
-// returned function stops the adjuster and is safe to call more than once.
+// cgroupLimit is a seam over sysres.CgroupMemoryLimitBytes for tests.
+var cgroupLimit = sysres.CgroupMemoryLimitBytes
+
+// SoftLimitFor returns the Go soft memory limit for a cgroup memory limit of
+// cgroupBytes: three quarters of it, or 0 when there is no cgroup limit. The
+// remaining quarter covers tree-sitter's C allocations, goroutine stacks, and
+// the JVMs krit starts in the same cgroup.
+func SoftLimitFor(cgroupBytes uint64) int64 {
+	return int64(cgroupBytes - cgroupBytes/4)
+}
+
+// Start adjusts the GC percent in the background as the live heap grows and,
+// inside a memory-limited cgroup, sets a soft memory limit below the cgroup
+// limit. GOMEMLIMIT, when set, replaces the derived soft limit (the runtime
+// applies it; GOMEMLIMIT=off disables it), and GOGC or GOMEMLIMIT disable the
+// GC percent adjuster, so explicit user tuning wins. The returned function
+// stops the adjuster, restores the previous memory limit, and is safe to call
+// more than once.
 func Start() (stop func()) {
+	restore := applyContainerLimit()
+	var once sync.Once
 	if os.Getenv("GOGC") != "" || os.Getenv("GOMEMLIMIT") != "" {
-		return func() {}
+		return func() { once.Do(restore) }
 	}
 	done := make(chan struct{})
-	var once sync.Once
 	go run(done)
-	return func() { once.Do(func() { close(done) }) }
+	return func() {
+		once.Do(func() {
+			close(done)
+			restore()
+		})
+	}
+}
+
+// applyContainerLimit sets the derived soft memory limit when GOMEMLIMIT is
+// unset and the cgroup has a memory limit. It returns a function that restores
+// the previous limit.
+func applyContainerLimit() (restore func()) {
+	if os.Getenv("GOMEMLIMIT") != "" {
+		return func() {}
+	}
+	limit, ok := cgroupLimit()
+	if !ok {
+		return func() {}
+	}
+	soft := SoftLimitFor(limit)
+	if soft <= 0 {
+		return func() {}
+	}
+	prev := debug.SetMemoryLimit(soft)
+	return func() { debug.SetMemoryLimit(prev) }
 }
 
 func run(done <-chan struct{}) {

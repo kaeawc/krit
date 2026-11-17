@@ -49,6 +49,21 @@ func TestInvokeMissingJavaFallsBackWithWarning(t *testing.T) {
 	}
 }
 
+func TestInvokeResolvesJavaThroughJavaHome(t *testing.T) {
+	// A JAVA_HOME without bin/java must not fall back to a java on PATH.
+	t.Setenv("JAVA_HOME", t.TempDir())
+	facts, warning, err := Invoke(context.Background(), "helper", []string{"Test.java"}, DefaultOptions(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts != nil {
+		t.Fatalf("expected no facts without a launcher, got %+v", facts)
+	}
+	if !strings.Contains(warning, "JAVA_HOME") {
+		t.Fatalf("warning %q does not name JAVA_HOME", warning)
+	}
+}
+
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }

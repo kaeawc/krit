@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +25,7 @@ import (
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // Input describes one sharded oracle run.
@@ -695,7 +695,7 @@ func prune(dir string, liveKeys []string, maxAge time.Duration) {
 
 // defaultWorkers is half the CPUs, between 2 and 8. More JVMs than that spent more CPU warming up
 // and contending than they saved in wall time.
-func defaultWorkers() int { return max(2, min(runtime.NumCPU()/2, 8)) }
+func defaultWorkers() int { return max(2, min(sysres.CPUs()/2, 8)) }
 
 // sourceFiles lists the Kotlin, Java and script files under roots, sorted.
 func sourceFiles(roots []string) []string {

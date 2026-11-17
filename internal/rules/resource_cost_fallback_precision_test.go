@@ -51,10 +51,16 @@ class Loader(private val appDispatchers: AppDispatchers) {
     suspend fun io(call: Call) = withContext(appDispatchers.io) { call.execute() }
     suspend fun default(call: Call) = withContext(dispatchers.default) { call.execute() }
     suspend fun main(call: Call) = withContext(appDispatchers.main) { call.execute() }
+    suspend fun nested(call: Call) = withContext(appDispatchers.main) {
+        withContext(appDispatchers.io) { prefetch() }
+        call.execute()
+    }
+    suspend fun flowed(call: Call) = flow { emit(call.execute()) }.flowOn(appDispatchers.io)
+    suspend fun sibling(call: Call) = run(appDispatchers.io, other { call.execute() })
 }
 `)
-	if len(findings) != 1 || findings[0].Line != 8 {
-		t.Fatalf("expected only the main-dispatcher call on line 8, got %v", findings)
+	if len(findings) != 2 || findings[0].Line != 8 || findings[1].Line != 11 {
+		t.Fatalf("expected the main-dispatcher calls on lines 8 and 11, got %v", findings)
 	}
 }
 

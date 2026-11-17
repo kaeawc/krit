@@ -479,38 +479,21 @@ func localNonScopeAnnotation(file *scanner.File, name string) bool {
 	return ok && !scopeMetaAnnotationRe.MatchString(header)
 }
 
-// localAnnotationClassHeader returns the annotations and modifiers written before the file's own
-// `annotation class name` declaration, and whether the file declares one.
+// localAnnotationClassHeader returns the annotations and modifiers of the file's own
+// `annotation class name` declaration, and whether the file declares one. It reads declaration
+// nodes, so a commented-out declaration or one inside a string does not count.
 func localAnnotationClassHeader(file *scanner.File, name string) (string, bool) {
 	if !bytes.Contains(file.Content, []byte("class "+name)) {
 		return "", false
 	}
-	m := localAnnotationClassRe(name).FindSubmatch(file.Content)
-	if m == nil {
-		return "", false
-	}
-	return string(m[1]), true
-}
-
-// localAnnotationClassRes match a file's own `annotation class <name>` declaration, with the
-// annotations and modifiers before it, for each annotation name the DI rules look up.
-var localAnnotationClassRes = func() map[string]*regexp.Regexp {
-	res := map[string]*regexp.Regexp{}
-	for _, name := range append([]string{"Binds", "Provides", "IntoMap", "IntoSet"}, scopeAnnotationNames...) {
-		res[name] = compileLocalAnnotationClassRe(name)
-	}
-	return res
-}()
-
-func compileLocalAnnotationClassRe(name string) *regexp.Regexp {
-	return regexp.MustCompile(`((?:@[\w.]+(?:\([^()]*\))?\s+|(?:public|internal|private)\s+)*)annotation\s+class\s+` + regexp.QuoteMeta(name) + `\b`)
-}
-
-func localAnnotationClassRe(name string) *regexp.Regexp {
-	if re, ok := localAnnotationClassRes[name]; ok {
-		return re
-	}
-	return compileLocalAnnotationClassRe(name)
+	header, found := "", false
+	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
+		if found || !file.FlatHasModifier(decl, "annotation") || extractIdentifierFlat(file, decl) != name {
+			return
+		}
+		header, found = file.FlatChildTextOrEmpty(decl, "modifiers"), true
+	})
+	return header, found
 }
 
 // diImportedPackage returns the package the file imports name from, by its own name or an import

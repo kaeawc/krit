@@ -354,13 +354,14 @@ func okHTTPResolvedCallTarget(ctx *api.Context, idx uint32) bool {
 // on a background thread.
 var okHTTPInjectedDispatcherNames = []string{"dispatchers.io", "dispatchers.default"}
 
-// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call or lambda, up to the function, whose text names an
-// injected IO or default dispatcher.
+// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call, up to the function, whose text names an injected
+// IO or default dispatcher, such as `withContext(appDispatchers.io) { ... }`. As in the FIR checker, a call's text
+// leaves out the argument or lambda that holds the execute call, so a nested IO block beside it does not exempt it.
 func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
-		case "call_expression", "lambda_literal":
-			lower := strings.ToLower(file.FlatNodeText(current))
+		case "call_expression":
+			lower := strings.ToLower(okHTTPCallTextWithoutHolder(file, current, idx))
 			for _, name := range okHTTPInjectedDispatcherNames {
 				if strings.Contains(lower, name) {
 					return true
@@ -371,6 +372,31 @@ func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
 		}
 	}
 	return false
+}
+
+// okHTTPCallTextWithoutHolder returns the text of call without the part that holds idx: the outermost value argument
+// or lambda between them, or else the child of call that holds idx.
+func okHTTPCallTextWithoutHolder(file *scanner.File, call, idx uint32) string {
+	holder := uint32(0)
+	for current, ok := idx, true; ok && current != call; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "value_argument", "annotated_lambda":
+			holder = current
+		}
+		if parent, has := file.FlatParent(current); has && parent == call && holder == 0 {
+			holder = current
+		}
+	}
+	text := file.FlatNodeText(call)
+	if holder == 0 {
+		return text
+	}
+	base := file.FlatStartByte(call)
+	from, to := file.FlatStartByte(holder)-base, file.FlatEndByte(holder)-base
+	if from > to || int(to) > len(text) {
+		return text
+	}
+	return text[:from] + text[to:]
 }
 
 func okHTTPReceiverDeclaredAsCall(file *scanner.File, fn uint32, receiver string) bool {

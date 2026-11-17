@@ -44,6 +44,24 @@ interface M {
 `,
 		},
 		{
+			name: "Binds declaration only in a comment or a string",
+			rule: "BindsReturnTypeMatchesParam",
+			code: `package demo
+
+import dagger.*
+
+// annotation class Binds
+val note = "annotation class Binds"
+
+interface Foo
+
+interface M {
+    @Binds fun same(foo: Foo): Foo
+}
+`,
+			lines: []int{11},
+		},
+		{
 			name: "Dagger Binds imported despite a local declaration",
 			rule: "BindsReturnTypeMatchesParam",
 			code: `package demo

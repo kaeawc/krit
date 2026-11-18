@@ -58,10 +58,16 @@ class Loader(private val appDispatchers: AppDispatchers) {
     }
     suspend fun flowed(call: Call) = flow { emit(call.execute()) }.flowOn(appDispatchers.io)
     suspend fun sibling(call: Call) = run(appDispatchers.io, other { call.execute() })
+    suspend fun commented(call: Call) = withContext(appDispatchers.main /* appDispatchers.io */) { call.execute() }
+    suspend fun quoted(call: Call) = withContext(named("appDispatchers.io")) { call.execute() }
 }
 `)
-	if len(findings) != 2 || findings[0].Line != 8 || findings[1].Line != 11 {
-		t.Fatalf("expected the main-dispatcher calls on lines 8 and 11, got %v", findings)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{8, 11, 15, 16}; !slices.Equal(lines, want) {
+		t.Fatalf("expected the main-dispatcher calls on lines %v, got %v", want, lines)
 	}
 }
 

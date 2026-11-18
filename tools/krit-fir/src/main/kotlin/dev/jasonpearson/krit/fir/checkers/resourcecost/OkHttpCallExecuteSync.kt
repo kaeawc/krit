@@ -20,10 +20,14 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
 import org.jetbrains.kotlin.name.Name
 
@@ -43,11 +47,13 @@ import org.jetbrains.kotlin.name.Name
  *
  * Go's exemptions are text checks, kept as text checks on the enclosing calls up to that function:
  * a dispatcher or scheduler marker (`Dispatchers.IO`, `Dispatchers.Default`, `Schedulers.io()`, a name containing
- * `iodispatcher` or `dispatchers.io`, ...), an executor, a Rx `fromCallable` under `subscribeOn(Schedulers.io())`,
+ * `iodispatcher`, ...), an executor, a Rx `fromCallable` under `subscribeOn(Schedulers.io())`,
  * a `suspendCancellableCoroutine` bridge that cancels the call, and a KDoc on the function that tells callers to use
  * an IO dispatcher. Go reads the whole text of each enclosing call and lambda; here an enclosing call's text leaves
  * out the receiver or argument that holds the checked call, so a marker in a sibling statement
- * (`coroutineScope { launch(Dispatchers.IO) { }; call.execute() }`) does not exempt it.
+ * (`coroutineScope { launch(Dispatchers.IO) { }; call.execute() }`) does not exempt it. An injected IO or default
+ * dispatcher (`appDispatchers.io`) is read from the resolved member access, not the text, so a comment or string
+ * naming one does not exempt the call.
  */
 internal object OkHttpCallExecuteSync : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "OkHttpCallExecuteSync"
@@ -74,14 +80,9 @@ internal object OkHttpCallExecuteSync : FirFunctionCallChecker(MppCheckerKind.Co
         "SimpleTask.run",
         "executeOnExecutor(",
     )
-    // Lower case. `dispatchers.io` also matches an injected holder such as `appDispatchers.io`.
-    private val backgroundNames = listOf(
-        "iodispatcher",
-        "databasedispatcher",
-        "backgrounddispatcher",
-        "dispatchers.io",
-        "dispatchers.default",
-    )
+    // Lower case.
+    private val backgroundNames = listOf("iodispatcher", "databasedispatcher", "backgrounddispatcher")
+    private val injectedDispatcherMembers = setOf("io", "default")
     private val rxSources = listOf("fromCallable", "fromAction", "fromRunnable")
     private val rxSchedulers = listOf("subscribeOn(Schedulers.io", "subscribeOn(Schedulers.computation")
     private val kdocMarkers = listOf("dispatchers.io", "io dispatcher", "background thread", "iodispatcher")
@@ -130,6 +131,7 @@ internal object OkHttpCallExecuteSync : FirFunctionCallChecker(MppCheckerKind.Co
             if (element === expression || element !is FirFunctionCall) continue
             val source = element.source ?: continue
             if (marksBackground(textAround(element, source, at), functionText)) return true
+            if (passesInjectedDispatcher(element, at)) return true
             if (isExecutorSubmit(element)) return true
         }
         return false
@@ -150,6 +152,39 @@ internal object OkHttpCallExecuteSync : FirFunctionCallChecker(MppCheckerKind.Co
         val from = holder.startOffset - node.startOffset
         val to = holder.endOffset - node.startOffset
         return if (from in 0..<to && to <= text.length) text.removeRange(from, to) else text
+    }
+
+    // A receiver or argument of [call], other than the one holding offset [at], that reads an injected IO or
+    // default dispatcher: a member `io` or `default` (any case) of a value whose name ends in `dispatchers`.
+    private fun passesInjectedDispatcher(call: FirFunctionCall, at: Int): Boolean =
+        (listOfNotNull(call.explicitReceiver) + call.argumentList.arguments).any { part ->
+            val source = part.source
+            (source == null || at < source.startOffset || at >= source.endOffset) && readsInjectedDispatcher(part)
+        }
+
+    private fun readsInjectedDispatcher(root: FirElement): Boolean {
+        var found = false
+        root.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (found) return
+                if (element is FirPropertyAccessExpression && isInjectedDispatcher(element)) {
+                    found = true
+                    return
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return found
+    }
+
+    private fun isInjectedDispatcher(access: FirPropertyAccessExpression): Boolean {
+        if (access.calleeReference.name.asString().lowercase() !in injectedDispatcherMembers) return false
+        val owner = when (val receiver = access.explicitReceiver) {
+            is FirQualifiedAccessExpression -> receiver.calleeReference.toResolvedCallableSymbol()?.name?.asString()
+            is FirResolvedQualifier -> receiver.relativeClassFqName?.shortName()?.asString()
+            else -> null
+        } ?: return false
+        return owner.lowercase().endsWith("dispatchers")
     }
 
     private fun marksBackground(text: String, functionText: String): Boolean {

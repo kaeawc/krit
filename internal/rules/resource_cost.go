@@ -350,22 +350,16 @@ func okHTTPResolvedCallTarget(ctx *api.Context, idx uint32) bool {
 	return ok && target.Resolved && semanticTargetOwnerMatches(target.QualifiedName, "okhttp3.Call")
 }
 
-// okHTTPInjectedDispatcherNames are lower-case dispatcher holders, such as `appDispatchers.io`, that put the work
-// on a background thread.
-var okHTTPInjectedDispatcherNames = []string{"dispatchers.io", "dispatchers.default"}
-
-// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call, up to the function, whose text names an injected
-// IO or default dispatcher, such as `withContext(appDispatchers.io) { ... }`. As in the FIR checker, a call's text
-// leaves out the argument or lambda that holds the execute call, so a nested IO block beside it does not exempt it.
+// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call, up to the function, that reads an injected IO or
+// default dispatcher, such as `withContext(appDispatchers.io) { ... }`. As in the FIR checker, the argument or
+// lambda that holds the execute call is left out, so a nested IO block beside it does not exempt it. The
+// dispatcher is read from member-access nodes, so a comment or string naming one does not count.
 func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
 	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
 		case "call_expression":
-			lower := strings.ToLower(okHTTPCallTextWithoutHolder(file, current, idx))
-			for _, name := range okHTTPInjectedDispatcherNames {
-				if strings.Contains(lower, name) {
-					return true
-				}
+			if okHTTPCallReadsInjectedDispatcher(file, current, okHTTPCallHolder(file, current, idx)) {
+				return true
 			}
 		case "function_declaration", "source_file":
 			return false
@@ -374,9 +368,9 @@ func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-// okHTTPCallTextWithoutHolder returns the text of call without the part that holds idx: the outermost value argument
-// or lambda between them, or else the child of call that holds idx.
-func okHTTPCallTextWithoutHolder(file *scanner.File, call, idx uint32) string {
+// okHTTPCallHolder returns the part of call that holds idx: the outermost value argument or lambda between them,
+// or else the child of call that holds idx.
+func okHTTPCallHolder(file *scanner.File, call, idx uint32) uint32 {
 	holder := uint32(0)
 	for current, ok := idx, true; ok && current != call; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
@@ -387,16 +381,41 @@ func okHTTPCallTextWithoutHolder(file *scanner.File, call, idx uint32) string {
 			holder = current
 		}
 	}
-	text := file.FlatNodeText(call)
-	if holder == 0 {
-		return text
-	}
-	base := file.FlatStartByte(call)
-	from, to := file.FlatStartByte(holder)-base, file.FlatEndByte(holder)-base
-	if from > to || int(to) > len(text) {
-		return text
-	}
-	return text[:from] + text[to:]
+	return holder
+}
+
+// okHTTPCallReadsInjectedDispatcher reports a member access in call, outside holder, that reads `io` or `default`
+// on a value whose name ends in `dispatchers` (any case), such as `appDispatchers.io`.
+func okHTTPCallReadsInjectedDispatcher(file *scanner.File, call, holder uint32) bool {
+	found := false
+	file.FlatWalkNodes(call, "navigation_expression", func(nav uint32) {
+		if found || holder != 0 && file.FlatStartByte(nav) >= file.FlatStartByte(holder) && file.FlatEndByte(nav) <= file.FlatEndByte(holder) {
+			return
+		}
+		receiver := file.FlatFirstChild(nav)
+		suffix, ok := file.FlatFindChild(nav, "navigation_suffix")
+		if receiver == 0 || !ok {
+			return
+		}
+		member := strings.ToLower(file.FlatChildTextOrEmpty(suffix, "simple_identifier"))
+		if member != "io" && member != "default" {
+			return
+		}
+		owner := receiver
+		if file.FlatType(owner) == "navigation_expression" {
+			if inner, ok := file.FlatFindChild(owner, "navigation_suffix"); ok {
+				owner = inner
+			}
+		}
+		name := ""
+		if file.FlatType(owner) == "simple_identifier" {
+			name = file.FlatNodeText(owner)
+		} else {
+			name = file.FlatChildTextOrEmpty(owner, "simple_identifier")
+		}
+		found = strings.HasSuffix(strings.ToLower(name), "dispatchers")
+	})
+	return found
 }
 
 func okHTTPReceiverDeclaredAsCall(file *scanner.File, fn uint32, receiver string) bool {

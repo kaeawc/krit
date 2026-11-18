@@ -272,7 +272,7 @@ var receiverReturningScopeCalls = map[string]bool{"apply": true, "also": true, "
 // returned through calls that return their receiver
 // (`return cursor.apply { moveToFirst() }`).
 func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string) bool {
-	if localEscapesAfterDeclaration(file, owner, decl, name) {
+	if resourceEscapesAfterDeclaration(file, owner, decl, name) {
 		return true
 	}
 	declEnd := file.FlatEndByte(decl)
@@ -302,6 +302,45 @@ func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string
 		}
 	})
 	return returned
+}
+
+// resourceEscapesAfterDeclaration reports a read of name after decl that hands the value on, as
+// localEscapesAfterDeclaration does, except that a comparison (`stmt != null`, `a === b`) or a type check
+// (`stmt is X`) only inspects the value, as the FIR checker's hand-over helper treats them. A `!!` on the
+// read is looked through, so `stmt!!.execute()` is a member call on it.
+func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name string) bool {
+	declEnd := file.FlatEndByte(decl)
+	escaped := false
+	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
+		if escaped || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name {
+			return
+		}
+		current := id
+		parent, ok := file.FlatParent(current)
+		for ok && file.FlatType(parent) == "postfix_expression" && strings.HasSuffix(file.FlatNodeText(parent), "!!") {
+			current = parent
+			parent, ok = file.FlatParent(current)
+		}
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "navigation_expression":
+			if file.FlatFirstChild(parent) == current {
+				return
+			}
+		case "navigation_suffix", "value_argument_label", "directly_assignable_expression":
+			return
+		case "equality_expression", "check_expression":
+			return
+		case "call_expression":
+			if file.FlatFirstChild(parent) == current {
+				return
+			}
+		}
+		escaped = true
+	})
+	return escaped
 }
 
 // resourceReturningScopeCalls return (or hand to their lambda) the receiver

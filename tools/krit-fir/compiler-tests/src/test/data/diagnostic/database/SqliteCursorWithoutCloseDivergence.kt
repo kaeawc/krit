@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Divergences from Go, each decided by the message ("Cursor '<name>' from rawQuery/query should
-// be wrapped in use { } or explicitly closed with .close().").
+// go-lines: 61, 70
+// Divergences from Go, plus two shapes both engines report, each decided by the message
+// ("Cursor '<name>' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().").
 package test
 
 import android.database.Cursor
@@ -56,7 +56,7 @@ fun shadowedByLocal(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves this alone: it reads any comparison as a hand-over. Nothing closes the cursor.
+// Both engines report this: a comparison only inspects the cursor, and nothing closes it.
 fun comparedWithNull(db: SQLiteDatabase) {
     val <!SqliteCursorWithoutClose!>cursor<!> = db.rawQuery("SELECT 1", null)
     if (cursor != null) {
@@ -64,8 +64,8 @@ fun comparedWithNull(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves this alone: the `!!` makes the identifier's parent a postfix expression, which it reads
-// as a hand-over. The cursor is only used as a receiver and never closed.
+// Both engines report this: a call through `!!` is still a member call on the cursor, which is
+// only used as a receiver and never closed.
 fun assertedReceiver(db: SQLiteDatabase?) {
     val <!SqliteCursorWithoutClose!>cursor<!> = db?.rawQuery("SELECT 1", null)
     cursor!!.moveToFirst()

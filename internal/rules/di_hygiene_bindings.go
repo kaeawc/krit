@@ -497,35 +497,49 @@ func localAnnotationClassHeader(file *scanner.File, name string) (string, bool) 
 }
 
 // diImportedPackage returns the package the file imports name from, by its own name or an import
-// alias, and whether it imports name at all.
+// alias, and whether it imports name at all. It reads the parsed import headers, which sit before the
+// first declaration, so an import written in a comment does not count.
 func diImportedPackage(file *scanner.File, name string) (string, bool) {
-	for _, line := range file.Lines {
-		trimmed := strings.TrimSpace(line)
-		if !fileHeaderLine(trimmed) {
-			break
-		}
-		fields := strings.Fields(trimmed)
-		if len(fields) < 2 || fields[0] != "import" {
-			continue
-		}
-		path := strings.TrimSuffix(fields[1], ";")
+	pkg, imported := "", false
+	visit := func(header uint32) bool {
+		path, alias, wildcard := getInstanceImportHeaderParts(file, header)
 		dot := strings.LastIndex(path, ".")
-		if dot < 0 {
-			continue
+		if wildcard || dot < 0 {
+			return false
 		}
-		pkg, simple := path[:dot], path[dot+1:]
-		if len(fields) >= 4 && fields[2] == "as" {
-			if strings.TrimSuffix(fields[3], ";") == name {
-				if simple != name {
-					// An alias of another class: no package declares it under name.
-					return "", true
-				}
-				return pkg, true
+		simple := path[dot+1:]
+		if alias != "" {
+			if alias != name {
+				return false
 			}
-			continue
+			if simple != name {
+				// An alias of another class: no package declares it under name.
+				pkg, imported = "", true
+				return true
+			}
+			pkg, imported = path[:dot], true
+			return true
 		}
 		if simple == name {
-			return pkg, true
+			pkg, imported = path[:dot], true
+			return true
+		}
+		return false
+	}
+	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "import_list":
+			for header := file.FlatFirstChild(child); header != 0; header = file.FlatNextSib(header) {
+				if file.FlatType(header) == "import_header" && visit(header) {
+					return pkg, imported
+				}
+			}
+		case "import_header":
+			if visit(child) {
+				return pkg, imported
+			}
+		case "class_declaration", "object_declaration", "function_declaration", "property_declaration", "type_alias":
+			return "", false
 		}
 	}
 	return "", false

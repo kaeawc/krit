@@ -44,6 +44,24 @@ interface M {
 `,
 		},
 		{
+			name: "Binds import only in a header comment",
+			rule: "BindsReturnTypeMatchesParam",
+			code: `package demo
+
+/*
+import com.example.Binds
+*/
+import dagger.Binds
+
+interface Foo
+
+interface M {
+    @Binds fun same(foo: Foo): Foo
+}
+`,
+			lines: []int{11},
+		},
+		{
 			name: "Binds declaration only in a comment or a string",
 			rule: "BindsReturnTypeMatchesParam",
 			code: `package demo

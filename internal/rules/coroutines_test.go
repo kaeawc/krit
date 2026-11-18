@@ -3984,8 +3984,17 @@ suspend fun cleanup(a: Deferred<Unit>, b: Deferred<Unit>, c: Deferred<Unit>, d: 
         try { } catch (e: Exception) { d.await() }
     }
 }
+suspend fun rethrown(a: Deferred<Unit>, b: Deferred<Unit>, c: Deferred<Unit>) {
+    try {
+        work()
+    } finally {
+        try { a.await() } catch (e: Throwable) { throw e }
+        try { b.await() } catch (e: Exception) { log(e); throw IllegalStateException(e) }
+        try { c.await() } catch (e: Exception) { log(e) }
+    }
+}
 `)
-	assertFindingLines(t, findings, 10, 11)
+	assertFindingLines(t, findings, 10, 11, 18, 19)
 }
 
 // A file that imports its own GlobalScope or Collections names another

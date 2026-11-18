@@ -164,3 +164,32 @@ fun jdbc(conn: Connection): java.sql.ResultSet = conn.createStatement().executeQ
 	}
 	assertLines(t, "JdbcResultSetLeakedFromFunction", got, 8)
 }
+
+// A same-named declaration in a nested scope, and its reads, are not the statement: they hand nothing over.
+func TestJdbcPreparedStatementNotClosed_ShadowedNameIsNotHandover(t *testing.T) {
+	findings := runRuleByName(t, "JdbcPreparedStatementNotClosed", `package test
+
+import java.sql.Connection
+
+fun shadowedLocal(conn: Connection) {
+    val stmt = conn.prepareStatement("SELECT 1")
+    run { val stmt = 0; println(stmt) }
+}
+
+fun shadowedLambdaParameter(conn: Connection) {
+    val stmt = conn.prepareStatement("SELECT 1")
+    listOf(1).forEach { stmt -> println(stmt) }
+}
+
+fun passedAfterShadow(conn: Connection) {
+    val stmt = conn.prepareStatement("SELECT 1")
+    run { val stmt = 0; println(stmt) }
+    println(stmt)
+}
+`)
+	var got []int
+	for _, f := range findings {
+		got = append(got, f.Line)
+	}
+	assertLines(t, "JdbcPreparedStatementNotClosed", got, 6, 11)
+}

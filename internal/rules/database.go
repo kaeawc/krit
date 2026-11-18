@@ -276,9 +276,10 @@ func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string
 		return true
 	}
 	declEnd := file.FlatEndByte(decl)
+	shadows := resourceShadowRanges(file, owner, decl, name)
 	returned := false
 	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
-		if returned || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name {
+		if returned || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name || inByteRanges(file, id, shadows) {
 			return
 		}
 		current := id
@@ -310,9 +311,10 @@ func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string
 // read is looked through, so `stmt!!.execute()` is a member call on it.
 func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name string) bool {
 	declEnd := file.FlatEndByte(decl)
+	shadows := resourceShadowRanges(file, owner, decl, name)
 	escaped := false
 	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
-		if escaped || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name {
+		if escaped || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name || inByteRanges(file, id, shadows) {
 			return
 		}
 		current := id
@@ -333,6 +335,11 @@ func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, nam
 			return
 		case "equality_expression", "check_expression":
 			return
+		case "value_argument":
+			// A named argument's label (`cursor = 2`) names a parameter, not the resource.
+			if next := file.FlatNextSib(current); next != 0 && file.FlatType(next) == "=" {
+				return
+			}
 		case "call_expression":
 			if file.FlatFirstChild(parent) == current {
 				return
@@ -341,6 +348,65 @@ func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, nam
 		escaped = true
 	})
 	return escaped
+}
+
+// resourceShadowRanges returns the byte ranges under owner where another declaration of name, not decl,
+// hides the resource: a nested local from its declaration to the end of its block, a lambda, function or
+// catch parameter over its lambda, function or catch block, and a for loop variable over the loop. A read
+// there is of the other declaration, and the declaring identifier is not a read at all.
+func resourceShadowRanges(file *scanner.File, owner, decl uint32, name string) [][2]uint32 {
+	var ranges [][2]uint32
+	add := func(from, to uint32) { ranges = append(ranges, [2]uint32{from, to}) }
+	declares := func(node uint32) bool { return file.FlatChildTextOrEmpty(node, "simple_identifier") == name }
+	visit := func(node uint32) {
+		if !declares(node) || (file.FlatStartByte(node) >= file.FlatStartByte(decl) && file.FlatEndByte(node) <= file.FlatEndByte(decl)) {
+			return
+		}
+		parent, ok := file.FlatParent(node)
+		if !ok {
+			return
+		}
+		if file.FlatType(parent) == "multi_variable_declaration" {
+			if parent, ok = file.FlatParent(parent); !ok {
+				return
+			}
+		}
+		switch file.FlatType(parent) {
+		case "property_declaration":
+			if scope, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(parent), file.FlatEndByte(scope))
+			}
+		case "lambda_parameters":
+			if lambda, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(lambda), file.FlatEndByte(lambda))
+			}
+		case "function_value_parameters":
+			if fn, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(fn), file.FlatEndByte(fn))
+			}
+		case "for_statement":
+			add(file.FlatStartByte(parent), file.FlatEndByte(parent))
+		}
+	}
+	file.FlatWalkNodes(owner, "variable_declaration", visit)
+	file.FlatWalkNodes(owner, "parameter", visit)
+	file.FlatWalkNodes(owner, "catch_block", func(catch uint32) {
+		if declares(catch) {
+			add(file.FlatStartByte(catch), file.FlatEndByte(catch))
+		}
+	})
+	return ranges
+}
+
+// inByteRanges reports whether node lies inside one of ranges.
+func inByteRanges(file *scanner.File, node uint32, ranges [][2]uint32) bool {
+	start, end := file.FlatStartByte(node), file.FlatEndByte(node)
+	for _, r := range ranges {
+		if start >= r[0] && end <= r[1] {
+			return true
+		}
+	}
+	return false
 }
 
 // resourceReturningScopeCalls return (or hand to their lambda) the receiver

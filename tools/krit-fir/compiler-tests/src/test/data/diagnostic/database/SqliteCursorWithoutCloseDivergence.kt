@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 61, 70
-// Divergences from Go, plus two shapes both engines report, each decided by the message
+// go-lines: 39, 45, 51, 61, 70
+// Divergences from Go, plus shapes both engines report, each decided by the message
 // ("Cursor '<name>' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().").
 package test
 
@@ -30,9 +30,9 @@ fun implicitReceiver(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves these alone: it reads the same name anywhere after the declaration as a hand-over, so a
-// named argument label, a shadowing local or a lambda parameter of that name hides the leak.
-// The cursor is never closed or handed over, so FIR reports it.
+// Both engines report these: a named argument label, a shadowing local or a lambda parameter of the
+// same name is another declaration, not a hand-over of the cursor. The cursor is never closed or
+// handed over.
 fun cursorArg(width: Int, cursor: Int) = width + cursor
 
 fun namedArgumentLabel(db: SQLiteDatabase) {

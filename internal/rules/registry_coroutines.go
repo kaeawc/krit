@@ -972,8 +972,8 @@ var deferredAwaitCatchAllTypes = map[string]bool{
 }
 
 // deferredAwaitCaughtInFinally reports whether the await at idx sits in the try
-// block of a try inside finally whose catch takes Throwable or Exception, so
-// its failure cannot replace the original exception.
+// block of a try inside finally whose catch takes Throwable or Exception and
+// throws nothing again, so its failure cannot replace the original exception.
 func deferredAwaitCaughtInFinally(file *scanner.File, idx, finally uint32) bool {
 	child := idx
 	for p, ok := file.FlatParent(idx); ok && p != finally; p, ok = file.FlatParent(p) {
@@ -982,7 +982,8 @@ func deferredAwaitCaughtInFinally(file *scanner.File, idx, finally uint32) bool 
 				if file.FlatType(c) != "catch_block" {
 					continue
 				}
-				if t, ok := file.FlatFindChild(c, "user_type"); ok && deferredAwaitCatchAllTypes[file.FlatNodeText(t)] {
+				if t, ok := file.FlatFindChild(c, "user_type"); ok && deferredAwaitCatchAllTypes[file.FlatNodeText(t)] &&
+					!catchBlockThrows(file, c) {
 					return true
 				}
 			}
@@ -990,6 +991,18 @@ func deferredAwaitCaughtInFinally(file *scanner.File, idx, finally uint32) bool 
 		child = p
 	}
 	return false
+}
+
+// catchBlockThrows reports a throw anywhere in the catch block: a rethrow, a wrapped failure or a selective
+// rethrow lets a failure leave the block.
+func catchBlockThrows(file *scanner.File, catch uint32) bool {
+	found := false
+	file.FlatWalkNodes(catch, "jump_expression", func(jump uint32) {
+		if !found && strings.HasPrefix(file.FlatNodeText(jump), "throw") {
+			found = true
+		}
+	})
+	return found
 }
 
 func registerCoroutinesFlowWithoutFlowOn() {

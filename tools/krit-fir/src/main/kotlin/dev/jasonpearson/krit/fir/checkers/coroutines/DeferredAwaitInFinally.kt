@@ -17,6 +17,7 @@ import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
 import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
@@ -25,6 +26,7 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -139,8 +141,11 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
             when (parent) {
                 is FirTryExpression -> {
                     if (parent.finallyBlock === child) return true
-                    // A try in the finally block whose catch takes any Exception keeps the await's failure there.
-                    if (parent.tryBlock === child && parent.catches.any { catchesAnyException(it) }) return false
+                    // A try in the finally block whose catch takes any Exception, and does not throw again,
+                    // keeps the await's failure there.
+                    if (parent.tryBlock === child && parent.catches.any { catchesAnyException(it) && !throwsAgain(it) }) {
+                        return false
+                    }
                 }
                 is FirNamedFunction -> runCatchingCounts = false
                 is FirFunctionCall -> if (
@@ -160,6 +165,23 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
     context(context: CheckerContext)
     private fun catchesAnyException(catch: FirCatch): Boolean =
         catch.parameter.returnTypeRef.coneType.expandedClassType()?.lookupTag?.classId in catchAllClassIds
+
+    // A throw anywhere in the catch block (a rethrow, a wrapped failure, a selective rethrow of cancellation) lets a
+    // failure leave the finally block and replace the exception in flight.
+    private fun throwsAgain(catch: FirCatch): Boolean {
+        var found = false
+        catch.block.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (found) return
+                if (element is FirThrowExpression) {
+                    found = true
+                    return
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return found
+    }
 
     private fun isReceiverOf(call: FirFunctionCall, child: FirElement): Boolean =
         child === call.explicitReceiver || child === call.dispatchReceiver || child === call.extensionReceiver

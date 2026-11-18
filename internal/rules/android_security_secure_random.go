@@ -427,7 +427,7 @@ func secureRandomIsJavaSetSeedCall(file *scanner.File, call uint32) bool {
 		return secureRandomJavaObjectCreationIsSecureRandom(file, receiver)
 	}
 	if file.FlatType(receiver) == "identifier" {
-		return secureRandomJavaIdentifierIsSecureRandom(file, file.FlatNodeString(receiver, nil))
+		return secureRandomJavaReceiverIsSecureRandom(file, call, file.FlatNodeString(receiver, nil))
 	}
 	return false
 }
@@ -488,43 +488,103 @@ func secureRandomIsJavaSystemTimeCall(file *scanner.File, call uint32) bool {
 	return receiver != 0 && file.FlatType(receiver) == "identifier" && file.FlatNodeString(receiver, nil) == "System"
 }
 
-func secureRandomJavaIdentifierIsSecureRandom(file *scanner.File, name string) bool {
+// secureRandomJavaReceiverIsSecureRandom reports whether the declaration of name visible at call is typed or
+// created as a SecureRandom: the nearest local declared before the call, a parameter of an enclosing method,
+// constructor, lambda, loop or try resource, or a field of an enclosing class. A nearer declaration of another
+// type shadows the outer ones; Lint types the receiver the same way.
+func secureRandomJavaReceiverIsSecureRandom(file *scanner.File, call uint32, name string) bool {
 	if name == "" {
 		return false
 	}
-	found := false
-	// A field declares its names like a local; Lint types either receiver.
-	for _, kind := range []string{"local_variable_declaration", "field_declaration"} {
-		file.FlatWalkNodes(0, kind, func(decl uint32) {
-			if found {
-				return
+	at := file.FlatStartByte(call)
+	for scope, ok := file.FlatParent(call); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "block", "constructor_body", "switch_block_statement_group", "for_statement":
+			decl := uint32(0)
+			for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "local_variable_declaration" && file.FlatStartByte(child) < at &&
+					secureRandomJavaLocalDeclarationNames(file, child, name) {
+					decl = child
+				}
 			}
-			if !secureRandomJavaLocalDeclarationNames(file, decl, name) {
-				return
+			if decl != 0 {
+				return secureRandomJavaLocalDeclarationIsSecureRandom(file, decl)
 			}
-			if secureRandomJavaLocalDeclarationIsSecureRandom(file, decl) {
-				found = true
+		case "method_declaration", "constructor_declaration", "lambda_expression":
+			if typed, declared := secureRandomJavaParameterIsSecureRandom(file, scope, name); declared {
+				return typed
 			}
-		})
-	}
-	file.FlatWalkNodes(0, "formal_parameter", func(param uint32) {
-		if found {
-			return
-		}
-		ident, ok := file.FlatFindChild(param, "identifier")
-		if !ok || file.FlatNodeString(ident, nil) != name {
-			return
-		}
-		for child := file.FlatFirstChild(param); child != 0; child = file.FlatNextSib(child) {
-			switch file.FlatType(child) {
-			case "type_identifier", "scoped_type_identifier":
-				if secureRandomJavaTypeNodeNamesSecureRandom(file, child) {
-					found = true
+		case "enhanced_for_statement", "resource":
+			if typed, declared := secureRandomJavaTypedNameIsSecureRandom(file, scope, name); declared {
+				return typed
+			}
+		case "try_with_resources_statement":
+			if spec, ok := file.FlatFindChild(scope, "resource_specification"); ok {
+				for res := file.FlatFirstChild(spec); res != 0; res = file.FlatNextSib(res) {
+					if file.FlatType(res) != "resource" || file.FlatStartByte(res) >= at {
+						continue
+					}
+					if typed, declared := secureRandomJavaTypedNameIsSecureRandom(file, res, name); declared {
+						return typed
+					}
+				}
+			}
+		case "class_body":
+			for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "field_declaration" && secureRandomJavaLocalDeclarationNames(file, child, name) {
+					return secureRandomJavaLocalDeclarationIsSecureRandom(file, child)
 				}
 			}
 		}
-	})
-	return found
+	}
+	return false
+}
+
+// secureRandomJavaParameterIsSecureRandom reports whether fn declares a parameter named name, and whether its
+// declared type is SecureRandom. A lambda parameter without a type is not one.
+func secureRandomJavaParameterIsSecureRandom(file *scanner.File, fn uint32, name string) (typed, declared bool) {
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "identifier":
+			if file.FlatType(fn) == "lambda_expression" && file.FlatNodeString(child, nil) == name {
+				return false, true
+			}
+		case "inferred_parameters":
+			for p := file.FlatFirstChild(child); p != 0; p = file.FlatNextSib(p) {
+				if file.FlatType(p) == "identifier" && file.FlatNodeString(p, nil) == name {
+					return false, true
+				}
+			}
+		case "formal_parameters":
+			for p := file.FlatFirstChild(child); p != 0; p = file.FlatNextSib(p) {
+				switch file.FlatType(p) {
+				case "formal_parameter":
+					if typed, declared := secureRandomJavaTypedNameIsSecureRandom(file, p, name); declared {
+						return typed, true
+					}
+				case "spread_parameter":
+					if secureRandomJavaLocalDeclarationNames(file, p, name) {
+						return false, true
+					}
+				}
+			}
+		}
+	}
+	return false, false
+}
+
+// secureRandomJavaTypedNameIsSecureRandom reads a `Type name` node (a formal parameter, an enhanced for
+// variable, a try resource): whether its own identifier is name, and whether the type is SecureRandom.
+func secureRandomJavaTypedNameIsSecureRandom(file *scanner.File, node uint32, name string) (typed, declared bool) {
+	for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "type_identifier", "scoped_type_identifier":
+			typed = secureRandomJavaTypeNodeNamesSecureRandom(file, child)
+		case "identifier":
+			return typed, file.FlatNodeString(child, nil) == name
+		}
+	}
+	return false, false
 }
 
 func secureRandomJavaLocalDeclarationNames(file *scanner.File, decl uint32, name string) bool {

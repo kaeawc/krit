@@ -964,15 +964,14 @@ func registerCoroutinesDeferredAwaitInFinally() {
 }
 
 // deferredAwaitCatchAllTypes are catch parameter types that take any failure
-// the await rethrows.
+// the await rethrows. Exception is not one: an Error such as AssertionError
+// still leaves the catch.
 var deferredAwaitCatchAllTypes = map[string]bool{
-	"Throwable": true, "Exception": true,
-	"kotlin.Throwable": true, "kotlin.Exception": true,
-	"java.lang.Throwable": true, "java.lang.Exception": true,
+	"Throwable": true, "kotlin.Throwable": true, "java.lang.Throwable": true,
 }
 
 // deferredAwaitCaughtInFinally reports whether the await at idx sits in the try
-// block of a try inside finally whose catch takes Throwable or Exception and
+// block of a try inside finally whose catch takes Throwable and
 // throws nothing again, so its failure cannot replace the original exception.
 func deferredAwaitCaughtInFinally(file *scanner.File, idx, finally uint32) bool {
 	child := idx

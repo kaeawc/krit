@@ -307,8 +307,8 @@ func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string
 
 // resourceEscapesAfterDeclaration reports a read of name after decl that hands the value on, as
 // localEscapesAfterDeclaration does, except that a comparison (`stmt != null`, `a === b`) or a type check
-// (`stmt is X`) only inspects the value, as the FIR checker's hand-over helper treats them. A `!!` on the
-// read is looked through, so `stmt!!.execute()` is a member call on it.
+// (`stmt is X`) only inspects the value, as the FIR checker's hand-over helper treats them. Parentheses and
+// `!!` around the read are looked through, so `(stmt).execute()` and `stmt!!.execute()` are member calls on it.
 func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name string) bool {
 	declEnd := file.FlatEndByte(decl)
 	shadows := resourceShadowRanges(file, owner, decl, name)
@@ -319,7 +319,8 @@ func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, nam
 		}
 		current := id
 		parent, ok := file.FlatParent(current)
-		for ok && file.FlatType(parent) == "postfix_expression" && strings.HasSuffix(file.FlatNodeText(parent), "!!") {
+		for ok && (file.FlatType(parent) == "parenthesized_expression" ||
+			file.FlatType(parent) == "postfix_expression" && strings.HasSuffix(file.FlatNodeText(parent), "!!")) {
 			current = parent
 			parent, ok = file.FlatParent(current)
 		}

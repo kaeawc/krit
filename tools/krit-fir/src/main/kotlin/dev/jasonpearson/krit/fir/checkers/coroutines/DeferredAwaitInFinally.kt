@@ -63,8 +63,9 @@ import org.jetbrains.kotlin.name.Name
 //   navigation).
 // The exemptions and boundaries are also read from the resolved tree:
 // - An await in the try block of a try inside the finally block whose catch
-//   takes Throwable or Exception is not reported: that catch keeps the
-//   failure from replacing the original exception, as runCatching does. Go
+//   takes Throwable and throws nothing again is not reported: that catch keeps
+//   the failure from replacing the original exception, as runCatching does. A
+//   catch of Exception does not count, since an Error still leaves it. Go
 //   draws the same line by the catch's type name.
 // - A runCatching only exempts an await it wraps: one in its lambda, not in
 //   its receiver (`d.await().runCatching { }`), and not a runCatching outside
@@ -87,11 +88,10 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
     private val AWAIT = Name.identifier("await")
     private const val RUN_CATCHING = "runCatching"
     private const val COROUTINES_PACKAGE = "kotlinx.coroutines"
+    // Throwable only: a catch of Exception lets an Error such as AssertionError leave the finally block.
     private val catchAllClassIds = setOf(
         classIdOf("java.lang", "Throwable"),
-        classIdOf("java.lang", "Exception"),
         classIdOf("kotlin", "Throwable"),
-        classIdOf("kotlin", "Exception"),
     )
     private val deferredClassId = classIdOf("kotlinx.coroutines", "Deferred")
     private val nullableDeferredType = deferredClassId.nullableStarProjectedType(1)
@@ -141,7 +141,7 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
             when (parent) {
                 is FirTryExpression -> {
                     if (parent.finallyBlock === child) return true
-                    // A try in the finally block whose catch takes any Exception, and does not throw again,
+                    // A try in the finally block whose catch takes any Throwable, and does not throw again,
                     // keeps the await's failure there.
                     if (parent.tryBlock === child && parent.catches.any { catchesAnyException(it) && !throwsAgain(it) }) {
                         return false

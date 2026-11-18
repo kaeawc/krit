@@ -68,12 +68,17 @@ fun notNullAsserted(conn: Connection) {
     val stmt = conn.prepareStatement("SELECT 1")
     stmt!!.execute()
 }
+
+fun parenthesized(conn: Connection) {
+    val stmt = conn.prepareStatement("SELECT 1")
+    (stmt).execute()
+}
 `)
 	var got []int
 	for _, f := range findings {
 		got = append(got, f.Line)
 	}
-	assertLines(t, "JdbcPreparedStatementNotClosed", got, 25, 30, 36, 41, 46, 51)
+	assertLines(t, "JdbcPreparedStatementNotClosed", got, 25, 30, 36, 41, 46, 51, 56)
 }
 
 func TestSqliteCursorWithoutClose_DerivedValueHandedOn(t *testing.T) {

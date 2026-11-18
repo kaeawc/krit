@@ -3990,11 +3990,11 @@ suspend fun rethrown(a: Deferred<Unit>, b: Deferred<Unit>, c: Deferred<Unit>) {
     } finally {
         try { a.await() } catch (e: Throwable) { throw e }
         try { b.await() } catch (e: Exception) { log(e); throw IllegalStateException(e) }
-        try { c.await() } catch (e: Exception) { log(e) }
+        try { c.await() } catch (e: Throwable) { log(e) }
     }
 }
 `)
-	assertFindingLines(t, findings, 10, 11, 18, 19)
+	assertFindingLines(t, findings, 9, 10, 11, 18, 19)
 }
 
 // A file that imports its own GlobalScope or Collections names another

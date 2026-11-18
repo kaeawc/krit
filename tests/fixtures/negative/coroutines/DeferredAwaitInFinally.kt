@@ -16,7 +16,7 @@ suspend fun doCaughtWork(cleanup: Deferred<Unit>) {
     } finally {
         try {
             cleanup.await()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             println("cleanup failed")
         }
     }

@@ -634,7 +634,8 @@ func composeResyncsThroughRememberedValue(file *scanner.File, fn, call, lambda u
 			return
 		}
 		receiver := file.FlatNamedChild(nav, 0)
-		if file.FlatType(receiver) != "simple_identifier" || !file.FlatNodeTextEquals(receiver, variable) {
+		if file.FlatType(receiver) != "simple_identifier" || !file.FlatNodeTextEquals(receiver, variable) ||
+			!composeRunsOnRecomposition(file, fn, c) {
 			return
 		}
 		for child := file.FlatFirstChild(c); child != 0; child = file.FlatNextSib(child) {
@@ -644,6 +645,41 @@ func composeResyncsThroughRememberedValue(file *scanner.File, fn, call, lambda u
 		}
 	})
 	return found
+}
+
+// composeRunsOnRecomposition reports whether node runs each time fn recomposes: in fn's own body, or in the lambda
+// of a LaunchedEffect, SideEffect or DisposableEffect. A callback lambda (`onClick = { }`, `clickable { }`) or a
+// local function runs later, if at all, so a write-back there leaves the remembered value stale.
+func composeRunsOnRecomposition(file *scanner.File, fn, node uint32) bool {
+	for current, ok := file.FlatParent(node); ok && current != fn; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_declaration", "anonymous_function", "class_declaration", "object_literal":
+			return false
+		case "lambda_literal":
+			call := current
+			for {
+				parent, ok := file.FlatParent(call)
+				if !ok {
+					return false
+				}
+				call = parent
+				if file.FlatType(call) == "call_expression" {
+					break
+				}
+				switch file.FlatType(call) {
+				case "annotated_lambda", "call_suffix", "value_argument", "value_arguments":
+					continue
+				}
+				return false
+			}
+			switch flatCallNameAny(file, call) {
+			case "LaunchedEffect", "SideEffect", "DisposableEffect":
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // composeBlockWritesBack reports an assignment in body, the lambda of a scope call chained on remember, that writes a

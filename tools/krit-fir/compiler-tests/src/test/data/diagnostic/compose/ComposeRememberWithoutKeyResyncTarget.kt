@@ -1,11 +1,13 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 22, 28, 35, 54
+// go-lines: 24, 30, 37, 56, 64
 // A write-back re-syncs the remembered object only when it assigns a member of that object (`it.x`, `h.x`,
 // `this.x` or an implicit `x` in apply) and its value reads the parameter. A write to an outer variable, or a
-// comment or string that only names the parameter, leaves the object stale.
+// comment or string that only names the parameter, leaves the object stale, and so does a setter that runs
+// only in a callback rather than on each recomposition or in an effect.
 package test
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 
 fun use(x: Any?) {}
@@ -53,4 +55,18 @@ fun Member(input: Int) {
 fun Setter(input: Int) {
     val holder = <!ComposeRememberWithoutKey!>remember<!> { Holder(input) }
     holder.setLevel(0) // input
+}
+
+fun onClick(action: () -> Unit) = action()
+
+@Composable
+fun Callback(input: Int) {
+    val holder = <!ComposeRememberWithoutKey!>remember<!> { Holder(input) }
+    onClick { holder.setLevel(input) }
+}
+
+@Composable
+fun Effect(input: Int) {
+    val holder = remember { Holder(input) }
+    LaunchedEffect(input) { holder.setLevel(input) }
 }

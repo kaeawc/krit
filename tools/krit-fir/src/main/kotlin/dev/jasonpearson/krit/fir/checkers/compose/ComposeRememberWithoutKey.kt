@@ -16,6 +16,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
@@ -465,15 +466,50 @@ internal object ComposeRememberWithoutKey : FirFunctionCallChecker(MppCheckerKin
         }
         if (variable == null) return false
         val rememberSource = remember.source ?: return false
-        return containsMatching(function) { element ->
-            if (element !is FirFunctionCall) return@containsMatching false
-            val name = element.calleeReference.name.asString()
-            val receiver = element.explicitReceiver
-            val inside = element.source?.let { it.startOffset >= rememberSource.startOffset && it.endOffset <= rememberSource.endOffset } == true
-            !inside && resyncCallPrefixes.any { name.startsWith(it) } && receiver is FirQualifiedAccessExpression &&
-                receiver.explicitReceiver == null && receiver.calleeReference.toResolvedCallableSymbol() == variable &&
-                element.argumentList.arguments.any { readsName(it, param) }
+        var found = false
+        val path = ArrayList<FirElement>()
+        function.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (found) return
+                if (element is FirFunctionCall && runsOnRecomposition(path)) {
+                    val name = element.calleeReference.name.asString()
+                    val receiver = element.explicitReceiver
+                    val inside = element.source?.let {
+                        it.startOffset >= rememberSource.startOffset && it.endOffset <= rememberSource.endOffset
+                    } == true
+                    if (!inside && resyncCallPrefixes.any { name.startsWith(it) } && receiver is FirQualifiedAccessExpression &&
+                        receiver.explicitReceiver == null && receiver.calleeReference.toResolvedCallableSymbol() == variable &&
+                        element.argumentList.arguments.any { readsName(it, param) }
+                    ) {
+                        found = true
+                        return
+                    }
+                }
+                path += element
+                element.acceptChildren(this)
+                path.removeAt(path.lastIndex)
+            }
+        })
+        return found
+    }
+
+    private val recompositionEffects = setOf("LaunchedEffect", "SideEffect", "DisposableEffect")
+
+    // [path] runs each time the function recomposes: the function's own body, or the lambda of a
+    // LaunchedEffect, SideEffect or DisposableEffect. A callback lambda (`onClick = { }`) or a local function
+    // runs later, if at all.
+    private fun runsOnRecomposition(path: List<FirElement>): Boolean {
+        for (index in 1 until path.size) {
+            when (val element = path[index]) {
+                is FirNamedFunction, is FirClass -> return false
+                is FirAnonymousFunction -> {
+                    val owner = path.subList(0, index).lastOrNull { it is FirFunctionCall } as FirFunctionCall?
+                    if (owner?.calleeReference?.name?.asString() !in recompositionEffects) return false
+                }
+                else -> {}
+            }
         }
+        return true
     }
 
     // The assignment writes a member of [lambda]'s receiver: its parameter (`it.x`) or its extension receiver

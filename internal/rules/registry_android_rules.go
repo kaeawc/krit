@@ -177,14 +177,14 @@ func registerAndroidRules() {
 					return
 				}
 				foundRelease := false
-				file.FlatWalkNodes(wakeLockReleaseScope(file, idx, fn), "call_expression", func(call uint32) {
-					if foundRelease {
+				scope := wakeLockReleaseScope(file, idx, fn)
+				classWide := scope != fn
+				file.FlatWalkNodes(scope, "call_expression", func(call uint32) {
+					if foundRelease || call == idx {
 						return
 					}
-					if call == idx {
-						return
-					}
-					if wakeLockReleaseCallOnSameReceiver(ctx, idx, call) {
+					// Across methods, a release of a same-named local is a different lock.
+					if wakeLockReleaseCallOnSameReceiver(ctx, idx, call) && (!classWide || !wakeLockReleaseNamesShadow(file, call)) {
 						foundRelease = true
 					}
 				})

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -351,6 +352,45 @@ fun doWork() {
 }`)
 	if len(findings) == 0 {
 		t.Error("expected Wakelock finding for acquire without release")
+	}
+}
+
+// A release in another method only counts when it names the same field, not a same-named local or parameter.
+func TestWakelock_CrossMethodReleaseMatchesTheField(t *testing.T) {
+	findings := runRuleWithSourceResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager
+import android.os.PowerManager.WakeLock
+class LocalShadow(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun cleanup() {
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "other")
+        wl.release()
+    }
+}
+class ParamShadow(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun cleanup(wl: WakeLock) { wl.release() }
+}
+class FieldRelease(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun stop() { wl.release() }
+}
+class LambdaRelease(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun stop() { listOf(1).forEach { wl.release() } }
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{7, 15}; !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
 	}
 }
 

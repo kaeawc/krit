@@ -244,6 +244,46 @@ func wakeLockReleaseScope(file *scanner.File, call, fn uint32) uint32 {
 	return scope
 }
 
+// wakeLockReleaseNamesShadow reports a release whose receiver root is a local or parameter of the release's own
+// function, so it cannot be the class-level lock that acquire() took.
+func wakeLockReleaseNamesShadow(file *scanner.File, release uint32) bool {
+	receiver := astReceiverNodeFromCall(file, release)
+	if receiver == 0 {
+		return false
+	}
+	root := androidReceiverChainRoot(file, receiver)
+	if root == "" || root == "this" || root == "super" {
+		return false
+	}
+	return flatNameBoundLocallyAt(file, root, release) || wakeLockReceiverIsParameter(file, release)
+}
+
+// flatNameBoundLocallyAt reports a local property or lambda parameter named name that is visible at the node at:
+// declared earlier in a block that encloses at, inside the same function.
+func flatNameBoundLocallyAt(file *scanner.File, name string, at uint32) bool {
+	start := file.FlatStartByte(at)
+	for cur, ok := file.FlatParent(at); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "function_declaration", "class_declaration", "object_declaration", "class_body", "source_file":
+			return false
+		case "lambda_literal":
+			if params, found := file.FlatFindChild(cur, "lambda_parameters"); found {
+				for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+					if file.FlatType(p) == "variable_declaration" && lintDeclaredName(file, p) == name {
+						return true
+					}
+				}
+			}
+		}
+		for child := file.FlatFirstChild(cur); child != 0 && file.FlatStartByte(child) < start; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "property_declaration" && extractIdentifierFlat(file, child) == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // flatDeclaresLocalBefore reports whether fn declares a local named name
 // before the node at.
 func flatDeclaresLocalBefore(file *scanner.File, fn uint32, name string, at uint32) bool {

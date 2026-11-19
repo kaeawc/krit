@@ -783,8 +783,8 @@ func handlerJavaParameterIsLooper(file *scanner.File, param uint32) bool {
 }
 
 // handlerArgumentsPassLooper mirrors Lint's hasLooperArgument for an anonymous Handler: an argument of its superclass
-// constructor call is a Looper. Without types, an argument whose text names a looper (`Looper.getMainLooper()`,
-// `thread.looper`) or whose resolved type is Looper counts.
+// constructor call is a Looper. Without types, an argument that is a Looper accessor (`Looper.getMainLooper()`,
+// `thread.looper`, `mainLooper`) or whose resolved or declared type is Looper counts.
 func handlerArgumentsPassLooper(ctx *api.Context, args uint32) bool {
 	file := ctx.File
 	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
@@ -798,8 +798,42 @@ func handlerArgumentsPassLooper(ctx *api.Context, args uint32) bool {
 		if expr == 0 {
 			continue
 		}
-		if strings.Contains(strings.ToLower(file.FlatNodeText(expr)), "looper") || handlerExprIsLooper(ctx, expr) {
+		if handlerExprIsLooperAccessor(file, expr) || handlerExprIsLooper(ctx, expr) {
 			return true
+		}
+	}
+	return false
+}
+
+// handlerLooperAccessors are the Android APIs that return a Looper, by the name the call or property uses.
+var handlerLooperAccessors = map[string]bool{
+	"getMainLooper": true, "myLooper": true, "getLooper": true, "mainLooper": true, "looper": true,
+}
+
+// handlerExprIsLooperAccessor reports a call or property read of a Looper accessor, such as `Looper.getMainLooper()`,
+// `thread.looper` or a bare `mainLooper`. A bare `looper` name is left to the declared-type check.
+func handlerExprIsLooperAccessor(file *scanner.File, expr uint32) bool {
+	expr = flatUnwrapParenExpr(file, expr)
+	switch file.FlatType(expr) {
+	case "postfix_expression":
+		if file.FlatNamedChildCount(expr) > 0 {
+			return handlerExprIsLooperAccessor(file, file.FlatNamedChild(expr, 0))
+		}
+	case "call_expression":
+		return handlerLooperAccessors[flatCallExpressionName(file, expr)]
+	case "navigation_expression":
+		return handlerLooperAccessors[flatNavigationExpressionLastIdentifier(file, expr)]
+	case "simple_identifier":
+		return file.FlatNodeText(expr) == "mainLooper"
+	case "method_invocation":
+		if name, ok := file.FlatFindChild(expr, "identifier"); ok {
+			last := name
+			for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "identifier" {
+					last = child
+				}
+			}
+			return handlerLooperAccessors[file.FlatNodeText(last)]
 		}
 	}
 	return false

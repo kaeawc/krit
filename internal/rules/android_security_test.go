@@ -3933,6 +3933,30 @@ class C {
 
 // Lint 32.4.1 HandlerDetector: an inner Handler is exempt when one of its own constructors takes a Looper parameter,
 // whether or not the Looper reaches Handler; an anonymous Handler is exempt when its super call has a Looper argument.
+// An anonymous Handler is exempt only when an argument is a Looper, not when its text mentions one.
+func TestHandlerLeak_LooperArgumentIsStructural(t *testing.T) {
+	findings := runRuleByName(t, "HandlerLeak", `
+package test
+import android.app.Activity
+import android.os.Handler
+import android.os.HandlerThread
+class Outer(private val thread: HandlerThread, private val callback: Handler.Callback, private val looperCallback: Handler.Callback) : Activity() {
+    val commented = object : Handler(callback /* use Looper.getMainLooper() later */) {}
+    val namedLooper = object : Handler(looperCallback) {}
+    val viaThread = object : Handler(thread.looper) {}
+    val viaContext = object : Handler(mainLooper) {}
+    val viaGetter = object : Handler(thread.getLooper()) {}
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{7, 8}; !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
+	}
+}
+
 func TestHandlerLeak_LintLooperExemptions(t *testing.T) {
 	findingLines := func(findings []scanner.Finding) []int {
 		var lines []int

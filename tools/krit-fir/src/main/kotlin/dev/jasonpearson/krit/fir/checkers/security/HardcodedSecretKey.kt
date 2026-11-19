@@ -9,6 +9,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.isNullLiteral
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -20,7 +21,6 @@ import org.jetbrains.kotlin.fir.declarations.utils.isConst
 import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
-import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -36,7 +36,6 @@ import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
@@ -486,10 +485,14 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     private fun strip(expression: FirExpression): FirExpression {
         var current = expression
         while (true) {
+            val unwrapped = unwrapSmartCasts(
+                unwrapArgument(current), throughNotNull = true, throughSafeCallSubject = false,
+            )
+            if (unwrapped !== current) {
+                current = unwrapped
+                continue
+            }
             current = when (current) {
-                is FirWrappedArgumentExpression -> current.expression
-                is FirSmartCastExpression -> current.originalExpression
-                is FirCheckNotNullCall -> current.argumentList.arguments.firstOrNull() ?: return current
                 is FirTypeOperatorCall -> {
                     if (current.operation != FirOperation.AS && current.operation != FirOperation.SAFE_AS) return current
                     current.argumentList.arguments.firstOrNull() ?: return current

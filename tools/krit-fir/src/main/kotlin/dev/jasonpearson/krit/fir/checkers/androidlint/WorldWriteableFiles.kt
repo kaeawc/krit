@@ -12,6 +12,7 @@ import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -399,7 +400,7 @@ internal object WorldWriteableFiles : FirQualifiedAccessExpressionChecker(MppChe
     context(context: CheckerContext)
     private fun evaluate(expression: FirExpression, seen: MutableSet<FirVariableSymbol<*>>): Value = when (expression) {
         is FirLiteralExpression -> literalValue(expression)
-        is FirSmartCastExpression -> evaluate(expression.originalExpression, seen)
+        is FirSmartCastExpression -> evaluate(unwrapSmartCasts(expression, throughSafeCallSubject = false), seen)
         is FirFunctionCall -> evaluateOperator(expression, seen)
         is FirQualifiedAccessExpression -> when (val symbol = expression.calleeReference.toResolvedCallableSymbol()) {
             null -> Value.Unknown

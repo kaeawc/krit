@@ -9,6 +9,7 @@ import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.isHandedOverAfter
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -20,12 +21,9 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirPropertyChecker
 import org.jetbrains.kotlin.fir.analysis.checkers.unsubstitutedScope
 import org.jetbrains.kotlin.fir.declarations.FirProperty
-import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
-import org.jetbrains.kotlin.fir.expressions.arguments
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.lookupSuperTypes
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
@@ -219,11 +217,12 @@ internal object JdbcPreparedStatementNotClosed :
         return isCloseable(function.returnType(context.session), depth = 0)
     }
 
-    private tailrec fun unwrap(expression: FirExpression): FirExpression = when (expression) {
-        is FirCheckNotNullCall -> unwrap(expression.arguments.firstOrNull() ?: return expression)
-        is FirSmartCastExpression -> unwrap(expression.originalExpression)
-        is FirSafeCallExpression -> unwrap(expression.selector as? FirExpression ?: return expression)
-        else -> expression
+    private tailrec fun unwrap(expression: FirExpression): FirExpression {
+        val value = unwrapSmartCasts(expression, throughNotNull = true, throughSafeCallSubject = false)
+        return when (value) {
+            is FirSafeCallExpression -> unwrap(value.selector as? FirExpression ?: return value)
+            else -> value
+        }
     }
 
     // A type the caller has to close: AutoCloseable itself, a subtype of it, a

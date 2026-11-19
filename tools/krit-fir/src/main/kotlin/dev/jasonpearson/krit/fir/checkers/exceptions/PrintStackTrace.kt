@@ -10,6 +10,7 @@ import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.isPrintToolingPath
 import dev.jasonpearson.krit.fir.support.nullableClassType
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -17,13 +18,11 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.references.FirSuperReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -140,9 +139,8 @@ internal object PrintStackTrace : FirFunctionCallChecker(MppCheckerKind.Common),
     private fun isCaughtException(receiver: FirExpression?): Boolean {
         var value = receiver ?: return false
         while (true) {
+            value = unwrapSmartCasts(value)
             value = when {
-                value is FirCheckedSafeCallSubject -> value.originalReceiverRef.value
-                value is FirSmartCastExpression -> value.originalExpression
                 value is FirCheckNotNullCall -> value.argumentList.arguments.singleOrNull() ?: return false
                 value is FirTypeOperatorCall &&
                     (value.operation == FirOperation.AS || value.operation == FirOperation.SAFE_AS) ->

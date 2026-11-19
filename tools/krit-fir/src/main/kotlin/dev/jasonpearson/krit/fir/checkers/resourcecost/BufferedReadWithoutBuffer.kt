@@ -62,7 +62,6 @@ import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
-import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
 import java.util.IdentityHashMap
 
@@ -127,15 +126,15 @@ internal object BufferedReadWithoutBuffer : FirFunctionCallChecker(MppCheckerKin
 
     // The calls Go treats as buffering the receiver.
     private val BUFFERING_CALLS = setOf(Name.identifier("buffered"), Name.identifier("BufferedInputStream"))
-    private val INPUT_STREAM = streamType("java/io/InputStream")
-    private val FILE_INPUT_STREAM = streamType("java/io/FileInputStream")
-    private val BUFFERED_INPUT_STREAM = streamType("java/io/BufferedInputStream")
+    private val INPUT_STREAM = streamType("InputStream")
+    private val FILE_INPUT_STREAM = streamType("FileInputStream")
+    private val BUFFERED_INPUT_STREAM = streamType("BufferedInputStream")
 
     // Bounds the recursion through wrappers, local values and type arguments.
     private const val MAX_DEPTH = 32
 
-    private fun streamType(id: String): ConeKotlinType =
-        ClassId.fromString(id).nullableClassType()
+    private fun streamType(className: String): ConeKotlinType =
+        classIdOf("java.io", className).nullableClassType()
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {

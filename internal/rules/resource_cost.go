@@ -1,12 +1,14 @@
 package rules
 
 import (
+	"bytes"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/javafacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -39,6 +41,9 @@ func resourceCostInsideLoopLambda(file *scanner.File, idx uint32) bool {
 	}
 	return false
 }
+
+// composePainterResourceFQNs are the Compose painter loaders ComposePainterResourceInLoop targets.
+var composePainterResourceFQNs = []string{"androidx.compose.ui.res.painterResource", "org.jetbrains.compose.resources.painterResource"}
 
 // resourceCostInlineLoopCallNames are inline iteration helpers; outside a lazy list they run a fixed, small number of times.
 var resourceCostInlineLoopCallNames = map[string]bool{"forEach": true, "forEachIndexed": true, "map": true, "mapIndexed": true, "repeat": true}
@@ -331,6 +336,86 @@ func javaHTTPClientCallLooksReal(file *scanner.File, idx uint32) bool {
 	}
 	receiver := databaseCallReceiverName(file, idx)
 	return receiver == "HttpClient" || strings.HasSuffix(receiver, ".HttpClient")
+}
+
+// okHTTPFileReferencesLibrary reports a file that imports or names okhttp3, which a name-based guess at an
+// okhttp3.Call needs: without it a receiver named `call` is another library's call.
+func okHTTPFileReferencesLibrary(file *scanner.File) bool {
+	return fileFactsCache().Imports(file).HasAnyPrefix("okhttp3.") || bytes.Contains(file.Content, []byte("okhttp3."))
+}
+
+// okHTTPResolvedCallTarget reports an execute() call that the type facts resolve to a member of okhttp3.Call.
+func okHTTPResolvedCallTarget(ctx *api.Context, idx uint32) bool {
+	target, ok := semantics.ResolveCallTarget(ctx, idx)
+	return ok && target.Resolved && semanticTargetOwnerMatches(target.QualifiedName, "okhttp3.Call")
+}
+
+// okHTTPExecuteUnderInjectedDispatcher reports an enclosing call, up to the function, that reads an injected IO or
+// default dispatcher, such as `withContext(appDispatchers.io) { ... }`. As in the FIR checker, the argument or
+// lambda that holds the execute call is left out, so a nested IO block beside it does not exempt it. The
+// dispatcher is read from member-access nodes, so a comment or string naming one does not count.
+func okHTTPExecuteUnderInjectedDispatcher(file *scanner.File, idx uint32) bool {
+	for current, ok := file.FlatParent(idx); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "call_expression":
+			if okHTTPCallReadsInjectedDispatcher(file, current, okHTTPCallHolder(file, current, idx)) {
+				return true
+			}
+		case "function_declaration", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+// okHTTPCallHolder returns the part of call that holds idx: the outermost value argument or lambda between them,
+// or else the child of call that holds idx.
+func okHTTPCallHolder(file *scanner.File, call, idx uint32) uint32 {
+	holder := uint32(0)
+	for current, ok := idx, true; ok && current != call; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "value_argument", "annotated_lambda":
+			holder = current
+		}
+		if parent, has := file.FlatParent(current); has && parent == call && holder == 0 {
+			holder = current
+		}
+	}
+	return holder
+}
+
+// okHTTPCallReadsInjectedDispatcher reports a member access in call, outside holder, that reads `io` or `default`
+// on a value whose name ends in `dispatchers` (any case), such as `appDispatchers.io`.
+func okHTTPCallReadsInjectedDispatcher(file *scanner.File, call, holder uint32) bool {
+	found := false
+	file.FlatWalkNodes(call, "navigation_expression", func(nav uint32) {
+		if found || holder != 0 && file.FlatStartByte(nav) >= file.FlatStartByte(holder) && file.FlatEndByte(nav) <= file.FlatEndByte(holder) {
+			return
+		}
+		receiver := file.FlatFirstChild(nav)
+		suffix, ok := file.FlatFindChild(nav, "navigation_suffix")
+		if receiver == 0 || !ok {
+			return
+		}
+		member := strings.ToLower(file.FlatChildTextOrEmpty(suffix, "simple_identifier"))
+		if member != "io" && member != "default" {
+			return
+		}
+		owner := receiver
+		if file.FlatType(owner) == "navigation_expression" {
+			if inner, ok := file.FlatFindChild(owner, "navigation_suffix"); ok {
+				owner = inner
+			}
+		}
+		name := ""
+		if file.FlatType(owner) == "simple_identifier" {
+			name = file.FlatNodeText(owner)
+		} else {
+			name = file.FlatChildTextOrEmpty(owner, "simple_identifier")
+		}
+		found = strings.HasSuffix(strings.ToLower(name), "dispatchers")
+	})
+	return found
 }
 
 func okHTTPReceiverDeclaredAsCall(file *scanner.File, fn uint32, receiver string) bool {
@@ -661,6 +746,7 @@ func cursorColumnArgIsLoopInvariant(file *scanner.File, call uint32, loopLocals 
 
 // bufferedReadFillsLargeBuffer reports whether a FileInputStream.read call fills a buffer known to hold 8 KiB
 // or more, which already moves data in large chunks. Reads into buffers of unknown size are not exempt.
+// The buffer may be a val of the enclosing function or of the file, and its size a constant expression.
 func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 	first := flatPositionalValueArgument(file, flatCallKeyArguments(file, call), 0)
 	expr := flatValueArgumentExpression(file, first)
@@ -669,23 +755,85 @@ func bufferedReadFillsLargeBuffer(file *scanner.File, call uint32) bool {
 	}
 	size, known := byteArraySizeLiteral(file, expr)
 	if !known && file.FlatType(expr) == "simple_identifier" {
-		name := file.FlatNodeText(expr)
-		if fn, ok := flatEnclosingCallable(file, call); ok {
-			file.FlatWalkNodes(fn, "property_declaration", func(prop uint32) {
-				if known || composePropertyNameFlat(file, prop) != name || declarationIsVarFlat(file, prop) {
-					return
-				}
-				if init := propertyInitializerExpression(file, prop); init != 0 {
-					size, known = byteArraySizeLiteral(file, init)
-				}
-			})
-		}
+		size, known = visibleBufferValSize(file, call, file.FlatNodeText(expr))
 	}
 	return known && size >= 8192
 }
 
-// byteArraySizeLiteral returns N for a `ByteArray(N)` expression with an integer literal size.
-func byteArraySizeLiteral(file *scanner.File, expr uint32) (int, bool) {
+// visibleBufferValSize returns the constant ByteArray size of the val named name that the read at call sees: the
+// nearest local declared before it, a member of an enclosing class or a top-level val. A parameter, a var or a val
+// without a constant ByteArray initializer that shadows outer declarations leaves the size unknown.
+func visibleBufferValSize(file *scanner.File, call uint32, name string) (int64, bool) {
+	at := file.FlatStartByte(call)
+	for scope, ok := file.FlatParent(call); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "statements", "class_body", "source_file":
+			decl := uint32(0)
+			for child := file.FlatFirstChild(scope); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) != "property_declaration" || composePropertyNameFlat(file, child) != name {
+					continue
+				}
+				if file.FlatType(scope) == "statements" {
+					if file.FlatStartByte(child) >= at {
+						break
+					}
+					decl = child
+					continue
+				}
+				decl = child
+				break
+			}
+			if decl == 0 {
+				continue
+			}
+			if declarationIsVarFlat(file, decl) {
+				return 0, false
+			}
+			if init := propertyInitializerExpression(file, decl); init != 0 {
+				return byteArraySizeLiteral(file, init)
+			}
+			return 0, false
+		case "function_declaration", "secondary_constructor", "anonymous_function":
+			if bufferScopeHasParameter(file, scope, "parameter", name) {
+				return 0, false
+			}
+		case "lambda_literal":
+			if params, ok := file.FlatFindChild(scope, "lambda_parameters"); ok &&
+				bufferScopeHasParameter(file, params, "variable_declaration", name) {
+				return 0, false
+			}
+		case "class_declaration":
+			if bufferScopeHasParameter(file, scope, "class_parameter", name) {
+				return 0, false
+			}
+		}
+	}
+	return 0, false
+}
+
+// bufferScopeHasParameter reports a nodeType parameter named name declared by scope itself, not by a nested scope.
+func bufferScopeHasParameter(file *scanner.File, scope uint32, nodeType, name string) bool {
+	found := false
+	file.FlatWalkNodes(scope, nodeType, func(param uint32) {
+		if found || file.FlatChildTextOrEmpty(param, "simple_identifier") != name {
+			return
+		}
+		for parent, ok := file.FlatParent(param); ok && parent != scope; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "function_body", "class_body", "statements", "lambda_literal":
+				return
+			}
+		}
+		found = true
+	})
+	return found
+}
+
+// kotlinDefaultBufferSize is kotlin.io.DEFAULT_BUFFER_SIZE, which Kotlin imports by default.
+const kotlinDefaultBufferSize = 8192
+
+// byteArraySizeLiteral returns N for a `ByteArray(N)` expression whose size folds to a constant.
+func byteArraySizeLiteral(file *scanner.File, expr uint32) (int64, bool) {
 	if file.FlatType(expr) != "call_expression" || flatCallExpressionName(file, expr) != "ByteArray" {
 		return 0, false
 	}
@@ -695,8 +843,14 @@ func byteArraySizeLiteral(file *scanner.File, expr uint32) (int, bool) {
 	if size == 0 {
 		return 0, false
 	}
-	n, err := strconv.Atoi(strings.ReplaceAll(strings.TrimSpace(file.FlatNodeText(size)), "_", ""))
-	return n, err == nil
+	if n, ok := lintEvalIntLenient(file, size, nil); ok {
+		return n, true
+	}
+	switch strings.TrimSpace(file.FlatNodeText(size)) {
+	case "DEFAULT_BUFFER_SIZE", "kotlin.io.DEFAULT_BUFFER_SIZE":
+		return kotlinDefaultBufferSize, true
+	}
+	return 0, false
 }
 
 const workManagerMinPeriodicMillis = 15 * 60 * 1000

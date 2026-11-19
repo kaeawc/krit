@@ -27,6 +27,7 @@ import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
@@ -37,11 +38,16 @@ import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
+import org.jetbrains.kotlin.fir.symbols.SymbolInternals
+import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFieldSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirFileSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
@@ -71,7 +77,11 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    hardcoded value (see [isHardcoded]) or the bytes of one. The decoder is
  *    matched by its spelling, as Go matches its text, so
  *    `android.util.Base64`, `java.util.Base64`, and
- *    `kotlin.io.encoding.Base64` all count.
+ *    `kotlin.io.encoding.Base64` all count;
+ *  - the argument is itself a hardcoded value (see [isHardcoded]): bytes read
+ *    from a const or a val with a hardcoded initializer
+ *    (`KEY.toByteArray()`, `KEY.encodeToByteArray().copyOf(16)`), or a val
+ *    holding `byteArrayOf(..)` or `"..".toByteArray()`.
  * The byte helpers (`byteArrayOf`, `toByteArray`, `decode`, ...) are matched by
  * name, as Go matches them: the argument feeds the real SecretKeySpec's
  * `byte[]` parameter, so a same-named local helper still builds the key from
@@ -92,7 +102,11 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *    read with no quote in the argument (`decode(KEY_B64)`, also of a var or
  *    an open val with a hardcoded initializer, and of a local var whose
  *    function assigns it only hardcoded values) reports (HardcodedSecretKeyConstants,
- *    HardcodedSecretKeyLocalVars).
+ *    HardcodedSecretKeyLocalVars). So do bytes read from a hardcoded value
+ *    with no literal in the argument (`KEY.toByteArray()`, or `KEY_BYTES`
+ *    over `val KEY_BYTES = byteArrayOf(..)`) and a byteArrayOf of converted
+ *    literals (`byteArrayOf(1.toByte(), 2)`), which Go's literal-list parser
+ *    rejects (HardcodedSecretKeyReads).
  *  - Precision (Go reports, FIR does not): a `SecretKeySpec` that resolves to
  *    another class, such as an import alias of a lookalike under a
  *    `javax.crypto.spec.*` import (HardcodedSecretKeyLookalike); a string
@@ -129,9 +143,12 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
         report(expression.source, MESSAGE)
     }
 
+    // The last test also covers bytes read from a hardcoded value
+    // (`KEY.toByteArray()`, a val holding `byteArrayOf(1, 2)`), which Go misses.
     context(context: CheckerContext)
     private fun isHardcodedKey(key: FirExpression, walk: Walk): Boolean =
-        isLiteralByteArrayOf(key) || isStringBytes(key, walk) || containsLiteralBase64Decode(key, walk)
+        isLiteralByteArrayOf(key) || isStringBytes(key, walk) || containsLiteralBase64Decode(key, walk) ||
+            isHardcoded(key, walk)
 
     // `byteArrayOf(1, 2)` / `kotlin.byteArrayOf(1, 2)` with only number or char
     // literal arguments.
@@ -251,7 +268,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     //    compile-time constant initializer, or of a standard charset;
     //  - a call whose receiver and arguments are all hardcoded, whatever its
     //    result type (`StringBuilder("..").reverse().toString()`), or a String
-    //    or StringBuilder constructor or a charArrayOf call whose arguments are
+    //    or StringBuilder constructor or a charArrayOf or byteArrayOf call whose arguments are
     //    all hardcoded. A call on a class qualifier or with no receiver does
     //    not count on its literal arguments alone (`System.getenv("K")`,
     //    `loadKey("name")`);
@@ -319,15 +336,17 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
     )
     private val stringFunctionId = CallableId(FqName("kotlin.text"), Name.identifier("String"))
     private val charArrayOfId = CallableId(FqName("kotlin"), Name.identifier("charArrayOf"))
+    private val byteArrayOfId = CallableId(FqName("kotlin"), Name.identifier(BYTE_ARRAY_OF))
+    private val literalBuilderFunctions = setOf(stringFunctionId, charArrayOfId, byteArrayOfId)
 
-    // `String(..)`, `StringBuilder(..)`, `StringBuffer(..)`, or
-    // `charArrayOf(..)`: the result holds exactly the characters (or bytes) of
-    // its arguments.
+    // `String(..)`, `StringBuilder(..)`, `StringBuffer(..)`, `charArrayOf(..)`,
+    // or `byteArrayOf(..)`: the result holds exactly the characters (or bytes)
+    // of its arguments.
     private fun isLiteralBuilder(call: FirFunctionCall): Boolean {
         if (call.explicitReceiver != null) return false
         return when (val symbol = call.calleeReference.toResolvedCallableSymbol()) {
             is FirConstructorSymbol -> symbol.containingClassLookupTag()?.classId in stringBuilderClassIds
-            is FirNamedFunctionSymbol -> symbol.callableId == stringFunctionId || symbol.callableId == charArrayOfId
+            is FirNamedFunctionSymbol -> symbol.callableId in literalBuilderFunctions
             else -> false
         }
     }
@@ -392,13 +411,68 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
                     declared && (!isLocalVar(symbol) || walk.reassigning(symbol) {
                         reassignmentsAll(symbol, walk.assignedLocalValues()) { isHardcoded(it, walk) }
                     })
-                }
+                } && !writtenInPlaceBefore(symbol, access)
             }
             // A Java field: only a compile-time constant (a final field with a
             // constant initializer, in source or in the class file).
             is FirFieldSymbol -> symbol.isVal && symbol.hasConstantInitializer
             else -> false
         }
+
+    private val keyArrays = setOf(classIdOf("kotlin", "ByteArray"), classIdOf("kotlin", "CharArray"), classIdOf("kotlin", "UByteArray"))
+
+    // Members that read an array without writing it or handing it on.
+    private val readOnlyArrayMembers = setOf(
+        "size", "indices", "lastIndex", "get", "isEmpty", "isNotEmpty", "copyOf", "copyOfRange", "contentEquals",
+        "contentHashCode", "contentToString", "toHexString", "decodeToString", "toList", "toString", "hashCode", "equals",
+    )
+
+    // A local array can be filled in place after its initializer (`random.nextBytes(key)`, `key.fill(0)`,
+    // `key[0] = b`). A use of it between its declaration and [access] that may write it, anything but a read-only
+    // member, means the initializer no longer fixes its bytes.
+    @OptIn(SymbolInternals::class)
+    context(context: CheckerContext)
+    private fun writtenInPlaceBefore(symbol: FirPropertySymbol, access: FirPropertyAccessExpression): Boolean {
+        if (!symbol.isLocal) return false
+        if (symbol.resolvedReturnType.fullyExpandedType().classId !in keyArrays) return false
+        val declared = symbol.source?.endOffset ?: return true
+        val at = access.source?.startOffset ?: return true
+        val root = context.containingDeclarations.firstOrNull { it !is FirClassLikeSymbol<*> && it !is FirFileSymbol }
+            ?: return true
+        var written = false
+        val parents = ArrayList<FirElement>()
+        root.fir.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (written) return
+                if (element is FirQualifiedAccessExpression && element.calleeReference.toResolvedCallableSymbol() == symbol) {
+                    val offset = element.source?.startOffset
+                    if (offset != null && offset >= declared && offset < at && !isReadOnlyUse(element, parents)) {
+                        written = true
+                        return
+                    }
+                }
+                parents += element
+                element.acceptChildren(this)
+                parents.removeAt(parents.lastIndex)
+            }
+        })
+        return written
+    }
+
+    // [use] is the receiver of a read-only member, under any smart casts.
+    private fun isReadOnlyUse(use: FirExpression, parents: List<FirElement>): Boolean {
+        var child: FirElement = use
+        for (parent in parents.asReversed()) {
+            if (parent is FirSmartCastExpression) {
+                child = parent
+                continue
+            }
+            val member = parent as? FirQualifiedAccessExpression ?: return false
+            return member.explicitReceiver === child &&
+                member.calleeReference.toResolvedCallableSymbol()?.name?.asString() in readOnlyArrayMembers
+        }
+        return false
+    }
 
     // `by lazy { hardcoded }`.
     context(context: CheckerContext)

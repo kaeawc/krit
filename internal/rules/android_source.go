@@ -558,6 +558,13 @@ type LogTagLengthRule struct {
 	AndroidRule
 }
 
+// longLogTagArgIndex maps each android.util.Log method that takes a tag to the
+// tag's positional index. Before API 24, isLoggable throws
+// IllegalArgumentException for a tag over the limit.
+var longLogTagArgIndex = map[string]int{
+	"v": 0, "d": 0, "i": 0, "w": 0, "e": 0, "wtf": 0, "isLoggable": 0, "println": 1,
+}
+
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text
 // patterns (call names, string literal contents, hardcoded allow-

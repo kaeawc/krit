@@ -22,18 +22,29 @@ type PrintStackTraceRule struct {
 // sharing the same simple name. Classified per roadmap/17.
 func (r *PrintStackTraceRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// printStackTraceReceiverIsThrowable reports a receiver that is the bare name of an enclosing catch's variable
+// (the nearest catch declaring that name), not hidden by a local, lambda parameter or loop variable declared
+// inside that catch. A member chain (`this.e`, `holder.e`) is another value.
 func printStackTraceReceiverIsThrowable(ctx *api.Context, call uint32) bool {
-	if ctx.File == nil {
-		return false
-	}
 	file := ctx.File
-	receiverName := flatReceiverNameFromCall(file, call)
-	if receiverName == "" {
+	if file == nil {
 		return false
 	}
-	if catchNode, ok := flatEnclosingAncestor(file, call, "catch_block", "catch_clause"); ok {
-		if receiverName == extractCaughtVarNameFlat(file, catchNode) {
-			return true
+	navExpr, _ := flatCallExpressionParts(file, call)
+	if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+		return false
+	}
+	receiver := file.FlatNamedChild(navExpr, 0)
+	if file.FlatType(receiver) != "simple_identifier" {
+		return false
+	}
+	name := file.FlatNodeString(receiver, nil)
+	for cur, ok := file.FlatParent(call); ok; cur, ok = file.FlatParent(cur) {
+		if t := file.FlatType(cur); t != "catch_block" && t != "catch_clause" {
+			continue
+		}
+		if extractCaughtVarNameFlat(file, cur) == name {
+			return !composeIdentShadowedWithin(file, cur, receiver, name)
 		}
 	}
 	return false

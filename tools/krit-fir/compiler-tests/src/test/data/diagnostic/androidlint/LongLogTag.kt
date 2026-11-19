@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 26, 27, 28, 29, 30, 31, 35, 36, 37, 38, 39, 41, 42, 43, 45, 46
-// Positives and negatives that match Go: an android.util.Log level call whose
-// tag, a literal or a property initialized with a literal, is longer than 23
-// characters. The finding sits on the call's first line.
+// go-lines: 26, 27, 28, 29, 30, 31, 35, 36, 37, 38, 39, 41, 42, 43, 45, 46, 62, 63, 64
+// Positives and negatives that match Go: an android.util.Log call (a level
+// call, isLoggable, or println) whose tag, a literal or a property initialized
+// with a literal, is longer than 23 characters. The finding sits on the call's first line.
 package test.longlogtag
 
 import android.util.Log
@@ -53,7 +53,14 @@ class Screen {
         Log.d(tag, "parameter")
         Log.d("InterpolatedTagThatIsTooLong$count", "template")
         Log.d("TagBuiltFromParts" + "ThatIsTooLong", "concatenation")
-        Log.println(Log.DEBUG, "PrintlnTagThatIsWayTooLongX", "not a level call")
-        Log.isLoggable("IsLoggableTagThatIsWayTooLong", Log.DEBUG)
+        Log.println(Log.DEBUG, "Short", "PrintlnMessageThatIsWayTooLongX: the tag is the second argument")
+        Log.isLoggable("Short", Log.DEBUG)
+    }
+
+    fun tagTakingNonLevelCalls() {
+        // Android Lint checks these too; isLoggable throws for a long tag before API 24.
+        <!LongLogTag!>Log.println(Log.DEBUG, "PrintlnTagThatIsWayTooLongX", "m")<!>
+        if (<!LongLogTag!>Log.isLoggable("IsLoggableTagThatIsWayTooLong", Log.DEBUG)<!>) Unit
+        <!LongLogTag!>Log.isLoggable(TAG, Log.VERBOSE)<!>
     }
 }

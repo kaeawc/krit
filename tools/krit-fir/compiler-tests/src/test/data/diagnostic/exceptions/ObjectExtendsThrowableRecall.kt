@@ -1,56 +1,61 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// True positives Go misses. Go matches only a direct supertype named
-// Throwable, Exception, Error, or RuntimeException, and never visits a
-// companion object. Each of these is a singleton that is a Throwable.
+// go-lines: 12, 15, 35, 41, 46, 51, 58
+// Singletons that are Throwables. Go matches the superclass by simple name
+// against a fixed list of Throwable classes, so it misses the ones marked
+// below; the rest it reports too.
 package test
 
 import java.io.IOException
 import java.lang.IllegalArgumentException as BadArgument
 
-// Go misses this because IllegalStateException is not one of its four names.
-<!ObjectExtendsThrowable!>object<!> NotReady : IllegalStateException("not ready")
+// Reported, as in Go: IllegalStateException is in its list.
+object <!ObjectExtendsThrowable!>NotReady<!> : IllegalStateException("not ready")
 
-// Go misses this because IOException is not one of its four names.
-<!ObjectExtendsThrowable!>object<!> Disconnected : IOException("disconnected")
+// Reported, as in Go: IOException is in its list.
+object <!ObjectExtendsThrowable!>Disconnected<!> : IOException("disconnected")
 
-// Go misses this because StackOverflowError is not one of its four names.
-<!ObjectExtendsThrowable!>object<!> TooDeep : StackOverflowError()
+// Go misses this because StackOverflowError is not in its list.
+object <!ObjectExtendsThrowable!>TooDeep<!> : StackOverflowError()
 
 open class AppFailure(message: String) : RuntimeException(message)
 
-// Go misses this because it reads only the direct supertype's name.
-<!ObjectExtendsThrowable!>object<!> Timeout : AppFailure("timeout")
+// Go misses this because it reads only the superclass's own name.
+object <!ObjectExtendsThrowable!>Timeout<!> : AppFailure("timeout")
 
 typealias Failure = Exception
 
 // Go misses this because it does not expand the type alias.
-<!ObjectExtendsThrowable!>object<!> Aliased : Failure()
+object <!ObjectExtendsThrowable!>Aliased<!> : Failure()
 
 // Go misses this because it does not follow the import alias.
-<!ObjectExtendsThrowable!>object<!> ImportAliased : BadArgument()
+object <!ObjectExtendsThrowable!>ImportAliased<!> : BadArgument()
 
 class Service {
-    // Go misses this because it never visits companion objects.
+    // Reported, as in Go: a companion object is a singleton too.
     <!ObjectExtendsThrowable!>companion<!> object : Exception("companion")
 }
 
-class NamedCompanion {
-    // Go misses this because it never visits companion objects.
-    <!ObjectExtendsThrowable!>companion<!> object Failed : RuntimeException("failed")
+class AnnotatedCompanion {
+    // Reported on `companion`, as in Go, not on the annotation above it.
+    @Suppress("unused")
+    <!ObjectExtendsThrowable!>companion<!> object : Exception("annotated")
 }
 
-// Go misses these because it looks the object up by simple name, and a class
-// with the same name declared later in the file replaces it, so Go reads
-// that class's supertypes instead of the object's.
-<!ObjectExtendsThrowable!>object<!> Rejected : Exception()
+class NamedCompanion {
+    // Reported, as in Go.
+    companion object <!ObjectExtendsThrowable!>Failed<!> : RuntimeException("failed")
+}
+
+// Reported, as in Go: a class with the same name declared later in the file
+// does not replace the object's own supertypes.
+object <!ObjectExtendsThrowable!>Rejected<!> : Exception()
 
 class RejectionHolder {
     class Rejected
 }
 
 class Scheduler {
-    <!ObjectExtendsThrowable!>object<!> Busy : RuntimeException()
+    object <!ObjectExtendsThrowable!>Busy<!> : RuntimeException()
 }
 
 class Busy : Comparable<Busy> {

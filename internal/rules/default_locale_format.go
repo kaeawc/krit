@@ -33,9 +33,16 @@ func defaultLocaleFormatArgReportable(file *scanner.File, formatExpr, call uint3
 	return !defaultLocaleInThrowOrLogArg(file, call)
 }
 
+// defaultLocaleInThrowOrLogArg mirrors Lint: the call sits anywhere under a throw, or the nearest call it is an
+// argument of is a single-letter android.util.Log call. A call it is only the receiver of (`String.format(...).trim()`)
+// is not that call: UAST has it as the selector of a qualified expression, not as a parent call.
 func defaultLocaleInThrowOrLogArg(file *scanner.File, call uint32) bool {
 	logChecked := false
-	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+	for child := call; ; {
+		p, ok := file.FlatParent(child)
+		if !ok {
+			return false
+		}
 		switch file.FlatType(p) {
 		case "throw_statement":
 			return true
@@ -44,15 +51,24 @@ func defaultLocaleInThrowOrLogArg(file *scanner.File, call uint32) bool {
 				return true
 			}
 		case "call_expression", "method_invocation":
-			if !logChecked {
+			if !logChecked && !defaultLocaleIsReceiverOf(file, p, child) {
 				logChecked = true
 				if defaultLocaleIsLogCall(file, p) {
 					return true
 				}
 			}
 		}
+		child = p
 	}
-	return false
+}
+
+// defaultLocaleIsReceiverOf reports whether child is the callee part of call (its receiver chain), not an argument.
+func defaultLocaleIsReceiverOf(file *scanner.File, call, child uint32) bool {
+	if file.FlatType(call) == "method_invocation" {
+		args, _ := file.FlatFindChild(call, "argument_list")
+		return child != args
+	}
+	return child == file.FlatFirstChild(call)
 }
 
 // defaultLocaleIsLogCall reports a single-letter android.util.Log call such as Log.d.

@@ -682,7 +682,8 @@ func lintFindingAtNode(ctx *api.Context, idx uint32, severity, msg string) scann
 // lintCallNodeTypes are the node types lintCallAt understands.
 var lintCallNodeTypes = []string{"call_expression", "method_invocation", "object_creation_expression"}
 
-var lintInterpolationRe = regexp.MustCompile(`\$\{[^}]*\}|\$[A-Za-z_]\w*`)
+// lintInterpolationRe matches a Kotlin string template entry at the start of its input.
+var lintInterpolationRe = regexp.MustCompile(`^(?:\$\{[^}]*\}|\$[A-Za-z_]\w*)`)
 
 // lintEvalString folds a string expression of literals, `+` concatenation, and constants declared in the file.
 // Parts that are not constant are dropped, as in Lint's ConstantEvaluator with unknowns allowed; it reports false
@@ -728,16 +729,43 @@ func lintEvalStringDepth(file *scanner.File, idx, scope uint32, depth int) (stri
 	return "", false
 }
 
-// lintStringLiteralValue returns the literal's text without quotes and without Kotlin interpolations.
+// lintStringLiteralValue returns the literal's text without quotes and without Kotlin interpolations. In a Kotlin
+// string that is not raw, `\$` is an escaped dollar sign, not the start of an interpolation, so `"%1\$d"` reads as
+// `%1$d`. Java has no interpolation, so a Java literal keeps every `$`.
 func lintStringLiteralValue(file *scanner.File, idx uint32) string {
 	raw := file.FlatNodeText(idx)
+	rawString := false
 	switch {
 	case strings.HasPrefix(raw, `"""`) && strings.HasSuffix(raw, `"""`) && len(raw) >= 6:
 		raw = raw[3 : len(raw)-3]
+		rawString = true
 	case len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"':
 		raw = raw[1 : len(raw)-1]
 	}
-	return lintInterpolationRe.ReplaceAllString(raw, "")
+	if file.Language == scanner.LangJava {
+		return raw
+	}
+	var sb strings.Builder
+	for i := 0; i < len(raw); {
+		if !rawString && raw[i] == '\\' && i+1 < len(raw) {
+			if raw[i+1] == '$' {
+				sb.WriteByte('$')
+			} else {
+				sb.WriteString(raw[i : i+2])
+			}
+			i += 2
+			continue
+		}
+		if raw[i] == '$' {
+			if loc := lintInterpolationRe.FindStringIndex(raw[i:]); loc != nil {
+				i += loc[1]
+				continue
+			}
+		}
+		sb.WriteByte(raw[i])
+		i++
+	}
+	return sb.String()
 }
 
 // lintLiteralContentOffset is the byte offset inside the literal node where its content starts.
@@ -771,7 +799,12 @@ func lintReceiverIsType(ctx *api.Context, call lintCall, fqn string) bool {
 	}
 	file := ctx.File
 	simple := fqn[strings.LastIndex(fqn, ".")+1:]
-	if semanticCallTargetOrReceiverType(ctx, call.Idx, []string{fqn}, []string{fqn, simple}) {
+	receiverTypes := []string{fqn}
+	// The simple name stands for fqn unless an import or a class of this file gives it to another type.
+	if imported, ok := lintImportsOf(file).bySimple[simple]; (!ok || imported == fqn) && lintSameFileClass(file, simple) == 0 {
+		receiverTypes = append(receiverTypes, simple)
+	}
+	if semanticCallTargetOrReceiverType(ctx, call.Idx, []string{fqn}, receiverTypes) {
 		return true
 	}
 	return lintTypeRefMatches(file, lintReceiverTypeText(file, call), fqn)

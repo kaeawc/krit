@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1858,6 +1859,22 @@ fun schedule(context: Context, intent: Intent) {
 `)
 		if len(findings) != 2 {
 			t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+		}
+	})
+	t.Run("Kotlin flags getForegroundService without mutability", func(t *testing.T) {
+		findings := runAndroidSecurityProjectRule(t, "ImplicitPendingIntent", "Test.kt", 26, 31, `
+package test
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+
+fun schedule(context: Context, intent: Intent) {
+    PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
+    PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+}
+`)
+		if len(findings) != 1 || findings[0].Line != 8 {
+			t.Fatalf("expected 1 finding on line 8, got %d: %v", len(findings), findings)
 		}
 	})
 	t.Run("Kotlin accepts explicit mutability and PendingIntentCompat", func(t *testing.T) {
@@ -3814,4 +3831,179 @@ func TestDrawAllocation_ValueClassConstructorDoesNotAllocate(t *testing.T) {
 	if got := runRuleByName(t, "DrawAllocation", src); len(got) != 0 {
 		t.Fatalf("expected no findings, got %v", got)
 	}
+}
+
+// An explicit import of another class under the bare name decides what that name means, so neither a star
+// import nor a mention of the JDK class elsewhere in the file makes the call the JDK's.
+func TestWeakCryptoExplicitImportOfOtherClass(t *testing.T) {
+	cases := []struct {
+		name, rule, lang, src string
+		want                  int
+	}{
+		{"Mac over star import", "WeakMacAlgorithm", "kt", `
+package test
+import javax.crypto.*
+import com.example.hmac.Mac
+
+fun mac() = Mac.getInstance("HmacMD5")
+`, 0},
+		{"Mac alias over star import", "WeakMacAlgorithm", "kt", `
+package test
+import javax.crypto.*
+import javax.crypto.KeyGenerator as Mac
+
+fun mac() = Mac.getInstance("HmacMD5")
+`, 0},
+		{"Mac with comment mention", "WeakMacAlgorithm", "kt", `
+package test
+import com.example.hmac.Mac
+
+// Unlike javax.crypto.Mac, this Mac is ours.
+fun mac() = Mac.getInstance("HmacMD5")
+`, 0},
+		{"Mac with MacSpi import", "WeakMacAlgorithm", "kt", `
+package test
+import javax.crypto.MacSpi
+import com.example.hmac.Mac
+
+fun mac() = Mac.getInstance("HmacMD5")
+`, 0},
+		{"Mac with aliased JDK import", "WeakMacAlgorithm", "kt", `
+package test
+import javax.crypto.Mac as JMac
+import com.example.hmac.Mac
+
+fun jdk(mac: JMac): JMac = mac
+fun mac() = Mac.getInstance("HmacMD5")
+`, 0},
+		{"JDK Mac import still reports", "WeakMacAlgorithm", "kt", `
+package test
+import javax.crypto.*
+import javax.crypto.Mac
+
+fun mac() = Mac.getInstance("HmacMD5")
+`, 1},
+		{"MessageDigest over star import", "WeakMessageDigest", "kt", `
+package test
+import java.security.*
+import java.security.Signature as MessageDigest
+
+fun digest() = MessageDigest.getInstance("MD5")
+`, 0},
+		{"MessageDigest with comment mention", "WeakMessageDigest", "kt", `
+package test
+import com.example.crypto.MessageDigest
+
+// Not java.security.MessageDigest.
+fun digest() = MessageDigest.getInstance("MD5")
+`, 0},
+		{"Java Mac with qualified JDK mention", "WeakMacAlgorithm", "java", `
+package test;
+import com.example.hmac.Mac;
+
+class C {
+    Object jdk() throws Exception { return javax.crypto.Mac.getInstance("HmacSHA256"); }
+    Object mac() { return Mac.getInstance("HmacMD5"); }
+}
+`, 0},
+		{"Java MessageDigest with qualified JDK mention", "WeakMessageDigest", "java", `
+package test;
+import com.example.crypto.MessageDigest;
+
+class C {
+    Object jdk() throws Exception { return java.security.MessageDigest.getInstance("SHA-256"); }
+    Object digest() { return MessageDigest.getInstance("MD5"); }
+}
+`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var findings []scanner.Finding
+			if tc.lang == "java" {
+				findings = runRuleByNameOnJava(t, tc.rule, tc.src)
+			} else {
+				findings = runRuleByName(t, tc.rule, tc.src)
+			}
+			if len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
+			}
+		})
+	}
+}
+
+// Lint 32.4.1 HandlerDetector: an inner Handler is exempt when one of its own constructors takes a Looper parameter,
+// whether or not the Looper reaches Handler; an anonymous Handler is exempt when its super call has a Looper argument.
+// An anonymous Handler is exempt only when an argument is a Looper, not when its text mentions one.
+func TestHandlerLeak_LooperArgumentIsStructural(t *testing.T) {
+	findings := runRuleByName(t, "HandlerLeak", `
+package test
+import android.app.Activity
+import android.os.Handler
+import android.os.HandlerThread
+class Outer(private val thread: HandlerThread, private val callback: Handler.Callback, private val looperCallback: Handler.Callback) : Activity() {
+    val commented = object : Handler(callback /* use Looper.getMainLooper() later */) {}
+    val namedLooper = object : Handler(looperCallback) {}
+    val viaThread = object : Handler(thread.looper) {}
+    val viaContext = object : Handler(mainLooper) {}
+    val viaGetter = object : Handler(thread.getLooper()) {}
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{7, 8}; !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
+	}
+}
+
+func TestHandlerLeak_LintLooperExemptions(t *testing.T) {
+	findingLines := func(findings []scanner.Finding) []int {
+		var lines []int
+		for _, f := range findings {
+			lines = append(lines, f.Line)
+		}
+		return lines
+	}
+	t.Run("kotlin", func(t *testing.T) {
+		findings := runRuleByName(t, "HandlerLeak", `
+package test
+import android.os.Handler
+import android.os.Looper
+class Outer(private val looper: Looper) {
+    inner class NotPassed(l: Looper) : Handler()
+    inner class Secondary : Handler {
+        constructor(l: Looper) : super(l)
+    }
+    inner class OuterLooper : Handler(looper)
+    inner class Varargs(vararg l: Looper) : Handler()
+    val main = object : Handler(Looper.getMainLooper()) {}
+    val viaThread = object : Handler(looper) {}
+    val plain = object : Handler() {}
+}
+`)
+		if got, want := findingLines(findings), []int{10, 11, 14}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("lines = %v, want %v", got, want)
+		}
+		if findings[0].Message != "This `Handler` class should be static or leaks might occur (test.Outer.OuterLooper)" {
+			t.Fatalf("message = %q", findings[0].Message)
+		}
+	})
+	t.Run("java", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "HandlerLeak", `
+package test;
+import android.os.Handler;
+import android.os.Looper;
+class Outer {
+    class NotPassed extends Handler { NotPassed(Looper l) { super(); } }
+    class MainLooper extends Handler { MainLooper() { super(Looper.getMainLooper()); } }
+    void f(Looper lp) {
+        Handler h = new Handler(lp) { };
+    }
+}
+`)
+		if got, want := findingLines(findings), []int{7}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("lines = %v, want %v", got, want)
+		}
+	})
 }

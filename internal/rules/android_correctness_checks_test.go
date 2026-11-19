@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1125,4 +1126,50 @@ fun animate(view: View, label: TextView) {
 	if len(findings) != 0 {
 		t.Fatalf("scrollX on View and textSize on TextView are real setters, got %d findings", len(findings))
 	}
+}
+
+// Lint 32.4.1 LocaleDetector cases: an escaped `\$` in a Kotlin pattern, a Java `%1$d`, and a format call that is only
+// the receiver of a call inside a Log argument. capitalize() / decapitalize() are left to the FIR checker: projects
+// often declare their own locale-invariant extensions of those names, which a by-name match would report.
+func TestDefaultLocale_LintParity(t *testing.T) {
+	lines := func(findings []scanner.Finding) []int {
+		var out []int
+		for _, f := range findings {
+			out = append(out, f.Line)
+		}
+		return out
+	}
+	t.Run("kotlin", func(t *testing.T) {
+		findings := runRuleByNameWithResolver(t, "DefaultLocale", `
+package test
+import android.util.Log
+fun f(s: String, x: Int) {
+    String.format("%1\$d", x)
+    String.format("%1\$s", s)
+    Log.d("t", String.format("%d", x).trim())
+    Log.d("t", listOf(String.format("%d", x)).toString())
+    s.capitalize()
+    s.decapitalize()
+    s.capitalize(java.util.Locale.ROOT)
+}
+`)
+		if got, want := lines(findings), []int{5, 8}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("lines = %v, want %v", got, want)
+		}
+	})
+	t.Run("java", func(t *testing.T) {
+		findings := runJavaRuleByName(t, "DefaultLocale", `
+package test;
+import android.util.Log;
+class C {
+  void f(int x) {
+    String.format("%1$d", x);
+    Log.d("t", String.format("%d", x).trim());
+  }
+}
+`)
+		if got, want := lines(findings), []int{6}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("lines = %v, want %v", got, want)
+		}
+	})
 }

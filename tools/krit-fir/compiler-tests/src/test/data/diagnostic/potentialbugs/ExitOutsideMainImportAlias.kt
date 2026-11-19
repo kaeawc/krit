@@ -13,19 +13,19 @@ import java.lang.System.exit as quit
 import kotlin.system.exitProcess as die
 
 fun aliasedExitProcess() {
-    <!ExitOutsideMain!>die(1)<!>
+    <!ExitOutsideMain!>die<!>(1)
 }
 
 fun staticImportExit() {
-    <!ExitOutsideMain!>exit(1)<!>
+    <!ExitOutsideMain!>exit<!>(1)
 }
 
 fun aliasedStaticImportExit() {
-    <!ExitOutsideMain!>quit(1)<!>
+    <!ExitOutsideMain!>quit<!>(1)
 }
 
 fun aliasedSystemClass() {
-    <!ExitOutsideMain!>JavaSystem.exit(1)<!>
+    JavaSystem.<!ExitOutsideMain!>exit<!>(1)
 }
 
 fun main() {

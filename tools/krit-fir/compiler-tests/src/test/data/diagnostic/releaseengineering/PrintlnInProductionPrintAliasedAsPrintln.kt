@@ -8,5 +8,5 @@ package test
 import kotlin.io.print as println
 
 fun aliasedPrint() {
-    <!PrintlnInProduction!>println("kotlin.io.print under the name println")<!>
+    <!PrintlnInProduction!>println<!>("kotlin.io.print under the name println")
 }

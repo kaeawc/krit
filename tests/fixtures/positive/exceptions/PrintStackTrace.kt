@@ -10,6 +10,10 @@ class Service {
         }
     }
 
+    fun dump() {
+        Thread.dumpStack()
+    }
+
     private fun doWork() {
         throw RuntimeException("failure")
     }

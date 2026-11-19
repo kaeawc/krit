@@ -1,15 +1,12 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// The binding annotation: Go accepts any annotation written @Provides... or
-// @Binds..., so a Dagger @IntoMap function with a project annotation named
-// that way is reported by both (the first two functions).
-//
-// Divergence: Go also finds "@Provides" inside a string argument, so it
-// reports provideNamed, which has Dagger's @IntoMap but no binding
-// annotation. It is not a map contribution (Dagger reports a different error
+// The binding annotation is Dagger's @Provides or @Binds. A Dagger @IntoMap
+// function whose only other annotation is a project one named like a binding
+// (the first two functions), or holds "@Provides" only in a string argument
+// (provideNamed), is not a map contribution (Dagger reports a different error
 // for a multibinding annotation on a non-binding method), so the message
 // ("Dagger requires a key annotation on every map contribution") is not true
-// of it. No finding here.
+// of it. Neither Go nor FIR reports them.
 //
 // Divergence (recall): Go misses a type-aliased @IntoMap and @Provides;
 // provideTypeAliased is a map contribution without a key, so FIR reports it.
@@ -32,11 +29,11 @@ interface Handler
 class HandlerImpl : Handler
 
 class BindingModule {
-    <!IntoMapMissingKey!>@ProvidesHandler<!>
+    @ProvidesHandler
     @IntoMap
     fun provideProjectAnnotation(): Handler = HandlerImpl()
 
-    <!IntoMapMissingKey!>@Provides2<!>
+    @Provides2
     @IntoMap
     fun provideProjectAnnotation2(): Handler = HandlerImpl()
 

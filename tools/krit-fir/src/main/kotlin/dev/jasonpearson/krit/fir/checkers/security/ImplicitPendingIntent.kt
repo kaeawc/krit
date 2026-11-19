@@ -23,7 +23,8 @@ import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 
-// Flags android.app.PendingIntent.getActivity, getActivities, getBroadcast and getService when the flags
+// Flags android.app.PendingIntent.getActivity, getActivities, getBroadcast, getService and getForegroundService
+// (which checks the flags like getService) when the flags
 // argument is an explicit flag expression with no FLAG_IMMUTABLE or FLAG_MUTABLE: Android 12 (API 31)
 // requires one of them.
 //
@@ -59,7 +60,7 @@ internal object ImplicitPendingIntent : FirFunctionCallChecker(MppCheckerKind.Co
 
     private val pendingIntentId = classIdOf("android.app", "PendingIntent")
     private val intId = classIdOf("kotlin", "Int")
-    private val factoryNames = setOf("getActivity", "getBroadcast", "getService", "getActivities")
+    private val factoryNames = setOf("getActivity", "getBroadcast", "getService", "getForegroundService", "getActivities")
     private val mutabilityConstants = setOf("FLAG_IMMUTABLE", "FLAG_MUTABLE")
     private val flagOperators = setOf("or", "and", "xor", "plus")
 

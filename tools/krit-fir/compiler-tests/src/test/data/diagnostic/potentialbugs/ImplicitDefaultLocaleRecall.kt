@@ -42,3 +42,12 @@ class LocaleMentionedInPattern {
 
     fun instanceArgument(): String = <!ImplicitDefaultLocale!>"%d".format(Locale.US.hashCode())<!>
 }
+
+class NamedPattern {
+    // Go reads the first argument with its name, `format = "%d"`, which is not
+    // a string literal, so it treats the pattern as display text and skips it.
+    fun named(value: Int): String = <!ImplicitDefaultLocale!>String.format(format = "%d", value)<!>
+
+    // A named pattern with only locale-independent conversions stays exempt.
+    fun namedInsensitive(value: String): String = String.format(format = "%s", value)
+}

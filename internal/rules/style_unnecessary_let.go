@@ -50,6 +50,9 @@ var unnecessaryLetValueCallees = map[string]bool{
 	"mapLatest": true, "flatMapLatest": true, "mapTo": true, "partition": true, "indexOfFirst": true,
 	"indexOfLast": true, "distinctBy": true, "takeWhile": true, "dropWhile": true, "mapKeys": true,
 	"mapValues": true, "computeIfAbsent": true, "singleOrNull": true, "single": true, "then": true,
+	"withTimeout": true, "withTimeoutOrNull": true, "withLock": true, "withPermit": true, "runInterruptible": true,
+	"measureTimedValue": true, "mapCatching": true, "recover": true, "recoverCatching": true,
+	"firstNotNullOf": true, "firstNotNullOfOrNull": true, "maxOfOrNull": true, "minOfOrNull": true,
 }
 
 // unnecessaryLetCheck reports one call_expression when it is a `let` call that
@@ -72,6 +75,9 @@ func unnecessaryLetCheck(r *UnnecessaryLetRule, ctx *api.Context) {
 	count := 0
 	if lambdaLit != 0 && stmts != 0 {
 		count = unnecessaryLetCountReferences(file, stmts, names)
+	}
+	if lambdaLit != 0 {
+		count += unnecessaryLetCountMisparsedReferences(file, lambdaLit, names)
 	}
 	if count > 1 {
 		return
@@ -229,12 +235,35 @@ func unnecessaryLetCountReferences(file *scanner.File, stmts uint32, names []str
 				count++
 			}
 			return
+		case "callable_reference":
+			// tree-sitter parses the receiver of `it::foo` as a type name.
+			if first := file.FlatFirstChild(n); first != 0 && file.FlatType(first) == "type_identifier" &&
+				unnecessaryLetNameIn(names, file.FlatNodeText(first)) {
+				count++
+			}
 		}
 		for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
 			walk(c)
 		}
 	}
 	walk(stmts)
+	return count
+}
+
+// unnecessaryLetCountMisparsedReferences counts the parameter names in ERROR children of the lambda: tree-sitter
+// reads a body that starts with `(it)` as a destructuring declaration it cannot finish.
+func unnecessaryLetCountMisparsedReferences(file *scanner.File, lambda uint32, names []string) int {
+	count := 0
+	for c := file.FlatFirstChild(lambda); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "ERROR" {
+			continue
+		}
+		file.FlatWalkNodes(c, "simple_identifier", func(id uint32) {
+			if unnecessaryLetNameIn(names, file.FlatNodeText(id)) {
+				count++
+			}
+		})
+	}
 	return count
 }
 

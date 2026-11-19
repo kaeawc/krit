@@ -43,21 +43,14 @@ import org.jetbrains.kotlin.name.Name
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`ScopeOnParameterizedClass*.kt`):
- * - Go matches the text `@<Name>` anywhere in the modifier list, as a prefix,
- *   so it reports a generic class whose annotation merely starts with a scope
- *   name (`@SingletonHolder`), mentions one in a string argument
- *   (`@Named("@Singleton")`) or in a comment between annotations, or is a
- *   same-named annotation that is not a DI scope (a local
- *   `annotation class Singleton` without `@Scope`). None of those classes is
- *   scoped, so none is reported here. When such a lookalike sits next to a
- *   real scope (`@SingletonHolder @ActivityScoped`), both report the line, but
- *   Go's message names the lookalike's list entry (`@Singleton`) and this one
- *   names the scope that is there (`@ActivityScoped`).
- * - Go only knows the simple names in its list written without a qualifier,
- *   so it misses `@javax.inject.Singleton`, an import alias, a type alias, a
- *   project scope with another name (`@PerActivity`), and a `fun interface`
- *   (whose declaration tree-sitter does not parse as a class). Those are
- *   scoped generic types and are reported here.
+ * - Go reads the annotation's simple name, so it reports a generic class
+ *   annotated with a same-named annotation that is not a DI scope when the
+ *   file does not declare it (one declared elsewhere in its package, or
+ *   imported from a package that is not a DI framework's). That class is not
+ *   scoped, so it is not reported here.
+ * - Go only knows the names in its list, so it misses an import alias, a type
+ *   alias, and a project scope with another name (`@PerActivity`, Metro's
+ *   `@SingleIn`). Those are scoped generic types and are reported here.
  */
 internal object ScopeOnParameterizedClass :
     FirRegularClassChecker(MppCheckerKind.Common), FirRule {

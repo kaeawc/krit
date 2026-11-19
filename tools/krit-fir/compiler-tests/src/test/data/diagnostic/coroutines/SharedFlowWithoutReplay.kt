@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 14, 17, 19, 21, 23, 29, 32, 34, 36, 38, 54, 61, 62, 67, 68, 72, 76, 80, 86, 97
 // Positive: a val/var declaration that creates MutableSharedFlow with no
-// arguments, reported once per declaration on its first line (modifier list,
-// else val/var), the line the Go rule reports.
+// arguments, reported once per declaration on its name (the `(` of a
+// destructuring declaration), the line the Go rule reports.
 package test
 
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -11,90 +11,90 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 typealias Events = MutableSharedFlow<String>
 
-<!SharedFlowWithoutReplay!>val<!> topLevel = MutableSharedFlow<Int>()
+val <!SharedFlowWithoutReplay!>topLevel<!> = MutableSharedFlow<Int>()
 
 class EventBus {
-    <!SharedFlowWithoutReplay!>private<!> val events = MutableSharedFlow<String>()
+    private val <!SharedFlowWithoutReplay!>events<!> = MutableSharedFlow<String>()
 
-    <!SharedFlowWithoutReplay!>val<!> typed: MutableSharedFlow<String> = MutableSharedFlow()
+    val <!SharedFlowWithoutReplay!>typed<!>: MutableSharedFlow<String> = MutableSharedFlow()
 
-    <!SharedFlowWithoutReplay!>val<!> aliased: Events = MutableSharedFlow()
+    val <!SharedFlowWithoutReplay!>aliased<!>: Events = MutableSharedFlow()
 
-    <!SharedFlowWithoutReplay!>val<!> qualified = kotlinx.coroutines.flow.MutableSharedFlow<Long>()
+    val <!SharedFlowWithoutReplay!>qualified<!> = kotlinx.coroutines.flow.MutableSharedFlow<Long>()
 
     /**
-     * KDoc is not part of the reported line.
+     * Neither the KDoc nor the annotation line is the reported line.
      */
-    <!SharedFlowWithoutReplay!>@Volatile<!>
-    private var annotated = MutableSharedFlow<Int>()
+    @Volatile
+    private var <!SharedFlowWithoutReplay!>annotated<!> = MutableSharedFlow<Int>()
 
     // A chained read-only view still creates the lossy flow.
-    <!SharedFlowWithoutReplay!>val<!> exposed: SharedFlow<String> = MutableSharedFlow<String>().asSharedFlow()
+    val <!SharedFlowWithoutReplay!>exposed<!>: SharedFlow<String> = MutableSharedFlow<String>().asSharedFlow()
 
-    <!SharedFlowWithoutReplay!>val<!> wrapped = listOf(MutableSharedFlow<Int>())
+    val <!SharedFlowWithoutReplay!>wrapped<!> = listOf(MutableSharedFlow<Int>())
 
-    <!SharedFlowWithoutReplay!>val<!> delegated by lazy { MutableSharedFlow<Int>() }
+    val <!SharedFlowWithoutReplay!>delegated<!> by lazy { MutableSharedFlow<Int>() }
 
-    <!SharedFlowWithoutReplay!>val<!> sameLineGetter: MutableSharedFlow<Int> get() = MutableSharedFlow()
+    val <!SharedFlowWithoutReplay!>sameLineGetter<!>: MutableSharedFlow<Int> get() = MutableSharedFlow()
 
     // Go misses this because tree-sitter parses a getter on the next line as a
     // sibling of the property_declaration, so the declaration text Go matches
     // lacks the call; FIR reports it because every read creates a new lossy flow.
-    <!SharedFlowWithoutReplay!>val<!> getterBacked: MutableSharedFlow<Int>
+    val <!SharedFlowWithoutReplay!>getterBacked<!>: MutableSharedFlow<Int>
         get() = MutableSharedFlow()
 
     // Go misses this for the same reason: a setter on the next line is a
     // sibling of the property_declaration in tree-sitter. FIR reports it
     // because every write creates a new lossy flow.
-    <!SharedFlowWithoutReplay!>var<!> setterNext: Int = 0
+    var <!SharedFlowWithoutReplay!>setterNext<!>: Int = 0
         set(value) { MutableSharedFlow<Int>(); field = value }
 
     // The message names a backticked declaration as written, backticks
     // included, like Go.
-    <!SharedFlowWithoutReplay!>val<!> `back tick` = MutableSharedFlow<Int>()
+    val <!SharedFlowWithoutReplay!>`back tick`<!> = MutableSharedFlow<Int>()
 
     // Go misses this next-line getter too; FIR names it `a b` with backticks.
-    <!SharedFlowWithoutReplay!>val<!> `a b`: MutableSharedFlow<Int>
+    val <!SharedFlowWithoutReplay!>`a b`<!>: MutableSharedFlow<Int>
         get() = MutableSharedFlow()
 
     // Both the enclosing declaration and the local one inside its lambda.
-    <!SharedFlowWithoutReplay!>val<!> computed = run {
-        <!SharedFlowWithoutReplay!>val<!> inner = MutableSharedFlow<Int>()
+    val <!SharedFlowWithoutReplay!>computed<!> = run {
+        val <!SharedFlowWithoutReplay!>inner<!> = MutableSharedFlow<Int>()
         inner.asSharedFlow()
     }
 
     // Both the enclosing declaration and the anonymous object's member.
-    <!SharedFlowWithoutReplay!>val<!> holder = object {
-        <!SharedFlowWithoutReplay!>val<!> member = MutableSharedFlow<Int>()
+    val <!SharedFlowWithoutReplay!>holder<!> = object {
+        val <!SharedFlowWithoutReplay!>member<!> = MutableSharedFlow<Int>()
     }
 
     companion object {
-        <!SharedFlowWithoutReplay!>val<!> shared = MutableSharedFlow<Unit>()
+        val <!SharedFlowWithoutReplay!>shared<!> = MutableSharedFlow<Unit>()
     }
 
     fun local() {
-        <!SharedFlowWithoutReplay!>val<!> local = MutableSharedFlow<String>()
+        val <!SharedFlowWithoutReplay!>local<!> = MutableSharedFlow<String>()
         local.tryEmit("x")
         // A destructuring declaration is one declaration; like Go, its
         // message names '' because it has no single name.
-        <!SharedFlowWithoutReplay!>val<!> (flow, count) = Pair(MutableSharedFlow<Int>(), 1)
+        val <!SharedFlowWithoutReplay!>(<!>flow, count) = Pair(MutableSharedFlow<Int>(), 1)
         flow.tryEmit(count)
     }
 }
 
 object Singleton {
-    <!SharedFlowWithoutReplay!>val<!> events = MutableSharedFlow<Int>()
+    val <!SharedFlowWithoutReplay!>events<!> = MutableSharedFlow<Int>()
 }
 
 interface Source {
     // Go misses this for the same next-line getter reason as getterBacked.
-    <!SharedFlowWithoutReplay!>val<!> events: MutableSharedFlow<Int>
+    val <!SharedFlowWithoutReplay!>events<!>: MutableSharedFlow<Int>
         get() = MutableSharedFlow<Int>()
 }
 
 enum class Mode {
     A {
-        <!SharedFlowWithoutReplay!>val<!> state = MutableSharedFlow<Int>()
+        val <!SharedFlowWithoutReplay!>state<!> = MutableSharedFlow<Int>()
     },
     B,
 }

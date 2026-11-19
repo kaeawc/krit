@@ -15,13 +15,109 @@ type BitmapDecodeWithoutOptionsRule struct {
 	BaseRule
 }
 
-var bitmapDecodeMethods = map[string]bool{
-	"decodeFile":     true,
-	"decodeResource": true,
-	"decodeStream":   true,
+const bitmapFactoryFQN = "android.graphics.BitmapFactory"
+
+// bitmapDecodeArgCounts is the value-argument count of each decode overload that takes no Options.
+var bitmapDecodeArgCounts = map[string]int{
+	"decodeFile":           1,
+	"decodeResource":       2,
+	"decodeStream":         1,
+	"decodeByteArray":      3,
+	"decodeFileDescriptor": 1,
 }
 
 var bitmapSmallImageNames = []string{"thumb", "tiny", "icon", "avatar"}
+
+// bitmapDecodeCallMethod returns the BitmapFactory decode method a call_expression names, or "" when
+// the callee is not one or its receiver is not android.graphics.BitmapFactory as the file spells it.
+func bitmapDecodeCallMethod(file *scanner.File, call uint32) string {
+	callee := file.FlatFirstChild(call)
+	switch file.FlatType(callee) {
+	case "simple_identifier":
+		// A statically imported decode method, possibly under an alias.
+		fqn := fileFactsCache().Imports(file).Aliases[file.FlatNodeText(callee)]
+		method, ok := strings.CutPrefix(fqn, bitmapFactoryFQN+".")
+		if _, decode := bitmapDecodeArgCounts[method]; ok && decode {
+			return method
+		}
+	case "navigation_expression":
+		method := flatNavigationExpressionLastIdentifier(file, callee)
+		if _, decode := bitmapDecodeArgCounts[method]; !decode || file.FlatNamedChildCount(callee) == 0 {
+			return ""
+		}
+		if bitmapFactoryReceiver(file, file.FlatNamedChild(callee, 0)) {
+			return method
+		}
+	}
+	return ""
+}
+
+// bitmapFactoryReceiver reports a receiver that names android.graphics.BitmapFactory: the qualified
+// name, or a simple name the file imports (directly, by alias or by wildcard) or sees from its
+// package, which no declaration of the file shadows.
+func bitmapFactoryReceiver(file *scanner.File, receiver uint32) bool {
+	text := strings.Join(strings.Fields(file.FlatNodeText(receiver)), "")
+	if text == bitmapFactoryFQN {
+		return true
+	}
+	if strings.Contains(text, ".") || typeDeclaredInEnclosingScope(file, receiver, text) {
+		return false
+	}
+	imports := fileFactsCache().Imports(file)
+	if fqn, ok := imports.Aliases[text]; ok {
+		return fqn == bitmapFactoryFQN
+	}
+	return text == "BitmapFactory" && (imports.HasFQN(bitmapFactoryFQN) || sourcePackageName(file) == "android.graphics")
+}
+
+// typeDeclaredInEnclosingScope reports whether a class, object or type alias named name is declared
+// directly in the file, class body or block enclosing idx, so it shadows an imported type there.
+func typeDeclaredInEnclosingScope(file *scanner.File, idx uint32, name string) bool {
+	if !fileDeclaredTypeNames(file)[name] {
+		return false
+	}
+	for scope, ok := file.FlatParent(idx); ok; scope, ok = file.FlatParent(scope) {
+		for c := file.FlatFirstChild(scope); c != 0; c = file.FlatNextSib(c) {
+			switch file.FlatType(c) {
+			case "class_declaration", "object_declaration", "type_alias":
+				if extractIdentifierFlat(file, c) == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// bitmapDecodeJoinedBytes reports byte data built by joining a header to a tail (`a + b`, `a.plus(b)`,
+// or a property holding one), which is a small decode.
+func bitmapDecodeJoinedBytes(file *scanner.File, expr uint32) bool {
+	if file.FlatType(expr) == "simple_identifier" {
+		name := file.FlatNodeText(expr)
+		joined := false
+		file.FlatWalkNodes(0, "property_declaration", func(decl uint32) {
+			if !joined && propertyDeclarationName(file, decl) == name {
+				joined = bitmapJoinExpression(file, propertyInitializerExpression(file, decl))
+			}
+		})
+		return joined
+	}
+	return bitmapJoinExpression(file, expr)
+}
+
+func bitmapJoinExpression(file *scanner.File, expr uint32) bool {
+	switch file.FlatType(expr) {
+	case "additive_expression":
+		for c := file.FlatFirstChild(expr); c != 0; c = file.FlatNextSib(c) {
+			if file.FlatType(c) == "+" {
+				return true
+			}
+		}
+	case "call_expression":
+		return flatCallExpressionName(file, expr) == "plus"
+	}
+	return false
+}
 
 // bitmapDecodeInSmallImageContext reports a decode inside a file, class or function named for a small image.
 func bitmapDecodeInSmallImageContext(file *scanner.File, idx uint32) bool {

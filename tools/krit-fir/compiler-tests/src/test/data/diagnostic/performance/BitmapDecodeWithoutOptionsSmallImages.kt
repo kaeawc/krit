@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
+// go-lines: 28
 // Small images: a decode inside a function or class named for a thumbnail,
 // tiny image, icon, or avatar, and decodeByteArray of a header joined to a tail
-// (directly or through a local), are not reported. A plain decodeByteArray is.
+// (directly or through a local), are not reported. A plain decodeByteArray is,
+// by Go too.
 package test
 
 import android.graphics.Bitmap
@@ -24,4 +25,4 @@ fun joined(tail: ByteArray): Bitmap? {
 
 fun joinedInline(tail: ByteArray): Bitmap? = BitmapFactory.decodeByteArray(HEADER + tail, 0, tail.size)
 
-fun plain(data: ByteArray): Bitmap? = <!BitmapDecodeWithoutOptions!>BitmapFactory.decodeByteArray(data, 0, data.size)<!>
+fun plain(data: ByteArray): Bitmap? = BitmapFactory.<!BitmapDecodeWithoutOptions!>decodeByteArray<!>(data, 0, data.size)

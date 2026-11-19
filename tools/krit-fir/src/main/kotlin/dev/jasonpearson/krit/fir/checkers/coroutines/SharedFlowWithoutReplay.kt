@@ -4,6 +4,8 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.checkers.bodyIn
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.lightSourceOf
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
@@ -40,8 +42,8 @@ import org.jetbrains.kotlin.util.getChildren
  * (top-level, member, or local) whose initializer, delegate, or accessors
  * create a kotlinx.coroutines.flow.MutableSharedFlow with no arguments at all
  * (`MutableSharedFlow<T>()`, or `MutableSharedFlow()` with an inferred type
- * argument), reported once per declaration on its first line (its modifier
- * list, or `val`/`var` when it has none), like Go. The message names the
+ * argument), reported once per declaration on its name (the `(` of a
+ * destructuring declaration), like Go. The message names the
  * declaration as written, backticks included, like Go.
  *
  * Covered like Go: the call anywhere inside the declaration (wrapped in
@@ -95,7 +97,15 @@ internal object SharedFlowWithoutReplay : FirPropertyChecker(MppCheckerKind.Comm
         // written; a destructuring declaration has none, so Go's message
         // names ''.
         val name = if (destructuring) "" else nameText(source) ?: declaration.name.asString()
-        report(source, "MutableSharedFlow '$name' created without replay or extraBufferCapacity. Default config is lossy.")
+        report(anchor(source, destructuring), "MutableSharedFlow '$name' created without replay or extraBufferCapacity. Default config is lossy.")
+    }
+
+    // Go's declAnchor: the name, or the `(` of a destructuring declaration, so
+    // an annotation on its own line above the declaration is not the line.
+    private fun anchor(source: KtSourceElement, destructuring: Boolean): KtSourceElement {
+        val token = if (destructuring) KtTokens.LPAR else KtTokens.IDENTIFIER
+        val node = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == token } ?: return source
+        return lightSourceOf(node, source)
     }
 
     // A real `val`/`var` declaration statement: Go's property_declaration.

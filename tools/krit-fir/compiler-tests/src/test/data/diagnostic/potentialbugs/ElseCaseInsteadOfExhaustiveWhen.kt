@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 20, 28, 36, 45, 55, 70, 78
+// go-lines: 12, 20, 28, 36, 45, 55, 70, 78, 88, 96
 package test
 
 sealed class Shape
@@ -79,5 +79,32 @@ fun subjectVariable(shape: Shape): String {
         is Circle -> "circle"
         is Square -> "square"
         else -> s.toString()
+    }
+}
+
+// The subject is smart cast to the enum, so the compiler counts the two entries as covering it.
+fun smartCastSubject(value: Any): Int {
+    if (value !is Color) return -1
+    return <!ElseCaseInsteadOfExhaustiveWhen!>when<!> (value) {
+        Color.RED -> 1
+        Color.GREEN -> 2
+        else -> 0
+    }
+}
+
+fun nullableBooleanWithNullBranch(flag: Boolean?): Int {
+    return <!ElseCaseInsteadOfExhaustiveWhen!>when<!> (flag) {
+        true -> 1
+        false -> 0
+        null -> -1
+        else -> -2
+    }
+}
+
+// Go does not match a branch on the sealed type itself against the variant list.
+fun supertypeBranch(shape: Shape): String {
+    return <!ElseCaseInsteadOfExhaustiveWhen!>when<!> (shape) {
+        is Shape -> "shape"
+        else -> "unknown"
     }
 }

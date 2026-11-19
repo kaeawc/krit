@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 35, 44, 54, 63, 72
+// go-lines: 35, 82
 package test
 
 import java.io.IOException
@@ -36,7 +36,7 @@ fun nestedClassWithSameName(): String {
     }
 }
 
-// Go finds the caught name inside the lambda, where it is a parameter of the lambda itself.
+// Not reported, in Go or here: inside the lambda the name is the lambda's own parameter.
 fun shadowedByLambdaParameter(): String {
     try {
         return "ok"
@@ -55,7 +55,7 @@ fun shadowedInsideThrow(other: Throwable): String {
     }
 }
 
-// Go reads an argument that starts with the caught name as the caught exception itself.
+// Not reported, in Go or here: an elvis builds a new value from the caught exception's message.
 fun elvisOnMember(): String {
     try {
         return "ok"
@@ -64,11 +64,21 @@ fun elvisOnMember(): String {
     }
 }
 
-// Appended text adds context, so the argument is not the caught exception on its own.
+// Not reported, in Go or here: appended text adds context, so the argument is not the caught exception.
 fun concatenatedMember(): String {
     try {
         return "ok"
     } catch (e: IOException) {
         throw IOException(e.message + "!")
+    }
+}
+
+// Reported, as in Go: the parentheses do not change the value, which is the
+// caught exception.
+fun parenthesizedArgument(): String {
+    try {
+        return "ok"
+    } catch (e: IOException) {
+        <!ThrowingNewInstanceOfSameException!>throw IOException((e))<!>
     }
 }

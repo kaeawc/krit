@@ -39,26 +39,10 @@ fun lastStatementOfLambda(items: Sequence<Int>): Sequence<Int> = run {
     items.map { it + 1 }
 }
 
-// The last statement of a lambda is its value, even when the lambda is coerced to Unit.
-fun coercedLastStatement(outer: List<Int>, items: Sequence<Int>) {
-    outer.forEach { items.map { x -> x + it } }
-}
-
-fun coercedTails(outer: List<Int>, items: Sequence<Int>, flag: Boolean) {
-    outer.forEach { if (flag) items.map { x -> x + it } else items.filter { x -> x > it } }
-    outer.forEach {
-        try {
-            items.map { x -> x + it }
-        } catch (e: Exception) {
-            items.filter { x -> x > it }
-        }
-    }
-    outer.forEach {
-        when (flag) {
-            true -> items.map { x -> x + it }
-            false -> items.filter { x -> x > it }
-        }
-    }
+// The last statement of a lambda is its value when the lambda's value is used.
+fun usedLambdaValue(outer: List<Int>, items: Sequence<Int>) {
+    val all = outer.map { items.map { x -> x + it } }
+    println(all.size)
 }
 
 fun usedByElvis(items: Sequence<Int>?, fallback: Sequence<Int>) {

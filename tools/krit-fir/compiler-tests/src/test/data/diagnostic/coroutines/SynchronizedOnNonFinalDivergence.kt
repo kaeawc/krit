@@ -65,7 +65,7 @@ class GoMissesTopLevel {
     // Go misses this because the `var` is declared outside the class; FIR is
     // correct because the lock is the top-level `var topLevelMutable`.
     fun f() {
-        <!SynchronizedOnNonFinal!>synchronized(topLevelMutable) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(topLevelMutable) { }
     }
 }
 
@@ -73,7 +73,7 @@ class GoMissesTopLevel {
 // not a property declaration; FIR is correct because the lock is that `var`.
 class GoMissesConstructorVar(var ctorLock: Any) {
     fun f() {
-        <!SynchronizedOnNonFinal!>synchronized(ctorLock) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(ctorLock) { }
     }
 }
 
@@ -84,7 +84,7 @@ class Outer {
     // is correct because the lock is Outer's `var outerLock`.
     inner class Inner {
         fun f() {
-            <!SynchronizedOnNonFinal!>synchronized(outerLock) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(outerLock) { }
         }
     }
 }
@@ -97,7 +97,7 @@ class Derived : Base() {
     // Go misses this because the `var` is declared in the superclass; FIR is
     // correct because the lock is the inherited `var inherited`.
     fun f() {
-        <!SynchronizedOnNonFinal!>synchronized(inherited) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(inherited) { }
     }
 }
 
@@ -110,7 +110,7 @@ class ScopeReceiver {
     // correct because the lock is the receiver's `var Box.content`.
     fun f(box: Box) {
         with(box) {
-            <!SynchronizedOnNonFinal!>synchronized(content) { }<!>
+            <!SynchronizedOnNonFinal!>synchronized<!>(content) { }
         }
     }
 }
@@ -120,7 +120,7 @@ class Destructured {
     // declaration; FIR is correct because the lock is the local `var first`.
     fun f(pair: Pair<Any, Any>) {
         var (first, second) = pair
-        <!SynchronizedOnNonFinal!>synchronized(first) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(first) { }
         first = second
         second = first
     }
@@ -129,9 +129,9 @@ class Destructured {
 // Go misses these because it needs an enclosing class or object; FIR is
 // correct because each lock is a `var`.
 fun topLevelFunction() {
-    <!SynchronizedOnNonFinal!>synchronized(topLevelMutable) { }<!>
+    <!SynchronizedOnNonFinal!>synchronized<!>(topLevelMutable) { }
     var localLock = Any()
-    <!SynchronizedOnNonFinal!>synchronized(localLock) { }<!>
+    <!SynchronizedOnNonFinal!>synchronized<!>(localLock) { }
     localLock = Any()
 }
 
@@ -190,7 +190,7 @@ class ExtensionOwner {
 // Go misses this because an extension function has no enclosing class; FIR is
 // correct because the lock is the receiver's `var ExtensionOwner.lock`.
 fun ExtensionOwner.ext() {
-    <!SynchronizedOnNonFinal!>synchronized(lock) { }<!>
+    <!SynchronizedOnNonFinal!>synchronized<!>(lock) { }
 }
 
 class Backticks {
@@ -201,11 +201,11 @@ class Backticks {
     fun f() {
         // Go reports this too: the declaration and the lock are both spelled
         // with backticks, and the message names the lock as written.
-        <!SynchronizedOnNonFinal!>synchronized(`fun`) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(`fun`) { }
         // Go misses these because it compares the names as written, backticks
         // included; FIR is correct because each lock is a `var`. The message
         // names the lock as written, as Go's does.
-        <!SynchronizedOnNonFinal!>synchronized(`lock`) { }<!>
-        <!SynchronizedOnNonFinal!>synchronized(plain) { }<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(`lock`) { }
+        <!SynchronizedOnNonFinal!>synchronized<!>(plain) { }
     }
 }

@@ -1,7 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 8, 12, 16, 20, 26, 30, 34, 39, 44, 49, 56, 62, 69, 75, 78
-// Positives: kotlin.check called with a single `!=` null comparison of a
-// nullable value, with or without a trailing lazy-message lambda.
+// go-lines: 10, 14, 18, 22, 28, 32, 36, 41, 46, 51, 58, 64, 71, 77, 80, 85, 89
+// Positives: kotlin.check called with a `!=` null comparison of a nullable
+// value as its first argument, with or without a lazy message (inside the
+// parentheses or as a trailing lambda). A qualified call is reported at the
+// callee name, as Go and detekt do.
 package test
 
 fun plain(x: Any?) {
@@ -31,12 +33,12 @@ fun namedArgument(x: Any?) {
 }
 
 fun qualified(x: Any?) {
-    <!UseCheckNotNull!>kotlin.check(x != null)<!>
+    kotlin.<!UseCheckNotNull!>check(x != null)<!>
 }
 
 fun multiLineQualifier(x: Any?) {
-    <!UseCheckNotNull!>kotlin<!>
-        .check(x != null)
+    kotlin
+        .<!UseCheckNotNull!>check(x != null)<!>
 }
 
 class Holder(val value: String?) {
@@ -76,3 +78,13 @@ val topLevelInitializer: Unit = run {
 }
 
 fun asExpression(x: Any?): Unit = <!UseCheckNotNull!>check(x != null)<!>
+
+// The lazy message may be the second argument inside the parentheses, as
+// detekt reads only the first: checkNotNull(x, { .. }) is the replacement.
+fun messageInParentheses(x: Any?) {
+    <!UseCheckNotNull!>check(x != null, { "x must not be null" })<!>
+}
+
+fun namedMessage(x: Any?) {
+    <!UseCheckNotNull!>check(value = x != null, lazyMessage = { "x must not be null" })<!>
+}

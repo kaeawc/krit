@@ -31,8 +31,9 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * is not reported.
  *
  * Deliberate differences from Go, each pinned in the golden data:
- * - Precision: the call must resolve to kotlin.test, JUnit 4, JUnit 3 or JUnit Jupiter. Go reports any
- *   receiverless `assertTrue`, so a project helper that reuses the name is not reported here.
+ * - Precision: the call must resolve to kotlin.test, JUnit 4, JUnit 3 or JUnit Jupiter. Go reports a
+ *   receiverless `assertTrue` unless the file declares one or imports it from another package, so a helper
+ *   that reuses the name in another file of the same package is not reported here.
  * - Recall: the declared name is matched, so an import alias of `assertTrue` is reported, and so is a comparison
  *   in redundant parentheses.
  */

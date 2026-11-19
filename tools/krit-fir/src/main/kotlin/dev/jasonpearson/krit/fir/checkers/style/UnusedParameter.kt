@@ -77,7 +77,14 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
         KtTokens.ACTUAL_KEYWORD, KtTokens.EXPECT_KEYWORD, KtTokens.PROTECTED_KEYWORD,
     )
 
-    private class Candidate(val name: String, val symbol: FirBasedSymbol<*>, val anchor: KtSourceElement, val function: FirNamedFunction)
+    // [written] is the name as the source spells it, backticks included, which Go's message keeps.
+    private class Candidate(
+        val name: String,
+        val written: String,
+        val symbol: FirBasedSymbol<*>,
+        val anchor: KtSourceElement,
+        val function: FirNamedFunction,
+    )
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirFile) {
@@ -108,7 +115,7 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
         })
         for (candidate in candidates) {
             if (candidate.symbol in referenced) continue
-            var message = "Parameter '${candidate.name}' is unused."
+            var message = "Parameter '${candidate.written}' is unused."
             if (shadowedByLambdaParameter(candidate, referenced)) {
                 message += " A lambda parameter of the same name shadows it; its uses refer to the lambda parameter."
             }
@@ -133,9 +140,10 @@ internal object UnusedParameter : FirFileChecker(MppCheckerKind.Common), FirRule
             if (parameterSource.kind !is KtRealSourceElementKind) continue
             val identifier = lightChildren(parameterSource, parameterSource.lighterASTNode)
                 .firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: continue
-            val name = lightText(parameterSource, identifier).trim('`')
+            val written = lightText(parameterSource, identifier)
+            val name = written.trim('`')
             if (name.isEmpty() || allowed.matches(name) || suppressesUnused(parameterSource)) continue
-            out += Candidate(name, parameter.symbol, lightSourceOf(identifier, parameterSource), function)
+            out += Candidate(name, written, parameter.symbol, lightSourceOf(identifier, parameterSource), function)
         }
     }
 

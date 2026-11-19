@@ -108,9 +108,11 @@ internal object UnusedPrivateFunction : FirFileChecker(MppCheckerKind.Common), F
         val node = source.lighterASTNode
         val children = lightChildren(source, node)
         val identifier = children.firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        val name = lightText(source, identifier).trim('`')
+        // Go's message keeps the name as written, backticks included.
+        val written = lightText(source, identifier)
+        val name = written.trim('`')
         if (name.isEmpty() || allowed?.matches(name) == true || hasEntryPointAnnotation(source, children)) return null
-        return Candidate(name, declaration.symbol, lightSourceOf(identifier, source))
+        return Candidate(written, declaration.symbol, lightSourceOf(identifier, source))
     }
 
     // Go reads the annotation text before `fun`: the simple name, past a use-site target and any arguments.

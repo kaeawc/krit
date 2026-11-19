@@ -6,6 +6,7 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func classExtendsAnyFlat(file *scanner.File, class uint32, names ...string) bool {
@@ -230,6 +231,50 @@ func classHasAdapterLikeSupertypeFlat(file *scanner.File, class uint32) bool {
 		})
 	}
 	return found
+}
+
+// recyclerAdapterThroughProjectBase reports a class whose supertype chain, through project classes the resolver
+// indexes (`class Rows : ProjectAdapter<VH>()`), reaches RecyclerView.Adapter.
+func recyclerAdapterThroughProjectBase(ctx *api.Context, class uint32) bool {
+	// classIsRecyclerViewAdapterFlat needs RecyclerView in the file anyway; skip the walk for every other class.
+	if ctx.Resolver == nil || !bytes.Contains(ctx.File.Content, []byte("RecyclerView")) {
+		return false
+	}
+	info := ctx.Resolver.ClassHierarchy(extractIdentifierFlat(ctx.File, class))
+	seen := map[string]bool{}
+	for depth := 0; info != nil && depth < 6; depth++ {
+		var next *typeinfer.ClassInfo
+		for _, super := range classInfoDirectSupertypes(info) {
+			if super == "RecyclerView.Adapter" || strings.HasSuffix(super, ".RecyclerView.Adapter") {
+				return true
+			}
+			if seen[super] {
+				continue
+			}
+			seen[super] = true
+			if base := ctx.Resolver.ClassHierarchy(super); base != nil && base.Kind != "interface" && next == nil {
+				next = base
+			}
+		}
+		info = next
+	}
+	return false
+}
+
+// classInfoDirectSupertypes returns the supertypes as written, without generic arguments.
+func classInfoDirectSupertypes(info *typeinfer.ClassInfo) []string {
+	if len(info.DirectSupertypes) > 0 {
+		return info.DirectSupertypes
+	}
+	// An index without DirectSupertypes keeps the arguments: `Base<RecyclerView.ViewHolder>`.
+	out := make([]string, 0, len(info.Supertypes))
+	for _, super := range info.Supertypes {
+		if i := strings.IndexByte(super, '<'); i >= 0 {
+			super = super[:i]
+		}
+		out = append(out, strings.TrimSpace(super))
+	}
+	return out
 }
 
 // classIsRecyclerViewAdapterFlat reports a class that derives from RecyclerView.Adapter, not BaseAdapter or another Adapter type.

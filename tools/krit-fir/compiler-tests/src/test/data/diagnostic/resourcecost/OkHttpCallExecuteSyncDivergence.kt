@@ -1,8 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 34, 38
+// go-lines: 22, 37, 47
 // Divergences from Go, which decides by the written name of the receiver and ignores lambdas.
 package test.okhttpcallexecutesyncdivergence
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -32,6 +35,12 @@ class Divergence(private val client: OkHttpClient) {
     // Go reports a call inside a lambda the compiler runs on another thread; the coroutine's thread is free.
     suspend fun threaded(call: Call) {
         Thread { call.execute() }.start()
+    }
+
+    // Go reads the whole text of the enclosing call, so a dispatcher in a sibling statement exempts the call there.
+    suspend fun siblingDispatcher(call: Call): Response = coroutineScope {
+        launch(Dispatchers.IO) { println() }
+        call.<!OkHttpCallExecuteSync!>execute<!>()
     }
 
     suspend fun stored(call: Call) {

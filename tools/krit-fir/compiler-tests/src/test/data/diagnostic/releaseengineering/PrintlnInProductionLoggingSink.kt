@@ -22,6 +22,6 @@ class DebugLogger {
 
 class Plain {
     fun run(message: String) {
-        <!PrintlnInProduction!>println(message)<!>
+        <!PrintlnInProduction!>println<!>(message)
     }
 }

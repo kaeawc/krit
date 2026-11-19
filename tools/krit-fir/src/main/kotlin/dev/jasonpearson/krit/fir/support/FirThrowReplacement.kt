@@ -83,7 +83,8 @@ fun isOnlyStatementInLambda(source: KtSourceElement): Boolean {
 }
 
 private fun isOnlyStatementOf(source: KtSourceElement, block: LighterASTNode, statement: LighterASTNode): Boolean =
-    significantChildren(source, block, braceTokens).singleOrNull() == statement
+    significantChildren(source, block, blockPunctuation).singleOrNull() == statement
 
 private val controlBodyTypes = setOf(KtNodeTypes.THEN, KtNodeTypes.ELSE, KtNodeTypes.BODY)
-private val braceTokens = setOf(KtTokens.LBRACE, KtTokens.RBRACE)
+// A `;` separates statements without being one, as in detekt's KtBlockExpression.statements.
+private val blockPunctuation = setOf(KtTokens.LBRACE, KtTokens.RBRACE, KtTokens.SEMICOLON)

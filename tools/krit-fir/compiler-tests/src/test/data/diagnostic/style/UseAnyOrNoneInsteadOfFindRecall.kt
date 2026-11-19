@@ -25,3 +25,17 @@ fun parenthesizedNull(list: List<Int>): Boolean = <!UseAnyOrNoneInsteadOfFind!>l
 
 // Go misses this: the name is backticked.
 fun backticked(list: List<Int>): Boolean = <!UseAnyOrNoneInsteadOfFind!>list.`find` { it > 0 } != null<!>
+
+fun isPositive(value: Int): Boolean = value > 0
+
+// Go misses these: the predicate is a function reference, a function value or
+// an anonymous function, not a lambda. detekt reports them, and `any` / `none`
+// take the same argument.
+fun functionReference(list: List<Int>): Boolean = <!UseAnyOrNoneInsteadOfFind!>list.find(::isPositive) != null<!>
+
+fun functionValue(list: List<Int>, predicate: (Int) -> Boolean): Boolean = <!UseAnyOrNoneInsteadOfFind!>list.find(predicate) == null<!>
+
+fun anonymousFunction(list: List<Int>): Boolean = <!UseAnyOrNoneInsteadOfFind!>list.find(fun(value: Int): Boolean = value > 0) != null<!>
+
+// Not a predicate: Regex.find takes the input text.
+fun regexInput(regex: Regex, text: String): Boolean = regex.find(text) != null

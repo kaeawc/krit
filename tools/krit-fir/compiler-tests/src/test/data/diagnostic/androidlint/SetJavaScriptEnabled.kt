@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 25, 36, 43, 49, 53, 59, 63, 77, 82, 86, 139x2, 224
+// go-lines: 15, 21, 25, 32, 36, 39, 43, 49, 53, 59, 63, 71, 72, 73, 77, 82, 86, 106, 107, 114, 117, 123, 124, 126, 133, 137x2, 160, 222
 // Positive: enabling JavaScript on android.webkit.WebSettings (a Java stub),
 // through the setter or the synthetic javaScriptEnabled property, with any
 // receiver shape. Findings sit on the first line of the call or assignment.
@@ -15,8 +15,8 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         <!SetJavaScriptEnabled!>view.settings.setJavaScriptEnabled(true)<!>
     }
 
-    // Deliberate improvement: Go misses this. It cannot type view.getSettings(),
-    // and its WebView-parameter fallback needs a `settings` segment.
+    // Go cannot type view.getSettings(); it reports this because the receiver
+    // chain calls getSettings() in a file that uses the WebView API.
     fun setterThroughGetter(view: WebView) {
         <!SetJavaScriptEnabled!>view.getSettings().setJavaScriptEnabled(true)<!>
     }
@@ -25,8 +25,8 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         <!SetJavaScriptEnabled!>settings.setJavaScriptEnabled(true)<!>
     }
 
-    // Deliberate improvement: Go misses this; it cannot type the local
-    // `settings`, which is inferred from view.settings.
+    // Go cannot type the local `settings`, inferred from view.settings; it
+    // reports this by the receiver's name in a file that uses the WebView API.
     fun setterOnLocal(view: WebView) {
         val settings = view.settings
         <!SetJavaScriptEnabled!>settings.setJavaScriptEnabled(true)<!>
@@ -34,8 +34,8 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
 
     fun setterOnProperty() {
         <!SetJavaScriptEnabled!>stored.setJavaScriptEnabled(true)<!>
-        // Go misses this one: its WebView fallback needs a WebView parameter,
-        // and webView is a property.
+        // Go's WebView fallback needs a WebView parameter, and webView is a
+        // property; Go reports this by the `settings` receiver name instead.
         <!SetJavaScriptEnabled!>webView.settings.setJavaScriptEnabled(true)<!>
     }
 
@@ -63,9 +63,9 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         <!SetJavaScriptEnabled!>settings.javaScriptEnabled = true<!>
     }
 
-    // Deliberate improvement: Go misses all three. It reports a
-    // javaScriptEnabled assignment only when the receiver is a WebSettings
-    // parameter or a `settings` chain on a WebView parameter.
+    // Go cannot type these receivers; it reports them by the receiver's name
+    // (`settings`, a `.settings` chain) or by `stored`'s declared WebSettings
+    // type in a file that uses the WebView API.
     fun propertyOnLocalAndProperty(view: WebView) {
         val settings = view.settings
         <!SetJavaScriptEnabled!>settings.javaScriptEnabled = true<!>
@@ -99,9 +99,9 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         <!SetJavaScriptEnabled!>(view?.settings ?: fallback).setJavaScriptEnabled(true)<!>
     }
 
-    // Deliberate improvement: Go requires the argument or right-hand side to be a
-    // bare boolean_literal node, so it misses a parenthesized, annotated, or
-    // labeled `true`; FIR is correct because each is still the literal `true`.
+    // Deliberate improvement: Go folds a parenthesized `true` but misses an
+    // annotated or labeled one; FIR is correct because each is still the
+    // literal `true`.
     fun wrappedTrueLiteral(settings: WebSettings) {
         <!SetJavaScriptEnabled!>settings.setJavaScriptEnabled((true))<!>
         <!SetJavaScriptEnabled!>settings.javaScriptEnabled = (true)<!>
@@ -109,18 +109,16 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         <!SetJavaScriptEnabled!>settings.setJavaScriptEnabled(flag@ true)<!>
     }
 
-    // Deliberate improvement: the property initializer and the init block still
-    // enable JavaScript. Go misses both, as it misses the same receivers inside
-    // a function above: a `settings` chain on a WebView property, and a
-    // javaScriptEnabled assignment whose receiver is not a parameter.
+    // The property initializer and the init block still enable JavaScript; Go
+    // reports both by the receivers' names, as inside a function above.
     val enabledAtInit = <!SetJavaScriptEnabled!>webView.settings.setJavaScriptEnabled(true)<!>
 
     init {
         <!SetJavaScriptEnabled!>stored.javaScriptEnabled = true<!>
     }
 
-    // Deliberate improvement: Go misses calls and assignments on the implicit
-    // receiver of a scope function.
+    // Go reports calls and assignments on the implicit receiver of a scope
+    // function on a `settings` chain by that chain's name.
     fun implicitReceivers(view: WebView) {
         view.settings.apply { <!SetJavaScriptEnabled!>javaScriptEnabled = true<!> }
         with(view.settings) { <!SetJavaScriptEnabled!>setJavaScriptEnabled(true)<!> }
@@ -129,8 +127,8 @@ class BrowserHost(private val webView: WebView, private val stored: WebSettings)
         }
     }
 
-    // Deliberate improvement: Go misses this; the receiver root is the lambda
-    // parameter `it`, not a WebView parameter.
+    // The receiver root is the lambda parameter `it`, not a WebView parameter;
+    // Go reports this by the `settings` receiver name.
     fun insideLambda(views: List<WebView>) {
         views.forEach { <!SetJavaScriptEnabled!>it.settings.setJavaScriptEnabled(true)<!> }
     }
@@ -157,8 +155,8 @@ fun WebSettings.enableScripts() {
     <!SetJavaScriptEnabled!>this.javaScriptEnabled = true<!>
 }
 
-// Deliberate improvement: Go misses this; the receiver root is the lambda
-// parameter `it`, outside any function.
+// The receiver root is the lambda parameter `it`, outside any function; Go
+// reports this by the `settings` receiver name.
 val topLevelLambda: (WebView) -> Unit = { <!SetJavaScriptEnabled!>it.settings.javaScriptEnabled = true<!> }
 
 // A Kotlin override of the setter is still WebSettings.setJavaScriptEnabled.

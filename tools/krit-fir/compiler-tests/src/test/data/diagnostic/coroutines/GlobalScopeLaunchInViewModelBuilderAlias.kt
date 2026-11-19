@@ -17,6 +17,6 @@ import kotlinx.coroutines.launch as fire
 class UserViewModel {
     fun load() {
         <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.fire { }
-        <!GlobalScopeLaunchInViewModel!>GlobalScope<!>.launch { 1 }
+        GlobalScope.<!GlobalScopeLaunchInViewModel!>launch<!> { 1 }
     }
 }

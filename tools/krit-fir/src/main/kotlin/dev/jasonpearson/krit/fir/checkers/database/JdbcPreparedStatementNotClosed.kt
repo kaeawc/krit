@@ -2,11 +2,13 @@ package dev.jasonpearson.krit.fir.checkers.database
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.canHoldResource
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.firstLineAnchor
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
 import dev.jasonpearson.krit.fir.support.identifierText
+import dev.jasonpearson.krit.fir.support.isHandedOverAfter
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -64,6 +66,14 @@ import org.jetbrains.kotlin.name.Name
  * and the cleanup shapes (a receiver qualified as `this.stmt`, a `close` or
  * `use` nested anywhere in a later statement).
  *
+ * A statement handed to other code is not leaked by this scope: a resolved
+ * read of the property after it that is not the receiver of a member access,
+ * an assignment target, or a comparison returns, stores, or passes the
+ * statement on (see `isHandedOverAfter`), as for SqliteCursorWithoutClose.
+ * Only a property that can hold the statement hands it over; one holding a
+ * value read from it (`prepareStatement(sql).executeUpdate()`) does not. Go
+ * reads any later identifier of the same name as a hand-over.
+ *
  * Deliberate differences from Go, each pinned in the golden data
  * (`JdbcPreparedStatementNotClosed*.kt`):
  * - The `prepareStatement` call must return a closeable type
@@ -115,20 +125,22 @@ internal object JdbcPreparedStatementNotClosed :
         if (source.kind !is KtRealSourceElementKind) return
         if (source.elementType != KtNodeTypes.PROPERTY) return
         val name = identifierText(source) ?: return
-        if (!preparesStatement(declaration)) return
+        val statement = preparedStatementType(declaration) ?: return
         if (hasCleanupCallInScope(source, name)) return
+        if (holdsStatement(declaration.returnTypeRef.coneType, statement) && isHandedOverAfter(declaration, source)) return
         report(
             anchor(source),
             "PreparedStatement '$name' should be wrapped in use { } or explicitly closed with .close().",
         )
     }
 
-    // The property's initializer, delegate, or written accessor bodies make a
-    // closeable `prepareStatement(...)` call that is not closed on the spot.
-    // A setter body is not searched: what the setter makes is not the
-    // property's value (and Go never sees a setter either).
+    // The type of a closeable `prepareStatement(...)` call the property's
+    // initializer, delegate, or written getter body makes and does not close
+    // on the spot, or null when there is none. A setter body is not searched:
+    // what the setter makes is not the property's value (and Go never sees a
+    // setter either).
     context(context: CheckerContext)
-    private fun preparesStatement(declaration: FirProperty): Boolean {
+    private fun preparedStatementType(declaration: FirProperty): ConeKotlinType? {
         val roots = buildList<FirElement> {
             declaration.initializer?.let(::add)
             declaration.delegate?.let(::add)
@@ -142,11 +154,11 @@ internal object JdbcPreparedStatementNotClosed :
         // closeable value too: the nested statement may be returned into it
         // (`val stmt = run { val s = conn.prepareStatement(sql); s }`).
         val skipNested = !holdsCloseable(declaration.returnTypeRef.coneType)
-        var found = false
+        var found: ConeKotlinType? = null
         val closedOnTheSpot = HashSet<FirExpression>()
         val visitor = object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
-                if (found) return
+                if (found != null) return
                 if (skipNested && element is FirProperty && isCheckedOnItsOwn(element)) return
                 when (element) {
                     is FirSafeCallExpression -> {
@@ -163,7 +175,7 @@ internal object JdbcPreparedStatementNotClosed :
                             element !in closedOnTheSpot &&
                             isCloseable(element.resolvedType, depth = 0)
                         ) {
-                            found = true
+                            found = element.resolvedType
                             return
                         }
                     }
@@ -174,9 +186,9 @@ internal object JdbcPreparedStatementNotClosed :
         }
         for (root in roots) {
             root.accept(visitor)
-            if (found) return true
+            found?.let { return it }
         }
-        return false
+        return null
     }
 
     // The properties this checker checks by itself: a real `val`/`var`, not a
@@ -184,6 +196,18 @@ internal object JdbcPreparedStatementNotClosed :
     private fun isCheckedOnItsOwn(property: FirProperty): Boolean {
         val source = property.source ?: return false
         return source.kind is KtRealSourceElementKind && source.elementType == KtNodeTypes.PROPERTY
+    }
+
+    // The property's value can be the statement itself, or a function
+    // returning it, so handing the property over hands the statement over. A
+    // value read from the statement (`prepareStatement(sql).executeQuery()`)
+    // leaves the statement open whatever happens to that value.
+    context(context: CheckerContext)
+    private fun holdsStatement(type: ConeKotlinType, statement: ConeKotlinType): Boolean {
+        if (canHoldResource(type, statement)) return true
+        val function = type.expandedClassType() ?: return false
+        if (!function.isSomeFunctionType(context.session)) return false
+        return canHoldResource(function.returnType(context.session), statement)
     }
 
     // A closeable value, or a function returning one (every call makes one).

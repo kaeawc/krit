@@ -1,9 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negative: Random without a clock-derived seed, a seed whose clock read is
-// out of reach of Go's text match (a variable, a callable reference), clock
-// calls that take arguments, and supertype delegations, which are not call
-// expressions.
+// Negative: Random without a clock-derived seed, a var reassigned a fixed
+// value, a seed whose clock read is out of reach of Go's text match (a
+// callable reference), clock calls that take arguments, and supertype
+// delegations, which are not call expressions.
 package test
 
 import java.security.SecureRandom
@@ -24,7 +24,8 @@ class Negatives(private val clock: Clock) {
     fun secure(): SecureRandom = SecureRandom()
 
     fun viaVariable(): Random {
-        val now = System.nanoTime()
+        var now = System.nanoTime()
+        now = 42L
         return Random(now)
     }
 

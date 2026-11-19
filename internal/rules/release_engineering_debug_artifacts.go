@@ -133,7 +133,7 @@ func (r *MergeConflictMarkerLeftoverRule) check(ctx *api.Context) {
 }
 
 // PrintlnInProductionRule flags println/print/System.out.println/System.err.println
-// in non-test files, outside a top-level fun main().
+// in non-test files, outside a top-level fun main() or a @JvmStatic main of an object.
 type PrintlnInProductionRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -295,7 +295,8 @@ func printlnNonProductionPath(path string) bool {
 	if scanner.IsTestFile(path) || isGradleBuildScript(path) || printCallInToolingPath(path) {
 		return true
 	}
-	lower := scanner.LowerPath(path)
+	// A leading directory counts: `samples/x/X.kt` from `krit .` is a top-level samples directory.
+	lower := "/" + strings.TrimPrefix(scanner.LowerPath(path), "/")
 	return strings.Contains(lower, "/samples/") ||
 		strings.Contains(lower, "/sample/") ||
 		strings.Contains(lower, "/demos/") ||

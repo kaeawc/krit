@@ -1,11 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 22, 27
-// Divergence: Go reports every function below because it matches the
-// annotation text `@IntoSet` and `@Provides` / `@Binds`. These are local
-// annotation classes, not a DI framework's multibinding annotations, so no
-// framework collects the return value into a set and the message ("Dagger
-// collects by return type, so the contribution will be a Set<List> entry") is
-// not true of this code. No finding here.
+// go-lines: none
+// The annotations below are local annotation classes, declared in this file
+// with no DI framework's imported, not a DI framework's multibinding
+// annotations, so no framework collects the return value into a set and the
+// message ("Dagger collects by return type, so the contribution will be a
+// Set<List> entry") is not true of this code. Neither Go nor FIR reports them.
 package test
 
 annotation class Provides

@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 13, 15, 21, 24, 26, 31, 37, 39, 43, 48, 52, 56, 58, 62, 72, 76
 // Positive: public, non-override properties whose type exposes MutableStateFlow.
-// Each is reported on the property's first line (modifier list, else val/var),
-// the line the Go rule reports.
+// Each is reported on the property name, the line the Go rule reports, so an
+// annotation or modifier on its own line does not move it.
 package test
 
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,56 +10,56 @@ import kotlinx.coroutines.flow.MutableStateFlow
 typealias Counter = MutableStateFlow<Int>
 
 class ViewModel {
-    <!StateFlowMutableLeak!>val<!> inferred = MutableStateFlow(0)
+    val <!StateFlowMutableLeak!>inferred<!> = MutableStateFlow(0)
 
-    <!StateFlowMutableLeak!>val<!> typed: MutableStateFlow<Int> = MutableStateFlow(1)
+    val <!StateFlowMutableLeak!>typed<!>: MutableStateFlow<Int> = MutableStateFlow(1)
 
     /**
      * KDoc is not part of the reported line.
      */
-    <!StateFlowMutableLeak!>@Volatile<!>
-    var annotated = MutableStateFlow(2)
+    @Volatile
+    var <!StateFlowMutableLeak!>annotated<!> = MutableStateFlow(2)
 
-    <!StateFlowMutableLeak!>public<!>
-    val explicitPublic = MutableStateFlow(3)
+    public
+    val <!StateFlowMutableLeak!>explicitPublic<!> = MutableStateFlow(3)
 
-    <!StateFlowMutableLeak!>var<!> privateSetter = MutableStateFlow(4)
+    var <!StateFlowMutableLeak!>privateSetter<!> = MutableStateFlow(4)
         private set
 
-    <!StateFlowMutableLeak!>val<!> delegated by lazy { MutableStateFlow(5) }
+    val <!StateFlowMutableLeak!>delegated<!> by lazy { MutableStateFlow(5) }
 
-    <!StateFlowMutableLeak!>val<!> getterBacked: MutableStateFlow<Int>
+    val <!StateFlowMutableLeak!>getterBacked<!>: MutableStateFlow<Int>
         get() {
             val local = MutableStateFlow(6)
             return local
         }
 
-    <!StateFlowMutableLeak!>val<!> nullable: MutableStateFlow<String>? = null
+    val <!StateFlowMutableLeak!>nullable<!>: MutableStateFlow<String>? = null
 
-    <!StateFlowMutableLeak!>val<!> inCollection: List<MutableStateFlow<Int>> = emptyList()
+    val <!StateFlowMutableLeak!>inCollection<!>: List<MutableStateFlow<Int>> = emptyList()
 
-    <!StateFlowMutableLeak!>val<!> inMap = mutableMapOf<String, MutableStateFlow<Int>>()
+    val <!StateFlowMutableLeak!>inMap<!> = mutableMapOf<String, MutableStateFlow<Int>>()
 
-    <!StateFlowMutableLeak!>val<!> qualified = kotlinx.coroutines.flow.MutableStateFlow(7)
+    val <!StateFlowMutableLeak!>qualified<!> = kotlinx.coroutines.flow.MutableStateFlow(7)
 
-    <!StateFlowMutableLeak!>val<!> aliased: Counter = MutableStateFlow(8)
+    val <!StateFlowMutableLeak!>aliased<!>: Counter = MutableStateFlow(8)
 
     companion object {
-        <!StateFlowMutableLeak!>val<!> shared = MutableStateFlow(9)
+        val <!StateFlowMutableLeak!>shared<!> = MutableStateFlow(9)
     }
 
     object Nested {
-        <!StateFlowMutableLeak!>val<!> nested = MutableStateFlow(10)
+        val <!StateFlowMutableLeak!>nested<!> = MutableStateFlow(10)
     }
 }
 
-<!StateFlowMutableLeak!>val<!> topLevel = MutableStateFlow(11)
+val <!StateFlowMutableLeak!>topLevel<!> = MutableStateFlow(11)
 
-<!StateFlowMutableLeak!>val<!> String.extension: MutableStateFlow<String>
+val String.<!StateFlowMutableLeak!>extension<!>: MutableStateFlow<String>
     get() = MutableStateFlow(this)
 
 object Store {
-    <!StateFlowMutableLeak!>val<!> state = MutableStateFlow(12)
+    val <!StateFlowMutableLeak!>state<!> = MutableStateFlow(12)
 }
 
 // A public property of a private class has private effective visibility.
@@ -69,11 +69,11 @@ private class HiddenHolder {
 
 // The mutable contract is reported; the override that implements it is not.
 interface Contract {
-    <!StateFlowMutableLeak!>val<!> state: MutableStateFlow<Int>
+    val <!StateFlowMutableLeak!>state<!>: MutableStateFlow<Int>
 }
 
 abstract class Base {
-    <!StateFlowMutableLeak!>abstract<!> val exposed: MutableStateFlow<Int>
+    abstract val <!StateFlowMutableLeak!>exposed<!>: MutableStateFlow<Int>
 }
 
 // A factory result is still a MutableStateFlow even when the source never
@@ -81,5 +81,5 @@ abstract class Base {
 fun createCounter(): MutableStateFlow<Int> = MutableStateFlow(0)
 
 class Holder {
-    <!StateFlowMutableLeak!>val<!> fromFactory = createCounter()
+    val <!StateFlowMutableLeak!>fromFactory<!> = createCounter()
 }

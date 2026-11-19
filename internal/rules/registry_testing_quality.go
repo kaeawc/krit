@@ -803,7 +803,7 @@ func testingQualityOperandAssertedNonNull(file *scanner.File, call, bang uint32)
 	if operand == 0 {
 		return false
 	}
-	text := testingQualityCompactText(file.FlatNodeText(operand))
+	text := testingQualityNonNullCheckKey(file.FlatNodeText(operand))
 	if text == "" {
 		return false
 	}
@@ -822,13 +822,15 @@ func testingQualityOperandAssertedNonNull(file *scanner.File, call, bang uint32)
 	return found
 }
 
-// testingQualityCompactText is text with every whitespace character removed.
-func testingQualityCompactText(text string) string {
-	return strings.Join(strings.Fields(text), "")
+// testingQualityNonNullCheckKey is text with every whitespace character and `!!` removed and `?.` read as `.`,
+// so `assertThat(x!!.y).isNotNull()` checks the operand `x.y` of a later `x.y!!`.
+func testingQualityNonNullCheckKey(text string) string {
+	compact := strings.Join(strings.Fields(text), "")
+	return strings.ReplaceAll(strings.ReplaceAll(compact, "!!", ""), "?.", ".")
 }
 
 // testingQualityIsNonNullCheck reports whether call is one of the checks testingQualityOperandAssertedNonNull
-// accepts, applied to the operand whose compact text is operand.
+// accepts, applied to the operand whose testingQualityNonNullCheckKey is operand.
 func testingQualityIsNonNullCheck(file *scanner.File, call uint32, operand string) bool {
 	_, args := flatCallExpressionParts(file, call)
 	texts := testingQualityArgumentTexts(file, args)
@@ -853,7 +855,7 @@ func testingQualityIsNonNullCheck(file *scanner.File, call uint32, operand strin
 	return false
 }
 
-// testingQualityArgumentTexts is the compact text of each value argument, labels included.
+// testingQualityArgumentTexts is the testingQualityNonNullCheckKey of each value argument, labels included.
 func testingQualityArgumentTexts(file *scanner.File, args uint32) []string {
 	if args == 0 {
 		return nil
@@ -861,7 +863,7 @@ func testingQualityArgumentTexts(file *scanner.File, args uint32) []string {
 	var out []string
 	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
 		if file.FlatType(arg) == "value_argument" {
-			out = append(out, testingQualityCompactText(file.FlatNodeText(arg)))
+			out = append(out, testingQualityNonNullCheckKey(file.FlatNodeText(arg)))
 		}
 	}
 	return out

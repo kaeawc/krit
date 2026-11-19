@@ -8,6 +8,7 @@ import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.hasAnnotationNamed
+import dev.jasonpearson.krit.fir.support.identifierAnchor
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
@@ -46,7 +47,7 @@ import org.jetbrains.kotlin.fir.types.upperBoundIfFlexible
  * (directly, nullable, through a type alias, as a subtype such as a class or
  * interface extending it or a type parameter bounded by it, or as a type
  * argument such as `List<MutableStateFlow<T>>`), reported on the property's
- * first line (its modifier list, or `val`/`var` when it has none), like Go.
+ * name, like Go, so annotations on their own lines do not move the finding.
  *
  * Covered like Go: class, object, companion, interface, and top-level
  * properties, explicit or inferred MutableStateFlow types, delegated and
@@ -104,7 +105,10 @@ internal object StateFlowMutableLeak : FirPropertyChecker(MppCheckerKind.Common)
         // classification (configured test paths included).
         if (isInTestFile()) return
 
-        report(source, "MutableStateFlow '${declaration.name.asString()}' is publicly exposed. ${remedy(declaration)}")
+        report(
+            identifierAnchor(source) ?: source,
+            "MutableStateFlow '${declaration.name.asString()}' is publicly exposed. ${remedy(declaration)}",
+        )
     }
 
     // Interface and abstract members cannot be private, so the flow stays in the implementation.

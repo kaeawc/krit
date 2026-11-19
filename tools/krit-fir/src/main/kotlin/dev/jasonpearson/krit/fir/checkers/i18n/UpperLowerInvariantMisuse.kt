@@ -4,6 +4,8 @@ import com.intellij.lang.LighterASTNode
 import com.intellij.util.diff.FlyweightCapableTreeStructure
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
+import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.qualifiedCall
@@ -12,35 +14,38 @@ import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
-import org.jetbrains.kotlin.fir.declarations.FirClass
-import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
-import org.jetbrains.kotlin.fir.declarations.FirFunction
-import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
-import org.jetbrains.kotlin.fir.declarations.FirFile
-import org.jetbrains.kotlin.fir.declarations.FirRegularClass
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
-import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
-import org.jetbrains.kotlin.fir.resolve.toClassSymbol
-import org.jetbrains.kotlin.fir.types.ConeClassLikeType
-import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
+import org.jetbrains.kotlin.fir.declarations.FirClass
+import org.jetbrains.kotlin.fir.declarations.FirDeclarationOrigin
+import org.jetbrains.kotlin.fir.declarations.FirFile
+import org.jetbrains.kotlin.fir.declarations.FirFunction
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
+import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
+import org.jetbrains.kotlin.fir.references.FirNamedReference
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.text
@@ -54,8 +59,9 @@ import org.jetbrains.kotlin.util.getChildren
 // Mirrors the Go rule's evidence on top of FIR resolution:
 // - the call is an argument of a UI text call (`Text(..)`, `setText(..)`,
 //   `makeText(..)`, ...) or the right-hand side of an assignment to a UI text
-//   property (`.text = ..`, `.title = ..`), up to the nearest function or
-//   lambda; this gate is checked first, before the rest of the evidence;
+//   property (`.text = ..`, `.title = ..`, `.text += ..`), up to the nearest
+//   function or lambda; this gate is checked first, before the rest of the
+//   evidence;
 // - the call resolves to kotlin.text.uppercase / kotlin.text.lowercase with no
 //   arguments (the `(locale: Locale)` overloads are never flagged);
 // - `.gradle.kts` scripts are skipped;
@@ -67,9 +73,9 @@ import org.jetbrains.kotlin.util.getChildren
 //   text that names that receiver (see implicitReceiverText); when no text
 //   names it, the call is not reported;
 // - a receiver that holds a fixed token is skipped: a string literal without
-//   templates, a `.name` read (a simple-name match, as in Go), and `toString()`
-//   on an enum that does not override it (Go also skips an overriding enum
-//   declared in the same file);
+//   templates, an enum's `name` (or a class's or member's through
+//   reflection), and `toString()` on an enum that does not override it (Go
+//   also skips an overriding enum declared in the same file);
 // - a call anywhere inside the arguments of `valueOf`, `enumValueOf` or
 //   `valueOfOrNull` is skipped, up to the nearest function or lambda;
 // - the finding is reported on the line where the whole qualified call starts
@@ -82,7 +88,15 @@ import org.jetbrains.kotlin.util.getChildren
 //   brought in by an explicit or star import, another function imported
 //   `as uppercase`, or a local function-typed value invoked as `s.uppercase()`)
 //   is not a stdlib case conversion and takes no Locale, so FIR does not
-//   report it.
+//   report it. Go also reports `name.uppercase()` on an enum's own `name`
+//   written without a receiver (in an enum member, `with(level) { .. }`),
+//   which is a fixed token; FIR does not (UpperLowerInvariantMisuseTokenName.kt).
+// - Recall: Go skips every `.name` read by its text; FIR skips only an enum's
+//   or a reflective `name`, so `user.name.uppercase()` and `file.name` are
+//   reported (UpperLowerInvariantMisuseTokenName.kt). Go stops at a block;
+//   FIR follows a block's last statement, the value of an `if`, `when` or
+//   `try` branch (`setText(if (c) { s.uppercase() } else "")`), and stops at
+//   the other statements (UpperLowerInvariantMisuseBlocks.kt).
 // - Recall: Go only sees calls with an explicit receiver and spelled
 //   `uppercase` / `lowercase`. FIR also reports the stdlib calls made on an
 //   implicit receiver (`with(s) { uppercase() }`, `s.run { uppercase() }`,
@@ -152,43 +166,61 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
             implicitReceiverText(expression) ?: return
         }
         if (asciiInvariantIdentifiers.any { receiverText.contains(it) }) return
-        if (qualified != null && isInvariantTokenReceiver(source, qualified, expression)) return
+        if (isInvariantTokenReceiver(source, qualified, expression)) return
         if (isValueOfArgument(expression)) return
         report(qualified?.let { lightSourceOf(it, source) } ?: source, message(name))
     }
 
-    // Receivers that hold fixed ASCII tokens, as in Go: a string literal without
-    // templates, a `.name` read, and the toString() of an enum.
+    // Receivers that hold fixed ASCII tokens: a string literal without
+    // templates, an enum's or a reflective `name`, and the toString() of an
+    // enum.
     context(context: CheckerContext)
-    private fun isInvariantTokenReceiver(source: KtSourceElement, qualified: LighterASTNode, call: FirFunctionCall): Boolean {
-        val tree = source.treeStructure
-        val receiver = significantChildren(qualified, tree).firstOrNull() ?: return false
-        val text = tree.toString(receiver).toString()
-        return when (receiver.tokenType) {
-            KtNodeTypes.STRING_TEMPLATE -> '$' !in text
-            KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION -> {
-                val selector = significantChildren(receiver, tree).lastOrNull()
-                (selector?.tokenType == KtNodeTypes.REFERENCE_EXPRESSION && tree.toString(selector).toString() == "name") ||
-                    isEnumToString(call.explicitReceiver)
-            }
-            else -> isEnumToString(call.explicitReceiver)
+    private fun isInvariantTokenReceiver(source: KtSourceElement, qualified: LighterASTNode?, call: FirFunctionCall): Boolean {
+        if (qualified != null) {
+            val tree = source.treeStructure
+            val receiver = significantChildren(qualified, tree).firstOrNull() ?: return false
+            if (receiver.tokenType == KtNodeTypes.STRING_TEMPLATE) return '$' !in tree.toString(receiver).toString()
         }
+        val receiver = writtenReceiver(call.explicitReceiver ?: call.extensionReceiver)
+        return isTokenName(receiver) || isEnumToString(receiver)
     }
 
-    // `toString()` on an enum that does not override it returns the entry name.
-    @OptIn(DirectDeclarationsAccess::class)
-    context(context: CheckerContext)
-    private fun isEnumToString(receiver: FirExpression?): Boolean {
+    // The receiver as written, behind smart casts and safe-call wrappers.
+    private fun writtenReceiver(receiver: FirExpression?): FirExpression? {
         var expression = receiver
         while (true) {
             expression = when (expression) {
                 is FirSmartCastExpression -> expression.originalExpression
                 is FirSafeCallExpression -> expression.selector as? FirExpression
                 is FirCheckedSafeCallSubject -> expression.originalReceiverRef.value
-                else -> break
+                else -> return expression
             }
         }
-        val call = expression as? FirFunctionCall ?: return false
+    }
+
+    // A `name` that holds a declared identifier: an enum entry's, or a class's
+    // or member's through reflection. Go skips every `.name` read by its text,
+    // which also skips a person's or a file's name shown to the user.
+    private fun isTokenName(receiver: FirExpression?): Boolean {
+        val access = receiver as? FirPropertyAccessExpression ?: return false
+        if (access.calleeReference.name.asString() != "name") return false
+        val id = access.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides()?.callableId ?: return false
+        val owner = id.classId ?: return false
+        return owner in tokenNameOwners || tokenNamePackages.any { id.packageName == it }
+    }
+
+    private val tokenNameOwners = setOf(
+        classIdOf(kotlinPackage, "Enum"),
+        classIdOf("java.lang", "Enum"),
+        classIdOf("java.lang", "Class"),
+    )
+    private val tokenNamePackages = listOf(FqName("kotlin.reflect"), FqName("java.lang.reflect"))
+
+    // `toString()` on an enum that does not override it returns the entry name.
+    @OptIn(DirectDeclarationsAccess::class)
+    context(context: CheckerContext)
+    private fun isEnumToString(receiver: FirExpression?): Boolean {
+        val call = receiver as? FirFunctionCall ?: return false
         if (call.calleeReference.name.asString() != "toString" || call.argumentList.arguments.isNotEmpty()) return false
         val owner = call.dispatchReceiver ?: call.explicitReceiver ?: return false
         val enumClass = (owner.resolvedType.fullyExpandedType() as? ConeClassLikeType)
@@ -213,10 +245,14 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
                     if (element.calleeReference.name.asString() in uiSinkCalls &&
                         element.argumentList.arguments.any { it.source.contains(source) }
                     ) return true
+                // A compound `view.text += ..` writes through a desugared reference.
                 element is FirVariableAssignment ->
-                    if (((element.lValue as? FirPropertyAccessExpression)?.calleeReference?.name?.asString() in uiSinkProperties) &&
+                    if ((assignedAccess(element)?.calleeReference as? FirNamedReference)?.name?.asString() in uiSinkProperties &&
                         element.rValue.source.contains(source)
                     ) return true
+                // Only a block's last statement is its value, as in `setText(if (c) { s.uppercase() } else "")`.
+                element is FirBlock ->
+                    if (!element.statements.lastOrNull()?.source.contains(source)) return false
                 element is FirFunction || element is FirClass -> return false
             }
         }

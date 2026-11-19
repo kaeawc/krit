@@ -26,9 +26,9 @@ class EventBus {
 
     // Go misses these because another call in the same declaration is spelled
     // "MutableSharedFlow(replay"; FIR reports the lossy no-argument call.
-    <!SharedFlowWithoutReplay!>val<!> mixed: List<MutableSharedFlow<Int>> = listOf(MutableSharedFlow(replay = 1), MutableSharedFlow())
+    val <!SharedFlowWithoutReplay!>mixed<!>: List<MutableSharedFlow<Int>> = listOf(MutableSharedFlow(replay = 1), MutableSharedFlow())
 
-    <!SharedFlowWithoutReplay!>val<!> multiline: List<MutableSharedFlow<Int>> = listOf(
+    val <!SharedFlowWithoutReplay!>multiline<!>: List<MutableSharedFlow<Int>> = listOf(
         MutableSharedFlow(
             replay = 1,
         ),
@@ -37,17 +37,17 @@ class EventBus {
 
     // Go misses these: an import alias hides the name, and whitespace sits
     // inside the empty argument list.
-    <!SharedFlowWithoutReplay!>val<!> aliased = EventFlow<Int>()
+    val <!SharedFlowWithoutReplay!>aliased<!> = EventFlow<Int>()
 
-    <!SharedFlowWithoutReplay!>val<!> spaced = MutableSharedFlow<Int>( )
+    val <!SharedFlowWithoutReplay!>spaced<!> = MutableSharedFlow<Int>( )
 
     // Go misses these: the empty argument list spans two lines, so the text
     // holds "MutableSharedFlow(" plus a line break, which Go treats as a
     // configured call, or "MutableSharedFlow<Int>(" with no ">()". FIR
     // reports them because the calls pass no arguments.
-    <!SharedFlowWithoutReplay!>val<!> newline: MutableSharedFlow<Int> = MutableSharedFlow(
+    val <!SharedFlowWithoutReplay!>newline<!>: MutableSharedFlow<Int> = MutableSharedFlow(
     )
 
-    <!SharedFlowWithoutReplay!>val<!> newlineTyped = MutableSharedFlow<Int>(
+    val <!SharedFlowWithoutReplay!>newlineTyped<!> = MutableSharedFlow<Int>(
     )
 }

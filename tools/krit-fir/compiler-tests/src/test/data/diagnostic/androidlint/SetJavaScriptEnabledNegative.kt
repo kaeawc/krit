@@ -1,15 +1,16 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 49
-// Negative: JavaScript left disabled, a value that is not the literal `true`
-// (Go reads only a boolean literal), other WebSettings setters, and an
-// unrelated property reached through `settings`. None of these report
+// go-lines: 50
+// Negative: JavaScript left disabled, a value that is not known to be `true`
+// (a parameter, a var, a call), other WebSettings setters, and an unrelated
+// property reached through `settings`. None of these report
 // SetJavaScriptEnabled.
 package test
 
 import android.webkit.WebSettings
 import android.webkit.WebView
 
-const val ENABLE_SCRIPTS = true
+const val DISABLE_SCRIPTS = false
+var mutableScripts = true
 
 class ScriptOptions {
     var javaScriptEnabled: Boolean = false
@@ -28,10 +29,10 @@ class SafeBrowserHost(private val webView: WebView) {
     fun nonLiteralValues(settings: WebSettings, flag: Boolean) {
         settings.setJavaScriptEnabled(flag)
         settings.javaScriptEnabled = flag
-        settings.setJavaScriptEnabled(ENABLE_SCRIPTS)
-        settings.javaScriptEnabled = ENABLE_SCRIPTS
-        settings.setJavaScriptEnabled(!false)
-        settings.javaScriptEnabled = !false
+        settings.setJavaScriptEnabled(DISABLE_SCRIPTS)
+        settings.javaScriptEnabled = !true
+        settings.javaScriptEnabled = mutableScripts
+        settings.javaScriptEnabled = flag.not()
         settings.setJavaScriptEnabled(flag || true)
     }
 

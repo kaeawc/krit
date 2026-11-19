@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1942,6 +1943,145 @@ class Foo {
 		if f.Rule == "NonBooleanPropertyPrefixedWithIs" {
 			t.Errorf("NonBooleanPropertyPrefixedWithIs should accept Boolean property, got: %s", f.Message)
 		}
+	}
+}
+
+// nonBooleanIsNames runs NonBooleanPropertyPrefixedWithIs on code and returns
+// the reported property names.
+func nonBooleanIsNames(t *testing.T, code string) []string {
+	t.Helper()
+	var names []string
+	for _, f := range runRuleByName(t, "NonBooleanPropertyPrefixedWithIs", code) {
+		if f.Rule != "NonBooleanPropertyPrefixedWithIs" {
+			continue
+		}
+		parts := strings.Split(f.Message, "'")
+		if len(parts) < 2 {
+			t.Fatalf("unexpected message %q", f.Message)
+		}
+		names = append(names, parts[1])
+	}
+	return names
+}
+
+// detekt only counts `is` followed by an uppercase letter as the prefix.
+func TestNaming_NonBooleanPropertyPrefixedWithIs_RequiresUppercaseAfterIs(t *testing.T) {
+	got := nonBooleanIsNames(t, `
+package test
+class Foo {
+    val issues: List<String> = emptyList()
+    val isolated: Int = 1
+    val is_snake: String = "s"
+    val is1: String = "x"
+    val isnt: String = "n"
+    val isÜmlaut: Int = 1
+    val isA: Int = 1
+}
+`)
+	want := []string{"isÜmlaut", "isA"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// Function types returning Boolean, AtomicBoolean, and type parameters are not
+// reported, as in detekt.
+func TestNaming_NonBooleanPropertyPrefixedWithIs_BooleanLikeDeclaredTypes(t *testing.T) {
+	got := nonBooleanIsNames(t, `
+package test
+
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.Boolean as Flag2
+import kotlin.reflect.KFunction0
+
+typealias Flag = Boolean
+typealias Pred = () -> Boolean
+typealias Nested = Flag
+typealias GenericPred<A> = (A) -> Boolean
+
+class Foo<T>(val t: T) {
+    val isPred: () -> Boolean = { true }
+    val isPredN: (() -> Boolean)? = null
+    val isPredRetN: () -> Boolean? = { null }
+    val isPredArg: (String) -> Boolean = { true }
+    val isExtPred: String.() -> Boolean = { true }
+    val isSuspendPred: suspend () -> Boolean = { true }
+    val isPredAlias: Pred = { true }
+    val isKFun: KFunction0<Boolean> = ::f
+    val isFun1: Function1<Int, Boolean> = { true }
+    val isFunAtomic: () -> AtomicBoolean = { AtomicBoolean() }
+    val isAtomic: AtomicBoolean = AtomicBoolean(false)
+    val isAtomicQualified: java.util.concurrent.atomic.AtomicBoolean = AtomicBoolean(false)
+    val isQualified: kotlin.Boolean = true
+    val isJava: java.lang.Boolean? = null
+    val isParen: (Boolean) = true
+    val isParenN: (Boolean)? = null
+    val isFlag: Flag = true
+    val isFlagN: Flag? = null
+    val isNested: Nested = true
+    val isGenericPred: GenericPred<Int> = { true }
+    val isFlag2: Flag2 = true
+    val isT: T = t
+    val isTN: T? = null
+    val isDnn: T & Any = t
+    val <E> List<E>.isFirst: E get() = first()
+    fun f(): Boolean = true
+    fun <R> g(r: R) { val isR: R = r }
+
+    val isPredString: () -> String = { "" }
+    val isNestedFun: () -> () -> Boolean = { { true } }
+    val isListT: List<T> = emptyList()
+    val isFunT: () -> T = { t }
+    val isFlow: StateFlow<Boolean> = MutableStateFlow(false)
+}
+`)
+	want := []string{"isPredString", "isNestedFun", "isListT", "isFunT", "isFlow"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// Go cannot infer a type, so it reports only a declared non-Boolean type; the
+// text ": " elsewhere in the declaration does not count as one.
+func TestNaming_NonBooleanPropertyPrefixedWithIs_RequiresDeclaredType(t *testing.T) {
+	got := nonBooleanIsNames(t, `
+package test
+class Foo(private val items: List<String>) {
+    val isLabel = "key: value"
+    val isAnyEmpty = items.any { it: String -> it.isEmpty() }
+    val isTight:String = "tight"
+}
+`)
+	want := []string{"isTight"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// A same-file type alias named Boolean wins over kotlin.Boolean.
+func TestNaming_NonBooleanPropertyPrefixedWithIs_AliasShadowsBoolean(t *testing.T) {
+	got := nonBooleanIsNames(t, `
+package test
+typealias Boolean = String
+val isShadowed: Boolean = "s"
+`)
+	want := []string{"isShadowed"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// An annotation on its own line does not move the finding off the name's line.
+func TestNaming_NonBooleanPropertyPrefixedWithIs_ReportsOnNameLine(t *testing.T) {
+	findings := runRuleByName(t, "NonBooleanPropertyPrefixedWithIs", `
+package test
+class Foo {
+    @Volatile
+    var isAnnotated: Long = 0L
+}
+`)
+	if len(findings) != 1 || findings[0].Line != 5 {
+		t.Fatalf("want one finding on line 5, got %+v", findings)
 	}
 }
 

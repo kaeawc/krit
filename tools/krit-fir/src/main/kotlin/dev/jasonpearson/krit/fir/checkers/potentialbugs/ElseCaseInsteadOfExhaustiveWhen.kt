@@ -11,9 +11,11 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirWhenExpressionChecker
 import org.jetbrains.kotlin.fir.expressions.ExhaustivenessStatus
+import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
 import org.jetbrains.kotlin.fir.expressions.impl.FirElseIfTrueCondition
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isNothing
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -24,7 +26,10 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * branches already cover every case, which is the compiler's own exhaustiveness verdict
  * (`RedundantlyExhaustive`). An `else` that never completes (`else -> error(...)`) is a deliberate
  * guard against future cases and is not flagged, nor is a subject type listed in
- * `ignoredSubjectTypes`.
+ * `ignoredSubjectTypes`. A subject smart cast to such a type counts, as it does for the compiler.
+ *
+ * detekt 1.23.8 reports every `else` on these subjects, even one the other branches do not make
+ * redundant and one that throws; krit reports only the redundant `else`.
  *
  * Go decides coverage by matching branch type names against the variants its resolver lists, so it
  * misses subjects it cannot type and branches written through aliases, qualified names or nested
@@ -43,17 +48,25 @@ internal object ElseCaseInsteadOfExhaustiveWhen : FirWhenExpressionChecker(MppCh
         val subject = expression.subjectVariable ?: return
         val elseBranch = expression.branches.firstOrNull { it.condition is FirElseIfTrueCondition } ?: return
         if (elseBranch.result.resolvedType.isNothing) return
-        val type = subject.returnTypeRef.coneType.expandedClassType() ?: return
-        val classId = type.lookupTag.classId
+        // A smart cast is part of the subject's type: the compiler's verdict counts `a: Any` checked `is Color` as a Color.
+        val smartCast = subject.initializer as? FirSmartCastExpression
+        val types = listOf(subject.returnTypeRef.coneType) + smartCast?.upperTypesFromSmartCast.orEmpty()
+        val classTypes = types.mapNotNull { it.expandedClassType() }
         val ignored = (config()["ignoredSubjectTypes"] as? List<*>)?.mapNotNull { (it as? String)?.trim() }.orEmpty()
-        if (classId.asFqNameString() in ignored) return
+        if (classTypes.any { it.lookupTag.classId.asFqNameString() in ignored }) return
+        val kind = classTypes.firstNotNullOfOrNull { subjectKind(it) } ?: return
+        report(expression.source ?: return, "When expression with $kind subject should not contain an `else` case.")
+    }
+
+    context(context: CheckerContext)
+    private fun subjectKind(type: ConeClassLikeType): String? {
+        val classId = type.lookupTag.classId
         val symbol = type.lookupTag.toClassSymbol(context.session)
-        val kind = when {
+        return when {
             classId == StandardClassIds.Boolean -> "boolean"
             symbol?.classKind == ClassKind.ENUM_CLASS -> "enum class"
             symbol?.resolvedStatus?.modality == Modality.SEALED -> "sealed class"
-            else -> return
+            else -> null
         }
-        report(expression.source ?: return, "When expression with $kind subject should not contain an `else` case.")
     }
 }

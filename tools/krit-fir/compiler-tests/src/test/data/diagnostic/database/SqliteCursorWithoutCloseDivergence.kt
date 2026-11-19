@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Divergences from Go, each decided by the message ("Cursor '<name>' from rawQuery/query should
-// be wrapped in use { } or explicitly closed with .close().").
+// go-lines: 39, 45, 51, 61, 70
+// Divergences from Go, plus shapes both engines report, each decided by the message
+// ("Cursor '<name>' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().").
 package test
 
 import android.database.Cursor
@@ -30,9 +30,9 @@ fun implicitReceiver(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves these alone: it reads the same name anywhere after the declaration as a hand-over, so a
-// named argument label, a shadowing local or a lambda parameter of that name hides the leak.
-// The cursor is never closed or handed over, so FIR reports it.
+// Both engines report these: a named argument label, a shadowing local or a lambda parameter of the
+// same name is another declaration, not a hand-over of the cursor. The cursor is never closed or
+// handed over.
 fun cursorArg(width: Int, cursor: Int) = width + cursor
 
 fun namedArgumentLabel(db: SQLiteDatabase) {
@@ -56,7 +56,7 @@ fun shadowedByLocal(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves this alone: it reads any comparison as a hand-over. Nothing closes the cursor.
+// Both engines report this: a comparison only inspects the cursor, and nothing closes it.
 fun comparedWithNull(db: SQLiteDatabase) {
     val <!SqliteCursorWithoutClose!>cursor<!> = db.rawQuery("SELECT 1", null)
     if (cursor != null) {
@@ -64,8 +64,8 @@ fun comparedWithNull(db: SQLiteDatabase) {
     }
 }
 
-// Go leaves this alone: the `!!` makes the identifier's parent a postfix expression, which it reads
-// as a hand-over. The cursor is only used as a receiver and never closed.
+// Both engines report this: a call through `!!` is still a member call on the cursor, which is
+// only used as a receiver and never closed.
 fun assertedReceiver(db: SQLiteDatabase?) {
     val <!SqliteCursorWithoutClose!>cursor<!> = db?.rawQuery("SELECT 1", null)
     cursor!!.moveToFirst()
@@ -77,4 +77,11 @@ fun whenSubject(db: SQLiteDatabase) {
     when (val <!SqliteCursorWithoutClose!>cursor<!> = db.rawQuery("SELECT 1", null)) {
         else -> cursor.moveToFirst()
     }
+}
+
+// Go leaves this alone: a `let` may return the cursor, so Go reads the returned name as a
+// hand-over. The property holds a column read from the cursor, which stays open.
+fun letReadReturned(db: SQLiteDatabase): String? {
+    val <!SqliteCursorWithoutClose!>name<!> = db.rawQuery("SELECT name FROM t", null).let { if (it.moveToFirst()) it.getString(0) else null }
+    return name
 }

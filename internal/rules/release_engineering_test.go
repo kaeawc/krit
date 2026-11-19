@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1390,6 +1391,70 @@ fun report(out: StyledOutput) {
 				t.Fatalf("expected no findings, got %d", len(findings))
 			}
 		})
+	}
+}
+
+// A @JvmStatic main of an object or companion object is a JVM entry point, like a top-level main.
+func TestPrintlnInProduction_SkipsJvmStaticMainEntryPoint(t *testing.T) {
+	findings := runRuleByName(t, "PrintlnInProduction", `
+package test
+
+object Cli {
+    @JvmStatic
+    fun main(args: Array<String>) {
+        println("entry point")
+    }
+}
+
+class App {
+    companion object {
+        @JvmStatic fun main(args: Array<String>) { println("entry point") }
+    }
+}
+
+object NotEntry {
+    fun main(args: Array<String>) { println("no JvmStatic") }
+    @JvmStatic fun main(a: Int) { println("not a main signature") }
+}
+
+class Member {
+    @JvmStatic fun main(args: Array<String>) { println("class member") }
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{18, 19, 23}; !slices.Equal(lines, want) {
+		t.Fatalf("finding lines = %v, want %v", lines, want)
+	}
+}
+
+// The directory markers match a leading path segment, so a top-level samples directory scanned
+// with `krit .` is skipped, as the tooling markers are.
+func TestPrintlnInProduction_SkipsLeadingSampleDirectory(t *testing.T) {
+	code := `
+package test
+
+fun show() {
+    println("sample")
+}
+`
+	// The scan's own spelling of the path, relative to the directory krit ran in.
+	run := func(path string) int {
+		file := parseInline(t, code)
+		file.Path = path
+		return len(runRuleByNameOnFile(t, "PrintlnInProduction", file))
+	}
+	for _, path := range []string{"samples/app/src/main/kotlin/S.kt", "demo/src/main/kotlin/D.kt", "/repo/sample/S.kt"} {
+		if got := run(path); got != 0 {
+			t.Fatalf("%s: expected no findings, got %d", path, got)
+		}
+	}
+	for _, path := range []string{"app/src/main/kotlin/Samples.kt", "demonstration/src/D.kt"} {
+		if got := run(path); got != 1 {
+			t.Fatalf("%s: expected 1 finding, got %d", path, got)
+		}
 	}
 }
 

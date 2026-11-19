@@ -10,4 +10,4 @@ fun <T> List<T>.single(): T = get(0)
 fun shadowed(list: List<Int>): Int = list.filter { it > 0 }.single()
 
 // The stdlib first is still reported after it.
-fun stillStdlib(list: List<Int>): Int = <!UnnecessaryFilter!>list<!>.filter { it > 0 }.first()
+fun stillStdlib(list: List<Int>): Int = list.filter { it > 0 }.<!UnnecessaryFilter!>first<!>()

@@ -215,7 +215,7 @@ func registerAccessibilityRules() {
 				if !strings.ContainsFunc(composeRawTextLiteralText(file, expr), unicode.IsLetter) {
 					return
 				}
-				if !composeTextCallMayBeCompose(file) {
+				if !composeTextCallMayBeCompose(file, idx) {
 					return
 				}
 				fn, ok := flatEnclosingFunction(file, idx)
@@ -249,7 +249,7 @@ func registerAccessibilityRules() {
 					return
 				}
 				name := flatNavigationExpressionLastIdentifier(file, navExpr)
-				if !composeInteractionModifiers[name] {
+				if !composeInteractionModifiers[name] || !composeInteractionModifierImported(file, name) {
 					return
 				}
 				// Test composables don't ship to users.

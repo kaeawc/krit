@@ -1,11 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 22, 28
-// Super receivers for WrongCall. The rule allows a `super` receiver anywhere:
-// a super call deliberately runs the superclass implementation, which
-// draw / measure / layout cannot do, so the message ("should probably call
-// draw/measure/layout instead") is not true of it. FIR skips every super
-// receiver, qualified (`super<View>`) or labeled (`super@OuterView`), as well
-// as the plain spelling. The comments name the ones Go reports and why.
+// go-lines: 23, 35, 39, 43, 50, 56, 62
+// Super receivers for WrongCall, as Android Lint reads them: a super call is
+// the normal chain-up only in a method of the callback's own name, so it is
+// reported anywhere else, qualified (`super<View>`), labeled
+// (`super@OuterView`), or plain. Lambdas and local functions are not methods,
+// an init block belongs to the constructor, and a property initializer has no
+// method. The comments name the ones Go misses and why.
 package test
 
 import android.content.Context
@@ -13,26 +13,59 @@ import android.graphics.Canvas
 import android.view.View
 
 class OuterView(context: Context) : View(context) {
-    fun plainSuper(canvas: Canvas) {
+    override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        post { super.onDraw(canvas) }
     }
 
-    // Go reports this: it skips only a receiver spelled exactly `super`.
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        super.<!WrongCall!>onDraw<!>(Canvas())
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        // A local function is not a method: this is inside onLayout.
+        fun again() {
+            super.onLayout(changed, left, top, right, bottom)
+        }
+        again()
+    }
+
+    fun plainSuper(canvas: Canvas) {
+        super.<!WrongCall!>onDraw<!>(canvas)
+    }
+
     fun qualifiedSuper(canvas: Canvas) {
-        super<View>.onDraw(canvas)
+        super<View>.<!WrongCall!>onDraw<!>(canvas)
     }
 
-    // Go reports this for the same reason, then falls back to "the enclosing
-    // class extends View".
     fun labeledSuper(canvas: Canvas) {
-        super@OuterView.onMeasure(0, 0)
+        super@OuterView.<!WrongCall!>onMeasure<!>(0, 0)
     }
+
+    // A local function named like the callback is not a method either: the
+    // enclosing method is outer.
+    fun outer(canvas: Canvas) {
+        fun onDraw(c: Canvas) {
+            super.<!WrongCall!>onDraw<!>(c)
+        }
+        onDraw(canvas)
+    }
+
+    init {
+        super.<!WrongCall!>onMeasure<!>(0, 0)
+    }
+
+    val eager: Unit = super.onMeasure(1, 1)
+
+    val lazy: Unit
+        get() = super.<!WrongCall!>onMeasure<!>(2, 2)
 
     inner class Painter {
-        // Neither side reports this: Go's fallback reads only the nearest
-        // class, Painter, which is not a View.
+        // Go misses this: its fallback reads only the nearest class, Painter,
+        // which is not a View.
         fun paint(canvas: Canvas) {
-            super@OuterView.onDraw(canvas)
+            super@OuterView.<!WrongCall!>onDraw<!>(canvas)
         }
     }
 }

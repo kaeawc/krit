@@ -1,4 +1,4 @@
-// Smoke: SDK_INT gates, Bundle, Handler/Looper, wake locks, Parcelable, AsyncTask.
+// Smoke: SDK_INT gates, Bundle, Handler/Looper, wake locks, Parcelable, AsyncTask, SystemClock.
 package stubs
 
 import android.content.Context
@@ -11,6 +11,7 @@ import android.os.Message
 import android.os.Parcel
 import android.os.Parcelable
 import android.os.PowerManager
+import android.os.SystemClock
 
 fun sdkChecks(): Boolean {
     val sdk: Int = Build.VERSION.SDK_INT
@@ -91,4 +92,13 @@ class SmokeTask : AsyncTask<String, Int, Boolean>() {
 
     @Deprecated("Deprecated in Java")
     override fun onPostExecute(result: Boolean) {}
+}
+
+fun clocks(): Long {
+    val elapsed: Long = SystemClock.elapsedRealtime()
+    val nanos: Long = SystemClock.elapsedRealtimeNanos()
+    val uptime: Long = SystemClock.uptimeMillis()
+    val thread: Long = SystemClock.currentThreadTimeMillis()
+    SystemClock.sleep(1L)
+    return elapsed + nanos + uptime + thread
 }

@@ -107,7 +107,7 @@ func testingQualityIsNullableAssertionCall(ctx *api.Context, idx uint32, name st
 	if name == "" || name == "assertNotNull" || name == "assertNull" || !nullableAssertionCallNames[name] {
 		return false
 	}
-	if fileDeclaresFunctionNamed(ctx.File, name) {
+	if fileDeclaresFunctionNamed(ctx.File, name) || testingQualityImportsNameFromProject(ctx.File, idx, name) {
 		return false
 	}
 	if resolver, ok := ctx.Resolver.(*oracle.CompositeResolver); ok && resolver.Oracle() != nil {
@@ -124,13 +124,32 @@ func testingQualityIsNullableAssertionCall(ctx *api.Context, idx uint32, name st
 	return true
 }
 
+// testingQualityImportsNameFromProject reports a receiverless call whose name the file imports from a package
+// outside the assertion libraries, such as a project helper named assertEquals.
+func testingQualityImportsNameFromProject(file *scanner.File, idx uint32, name string) bool {
+	if navExpr, _ := flatCallExpressionParts(file, idx); navExpr != 0 {
+		return false
+	}
+	imported, ok := fileFactsCache().Imports(file).Aliases[name]
+	if !ok {
+		return false
+	}
+	for _, prefix := range ignoredReturnValueTestLibraryPrefixes {
+		if strings.HasPrefix(imported, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
 func testingQualityInsideNestedExecutableArgument(file *scanner.File, idx, root uint32) bool {
 	if file == nil || idx == 0 || root == 0 {
 		return false
 	}
 	for current, ok := file.FlatParent(idx); ok && current != root; current, ok = file.FlatParent(current) {
 		switch file.FlatType(current) {
-		case "lambda_literal", "function_literal", "anonymous_function", "function_declaration":
+		case "lambda_literal", "function_literal", "anonymous_function", "function_declaration",
+			"object_literal", "class_declaration":
 			return true
 		}
 	}

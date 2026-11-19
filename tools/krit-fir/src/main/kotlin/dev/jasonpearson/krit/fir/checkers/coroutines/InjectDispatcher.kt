@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.coroutines
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
@@ -8,6 +9,7 @@ import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
@@ -29,6 +31,7 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
     )
 
     private val contextPackages = setOf(FqName("kotlin.coroutines"), FqName("kotlinx.coroutines"))
+    private val coroutinesPackage = FqName("kotlinx.coroutines")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
@@ -39,11 +42,18 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         if (isIdiomaticDispatcherHost(expression)) return
         if (!hasDispatchableOwner()) return
 
+        // Checked only once a hardcoded dispatcher is found, so other calls pay nothing.
+        val exempt by lazy(LazyThreadSafetyMode.NONE) {
+            // Go skips test files. A parameter's default value is the injection
+            // point itself, as detekt treats it.
+            isInTestFile() || context.containingElements.any { it is FirValueParameter }
+        }
         for (argument in expression.argumentList.arguments) {
             for (dispatcher in hardcodedDispatchers(unwrapArgument(argument))) {
                 if (dispatcher.name == "Main") continue
                 // Unconfined is a deliberate choice (e.g. with UNDISPATCHED), not a swappable default.
                 if (dispatcher.name == "Unconfined") continue
+                if (exempt) return
                 report(dispatcher.source, "Hardcoded Dispatchers.${dispatcher.name}. Inject dispatchers for better testability.")
             }
         }
@@ -80,6 +90,10 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
             return listOfNotNull(receiver).flatMap { hardcodedDispatchers(it) } +
                 value.argumentList.arguments.flatMap { hardcodedDispatchers(unwrapArgument(it)) }
         }
+        if (value is FirFunctionCall && isLimitedParallelism(value)) {
+            // `Dispatchers.IO.limitedParallelism(n)` is a view of the hardcoded dispatcher.
+            return listOfNotNull(value.explicitReceiver).flatMap { hardcodedDispatchers(it) }
+        }
         val access = value as? FirPropertyAccessExpression ?: return emptyList()
         val symbol = access.calleeReference.toResolvedCallableSymbol() ?: return emptyList()
         val fqName = symbol.callableId?.asSingleFqName() ?: return emptyList()
@@ -94,6 +108,11 @@ internal object InjectDispatcher : FirFunctionCallChecker(MppCheckerKind.Common)
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return false
         if (callee.name.asString() != "plus") return false
         return callee.callableId?.packageName in contextPackages
+    }
+
+    private fun isLimitedParallelism(expression: FirFunctionCall): Boolean {
+        val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return false
+        return callee.name.asString() == "limitedParallelism" && callee.callableId?.packageName == coroutinesPackage
     }
 
     private fun isIdiomaticDispatcherHost(expression: FirFunctionCall): Boolean {

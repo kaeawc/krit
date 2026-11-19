@@ -1,8 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 39, 45, 50, 56, 62, 68, 75, 81, 87, 93, 99
-// Go findings FIR drops. Go matches `@Binds` as a substring of the modifier
-// text and compares the parameter and return type text alone. None of these
-// functions is a no-op binding.
+// go-lines: 75, 81, 87
+// Functions that are not no-op bindings. Go compares the parameter and return
+// type text, skips multibinding contributions, and skips a function whose
+// annotations (other than @Binds and non-qualifier ones) differ from its
+// parameter's as text, so it leaves most of them alone; the lines it still
+// reports are in the go-lines header.
 package test
 
 import dagger.Binds
@@ -23,55 +25,47 @@ annotation class Fancy
 
 @Module
 abstract class DivergenceModule {
-    // Go reports this because `@BindsInstance` contains `@Binds`; FIR is
-    // correct to drop it because the function is not a @Binds binding.
+    // Neither reports this: the function is not a @Binds binding.
     @BindsInstance
     abstract fun seed(foo: Foo): Foo
 
-    // Go reports this because `@BindsOptionalOf` contains `@Binds`; FIR is
-    // correct to drop it because the function is not a @Binds binding.
+    // Neither reports this: the function is not a @Binds binding.
     @BindsOptionalOf
     abstract fun optional(foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the function's qualifier makes the binding alias `Foo` as
-    // `@Named("a") Foo`, a different key.
+    // Neither reports this: the function's qualifier makes the binding alias
+    // `Foo` as `@Named("a") Foo`, a different key.
     @Binds
     @Named("a")
     abstract fun qualifiedReturn(foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the parameter's qualifier makes it a different key.
+    // Neither reports this: the parameter's qualifier makes it a different key.
     @Binds
     abstract fun qualifiedParameter(@Named("b") foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the project's own qualifier makes the return a different key.
+    // Neither reports this: the project's own qualifier makes the return a
+    // different key.
     @Binds
     @Fancy
     abstract fun customQualifier(foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the qualifiers differ.
+    // Neither reports this: the qualifiers differ.
     @Binds
     @Named("a")
     abstract fun differentQualifiers(@Named("b") foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the binding contributes Foo to Set<Foo>.
+    // Neither reports this: the binding contributes Foo to Set<Foo>.
     @Binds
     @IntoSet
     abstract fun intoSet(foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the binding contributes Foo to Map<String, Foo>.
+    // Neither reports this: the binding contributes Foo to Map<String, Foo>.
     @Binds
     @IntoMap
     @StringKey("foo")
     abstract fun intoMap(foo: Foo): Foo
 
-    // Go reports this because the type text matches; FIR is correct to drop it
-    // because the binding contributes the set's elements to Set<Foo>.
+    // Neither reports this: the binding contributes the set's elements to Set<Foo>.
     @Binds
     @ElementsIntoSet
     abstract fun elementsIntoSet(foos: Set<Foo>): Set<Foo>
@@ -93,9 +87,8 @@ abstract class DivergenceModule {
     @Binds
     abstract fun suspendReturn(block: () -> Unit): suspend () -> Unit
 
-    // Go reports this because the type text matches and it does not know the
-    // alias names a qualifier; FIR is correct to drop it because `@N("a")` is
-    // `@Named("a")`, so the return is a different key.
+    // Neither reports this: `@N("a")` is `@Named("a")`, so the return is a
+    // different key.
     @Binds
     @N("a")
     abstract fun aliasedQualifier(foo: Foo): Foo

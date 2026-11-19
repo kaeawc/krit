@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.containingScanPath
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
@@ -26,6 +27,7 @@ import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.resolvedType
@@ -88,7 +90,13 @@ import java.io.File
  *   import alias of a clock owner (`import java.util.Date as D`), a
  *   statically imported clock function (aliased or not), a named seed
  *   argument (`Random(seed = ...)`), a clock read split across lines or
- *   parenthesized (`(Date()).time`), and a backticked `Random`.
+ *   parenthesized (`(Date()).time`), and a backticked `Random`. FIR also
+ *   reports a `java.util.Random.setSeed` call with a clock-read argument
+ *   (anchored on the setSeed call; SecureRandom.setSeed adds to its seed and
+ *   does not count), a clock read through a local `val` the seed reads, and
+ *   the Android uptime clocks `SystemClock.elapsedRealtime()`,
+ *   `elapsedRealtimeNanos()`, `uptimeMillis()`, and
+ *   `currentThreadTimeMillis()` (PrngFromSystemTimeSetSeed).
  */
 internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "PrngFromSystemTime"
@@ -103,6 +111,8 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
     private val javaUtilRandom = classIdOf("java.util", "Random")
     private val randomClasses = setOf(javaUtilRandom, classIdOf("kotlin.random", "Random"))
     private val RANDOM = Name.identifier("Random")
+    private val SET_SEED = Name.identifier("setSeed")
+    private val randomSetSeed = CallableId(javaUtilRandom, SET_SEED)
 
     private val securityPackages = listOf("javax.crypto", "java.security", "javax.net.ssl")
 
@@ -111,6 +121,9 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
         CallableId(system, Name.identifier("currentTimeMillis")),
         CallableId(system, Name.identifier("nanoTime")),
     )
+    private val androidSystemClock = classIdOf("android.os", "SystemClock")
+    private val androidClock = listOf("elapsedRealtime", "elapsedRealtimeNanos", "uptimeMillis", "currentThreadTimeMillis")
+        .mapTo(HashSet()) { CallableId(androidSystemClock, Name.identifier(it)) }
     private val date = classIdOf("java.util", "Date")
     private val calendars = setOf(
         classIdOf("java.util", "Calendar"),
@@ -137,10 +150,11 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
-        if (!createsSeedableRandom(expression)) return
+        val seeds = createsSeedableRandom(expression)
+        if (!seeds && !setsRandomSeed(expression)) return
         if (!importsSecurityPackage()) return
         if (isGoTestPath(containingScanPath())) return
-        val seed = seedArgument(expression) ?: return
+        val seed = (if (seeds) seedArgument(expression) else expression.argumentList.arguments.singleOrNull()) ?: return
         if (!readsSystemClock(seed)) return
 
         report(expression.source, MESSAGE)
@@ -160,6 +174,13 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
         val constructed = constructedClass(call) ?: return false
         if (constructed.classId == javaUtilRandom) return true
         return constructed.classId?.shortClassName == RANDOM && extendsAny(constructed, randomClasses)
+    }
+
+    // `random.setSeed(seed)` on a java.util.Random, which replaces its seed.
+    // SecureRandom overrides setSeed to add to its seed, so it does not count.
+    private fun setsRandomSeed(call: FirFunctionCall): Boolean {
+        val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
+        return callee.name == SET_SEED && callee.unwrapFakeOverrides().callableId == randomSetSeed
     }
 
     // The argument bound to the first parameter. Go reads the first unlabeled
@@ -220,13 +241,24 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
     }
 
     // Every qualified access inside the seed, lambdas and object literals
-    // included, since Go matches the whole seed text.
+    // included, since Go matches the whole seed text. A local `val` read in
+    // the seed is followed into its initializer, since it always holds that
+    // value (`val seed = System.nanoTime(); Random(seed)`).
     context(context: CheckerContext)
     private fun readsSystemClock(seed: FirExpression): Boolean {
         val accesses = ArrayList<FirQualifiedAccessExpression>()
+        val followed = HashSet<FirPropertySymbol>()
+        val file = context.containingFileSymbol
+        val session = context.session
         seed.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
-                if (element is FirQualifiedAccessExpression) accesses += element
+                if (element is FirQualifiedAccessExpression) {
+                    accesses += element
+                    val local = element.calleeReference.toResolvedCallableSymbol() as? FirPropertySymbol
+                    if (local != null && local.isLocal && local.isVal && !local.hasDelegate && followed.add(local)) {
+                        local.followableInitializer(file, session)?.accept(this)
+                    }
+                }
                 element.acceptChildren(this)
             }
         })
@@ -239,6 +271,8 @@ internal object PrngFromSystemTime : FirFunctionCallChecker(MppCheckerKind.Commo
         return when (callee.name.asString()) {
             "currentTimeMillis", "nanoTime" ->
                 access is FirFunctionCall && callee.unwrapFakeOverrides().callableId in systemClock
+            "elapsedRealtime", "elapsedRealtimeNanos", "uptimeMillis", "currentThreadTimeMillis" ->
+                access is FirFunctionCall && callee.callableId in androidClock
             "time" -> access is FirPropertyAccessExpression && isCurrentDate(access.explicitReceiver)
             "getTime" -> isNoArgCall(access) && isCurrentDate(access.explicitReceiver)
             "timeInMillis" -> access is FirPropertyAccessExpression && isCalendarGetInstance(access.explicitReceiver)

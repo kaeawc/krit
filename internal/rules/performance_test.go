@@ -713,3 +713,75 @@ func TestSpreadOperator_MatchesDetekt(t *testing.T) {
 		}
 	}
 }
+
+// Expected results for the wrapper constructor shapes: detekt 1.23.8 reports the safe call. A
+// constructor whose simple name an enclosing declaration or another package's import binds, or a
+// name other than Integer without a java.lang import (the kotlin type), is not a java.lang wrapper.
+func TestUnnecessaryTemporaryInstantiation_ReceiverShapes(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		want []int
+	}{
+		{"safe call", "package test\nfun f(x: Int) = Integer(x)?.toString()\n", []int{2}},
+		{"spaced dot", "package test\nfun f(x: Int) = Integer(x) . toString()\n", []int{2}},
+		{"java.lang import", "package test\nimport java.lang.Long\nfun f(x: Long) = Long(x).toString()\n", []int{3}},
+		{"java.lang wildcard", "package test\nimport java.lang.*\nfun f(x: Short) = Short(x).toString()\n", []int{3}},
+		{"kotlin Long", "package test\nfun f(x: Long) = Long(x).toString()\n", nil},
+		{"same-file class", "package test\nclass Integer(val v: Int)\nfun f(x: Int) = Integer(x).toString()\n", nil},
+		{"local class", "package test\nfun f(x: Int): String {\n    class Integer(val v: Int)\n    return Integer(x).toString()\n}\n", nil},
+		{"nested class", "package test\nobject Holder {\n    class Double(val d: kotlin.Double)\n    fun f(d: kotlin.Double) = Double(d).toString()\n}\n", nil},
+		{"local class elsewhere", "package test\nfun g(): Any {\n    class Integer\n    return Integer()\n}\nfun f(x: Int) = Integer(x).toString()\n", []int{6}},
+		{"foreign import", "package test\nimport com.example.Long\nfun f(x: Int) = Long(x).toString()\n", nil},
+		{"foreign import alias", "package test\nimport com.example.Box as Integer\nfun f(x: Int) = Integer(x).toString()\n", nil},
+	}
+	for _, tc := range cases {
+		var lines []int
+		for _, f := range runRuleByName(t, "UnnecessaryTemporaryInstantiation", tc.code) {
+			lines = append(lines, f.Line)
+		}
+		if fmt.Sprint(lines) != fmt.Sprint(tc.want) {
+			t.Errorf("%s: want lines %v, got %v", tc.name, tc.want, lines)
+		}
+	}
+}
+
+// The receiver must be android.graphics.BitmapFactory as the file spells it: qualified, imported
+// (directly, by alias or by wildcard) or in its package. The finding sits on the method name. The Options-less decodeByteArray and
+// decodeFileDescriptor overloads count too, except a byte array built by joining a header to a tail.
+func TestBitmapDecodeWithoutOptions_ReceiverAndOverloads(t *testing.T) {
+	const imp = "package test\nimport android.graphics.BitmapFactory\n"
+	cases := []struct {
+		name string
+		code string
+		want []int
+	}{
+		{"wildcard import", "package test\nimport android.graphics.*\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", []int{3}},
+		{"package android.graphics", "package android.graphics\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", []int{2}},
+		{"import alias", "package test\nimport android.graphics.BitmapFactory as Factory\nfun f(p: String) = Factory.decodeFile(p)\n", []int{3}},
+		{"static import", "package test\nimport android.graphics.BitmapFactory.decodeStream as readStream\nfun f(s: java.io.InputStream) = readStream(s)\n", []int{3}},
+		{"multiline qualified", "package test\nfun f(p: String) =\n    android.graphics\n        .BitmapFactory\n        .decodeFile(p)\n", []int{5}},
+		{"no import", "package test\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", nil},
+		{"foreign import", "package test\nimport com.example.graphics.BitmapFactory\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", nil},
+		{"same-file object", imp + "object BitmapFactory { fun decodeFile(p: String) = p }\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", nil},
+		{"local class elsewhere", imp + "fun g(): Any {\n    class BitmapFactory\n    return BitmapFactory()\n}\nfun f(p: String) = BitmapFactory.decodeFile(p)\n", []int{7}},
+		{"foreign qualifier", imp + "object Codecs { object BitmapFactory { fun decodeStream(p: String) = p } }\nfun f(p: String) = Codecs.BitmapFactory.decodeStream(p)\n", nil},
+		{"foreign static import", "package test\nimport com.example.decodeFile\nfun f(p: String) = decodeFile(p)\n", nil},
+		{"decodeByteArray", imp + "fun f(d: ByteArray) = BitmapFactory.decodeByteArray(d, 0, d.size)\n", []int{3}},
+		{"decodeByteArray options", imp + "fun f(d: ByteArray) = BitmapFactory.decodeByteArray(d, 0, d.size, null)\n", nil},
+		{"decodeFileDescriptor", imp + "fun f(fd: java.io.FileDescriptor) = BitmapFactory.decodeFileDescriptor(fd)\n", []int{3}},
+		{"decodeFileDescriptor options", imp + "fun f(fd: java.io.FileDescriptor) = BitmapFactory.decodeFileDescriptor(fd, null, null)\n", nil},
+		{"joined bytes", imp + "fun f(h: ByteArray, t: ByteArray) = BitmapFactory.decodeByteArray(h + t, 0, t.size)\n", nil},
+		{"joined bytes plus", imp + "fun f(h: ByteArray, t: ByteArray) = BitmapFactory.decodeByteArray(h.plus(t), 0, t.size)\n", nil},
+		{"joined bytes local", imp + "fun f(h: ByteArray, t: ByteArray): Any? {\n    val bytes = h + t\n    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)\n}\n", nil},
+	}
+	for _, tc := range cases {
+		var lines []int
+		for _, f := range runRuleByName(t, "BitmapDecodeWithoutOptions", tc.code) {
+			lines = append(lines, f.Line)
+		}
+		if fmt.Sprint(lines) != fmt.Sprint(tc.want) {
+			t.Errorf("%s: want lines %v, got %v", tc.name, tc.want, lines)
+		}
+	}
+}

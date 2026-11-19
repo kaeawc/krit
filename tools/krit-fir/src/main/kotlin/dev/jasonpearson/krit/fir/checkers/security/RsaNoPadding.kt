@@ -1,6 +1,8 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.checkers.constantStringValue
+import dev.jasonpearson.krit.fir.checkers.followableInitializer
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
@@ -12,7 +14,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChec
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
@@ -36,6 +41,10 @@ import org.jetbrains.kotlin.text
  *    `getInstance`, plain or aliased (RsaNoPaddingSpellings), and a qualified
  *    receiver split across lines (RsaNoPaddingNoImport); an annotated or
  *    labeled literal argument (RsaNoPaddingAnnotatedArgument).
+ *  - Go false negatives FIR also reports: a transformation held by a `const val`
+ *    (read from its evaluated value, so a constant concatenation counts), a
+ *    final Java constant field, or a local `val` initialized with a string
+ *    literal (RsaNoPaddingConstants).
  *  - Go false positives FIR skips: a `Cipher` class in another file of the
  *    same package under a `javax.crypto.*` import; a raw string with an extra
  *    closing quote, whose value ends in `"` (RsaNoPaddingShadowed).
@@ -69,7 +78,7 @@ internal object RsaNoPadding : FirFunctionCallChecker(MppCheckerKind.Common), Fi
         // The resolved callable already rules out a shadowing `Cipher`, so Go's
         // receiver spelling, import, and same-file declaration guesses are not
         // needed.
-        val algorithm = firstStringLiteral(expression) ?: return
+        val algorithm = firstStringLiteral(expression) ?: constantTransformation(expression) ?: return
         if (!isRsaNoPadding(algorithm)) return
 
         report(expression.source, MESSAGE)
@@ -91,6 +100,20 @@ internal object RsaNoPadding : FirFunctionCallChecker(MppCheckerKind.Common), Fi
                 text.substring(QUOTE.length, text.length - QUOTE.length)
             else -> null
         }
+    }
+
+    // The value of a `const val`, a final Java constant field, or a local `val`
+    // initialized with a string literal, passed as the transformation. Each
+    // always holds that value.
+    context(context: CheckerContext)
+    private fun constantTransformation(call: FirFunctionCall): String? {
+        val first = call.argumentList.arguments.firstOrNull() ?: return null
+        val access = unwrap(first) as? FirPropertyAccessExpression ?: return null
+        val symbol = access.calleeReference.toResolvedCallableSymbol() as? FirVariableSymbol<*> ?: return null
+        symbol.constantStringValue(context.session)?.let { return it }
+        if (symbol !is FirPropertySymbol || !symbol.isLocal || !symbol.isVal || symbol.hasDelegate) return null
+        val literal = symbol.followableInitializer()?.let(::unwrap) as? FirLiteralExpression ?: return null
+        return literal.value as? String
     }
 
     private const val QUOTE = "\""

@@ -9,7 +9,7 @@ package test
 import java.lang.System.*
 
 fun starImportedExit() {
-    <!ExitOutsideMain!>exit(1)<!>
+    <!ExitOutsideMain!>exit<!>(1)
 }
 
 fun main() {

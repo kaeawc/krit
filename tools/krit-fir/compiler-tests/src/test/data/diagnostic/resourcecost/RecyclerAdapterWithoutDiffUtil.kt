@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 31, 49, 67, 87x2
+// go-lines: 18, 31, 49, 67, 87, 102, 113
 // Adapters that call notifyDataSetChanged() with no DiffUtil or ListAdapter in the class.
 package test
 
@@ -74,7 +74,7 @@ class SecondUnsuppressedAdapter : RecyclerView.Adapter<Holder>() {
     override fun getItemCount(): Int = 0
 }
 
-// Go reports a nested adapter's call once for it and once for the outer adapter (two findings on one line); one finding here.
+// A nested adapter's call is reported once, for the nested adapter (RecyclerAdapterWithoutDiffUtilNestedTest counts it).
 class OuterAdapter : RecyclerView.Adapter<Holder>() {
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = TODO()
 
@@ -93,4 +93,29 @@ class OuterAdapter : RecyclerView.Adapter<Holder>() {
 
         override fun getItemCount(): Int = 0
     }
+}
+
+// The enclosing adapter's own call, after a nested adapter's call, is its finding.
+class HostOfNested : RecyclerView.Adapter<Holder>() {
+    class Nested : RecyclerView.Adapter<Holder>() {
+        fun refresh() {
+            <!RecyclerAdapterWithoutDiffUtil!>notifyDataSetChanged<!>()
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = TODO()
+
+        override fun onBindViewHolder(holder: Holder, position: Int) = Unit
+
+        override fun getItemCount(): Int = 0
+    }
+
+    fun reload() {
+        <!RecyclerAdapterWithoutDiffUtil!>notifyDataSetChanged<!>()
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = TODO()
+
+    override fun onBindViewHolder(holder: Holder, position: Int) = Unit
+
+    override fun getItemCount(): Int = 0
 }

@@ -38,12 +38,6 @@ fun checkIsAnotherRule(x: Any?) {
     check(x != null)
 }
 
-// Go counts the value arguments in the parentheses: a message lambda passed
-// there is a second one.
-fun lambdaInParentheses(x: Any?) {
-    require(x != null, { "x must not be null" })
-}
-
 // The operand can never be null.
 fun nonNullParam(x: String) {
     require(x != null)
@@ -56,4 +50,10 @@ fun inferredNonNull() {
 
 fun <T : Any> nonNullBound(x: T) {
     require(x != null)
+}
+
+// The first argument is the message, not the comparison; detekt reads only
+// the first argument.
+fun messageFirst(x: Any?) {
+    require(lazyMessage = { "x must not be null" }, value = x != null)
 }

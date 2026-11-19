@@ -114,10 +114,21 @@ class LiteralChainRunner {
     }
 
     fun chainWithoutDollar(userPath: String) {
-        // Go reads a literal-prefixed chain with no `$` as static text; FIR
-        // matches Go (both miss these).
-        Runtime.getRuntime().exec("ls %s".format(userPath))
-        Runtime.getRuntime().exec("ls " + "a".plus(userPath))
+        // Go reads a literal-prefixed chain with no `$` as static text and
+        // misses these; FIR sees the format or plus splice userPath in.
+        Runtime.getRuntime().exec(<!RuntimeExecUnsafeShape!>"ls %s".format(userPath)<!>)
+        Runtime.getRuntime().exec(<!RuntimeExecUnsafeShape!>"ls " + "a".plus(userPath)<!>)
+        Runtime.getRuntime().exec(<!RuntimeExecUnsafeShape!>String.format("ls %s", userPath)<!>)
+        Runtime.getRuntime().exec(<!RuntimeExecUnsafeShape!>java.lang.String.format("ls %s -n %d", userPath, 3)<!>)
+        Runtime.getRuntime().exec(<!RuntimeExecUnsafeShape!>"ls ".plus(userPath)<!>)
+    }
+
+    fun constantChain() {
+        // Formatting or appending only constants keeps the command fixed.
+        Runtime.getRuntime().exec("ls %s".format(BASE_DIR))
+        Runtime.getRuntime().exec(String.format("ls %s %d", Paths.TOOL_DIR, 3))
+        Runtime.getRuntime().exec("ls ".plus("-la"))
+        Runtime.getRuntime().exec("ls " + "a".plus(BASE_DIR))
     }
 }
 
@@ -149,7 +160,6 @@ class SafeRunner {
     fun plainVariable(command: String) {
         Runtime.getRuntime().exec(command)
         Runtime.getRuntime().exec(command.trim())
-        Runtime.getRuntime().exec(String.format("ls %s", command))
     }
 
     fun otherOverloads(userPath: String, dir: File) {

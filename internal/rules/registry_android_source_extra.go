@@ -186,6 +186,11 @@ func registerAndroidSourceExtraRules() {
 			NodeTypes: []string{"class_declaration"}, Confidence: api.ConfidenceHigher, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				// A test source is not registered in the app's manifest, and Robolectric
+				// creates test fakes through reflection, so a private one works.
+				if scanner.IsTestFile(file.Path) {
+					return
+				}
 				isComponent := false
 				for _, base := range componentSuperclasses {
 					if classExtendsAndroidClass(file, idx, base) {
@@ -200,6 +205,11 @@ func registerAndroidSourceExtraRules() {
 				if file.FlatHasModifier(idx, "private") {
 					ctx.EmitAt(declLine(file, idx), declCol(file, idx),
 						"This class is registered as an Android component but cannot be instantiated. Remove the private constructor or add a public no-arg constructor.")
+					return
+				}
+				// An inner class's constructors take the outer instance, so the framework cannot call them.
+				if file.FlatHasModifier(idx, "inner") {
+					ctx.EmitAt(declLine(file, idx), declCol(file, idx), instantiatableInnerMessage)
 					return
 				}
 				// Primary constructor's `private` modifier (e.g.

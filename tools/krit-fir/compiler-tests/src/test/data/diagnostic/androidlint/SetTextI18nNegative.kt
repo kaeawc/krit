@@ -1,9 +1,10 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Negative: setText on a TextView with text that is not a string literal
-// (a resource id, a variable, a constant, a concatenation, a call result),
-// the synthetic `text` property, and setText-like calls on types that are not
-// TextViews. Neither Go nor FIR reports any of these.
+// Negative: setText on a TextView with text that holds no string literal with
+// a word run (a resource id, a variable, a constant, a concatenation of short
+// literals, a call result), the synthetic `text` property set from such text,
+// and setText-like calls on types that are not TextViews. Neither Go nor FIR
+// reports any of these.
 package test
 
 import android.content.Context
@@ -19,19 +20,15 @@ class ResourceScreen(private val title: TextView) {
         label.setText(42)
         label.setText(name)
         label.setText(GREETING)
-        label.setText("Hello, " + name)
         label.setText("a" + "b")
-        label.setText("Items".uppercase())
         label.setText(count.toString())
         label.setText(if (count > 1) "many" else "one")
         title.setText(label.text)
     }
 
-    // The synthetic property is not a setText call; Go does not report it
-    // either.
-    fun property(label: TextView) {
-        label.text = "Assigned"
-        title.text = "Assigned"
+    fun property(label: TextView, name: String) {
+        label.text = name
+        title.text = "a" + "b"
     }
 
     fun nonTextViews(context: Context, toast: Toast, remote: RemoteViews) {

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 13, 17, 22, 40, 44, 49, 55, 59, 68
+// go-lines: 10, 13, 17, 22, 42, 46, 51, 57, 61, 70
 package test.showtoast
 
 import android.content.Context
@@ -22,18 +22,20 @@ fun multiline(context: Context) {
         .makeText(context, "Hello", Toast.LENGTH_SHORT)
 }
 
+// A toast returned, passed to a call, or added to a collection escapes to code
+// that may show it, so Go, Lint, and FIR do not report it.
 fun returned(context: Context): Toast {
-    return <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
+    return Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
 }
 
-fun expressionBody(context: Context) = <!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>
+fun expressionBody(context: Context) = Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)
 
 fun passed(context: Context, sink: (Toast) -> Unit) {
-    sink(<!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>)
+    sink(Toast.makeText(context, "Hello", Toast.LENGTH_SHORT))
 }
 
 fun collected(context: Context, toasts: MutableList<Toast>) {
-    toasts.add(<!ShowToast!>Toast.makeText(context, "Hello", Toast.LENGTH_SHORT)<!>)
+    toasts.add(Toast.makeText(context, "Hello", Toast.LENGTH_SHORT))
 }
 
 fun configuredOnly(context: Context) {

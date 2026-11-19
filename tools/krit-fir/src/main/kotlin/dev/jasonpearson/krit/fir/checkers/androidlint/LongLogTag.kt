@@ -54,7 +54,7 @@ import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.text
 
-// Flags an android.util.Log level call (`v`, `d`, `i`, `w`, `e`, `wtf`) whose
+// Flags an android.util.Log call (`v`, `d`, `i`, `w`, `e`, `wtf`, `isLoggable`, `println`) whose
 // tag is longer than 23 characters, the limit older Android releases enforce
 // in Log.isLoggable, and skips a module whose minSdk is 24 or higher, where
 // the limit no longer applies. Like the Go rule, the tag is known when the first
@@ -67,8 +67,9 @@ import org.jetbrains.kotlin.text
 //   when an override declared in the same file has one: that is the tag
 //   passed for instances of the subclass, and Go finds it by name.
 // Anything else (a parameter, a call, a concatenation, an interpolated
-// template) is left alone. `Log.println` and `Log.isLoggable` are not
-// checked, as in Go.
+// template) is left alone. `Log.isLoggable` and `Log.println` (whose tag is
+// the second argument) are checked too, as Android Lint checks them: before
+// API 24, isLoggable throws IllegalArgumentException for a long tag.
 //
 // The finding sits on the first line of the call expression (the receiver's
 // line for `Log.d(...)`), with Go's message; the tag in the message is the
@@ -87,8 +88,10 @@ import org.jetbrains.kotlin.text
 //   property of another file is not followed (a class file keeps no
 //   initializer), so such a tag is left alone.
 // - Precision: a project or local class or object named Log is not
-//   android.util.Log and has no tag limit (LongLogTagLookalike); Go only
-//   filters it out when the Kotlin oracle is running. Go finds a referenced
+//   android.util.Log and has no tag limit (LongLogTagLookalike); Go filters
+//   it out through the oracle, or without it through the file's imports, so
+//   it misses a nested `Log` declared in a file that also imports
+//   android.util.Log. Go finds a referenced
 //   tag by name alone, taking the first property of that name anywhere in
 //   the file whose initializer is a literal; FIR reads the property the
 //   reference resolves to, so a parameter, a shadowing local, a same-named
@@ -116,16 +119,21 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private const val TAG_LIMIT_REMOVED_API = 24
 
     private val logClassId = classIdOf("android.util", "Log")
-    private val levelNames = setOf("v", "d", "i", "w", "e", "wtf").map(Name::identifier).toSet()
+    private val firstArgumentTagNames = setOf("v", "d", "i", "w", "e", "wtf", "isLoggable").map(Name::identifier).toSet()
+    private val printlnName = Name.identifier("println")
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirFunctionSymbol<*> ?: return
         val callableId = callee.callableId
-        if (callableId.classId != logClassId || callableId.callableName !in levelNames) return
+        if (callableId.classId != logClassId) return
+        val tagIndex = when (callableId.callableName) {
+            in firstArgumentTagNames -> 0
+            printlnName -> 1
+            else -> return
+        }
         if (containingMinSdk() >= TAG_LIMIT_REMOVED_API) return
-        // Every level overload takes the tag first.
-        val tagParameter = callee.valueParameterSymbols.firstOrNull() ?: return
+        val tagParameter = callee.valueParameterSymbols.getOrNull(tagIndex) ?: return
         val argument = expression.resolvedArgumentMapping
             ?.entries
             ?.firstOrNull { it.value.symbol == tagParameter }

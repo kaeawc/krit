@@ -1,112 +1,118 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 14, 18, 22, 26, 30, 35, 39, 42, 46, 50, 54, 59, 63, 66, 70, 75, 82, 88, 96, 103, 109
+// go-lines: 11, 14, 18, 22, 26, 32, 36, 40, 43, 47, 51, 55, 60, 64, 67, 71, 76, 83, 89, 96, 102, 109, 115
 // Positives: kotlin.system.exitProcess and java.lang.System.exit called where
-// the nearest enclosing named function is not `main`, or where there is no
-// enclosing function at all. Every shape here is reported by Go as well.
+// the nearest enclosing named or anonymous function is not `main`, or where
+// there is no enclosing function at all. Every shape here is reported by Go as well.
 package test
 
 import kotlin.system.exitProcess
 
 // Top-level property initializer: no enclosing function.
-val topLevelExit: Int = if (System.getenv("KRIT_EXIT") != null) <!ExitOutsideMain!>exitProcess(3)<!> else 0
+val topLevelExit: Int = if (System.getenv("KRIT_EXIT") != null) <!ExitOutsideMain!>exitProcess<!>(3) else 0
 
 fun topLevel() {
-    <!ExitOutsideMain!>exitProcess(1)<!>
+    <!ExitOutsideMain!>exitProcess<!>(1)
 }
 
 fun systemExit() {
-    <!ExitOutsideMain!>System.exit(1)<!>
+    System.<!ExitOutsideMain!>exit<!>(1)
 }
 
 fun qualifiedSystemExit() {
-    <!ExitOutsideMain!>java.lang.System.exit(2)<!>
+    java.lang.System.<!ExitOutsideMain!>exit<!>(2)
 }
 
 fun qualifiedExitProcess() {
-    <!ExitOutsideMain!>kotlin.system.exitProcess(2)<!>
+    kotlin.system.<!ExitOutsideMain!>exitProcess<!>(2)
 }
 
+// detekt reports the call `exit(4)`, on the line below the qualifier.
 fun multiLineQualifier() {
-    <!ExitOutsideMain!>java.lang.System<!>
-        .exit(4)
+    java.lang.System
+        .<!ExitOutsideMain!>exit<!>(4)
 }
 
 fun inLambda(codes: List<Int>) {
-    codes.forEach { <!ExitOutsideMain!>exitProcess(it)<!> }
+    codes.forEach { <!ExitOutsideMain!>exitProcess<!>(it) }
 }
 
 fun inAnonymousFunction(codes: List<Int>) {
-    codes.forEach(fun(code: Int) { <!ExitOutsideMain!>System.exit(code)<!> })
+    codes.forEach(fun(code: Int) { System.<!ExitOutsideMain!>exit<!>(code) })
 }
 
-fun inDefaultArgument(code: Int = <!ExitOutsideMain!>exitProcess(5)<!>): Int = code
+fun inDefaultArgument(code: Int = <!ExitOutsideMain!>exitProcess<!>(5)): Int = code
 
 // Named `main`-like but not `main`.
 fun runtimeExit() {
-    <!ExitOutsideMain!>Runtime.getRuntime().exit(1)<!>
+    Runtime.getRuntime().<!ExitOutsideMain!>exit<!>(1)
 }
 
 fun runtimeHalt() {
-    <!ExitOutsideMain!>Runtime.getRuntime().halt(1)<!>
+    Runtime.getRuntime().<!ExitOutsideMain!>halt<!>(1)
 }
 
 fun mainLoop() {
-    <!ExitOutsideMain!>exitProcess(0)<!>
+    <!ExitOutsideMain!>exitProcess<!>(0)
 }
 
 class Service {
     init {
-        if (System.getenv("KRIT_EXIT") != null) <!ExitOutsideMain!>System.exit(1)<!>
+        if (System.getenv("KRIT_EXIT") != null) System.<!ExitOutsideMain!>exit<!>(1)
     }
 
     val exitGetter: Int
-        get() = <!ExitOutsideMain!>exitProcess(6)<!>
+        get() = <!ExitOutsideMain!>exitProcess<!>(6)
 
     constructor(code: Int) {
-        if (code < 0) <!ExitOutsideMain!>exitProcess(code)<!>
+        if (code < 0) <!ExitOutsideMain!>exitProcess<!>(code)
     }
 
     fun stop() {
-        <!ExitOutsideMain!>exitProcess(0)<!>
+        <!ExitOutsideMain!>exitProcess<!>(0)
     }
 
     companion object {
         fun shutdown() {
-            <!ExitOutsideMain!>System.exit(0)<!>
+            System.<!ExitOutsideMain!>exit<!>(0)
         }
     }
 }
 
 object Terminator {
     fun terminate() {
-        <!ExitOutsideMain!>exitProcess(9)<!>
+        <!ExitOutsideMain!>exitProcess<!>(9)
     }
 }
 
 interface Stoppable {
     fun stop() {
-        <!ExitOutsideMain!>exitProcess(7)<!>
+        <!ExitOutsideMain!>exitProcess<!>(7)
     }
 }
 
 fun main() {
+    // An anonymous function is a function of its own, like detekt's
+    // KtNamedFunction, while a lambda is not.
+    listOf(1).forEach(fun(code: Int) { System.<!ExitOutsideMain!>exit<!>(code) })
+    listOf(1).forEach { exitProcess(it) }
+
     // A named function declared inside main is its own function: Go's nearest
     // function_declaration is `inner`, not `main`.
     fun inner() {
-        <!ExitOutsideMain!>exitProcess(1)<!>
+        <!ExitOutsideMain!>exitProcess<!>(1)
     }
     inner()
 
     // A member of a local class or object expression inside main is not main.
     class Local {
         fun run() {
-            <!ExitOutsideMain!>System.exit(1)<!>
+            System.<!ExitOutsideMain!>exit<!>(1)
         }
     }
     Local().run()
     val anonymous = object {
         fun run() {
-            <!ExitOutsideMain!>exitProcess(1)<!>
+            <!ExitOutsideMain!>exitProcess<!>(1)
         }
     }
     anonymous.run()

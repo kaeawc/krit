@@ -276,7 +276,7 @@ func registerDiHygieneRules() {
 				if _, ok := file.FlatFindChild(idx, "type_parameters"); !ok {
 					return
 				}
-				scope := firstScopeAnnotationFlat(file, idx)
+				scope := scopeOnParameterizedClassScopeFlat(file, idx)
 				if scope == "" {
 					return
 				}
@@ -376,7 +376,7 @@ func registerDiHygieneRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "IntoMap") {
+				if !hasDIAnnotationFlat(file, idx, "IntoMap", daggerOrMetroIntoMapPackages) {
 					return
 				}
 				if !hasAnnotationFlat(file, idx, "Provides") && !hasAnnotationFlat(file, idx, "Binds") {
@@ -401,10 +401,11 @@ func registerDiHygieneRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "IntoSet") {
+				if !hasDIAnnotationFlat(file, idx, "IntoSet", diIntoSetPackages) {
 					return
 				}
-				if !hasAnnotationFlat(file, idx, "Provides") && !hasAnnotationFlat(file, idx, "Binds") {
+				if !hasDIAnnotationFlat(file, idx, "Provides", diProvidesPackages) &&
+					!hasDIAnnotationFlat(file, idx, "Binds", daggerOrMetroBindsPackages) {
 					return
 				}
 				retText := extractFunctionReturnTypeNameFlat(file, idx)
@@ -491,7 +492,11 @@ func registerDiHygieneRules() {
 			NodeTypes: []string{"function_declaration"}, Confidence: r.Confidence(), Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if !hasAnnotationFlat(file, idx, "Binds") {
+				if !hasDIAnnotationFlat(file, idx, "Binds", daggerOrMetroBindsPackages) {
+					return
+				}
+				// A multibinding contribution, or a binding between differently qualified keys, is not a no-op.
+				if bindsIsMultibinding(file, idx) || bindsKeyAnnotationsDiffer(file, idx) {
 					return
 				}
 				paramCount := 0

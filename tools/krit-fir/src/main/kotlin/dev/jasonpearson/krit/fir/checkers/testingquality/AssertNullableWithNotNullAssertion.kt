@@ -53,8 +53,9 @@ import org.jetbrains.kotlin.name.CallableId
  *
  * Deliberate differences from Go, each pinned in the golden data:
  * - Precision: the call must resolve to a function of an assertion library (kotlin.test, JUnit,
- *   Truth, AssertJ, Hamcrest, Turbine). Go accepts the written name when the oracle cannot resolve
- *   the call, so a project function that reuses a library name is not reported.
+ *   Truth, AssertJ, Hamcrest, Turbine). When the oracle cannot resolve the call, Go accepts the written
+ *   name unless the file declares it or imports it from another package, so a project function that
+ *   reuses a library name is not reported.
  * - Precision: the operand's type comes from the compiler. A platform type is not nullable, and an
  *   operand the compiler smart-casts to non-null (an earlier `assertNotNull(x)` with a contract) makes
  *   the `!!` unnecessary rather than unsafe.
@@ -210,7 +211,7 @@ internal object AssertNullableWithNotNullAssertion : FirFunctionCallChecker(MppC
     // the assertion, and every block, lambda body or branch body around it also holds the assertion.
     context(context: CheckerContext)
     private fun isCheckedBefore(bang: Bang, call: KtSourceElement): Boolean {
-        val operand = compact(bang.operandText)
+        val operand = checkKey(bang.operandText)
         if (operand.isEmpty()) return false
         val scope = context.containingDeclarations.lastOrNull { it is FirNamedFunctionSymbol }?.source
             ?: containingFirFile()?.source ?: return false
@@ -228,7 +229,8 @@ internal object AssertNullableWithNotNullAssertion : FirFunctionCallChecker(MppC
         return visit(scope.lighterASTNode)
     }
 
-    private fun compact(text: String): String = text.filterNot { isGoSpace(it) }
+    // `!!` is dropped and `?.` read as `.`, so `assertThat(x!!.y).isNotNull()` checks the operand of a later `x.y!!`.
+    private fun checkKey(text: String): String = text.filterNot { isGoSpace(it) }.replace("!!", "").replace("?.", ".")
 
     private fun isNonNullCheck(source: KtSourceElement, call: LighterASTNode, operand: String): Boolean {
         val args = argumentTexts(source, call)
@@ -254,10 +256,10 @@ internal object AssertNullableWithNotNullAssertion : FirFunctionCallChecker(MppC
     private fun calleeName(source: KtSourceElement, call: LighterASTNode): String? =
         lightChildren(source, call).firstOrNull { it.tokenType == KtNodeTypes.REFERENCE_EXPRESSION }?.let { lightText(source, it) }
 
-    // The compact text of each value argument, labels included.
+    // The check key of each value argument, labels included.
     private fun argumentTexts(source: KtSourceElement, call: LighterASTNode): List<String> {
         val list = lightChildren(source, call).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_LIST } ?: return emptyList()
-        return lightChildren(source, list).filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }.map { compact(lightText(source, it)) }
+        return lightChildren(source, list).filter { it.tokenType == KtNodeTypes.VALUE_ARGUMENT }.map { checkKey(lightText(source, it)) }
     }
 
     // Every block, lambda body and branch body between check and the scope also holds callStart.

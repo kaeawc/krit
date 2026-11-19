@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.contracts.description.LogicOperationKind
+import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
@@ -56,6 +57,7 @@ import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirValueParameterSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirVariableSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
@@ -112,10 +114,14 @@ import org.jetbrains.kotlin.name.StandardClassIds
  *   (a literal of any kind, a `const val`, a final `val` of the same file
  *   initialized with one, an `if`/`when` over those, a literal with an escaped
  *   `\$`, or a `+` of those) is not built from non-static data, so it is not
- *   reported. A non-const `val` of another file is not reported either: a class
+ *   reported, and neither is a template that interpolates only such values
+ *   (`"... LIMIT $pageSize"` over a `const val pageSize`). A non-const
+ *   top-level or object `val` of another file is not reported either: a class
  *   file keeps no initializer, so its value is unknown, and unknown is quiet on a slice and on a full compile
  *   alike (`object Queries { val selectAll = "SELECT ..." }` in another file; this also silences a val of
- *   another file that is computed by a function). A
+ *   another file that is computed by a function). A member of any other class
+ *   of another file (`user.id`, `e.message`) belongs to an instance, so it is
+ *   runtime data and stays reported. A
  *   receiver that is not a `Statement` (a lookalike Go binds to an earlier
  *   `createStatement()` declaration of the same name in another scope) and
  *   a project extension whose first parameter is not SQL text (a query
@@ -171,14 +177,12 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
         val message = when (goShape(anchor, argument)) {
             Shape.STATIC -> return
             Shape.INTERPOLATED -> INTERPOLATED_MESSAGE
-            Shape.COMPUTED -> {
-                val argumentSource = lightSourceOf(argument, anchor)
-                val value = firArgumentAt(expression, argumentSource)
-                if (value != null && isStaticValue(value, depth = 0)) return
-                COMPUTED_MESSAGE
-            }
+            Shape.COMPUTED -> COMPUTED_MESSAGE
         }
-        report(lightSourceOf(argument, anchor), message)
+        val argumentSource = lightSourceOf(argument, anchor)
+        val value = firArgumentAt(expression, argumentSource)
+        if (value != null && isStaticValue(value, depth = 0)) return
+        report(argumentSource, message)
     }
 
     context(context: CheckerContext)
@@ -343,7 +347,7 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
                     // A val of another file: a class file keeps no initializer, so its value is unknown. Unknown is
                     // quiet, decided without the declaration's source (delegate, getter), so a slice compile and a
                     // full compile agree.
-                    !property.isDeclaredInCheckedFile() -> true
+                    !property.isDeclaredInCheckedFile() -> !isInstanceMember(property)
                     property.hasDelegate -> false
                     !property.isLocal && property.resolvedStatus.modality != Modality.FINAL -> false
                     property.getterSymbol?.isDefault == false -> false
@@ -358,6 +362,15 @@ internal object JdbcStatementExecute : FirFunctionCallChecker(MppCheckerKind.Com
             }
             else -> false
         }
+    }
+
+    // A member of a class other than an object: its value belongs to an
+    // instance (`user.id`, `e.message`), so it is runtime data, not a query
+    // constant. Read from the symbol, so a slice and a full compile agree.
+    context(context: CheckerContext)
+    private fun isInstanceMember(property: FirPropertySymbol): Boolean {
+        val owner = property.getContainingClassSymbol() ?: return false
+        return (owner as? FirRegularClassSymbol)?.classKind != ClassKind.OBJECT
     }
 
     // Go's argumentIsUntrustedShape on the argument's source text.

@@ -6,11 +6,8 @@ import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.expandedClassType
-import dev.jasonpearson.krit.fir.support.lightChildren
-import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
-import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -39,13 +36,12 @@ import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 
 /**
- * Port of the Go TooGenericExceptionThrown rule: a `throw` of a newly
- * constructed `Exception`, `RuntimeException`, `Error`, or `Throwable`
- * (`exceptionNames`), reported on the constructor call with Go's message.
+ * TooGenericExceptionThrown: a `throw` of a newly constructed `Exception`,
+ * `RuntimeException`, `Error`, or `Throwable` (`exceptionNames`), reported on
+ * the throw expression, as detekt 1.23.8 and the Go rule do.
  *
  * The thrown value counts when it, or a value it can evaluate to (an
  * `if`/`when` branch, either side of an elvis, a `try` or `catch` block, a cast
@@ -53,50 +49,36 @@ import org.jetbrains.kotlin.name.FqName
  * a type alias or an import alias too. `kotlin.Exception`, `kotlin.Error` and
  * `kotlin.RuntimeException` are aliases of the `java.lang` classes, and
  * `kotlin.Throwable` is the Kotlin class. A call of a function named like the
- * class it returns (`fun Error(code: Int): Error`) counts too: Go reads the
- * call's name.
+ * class it returns (`fun Error(code: Int): Error`) counts too, since detekt and
+ * Go read the call's name.
  *
- * The four default names always mean those classes (Go's FQN table). Any other
- * configured name counts for every library class of that name, however it is
- * written or imported (`java.io.IOException(..)`, a star import, or a
- * `kotlin.*` alias of a `java.util` class such as `NoSuchElementException`):
- * Go's resolver cannot resolve those and reports them. A Kotlin class of this
- * module (compiled from a source file, or read from the module's own class
- * files) is a project class, which Go finds in its class index and skips, so
- * it is never generic. Go's index holds no Java declarations, so a Java class
- * counts even when it is compiled from source.
+ * The four default names always mean those classes. Any other configured name
+ * counts for every library class of that name, however it is written or
+ * imported, and never for a Kotlin class of this module (compiled from a source
+ * file, or read from the module's own class files). A Java class counts even
+ * when it is compiled from source.
  *
- * Exemptions mirrored from Go: test files and `.gradle.kts` scripts, and a
- * constructor that passes the parameter of the nearest `catch` enclosing it
- * directly as an argument (`throw RuntimeException("context", e)`), which
- * wraps the caught exception instead of hiding it. For a value produced by the
- * catch block of a thrown `try` expression, that catch is the nearest one.
+ * Exemptions that neither detekt nor the Go Kotlin rule has (the Go rule keeps
+ * them for Java only): test files and `.gradle.kts` scripts, a throw inside a
+ * `Fake*`, `Stub*` or `Test*` class, and a constructor that passes the
+ * parameter of the nearest `catch` enclosing it directly as an argument
+ * (`throw RuntimeException("context", e)`), which wraps the caught exception
+ * instead of hiding it. For a value produced by the catch block of a thrown
+ * `try` expression, that catch is the nearest one.
  *
- * Deliberate differences from Go, each pinned in the golden data
+ * Other differences from Go and detekt, which read the written callee name of
+ * the thrown expression alone, each pinned in the golden data
  * (`TooGenericExceptionThrown*.kt`) or in `TooGenericExceptionThrownFilesTest`:
- * - Go's dispatch node is any jump expression, so it also reports
- *   `return Exception(...)`, which throws nothing, and reports
- *   `return x ?: throw Exception(...)` a second time on the `return` line.
- *   Each throw is reported once, on the `throw` line, here.
- * - Go reads only the first call inside the `throw` (`throw if (c)
- *   IllegalStateException() else Exception()` names IllegalStateException),
- *   the name as written (an import alias or type alias hides the class), and
- *   resolves an explicit `import java.lang.Exception` to `kotlin.Exception`,
- *   which is not in its table; it also skips every throw of a name the file
- *   declares a class for anywhere, even a nested class the throw does not
- *   resolve to. Each of those throws a generic exception, so each is reported
- *   here.
- * - Go resolves a name without an explicit import or a same-file class to
- *   `java.lang`, so it reports throws that construct a project class or a
- *   type alias of another class: a same-package or star-imported class named
- *   `Exception`, a nested class of a supertype, a same-package or same-file
- *   `typealias Error = ...`. None of them throws a generic exception.
- * - With a configured extra name, Go skips a library class that is imported
- *   explicitly (it resolves the import to an FQN outside its table); that
- *   class is still reported here.
- * - Go matches the caught exception by name, so a lambda parameter shadowing
- *   the catch parameter exempts the throw there; here the argument must be
- *   the catch parameter itself.
+ * - A qualified, parenthesised, import-aliased or type-aliased constructor and
+ *   a generic exception produced by an `if`, `when`, elvis or `try` are
+ *   reported here; Go and detekt miss them.
+ * - A project class or type alias named like a generic exception (a
+ *   same-package or same-file class `Exception`, a nested class of a
+ *   supertype, `typealias Error = MyError`) is not generic and is not
+ *   reported; Go and detekt report it by name.
+ * - Go matches the caught exception of a Java throw by name, so a lambda
+ *   parameter shadowing the catch parameter exempts the throw there; here the
+ *   argument must be the catch parameter itself.
  */
 internal object TooGenericExceptionThrown :
     FirExpressionChecker<FirThrowExpression>(MppCheckerKind.Common), FirRule {
@@ -141,8 +123,7 @@ internal object TooGenericExceptionThrown :
             val name = genericClassName(call, names) ?: continue
             val nearestCatch = candidate.caught
             if (nearestCatch != null && passesCaught(call, nearestCatch)) continue
-            // Report the constructor call, which can sit on a later line than the `throw`.
-            report(call.source?.takeIf { it.kind is KtRealSourceElementKind } ?: throwKeyword(source), "$name is a too generic Exception. Prefer throwing specific exceptions that indicate a specific error case.")
+            report(source, "$name is a too generic Exception. Prefer throwing specific exceptions that indicate a specific error case.")
             return
         }
     }
@@ -240,13 +221,6 @@ internal object TooGenericExceptionThrown :
             val access = value as? FirPropertyAccessExpression ?: return@any false
             access.explicitReceiver == null && access.calleeReference.toResolvedVariableSymbol() == caught
         }
-
-    // Fallback anchor when the constructor call has no real source: the `throw` keyword.
-    private fun throwKeyword(source: KtSourceElement): KtSourceElement {
-        val keyword = lightChildren(source, source.lighterASTNode).firstOrNull { it.tokenType == KtTokens.THROW_KEYWORD }
-            ?: return source
-        return lightSourceOf(keyword, source)
-    }
 
     private const val MAX_DEPTH = 16
 }

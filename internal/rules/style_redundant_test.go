@@ -655,3 +655,37 @@ val d = listOfNotNull("a", "b")
 		}
 	}
 }
+
+// Removing `.orEmpty()` after `?.` must take the `?` too, or the fix leaves `s?` and does not parse.
+func TestUselessCallOnNotNull_SafeCallRemoveFixDropsTheOperator(t *testing.T) {
+	src := `package test
+fun f(s: String) {
+    println(s?.orEmpty())
+}
+`
+	findings := runRuleByNameWithResolver(t, "UselessCallOnNotNull", src)
+	if len(findings) != 1 || findings[0].Fix == nil {
+		t.Fatalf("expected one fixable finding, got %v", findings)
+	}
+	if got := applyByteFix(t, src, findings[0].Fix); !strings.Contains(got, "println(s)") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}
+
+// Inside `x?.call()` the receiver is never null, so detekt reports the safe-call forms on a nullable receiver.
+func TestUselessCallOnNotNull_SafeCallOnNullableReceiverIsReported(t *testing.T) {
+	src := `package test
+fun f(ns: String?, nl: List<Int>?) {
+    println(ns?.orEmpty())
+    println(ns?.isNullOrEmpty())
+    println(nl?.orEmpty())
+}
+`
+	findings := runRuleByNameWithResolver(t, "UselessCallOnNotNull", src)
+	if len(findings) != 3 {
+		t.Fatalf("expected three findings, got %v", findings)
+	}
+	if got := applyByteFix(t, src, findings[0].Fix); !strings.Contains(got, "println(ns)\n") {
+		t.Errorf("unexpected fix: %s", got)
+	}
+}

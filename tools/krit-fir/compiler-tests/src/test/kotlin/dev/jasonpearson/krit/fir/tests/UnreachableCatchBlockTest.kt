@@ -4,9 +4,8 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
 // UnreachableCatchBlock finding counts per line, which the golden markers
-// cannot express. The Go rule reports once per (earlier clause, later clause)
-// pair, so a clause shadowed by several earlier clauses gets several findings
-// on its line.
+// cannot express. A clause shadowed by several earlier clauses is reported
+// once, naming the first of them, as detekt and Go report it.
 class UnreachableCatchBlockTest {
 
     private fun countsByLine(source: String): Map<Int, Int> =
@@ -15,8 +14,11 @@ class UnreachableCatchBlockTest {
             .groupingBy { it.line }
             .eachCount()
 
+    private fun messages(source: String): List<String> =
+        KritFirProbe.diagnose(source).filter { it.name == "UnreachableCatchBlock" }.map { it.message.removePrefix("[UnreachableCatchBlock] ") }
+
     @Test
-    fun onePerShadowingClause() {
+    fun onePerShadowedClause() {
         val source = """
             package counts
 
@@ -28,15 +30,20 @@ class UnreachableCatchBlockTest {
                 try { r() } catch (e: Throwable) { } catch (e: Exception) { } catch (e: IOException) { }
             }
         """.trimIndent()
-        // Exception: shadowed by Throwable. IOException: by Throwable and Exception.
-        assertEquals(mapOf(8 to 3), countsByLine(source))
+        // Exception: shadowed by Throwable. IOException: by Throwable first, then Exception.
+        assertEquals(mapOf(8 to 2), countsByLine(source))
+        assertEquals(
+            listOf(
+                "Catch block for 'Exception' is unreachable because 'Throwable' is caught above.",
+                "Catch block for 'IOException' is unreachable because 'Throwable' is caught above.",
+            ),
+            messages(source).sorted(),
+        )
     }
 
-    // Go emits an exact repeat (same line, column and message) once per pair;
-    // krit's FIR merge drops exact repeats, so FIR reports each distinct
-    // message once.
+    // A clause that repeats several earlier ones is still one finding.
     @Test
-    fun repeatedIdenticalMessagesCollapse() {
+    fun repeatedClausesReportOnce() {
         val source = """
             package repeats
 
@@ -57,9 +64,9 @@ class UnreachableCatchBlockTest {
                 }
             }
         """.trimIndent()
-        // Line 8: the second clause duplicates the first; the third duplicates
-        // both, with one message. Line 15 duplicates line 14. Line 16:
-        // IOException is shadowed by both Exception clauses, with one message.
+        // Line 8: the second clause duplicates the first and the third
+        // duplicates both, one finding each. Line 15 duplicates line 14.
+        // Line 16: IOException is shadowed by both Exception clauses.
         assertEquals(mapOf(8 to 2, 15 to 1, 16 to 1), countsByLine(source))
     }
 

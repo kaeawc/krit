@@ -43,7 +43,7 @@ fun buildLayout(context: Context) {
     val root = LinearLayout(context)
     root.orientation = LinearLayout.VERTICAL
     val label = TextView(context)
-    label.text = "hello"
+    label.text = ""
     label.setText(android.R.string.ok)
     label.textSize = 14f
     label.setTextColor(0)

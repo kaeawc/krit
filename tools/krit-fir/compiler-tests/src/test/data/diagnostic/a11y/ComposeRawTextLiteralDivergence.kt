@@ -26,3 +26,9 @@ fun CompoundCondition(visible: Boolean) {
         <!ComposeRawTextLiteral!>Text<!>("Welcome")
     }
 }
+
+// Go reads only a string literal argument; the compiler folds a concatenation of literals into one hardcoded string.
+@Composable
+fun LiteralConcatenation() {
+    <!ComposeRawTextLiteral!>Text<!>("Welcome" + "!")
+}

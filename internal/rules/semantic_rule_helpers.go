@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -268,11 +269,19 @@ func whileConditionHasCallName(file *scanner.File, stmt uint32, names ...string)
 	return false
 }
 
-// firstUnsuppressedCall returns the first call named callName under root that lintID does not suppress, or 0.
-func firstUnsuppressedCall(file *scanner.File, root uint32, callName, lintID string) uint32 {
+// importBindsNameElsewhere reports an explicit import that binds name to a declaration other than fqns, so code
+// that writes the name does not use the library declaration.
+func importBindsNameElsewhere(file *scanner.File, name string, fqns ...string) bool {
+	fqn, ok := fileFactsCache().Imports(file).Aliases[name]
+	return ok && !slices.Contains(fqns, fqn)
+}
+
+// firstUnsuppressedCall returns the first call named callName under root that lintID does not suppress and skip
+// (when not nil) does not reject, or 0.
+func firstUnsuppressedCall(file *scanner.File, root uint32, callName, lintID string, skip func(call uint32) bool) uint32 {
 	found := uint32(0)
 	visit := func(call uint32) {
-		if found == 0 && !callSuppressedByLintID(file, call, lintID) {
+		if found == 0 && !callSuppressedByLintID(file, call, lintID) && (skip == nil || !skip(call)) {
 			found = call
 		}
 	}

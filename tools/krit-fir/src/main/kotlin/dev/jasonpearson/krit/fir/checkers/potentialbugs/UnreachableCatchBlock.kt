@@ -29,9 +29,8 @@ import org.jetbrains.kotlin.util.getChildren
 // type with every later one: equal type text is a duplicate catch, otherwise it
 // asks its resolver (a fixed table of well-known exception simple names, or the
 // oracle's hierarchy) whether the later type is a subtype of the earlier one.
-// Each (earlier, later) pair reports once on the later clause's `catch` line, so
-// a clause shadowed by two earlier clauses gets two findings (one per distinct
-// message; see check). FIR makes the same
+// A shadowed clause is reported once on its `catch` keyword, naming the first
+// earlier clause that catches it, as detekt reports it. FIR makes the same
 // pairwise comparison on the resolved, alias-expanded catch types: a duplicate
 // when both clauses catch the same type, unreachable when the later type is a
 // proper subtype. The message names each type by its simple name (the written name without its qualifier), like Go. Go's
@@ -54,23 +53,20 @@ internal object UnreachableCatchBlock : FirExpressionChecker<FirTryExpression>(M
         val catches = expression.catches.mapNotNull { entry(it) }
         for (j in catches.indices) {
             val child = catches[j]
-            // Go emits one finding per pair, even when two pairs produce the
-            // same message (`catch (e: A)` twice above a third `A`). An exact
-            // repeat (same line, column and message) carries nothing new: the
-            // compiler drops an equal diagnostic, and krit's FIR merge drops
-            // exact repeats, so each distinct message is reported once.
-            val messages = LinkedHashSet<String>()
+            // One finding per unreachable clause, naming the first earlier
+            // clause that catches its type, as detekt and Go report it.
             for (i in 0 until j) {
                 val parent = catches[i]
-                messages += when {
+                val message = when {
                     sameType(child.type, parent.type) ->
                         "Duplicate catch block for '${child.simpleName}'."
                     child.type.isSubtypeOf(parent.type, context.session) ->
                         "Catch block for '${child.simpleName}' is unreachable because '${parent.simpleName}' is caught above."
                     else -> continue
                 }
+                report(child.source, message)
+                break
             }
-            for (message in messages) report(child.source, message)
         }
     }
 

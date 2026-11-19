@@ -16,4 +16,11 @@ class MyActivity {
             // handle safely
         }
     }
+
+    // Built on an explicit Looper, which Lint takes to be the caller's thread
+    val onMain = object : Handler(Looper.getMainLooper()) {
+        override fun handleMessage(msg: android.os.Message) {
+            // handle safely
+        }
+    }
 }

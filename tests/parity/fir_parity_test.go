@@ -146,7 +146,6 @@ var firCrossRuleAllowlist = map[string]string{
 	// await() is a suspend call that won't complete normally if the coroutine
 	// is cancelled, so the message is true; Go only matches call text that
 	// starts with a listed name and misses receiver-qualified calls.
-	"DefaultLocale|tests/fixtures/negative/potential-bugs/ImplicitDefaultLocale.kt":               "FIR reports every default-locale format call; Go follows Lint and skips formats without d/e/f/g/t conversions (DefaultLocale.kt patternOnly)",
 	"NullableToStringCall|tests/fixtures/negative/exceptions/ErrorUsageWithThrowable.kt":          "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
 	"NullableToStringCall|tests/fixtures/negative/exceptions/InstanceOfCheckForException.kt":      "toString() on a local initialised by a safe cast, a nullable type; Go does not type it (NullableToStringCallDivergence.kt safeCastLocal)",
 	"NullableToStringCall|tests/fixtures/negative/exceptions/PrintStackTrace.kt":                  "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
@@ -168,7 +167,11 @@ var firCrossRuleAllowlist = map[string]string{
 // fixture that cannot reasonably be aligned by wording alone. Key: rule ID
 // + "|" + repo-relative fixture path + "|" + original line number. An entry
 // whose messages agree fails as stale.
-var firMessageAllowlist = map[string]string{}
+var firMessageAllowlist = map[string]string{
+	// The message names the package-qualified class, as Lint does, and the harness compiles the fixture for FIR
+	// under a rewritten package; HandlerLeakTest and TestHandlerLeak_LintLooperExemptions pin both messages.
+	"HandlerLeak|tests/fixtures/positive/android-lint/HandlerLeak.kt|6": "package-qualified class name under the harness's rewritten package",
+}
 
 // checkCrossRuleParity holds every FIR rule to its Go rule on every fixture
 // of the batch, not only the rule's own: runParityBatch compiles all

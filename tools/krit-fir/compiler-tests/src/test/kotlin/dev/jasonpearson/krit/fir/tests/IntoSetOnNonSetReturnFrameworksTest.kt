@@ -181,4 +181,87 @@ class IntoSetOnNonSetReturnFrameworksTest {
             findings(sources),
         )
     }
+
+    // Metro's property bindings, which its own SUSPICIOUS_SET_INTO_SET
+    // warning also reads. Go reads only function declarations, so it reports
+    // none of these.
+    @Test fun metroProperties() {
+        val sources = mapOf(
+            metroIntoSet,
+            "Graph.kt" to """
+                package demo
+
+                import dev.zacsweers.metro.Binds
+                import dev.zacsweers.metro.IntoSet
+                import dev.zacsweers.metro.Provides
+
+                interface Plugin
+                class PluginImpl : Plugin
+
+                interface PluginGraph {
+                    @Provides @IntoSet val single: Plugin get() = PluginImpl()
+
+                    @Provides @IntoSet val plugins: List<Plugin> get() = emptyList()
+
+                    @Binds @IntoSet val ArrayList<Plugin>.bind: Set<Plugin>
+                }
+            """.trimIndent(),
+        )
+        val result = KritFirProbe.compile(
+            sources,
+            FirRuleCompileContext(enabledRuleIds = setOf("IntoSetOnNonSetReturn")),
+        )
+        assertTrue(result.clean, result.problems())
+        val diags = result.diags.filter { it.name == "IntoSetOnNonSetReturn" }
+        assertEquals(listOf("Graph.kt" to 13, "Graph.kt" to 15), diags.map { it.file to it.line })
+        assertTrue(diags.all { it.message.contains("@IntoSet property '") }, diags.toString())
+    }
+
+    // An inferred return type, which Go cannot read, is quoted as the
+    // resolved type with simple names; a Java method's platform type is
+    // quoted by its lower bound, without `!`.
+    @Test fun inferredReturnTypeMessages() {
+        val sources = mapOf(
+            "demo/Plugins.java" to """
+                package demo;
+
+                import java.util.List;
+
+                public final class Plugins {
+                    public static List<Plugin> all() {
+                        throw new RuntimeException("Stub!");
+                    }
+                }
+            """.trimIndent(),
+            "Module.kt" to """
+                package demo
+
+                import dagger.Provides
+                import dagger.multibindings.IntoSet
+
+                interface Plugin
+
+                class PluginModule {
+                    @Provides @IntoSet fun list() = listOf<Plugin>()
+
+                    @Provides @IntoSet fun java() = Plugins.all()
+
+                    @Provides @IntoSet fun map() = mapOf<String, List<Plugin>?>()
+
+                    @Provides @IntoSet fun one() = object : Plugin {}
+                }
+            """.trimIndent(),
+        )
+        val result = KritFirProbe.compile(
+            sources,
+            FirRuleCompileContext(enabledRuleIds = setOf("IntoSetOnNonSetReturn")),
+        )
+        assertTrue(result.clean, result.problems())
+        val messages = result.diags.filter { it.name == "IntoSetOnNonSetReturn" }
+            .map { it.line to it.message.substringAfter("returns '").substringBefore("', a collection") }
+        assertEquals(
+            listOf(9 to "List<Plugin>", 11 to "MutableList<Plugin>", 13 to "Map<String, List<Plugin>?>"),
+            messages,
+        )
+    }
 }

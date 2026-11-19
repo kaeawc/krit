@@ -3,9 +3,9 @@ package dev.jasonpearson.krit.fir.tests
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
-// BitmapDecodeWithoutOptions on a call split across lines, which a golden
-// marker cannot span. Go reports on the first line of the call expression,
-// the receiver's line, so the finding must not move to the method's line.
+// BitmapDecodeWithoutOptions on a call split across lines. Go reports on the
+// called method's name, so the finding must sit on the method's line, not on
+// the receiver's.
 class BitmapDecodeWithoutOptionsTest {
 
     private fun linesOf(source: String): List<Int> =
@@ -15,7 +15,7 @@ class BitmapDecodeWithoutOptionsTest {
             .sorted()
 
     @Test
-    fun multilineCallReportsOnReceiverLine() {
+    fun multilineCallReportsOnMethodLine() {
         val source = """
             package multiline
 
@@ -36,6 +36,6 @@ class BitmapDecodeWithoutOptionsTest {
             fun withOptions(path: String): Bitmap? = BitmapFactory
                 .decodeFile(path, BitmapFactory.Options())
         """.trimIndent()
-        assertEquals(listOf(7, 13), linesOf(source))
+        assertEquals(listOf(8, 15), linesOf(source))
     }
 }

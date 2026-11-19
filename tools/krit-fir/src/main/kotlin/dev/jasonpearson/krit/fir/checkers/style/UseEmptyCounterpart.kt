@@ -37,7 +37,8 @@ import org.jetbrains.kotlin.name.Name
 // - the call must resolve to the stdlib factory, so a same-package, imported,
 //   local or member function named `listOf`, the invoke of a property or
 //   object named `listOf`, and another function imported under the alias
-//   `listOf` are not flagged (Go reports any callee with that name);
+//   `listOf` are not flagged (Go skips a name an import binds elsewhere, but
+//   reports a same-package, local or member function with that name);
 // - the call must pass no element at all, so a trailing lambda, which Kotlin
 //   passes as the single vararg element (`listOf() { 1 }` is a one-element
 //   list), is not flagged (Go only counts the arguments inside the

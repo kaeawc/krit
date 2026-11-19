@@ -46,28 +46,77 @@ func (r *JacksonDefaultTypingRule) Confidence() float64 { return api.ConfidenceM
 
 func (r *GsonPolymorphicFromJSONRule) Confidence() float64 { return api.ConfidenceMediumHigh }
 
-var xxeFactoryReceivers = map[string]bool{
-	"DocumentBuilderFactory": true,
-	"SAXParserFactory":       true,
-	"XMLInputFactory":        true,
-	"TransformerFactory":     true,
-	"SchemaFactory":          true,
+// xxeFactoryPackages maps each JAXP factory to the package that declares it.
+var xxeFactoryPackages = map[string]string{
+	"DocumentBuilderFactory": "javax.xml.parsers",
+	"SAXParserFactory":       "javax.xml.parsers",
+	"XMLInputFactory":        "javax.xml.stream",
+	"TransformerFactory":     "javax.xml.transform",
+	"SchemaFactory":          "javax.xml.validation",
 }
 
 var xxeFactoryCreationNames = map[string]bool{"newInstance": true, "newFactory": true}
 
+// xmlExternalEntityFactoryCall reports a factory creation on a receiver spelled like a JAXP factory, unless the
+// spelling names another class: a qualifier of another package, an import of the name from another package, or a
+// class or object of that name declared in the file.
 func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
 	if file == nil || call == 0 || !xxeFactoryCreationNames[javaAwareCallName(file, call)] {
 		return false
 	}
-	receiver := databaseCallReceiverName(file, call)
+	receiver := xxeFactoryReceiverText(file, call)
+	qualifier := ""
 	if dot := strings.LastIndex(receiver, "."); dot >= 0 {
-		receiver = receiver[dot+1:]
+		qualifier, receiver = receiver[:dot], receiver[dot+1:]
 	}
-	if !xxeFactoryReceivers[receiver] {
+	pkg, ok := xxeFactoryPackages[receiver]
+	if !ok {
 		return false
 	}
-	return sourceImportsOrMentions(file, receiver)
+	if qualifier != "" {
+		return qualifier == pkg
+	}
+	return !xxeImportsNameFromElsewhere(file, receiver, pkg+"."+receiver) && !fileDeclaresTypeNamed(file, receiver)
+}
+
+// xxeFactoryReceiverText returns the receiver of a factory creation call as written, without whitespace.
+func xxeFactoryReceiverText(file *scanner.File, call uint32) string {
+	text := ""
+	switch file.FlatType(call) {
+	case "call_expression":
+		navExpr, _ := flatCallExpressionParts(file, call)
+		if navExpr == 0 || file.FlatNamedChildCount(navExpr) == 0 {
+			return ""
+		}
+		text = file.FlatNodeText(file.FlatNamedChild(navExpr, 0))
+	case "method_invocation":
+		text = javaMethodReceiverText(file, call)
+	}
+	return strings.Join(strings.Fields(text), "")
+}
+
+// xxeImportsNameFromElsewhere reports a Kotlin or Java import that binds name to a class other than fqn.
+func xxeImportsNameFromElsewhere(file *scanner.File, name, fqn string) bool {
+	found := false
+	for _, kind := range []string{"import_header", "import_declaration"} {
+		file.FlatWalkNodes(0, kind, func(node uint32) {
+			if found {
+				return
+			}
+			text := strings.TrimSpace(file.FlatNodeText(node))
+			text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "import "), ";"))
+			path, alias := text, ""
+			if idx := strings.Index(text, " as "); idx >= 0 {
+				path, alias = strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx+4:])
+			}
+			bound := alias
+			if bound == "" {
+				bound = path[strings.LastIndex(path, ".")+1:]
+			}
+			found = bound == name && path != fqn
+		})
+	}
+	return found
 }
 
 var xxeParseCalls = map[string]bool{

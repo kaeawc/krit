@@ -20,6 +20,7 @@ func TestLongLogTagRule(t *testing.T) {
 	t.Run("tag exceeding 23 chars triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 fun foo() {
     Log.d("ThisIsAVeryLongTagNameThatExceeds", "msg")
 }
@@ -32,6 +33,7 @@ fun foo() {
 	t.Run("short tag does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 fun foo() {
     Log.d("ShortTag", "msg")
 }
@@ -44,6 +46,7 @@ fun foo() {
 	t.Run("unresolved TAG variable reference does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 fun foo() {
     Log.d(TAG, "msg")
 }
@@ -56,6 +59,7 @@ fun foo() {
 	t.Run("TAG const val exceeding 23 chars triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class NetworkRepositoryImpl {
     companion object {
         private const val TAG = "NetworkRepositoryImpl_v2"
@@ -73,6 +77,7 @@ class NetworkRepositoryImpl {
 	t.Run("TAG const val within limit does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class NetworkRepositoryImpl {
     companion object {
         private const val TAG = "NetworkRepository"
@@ -90,6 +95,7 @@ class NetworkRepositoryImpl {
 	t.Run("interpolated TAG initializer does not trigger", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 class Foo {
     companion object {
         val TAG = "prefix_${'$'}suffixThatIsActuallyVeryLongIndeed"
@@ -107,6 +113,7 @@ class Foo {
 	t.Run("top-level const val tag exceeding 23 chars triggers", func(t *testing.T) {
 		findings := runRuleByName(t, "LongLogTag", `
 package test
+import android.util.Log
 private const val LONG_TAG_NAME = "ThisIsAVeryLongTopLevelTag"
 fun foo() {
     Log.d(LONG_TAG_NAME, "msg")

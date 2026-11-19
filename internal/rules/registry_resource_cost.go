@@ -26,7 +26,8 @@ func registerResourceCostRules() {
 					if !bufferedReadJavaFileInputStreamEvidence(file, idx) {
 						return
 					}
-				} else if !callReceiverConstructedOrTyped(ctx, idx, "FileInputStream", "java.io.FileInputStream", "FileInputStream") {
+				} else if importBindsNameElsewhere(file, "FileInputStream", "java.io.FileInputStream") ||
+					!callReceiverConstructedOrTyped(ctx, idx, "FileInputStream", "java.io.FileInputStream", "FileInputStream") {
 					return
 				}
 				if receiverContainsCallName(file, idx, "buffered", "BufferedInputStream") {
@@ -173,7 +174,11 @@ func registerResourceCostRules() {
 				if !semanticOkHTTPCall && !okHTTPExecuteCallLooksBlocking(file, idx, fn) {
 					return
 				}
-				if databaseQueryInsideBackgroundBoundary(file, idx) {
+				// The name and simple-type guesses above need okhttp3 in the file; a resolved okhttp3.Call does not.
+				if !okHTTPFileReferencesLibrary(file) && !okHTTPResolvedCallTarget(ctx, idx) {
+					return
+				}
+				if databaseQueryInsideBackgroundBoundary(file, idx) || okHTTPExecuteUnderInjectedDispatcher(file, idx) {
 					return
 				}
 				if okHTTPExecuteIsCancellableBridge(file, idx) || functionKdocRequiresIODispatcher(file, fn) {
@@ -280,7 +285,7 @@ func registerResourceCostRules() {
 			Confidence: 0.75, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) || !isRecyclerAdapterClassFlat(ctx, idx) {
+				if scanner.IsTestFile(file.Path) || (!isRecyclerAdapterClassFlat(ctx, idx) && !recyclerAdapterThroughProjectBase(ctx, idx)) {
 					return
 				}
 				if classExtendsAnyFlat(file, idx, "androidx.recyclerview.widget.ListAdapter", "ListAdapter") {
@@ -293,7 +298,17 @@ func registerResourceCostRules() {
 				if !subtreeHasCallName(file, idx, "notifyDataSetChanged") {
 					return
 				}
-				call := firstUnsuppressedCall(file, idx, "notifyDataSetChanged", "NotifyDataSetChanged")
+				// A nested adapter's call is that adapter's finding.
+				inNestedAdapter := func(call uint32) bool {
+					for cur, ok := file.FlatParent(call); ok && cur != idx; cur, ok = file.FlatParent(cur) {
+						if file.FlatType(cur) == "class_declaration" &&
+							(isRecyclerAdapterClassFlat(ctx, cur) || recyclerAdapterThroughProjectBase(ctx, cur)) {
+							return true
+						}
+					}
+					return false
+				}
+				call := firstUnsuppressedCall(file, idx, "notifyDataSetChanged", "NotifyDataSetChanged", inNestedAdapter)
 				if call == 0 {
 					return
 				}
@@ -486,7 +501,7 @@ func registerResourceCostRules() {
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				name := flatCallExpressionName(file, idx)
-				if name != "painterResource" {
+				if name != "painterResource" || importBindsNameElsewhere(file, name, composePainterResourceFQNs...) {
 					return
 				}
 				// A resource that depends on the iteration variable cannot be hoisted out of the loop.
@@ -507,8 +522,9 @@ func registerResourceCostRules() {
 				if kind == "" {
 					return
 				}
-				// A plain inline loop over a few children is not worth hoisting out of.
-				if resourceCostInlineLoopCallNames[kind] && !resourceCostInsideLazyItemsLambda(file, idx) {
+				// A plain inline loop over a few children is not worth hoisting out of, unless a lazy list or a for loop repeats it.
+				_, inFor := flatEnclosingAncestor(file, idx, "for_statement")
+				if resourceCostInlineLoopCallNames[kind] && !resourceCostInsideLazyItemsLambda(file, idx) && !inFor {
 					return
 				}
 				if resourceCostInsideLoopLambda(file, idx) {

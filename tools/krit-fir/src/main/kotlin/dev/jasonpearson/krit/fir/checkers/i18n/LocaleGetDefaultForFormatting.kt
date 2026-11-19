@@ -41,14 +41,16 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.util.getChildren
 
-// Flags `withLocale(Locale.getDefault())` on a machine-readable
-// DateTimeFormatter (java.time.format, or the ThreeTenBP backport
-// org.threeten.bp.format): a formatter derived from one of its ISO_* / RFC_* /
-// BASIC_ISO_* constants. Such output is persisted or sent over the network, so
-// it should use Locale.ROOT (or Locale.US), not the device locale.
+// Flags `withLocale(Locale.getDefault())` and `localizedBy(Locale.getDefault())`
+// on a machine-readable DateTimeFormatter (java.time.format, or the ThreeTenBP
+// backport org.threeten.bp.format): a formatter derived from one of its ISO_* /
+// RFC_* / BASIC_ISO_* constants. Such output is persisted or sent over the
+// network, so it should use Locale.ROOT (or Locale.US), not the device locale.
+// `localizedBy` also takes the locale's numbering system and calendar, so on a
+// device with Arabic digits or a Buddhist calendar it changes the output.
 //
 // Mirrors the Go rule's evidence on top of FIR resolution:
-// - the call resolves to DateTimeFormatter.withLocale;
+// - the call resolves to DateTimeFormatter.withLocale or localizedBy;
 // - its single argument is java.util.Locale.getDefault() with no arguments
 //   (the `getDefault(Locale.Category)` overload is not flagged, and neither is
 //   a Locale held in a variable, as in Go);
@@ -111,14 +113,15 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
 
     private val qualifiedTypes = setOf(KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION)
 
-    private const val MESSAGE =
-        "'withLocale(Locale.getDefault())' on a persistence/network formatter; pass Locale.ROOT (or Locale.US) so output is locale-independent."
+    private fun message(name: String) =
+        "'$name(Locale.getDefault())' on a persistence/network formatter; pass Locale.ROOT (or Locale.US) so output is locale-independent."
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
         val callee = expression.calleeReference.toResolvedCallableSymbol() ?: return
         val calleeId = callee.callableId ?: return
-        if (calleeId.classId !in formatterClasses || calleeId.callableName != withLocale) return
+        if (calleeId.classId !in formatterClasses) return
+        if (calleeId.callableName != withLocale && calleeId.callableName != localizedBy) return
         val receiver = expression.explicitReceiver ?: return
         if (origin(receiver, emptySet(), TRACE_BUDGET) != Origin.CONSTANT) return
         val argument = expression.argumentList.arguments.singleOrNull() ?: return
@@ -126,7 +129,7 @@ internal object LocaleGetDefaultForFormatting : FirFunctionCallChecker(MppChecke
 
         val source = expression.source ?: return
         val qualified = qualifiedCall(source)
-        report(qualified?.let { lightSourceOf(it, source) } ?: source, MESSAGE)
+        report(qualified?.let { lightSourceOf(it, source) } ?: source, message(calleeId.callableName.asString()))
     }
 
     // Where a formatter value comes from.

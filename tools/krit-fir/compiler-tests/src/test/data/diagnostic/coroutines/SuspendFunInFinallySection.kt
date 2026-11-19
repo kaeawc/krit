@@ -1,9 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 34, 42, 43, 45, 49, 50, 51, 61, 62, 64, 65, 74, 75, 76, 84, 101, 103, 105
 // Positives Go and FIR agree on: an unqualified call of a well-known suspend
-// function or coroutine builder inside a finally block, including inside
-// lambdas that run there (inline calls, suspend builders, an unqualified
-// launch / async).
+// function inside a finally block, including inside lambdas that run there
+// (inline calls, suspend builders). Neither reports launch or async
+// themselves: they are not suspend functions.
 package test
 
 import kotlin.coroutines.CoroutineContext
@@ -43,8 +43,8 @@ suspend fun builders() {
             <!SuspendFunInFinallySection!>delay(1)<!>
         })
         <!SuspendFunInFinallySection!>coroutineScope<!> {
-            <!SuspendFunInFinallySection!>launch { }<!>
-            <!SuspendFunInFinallySection!>async { 1 }<!>
+            launch { }
+            async { 1 }
         }
         <!SuspendFunInFinallySection!>supervisorScope { }<!>
         <!SuspendFunInFinallySection!>withTimeout(10, { })<!>
@@ -90,7 +90,7 @@ class Worker(override val coroutineContext: CoroutineContext) : CoroutineScope {
         try {
             println("stopping")
         } finally {
-            <!SuspendFunInFinallySection!>launch { }<!>
+            launch { }
         }
     }
 

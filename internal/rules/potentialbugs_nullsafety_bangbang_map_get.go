@@ -240,6 +240,21 @@ func mapResolveExpressionType(ctx *api.Context, expr uint32, seen map[uint32]boo
 	seen[expr] = true
 
 	switch ctx.File.FlatType(expr) {
+	case "postfix_expression":
+		// `a[k]!!` has the type of `a[k]`, so `a[k]!![k2]` is a lookup on the map that `a[k]` returns.
+		if flatPostfixHasBangBang(ctx.File, expr) {
+			if inner := mapResolveExpressionType(ctx, flatFirstNamedChild(ctx.File, expr), seen); inner != nil {
+				return inner
+			}
+		}
+	case "indexing_expression":
+		// `a[k]` on a `Map<K, V>` has the value type V.
+		if receiver, _, ok := flatIndexingExpressionParts(ctx.File, expr); ok {
+			if owner := mapResolveExpressionType(ctx, receiver, seen); mapResolvedTypeIsMap(ctx.Resolver, owner, nil) && len(owner.TypeArgs) == 2 {
+				value := owner.TypeArgs[1]
+				return &value
+			}
+		}
 	case "simple_identifier":
 		if resolved := ctx.Resolver.ResolveFlatNode(expr, ctx.File); resolved != nil && resolved.Kind != typeinfer.TypeUnknown {
 			return resolved
@@ -282,7 +297,7 @@ func mapResolvedTypeIsMap(resolver typeinfer.TypeResolver, resolved *typeinfer.R
 	if seen == nil {
 		seen = make(map[string]bool)
 	}
-	for _, name := range []string{resolved.FQN, resolved.Name} {
+	for _, name := range []string{mapTypeBaseName(resolved.FQN), mapTypeBaseName(resolved.Name)} {
 		if name == "" || seen[name] {
 			continue
 		}
@@ -301,8 +316,17 @@ func mapResolvedTypeIsMap(resolver typeinfer.TypeResolver, resolved *typeinfer.R
 	return false
 }
 
+// mapTypeBaseName drops the type arguments and the `?` of a rendered type. The compiler oracle reports
+// `kotlin.collections.Map<kotlin.String, kotlin.Int>` as the type's FQN.
+func mapTypeBaseName(name string) string {
+	if lt := strings.IndexByte(name, '<'); lt >= 0 {
+		name = name[:lt]
+	}
+	return strings.TrimSuffix(strings.TrimSpace(name), "?")
+}
+
 func mapTypeNameIsKnown(name string) bool {
-	switch name {
+	switch mapTypeBaseName(name) {
 	case "Map", "MutableMap", "HashMap", "LinkedHashMap", "TreeMap",
 		"kotlin.collections.Map", "kotlin.collections.MutableMap",
 		"kotlin.collections.HashMap", "kotlin.collections.LinkedHashMap", "kotlin.collections.TreeMap",

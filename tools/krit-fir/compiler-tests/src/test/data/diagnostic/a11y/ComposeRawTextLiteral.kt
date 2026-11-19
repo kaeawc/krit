@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 17, 22, 28, 34, 40
+// go-lines: 12, 17, 22, 28, 34, 40, 47
 // A Compose Text with a string literal that has letters cannot be translated.
 package test
 
@@ -39,4 +39,10 @@ class Screen {
     fun Content() {
         <!ComposeRawTextLiteral!>Text<!>("Member")
     }
+}
+
+// Letters outside the Basic Multilingual Plane, such as mathematical bold, are text to translate too.
+@Composable
+fun StyledLetters() {
+    <!ComposeRawTextLiteral!>Text<!>("𝐒𝐚𝐥𝐞")
 }

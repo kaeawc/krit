@@ -61,3 +61,8 @@ fun noAssertionCall(maybe: String?) {
 fun platformType() {
     assertEquals("x", System.getProperty("user.name")!!)
 }
+
+fun insideObjectLiteral(maybe: String?) {
+    // The `!!` initializes a member of the object, not the assertion's subject.
+    assertEquals(1, object { val length = maybe!!.length }.length)
+}

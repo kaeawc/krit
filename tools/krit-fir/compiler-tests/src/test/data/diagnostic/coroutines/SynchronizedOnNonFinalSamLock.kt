@@ -17,7 +17,7 @@ class SamLock {
     val fixed: () -> Unit = {}
 
     fun sam() {
-        <!SynchronizedOnNonFinal!>synchronized(fn)<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(fn)
         synchronized(fixed)
     }
 
@@ -25,6 +25,6 @@ class SamLock {
     fun smartCastSam() {
         var local: (() -> Unit)? = null
         local = {}
-        <!SynchronizedOnNonFinal!>synchronized(local)<!>
+        <!SynchronizedOnNonFinal!>synchronized<!>(local)
     }
 }

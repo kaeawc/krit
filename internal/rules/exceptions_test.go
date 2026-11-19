@@ -736,6 +736,28 @@ fun test(logger: Logger, t: Throwable) {
 
 // --- ObjectExtendsThrowable ---
 
+// A same-named class nested in an unrelated class is not visible to the object, so it does not hide kotlin.Exception.
+func TestExc_ObjectExtendsThrowable_NestedLookalikeOutOfScope(t *testing.T) {
+	findings := runRuleByName(t, "ObjectExtendsThrowable", `
+package test
+class Other {
+    class Exception
+}
+object Failure : Exception()
+class Holder {
+    open class Exception
+    object Inner : Exception()
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if len(lines) != 1 || lines[0] != 6 {
+		t.Fatalf("lines = %v, want [6]", lines)
+	}
+}
+
 func TestExc_ObjectExtendsThrowable_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ObjectExtendsThrowable", `
 object MyError : RuntimeException("singleton error")
@@ -852,5 +874,62 @@ fun f() {
 	}
 	if got := findings[0].Fix.Replacement; got != "\n    "+"    throw e\n    }" {
 		t.Errorf("replacement = %q", got)
+	}
+}
+
+// Arguments that build a new value from the caught exception, and a caught name hidden inside the catch,
+// are not a wrapper of the caught exception. detekt 1.23.8 reports neither new-value shape.
+func TestExc_ThrowingNewInstanceOfSameException_NewValueOrShadowedName(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"caught variable", `throw IOException(e)`, 1},
+		{"member of the caught variable", `throw IOException(e.cause)`, 1},
+		{"parenthesized caught variable", `throw IOException((e))`, 1},
+		{"not-null asserted caught variable", `throw IOException(e!!)`, 1},
+		{"elvis on a member", `throw IOException(e.message ?: "unknown")`, 0},
+		{"concatenated member", `throw IOException(e.message + "!")`, 0},
+		{"lambda parameter with the caught name", `listOf(other).forEach { e -> throw IOException(e) }`, 0},
+		{"typed lambda parameter with the caught name", `val wrap = { e: Throwable -> throw IOException(e) }`, 0},
+		{"local with the caught name", `val e = other; throw IOException(e)`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := "package test\nimport java.io.IOException\nfun f(other: Throwable) {\n    try { g() } catch (e: IOException) { " + tc.body + " }\n}\n"
+			if got := runRuleByName(t, "ThrowingNewInstanceOfSameException", src); len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+// The superclass alone decides, read from the constructor-calling delegation specifier. detekt 1.23.8
+// agrees on every case but the unresolved project import, where it falls back to kotlin.Error.
+func TestExc_ObjectExtendsThrowable_SuperclassOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"direct Exception", "object A : Exception()", 1},
+		{"IllegalStateException", "object A : IllegalStateException(\"x\")", 1},
+		{"qualified java.lang", "object A : java.lang.RuntimeException()", 1},
+		{"unnamed companion", "class H {\n    companion object : Exception()\n}", 1},
+		{"named companion", "class H {\n    companion object Failed : RuntimeException()\n}", 1},
+		{"type argument of an interface", "object A : Comparator<Exception> {\n    override fun compare(a: Exception, b: Exception) = 0\n}", 0},
+		{"constructor argument", "abstract class Holder(val value: Any)\nobject A : Holder(Exception::class)", 0},
+		{"class named Error in the file", "open class Error(val code: Int)\nobject A : Error(42)", 0},
+		{"Error imported from a project package", "import com.example.Error\nobject A : Error()", 0},
+		{"qualified project class", "object A : com.example.Exception()", 0},
+		{"plain object", "object A", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := runRuleByName(t, "ObjectExtendsThrowable", "package test\n"+tc.src+"\n"); len(got) != tc.want {
+				t.Errorf("want %d findings, got %v", tc.want, got)
+			}
+		})
 	}
 }

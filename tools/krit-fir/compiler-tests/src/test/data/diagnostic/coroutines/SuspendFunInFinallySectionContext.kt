@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 37, 68, 71, 74, 91, 101, 111, 126, 134, 141, 155, 156
+// go-lines: 38, 68, 71, 74, 91, 101, 111, 126, 134, 141, 156, 157
 // The coroutine context a builder is given decides whether its block runs
 // after cancellation. CoroutineContext.plus is right-biased: an element on the
 // right replaces the one on the left with the same key, so in
@@ -19,9 +19,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 // A Job-bearing context to the right of NonCancellable replaces it: withContext
-// throws on entry once that Job is cancelled, and its block never runs. Go and
-// FIR both report withContext / launch and the delay inside (Go twice on the
-// builder line, see trailingLambdas in SuspendFunInFinallySectionDivergence.kt).
+// throws on entry once that Job is cancelled, and its block never runs. FIR
+// reports withContext and the delay inside; Go skips any withContext whose
+// arguments mention NonCancellable, and reports only the delay in the launch
+// body. Neither reports launch itself, which is not a suspend function.
 suspend fun rightHandJob(scope: CoroutineScope, job: Job, ctx: CoroutineContext) {
     try {
         println("working")
@@ -33,7 +34,7 @@ suspend fun rightHandJob(scope: CoroutineScope, job: Job, ctx: CoroutineContext)
             <!SuspendFunInFinallySection!>delay(2)<!>
         }
         with(scope) {
-            <!SuspendFunInFinallySection!>launch<!>(NonCancellable + job) {
+            launch(NonCancellable + job) {
                 <!SuspendFunInFinallySection!>delay(3)<!>
             }
         }
@@ -41,9 +42,8 @@ suspend fun rightHandJob(scope: CoroutineScope, job: Job, ctx: CoroutineContext)
 }
 
 // Job-free elements (a dispatcher, a name) on the right keep NonCancellable as
-// the Job. Go reports withContext twice and the delay; FIR drops them, as for
-// withContext(NonCancellable) (nonCancellable in
-// SuspendFunInFinallySectionDivergence.kt).
+// the Job. Neither Go nor FIR reports them, as for withContext(NonCancellable)
+// (nonCancellable in SuspendFunInFinallySectionDivergence.kt).
 suspend fun jobFreeRight() {
     try {
         println("working")
@@ -54,8 +54,8 @@ suspend fun jobFreeRight() {
     }
 }
 
-// runBlocking is not a suspend function, so neither form reports it (Go does,
-// by the name). Given the caller's context, its coroutine is a child of the
+// runBlocking is not a suspend function, so neither Go nor FIR reports it.
+// Given the caller's context, its coroutine is a child of the
 // caller's Job and is cancelled with it: Go and FIR both report the delay.
 // Without a Job-bearing context it is a fresh coroutine the caller's
 // cancellation does not reach, so its block runs: Go reports the delay, FIR
@@ -78,7 +78,7 @@ suspend fun blockingWithContext(ctx: CoroutineContext) {
 
 // A try inside withContext(NonCancellable) runs its finally block under
 // NonCancellable, so a suspend call there is not skipped. Go reports the delay
-// (twice in the first function: once per enclosing finally); FIR drops it,
+// (it only looks for NonCancellable inside the finally block); FIR drops it,
 // also through a Job-free withContext and an inline lambda in between.
 suspend fun nestedInNonCancellable() {
     try {
@@ -145,8 +145,9 @@ suspend fun notUnderNonCancellable(scope: CoroutineScope, ctx: CoroutineContext)
 
 // A context element FIR cannot prove Job-free (an anonymous element keyed on
 // Job, a local element class) is treated as Job-bearing, and its type is
-// compared without resolving the local or anonymous class. Go and FIR both
-// report withContext and the delay (Go twice on the builder line).
+// compared without resolving the local or anonymous class. FIR reports
+// withContext and the delay in both; Go reports them only for the anonymous
+// element, since the second context's text mentions NonCancellable.
 suspend fun localElements() {
     class Tagged : AbstractCoroutineContextElement(CoroutineName)
     try {

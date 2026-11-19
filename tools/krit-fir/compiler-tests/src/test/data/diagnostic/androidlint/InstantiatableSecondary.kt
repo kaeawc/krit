@@ -46,9 +46,9 @@ class OverloadsActivity private constructor(val id: Int, val tag: String) : Acti
     protected constructor() : this(0)
 }
 
-// Still reported, as by Go: an inner class's public no-arg secondary
-// constructor takes the outer instance in bytecode, so the framework cannot
-// call it.
+// Still reported, as by Go: an inner class's constructors take the outer
+// instance in bytecode, so the framework cannot call its public no-arg
+// secondary constructor.
 class Outer {
     <!Instantiatable!>inner<!> class InnerSecondary private constructor(val id: Int) : Activity() {
         constructor() : this(0)

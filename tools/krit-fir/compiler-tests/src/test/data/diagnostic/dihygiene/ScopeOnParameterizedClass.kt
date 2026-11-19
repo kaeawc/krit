@@ -20,8 +20,8 @@ class Cache<K, V> @Inject constructor() {
     fun get(key: K): V? = null
 }
 
-// Go misses this because the scope is written with its package; it is a
-// scope on a generic class, so the message is true of it.
+// The scope written with its package, which Go reports too; it is a scope on
+// a generic class, so the message is true of it.
 <!ScopeOnParameterizedClass!>@jakarta.inject.Singleton<!>
 class JakartaCache<T> @jakarta.inject.Inject constructor()
 

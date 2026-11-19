@@ -1,13 +1,13 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 57
+// go-lines: 69
 // Recall cases for Wakelock: WakeLock receivers whose type only resolution
 // knows. Every acquire below is on a real android.os.PowerManager.WakeLock
-// (or a subtype of a class named WakeLock) and its function never releases
-// it, so every one is reported. Go's source inference misses them: it types a
-// `PowerManager.WakeLock` annotation as its outer class `PowerManager`, and it
-// cannot type a call result, a type alias, a smart cast, a property
-// initialized from newWakeLock, or a subclass. The import alias is the one
-// case here Go also reports.
+// (or a subtype of a class named WakeLock) that nothing in the file
+// releases, so every one is reported. Go's source inference misses them: it
+// types a `PowerManager.WakeLock` annotation as its outer class
+// `PowerManager`, and it cannot type a call result, a type alias, a smart
+// cast, a property initialized from newWakeLock, or a subclass. The import
+// alias is the one case here Go also reports.
 package test
 
 import android.os.PowerManager
@@ -24,24 +24,35 @@ class CountedLock : WakeLock()
 
 class Holder(val powerManager: PowerManager) {
     lateinit var lock: PowerManager.WakeLock
+    lateinit var spare: PowerManager.WakeLock
 
     fun make(): PowerManager.WakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "holder")
 }
 
-fun qualifiedParameter(wakeLock: PowerManager.WakeLock) {
-    <!Wakelock!>wakeLock.acquire()<!>
+class QualifiedProperty {
+    lateinit var wakeLock: PowerManager.WakeLock
+
+    fun run() {
+        <!Wakelock!>wakeLock.acquire()<!>
+    }
 }
 
-fun qualifiedProperty(holder: Holder) {
-    <!Wakelock!>holder.lock.acquire()<!>
+class HolderProperty(private val holder: Holder) {
+    fun run() {
+        <!Wakelock!>holder.lock.acquire()<!>
+    }
 }
 
-fun callResult(holder: Holder) {
-    <!Wakelock!>holder.make().acquire()<!>
+class CallResult(private val holder: Holder) {
+    fun run() {
+        <!Wakelock!>holder.make().acquire()<!>
+    }
 }
 
-fun directNewWakeLock(powerManager: PowerManager) {
-    <!Wakelock!>powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "direct").acquire()<!>
+class DirectNewWakeLock(private val powerManager: PowerManager) {
+    fun run() {
+        <!Wakelock!>powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "direct").acquire()<!>
+    }
 }
 
 class Eager(powerManager: PowerManager) {
@@ -53,33 +64,45 @@ class Eager(powerManager: PowerManager) {
 }
 
 // Go reports this too: it resolves the import alias.
-fun importAlias(lock: PowerLock) {
-    <!Wakelock!>lock.acquire()<!>
-}
-
-fun aliased(lock: Lock) {
-    <!Wakelock!>lock.acquire()<!>
-}
-
-fun smartCast(candidate: Any) {
-    if (candidate is PowerManager.WakeLock) {
-        <!Wakelock!>candidate.acquire()<!>
+class ImportAlias(private val imported: PowerLock) {
+    fun run() {
+        <!Wakelock!>imported.acquire()<!>
     }
 }
 
-fun subclass(lock: CountedLock) {
-    <!Wakelock!>lock.acquire()<!>
+class Aliased(private val aliased: Lock) {
+    fun run() {
+        <!Wakelock!>aliased.acquire()<!>
+    }
 }
 
-fun inferredLocal(holder: Holder) {
-    val lock = holder.make()
-    <!Wakelock!>lock.acquire()<!>
+class SmartCast(private val candidate: Any) {
+    fun run() {
+        if (candidate is PowerManager.WakeLock) {
+            <!Wakelock!>candidate.acquire()<!>
+        }
+    }
+}
+
+class Subclass(private val counted: CountedLock) {
+    fun run() {
+        <!Wakelock!>counted.acquire()<!>
+    }
+}
+
+class InferredLocal(private val holder: Holder) {
+    fun run() {
+        val lock = holder.make()
+        <!Wakelock!>lock.acquire()<!>
+    }
 }
 
 // Released through a qualified receiver of the same name: not reported.
-fun releasedQualified(holder: Holder) {
-    holder.lock.acquire()
-    holder.lock.release()
+class ReleasedQualified(private val holder: Holder) {
+    fun run() {
+        holder.spare.acquire()
+        holder.spare.release()
+    }
 }
 
 // Go misses these: it cannot type a constructor call or an object expression.

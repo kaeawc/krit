@@ -266,3 +266,64 @@ class A {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
+
+// Lint types the receiver, so a SecureRandom parameter or field is seeded as a local is.
+func TestSecureRandomJavaParameterAndFieldReceivers(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+import java.util.Random;
+
+class A {
+  private final SecureRandom field = new SecureRandom();
+  private final Random plain = new Random();
+
+  void param(SecureRandom sr, Random other) {
+    sr.setSeed(7L);
+    field.setSeed(System.currentTimeMillis());
+    other.setSeed(7L);
+    plain.setSeed(7L);
+  }
+}
+`))
+	if want := "11:5,12:5"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}
+
+// The receiver is the declaration visible at the call, so a same-named SecureRandom in another method, a
+// shadowing local or a lambda parameter does not make a plain Random a SecureRandom.
+func TestSecureRandomJavaReceiverResolvesInScope(t *testing.T) {
+	got := findingPositions(runRuleByNameOnJava(t, "SecureRandom", `package p;
+
+import java.security.SecureRandom;
+import java.util.Random;
+import java.util.function.Consumer;
+
+class A {
+  private final SecureRandom rng = new SecureRandom();
+
+  void a(SecureRandom rng) {
+    rng.setSeed(1L);
+  }
+
+  void b(Random rng) {
+    rng.setSeed(2L);
+  }
+
+  void c() {
+    Random rng = new Random();
+    rng.setSeed(3L);
+  }
+
+  void d() {
+    rng.setSeed(4L);
+    Consumer<Random> f = rng -> rng.setSeed(5L);
+    for (SecureRandom each : new SecureRandom[0]) each.setSeed(6L);
+  }
+}
+`))
+	if want := "11:5,24:5,26:51"; got != want {
+		t.Fatalf("positions = %s, want %s", got, want)
+	}
+}

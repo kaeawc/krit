@@ -106,10 +106,89 @@ func functionReturnsResultSetFlat(file *scanner.File, idx uint32) bool {
 		return false
 	}
 	typeText = strings.TrimSuffix(typeText, "?")
+	qualified := strings.Contains(typeText, ".")
 	if dot := strings.LastIndex(typeText, "."); dot >= 0 {
 		typeText = typeText[dot+1:]
 	}
-	return typeText == "ResultSet"
+	if typeText != "ResultSet" {
+		return false
+	}
+	// An explicit import of another package's ResultSet names that class.
+	if !qualified {
+		if fqn := unaliasedImportFqn(file, "ResultSet"); fqn != "" && fqn != "java.sql.ResultSet" {
+			return false
+		}
+	}
+	return !resultSetOverridesJdbcAPIFlat(file, idx)
+}
+
+// unaliasedImportFqn returns the path of the import that brings simple into
+// scope under its own name, or "" when none does.
+func unaliasedImportFqn(file *scanner.File, simple string) string {
+	for _, line := range file.Lines {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "import" && strings.HasSuffix(strings.TrimSuffix(fields[1], ";"), "."+simple) {
+			return strings.TrimSuffix(fields[1], ";")
+		}
+	}
+	return ""
+}
+
+// jdbcDirectSupertypesFlat returns the class's direct supertypes, an
+// interface implemented by delegation (`Statement by delegate`) included.
+func jdbcDirectSupertypesFlat(file *scanner.File, cls uint32) []androidSupertypeRef {
+	supertypes := androidDirectSupertypesFlat(file, cls)
+	file.FlatWalkNodes(cls, "explicit_delegation", func(delegation uint32) {
+		spec, ok := file.FlatParent(delegation)
+		if !ok || file.FlatType(spec) != "delegation_specifier" {
+			return
+		}
+		if owner, ok := flatEnclosingAncestor(file, spec, "class_declaration", "object_declaration", "object_literal"); !ok || owner != cls {
+			return
+		}
+		if ut, ok := file.FlatFindChild(delegation, "user_type"); ok {
+			name := androidUserTypeNameFlat(file, ut)
+			supertypes = append(supertypes, androidSupertypeRef{name: name, simple: androidSimpleName(name), qualified: strings.Contains(name, ".")})
+		}
+	})
+	return supertypes
+}
+
+// jdbcAPITypes are the java.sql and javax.sql types whose members return a
+// ResultSet.
+var jdbcAPITypes = map[string]bool{
+	"Statement": true, "PreparedStatement": true, "CallableStatement": true, "DatabaseMetaData": true,
+	"Array": true, "RowSet": true, "CachedRowSet": true, "JdbcRowSet": true, "WebRowSet": true,
+	"FilteredRowSet": true, "JoinRowSet": true,
+}
+
+// resultSetOverridesJdbcAPIFlat reports whether the function at idx is an
+// override in a class whose direct supertypes include a java.sql or
+// javax.sql type: the JDBC API fixes its return type.
+func resultSetOverridesJdbcAPIFlat(file *scanner.File, idx uint32) bool {
+	if !file.FlatHasModifier(idx, "override") {
+		return false
+	}
+	cls, ok := flatEnclosingAncestor(file, idx, "class_declaration", "object_declaration", "object_literal")
+	if !ok {
+		return false
+	}
+	for _, super := range jdbcDirectSupertypesFlat(file, cls) {
+		if !jdbcAPITypes[super.simple] {
+			continue
+		}
+		fqn := super.name
+		if !super.qualified {
+			fqn = unaliasedImportFqn(file, super.simple)
+		}
+		if strings.HasPrefix(fqn, "java.sql.") || strings.HasPrefix(fqn, "javax.sql.") {
+			return true
+		}
+		if !super.qualified && (sourceImportsOrMentions(file, "java.sql.*") || sourceImportsOrMentions(file, "javax.sql.*")) {
+			return true
+		}
+	}
+	return false
 }
 
 func functionHasBodyFlat(file *scanner.File, idx uint32) bool {
@@ -169,15 +248,206 @@ func sqliteCursorRHSWrappedInUseFlat(file *scanner.File, idx uint32) bool {
 // Classified per roadmap/17.
 func (r *JdbcPreparedStatementNotClosedRule) Confidence() float64 { return api.ConfidenceMedium }
 
-func jdbcPreparedStatementCallFlat(file *scanner.File, idx uint32) bool {
+// jdbcPreparedStatementCallFlat returns the first prepareStatement call
+// anywhere in the property at idx.
+func jdbcPreparedStatementCallFlat(file *scanner.File, idx uint32) (uint32, bool) {
+	var match uint32
 	found := false
 	file.FlatWalkNodes(idx, "call_expression", func(callIdx uint32) {
 		if found || flatCallExpressionName(file, callIdx) != "prepareStatement" {
 			return
 		}
+		match = callIdx
 		found = true
 	})
-	return found
+	return match, found
+}
+
+// receiverReturningScopeCalls return the receiver they are called on.
+var receiverReturningScopeCalls = map[string]bool{"apply": true, "also": true, "takeIf": true, "takeUnless": true}
+
+// resourceHandedOverAfter reports whether the property decl named name is
+// handed to other code after its declaration in owner: read other than as a
+// receiver or an assignment target (localEscapesAfterDeclaration), or
+// returned through calls that return their receiver
+// (`return cursor.apply { moveToFirst() }`).
+func resourceHandedOverAfter(file *scanner.File, owner, decl uint32, name string) bool {
+	if resourceEscapesAfterDeclaration(file, owner, decl, name) {
+		return true
+	}
+	declEnd := file.FlatEndByte(decl)
+	shadows := resourceShadowRanges(file, owner, decl, name)
+	returned := false
+	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
+		if returned || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name || inByteRanges(file, id, shadows) {
+			return
+		}
+		current := id
+		for {
+			nav, ok := file.FlatParent(current)
+			if !ok || file.FlatType(nav) != "navigation_expression" || file.FlatFirstChild(nav) != current {
+				break
+			}
+			call, ok := file.FlatParent(nav)
+			if !ok || file.FlatType(call) != "call_expression" || !receiverReturningScopeCalls[flatCallExpressionName(file, call)] {
+				break
+			}
+			current = call
+		}
+		if current == id {
+			return
+		}
+		if parent, ok := file.FlatParent(current); ok && file.FlatType(parent) == "jump_expression" &&
+			strings.HasPrefix(file.FlatNodeText(parent), "return") {
+			returned = true
+		}
+	})
+	return returned
+}
+
+// resourceEscapesAfterDeclaration reports a read of name after decl that hands the value on, as
+// localEscapesAfterDeclaration does, except that a comparison (`stmt != null`, `a === b`) or a type check
+// (`stmt is X`) only inspects the value, as the FIR checker's hand-over helper treats them. Parentheses and
+// `!!` around the read are looked through, so `(stmt).execute()` and `stmt!!.execute()` are member calls on it.
+func resourceEscapesAfterDeclaration(file *scanner.File, owner, decl uint32, name string) bool {
+	declEnd := file.FlatEndByte(decl)
+	shadows := resourceShadowRanges(file, owner, decl, name)
+	escaped := false
+	file.FlatWalkNodes(owner, "simple_identifier", func(id uint32) {
+		if escaped || file.FlatStartByte(id) < declEnd || file.FlatNodeText(id) != name || inByteRanges(file, id, shadows) {
+			return
+		}
+		current := id
+		parent, ok := file.FlatParent(current)
+		for ok && (file.FlatType(parent) == "parenthesized_expression" ||
+			file.FlatType(parent) == "postfix_expression" && strings.HasSuffix(file.FlatNodeText(parent), "!!")) {
+			current = parent
+			parent, ok = file.FlatParent(current)
+		}
+		if !ok {
+			return
+		}
+		switch file.FlatType(parent) {
+		case "navigation_expression":
+			if file.FlatFirstChild(parent) == current {
+				return
+			}
+		case "navigation_suffix", "value_argument_label", "directly_assignable_expression":
+			return
+		case "equality_expression", "check_expression":
+			return
+		case "value_argument":
+			// A named argument's label (`cursor = 2`) names a parameter, not the resource.
+			if next := file.FlatNextSib(current); next != 0 && file.FlatType(next) == "=" {
+				return
+			}
+		case "call_expression":
+			if file.FlatFirstChild(parent) == current {
+				return
+			}
+		}
+		escaped = true
+	})
+	return escaped
+}
+
+// resourceShadowRanges returns the byte ranges under owner where another declaration of name, not decl,
+// hides the resource: a nested local from its declaration to the end of its block, a lambda, function or
+// catch parameter over its lambda, function or catch block, and a for loop variable over the loop. A read
+// there is of the other declaration, and the declaring identifier is not a read at all.
+func resourceShadowRanges(file *scanner.File, owner, decl uint32, name string) [][2]uint32 {
+	var ranges [][2]uint32
+	add := func(from, to uint32) { ranges = append(ranges, [2]uint32{from, to}) }
+	declares := func(node uint32) bool { return file.FlatChildTextOrEmpty(node, "simple_identifier") == name }
+	visit := func(node uint32) {
+		if !declares(node) || (file.FlatStartByte(node) >= file.FlatStartByte(decl) && file.FlatEndByte(node) <= file.FlatEndByte(decl)) {
+			return
+		}
+		parent, ok := file.FlatParent(node)
+		if !ok {
+			return
+		}
+		if file.FlatType(parent) == "multi_variable_declaration" {
+			if parent, ok = file.FlatParent(parent); !ok {
+				return
+			}
+		}
+		switch file.FlatType(parent) {
+		case "property_declaration":
+			if scope, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(parent), file.FlatEndByte(scope))
+			}
+		case "lambda_parameters":
+			if lambda, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(lambda), file.FlatEndByte(lambda))
+			}
+		case "function_value_parameters":
+			if fn, ok := file.FlatParent(parent); ok {
+				add(file.FlatStartByte(fn), file.FlatEndByte(fn))
+			}
+		case "for_statement":
+			add(file.FlatStartByte(parent), file.FlatEndByte(parent))
+		}
+	}
+	file.FlatWalkNodes(owner, "variable_declaration", visit)
+	file.FlatWalkNodes(owner, "parameter", visit)
+	file.FlatWalkNodes(owner, "catch_block", func(catch uint32) {
+		if declares(catch) {
+			add(file.FlatStartByte(catch), file.FlatEndByte(catch))
+		}
+	})
+	return ranges
+}
+
+// inByteRanges reports whether node lies inside one of ranges.
+func inByteRanges(file *scanner.File, node uint32, ranges [][2]uint32) bool {
+	start, end := file.FlatStartByte(node), file.FlatEndByte(node)
+	for _, r := range ranges {
+		if start >= r[0] && end <= r[1] {
+			return true
+		}
+	}
+	return false
+}
+
+// resourceReturningScopeCalls return (or hand to their lambda) the receiver
+// they are called on, so the property still holds the resource.
+var resourceReturningScopeCalls = map[string]bool{
+	"apply": true, "also": true, "takeIf": true, "takeUnless": true, "let": true, "run": true,
+}
+
+// propertyMayHoldCallResult reports whether the property at prop may hold
+// the value of call itself, so handing the property over hands that value
+// over. It is false only when the initializer reads a member of the call's
+// result (`rawQuery(...).count`, `prepareStatement(sql).executeQuery()`),
+// whose value is not the resource; any other shape may hold it.
+func propertyMayHoldCallResult(file *scanner.File, prop, call uint32) bool {
+	expr := propertyInitializerExpression(file, prop)
+	for expr != 0 {
+		expr = flatUnwrapParenExpr(file, expr)
+		if expr == call {
+			return true
+		}
+		switch file.FlatType(expr) {
+		case "postfix_expression", "elvis_expression", "as_expression":
+			expr = file.FlatNamedChild(expr, 0)
+		case "call_expression":
+			nav, _ := flatCallExpressionParts(file, expr)
+			receiver := flatNavigationReceiver(file, nav)
+			if !flatNodeWithin(file, receiver, call) {
+				return true
+			}
+			if !resourceReturningScopeCalls[flatNavigationExpressionLastIdentifier(file, nav)] {
+				return false
+			}
+			expr = receiver
+		case "navigation_expression":
+			return !flatNodeWithin(file, flatNavigationReceiver(file, expr), call)
+		default:
+			return true
+		}
+	}
+	return true
 }
 
 func jdbcPreparedStatementHasCleanupFlat(file *scanner.File, idx uint32, stmtName string) bool {

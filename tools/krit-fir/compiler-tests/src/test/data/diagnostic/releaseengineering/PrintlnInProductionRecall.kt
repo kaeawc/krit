@@ -16,10 +16,10 @@ class Unrelated {
 }
 
 fun recall() {
-    <!PrintlnInProduction!>println("still kotlin.io.println")<!>
+    <!PrintlnInProduction!>println<!>("still kotlin.io.println")
     // Go only reports the exact System.out.<name> / System.err.<name> chain.
-    <!PrintlnInProduction!>kotlin.io.println("package qualified")<!>
-    <!PrintlnInProduction!>java.lang.System.out.println("fully qualified System")<!>
-    <!PrintlnInProduction!>out.println("statically imported out")<!>
-    <!PrintlnInProduction!>(System.out).println("parenthesized receiver")<!>
+    kotlin.io.<!PrintlnInProduction!>println<!>("package qualified")
+    java.lang.System.out.<!PrintlnInProduction!>println<!>("fully qualified System")
+    out.<!PrintlnInProduction!>println<!>("statically imported out")
+    (System.out).<!PrintlnInProduction!>println<!>("parenthesized receiver")
 }

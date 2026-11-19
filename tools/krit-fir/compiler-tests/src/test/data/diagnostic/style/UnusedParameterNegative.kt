@@ -353,3 +353,6 @@ fun reassignedCopy(count: Int): Int {
     total++
     return total
 }
+
+// A backticked parameter read through its backticked name is used, in code and in a string template.
+fun backticked(`in`: ByteArray, `is`: Int) = `in`.size + "${`is`}".length

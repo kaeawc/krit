@@ -32,6 +32,11 @@ class Negatives {
 
     fun kotlinOnly() = listOf(1, 2).first()
 
+    // A Java constructor call and a cast have a non-platform type, though the text shows `java.`.
+    fun javaConstructor() = java.util.ArrayList<String>()
+
+    fun castJavaResult() = java.util.Collections.emptyList<String>() as List<String>
+
     fun unitBlock() {
         File("a").name
     }

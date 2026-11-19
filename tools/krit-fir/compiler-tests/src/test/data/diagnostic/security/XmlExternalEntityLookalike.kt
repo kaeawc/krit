@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19
+// go-lines: none
 // A project class named like a JAXP factory is not one.
 package test.xmlexternalentitylookalike
 

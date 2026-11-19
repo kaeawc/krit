@@ -1,6 +1,13 @@
 package rules_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
+)
 
 // Expected positions come from running Android Lint 32.4.1 on the same sources.
 func TestWorldFilePermissionsJavaLintParity(t *testing.T) {
@@ -47,6 +54,41 @@ class B {
 		t.Errorf("SetWorldReadable positions = %s, want %s", got, want)
 	}
 	if got, want := findingPositions(runRuleByName(t, "SetWorldWritable", src)), "6:5"; got != want {
+		t.Errorf("SetWorldWritable positions = %s, want %s", got, want)
+	}
+}
+
+// runRuleWithSourceResolver runs ruleName with the source type resolver the CLI uses when FIR is off.
+func runRuleWithSourceResolver(t *testing.T, ruleName, code string) []scanner.Finding {
+	t.Helper()
+	file := parseInline(t, code)
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+	for _, r := range api.Registry {
+		if r.ID == ruleName {
+			cols := rules.NewDispatcher([]*api.Rule{r}, resolver).Run(file)
+			return cols.Findings()
+		}
+	}
+	t.Fatalf("rule %q not found in registry", ruleName)
+	return nil
+}
+
+// A File imported from another package is not java.io.File; the resolver names both types File.
+func TestWorldFilePermissionsImportedLookalikeFile(t *testing.T) {
+	src := `package com.example
+import com.example.storage.File
+fun f(file: File, other: java.io.File) {
+  file.setReadable(true, false)
+  file.setWritable(true, false)
+  other.setReadable(true, false)
+  other.setWritable(true, false)
+}
+`
+	if got, want := findingPositions(runRuleWithSourceResolver(t, "SetWorldReadable", src)), "6:3"; got != want {
+		t.Errorf("SetWorldReadable positions = %s, want %s", got, want)
+	}
+	if got, want := findingPositions(runRuleWithSourceResolver(t, "SetWorldWritable", src)), "7:3"; got != want {
 		t.Errorf("SetWorldWritable positions = %s, want %s", got, want)
 	}
 }

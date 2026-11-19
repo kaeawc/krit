@@ -63,8 +63,9 @@ internal object ComposeRawTextLiteral : FirFunctionCallChecker(MppCheckerKind.Co
         if (id.classId != null || id.callableName.asString() != "Text" || !id.packageName.asString().startsWith("androidx.")) return
         val literal = expression.resolvedArgumentMapping?.entries?.firstOrNull { it.value.name.asString() == "text" }?.key
         val text = literal?.let { literalText(unwrapArgument(it)) } ?: return
-        // Strings without a letter (spaces, bullets, separators) have nothing to translate.
-        if (text.none { Character.isLetter(it) }) return
+        // Strings without a letter (spaces, bullets, separators) have nothing to translate. Read code points, so a
+        // letter outside the Basic Multilingual Plane counts like Go's rune check.
+        if (text.codePoints().noneMatch(Character::isLetter)) return
         if (isNonProductionSource()) return
 
         val path = pathTo(expression) ?: return

@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 19, 27, 35, 44, 53, 62, 72, 83, 91, 92, 105, 120
 // printStackTrace() on the caught exception, the shapes Go reports: the
-// receiver is the nearest enclosing catch's variable. The finding sits on the
+// receiver is the bare name of a catch's variable. The finding sits on the
 // call expression's first line, its receiver's, like Go.
 package test
 

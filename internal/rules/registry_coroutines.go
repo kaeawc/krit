@@ -59,7 +59,12 @@ func registerCoroutinesCollectInOnCreateWithoutLifecycle() {
 			if !ok || !lifecycleCollectCallbacks[extractIdentifierFlat(file, fn)] {
 				return
 			}
-			if hasAncestorCallNamedFlat(file, idx, "repeatOnLifecycle") {
+			// repeatOnLifecycle, or a project wrapper that may call it, stops the collection.
+			if collectInOnCreateHasLifecycleAwareWrapper(file, idx) {
+				return
+			}
+			// flowWithLifecycle upstream stops the collection below its state, as repeatOnLifecycle does.
+			if collectionChainHasReceiverCallNamedFlat(file, idx, collectInOnCreateLifecycleAwareOps) {
 				return
 			}
 			// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
@@ -100,6 +105,51 @@ func collectInOnCreateOracleConfirmed(lookup oracle.Lookup, file *scanner.File, 
 // krit-fir checker draws the same line. Project-local `collect` methods on unrelated
 // types resolve outside the package and are filtered out.
 const collectInOnCreateFlowPackage = "kotlinx.coroutines.flow."
+
+// importsSimpleNameFromElsewhere reports whether the file imports a
+// declaration named simple from somewhere other than fqn, so the name in the
+// source is not fqn even when the import does not resolve.
+func importsSimpleNameFromElsewhere(file *scanner.File, simple, fqn string) bool {
+	imported, ok := fileFactsCache().Imports(file).Aliases[simple]
+	return ok && imported != fqn
+}
+
+// collectInOnCreateLifecycleBlindWrappers are the calls a collect may sit in
+// and still run for the whole lifecycle: coroutine builders and scope
+// functions, and the androidx.lifecycle builders that only suspend the block
+// below a state. The krit-fir checker matches the same names.
+var collectInOnCreateLifecycleBlindWrappers = map[string]bool{
+	"launch": true, "async": true, "withContext": true, "coroutineScope": true, "supervisorScope": true,
+	"withTimeout": true, "withTimeoutOrNull": true, "runBlocking": true, "let": true, "run": true,
+	"apply": true, "also": true, "with": true, "takeIf": true, "takeUnless": true, "use": true,
+	"runCatching": true, "repeat": true, "forEach": true, "synchronized": true,
+	"launchWhenCreated": true, "launchWhenStarted": true, "launchWhenResumed": true,
+	"whenCreated": true, "whenStarted": true, "whenResumed": true,
+}
+
+// collectInOnCreateHasLifecycleAwareWrapper reports whether a call the collect
+// is passed into (through its arguments or lambda, not as its receiver), up to
+// the enclosing function, is not a known lifecycle-blind builder: repeatOnLifecycle
+// or a project wrapper around it.
+func collectInOnCreateHasLifecycleAwareWrapper(file *scanner.File, idx uint32) bool {
+	child := idx
+	for p, ok := file.FlatParent(idx); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "function_declaration":
+			return false
+		case "call_expression":
+			if file.FlatType(child) == "call_suffix" && !collectInOnCreateLifecycleBlindWrappers[flatCallNameAny(file, p)] {
+				return true
+			}
+		}
+		child = p
+	}
+	return false
+}
+
+// collectInOnCreateLifecycleAwareOps are Flow operators upstream of a collect
+// that already stop the collection with the lifecycle.
+var collectInOnCreateLifecycleAwareOps = map[string]bool{"flowWithLifecycle": true}
 
 func registerCoroutinesGlobalCoroutineUsage() {
 	r := &GlobalCoroutineUsageRule{BaseRule: BaseRule{RuleName: "GlobalCoroutineUsage", RuleSetName: "coroutines", Sev: "warning", Desc: "Detects GlobalScope.launch/async usage instead of structured concurrency with a proper CoroutineScope."}}
@@ -270,6 +320,10 @@ func injectDispatcherOracleConfirmed(lookup oracle.Lookup, file *scanner.File, d
 	// chain does, so a position lookup returns the chain's own target
 	// (CoroutineContext.plus), which says nothing about the dispatcher.
 	if injectDispatcherLeadsPlusChain(file, dispatcherNode) {
+		return true
+	}
+	// Likewise as the receiver of `limitedParallelism(n)`.
+	if parent, ok := file.FlatParent(dispatcherNode); ok && file.FlatType(parent) == "navigation_expression" {
 		return true
 	}
 	target := oracleLookupCallTargetFlat(lookup, file, dispatcherNode)
@@ -767,6 +821,9 @@ func registerCoroutinesCollectionsSynchronizedListIteration() {
 			if !hasSyncFactory {
 				return
 			}
+			if importsSimpleNameFromElsewhere(file, "Collections", "java.util.Collections") {
+				return
+			}
 			if hasAncestorCallNamedFlat(file, idx, "synchronized") {
 				return
 			}
@@ -890,17 +947,61 @@ func registerCoroutinesDeferredAwaitInFinally() {
 			if navExpr == 0 || flatNavigationExpressionLastIdentifier(file, navExpr) != "await" {
 				return
 			}
-			_, inFinally := flatEnclosingAncestor(file, idx, "finally_block")
+			finally, inFinally := flatEnclosingAncestor(file, idx, "finally_block")
 			if !inFinally {
 				return
 			}
 			if hasAncestorCallNamedFlat(file, idx, "runCatching") {
 				return
 			}
+			if deferredAwaitCaughtInFinally(file, idx, finally) {
+				return
+			}
 			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"Deferred.await() in finally block can throw and mask the original exception. Wrap in runCatching.")
 		},
 	})
+}
+
+// deferredAwaitCatchAllTypes are catch parameter types that take any failure
+// the await rethrows. Exception is not one: an Error such as AssertionError
+// still leaves the catch.
+var deferredAwaitCatchAllTypes = map[string]bool{
+	"Throwable": true, "kotlin.Throwable": true, "java.lang.Throwable": true,
+}
+
+// deferredAwaitCaughtInFinally reports whether the await at idx sits in the try
+// block of a try inside finally whose catch takes Throwable and
+// throws nothing again, so its failure cannot replace the original exception.
+func deferredAwaitCaughtInFinally(file *scanner.File, idx, finally uint32) bool {
+	child := idx
+	for p, ok := file.FlatParent(idx); ok && p != finally; p, ok = file.FlatParent(p) {
+		if file.FlatType(p) == "try_expression" && file.FlatType(child) == "statements" {
+			for c := file.FlatFirstChild(p); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) != "catch_block" {
+					continue
+				}
+				if t, ok := file.FlatFindChild(c, "user_type"); ok && deferredAwaitCatchAllTypes[file.FlatNodeText(t)] &&
+					!catchBlockThrows(file, c) {
+					return true
+				}
+			}
+		}
+		child = p
+	}
+	return false
+}
+
+// catchBlockThrows reports a throw anywhere in the catch block: a rethrow, a wrapped failure or a selective
+// rethrow lets a failure leave the block.
+func catchBlockThrows(file *scanner.File, catch uint32) bool {
+	found := false
+	file.FlatWalkNodes(catch, "jump_expression", func(jump uint32) {
+		if !found && strings.HasPrefix(file.FlatNodeText(jump), "throw") {
+			found = true
+		}
+	})
+	return found
 }
 
 func registerCoroutinesFlowWithoutFlowOn() {
@@ -1278,6 +1379,9 @@ func registerCoroutinesGlobalScopeLaunchInViewModel() {
 			}
 			method := flatCallExpressionName(file, idx)
 			if method != "launch" && method != "async" {
+				return
+			}
+			if importsSimpleNameFromElsewhere(file, "GlobalScope", "kotlinx.coroutines.GlobalScope") {
 				return
 			}
 			classDecl, ok := flatEnclosingAncestor(file, idx, "class_declaration")

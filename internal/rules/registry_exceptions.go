@@ -250,6 +250,10 @@ func registerExceptionsRules() {
 					if throwTargetHasExtraArgumentFlat(file, target, caughtVar) {
 						return
 					}
+					// A lambda parameter or local declared inside the catch with the caught name is another value.
+					if composeIdentShadowedWithin(file, idx, throwNode, caughtVar) {
+						return
+					}
 					ctx.EmitAt(file.FlatRow(throwNode)+1, file.FlatCol(throwNode)+1,
 						"Avoid catch blocks that rethrow a caught exception wrapped inside a new instance of the same exception.")
 				})
@@ -294,39 +298,11 @@ func registerExceptionsRules() {
 		r := &ObjectExtendsThrowableRule{BaseRule: BaseRule{RuleName: "ObjectExtendsThrowable", RuleSetName: "exceptions", Sev: "warning", Desc: "Detects Kotlin object declarations that extend Throwable, which are singletons that lose stack trace information."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"object_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
+			NodeTypes: []string{"object_declaration", "companion_object"}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
-				idx, file := ctx.Idx, ctx.File
-				name := extractIdentifierFlat(file, idx)
-				if ctx.Resolver != nil {
-					info := ctx.Resolver.ClassHierarchy(name)
-					if info != nil {
-						throwableSet := map[string]bool{
-							"Throwable": true, "Exception": true, "Error": true, "RuntimeException": true,
-							"kotlin.Throwable": true, "java.lang.Throwable": true,
-							"java.lang.Exception": true, "java.lang.Error": true,
-							"java.lang.RuntimeException": true,
-						}
-						for _, st := range info.Supertypes {
-							simpleParts := strings.Split(st, ".")
-							simpleName := simpleParts[len(simpleParts)-1]
-							if throwableSet[st] || throwableSet[simpleName] {
-								ctx.EmitAt(declLine(file, idx), declCol(file, idx),
-									objectExtendsThrowableMessage)
-								return
-							}
-						}
-						return
-					}
-				}
-				text := file.FlatNodeText(idx)
-				for _, t := range throwableBaseTypes {
-					if strings.Contains(text, ": "+t) || strings.Contains(text, ":"+t+"(") || strings.Contains(text, ": "+t+"(") {
-						ctx.EmitAt(declLine(file, idx), declCol(file, idx),
-							objectExtendsThrowableMessage)
-						return
-					}
+				if objectExtendsThrowableFlat(ctx, ctx.Idx) {
+					ctx.EmitAt(declLine(ctx.File, ctx.Idx), declCol(ctx.File, ctx.Idx), objectExtendsThrowableMessage)
 				}
 			},
 		})

@@ -199,6 +199,98 @@ func implicitLocaleFileHasLocaleImport(file *scanner.File) bool {
 		sourceImportsOrMentions(file, "java.util.*")
 }
 
+// implicitLocaleMethodShadowed reports whether the bare case-conversion call at idx resolves to something other
+// than the kotlin.text extension: an explicit import binds the name to another function (a migration shim such as
+// `import app.util.capitalize`), or a no-argument String extension of that name is visible at the call. Explicit
+// imports and same-package declarations take precedence over the default kotlin.text import. Such shims usually
+// convert with Locale.ROOT, and the rule runs on these files when they do not compile (the stdlib forms are
+// DEPRECATION_ERROR since Kotlin 2.1), so the name alone is not evidence.
+func implicitLocaleMethodShadowed(file *scanner.File, idx uint32, name string) bool {
+	if file == nil {
+		return false
+	}
+	stdlib := "kotlin.text." + name
+	shadowed := false
+	file.FlatWalkNodes(0, "import_header", func(node uint32) {
+		if shadowed {
+			return
+		}
+		path, alias, wildcard := getInstanceImportHeaderParts(file, node)
+		if wildcard || path == stdlib {
+			return
+		}
+		bound := alias
+		if bound == "" {
+			bound = path[strings.LastIndex(path, ".")+1:]
+		}
+		shadowed = bound == name
+	})
+	if shadowed {
+		return true
+	}
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if shadowed || flatFunctionName(file, fn) != name || !stringExtensionWithoutParameters(file, fn) {
+			return
+		}
+		shadowed = declarationVisibleAt(file, fn, idx)
+	})
+	return shadowed
+}
+
+// stringExtensionWithoutParameters reports a function declared as `fun String.name()` (or on `kotlin.String`,
+// nullable or not) with no value parameters, read from the declaration's receiver type node.
+func stringExtensionWithoutParameters(file *scanner.File, fn uint32) bool {
+	receiver := uint32(0)
+	for child := file.FlatFirstChild(fn); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type", "nullable_type":
+			if receiver == 0 {
+				receiver = child
+			}
+		case "simple_identifier":
+			if receiver == 0 {
+				return false
+			}
+			if params, ok := file.FlatFindChild(fn, "function_value_parameters"); !ok || file.FlatNamedChildCount(params) != 0 {
+				return false
+			}
+			if file.FlatType(receiver) == "nullable_type" {
+				inner, ok := file.FlatFindChild(receiver, "user_type")
+				if !ok {
+					return false
+				}
+				receiver = inner
+			}
+			switch compactKotlinExpr(file.FlatNodeText(receiver)) {
+			case "String", "kotlin.String":
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+// declarationVisibleAt reports whether decl can be called by name at idx: a top-level declaration anywhere in the
+// file, a member inside its class body, or a local declaration later in its own block.
+func declarationVisibleAt(file *scanner.File, decl, idx uint32) bool {
+	container, ok := file.FlatParent(decl)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(container) {
+	case "source_file":
+		return true
+	case "class_body", "statements":
+		start := file.FlatStartByte(container)
+		if file.FlatType(container) == "statements" {
+			start = file.FlatEndByte(decl)
+		}
+		return file.FlatStartByte(idx) >= start && file.FlatEndByte(idx) <= file.FlatEndByte(container)
+	}
+	return false
+}
+
 func fileDeclaresStringFormatExtension(file *scanner.File) bool {
 	if file == nil {
 		return false
@@ -418,15 +510,23 @@ func hasPlatformTypeCodeText(file *scanner.File, body uint32) string {
 	case "string_literal", "line_string_literal", "multi_line_string_literal",
 		"integer_literal", "real_literal", "boolean_literal", "character_literal":
 		return ""
+	case "as_expression":
+		// A cast has the written target type, which is never a platform type.
+		return ""
 	case "call_expression":
 		name := flatCallExpressionName(file, expr)
 		if hasPlatformTypeScopeFunctions[name] {
 			return ""
 		}
-		if navExpr, _ := flatCallExpressionParts(file, expr); navExpr == 0 && name != "" && name[0] >= 'A' && name[0] <= 'Z' {
+		navExpr, _ := flatCallExpressionParts(file, expr)
+		if navExpr == 0 && name != "" && name[0] >= 'A' && name[0] <= 'Z' {
 			if regexp.MustCompile(`\b(class|object)\s+` + regexp.QuoteMeta(name) + `\b`).Match(file.Content) {
 				return ""
 			}
+		}
+		// `java.util.ArrayList<String>()` constructs the class itself, a non-platform type.
+		if navExpr != 0 && name != "" && name[0] >= 'A' && name[0] <= 'Z' && isDottedIdentifierPath(file.FlatNodeText(navExpr)) {
+			return ""
 		}
 	}
 	start, end := int(file.FlatStartByte(expr)), int(file.FlatEndByte(expr))
@@ -442,6 +542,17 @@ func hasPlatformTypeCodeText(file *scanner.File, body uint32) string {
 		}
 	})
 	return strings.TrimSpace(string(masked))
+}
+
+// isDottedIdentifierPath reports `a.b.C`: identifiers joined by dots, with no call or index between them.
+func isDottedIdentifierPath(text string) bool {
+	parts := strings.Split(strings.Join(strings.Fields(text), ""), ".")
+	for _, part := range parts {
+		if !isKotlinIdentifierPartList(part) {
+			return false
+		}
+	}
+	return len(parts) > 1
 }
 
 // datePatternHasWeekYearWithoutWeek reports 'Y' (week-based year) with no 'w' (week of year). It gives the

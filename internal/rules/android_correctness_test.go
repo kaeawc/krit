@@ -1235,6 +1235,37 @@ class Dates {
 			t.Fatalf("expected 0 findings, got %d", len(findings))
 		}
 	})
+	// The (pattern, DateFormatSymbols) constructor takes no locale; Lint reports it.
+	t.Run("positive Java with symbols", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "SimpleDateFormat", `
+package test;
+import java.text.DateFormatSymbols;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+class Dates {
+  Object format() {
+    return new SimpleDateFormat("yyyy", new DateFormatSymbols(Locale.US));
+  }
+}
+`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding, got %d", len(findings))
+		}
+	})
+	t.Run("positive Kotlin with symbols", func(t *testing.T) {
+		findings := runRuleByName(t, "SimpleDateFormat", `
+import java.text.DateFormatSymbols
+import java.text.SimpleDateFormat
+import java.util.Locale
+fun a() = SimpleDateFormat("yyyy", DateFormatSymbols(Locale.US))
+fun b() = SimpleDateFormat("yyyy", DateFormatSymbols.getInstance(Locale.US))
+fun c(symbols: DateFormatSymbols) = SimpleDateFormat("yyyy", symbols)
+`)
+		// A symbols variable is not visible to the syntactic Go rule; FIR reports it.
+		if len(findings) != 2 {
+			t.Fatalf("expected 2 findings, got %d", len(findings))
+		}
+	})
 	t.Run("negative Java local lookalike", func(t *testing.T) {
 		findings := runRuleByNameOnJava(t, "SimpleDateFormat", `
 package test;
@@ -1349,6 +1380,47 @@ class CustomView : View() {
 }`)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+}
+
+// Lint's WrongCall reports bare calls, super calls outside a method of the
+// callback's name, and other receivers inside a same-named override, on the
+// callee name with Lint's message.
+func TestWrongCallLintShapes(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "WrongCall", `
+package test
+import android.view.View
+class CustomView : View() {
+    private val other: CustomView = TODO()
+    fun bare(canvas: android.graphics.Canvas) {
+        onDraw(canvas)
+    }
+    fun helper(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+    }
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        super.onDraw(canvas)
+        other.onDraw(canvas)
+        post { onMeasure(0, 0) }
+    }
+    override fun onMeasure(w: Int, h: Int) {
+        super.onMeasure(w, h)
+        fun local() { super.onLayout(true, 0, 0, 1, 1) }
+    }
+    val p = super.onMeasure(0, 0)
+}`)
+	var got []string
+	for _, f := range findings {
+		got = append(got, fmt.Sprintf("%d:%d %s", f.Line, f.Col, f.Message))
+	}
+	want := []string{
+		"7:9 Suspicious method call; should probably call \"`draw`\" rather than \"`onDraw`\"",
+		"10:15 Suspicious method call; should probably call \"`draw`\" rather than \"`onDraw`\"",
+		"14:15 Suspicious method call; should probably call \"`draw`\" rather than \"`onDraw`\"",
+		"19:29 Suspicious method call; should probably call \"`layout`\" rather than \"`onLayout`\"",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("findings:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

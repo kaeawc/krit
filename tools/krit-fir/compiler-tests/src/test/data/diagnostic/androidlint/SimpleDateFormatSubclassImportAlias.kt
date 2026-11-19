@@ -11,7 +11,8 @@ import test.Formats.RootFormat as SimpleDateFormat
 import test.Formats.Plain as OtherSimpleDateFormat
 
 object Formats {
-    open class RootFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+    // The delegation passes no locale either (SimpleDateFormatLocale.kt).
+    open class RootFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
 
     class Plain(val pattern: String)
 }

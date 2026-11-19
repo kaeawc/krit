@@ -29,7 +29,7 @@ abstract class RecallModule {
     <!BindsReturnTypeMatchesParam!>@Binds<!>
     abstract fun spacing(box: Box< Foo >): Box<Foo>
 
-    // Go misses this because `@dagger.Binds` does not contain `@Binds`.
+    // A fully qualified `@dagger.Binds`, which Go reports too.
     <!BindsReturnTypeMatchesParam!>@dagger.Binds<!>
     abstract fun fullyQualified(foo: Foo): Foo
 

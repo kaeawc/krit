@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 54, 64
+// go-lines: 57, 70
 // Lookalikes for Wakelock: `acquire` on receivers that are not WakeLocks is
 // not reported. A third-party class named WakeLock, and a variable a call
 // written `newWakeLock` initializes, count as WakeLocks, as in Go.
@@ -37,9 +37,11 @@ fun bareCall() {
 
 // Go misses this: it needs a written receiver. The implicit receiver is a
 // WakeLock that is never released.
-fun implicitReceiver(lock: android.os.PowerManager.WakeLock) {
-    with(lock) {
-        <!Wakelock!>acquire()<!>
+class ImplicitReceiver(private val lock: android.os.PowerManager.WakeLock) {
+    fun run() {
+        with(lock) {
+            <!Wakelock!>acquire()<!>
+        }
     }
 }
 
@@ -50,18 +52,22 @@ fun implicitSemaphore(permits: Semaphore) {
     }
 }
 
-fun thirdPartyWakeLock(lock: WakeLock) {
-    <!Wakelock!>lock.acquire()<!>
+class ThirdPartyWakeLock(private val lock: WakeLock) {
+    fun run() {
+        <!Wakelock!>lock.acquire()<!>
+    }
 }
 
-fun thirdPartyReleased(lock: WakeLock) {
-    lock.acquire()
-    lock.release()
+class ThirdPartyReleased(private val lock: WakeLock) {
+    fun run() {
+        lock.acquire()
+        lock.release()
+    }
 }
 
 fun factoryLock(factory: LockFactory) {
-    val lock = factory.newWakeLock("tag")
-    <!Wakelock!>lock.acquire()<!>
+    val made = factory.newWakeLock("tag")
+    <!Wakelock!>made.acquire()<!>
 }
 
 fun factoryReleased(factory: LockFactory) {

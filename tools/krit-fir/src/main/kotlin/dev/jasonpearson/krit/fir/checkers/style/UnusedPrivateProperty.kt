@@ -134,7 +134,9 @@ internal object UnusedPrivateProperty : FirFileChecker(MppCheckerKind.Common), F
         if (fromParameter && !isReportableParameter(source)) return null
         val node = source.lighterASTNode
         val identifier = lightChildren(source, node).firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        val name = lightText(source, identifier).trim('`')
+        // Go's message keeps the name as written, backticks included.
+        val written = lightText(source, identifier)
+        val name = written.trim('`')
         if (name.isEmpty() || allowed.matches(name) || isExempt(source, node)) return null
         if (!fromParameter && (isTagFromTagCall(source, node, name) || initializerHasSideEffects(source, node))) return null
         val symbols = mutableListOf<FirBasedSymbol<*>>(property.symbol)
@@ -142,7 +144,7 @@ internal object UnusedPrivateProperty : FirFileChecker(MppCheckerKind.Common), F
             // The generated initializer reads the constructor parameter the property came from.
             (property.initializer as? FirQualifiedAccessExpression)?.calleeReference?.toResolvedCallableSymbol()?.let { symbols += it }
         }
-        return Candidate(name, symbols, lightSourceOf(identifier, source))
+        return Candidate(written, symbols, lightSourceOf(identifier, source))
     }
 
     private fun plainParameter(parameter: FirValueParameter, allowed: Regex): Candidate? {
@@ -154,9 +156,10 @@ internal object UnusedPrivateProperty : FirFileChecker(MppCheckerKind.Common), F
         if (children.any { it.tokenType == KtTokens.VAL_KEYWORD || it.tokenType == KtTokens.VAR_KEYWORD }) return null
         if (!isReportableParameter(source)) return null
         val identifier = children.firstOrNull { it.tokenType == KtTokens.IDENTIFIER } ?: return null
-        val name = lightText(source, identifier).trim('`')
+        val written = lightText(source, identifier)
+        val name = written.trim('`')
         if (name.isEmpty() || allowed.matches(name) || isExempt(source, node)) return null
-        return Candidate(name, listOf(parameter.symbol), lightSourceOf(identifier, source))
+        return Candidate(written, listOf(parameter.symbol), lightSourceOf(identifier, source))
     }
 
     // A parameter of a primary constructor whose class is not an annotation, expect/actual, data, value or inline class.

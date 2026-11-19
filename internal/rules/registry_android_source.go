@@ -28,6 +28,34 @@ func serviceCastOracleConfirmed(lookup oracle.Lookup, file *scanner.File, call u
 		target == "androidx.core.content.ContextCompat.getSystemService"
 }
 
+const toastDurationMessage = "Expected duration `Toast.LENGTH_SHORT` or `Toast.LENGTH_LONG`, a custom duration value is not supported"
+
+// toastLiteralDuration returns the duration argument of a three-argument
+// makeText call when it is an integer literal (parentheses skipped), as
+// Lint's ToastDetector reports it; a negative number is a prefix expression,
+// not a literal.
+func toastLiteralDuration(file *scanner.File, call uint32) uint32 {
+	_, args := flatCallExpressionParts(file, call)
+	if args == 0 {
+		return 0
+	}
+	var values []uint32
+	for arg := file.FlatFirstChild(args); arg != 0; arg = file.FlatNextSib(arg) {
+		if file.FlatType(arg) == "value_argument" {
+			values = append(values, arg)
+		}
+	}
+	if len(values) != 3 {
+		return 0
+	}
+	expr := flatUnwrapParenExpr(file, flatValueArgumentExpression(file, values[2]))
+	switch file.FlatType(expr) {
+	case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+		return expr
+	}
+	return 0
+}
+
 // showToastOracleConfirmed accepts when no oracle is available or it
 // resolves `Toast.makeText(...)` to `android.widget.Toast.makeText`.
 // A project-local `Toast` class with a `makeText` factory resolves
@@ -118,7 +146,8 @@ func registerAndroidSourceRules() {
 				if !isReceiverNamed(file, idx, "Toast") {
 					return
 				}
-				if toastMakeTextIsShown(file, idx) {
+				// A Toast imported from another package is not android.widget.Toast.
+				if imp, ok := fileFactsCache().Imports(file).Aliases["Toast"]; ok && imp != "android.widget.Toast" {
 					return
 				}
 				// Gate on resolved call-target FQN; falls back to AST evidence only without an oracle.
@@ -127,6 +156,13 @@ func registerAndroidSourceRules() {
 					oracleLookup = cr.Oracle()
 				}
 				if !showToastOracleConfirmed(oracleLookup, file, idx) {
+					return
+				}
+				// Lint reports a literal duration whether or not the toast is shown.
+				if duration := toastLiteralDuration(file, idx); duration != 0 {
+					ctx.EmitAtNode(duration, toastDurationMessage)
+				}
+				if toastMakeTextIsShown(file, idx) {
 					return
 				}
 				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
@@ -215,12 +251,13 @@ func registerAndroidSourceRules() {
 				if projectMinSdk(ctx) >= 24 {
 					return
 				}
-				if !isReceiverNamed(file, idx, "Log") || !logMethodNames[flatCallExpressionName(file, idx)] {
+				tagIndex, isTagMethod := longLogTagArgIndex[flatCallExpressionName(file, idx)]
+				if !isTagMethod || !isReceiverNamed(file, idx, "Log") {
 					return
 				}
 				args := flatCallKeyArguments(file, idx)
-				firstArg := flatPositionalValueArgument(file, args, 0)
-				expr := flatValueArgumentExpression(file, firstArg)
+				tagArg := flatPositionalValueArgument(file, args, tagIndex)
+				expr := flatValueArgumentExpression(file, tagArg)
 				tag, ok := resolveLogTagStringValue(file, expr)
 				if !ok {
 					return
@@ -234,6 +271,10 @@ func registerAndroidSourceRules() {
 					oracleLookup = cr.Oracle()
 				}
 				if !logCallOracleConfirmed(oracleLookup, file, idx) {
+					return
+				}
+				// Without the oracle, as in a file that does not compile, the imports decide what Log is.
+				if oracleLookup == nil && !logReceiverImportsAndroidLog(file) {
 					return
 				}
 				ctx.EmitAt(callLine(file, idx), callCol(file, idx),

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 26, 28, 35, 38, 39, 40, 51, 59, 84, 86, 88, 93, 94, 98, 99, 100, 118, 119, 120
+// go-lines: 24, 26, 28, 35, 38, 39, 40, 51, 59, 84, 86, 88, 93, 94, 98, 99, 100, 118, 119, 120, 135, 136, 137, 138, 143
 // Go artifacts FIR drops: each Go finding here asserts something the code
 // does not have.
 package test
@@ -118,5 +118,28 @@ open class NotStaticDao(private val admin: Boolean, private val id: String) {
         stmt.executeQuery(<!JdbcStatementExecute!>sql<!>)
         stmt.executeQuery(<!JdbcStatementExecute!>overridable<!>)
         stmt.executeQuery(<!JdbcStatementExecute!>computedGetter<!>)
+    }
+}
+
+private const val tableName = "users"
+
+// Go reports "uses string interpolation" on these: it reads any interpolated
+// name other than a schema-constant name as runtime data. Every interpolated
+// value is fixed in the source (a lower-case const, a literal, a final val of
+// this file), as in the concatenations above, so nothing in the SQL is
+// non-static.
+class StaticTemplateDao {
+    private val selectAll = "SELECT * FROM users"
+
+    fun templates(stmt: Statement) {
+        stmt.executeQuery("SELECT * FROM users LIMIT $pageSize")
+        stmt.executeQuery("SELECT * FROM $tableName")
+        stmt.executeQuery("SELECT * FROM users LIMIT ${10}")
+        stmt.executeQuery("$selectAll WHERE active = ${true}")
+    }
+
+    // Still reported: one interpolated value is runtime data.
+    fun mixed(stmt: Statement, id: String) {
+        stmt.executeQuery(<!JdbcStatementExecute!>"SELECT * FROM $tableName WHERE id = $id"<!>)
     }
 }

@@ -15,7 +15,8 @@ import org.jetbrains.kotlin.name.Name
  *
  * Like the Go rule, each argument may be a literal, a `!` of one, or a `val` of the same file initialized with one.
  * Go types the receiver from declarations it can read in the file; this checker reads the resolved callee, which
- * also covers an alias, a call result, `!!` and a smart cast (SetWorldReadableDivergence).
+ * also covers an alias, a call result, `!!` and a smart cast (SetWorldReadableDivergence). As Android Lint does and Go does
+ * not, it also folds `&&` and `||` of such values and reports a File subclass that overrides the method.
  */
 internal object SetWorldReadable : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "SetWorldReadable"

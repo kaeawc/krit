@@ -1,87 +1,89 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 11, 12, 17, 22, 29, 35, 40, 41, 42, 43, 44, 50, 53, 58, 59, 67, 72, 78, 84, 92, 95, 100, 105
+// go-lines: 10, 11, 12, 17, 22, 29, 35, 40, 41, 42, 43, 44, 50, 53, 58, 59, 69, 74, 80, 86, 94, 97, 102, 107
 // Positive: console output in production code, the shapes the Go rule
-// reports. The finding sits on the first line of the call, as Go reports the
-// start of the call_expression.
+// reports. The finding sits on the called name, as Go anchors a call on its
+// callee, so a multi-line chain reports on the `.println` line.
 package test
 
 class UserService {
     fun load() {
-        <!PrintlnInProduction!>println("loading")<!>
-        <!PrintlnInProduction!>print("loading")<!>
-        <!PrintlnInProduction!>println()<!>
+        <!PrintlnInProduction!>println<!>("loading")
+        <!PrintlnInProduction!>print<!>("loading")
+        <!PrintlnInProduction!>println<!>()
     }
 
     // A member function named main is not the top-level entry point.
     fun main() {
-        <!PrintlnInProduction!>println("member main")<!>
+        <!PrintlnInProduction!>println<!>("member main")
     }
 
     companion object {
         fun log() {
-            <!PrintlnInProduction!>println("companion")<!>
+            <!PrintlnInProduction!>println<!>("companion")
         }
     }
 }
 
 object Registry {
     fun log(value: Int) {
-        <!PrintlnInProduction!>println(value)<!>
+        <!PrintlnInProduction!>println<!>(value)
     }
 }
 
 interface Reporter {
     fun report() {
-        <!PrintlnInProduction!>println("default method")<!>
+        <!PrintlnInProduction!>println<!>("default method")
     }
 }
 
 fun topLevel() {
-    <!PrintlnInProduction!>System.out.println("out")<!>
-    <!PrintlnInProduction!>System.err.println("err")<!>
-    <!PrintlnInProduction!>System.out.print("out")<!>
-    <!PrintlnInProduction!>System.err.print('c')<!>
-    <!PrintlnInProduction!>System.out?.println("safe call")<!>
+    System.out.<!PrintlnInProduction!>println<!>("out")
+    System.err.<!PrintlnInProduction!>println<!>("err")
+    System.out.<!PrintlnInProduction!>print<!>("out")
+    System.err.<!PrintlnInProduction!>print<!>('c')
+    System.out?.<!PrintlnInProduction!>println<!>("safe call")
 }
 
 fun multiLine() {
-    <!PrintlnInProduction!>System<!>
+    System
         .out
-        .println("hi")
-    <!PrintlnInProduction!>System<!>
+        .<!PrintlnInProduction!>println<!>("hi")
+    System
         .err
-        .println("hi")
+        .<!PrintlnInProduction!>println<!>("hi")
 }
 
 // Lambdas do not end the search for the enclosing function.
 fun inLambda(items: List<Int>) {
-    items.forEach { <!PrintlnInProduction!>println(it)<!> }
-    val action = { <!PrintlnInProduction!>print("later")<!> }
+    items.forEach { <!PrintlnInProduction!>println<!>(it) }
+    val action = { <!PrintlnInProduction!>print<!>("later") }
     action()
 }
 
-// A bare call through an implicit JDK print-stream receiver is still a bare
-// println, which Go reports.
+// A bare call through the implicit System.out receiver of a lambda is still
+// console output, which Go reports as a bare println. Go also reports the
+// call on a caller-supplied writer; it writes to that writer, not the
+// console, so FIR does not report it.
 fun withStream() {
     with(System.out) {
-        <!PrintlnInProduction!>println("implicit receiver")<!>
+        <!PrintlnInProduction!>println<!>("implicit receiver")
     }
 }
 
 fun withWriter(writer: java.io.PrintWriter) {
-    writer.apply { <!PrintlnInProduction!>print("implicit writer")<!> }
+    writer.apply { print("implicit writer") }
 }
 
 // A local function is the nearest enclosing function, even inside main.
 fun main() {
     fun helper() {
-        <!PrintlnInProduction!>println("local helper")<!>
+        <!PrintlnInProduction!>println<!>("local helper")
     }
     helper()
     // The nearest named function of an object-expression member is that member.
     val task = object : Runnable {
         override fun run() {
-            <!PrintlnInProduction!>println("run")<!>
+            <!PrintlnInProduction!>println<!>("run")
         }
     }
     task.run()
@@ -89,19 +91,19 @@ fun main() {
 
 // Extensions, property initializers and accessors are production code too.
 fun String.shout() {
-    <!PrintlnInProduction!>println(this)<!>
+    <!PrintlnInProduction!>println<!>(this)
 }
 
-val banner = run { <!PrintlnInProduction!>println("banner")<!> }
+val banner = run { <!PrintlnInProduction!>println<!>("banner") }
 
 class WithAccessor {
     val value: Int
         get() {
-            <!PrintlnInProduction!>println("getter")<!>
+            <!PrintlnInProduction!>println<!>("getter")
             return 1
         }
 
     init {
-        <!PrintlnInProduction!>println("init")<!>
+        <!PrintlnInProduction!>println<!>("init")
     }
 }

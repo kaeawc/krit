@@ -42,7 +42,8 @@ import org.jetbrains.kotlin.lexer.KtTokens
  * re-instantiate, reported on the class declaration's first line (its
  * modifier list, else `class`), like Go. The cases, as in Android Lint 32.4.1:
  * - the class is `private` or `protected`, which are not public JVM classes
- *   (Kotlin `internal` compiles to a public class and is accepted);
+ *   (Kotlin `internal` compiles to a public class and is accepted; Lint
+ *   reports it, because its isPublic is false for `internal`);
  * - the class is `inner`, so it needs an outer instance;
  * - the no-arg constructor is `private` or `protected`
  *   (reported on the constructor);
@@ -59,14 +60,17 @@ import org.jetbrains.kotlin.lexer.KtTokens
  *
  * The class is a Fragment when `android.app.Fragment`,
  * `androidx.fragment.app.Fragment`, or the support library's
- * `android.support.v4.app.Fragment` is in its superclass closure. That covers
+ * `android.support.v4.app.Fragment` is in its superclass closure. Lint
+ * 32.4.1 checks only the platform and support library classes; the androidx
+ * default FragmentFactory also needs the no-arg constructor, so it is checked
+ * here too. That covers
  * the direct supertypes Go names (`Fragment`, `DialogFragment`,
  * `ListFragment`, `PreferenceFragment`, `PreferenceFragmentCompat`,
  * `BottomSheetDialogFragment`), all of which extend one of those roots.
  *
  * A class with a constructor annotated `@Inject` or `@AssistedInject`
  * (primary or secondary) is not reported: dependency injection builds it
- * through a custom FragmentFactory, as in Go.
+ * through a custom FragmentFactory, as in Go (Lint reports it).
  *
  * Fragments in test source files are skipped, as in Go. Go also skips a
  * Fragment built in the same file as `launchFragment(MyFragment(args))`;

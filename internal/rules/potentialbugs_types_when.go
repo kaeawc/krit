@@ -617,6 +617,10 @@ func whenSubjectIsNullableFlat(file *scanner.File, idx uint32, resolver typeinfe
 	if subject == 0 {
 		return false
 	}
+	// `a?.b` is null when `a` is, whatever type a resolver reports for the selector.
+	if whenSubjectIsSafeCallChain(file, subject) {
+		return true
+	}
 	if t := resolver.ResolveFlatNode(subject, file); t != nil && t.IsNullable() {
 		return true
 	}
@@ -625,6 +629,14 @@ func whenSubjectIsNullableFlat(file *scanner.File, idx uint32, resolver typeinfe
 		return t != nil && t.IsNullable()
 	}
 	return false
+}
+
+// whenSubjectIsSafeCallChain reports a subject such as `a?.b` or `a?.b()` whose receiver chain has a safe call.
+func whenSubjectIsSafeCallChain(file *scanner.File, subject uint32) bool {
+	if file.FlatType(subject) == "call_expression" && file.FlatChildCount(subject) > 0 {
+		subject = file.FlatChild(subject, 0)
+	}
+	return countSafeCallsInChainFlat(file, subject) > 0
 }
 
 // whenHasNullBranchFlat reports whether some when_entry has a `null` condition.

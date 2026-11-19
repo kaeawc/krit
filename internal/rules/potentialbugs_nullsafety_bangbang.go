@@ -89,9 +89,17 @@ type UnsafeCallOnNullableTypeRule struct {
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 
-	// Gate on the !! operator child — avoids false positives from string
-	// literals like "use !! to force" that contain the text but aren't the operator.
-	if !flatPostfixHasBangBang(file, idx) {
+	// The operand of the `!!`: the first named child of a postfix_expression, or the leading identifier of an
+	// assignment target such as `view!!.visibility = GONE`, which tree-sitter flattens into one node.
+	var receiverIdx uint32
+	if file.FlatType(idx) == "directly_assignable_expression" {
+		receiverIdx = assignmentTargetBangBangReceiver(file, idx)
+	} else if flatPostfixHasBangBang(file, idx) {
+		// Gate on the !! operator child — avoids false positives from string
+		// literals like "use !! to force" that contain the text but aren't the operator.
+		receiverIdx = flatFirstNamedChild(file, idx)
+	}
+	if receiverIdx == 0 {
 		return
 	}
 
@@ -108,8 +116,6 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 		return
 	}
 
-	// Derive receiver from the first named child of the postfix_expression.
-	receiverIdx := flatFirstNamedChild(file, idx)
 	receiverText := file.FlatNodeText(receiverIdx)
 	if isNamedKClassSimpleNameLiteralReceiver(receiverText) {
 		return
@@ -130,8 +136,9 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	if !compilerSaysNullable && bangBangIdiomaticReceiverSkipped(file, receiverIdx, receiverText) {
 		return
 	}
-	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! / foo.get(k)!! is the sibling rule's concern.
-	if strings.HasSuffix(receiverText, "]") {
+	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! is the sibling rule's concern. An element of an
+	// Array<T?> or a List<T?> is not a map lookup, so it is reported here.
+	if strings.HasSuffix(receiverText, "]") && !bangBangOperandIsElementRead(ctx, receiverIdx) {
 		return
 	}
 
@@ -183,6 +190,53 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 		message = bangBangDetektMessage + " A mapper cannot return null, so consider requireNotNull() or checkNotNull() with a message instead."
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1, message))
+}
+
+// assignmentTargetBangBangReceiver returns the identifier `x` of an assignment target that starts with `x!!`
+// (`x!!.visibility = GONE`, `x!!.count += 1`), or 0. A later `!!` in the target has no node of its own.
+func assignmentTargetBangBangReceiver(file *scanner.File, idx uint32) uint32 {
+	first := file.FlatFirstChild(idx)
+	if first == 0 || file.FlatType(first) != "simple_identifier" {
+		return 0
+	}
+	next := file.FlatNextSib(first)
+	if next == 0 || file.FlatIsNamed(next) || file.FlatType(next) != "!!" {
+		return 0
+	}
+	return first
+}
+
+// bangBangIndexedContainers are receiver types whose index operator reads a list or array element, never a map.
+var bangBangIndexedContainers = map[string]bool{
+	"Array": true, "kotlin.Array": true,
+	"List": true, "kotlin.collections.List": true, "java.util.List": true,
+	"MutableList": true, "kotlin.collections.MutableList": true,
+	"ArrayList": true, "kotlin.collections.ArrayList": true, "java.util.ArrayList": true,
+}
+
+// bangBangOperandIsElementRead reports an index operand `receiver[i]` that is not a map lookup: the resolver types
+// the receiver as an array or a list, or as a class it knows that is not a map (a project `operator fun get`).
+// A map lookup and a receiver of unknown type are left to MapGetWithNotNullAssertionOperator.
+func bangBangOperandIsElementRead(ctx *api.Context, operand uint32) bool {
+	if ctx.Resolver == nil || ctx.File.FlatType(operand) != "indexing_expression" {
+		return false
+	}
+	receiver, _, ok := flatIndexingExpressionParts(ctx.File, operand)
+	if !ok {
+		return false
+	}
+	resolved := mapResolveExpressionType(ctx, flatUnwrapParenExpr(ctx.File, receiver), nil)
+	if resolved == nil {
+		return false
+	}
+	fqn, name := mapTypeBaseName(resolved.FQN), mapTypeBaseName(resolved.Name)
+	if bangBangIndexedContainers[fqn] || bangBangIndexedContainers[name] {
+		return true
+	}
+	if mapResolvedTypeIsMap(ctx.Resolver, resolved, nil) {
+		return false
+	}
+	return (fqn != "" && ctx.Resolver.ClassHierarchy(fqn) != nil) || (name != "" && ctx.Resolver.ClassHierarchy(name) != nil)
 }
 
 // bangBangIdiomaticReceiverSkipped reports receivers whose `!!` is the canonical way to consume a platform-style

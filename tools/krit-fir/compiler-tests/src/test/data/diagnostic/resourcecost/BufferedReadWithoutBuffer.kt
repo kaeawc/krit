@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 17, 19, 21, 23, 27, 32, 38, 45, 50, 54, 56, 58, 60, 63, 66, 70, 75, 80, 82, 85, 87, 89, 92, 95, 100, 107, 116, 126, 132
+// go-lines: 17, 19, 21, 23, 27, 32, 38, 45, 50, 54, 56, 58, 60, 63, 66, 70, 75, 80, 82, 85, 87, 89, 92, 95, 100, 107, 116, 126, 132, 229
 // Unbuffered reads Go and FIR both report, and buffered or unrelated reads
 // both leave alone.
 package test
@@ -203,4 +203,28 @@ fun largeBuffer(path: String): Int = FileInputStream(path).read(ByteArray(8192))
 fun largeLocalBuffer(path: String): Int {
     val buffer = ByteArray(65536)
     return FileInputStream(path).read(buffer)
+}
+
+// A size that folds to 8 KiB or more, and a buffer held in a member or
+// top-level val, are large buffers too.
+private const val CHUNK = 16384
+
+private val sharedBuffer = ByteArray(CHUNK * 2)
+
+class ConstantBuffers(private val file: File) {
+    private val buffer = ByteArray(32768)
+
+    fun defaultSize(): Int = FileInputStream(file).read(ByteArray(DEFAULT_BUFFER_SIZE))
+
+    fun product(): Int = FileInputStream(file).read(ByteArray(8 * 1024))
+
+    fun constant(): Int = FileInputStream(file).read(ByteArray(CHUNK))
+
+    fun hex(): Int = FileInputStream(file).read(ByteArray(0x2000))
+
+    fun member(): Int = FileInputStream(file).read(buffer)
+
+    fun topLevel(): Int = FileInputStream(file).read(sharedBuffer)
+
+    fun smallProduct(): Int = <!BufferedReadWithoutBuffer!>FileInputStream(file).read(ByteArray(4 * 1024))<!>
 }

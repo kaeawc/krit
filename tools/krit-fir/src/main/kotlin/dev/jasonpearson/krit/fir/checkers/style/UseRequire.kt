@@ -18,7 +18,7 @@ import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
  *
  * The exception class comes from the resolved constructor, so the check follows an import alias, a type alias or a
  * qualified `java.lang.IllegalArgumentException`, and ignores a project class or function that merely shares the name
- * (Go matches the written callee name only).
+ * (Go matches the written callee name, skipping only a name an import binds elsewhere).
  */
 internal object UseRequire : FirExpressionChecker<FirThrowExpression>(MppCheckerKind.Common), FirRule {
     override val ruleId = "UseRequire"

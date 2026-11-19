@@ -33,6 +33,6 @@ class ExplicitBackingFields {
 }
 
 class StillLeaks {
-    <!StateFlowMutableLeak!>val<!> leaked: MutableStateFlow<Int>
+    val <!StateFlowMutableLeak!>leaked<!>: MutableStateFlow<Int>
         field = MutableStateFlow(0)
 }

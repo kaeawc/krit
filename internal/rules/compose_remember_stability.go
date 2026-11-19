@@ -600,6 +600,181 @@ func composeResyncsStateFromParam(file *scanner.File, fn, lambda uint32, variabl
 	return found
 }
 
+// composeResyncsThroughRememberedValue reports a parameter written back into the remembered object outside the
+// calculation: an assignment to a member of the block's receiver (`it.x`, `this.x` or `x`) in an also/apply/let/run
+// block chained on the remember call, or a set*/update*/sync* call on the remembered variable whose arguments read
+// the parameter. Reads are identifier nodes, so a comment or string holding the name does not count.
+func composeResyncsThroughRememberedValue(file *scanner.File, fn, call, lambda uint32, variable, param string) bool {
+	if nav, ok := file.FlatParent(call); ok && file.FlatType(nav) == "navigation_expression" && file.FlatNamedChild(nav, 0) == call {
+		if scope, ok := file.FlatParent(nav); ok && file.FlatType(scope) == "call_expression" {
+			switch scopeName := flatCallExpressionName(file, scope); scopeName {
+			case "also", "apply", "let", "run":
+				if body := flatCallTrailingLambda(file, scope); body != 0 &&
+					composeBlockWritesBack(file, fn, body, scopeName, param) {
+					return true
+				}
+			}
+		}
+	}
+	if variable == "" {
+		return false
+	}
+	lStart, lEnd := file.FlatStartByte(lambda), file.FlatEndByte(lambda)
+	found := false
+	file.FlatWalkNodes(fn, "call_expression", func(c uint32) {
+		if found || file.FlatStartByte(c) >= lStart && file.FlatEndByte(c) <= lEnd {
+			return
+		}
+		name := flatCallExpressionName(file, c)
+		if !strings.HasPrefix(name, "set") && !strings.HasPrefix(name, "update") && !strings.HasPrefix(name, "sync") {
+			return
+		}
+		nav, _ := flatCallExpressionParts(file, c)
+		if nav == 0 || file.FlatNamedChildCount(nav) == 0 {
+			return
+		}
+		receiver := file.FlatNamedChild(nav, 0)
+		if file.FlatType(receiver) != "simple_identifier" || !file.FlatNodeTextEquals(receiver, variable) ||
+			!composeRunsOnRecomposition(file, fn, c) {
+			return
+		}
+		for child := file.FlatFirstChild(c); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "call_suffix" && composeReadsName(file, child, param) {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+// composeRunsOnRecomposition reports whether node runs each time fn recomposes: in fn's own body, or in the lambda
+// of a LaunchedEffect, SideEffect or DisposableEffect. A callback lambda (`onClick = { }`, `clickable { }`) or a
+// local function runs later, if at all, so a write-back there leaves the remembered value stale.
+func composeRunsOnRecomposition(file *scanner.File, fn, node uint32) bool {
+	for current, ok := file.FlatParent(node); ok && current != fn; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "function_declaration", "anonymous_function", "class_declaration", "object_literal":
+			return false
+		case "lambda_literal":
+			call := current
+			for {
+				parent, ok := file.FlatParent(call)
+				if !ok {
+					return false
+				}
+				call = parent
+				if file.FlatType(call) == "call_expression" {
+					break
+				}
+				switch file.FlatType(call) {
+				case "annotated_lambda", "call_suffix", "value_argument", "value_arguments":
+					continue
+				}
+				return false
+			}
+			switch flatCallNameAny(file, call) {
+			case "LaunchedEffect", "SideEffect", "DisposableEffect":
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// composeBlockWritesBack reports an assignment in body, the lambda of a scope call chained on remember, that writes a
+// member of the remembered object and whose value reads param. In also/let the object is the lambda's parameter; in
+// apply/run it is `this`, written or implicit.
+func composeBlockWritesBack(file *scanner.File, fn, body uint32, scopeName, param string) bool {
+	receiver := ""
+	if scopeName == "also" || scopeName == "let" {
+		receiver = "it"
+		if params, ok := file.FlatFindChild(body, "lambda_parameters"); ok {
+			receiver = ""
+			if decl, ok := file.FlatFindChild(params, "variable_declaration"); ok {
+				receiver = file.FlatChildTextOrEmpty(decl, "simple_identifier")
+			}
+		}
+		if receiver == "" {
+			return false
+		}
+	}
+	found := false
+	file.FlatWalkNodes(body, "assignment", func(a uint32) {
+		if found {
+			return
+		}
+		target, ok := file.FlatFindChild(a, "directly_assignable_expression")
+		if !ok || !composeTargetsReceiver(file, fn, target, scopeName, receiver) {
+			return
+		}
+		for child := file.FlatNextSib(target); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && composeReadsName(file, child, param) {
+				found = true
+				return
+			}
+		}
+	})
+	return found
+}
+
+// composeTargetsReceiver reports an assignment target that is a member of the scope block's receiver: `<receiver>.x`
+// in also/let, `this.x` or a bare `x` that fn does not declare as a local or parameter in apply/run.
+func composeTargetsReceiver(file *scanner.File, fn, target uint32, scopeName, receiver string) bool {
+	first := file.FlatFirstChild(target)
+	for first != 0 && !file.FlatIsNamed(first) {
+		first = file.FlatNextSib(first)
+	}
+	if first == 0 {
+		return false
+	}
+	hasSuffix := file.FlatHasChildOfType(target, "navigation_suffix")
+	if receiver != "" {
+		return hasSuffix && file.FlatType(first) == "simple_identifier" && file.FlatNodeTextEquals(first, receiver)
+	}
+	if hasSuffix {
+		text := file.FlatNodeText(first)
+		return file.FlatType(first) == "this_expression" && (text == "this" || text == "this@"+scopeName)
+	}
+	return file.FlatType(first) == "simple_identifier" && !composeFunctionDeclaresName(file, fn, file.FlatNodeText(first))
+}
+
+// composeFunctionDeclaresName reports a parameter or local of fn named name.
+func composeFunctionDeclaresName(file *scanner.File, fn uint32, name string) bool {
+	found := false
+	visit := func(idx uint32) {
+		if !found && file.FlatChildTextOrEmpty(idx, "simple_identifier") == name {
+			found = true
+		}
+	}
+	file.FlatWalkNodes(fn, "parameter", visit)
+	file.FlatWalkNodes(fn, "variable_declaration", visit)
+	return found
+}
+
+// composeReadsName reports an identifier read of name in root's subtree, outside member selectors (`a.name`).
+func composeReadsName(file *scanner.File, root uint32, name string) bool {
+	found := false
+	file.FlatWalkAllNodes(root, func(idx uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(idx) {
+		case "simple_identifier", "interpolated_identifier":
+		default:
+			return
+		}
+		if !file.FlatNodeTextEquals(idx, name) {
+			return
+		}
+		if parent, ok := file.FlatParent(idx); ok && file.FlatType(parent) == "navigation_suffix" {
+			return
+		}
+		found = true
+	})
+	return found
+}
+
 // composeKeyRuleExemptFunction reports a composable whose keyless remember or constant-keyed effect is deliberate scaffolding:
 // a preview or sample helper, a @VisibleForTesting function or one in a Fake/Test class, or a private function that
 // only @Preview functions in the same file call.

@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
+import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.nullableStarProjectedType
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -14,14 +15,18 @@ import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.utils.isSuspend
+import org.jetbrains.kotlin.fir.expressions.FirCatch
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
 import org.jetbrains.kotlin.fir.expressions.FirTryExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
+import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
@@ -31,13 +36,13 @@ import org.jetbrains.kotlin.name.Name
 //
 // Mirrors the Go DeferredAwaitInFinally rule:
 // - The call sits anywhere inside a `finally` block, at any depth: nested
-//   try/catch blocks, `if`/`when` branches, lambdas, local functions, and
-//   local classes do not end the search.
+//   try blocks, `if`/`when` branches, lambdas, local functions, and local
+//   classes do not end the search.
 // - A call named runCatching around the await, inside the finally block and
 //   not past a named function, exempts it, whatever that runCatching resolves
 //   to (Go matches it by name).
-// - The finding is on the line where the call expression starts (its
-//   receiver, for a chain split across lines).
+// - The finding is on the callee name, so a chain split across lines is
+//   reported on the `.await()` line.
 //
 // Where Go matches any call written `x.await()`, the checker requires the
 // called function to await a Deferred or bridge a future into a coroutine:
@@ -57,6 +62,11 @@ import org.jetbrains.kotlin.name.Name
 //   extension) or an import-aliased await is reported (Go needs a `.await`
 //   navigation).
 // The exemptions and boundaries are also read from the resolved tree:
+// - An await in the try block of a try inside the finally block whose catch
+//   takes Throwable and throws nothing again is not reported: that catch keeps
+//   the failure from replacing the original exception, as runCatching does. A
+//   catch of Exception does not count, since an Error still leaves it. Go
+//   draws the same line by the catch's type name.
 // - A runCatching only exempts an await it wraps: one in its lambda, not in
 //   its receiver (`d.await().runCatching { }`), and not a runCatching outside
 //   the finally block, which catches the await's exception only after it has
@@ -78,6 +88,11 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
     private val AWAIT = Name.identifier("await")
     private const val RUN_CATCHING = "runCatching"
     private const val COROUTINES_PACKAGE = "kotlinx.coroutines"
+    // Throwable only: a catch of Exception lets an Error such as AssertionError leave the finally block.
+    private val catchAllClassIds = setOf(
+        classIdOf("java.lang", "Throwable"),
+        classIdOf("kotlin", "Throwable"),
+    )
     private val deferredClassId = classIdOf("kotlinx.coroutines", "Deferred")
     private val nullableDeferredType = deferredClassId.nullableStarProjectedType(1)
 
@@ -87,7 +102,7 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
         if (callee.name != AWAIT) return
         if (!isAwaitingCall(callee, context.session)) return
         if (!inFinallyBlock(expression)) return
-        report(expression.source, MESSAGE)
+        report(expression.calleeReference.source ?: expression.source, MESSAGE)
     }
 
     private fun isAwaitingCall(callee: FirCallableSymbol<*>, session: FirSession): Boolean {
@@ -124,7 +139,14 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
         for (i in start downTo 0) {
             val parent = path[i]
             when (parent) {
-                is FirTryExpression -> if (parent.finallyBlock === child) return true
+                is FirTryExpression -> {
+                    if (parent.finallyBlock === child) return true
+                    // A try in the finally block whose catch takes any Throwable, and does not throw again,
+                    // keeps the await's failure there.
+                    if (parent.tryBlock === child && parent.catches.any { catchesAnyException(it) && !throwsAgain(it) }) {
+                        return false
+                    }
+                }
                 is FirNamedFunction -> runCatchingCounts = false
                 is FirFunctionCall -> if (
                     runCatchingCounts &&
@@ -138,6 +160,27 @@ internal object DeferredAwaitInFinally : FirFunctionCallChecker(MppCheckerKind.C
             child = parent
         }
         return false
+    }
+
+    context(context: CheckerContext)
+    private fun catchesAnyException(catch: FirCatch): Boolean =
+        catch.parameter.returnTypeRef.coneType.expandedClassType()?.lookupTag?.classId in catchAllClassIds
+
+    // A throw anywhere in the catch block (a rethrow, a wrapped failure, a selective rethrow of cancellation) lets a
+    // failure leave the finally block and replace the exception in flight.
+    private fun throwsAgain(catch: FirCatch): Boolean {
+        var found = false
+        catch.block.accept(object : FirVisitorVoid() {
+            override fun visitElement(element: FirElement) {
+                if (found) return
+                if (element is FirThrowExpression) {
+                    found = true
+                    return
+                }
+                element.acceptChildren(this)
+            }
+        })
+        return found
     }
 
     private fun isReceiverOf(call: FirFunctionCall, child: FirElement): Boolean =

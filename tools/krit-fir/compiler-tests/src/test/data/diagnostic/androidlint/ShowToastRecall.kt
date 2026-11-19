@@ -13,7 +13,7 @@ import android.widget.Toast.makeText
 typealias Snack = android.widget.Toast
 
 fun qualified(context: Context) {
-    <!ShowToast!>android.widget.Toast.makeText(context, "Hello", 0)<!>
+    <!ShowToast!>android.widget.Toast.makeText(context, "Hello", AndroidToast.LENGTH_SHORT)<!>
 }
 
 fun importAlias(context: Context) {
@@ -21,15 +21,15 @@ fun importAlias(context: Context) {
 }
 
 fun typeAlias(context: Context) {
-    <!ShowToast!>Snack.makeText(context, "Hello", 0)<!>
+    <!ShowToast!>Snack.makeText(context, "Hello", AndroidToast.LENGTH_SHORT)<!>
 }
 
 fun staticImport(context: Context) {
-    <!ShowToast!>makeText(context, "Hello", 0)<!>
+    <!ShowToast!>makeText(context, "Hello", AndroidToast.LENGTH_SHORT)<!>
 }
 
 fun shownSpellings(context: Context) {
-    android.widget.Toast.makeText(context, "Hello", 0).show()
-    AndroidToast.makeText(context, "Hello", 0).show()
-    makeText(context, "Hello", 0).show()
+    android.widget.Toast.makeText(context, "Hello", AndroidToast.LENGTH_SHORT).show()
+    AndroidToast.makeText(context, "Hello", AndroidToast.LENGTH_SHORT).show()
+    makeText(context, "Hello", AndroidToast.LENGTH_SHORT).show()
 }

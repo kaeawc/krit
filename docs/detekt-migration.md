@@ -202,11 +202,18 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
   (`ignoreIdioms` on FunctionOnlyReturningConstant, ForbiddenVoid and
   MagicNumber, `ignoreUnwrappableLines`, `reportMutableCollections`), so an
   imported detekt config behaves like detekt.
-- SerialVersionUIDInSerializableClass does not report enum classes; detekt does.
+- SerialVersionUIDInSerializableClass does not report enum classes or object
+  expressions (`object : Serializable {}`, which cannot declare a
+  `const val`); detekt does.
   Like detekt, it matches only a declared supertype entry written exactly
   `Serializable`.
 - UnnecessaryFilter, UseOrEmpty and other rules that detekt runs only with type
   resolution keep krit's type-aware behaviour when a resolver is available.
+  UnnecessaryFilter also reports `filter { }` followed by `first()`,
+  `firstOrNull()`, `last()`, `lastOrNull()`, `single()`, `singleOrNull()`,
+  `any()` or `none()`, which detekt 1.23.8 does not, and does not report a
+  terminal that already takes a predicate (`filter { a }.count { b }`), which
+  detekt does. It suggests `none` for `isEmpty()` and `any` for `isNotEmpty()`.
 - `UntilInsteadOfRangeTo` is implemented as a new rule.
 
 ## Differences to check
@@ -236,6 +243,13 @@ potential-bugs, coroutines, empty-blocks and `UseIfInsteadOfWhen` rules reports 
   `catch` of `Exception` or `Throwable` that does not rethrow `CancellationException`.
 - `RedundantSuspendModifier` keeps the modifier when the project declares a `suspend` function of the same name,
   and does not decide calls on a receiver it cannot resolve.
+- `ElseCaseInsteadOfExhaustiveWhen` reports an `else` only when the other branches already cover every
+  enum entry, sealed subtype or Boolean value, and never an `else` that throws or returns. detekt reports
+  every `else` in a `when` on an enum, sealed or Boolean subject. krit also reports `when (val x = ...)`
+  and a subject smart cast to such a type, which detekt skips.
+- `ExitOutsideMain` counts `main(args: Array<kotlin.String>)` and a type alias of `Array<String>` as main,
+  and does not count an extension `fun String.main()` as main. detekt compares the written parameter
+  type and ignores the receiver.
 - `ExplicitGarbageCollectionCall` also reports the fully qualified `java.lang.System.gc()`.
 - `EmptyKotlinFile` also reports a file that holds only a package line and imports.
 - `UnusedPrivateMember` leaves `@Preview` functions alone.

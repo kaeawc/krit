@@ -25,7 +25,8 @@ import org.jetbrains.kotlin.fir.types.canBeNull
 //
 // This mirrors the Go CastNullableToNonNullableType rule, which follows detekt: a `null` literal operand and an
 // operand that is itself a cast are not reported, a type parameter with a nullable bound is a nullable target, and
-// a platform type or a stable smart cast to non-null is not a nullable operand. The compiler's type replaces Go's
+// a stable smart cast to non-null is not a nullable operand. Unlike detekt 1.23.8, whose isNullable() is true for
+// a flexible type, a platform-type operand (`System.getProperty("a") as String`) is not reported either. The compiler's type replaces Go's
 // source inference, so a typealias to a nullable type is a nullable target and a shadowing local has its own type.
 internal object CastNullableToNonNullableType : FirTypeOperatorCallChecker(MppCheckerKind.Common), FirRule {
     override val ruleId = "CastNullableToNonNullableType"

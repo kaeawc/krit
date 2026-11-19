@@ -73,9 +73,7 @@ class WeakMessageDigestTest {
                     }
                 """.trimIndent(),
                 expected = 0,
-                // Go reports this because the star import satisfies its mention
-                // check; FIR is correct because the explicit import wins.
-                why = "the explicit lookalike import wins over java.security.* (deliberate precision fix)",
+                why = "the explicit lookalike import wins over java.security.* (Go is silent too)",
             ),
             Case(
                 "SamePackageOverStar.kt",

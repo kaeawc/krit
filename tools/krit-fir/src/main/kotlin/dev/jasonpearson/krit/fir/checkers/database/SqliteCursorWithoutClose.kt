@@ -2,11 +2,12 @@ package dev.jasonpearson.krit.fir.checkers.database
 
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
-import dev.jasonpearson.krit.fir.support.assignedAccess
+import dev.jasonpearson.krit.fir.support.canHoldResource
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.hasCleanupCallInScope
 import dev.jasonpearson.krit.fir.support.identifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
+import dev.jasonpearson.krit.fir.support.isHandedOverAfter
 import dev.jasonpearson.krit.fir.support.isOrInheritsFrom
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
@@ -22,21 +23,16 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirClass
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
-import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
-import org.jetbrains.kotlin.fir.expressions.FirOperation
-import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
-import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
-import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
-import org.jetbrains.kotlin.fir.unwrapFakeOverrides
+import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.Name
 
@@ -58,8 +54,10 @@ import org.jetbrains.kotlin.name.Name
  * when the initializer calls `use` anywhere, as Go skips any initializer that contains `.use`.
  * The cleanup search is Go's, read from the syntax tree (see `hasCleanupCallInScope`). A cursor
  * is handed over when a resolved reference to the property after its declaration is not the
- * receiver of a member access, an assignment target, or a comparison; Go matches any identifier
- * of the same name there, so a shadowing local or a named argument hides a leak from it.
+ * receiver of a member access, an assignment target, or a comparison (see `isHandedOverAfter`);
+ * Go matches any identifier of the same name there, so a shadowing local or a named argument hides
+ * a leak from it. Only a property that can hold the cursor hands it over: one holding a value read
+ * from it (`rawQuery(...).count`) leaves the cursor open whatever happens to that value.
  */
 internal object SqliteCursorWithoutClose :
     FirPropertyChecker(MppCheckerKind.Common), FirRule {
@@ -82,19 +80,19 @@ internal object SqliteCursorWithoutClose :
         if (source.kind !is KtRealSourceElementKind) return
         if (source.elementType != KtNodeTypes.PROPERTY) return
         val name = identifierText(source) ?: return
-        if (!opensCursor(declaration)) return
+        val cursor = openedCursorType(declaration) ?: return
         if (hasCleanupCallInScope(source, name)) return
-        if (handsOver(declaration, source)) return
+        if (canHoldResource(declaration.returnTypeRef.coneType, cursor) && isHandedOverAfter(declaration, source)) return
         report(
             anchor(source),
             "Cursor '$name' from rawQuery/query should be wrapped in use { } or explicitly closed with .close().",
         )
     }
 
-    // The initializer, delegate, or written getter body makes a database query in the property's
-    // own scope that nothing closes on the spot.
+    // The type of a database query the initializer, delegate, or written getter body makes in the
+    // property's own scope that nothing closes on the spot, or null when there is none.
     context(context: CheckerContext)
-    private fun opensCursor(declaration: FirProperty): Boolean {
+    private fun openedCursorType(declaration: FirProperty): ConeKotlinType? {
         val roots = buildList<FirElement> {
             declaration.initializer?.let(::add)
             declaration.delegate?.let(::add)
@@ -103,7 +101,7 @@ internal object SqliteCursorWithoutClose :
                 getter.body?.let(::add)
             }
         }
-        var found = false
+        var found: ConeKotlinType? = null
         var usesAnywhere = false
         val closedOnTheSpot = HashSet<FirExpression>()
         var nested = 0
@@ -123,7 +121,9 @@ internal object SqliteCursorWithoutClose :
                             element.explicitReceiver?.let { closedOnTheSpot += unwrapSmartCasts(it, throughNotNull = true) }
                         }
                         if (callee == USE) usesAnywhere = true
-                        if (nested == 0 && element !in closedOnTheSpot && isDatabaseQuery(element)) found = true
+                        if (found == null && nested == 0 && element !in closedOnTheSpot && isDatabaseQuery(element)) {
+                            found = element.resolvedType
+                        }
                     }
                     else -> Unit
                 }
@@ -133,7 +133,7 @@ internal object SqliteCursorWithoutClose :
             }
         }
         roots.forEach { it.accept(visitor) }
-        return found && !usesAnywhere
+        return found.takeUnless { usesAnywhere }
     }
 
     // `rawQuery`/`query` declared in, or inherited from, SQLiteDatabase or SupportSQLiteDatabase.
@@ -144,58 +144,6 @@ internal object SqliteCursorWithoutClose :
         if (callee.name !in queryNames || callee.receiverParameterSymbol != null) return false
         val owner = callee.getContainingClassSymbol() as? FirClassSymbol<*> ?: return false
         return databaseTypes.any { isOrInheritsFrom(owner, it, context.session, lookupInterfaces = true) }
-    }
-
-    // A read of the property after its declaration that is more than a member access on it, an
-    // assignment to it, or a comparison: the cursor is returned, stored, or passed to other code,
-    // which then owns closing it.
-    @OptIn(SymbolInternals::class)
-    context(context: CheckerContext)
-    private fun handsOver(declaration: FirProperty, source: KtSourceElement): Boolean {
-        val scope = context.containingDeclarations.lastOrNull { it != declaration.symbol }
-            ?: context.containingFileSymbol
-            ?: return false
-        val root = scope.fir
-        val symbol = declaration.symbol
-        val declarationEnd = source.endOffset
-        val notHandedOver = HashSet<FirExpression>()
-        var handedOver = false
-        fun exempt(expression: FirExpression?) {
-            if (expression == null) return
-            notHandedOver += expression
-            notHandedOver += unwrapSmartCasts(expression, throughNotNull = true)
-        }
-        root.accept(object : FirVisitorVoid() {
-            override fun visitElement(element: FirElement) {
-                if (handedOver) return
-                when (element) {
-                    is FirPropertyAccessExpression -> {
-                        if (element !in notHandedOver &&
-                            (element.source?.startOffset ?: -1) >= declarationEnd &&
-                            element.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides() == symbol
-                        ) {
-                            handedOver = true
-                            return
-                        }
-                    }
-                    is FirSafeCallExpression -> exempt(element.receiver)
-                    is FirVariableAssignment -> assignedAccess(element)?.let { exempt(it) }
-                    is FirEqualityOperatorCall -> element.argumentList.arguments.forEach(::exempt)
-                    is FirTypeOperatorCall ->
-                        if (element.operation == FirOperation.IS || element.operation == FirOperation.NOT_IS) {
-                            element.argumentList.arguments.forEach(::exempt)
-                        }
-                    else -> Unit
-                }
-                if (element is FirQualifiedAccessExpression) {
-                    exempt(element.explicitReceiver)
-                    exempt(element.extensionReceiver)
-                    exempt(element.dispatchReceiver)
-                }
-                element.acceptChildren(this)
-            }
-        })
-        return handedOver
     }
 
     // Go reports the property's name identifier.

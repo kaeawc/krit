@@ -3838,3 +3838,186 @@ func TestRedundantSuspendModifier_StaticJavaCallIsProvenNonSuspend(t *testing.T)
 		t.Errorf("chained call must stay conservative, got %v", got)
 	}
 }
+
+// --- Verification batch: lifecycle wrappers, dispatcher arguments, caught awaits ---
+
+func assertFindingLines(t *testing.T, findings []scanner.Finding, want ...int) {
+	t.Helper()
+	wantLines := make([]string, 0, len(want))
+	for _, line := range want {
+		wantLines = append(wantLines, fmt.Sprint(line))
+	}
+	if got := findingLines(findings); got != strings.Join(wantLines, ",") {
+		t.Fatalf("finding lines = %q, want %v (%v)", got, want, findings)
+	}
+}
+
+// flowWithLifecycle upstream of the collect stops the collection with the lifecycle.
+func TestCollectInOnCreateWithoutLifecycle_NegativeFlowWithLifecycle(t *testing.T) {
+	findings := runRuleByName(t, "CollectInOnCreateWithoutLifecycle", `
+package test
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.flowWithLifecycle
+import androidx.lifecycle.lifecycleScope
+
+class ExampleActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            vm.state.flowWithLifecycle(lifecycle, Lifecycle.State.STARTED).collect { render(it) }
+        }
+        lifecycleScope.launch {
+            vm.state.flowWithLifecycle(lifecycle).map { it + 1 }.collect { render(it) }
+        }
+    }
+}
+`)
+	assertFindingLines(t, findings)
+}
+
+// A project wrapper the collect is passed into may call repeatOnLifecycle, so
+// only collects inside known lifecycle-blind builders are reported. A builder
+// the collect's launch is the receiver of does not wrap it.
+func TestCollectInOnCreateWithoutLifecycle_OnlyLifecycleBlindWrappers(t *testing.T) {
+	findings := runRuleByName(t, "CollectInOnCreateWithoutLifecycle", `
+package test
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+
+class ExampleActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        lifecycleScope.launchWhileStarted(this) { vm.state.collect { render(it) } }
+        button.setOnClickListener { scope.launch { vm.state.collect { render(it) } } }
+        lifecycleScope.launchWhenStarted { vm.state.collect { render(it) } }
+        lifecycleScope.launch { vm.state.collect { render(it) } }.invokeOnCompletion { }
+        vm.let { model -> lifecycleScope.launch { launch { model.state.collect { render(it) } } } }
+    }
+}
+`)
+	assertFindingLines(t, findings, 12, 13, 14)
+}
+
+// A chain split across lines is reported on the `.collect` line, where the
+// krit-fir checker reports it too.
+func TestCollectInOnCreateWithoutLifecycle_SplitChainOnCalleeLine(t *testing.T) {
+	findings := runRuleByName(t, "CollectInOnCreateWithoutLifecycle", `
+package test
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+
+class ExampleActivity : AppCompatActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        lifecycleScope.launch {
+            vm.state
+                .collect { render(it) }
+        }
+    }
+}
+`)
+	assertFindingLines(t, findings, 12)
+}
+
+// A named argument, a fully qualified reference, and a limitedParallelism view
+// pass a hardcoded dispatcher as surely as a lone positional argument (detekt
+// reports all three).
+func TestInjectDispatcher_PositiveNamedQualifiedAndLimited(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+class Repo {
+    suspend fun named() = withContext(context = Dispatchers.IO) { fetch() }
+    suspend fun qualified() = withContext(kotlinx.coroutines.Dispatchers.Default) { fetch() }
+    suspend fun limited() = withContext(Dispatchers.IO.limitedParallelism(2)) { fetch() }
+}
+`)
+	assertFindingLines(t, findings, 6, 7, 8)
+}
+
+// A fully qualified reference needs no import.
+func TestInjectDispatcher_PositiveQualifiedWithoutImport(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+class Repo {
+    suspend fun qualified() = withContext(kotlinx.coroutines.Dispatchers.IO) { fetch() }
+}
+`)
+	assertFindingLines(t, findings, 4)
+}
+
+// A parameter's default value is the injection point itself; detekt does not
+// report a dispatcher there either.
+func TestInjectDispatcher_NegativeParameterDefault(t *testing.T) {
+	findings := runRuleByName(t, "InjectDispatcher", `
+package test
+import kotlinx.coroutines.Dispatchers
+class Repo(
+    private val loader: Loader = Loader(Dispatchers.IO),
+) {
+    constructor(name: String, cache: Cache = Cache(Dispatchers.Default)) : this()
+    fun load(loader: Loader = Loader(Dispatchers.IO)) = loader
+    fun eager() = Loader(Dispatchers.IO)
+}
+`)
+	assertFindingLines(t, findings, 9)
+}
+
+// An await in the try block of a try inside finally whose catch takes any
+// Exception cannot replace the original exception.
+func TestDeferredAwaitInFinally_NegativeCaughtInsideFinally(t *testing.T) {
+	findings := runRuleByName(t, "DeferredAwaitInFinally", `
+package test
+import kotlinx.coroutines.Deferred
+suspend fun cleanup(a: Deferred<Unit>, b: Deferred<Unit>, c: Deferred<Unit>, d: Deferred<Unit>) {
+    try {
+        work()
+    } finally {
+        try { a.await() } catch (e: Throwable) { }
+        try { b.await() } catch (e: kotlin.Exception) { }
+        try { c.await() } catch (e: IllegalStateException) { }
+        try { } catch (e: Exception) { d.await() }
+    }
+}
+suspend fun rethrown(a: Deferred<Unit>, b: Deferred<Unit>, c: Deferred<Unit>) {
+    try {
+        work()
+    } finally {
+        try { a.await() } catch (e: Throwable) { throw e }
+        try { b.await() } catch (e: Exception) { log(e); throw IllegalStateException(e) }
+        try { c.await() } catch (e: Throwable) { log(e) }
+    }
+}
+`)
+	assertFindingLines(t, findings, 9, 10, 11, 18, 19)
+}
+
+// A file that imports its own GlobalScope or Collections names another
+// declaration, even when that import does not resolve (the Go rules run on
+// files that do not compile).
+func TestGlobalScopeLaunchInViewModel_NegativeImportedLookalike(t *testing.T) {
+	findings := runRuleByName(t, "GlobalScopeLaunchInViewModel", `
+package test
+import com.example.scopes.GlobalScope
+class HomeViewModel {
+    fun load() { GlobalScope.launch { } }
+}
+`)
+	assertFindingLines(t, findings)
+}
+
+func TestCollectionsSynchronizedListIteration_NegativeImportedLookalike(t *testing.T) {
+	findings := runRuleByName(t, "CollectionsSynchronizedListIteration", `
+package test
+import com.example.util.Collections
+fun walk() {
+    for (x in Collections.synchronizedList(mutableListOf(1))) { }
+}
+`)
+	assertFindingLines(t, findings)
+}

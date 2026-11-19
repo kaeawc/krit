@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 20, 27, 32
+// go-lines: 26, 30
 // Local lookalikes: annotations in this package named like DI scopes but not
 // meta-annotated as scopes, so no DI framework treats them as one.
 package test
@@ -10,13 +10,12 @@ annotation class Singleton
 
 annotation class ActivityScoped
 
-// Go reports this because the annotation is named Singleton; FIR is correct to
-// drop it because test.Singleton is not a DI scope.
+// Neither reports this: test.Singleton, declared here without a scope
+// meta-annotation and not imported from elsewhere, is not a DI scope.
 @Singleton
 class LocalSingleton<T>
 
-// Go reports this because the annotation is named ActivityScoped; FIR is
-// correct to drop it because test.ActivityScoped is not a DI scope.
+// Neither reports this: test.ActivityScoped is not a DI scope either.
 @ActivityScoped
 class LocalActivityScoped<T>
 
@@ -27,7 +26,6 @@ annotation class UserScoped
 <!ScopeOnParameterizedClass!>@UserScoped<!>
 class ProjectScoped<T>
 
-// A qualified reference still reaches the real scope; Go misses it because it
-// matches only the unqualified `@Singleton`.
+// A qualified reference still reaches the real scope, like Go.
 <!ScopeOnParameterizedClass!>@javax.inject.Singleton<!>
 class RealSingleton<T>

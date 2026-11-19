@@ -1,8 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// True positives Go misses. Go proves the receiver is a Throwable only when its
-// last identifier is the nearest enclosing catch's variable; each marked call
-// is printStackTrace() on a Throwable all the same. The unmarked `super` calls
+// go-lines: 64
+// True positives Go misses, except the nested catch. Go proves the receiver is
+// a Throwable only when it is the bare name of an enclosing catch's variable;
+// each marked call is printStackTrace() on a Throwable all the same. The unmarked `super` calls
 // inside printStackTrace() overrides are negatives Go and FIR agree on.
 package test
 
@@ -52,8 +52,8 @@ fun result(outcome: Result<Int>) {
     <!PrintStackTrace!>outcome.exceptionOrNull()?.printStackTrace()<!>
 }
 
-// Go misses these because the caught variable is only compared with the
-// nearest enclosing catch, which is the inner one.
+// Reported, as in Go: an outer catch's variable read inside a nested catch is
+// still a caught exception.
 fun nestedCatch() {
     try {
         work()

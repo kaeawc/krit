@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 65, 82
+// go-lines: 32, 65, 82
 // Shapes where the compiler's view differs from Go's name matching.
 package test
 
@@ -26,7 +26,7 @@ abstract class BaseRows : RecyclerView.Adapter<Holder>() {
     override fun getItemCount(): Int = 0
 }
 
-// Go needs a direct supertype named like an adapter; BaseRows is one through its base class.
+// An adapter through a base class of any name; Go follows the base class through its resolver.
 class Rows : BaseRows() {
     fun refresh() {
         <!RecyclerAdapterWithoutDiffUtil!>notifyDataSetChanged<!>()

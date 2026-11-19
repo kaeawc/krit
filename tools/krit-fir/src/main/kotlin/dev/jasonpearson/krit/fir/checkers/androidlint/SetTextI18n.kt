@@ -11,14 +11,18 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirFunctionCallChecker
+import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirVariableAssignmentChecker
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
+import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
+import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirSyntheticPropertySymbol
 import org.jetbrains.kotlin.fir.types.isSubtypeOf
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.name.Name
@@ -36,11 +40,8 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  * - the text argument must be a string literal or a string template whose
  *   literal-text segment contains a run matching Java's default ASCII
  *   `\w{2,}` (`"Hello"`, `"Count: $n"`). Template segments are checked
- *   independently and interpolated expressions are ignored. Empty or short
- *   strings without such a run, a resource id, a variable, a constant, a
- *   concatenation (`"a" + b`), or a call result are not reported;
- * - only calls count; assigning the synthetic property (`view.text = "x"`) is
- *   not a `setText` call and is not reported;
+ *   independently. Empty or short strings without such a run, a resource id,
+ *   a variable, a constant, or a call result are not reported;
  * - a `setText` on something that is not a TextView (`Toast`, `RemoteViews`,
  *   notification builders, a project class) is not reported;
  * - the finding sits on the first line of the call expression.
@@ -60,6 +61,12 @@ import org.jetbrains.kotlin.types.ConstantValueKind
  *   and also the argument bound to the first parameter (a vararg's first
  *   element), so a parenthesized, annotated, labeled, or named literal still
  *   counts. Go needs a bare literal as the first unlabeled argument.
+ * - Recall, as Android Lint's SetTextDetector reads the text: a literal is
+ *   also found among the operands of a `+` concatenation (`"Hello, " + name`)
+ *   and in the receiver of a qualified call (`"Items".uppercase()`), and
+ *   assigning the synthetic property of a TextView (`view.text = "Hello"`)
+ *   calls `setText` and is reported on the assignment (SetTextI18nConcatenation).
+ *   Go reads only a bare literal or template in a `setText(...)` call.
  * - Precision: a call Go accepts by name or by the enclosing class, where the
  *   receiver is not a TextView, is not reported: a variable whose name looks
  *   like a view (`titleText`, `button`) but whose type is not a TextView, a
@@ -71,11 +78,14 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
     override val ruleId = "SetTextI18n"
     override val expressionCheckers = object : ExpressionCheckers() {
         override val functionCallCheckers = setOf(SetTextI18n)
+        override val variableAssignmentCheckers = setOf(PropertyAssignments)
     }
 
     private const val MESSAGE = "Do not pass hardcoded text to setText. Use resource strings with placeholders."
     private val SET_TEXT = Name.identifier("setText")
     private val WORD_RUN = Regex("\\w{2,}")
+    private val PLUS = Name.identifier("plus")
+    private const val MAX_DEPTH = 32
 
     // Nullable, so a nullable or platform-typed receiver (`tv?.setText`,
     // `findViewById<TextView>(id)`) is a subtype too.
@@ -92,10 +102,10 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         // source: `setText(bold = true, "x")` passes "x" positionally.
         val bound = mapping.entries.firstOrNull { it.value.symbol == firstParameter }?.key
         val boundText = if (bound is FirVarargArgumentsExpression) bound.arguments.firstOrNull() else bound
-        val hardcoded = (boundText != null && isStringLiteral(boundText)) ||
+        val hardcoded = (boundText != null && hasHardcodedText(boundText, 0)) ||
             mapping.keys
                 .flatMap { if (it is FirVarargArgumentsExpression) it.arguments else listOf(it) }
-                .any { isStringLiteral(it) && isFirstUnnamedArgument(it) }
+                .any { hasHardcodedText(it, 0) && isFirstUnnamedArgument(it) }
         if (!hardcoded) return
         // The receiver whose text is set: the written receiver, else the
         // implicit one (an extension's receiver before a member's owner).
@@ -107,22 +117,45 @@ internal object SetTextI18n : FirFunctionCallChecker(MppCheckerKind.Common), Fir
         report(expression.source, MESSAGE)
     }
 
-    // A plain literal, a raw string, or a template with a matching literal
-    // text segment. FIR drops the parentheses
-    // around a literal, so a parenthesized one counts too. The raw FIR builder
-    // also turns a `+` chain that starts with a string (`"a" + b`) into a
-    // string concatenation, so only one whose source is a template counts.
-    private fun isStringLiteral(expression: FirExpression): Boolean = when (expression) {
-        is FirLiteralExpression -> expression.kind == ConstantValueKind.String &&
-            (expression.value as? String)?.let(WORD_RUN::containsMatchIn) == true
-        is FirStringConcatenationCall ->
-            expression.source?.elementType == KtNodeTypes.STRING_TEMPLATE &&
-                expression.argumentList.arguments.any { segment ->
-                    segment is FirLiteralExpression &&
-                        segment.kind == ConstantValueKind.String &&
-                        (segment.value as? String)?.let(WORD_RUN::containsMatchIn) == true
+    // `view.text = "Hello"` on a TextView: the synthetic property's setter is
+    // TextView's `setText(CharSequence)`.
+    private object PropertyAssignments : FirVariableAssignmentChecker(MppCheckerKind.Common) {
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        override fun check(expression: FirVariableAssignment) {
+            val target = expression.lValue as? FirQualifiedAccessExpression ?: return
+            val property = target.calleeReference.toResolvedCallableSymbol() as? FirSyntheticPropertySymbol ?: return
+            if (property.setterSymbol?.delegateFunctionSymbol?.name != SET_TEXT) return
+            if (!hasHardcodedText(expression.rValue, 0)) return
+            val receiver = target.explicitReceiver ?: target.dispatchReceiver ?: return
+            if (!receiver.resolvedType.isSubtypeOf(TEXT_VIEW, context.session)) return
+            SetTextI18n.report(expression.source, MESSAGE)
+        }
+    }
+
+    // Whether the text holds a hardcoded string as Lint's SetTextDetector
+    // finds one: a plain or raw literal, or a template, with a literal text
+    // segment matching the word run; the operands of a `+` concatenation; or
+    // the receiver of a qualified call (`"Items".uppercase()`). FIR drops the
+    // parentheses around an expression, so a parenthesized one counts too.
+    private fun hasHardcodedText(expression: FirExpression, depth: Int): Boolean {
+        if (depth > MAX_DEPTH) return false
+        return when (expression) {
+            is FirLiteralExpression -> expression.kind == ConstantValueKind.String &&
+                (expression.value as? String)?.let(WORD_RUN::containsMatchIn) == true
+            is FirStringConcatenationCall -> expression.argumentList.arguments.any { hasHardcodedText(it, depth + 1) }
+            is FirFunctionCall -> {
+                val receiver = expression.explicitReceiver ?: return false
+                when (expression.source?.elementType) {
+                    KtNodeTypes.BINARY_EXPRESSION -> expression.calleeReference.name == PLUS &&
+                        (hasHardcodedText(receiver, depth + 1) ||
+                            expression.argumentList.arguments.any { hasHardcodedText(it, depth + 1) })
+                    KtNodeTypes.DOT_QUALIFIED_EXPRESSION, KtNodeTypes.SAFE_ACCESS_EXPRESSION ->
+                        hasHardcodedText(receiver, depth + 1)
+                    else -> false
                 }
-        else -> false
+            }
+            else -> false
+        }
     }
 
     // The argument is the first value argument in the parentheses without a

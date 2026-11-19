@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -3237,6 +3238,97 @@ fun Chart(dataset: List<Int>, scale: Int) {
 `)
 	if len(findings) != 2 {
 		t.Fatalf("expected 2 findings, got %d: %v", len(findings), findings)
+	}
+}
+
+func TestComposeRememberWithoutKey_ResyncsThroughRememberedValue(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Row(scope: Scope, index: Int, label: String, colors: Colors) {
+    val target = remember { DragState(scope, index) }.also { it.index = index }
+    val applied = remember { Holder(label) }.apply { this.label = label }
+    val palette = remember { colors.copy() }
+    palette.updateColors(colors)
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected only the drag state to be reported, got %d: %v", len(findings), findings)
+	}
+	if msg := findings[0].Message; !strings.Contains(msg, "parameter scope ") || strings.Contains(msg, "index") {
+		t.Fatalf("the re-synced index must leave the key list, got %q", msg)
+	}
+}
+
+func TestComposeRememberWithoutKey_ResyncMustWriteTheRememberedObject(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+var lastSeen = 0
+
+@Composable
+fun Outer(input: Int) {
+    val holder = remember { Holder(input) }.also { lastSeen = input }
+}
+
+@Composable
+fun Quoted(input: Int) {
+    val holder = remember { Holder(input) }.also { it.note = "input" /* input */ }
+}
+
+@Composable
+fun Local(input: Int) {
+    var seen = 0
+    val holder = remember { Holder(input) }.apply { seen = input }
+}
+
+@Composable
+fun Named(input: Int) {
+    val holder = remember { Holder(input) }.also { h -> h.value = input }
+}
+
+@Composable
+fun Member(input: Int) {
+    val holder = remember { Holder(input) }.apply { value = input }
+}
+
+@Composable
+fun Setter(input: Int) {
+    val holder = remember { Holder(input) }
+    holder.setLevel(0) // input
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{10, 15, 21, 36}; !slices.Equal(lines, want) {
+		t.Fatalf("expected the writes that miss the remembered object on lines %v, got %v", want, lines)
+	}
+}
+
+func TestComposeRememberWithoutKey_RememberedValueUseIsNotResync(t *testing.T) {
+	findings := runRuleByName(t, "ComposeRememberWithoutKey", `
+package test
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+
+@Composable
+fun Row(locale: Locale, index: Int, other: Int) {
+    val formatter = remember { Formatter(locale) }
+    use(formatter.format(locale))
+    val holder = remember { Holder(index) }.also { use(it, index) }
+    val copy = remember { Holder(other) }
+    holder.updateIndex(other)
+}
+`)
+	if len(findings) != 3 {
+		t.Fatalf("a read, a non-assignment and another variable's update are not re-syncs, got %d: %v", len(findings), findings)
 	}
 }
 

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 24, 43
+// go-lines: 24, 42x2
 // Map lookups asserted with `!!` that Go misses because its source type
 // inference cannot prove the receiver is a map, or cannot prove the key has
 // the map's key type. Each one is a Map.get call (or the stdlib extension
@@ -36,10 +36,9 @@ fun receivers(properties: Properties, concurrent: ConcurrentHashMap<String, Int>
     return props.hashCode() + jdk + env.length + scoped.length
 }
 
-// Two lookups on one line. Go reports the inner `tables["a"]!!` but cannot
-// type the outer receiver, the `!!` expression, so it misses the second
-// lookup; FIR reports both (MapGetWithNotNullAssertionOperatorCountsTest
-// checks the count).
+// Two lookups on one line. Go types the outer receiver `tables["a"]!!` as the
+// map's value type, so it reports both, as FIR does
+// (MapGetWithNotNullAssertionOperatorCountsTest checks the count).
 fun nestedMaps(tables: Map<String, Map<String, Int>>): Int = <!MapGetWithNotNullAssertionOperator!>tables["a"]!!["b"]!!<!>
 
 // A type parameter bounded by Map.

@@ -2,8 +2,11 @@ package rules_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -352,6 +355,45 @@ fun doWork() {
 	}
 }
 
+// A release in another method only counts when it names the same field, not a same-named local or parameter.
+func TestWakelock_CrossMethodReleaseMatchesTheField(t *testing.T) {
+	findings := runRuleWithSourceResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager
+import android.os.PowerManager.WakeLock
+class LocalShadow(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun cleanup() {
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "other")
+        wl.release()
+    }
+}
+class ParamShadow(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun cleanup(wl: WakeLock) { wl.release() }
+}
+class FieldRelease(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun stop() { wl.release() }
+}
+class LambdaRelease(private val pm: PowerManager) {
+    private val wl: WakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    fun start() { wl.acquire() }
+    fun stop() { listOf(1).forEach { wl.release() } }
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if want := []int{7, 15}; !reflect.DeepEqual(lines, want) {
+		t.Fatalf("lines = %v, want %v", lines, want)
+	}
+}
+
 func TestWakelock_Negative_AcquireWithTimeout(t *testing.T) {
 	findings := runRuleByName(t, "Wakelock", `
 package test
@@ -391,6 +433,86 @@ fun doWork() {
 	}
 }
 
+// Lint reports no lock for lack of a release in the acquiring function: the
+// usual shape acquires in one lifecycle method and releases in another.
+func TestWakelock_Negative_ReleasedInAnotherFunction(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager
+import android.os.PowerManager.WakeLock
+class Holder(private val pm: PowerManager) {
+    private var wl: WakeLock? = null
+    fun onResume() {
+        wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "a:b")
+        wl?.acquire()
+    }
+    fun onPause() {
+        wl?.release()
+    }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for a release in another function, got %d", len(findings))
+	}
+}
+
+func TestWakelock_Positive_PropertyNeverReleased(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager.WakeLock
+class Holder {
+    private var wl: WakeLock? = null
+    private var other: WakeLock? = null
+    fun onResume() {
+        wl?.acquire()
+    }
+    fun onPause() {
+        other?.release()
+    }
+}`)
+	if len(findings) != 1 {
+		t.Errorf("expected 1 finding for a property released nowhere, got %d", len(findings))
+	}
+}
+
+// A lock passed in belongs to the caller, which releases it.
+func TestWakelock_Negative_ParameterReceiver(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager.WakeLock
+fun hold(lock: WakeLock) {
+    lock.acquire()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for a parameter receiver, got %d", len(findings))
+	}
+}
+
+// Lint reports a release in an Activity's onDestroy: it should be in onPause.
+func TestWakelock_ReleaseInActivityOnDestroy(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "Wakelock", `
+package test
+import android.app.Activity
+import android.app.Service
+import android.os.PowerManager.WakeLock
+class Player : Activity() {
+    private var wl: WakeLock? = null
+    override fun onDestroy() {
+        super.onDestroy()
+        wl?.release()
+    }
+}
+class Worker : Service() {
+    private var wl: WakeLock? = null
+    override fun onDestroy() {
+        wl?.release()
+    }
+}`)
+	if len(findings) != 1 || findings[0].Line != 10 ||
+		findings[0].Message != "Wakelocks should be released in `onPause`, not `onDestroy`" {
+		t.Fatalf("expected one onDestroy finding on line 10, got %v", findings)
+	}
+}
+
 // --- SetJavaScriptEnabledRule ---
 
 func TestSetJavaScriptEnabled_Positive(t *testing.T) {
@@ -423,6 +545,66 @@ fun setup(webView: WebView) {
 }`)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+// Lint's ConstantEvaluator folds the value, so a constant or `!false` enables JavaScript as the literal does.
+func TestSetJavaScriptEnabled_ConstantValue(t *testing.T) {
+	findings := runRuleByName(t, "SetJavaScriptEnabled", `
+package test
+import android.webkit.WebView
+const val ENABLE_SCRIPTS = true
+const val DISABLE_SCRIPTS = false
+fun setup(webView: WebView, flag: Boolean) {
+    webView.settings.setJavaScriptEnabled(ENABLE_SCRIPTS)
+    webView.settings.javaScriptEnabled = ENABLE_SCRIPTS
+    webView.settings.javaScriptEnabled = !false
+    webView.settings.javaScriptEnabled = DISABLE_SCRIPTS
+    webView.settings.javaScriptEnabled = flag
+}`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[7 8 9]" {
+		t.Fatalf("expected findings on lines 7, 8 and 9, got %v", lines)
+	}
+}
+
+// Without types, a `settings` receiver (explicit, or implicit in a scope function on one) in a file that imports the
+// WebView API is the WebSettings, as on the Java path.
+func TestSetJavaScriptEnabled_NamedSettingsReceiver(t *testing.T) {
+	findings := runRuleByName(t, "SetJavaScriptEnabled", `
+package test
+import android.webkit.WebView
+class Holder {
+    private var webView: WebView? = null
+    fun setup(context: android.content.Context) {
+        webView?.let { view -> view.settings.javaScriptEnabled = true }
+        WebView(context).apply { settings.javaScriptEnabled = true }
+        WebView(context).apply { settings.setJavaScriptEnabled(true) }
+        WebView(context).apply { settings.javaScriptEnabled = false }
+        webView?.settings?.apply { javaScriptEnabled = true }
+        webView?.let { with(it.settings) { setJavaScriptEnabled(true) } }
+    }
+}`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	sort.Ints(lines)
+	if fmt.Sprint(lines) != "[7 8 9 11 12]" {
+		t.Fatalf("expected findings on lines 7, 8, 9, 11 and 12, got %v", lines)
+	}
+	unrelated := runRuleByName(t, "SetJavaScriptEnabled", `
+package test
+class Options { var javaScriptEnabled = false }
+class Holder(val settings: Options) {
+    fun setup() { settings.javaScriptEnabled = true }
+}`)
+	if len(unrelated) != 0 {
+		t.Fatalf("expected no finding without the WebView API, got %d", len(unrelated))
 	}
 }
 
@@ -762,5 +944,52 @@ val doc = "regex for BEGIN PRIVATE KEY detection"
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings for a PEM header without a body, got %d", len(findings))
+	}
+}
+
+// Lint does not analyze test sources: there acquire() is usually a mock
+// verification, and onDraw a test calling the callback on purpose.
+func TestWakelockAndWrongCall_SkipTestSources(t *testing.T) {
+	wakelock := `
+package test
+fun doWork() {
+    val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tag")
+    wl.acquire()
+}`
+	if got := runRuleByNameOnPath(t, "Wakelock", "src/main/kotlin/Work.kt", wakelock); len(got) != 1 {
+		t.Fatalf("expected 1 Wakelock finding in main sources, got %d", len(got))
+	}
+	if got := runRuleByNameOnPath(t, "Wakelock", "src/test/kotlin/WorkTest.kt", wakelock); len(got) != 0 {
+		t.Fatalf("expected no Wakelock finding in test sources, got %d", len(got))
+	}
+	wrongCall := `
+package test
+import android.view.View
+class CustomView : View() {
+    fun redraw(canvas: android.graphics.Canvas) {
+        onDraw(canvas)
+    }
+}`
+	if got := runRuleByNameOnPath(t, "WrongCall", "src/main/kotlin/CustomView.kt", wrongCall); len(got) != 1 {
+		t.Fatalf("expected 1 WrongCall finding in main sources, got %d", len(got))
+	}
+	if got := runRuleByNameOnPath(t, "WrongCall", "src/test/kotlin/CustomViewTest.kt", wrongCall); len(got) != 0 {
+		t.Fatalf("expected no WrongCall finding in test sources, got %d", len(got))
+	}
+}
+
+// The receiver of a WakeLock extension is the caller's lock.
+func TestWakelock_Negative_ExtensionReceiver(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "Wakelock", `
+package test
+import android.os.PowerManager.WakeLock
+fun WakeLock.hold() {
+    acquire()
+}
+fun WakeLock.holdThis() {
+    this.acquire()
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for an extension receiver, got %d", len(findings))
 	}
 }

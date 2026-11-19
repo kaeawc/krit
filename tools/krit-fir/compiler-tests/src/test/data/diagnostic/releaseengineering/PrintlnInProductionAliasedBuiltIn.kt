@@ -7,5 +7,5 @@ package test
 import kotlin.io.println as log
 
 fun aliasedBuiltIn() {
-    <!PrintlnInProduction!>log("aliased built-in")<!>
+    <!PrintlnInProduction!>log<!>("aliased built-in")
 }

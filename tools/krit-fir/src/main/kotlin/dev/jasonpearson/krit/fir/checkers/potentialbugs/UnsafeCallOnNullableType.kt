@@ -58,16 +58,18 @@ import org.jetbrains.kotlin.lexer.KtTokens
 /**
  * Flags a not-null assertion (`!!`) on an operand the compiler types as nullable.
  *
- * Mirrors the Go rule, which reports only an operand typed NULLABLE (as detekt does): a platform
- * type and a stable smart cast to non-null are not reported, a type parameter with a nullable bound
- * is. The checker reads that type from the compiler, so the Go flow guards that approximate smart
+ * Mirrors the Go rule, which reports only an operand typed NULLABLE: a platform type (as in detekt)
+ * and a stable smart cast to non-null are not reported, a type parameter with a nullable bound is.
+ * detekt 1.23.8 reads the type without smart casts, so it also reports `x!!` after `if (x != null)`;
+ * the compiler warns there already (UNNECESSARY_NOT_NULL_ASSERTION). The checker reads that type from the compiler, so the Go flow guards that approximate smart
  * casts (`if (x != null)`, early return, same-block assignment, short-circuit) are not needed. Kept
  * from Go:
  * - test and test-support files (`isTestSupportFile` and the artifact directories), and `@Preview`,
  *   `sample`, `fake`, `mock`, `stub` and `fixture` functions with the `customPreviewWildcard` and
  *   `customPreviewPrefixes` options;
  * - `Type::class.simpleName!!` and a map index operand (`map[key]!!`, owned by
- *   MapGetWithNotNullAssertionOperator);
+ *   MapGetWithNotNullAssertionOperator). Another index operand, such as an element of an
+ *   `Array<T?>` or a `List<T?>`, is reported;
  * - the guards the compiler cannot see for an unstable property: an earlier `x ?: return`,
  *   `check(x != null)`, `require(...)`, `assert(...)`, `requireNotNull(x)` or `checkNotNull(x)` in an
  *   enclosing block of the same function or lambda, and `.filter { it.f != null }.map { it.f!! }`;
@@ -156,8 +158,8 @@ internal object UnsafeCallOnNullableType : FirCheckNotNullCallChecker(MppChecker
         val operandText = lightText(source, operand)
         if (!expression.argument.isNullableOperand()) return
         if (isTestSupportPath() || isNamedKClassSimpleName(operandText)) return
-        // map[key]!! is the sibling rule's concern.
-        if (operandText.endsWith("]")) return
+        // map[key]!! is the sibling rule's concern; an array or list element is reported here.
+        if (operandText.endsWith("]") && MapGetWithNotNullAssertionOperator.isMapLookup(expression.argument)) return
         if (isInsidePreviewOrSample(source, postfix)) return
         if (isRequireFunctionBody(source, postfix)) return
         if (isPreconditionGuarded(expression)) return

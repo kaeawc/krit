@@ -24,7 +24,8 @@ func registerPotentialbugsLifecycleRules() {
 				if exitOutsideMainInsideMain(file, idx) {
 					return
 				}
-				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
+				// detekt reports the KtCallExpression, which starts at the callee name even below a multi-line qualifier.
+				ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 					"Do not call exitProcess() or System.exit() outside of the main function.")
 			},
 		})

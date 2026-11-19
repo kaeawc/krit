@@ -20,12 +20,12 @@ class DefaultLocaleTest {
         val source = """
             package dlcounts
 
-            fun nested(value: Int): String = String.format("%s", String.format("%d", value))
+            fun nested(value: Int): String = String.format("%d %s", 1, String.format("%d", value))
 
             fun split(value: Int): String =
                 String
                     .format(
-                        "%s",
+                        "%d %s", 1,
                         String.format("%d", value),
                     )
 

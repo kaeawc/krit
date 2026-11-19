@@ -1,20 +1,22 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 22, 28, 31, 33, 37, 43
+// go-lines: 24, 30, 33, 35, 39, 45
 // Positives for SimpleDateFormat: a project class named SimpleDateFormat that
 // extends a SimpleDateFormat, directly or through another class, as a
 // top-level, nested, or local class. Each call builds a SimpleDateFormat and
 // passes no locale, and Go reports each one by the call name, so FIR reports
 // it too. A class named SimpleDateFormat that is not a SimpleDateFormat
 // subtype stays unreported (SimpleDateFormatLookalike.kt,
-// SimpleDateFormatShadowed.kt).
+// SimpleDateFormatShadowed.kt). Divergence (recall): each superclass
+// delegation to a java.text or android.icu constructor without a locale is
+// reported too, as Lint reports it; Go reads only call expressions.
 package test
 
 import java.util.Date
 import java.util.Locale
 
-class SimpleDateFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+class SimpleDateFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
 
-open class RootFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+open class RootFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
 
 class Holder {
     class SimpleDateFormat(pattern: String) : RootFormat(pattern)
@@ -23,7 +25,7 @@ class Holder {
 }
 
 class IcuHolder {
-    class SimpleDateFormat : android.icu.text.SimpleDateFormat()
+    class SimpleDateFormat : <!SimpleDateFormat!>android.icu.text.SimpleDateFormat()<!>
 
     fun icu(): android.icu.text.SimpleDateFormat = <!SimpleDateFormat!>SimpleDateFormat()<!>
 }
@@ -33,12 +35,12 @@ fun make(): java.text.SimpleDateFormat = <!SimpleDateFormat!>SimpleDateFormat("y
 fun chained(date: Date): String = <!SimpleDateFormat!>SimpleDateFormat("yyyy")<!>.format(date)
 
 fun local(): java.text.SimpleDateFormat {
-    class SimpleDateFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+    class SimpleDateFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
     return <!SimpleDateFormat!>SimpleDateFormat("yyyy")<!>
 }
 
 fun anonymousMember(): Any = object {
-    inner class SimpleDateFormat(pattern: String) : java.text.SimpleDateFormat(pattern)
+    inner class SimpleDateFormat(pattern: String) : <!SimpleDateFormat!>java.text.SimpleDateFormat(pattern)<!>
 
     val format = <!SimpleDateFormat!>SimpleDateFormat("yyyy")<!>
 }

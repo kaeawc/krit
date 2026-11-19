@@ -6,9 +6,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 // TooGenericExceptionThrown cases that need more than one source file, a scan
-// path, or rule options: the Go rule's path exemptions (test files, Gradle
-// Kotlin scripts), `exceptionNames`, and project classes declared in another
-// file.
+// path, or rule options: the path exemptions (test files, Gradle Kotlin
+// scripts), `exceptionNames`, project classes declared in another file, and
+// the anchor of a throw split over lines.
 class TooGenericExceptionThrownFilesTest {
 
     private val rule = "TooGenericExceptionThrown"
@@ -43,7 +43,7 @@ class TooGenericExceptionThrownFilesTest {
         assertEquals(mapOf("Unlisted.kt" to 1), findings(sources, testFiles = setOf("Listed.kt")))
     }
 
-    // Go skips a scan path ending in `.gradle.kts`.
+    // A scan path ending in `.gradle.kts` is skipped.
     @Test fun gradleKotlinScriptIsSkipped() {
         val sources = mapOf("Build.kt" to thrower("build"), "App.kt" to thrower("app"))
         val scanPaths = mapOf("Build.kt" to "app/build.gradle.kts", "App.kt" to "app/src/main/kotlin/App.kt")
@@ -64,6 +64,24 @@ class TooGenericExceptionThrownFilesTest {
         )
         assertTrue(result.clean, result.problems())
         return result.diags.filter { it.name == rule }.groupBy({ it.file }, { it.line }).mapValues { it.value.sorted() }
+    }
+
+    // detekt and Go report the throw, also when the generic constructor sits on a later line.
+    @Test fun reportedOnTheThrowLine() {
+        val sources = mapOf(
+            "Split.kt" to """
+                package split
+
+                fun multiLine() {
+                    throw
+                        Exception("next line")
+                }
+
+                fun elvis(cause: Throwable?): Nothing = throw cause
+                    ?: RuntimeException("fallback")
+            """.trimIndent(),
+        )
+        assertEquals(mapOf("Split.kt" to listOf(4, 8)), lines(sources))
     }
 
     private val configuredNames = mapOf(

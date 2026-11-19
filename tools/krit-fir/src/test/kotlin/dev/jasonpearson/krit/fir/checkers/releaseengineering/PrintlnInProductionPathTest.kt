@@ -17,14 +17,14 @@ import kotlin.test.assertTrue
 class PrintlnInProductionPathTest {
     private fun exempt(path: String?) = PrintlnInProduction.isNonProductionPath(path)
 
-    // Go sees `samples/proj/src/X.kt` for `krit samples/proj` and `demo/X.kt`
-    // for `krit .` from the checkout: neither holds `/samples/` or `/demo/`,
-    // so Go reports both files.
-    @Test fun relativeScanSpellingOnlyCountsMarkersBelowItsFirstComponent() {
-        assertFalse(exempt("samples/proj/src/X.kt"))
-        assertFalse(exempt("demo/src/main/kotlin/Main.kt"))
+    // `demo/X.kt` from `krit .` names a top-level demo directory of the
+    // checkout, so its first component counts like any other.
+    @Test fun relativeScanSpellingCountsItsFirstComponent() {
+        assertTrue(exempt("samples/proj/src/X.kt"))
+        assertTrue(exempt("demo/src/main/kotlin/Main.kt"))
         assertTrue(exempt("samples/proj/demo/src/D.kt"))
         assertTrue(exempt("app/Sample/Main.kt"))
+        assertFalse(exempt("proj/src/X.kt"))
     }
 
     // Go scanned the absolute path (`krit /home/p1/samples/proj`): every
@@ -70,10 +70,10 @@ class PrintlnInProductionPathTest {
         val requestedOther = link.resolve("samples/proj/src/Y.kt").toString()
         val context = FirRuleCompileContext(
             files = setOf(requested, requestedOther),
-            scanPaths = mapOf(requested to "samples/proj/src/X.kt"),
+            scanPaths = mapOf(requested to "proj/src/X.kt"),
         )
-        assertEquals("samples/proj/src/X.kt", context.scanPath(requested))
-        assertEquals("samples/proj/src/X.kt", context.scanPath(source.toRealPath().toString()), "canonical spelling")
+        assertEquals("proj/src/X.kt", context.scanPath(requested))
+        assertEquals("proj/src/X.kt", context.scanPath(source.toRealPath().toString()), "canonical spelling")
         assertEquals(requestedOther, context.scanPath(other.toRealPath().toString()), "no scan spelling: as requested")
         assertNull(context.scanPath(real.resolve("Z.kt").toString()), "not a requested file")
         assertNull(context.scanPath(null))
@@ -81,7 +81,7 @@ class PrintlnInProductionPathTest {
         assertEquals(requested, PrintlnInProduction.scanPath(requested), "no check request: the path itself")
         FirRuleContext.begin(context)
         try {
-            assertEquals("samples/proj/src/X.kt", PrintlnInProduction.scanPath(source.toRealPath().toString()))
+            assertEquals("proj/src/X.kt", PrintlnInProduction.scanPath(source.toRealPath().toString()))
             assertFalse(exempt(PrintlnInProduction.scanPath(requested)))
             assertTrue(exempt(PrintlnInProduction.scanPath(requestedOther)))
         } finally {

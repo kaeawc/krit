@@ -246,14 +246,14 @@ func objectExtendsThrowableFlat(ctx *api.Context, idx uint32) bool {
 		if !objectThrowableSuperNames[name] || !objectThrowableQualifiers[qualifier] {
 			return false
 		}
-		return qualifier != "" || !objectSuperNameIsProjectClass(ctx, name)
+		return qualifier != "" || !objectSuperNameIsProjectClass(ctx, idx, name)
 	}
 	return false
 }
 
-// objectSuperNameIsProjectClass reports a simple name that the file declares or imports from a project package,
-// or that names a class indexed in the file's own package: either hides the default-imported Throwable.
-func objectSuperNameIsProjectClass(ctx *api.Context, name string) bool {
+// objectSuperNameIsProjectClass reports a simple name that the file declares where obj can see it, or imports from a
+// project package, or that names a class indexed in the file's own package: each hides the default-imported Throwable.
+func objectSuperNameIsProjectClass(ctx *api.Context, obj uint32, name string) bool {
 	file := ctx.File
 	found := false
 	file.FlatWalkAllNodes(0, func(n uint32) {
@@ -262,7 +262,8 @@ func objectSuperNameIsProjectClass(ctx *api.Context, name string) bool {
 		}
 		switch file.FlatType(n) {
 		case "class_declaration", "object_declaration", "type_alias":
-			if id, ok := file.FlatFindChild(n, "type_identifier"); ok && file.FlatNodeTextEquals(id, name) {
+			if id, ok := file.FlatFindChild(n, "type_identifier"); ok && file.FlatNodeTextEquals(id, name) &&
+				objectDeclarationVisibleFrom(file, n, obj) {
 				found = true
 			}
 		case "import_header":
@@ -284,6 +285,20 @@ func objectSuperNameIsProjectClass(ctx *api.Context, name string) bool {
 		return false
 	}
 	return strings.TrimSuffix(info.FQN, "."+name) == sourcePackageName(file)
+}
+
+// objectDeclarationVisibleFrom reports a declaration whose enclosing scope (the file, or a class body or block)
+// contains obj, so obj can name it without a qualifier. A class nested in an unrelated class is not visible.
+func objectDeclarationVisibleFrom(file *scanner.File, decl, obj uint32) bool {
+	container, ok := file.FlatParent(decl)
+	for ok && file.FlatType(container) != "class_body" && file.FlatType(container) != "source_file" &&
+		file.FlatType(container) != "statements" && file.FlatType(container) != "function_body" {
+		container, ok = file.FlatParent(container)
+	}
+	if !ok || file.FlatType(container) == "source_file" {
+		return true
+	}
+	return file.FlatStartByte(container) <= file.FlatStartByte(obj) && file.FlatEndByte(obj) <= file.FlatEndByte(container)
 }
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {

@@ -736,6 +736,28 @@ fun test(logger: Logger, t: Throwable) {
 
 // --- ObjectExtendsThrowable ---
 
+// A same-named class nested in an unrelated class is not visible to the object, so it does not hide kotlin.Exception.
+func TestExc_ObjectExtendsThrowable_NestedLookalikeOutOfScope(t *testing.T) {
+	findings := runRuleByName(t, "ObjectExtendsThrowable", `
+package test
+class Other {
+    class Exception
+}
+object Failure : Exception()
+class Holder {
+    open class Exception
+    object Inner : Exception()
+}
+`)
+	var lines []int
+	for _, f := range findings {
+		lines = append(lines, f.Line)
+	}
+	if len(lines) != 1 || lines[0] != 6 {
+		t.Fatalf("lines = %v, want [6]", lines)
+	}
+}
+
 func TestExc_ObjectExtendsThrowable_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ObjectExtendsThrowable", `
 object MyError : RuntimeException("singleton error")

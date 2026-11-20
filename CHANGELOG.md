@@ -4,6 +4,16 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
+  preserving private/local, non-nullable, never-reassigned, non-test narrowing).
+  Imported detekt configurations default it to `false` in both Go and FIR,
+  reporting properties whose resolved type is in `mutableTypes`, including
+  public, nullable, reassigned and test-source vars, but not constructor
+  parameters. Compatibility mode does not guess mutable types from factory
+  names or report read-only declared types. The `var` → `val` fix remains
+  available only for val candidates.
+
 ### Added
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,

@@ -52,6 +52,12 @@ func (r *DoubleMutabilityForCollectionRule) Meta() api.RuleDescriptor {
 				Description: "Additional mutable types to check.",
 				Apply:       func(r *DoubleMutabilityForCollectionRule, v []string) { r.MutableTypes = v },
 			}),
+			api.BoolOption(api.BoolOptionSpec[DoubleMutabilityForCollectionRule]{
+				Name:        "onlyValCandidates",
+				Default:     true,
+				Description: "Report only private or local, non-nullable vars that are never reassigned, outside test sources. Disable for detekt-compatible property findings.",
+				Apply:       func(r *DoubleMutabilityForCollectionRule, v bool) { r.OnlyValCandidates = v },
+			}),
 		},
 	}
 }

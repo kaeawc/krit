@@ -200,7 +200,8 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
 
 - Krit-only options default to on in krit and off in the detekt-defaults layer
   (`ignoreIdioms` on FunctionOnlyReturningConstant, ForbiddenVoid and
-  MagicNumber, `ignoreUnwrappableLines`, `reportMutableCollections`), so an
+  MagicNumber, `ignoreUnwrappableLines`, `reportMutableCollections`,
+  `onlyValCandidates` on DoubleMutabilityForCollection), so an
   imported detekt config behaves like detekt.
 - SerialVersionUIDInSerializableClass does not report enum classes or object
   expressions (`object : Serializable {}`, which cannot declare a
@@ -228,6 +229,21 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
   `--no-detekt-config`; those flags run the scan in-process.
 
 ### Known deliberate differences from detekt 1.23.8
+
+- `DoubleMutabilityForCollection` defaults to `onlyValCandidates: true`: only
+  private or local, non-nullable vars that are never reassigned, outside test
+  sources. The detekt-defaults layer sets it to `false`: both engines report
+  properties of configured resolved `mutableTypes`, regardless of visibility,
+  nullability, reassignment or test-source location. Constructor parameters are
+  excluded in this mode, as in detekt 1.23.8. The `var` → `val` autofix remains
+  limited to val candidates. Compatibility-mode `mutableTypes` entries match
+  expanded fully qualified type names, not bare simple names. The default mode
+  retains Go's factory-name
+  fallback (including read-only declared types) and FIR's additional resolved
+  type findings and private constructor properties; the diagnostic goldens pin
+  these source-analysis differences. In compatibility mode Go conservatively
+  skips inferred calls without proven factory evidence, while FIR can resolve
+  arbitrary calls and aliases; unresolved source types are not guessed.
 
 Checked against a detekt 1.23.8 run on synthetic sources. Everything else in the
 potential-bugs, coroutines, empty-blocks and `UseIfInsteadOfWhen` rules reports the same lines.

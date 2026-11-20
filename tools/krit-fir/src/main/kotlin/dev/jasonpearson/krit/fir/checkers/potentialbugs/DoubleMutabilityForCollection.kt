@@ -73,6 +73,10 @@ import org.jetbrains.kotlin.name.StandardClassIds
  * (a lazy-init holder), a name written by `x = ...`, `this.x = ...`, `+=` or
  * `++` (a local within its block, a member anywhere in the file), and a member
  * that is not private (other files can write it).
+ * These exemptions apply with `onlyValCandidates = true` (the default).
+ * When false, report every real property whose expanded type is listed in
+ * `mutableTypes`, including nullable, reassigned, public and test properties;
+ * constructor parameters are not properties visited by detekt 1.23.8.
  *
  * Deliberate differences from Go (see the golden data):
  * - a mutable collection type Go cannot see from the declaration's text is
@@ -184,6 +188,8 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
         if (!declaration.isVar) return
         val source = declaration.source ?: return
         val fromConstructor = source.kind == KtFakeSourceElementKind.PropertyFromParameter
+        val onlyValCandidates = config()["onlyValCandidates"] as? Boolean ?: true
+        if (fromConstructor && !onlyValCandidates) return
         if (!fromConstructor) {
             // A real `var` declaration statement, Go's property_declaration;
             // destructuring entries have another element type.
@@ -192,13 +198,29 @@ internal object DoubleMutabilityForCollection : FirPropertyChecker(MppCheckerKin
         }
         val session = context.session
         val type = declaration.returnTypeRef.coneType
-        val reported = isConfiguredMutableType(type, matchers(), session) ||
-            (isFactoryNamedCall(declaration.initializer) && isMutableCollection(type, session))
+        val reported = if (onlyValCandidates) {
+            isConfiguredMutableType(type, matchers(), session) ||
+                (isFactoryNamedCall(declaration.initializer) && isMutableCollection(type, session))
+        } else {
+            val configured = (config()["mutableTypes"] as? List<*>)?.filterIsInstance<String>()
+            val entries = when {
+                configured == null -> yamlDefault
+                configured.isNotEmpty() -> configured
+                else -> goStructDefault.map { entry ->
+                    when (entry) {
+                        "MutableList", "MutableSet", "MutableMap", "MutableCollection" -> "kotlin.collections.$entry"
+                        else -> "java.util.$entry"
+                    }
+                }
+            }
+            val names = entries.map { FqName(it) }.toSet()
+            bounds(type, session)?.all { it.expanded.lookupTag.classId.asSingleFqName() in names } == true
+        }
         if (!reported) return
         // Go skips scanner.IsTestFile files; the check request carries that
         // classification (configured test paths included).
-        if (isInTestFile()) return
-        if (mustStayVar(declaration)) return
+        if (onlyValCandidates && isInTestFile()) return
+        if (onlyValCandidates && mustStayVar(declaration)) return
 
         report(source, MESSAGE)
     }

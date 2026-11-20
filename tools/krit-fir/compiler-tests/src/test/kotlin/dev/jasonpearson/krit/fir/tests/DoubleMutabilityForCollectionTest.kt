@@ -132,4 +132,107 @@ class DoubleMutabilityForCollectionTest {
         assertEquals(mapOf("Use.kt" to mapOf(3 to 1)), findings(use))
         assertEquals(emptyMap(), findings(use, testFiles = setOf("Use.kt")))
     }
+
+    @Test fun onlyValCandidatesControlsAllExemptions() {
+        val use = """
+            package use
+            class Cache {
+                var publicItems: MutableList<String> = mutableListOf()
+                internal var shared: MutableSet<String> = mutableSetOf()
+                protected var inherited: MutableMap<String, Int> = mutableMapOf()
+                private var nullable: MutableList<String>? = null
+                private var written = mutableListOf<String>()
+                private var candidate = mutableListOf<String>()
+                fun reset() { written = mutableListOf() }
+                fun run() {
+                    var local: MutableList<String> = mutableListOf()
+                    local = mutableListOf()
+                }
+            }
+        """
+        assertEquals(mapOf("Use.kt" to mapOf(8 to 1)), findings(use))
+        assertEquals(mapOf("Use.kt" to mapOf(8 to 1)), findings(use, mapOf("onlyValCandidates" to true)))
+        assertEquals(
+            mapOf("Use.kt" to mapOf(3 to 1, 4 to 1, 5 to 1, 6 to 1, 7 to 1, 8 to 1, 11 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false)),
+        )
+    }
+
+    @Test fun compatibilityIncludesTestFilesButNotConstructorParameters() {
+        val use = """
+            package use
+            class Cache(var publicItems: MutableList<String>, private var privateItems: MutableList<String>)
+            private var items = mutableListOf<String>()
+        """
+        assertEquals(mapOf("Use.kt" to mapOf(2 to 1, 3 to 1)), findings(use))
+        assertEquals(emptyMap(), findings(use, testFiles = setOf("Use.kt")))
+        assertEquals(
+            mapOf("Use.kt" to mapOf(3 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false), testFiles = setOf("Use.kt")),
+        )
+    }
+
+    @Test fun compatibilityMatchesResolvedTypesNotFactoryNames() {
+        val use = """
+            package use
+            private var readOnly: List<String> = mutableListOf()
+            private var collection: MutableCollection<String> = mutableListOf()
+            fun mutableSetOf(): Int = 0
+            private var count = mutableSetOf()
+            private var actual = kotlin.collections.mutableListOf<String>()
+        """
+        assertEquals(
+            mapOf("Use.kt" to mapOf(6 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false)),
+        )
+        assertEquals(
+            mapOf("Use.kt" to mapOf(3 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false, "mutableTypes" to listOf("kotlin.collections.MutableCollection"))),
+        )
+    }
+
+    @Test fun compatibilityMatchesQualifiedCustomTypesExactly() {
+        assertEquals(
+            mapOf("Use.kt" to mapOf(3 to 1)),
+            findings(bags, mapOf("onlyValCandidates" to false, "mutableTypes" to listOf("com.example.Bag"))),
+        )
+        assertEquals(
+            emptyMap(),
+            findings("private var items = mutableListOf<String>()", mapOf("onlyValCandidates" to false, "mutableTypes" to listOf("MutableList"))),
+        )
+    }
+
+    @Test fun compatibilityMatchesExpandedAliases() {
+        val use = """
+            package use
+            typealias Items = MutableList<String>
+            private var items: Items = mutableListOf()
+        """
+        assertEquals(mapOf("Use.kt" to mapOf(3 to 1)), findings(use, mapOf("onlyValCandidates" to false)))
+        assertEquals(
+            emptyMap(),
+            findings(use, mapOf("onlyValCandidates" to false, "mutableTypes" to listOf("use.Items"))),
+        )
+    }
+
+    @Test fun compatibilityHandlesQualifiedTypesAndFactoryImports() {
+        val use = """
+            package use
+            import kotlin.collections.mutableListOf
+            class ArrayList
+            private var imported = mutableListOf<String>()
+            private var constructed = java.util.ArrayList<String>()
+            private var qualified: kotlin.collections.MutableList<String> = mutableListOf()
+            private var javaList: java.util.ArrayList<String> = java.util.ArrayList()
+            private var nullable: java.util.HashMap<String, Int>? = null
+        """
+        assertEquals(
+            mapOf("Use.kt" to mapOf(4 to 1, 5 to 1, 6 to 1, 7 to 1, 8 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false)),
+        )
+        assertEquals(
+            mapOf("Use.kt" to mapOf(4 to 1, 5 to 1, 6 to 1, 7 to 1)),
+            findings(use, mapOf("onlyValCandidates" to true)),
+        )
+    }
 }

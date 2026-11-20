@@ -2,8 +2,11 @@
 // go-lines: none
 package scopeGuiceOwnership
 
-import com.google.inject.Singleton
 import kotlinx.coroutines.*
+
+@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Singleton
 
 @Singleton
 class ScopedOwner {

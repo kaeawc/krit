@@ -64,6 +64,9 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
     private val dispatcherType = classIdOf("kotlinx.coroutines", "CoroutineDispatcher").nullableClassType()
     private val factories = setOf(coroutineId("CoroutineScope"), coroutineId("MainScope"))
     private val jobs = setOf(coroutineId("Job"), coroutineId("SupervisorJob"))
+    private val parentContextPropertyTokens = setOf(
+        "backgroundScope", "viewModelScope", "lifecycleScope", "coroutineContext", "parentJob",
+    )
     private val cancellation = setOf("cancel", "cancelChildren", "cancelAndJoin")
     private val fakePrefixes = listOf("Fake", "Test", "Stub", "Dummy", "Noop", "NoOp")
     private val hooks = setOf(
@@ -79,6 +82,7 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
         val initializer = declaration.initializer as? FirFunctionCall ?: return
         if (initializer.calleeReference.toResolvedCallableSymbol()?.callableId !in factories) return
         if (!initializer.resolvedType.isNonNothingSubtypeOf(scopeType)) return
+        if (parentContextPropertyTokens.any { it in declaration.name.asString() }) return
         val owner = context.containingElements.filterIsInstance<FirRegularClass>().lastOrNull {
             it.classKind != ClassKind.OBJECT && it.classKind != ClassKind.ENUM_ENTRY
         } ?: return

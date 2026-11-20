@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 18, 26, 70, 76, 80, 98, 102, 106
+// go-lines: 12, 23, 31, 75, 81, 85, 103, 107, 111
 package scopeCancellation
 
 import kotlinx.coroutines.*
@@ -11,6 +11,11 @@ import kotlin.coroutines.EmptyCoroutineContext
 class OrdinaryOwner {
     private val <!CoroutineScopeCreatedButNeverCancelled!>scope<!> = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     fun start() { scope.launch {} }
+}
+
+class LifecycleScopeProperties {
+    val viewModelScope = CoroutineScope(Dispatchers.Main)
+    val lifecycleScope = CoroutineScope(Dispatchers.Main)
 }
 
 class LocalOwner {

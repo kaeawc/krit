@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.support
 import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import org.jetbrains.kotlin.KtRealSourceElementKind
+import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
@@ -20,11 +21,13 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.getContainingClassSymbol
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirAnonymousFunctionSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirConstructorSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirReceiverParameterSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -39,6 +42,10 @@ private val SENSITIVE_KEY_WORDS = Regex(
     RegexOption.IGNORE_CASE,
 )
 private val CAMEL_BOUNDARY = Regex("([a-z0-9])([A-Z])|([A-Z]+)([A-Z][a-z])")
+private val SENSITIVE_FILE_WORDS = Regex(
+    "(^|_)(credentials?|tokens?|secrets?|auth|oauth|passwords?|passwd|private_?keys?)(_|$)",
+    RegexOption.IGNORE_CASE,
+)
 private val NON_WORD_RUN = Regex("[^A-Za-z0-9]+")
 
 // Words that mark a key as metadata about a secret (its expiry, count or flag), not the secret.
@@ -49,6 +56,7 @@ private val BENIGN_KEY_WORDS = setOf(
 )
 
 private val SHARED_PREFERENCES = classIdOf("android.content", "SharedPreferences")
+private val PLAIN_FILE = classIdOf("java.io", "File")
 private val SHARED_PREFERENCES_EDITOR = SHARED_PREFERENCES.createNestedClassId(Name.identifier("Editor"))
 private val ENCRYPTED_STORAGE = listOf(
     classIdOf("androidx.security.crypto", "EncryptedSharedPreferences"),
@@ -68,6 +76,44 @@ fun isSensitiveStorageKey(key: String): Boolean {
     val snake = snakeCase(key)
     if (!SENSITIVE_KEY_WORDS.containsMatchIn(key) && !SENSITIVE_KEY_WORDS.containsMatchIn(snake)) return false
     return NON_WORD_RUN.split(snake.lowercase()).none { it in BENIGN_KEY_WORDS }
+}
+
+fun isSensitiveFileName(path: String): Boolean =
+    SENSITIVE_FILE_WORDS.containsMatchIn(path) || SENSITIVE_FILE_WORDS.containsMatchIn(snakeCase(path))
+
+context(context: CheckerContext)
+fun isPlainFileWrite(call: FirFunctionCall): Boolean {
+    val callee = call.calleeReference.toResolvedCallableSymbol() ?: return false
+    val id = callee.callableId ?: return false
+    if (id.callableName.asString() !in setOf("writeText", "writeBytes")) return false
+    if (id.classId == PLAIN_FILE) return true
+    return id.classId == null && id.packageName.asString() == "kotlin.io" && isMemberOf(call, PLAIN_FILE)
+}
+
+fun plainFileReceiverLiteral(call: FirFunctionCall): String? {
+    val receiver = call.explicitReceiver ?: call.extensionReceiver ?: call.dispatchReceiver ?: return null
+    var file: FirFunctionCall? = null
+    val visitor = object : FirVisitorVoid() {
+        override fun visitElement(element: FirElement) {
+            if (file != null) return
+            if (element is FirFunctionCall) {
+                val constructor = element.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol
+                if (constructor?.callableId?.classId == PLAIN_FILE) {
+                    file = element
+                    return
+                }
+            }
+            element.acceptChildren(this)
+        }
+    }
+    unwrapSmartCasts(unwrapArgument(receiver), throughNotNull = true).accept(visitor)
+    for (argument in file?.argumentList?.arguments.orEmpty()) {
+        val value = unwrapArgument(argument)
+        if (value is FirLiteralExpression || value is FirStringConcatenationCall) {
+            storageKeyLiteral(value)?.let { return it }
+        }
+    }
+    return null
 }
 
 /**

@@ -380,9 +380,9 @@ func registerAndroidSourceRules() {
 	}
 }
 
-// fileDeclaresTypeVisibleAt reports whether a same-named class, object, companion
-// object, interface, enum, record, or typealias is visible at at.
-func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool {
+// fileDeclaresTypeVisibleAt reports whether a same-named declaration visible at at shadows platformType.
+// Type aliases that resolve to platformType are not shadows.
+func fileDeclaresTypeVisibleAt(file *scanner.File, name, platformType string, at uint32) bool {
 	if file == nil || at == 0 {
 		return false
 	}
@@ -393,9 +393,16 @@ func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool 
 		}
 		switch file.FlatType(decl) {
 		case "class_declaration", "object_declaration", "companion_object", "type_alias", "interface_declaration", "enum_declaration", "record_declaration":
-			if lintDeclTypeName(file, decl) == name && typeDeclarationVisibleAt(file, decl, at) {
-				found = true
+			if lintDeclTypeName(file, decl) != name || !typeDeclarationVisibleAt(file, decl, at) {
+				return
 			}
+			if file.FlatType(decl) == "type_alias" {
+				target := file.FlatNamedChild(decl, file.FlatNamedChildCount(decl)-1)
+				if target != 0 && lintTypeRefMatches(file, lintTrimGenerics(file.FlatNodeText(target)), platformType) {
+					return
+				}
+			}
+			found = true
 		}
 	})
 	return found
@@ -411,7 +418,7 @@ func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
 		return
 	}
 	// Without an oracle, a Log class or object declared in the file is not android.util.Log.
-	if lookup == nil && fileDeclaresTypeVisibleAt(file, "Log", ifExpr) {
+	if lookup == nil && fileDeclaresTypeVisibleAt(file, "Log", "android.util.Log", ifExpr) {
 		return
 	}
 	tag, level := logCallArgText(file, cond, 0), logLevelConstantName(file, logCallArgText(file, cond, 1))

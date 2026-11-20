@@ -236,16 +236,20 @@ func lintSupertypeNames(file *scanner.File, idx uint32) []string {
 		case "delegation_specifier":
 			add(child)
 		case "superclass", "super_interfaces", "extends_interfaces":
-			file.FlatWalkAllNodes(child, func(n uint32) {
-				switch file.FlatType(n) {
-				case "type_identifier", "scoped_type_identifier":
-					if parent, ok := file.FlatParent(n); ok && file.FlatType(parent) != "scoped_type_identifier" && file.FlatType(parent) != "generic_type" {
-						add(n)
-					}
-				case "generic_type":
-					add(n)
+			var collect func(uint32)
+			collect = func(node uint32) {
+				switch file.FlatType(node) {
+				case "type_arguments":
+					return
+				case "type_identifier", "scoped_type_identifier", "generic_type":
+					add(node)
+					return
 				}
-			})
+				for nested := file.FlatFirstChild(node); nested != 0; nested = file.FlatNextSib(nested) {
+					collect(nested)
+				}
+			}
+			collect(child)
 		}
 	}
 	return names

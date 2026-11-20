@@ -830,9 +830,11 @@ func handlerExprIsLooperArgument(ctx *api.Context, expr uint32) bool {
 				return handlerExprIsLooperArgument(ctx, inner)
 			}
 		}
-		if call, ok := lintCallAt(file, expr); ok && len(call.Args) > 0 &&
+		if call, ok := lintCallAt(file, expr); ok &&
 			(call.Name == "checkNotNull" || call.Name == "requireNotNull" || call.Name == "requireNonNull") {
-			return handlerExprIsLooperArgument(ctx, call.Args[0])
+			if value := call.Arg(0, "value"); value != 0 {
+				return handlerExprIsLooperArgument(ctx, value)
+			}
 		}
 	}
 	return false

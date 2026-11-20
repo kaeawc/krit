@@ -55,6 +55,7 @@ func TestXmlExternalEntity_LogTagMismatch_KotlinVisibilityRepair(t *testing.T) {
 		{"interface enclosing use", "interface Base { class LOOKALIKE }; interface Loader : Base { USE }", 0},
 		{"nested object lookalike", "class Loader { object LOOKALIKE; USE }", 0},
 		{"inherited nested object lookalike", "open class Base { object LOOKALIKE }; class Loader : Base() { USE }", 0},
+		{"nested object blocks companion visibility", "class Host { companion object { object Hidden { class LOOKALIKE } }\nUSE\n}", 1},
 		{"nested enum lookalike", "class Loader { enum class LOOKALIKE { A }; USE }", 0},
 		{"nested interface lookalike", "class Loader { interface LOOKALIKE; USE }", 0},
 		{"typealias lookalike", "typealias LOOKALIKE = Custom; class Custom; USE", 0},
@@ -158,10 +159,13 @@ func TestXmlExternalEntity_LogTagMismatch_JavaVisibilityRepair(t *testing.T) {
 		{"superclass", "class Base { static class LOOKALIKE {} } class Loader extends Base { USE }", 0},
 		{"transitive superclass", "class Base { static class LOOKALIKE {} } class Middle extends Base {} class Loader extends Middle { USE }", 0},
 		{"generic superclass", "class Base<T> { static class LOOKALIKE {} } class Loader extends Base<String> { USE }", 0},
+		{"generic argument is not a superclass", "class Base { static class LOOKALIKE {} } class Wrapper<T> {} class Loader extends Wrapper<Base> { USE }", 1},
 		{"interface supertype", "interface Base { class LOOKALIKE {} } class Loader implements Base { USE }", 0},
 		{"multiple interface supertypes", "interface Other {} interface Base { class LOOKALIKE {} } class Loader implements Other, Base { USE }", 0},
 		{"transitive interface", "interface Base { class LOOKALIKE {} } interface Middle extends Base {} class Loader implements Middle { USE }", 0},
 		{"generic interface", "interface Base<T> { class LOOKALIKE {} } class Loader implements Base<String> { USE }", 0},
+		{"generic argument is not an interface", "interface Base { class LOOKALIKE {} } interface Wrapper<T> {} class Loader implements Wrapper<Base> { USE }", 1},
+		{"generic argument is not an extended interface", "interface Base { class LOOKALIKE {} } interface Wrapper<T> {} interface Loader extends Wrapper<Base> { USE }", 1},
 		{"interface enclosing use", "interface Base { class LOOKALIKE {} } interface Loader extends Base { USE }", 0},
 		{"enum enclosing use", "interface Base { class LOOKALIKE {} } enum Loader implements Base { A; USE }", 0},
 		{"record enclosing use", "interface Base { class LOOKALIKE {} } record Loader() implements Base { USE }", 0},
@@ -221,7 +225,7 @@ func TestXmlExternalEntity_LogTagMismatch_JavaVisibilityRepair(t *testing.T) {
 				call, ok := lintCallAt(file, node)
 				if ok && call.Name == "isLoggable" {
 					checked = true
-					if visible := fileDeclaresTypeVisibleAt(file, "Log", node); visible != (test.want == 0) {
+					if visible := fileDeclaresTypeVisibleAt(file, "Log", "android.util.Log", node); visible != (test.want == 0) {
 						t.Errorf("Log visibility = %v, want %v", visible, test.want == 0)
 					}
 				}
@@ -260,6 +264,7 @@ func TestHandlerLeak_NullWrappersAndBranchesRepair(t *testing.T) {
 		{"kt", `requireNotNull(Looper.myLooper()) { "missing" }`, 0},
 		{"kt", `checkNotNull(Looper.myLooper()) { "missing" }`, 0},
 		{"kt", "checkNotNull(callback)", 1},
+		{"kt", `checkNotNull(lazyMessage = { "x" }, value = Looper.myLooper())`, 0},
 		{"kt", `checkNotNull(callback) { "missing" }`, 1},
 		{"kt", "requireNotNull(callback)", 1},
 		{"kt", "callbackOrNull ?: otherCallback", 1},
@@ -284,6 +289,78 @@ func TestHandlerLeak_NullWrappersAndBranchesRepair(t *testing.T) {
 				findings = runVisibilityRepairRule(t, "kt", "HandlerLeak", source)
 			}
 			if len(findings) != test.want {
+				t.Fatalf("want %d findings, got %v", test.want, findings)
+			}
+		})
+	}
+}
+
+func TestPlatformTypeAliasesDoNotLookLikeOverrides(t *testing.T) {
+	for _, test := range []struct {
+		name, source string
+		want         int
+	}{
+		{
+			name: "XML alias to platform FQN",
+			source: `typealias DocumentBuilderFactory = javax.xml.parsers.DocumentBuilderFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 1,
+		},
+		{
+			name: "XML alias to imported platform type",
+			source: `import javax.xml.parsers.DocumentBuilderFactory as JaxpFactory
+typealias DocumentBuilderFactory = JaxpFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 1,
+		},
+		{
+			name: "XML alias to project type",
+			source: `class ProjectFactory
+typealias DocumentBuilderFactory = ProjectFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 0,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if findings := runVisibilityRepairRule(t, "kt", "XmlExternalEntity", test.source); len(findings) != test.want {
+				t.Fatalf("want %d findings, got %v", test.want, findings)
+			}
+		})
+	}
+}
+
+func TestLogTagMismatchPlatformTypeAliases(t *testing.T) {
+	for _, test := range []struct {
+		name, source string
+		want         int
+	}{
+		{
+			name: "alias to imported platform type still checks tags",
+			source: `import android.util.Log as PlatformLog
+typealias Log = PlatformLog
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}`,
+			want: 1,
+		},
+		{
+			name: "alias to project type remains guarded",
+			source: `class ProjectLog
+typealias Log = ProjectLog
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}`,
+			want: 0,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if findings := runVisibilityRepairRule(t, "kt", "LogTagMismatch", test.source); len(findings) != test.want {
 				t.Fatalf("want %d findings, got %v", test.want, findings)
 			}
 		})

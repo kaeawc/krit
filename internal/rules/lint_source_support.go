@@ -86,11 +86,20 @@ func enclosingCompanionObject(file *scanner.File, node uint32) (uint32, bool) {
 		if file.FlatType(parent) == "companion_object" {
 			return parent, true
 		}
-		if file.FlatType(parent) == "class_declaration" || file.FlatType(parent) == "source_file" {
+		if lintClassLike(file.FlatType(parent)) || lintCallableScope(file.FlatType(parent)) || file.FlatType(parent) == "source_file" {
 			return 0, false
 		}
 	}
 	return 0, false
+}
+
+func lintCallableScope(kind string) bool {
+	switch kind {
+	case "function_declaration", "method_declaration", "constructor_declaration", "secondary_constructor",
+		"anonymous_function", "lambda_literal", "lambda_expression", "getter", "setter", "property_accessor":
+		return true
+	}
+	return false
 }
 
 func enclosingClassBody(file *scanner.File, node uint32) (uint32, bool) {

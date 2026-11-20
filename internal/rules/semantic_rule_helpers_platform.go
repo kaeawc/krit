@@ -208,8 +208,41 @@ func logExpressionDoesWorkFlat(ctx *api.Context, expression uint32) bool {
 				return true
 			}
 		}
+	case "elvis_expression":
+		left := flatUnwrapParenExpr(ctx.File, ctx.File.FlatNamedChild(expression, 0))
+		return logElvisLeftIsCall(ctx.File, left)
 	}
 	return false
+}
+
+func logElvisLeftIsCall(file *scanner.File, expression uint32) bool {
+	switch file.FlatType(expression) {
+	case "call_expression":
+		return true
+	case "navigation_expression":
+		selector := flatLastChildOfType(file, expression, "navigation_suffix")
+		if selector == 0 {
+			return false
+		}
+		var containsCall bool
+		var walk func(uint32)
+		walk = func(node uint32) {
+			if containsCall || node == 0 {
+				return
+			}
+			if file.FlatType(node) == "call_expression" || file.FlatType(node) == "call_suffix" {
+				containsCall = true
+				return
+			}
+			for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+				walk(child)
+			}
+		}
+		walk(selector)
+		return containsCall
+	default:
+		return false
+	}
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

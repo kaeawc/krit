@@ -11,10 +11,13 @@ The opt-in Go and FIR checkers report only `android.util.Log.v/d/i/println` when
 performs work; `w/e/wtf` are silent. FIR follows Android Lint 32.4.1 message semantics. Go uses a
 deliberately narrower structural rule: after unwrapping parentheses, the message itself must be a
 `call_expression`, or be a string template or `+` concatenation with a direct entry/operand that
-unwraps to a `call_expression`. For example, `"x" + compute()`, `"${user.name()}"`, and
-`obj.toString()` report. A call nested below another expression does not count: property reads such
-as `getPackageInfo(...).versionName`, Elvis/conditional expressions, and `${compute().length}` are
-silent in Go. It does not resolve message bindings, property declarations, or constness.
+unwraps to a `call_expression`. Elvis messages also report when the left operand, after unwrapping
+parentheses, is a call or a navigation whose final selector is a call. For example,
+`"x" + compute()`, `"${user.name()}"`, `obj.toString()`, and
+`prefs.getString("key", null) ?: ""` report. Calls on the right side of Elvis
+or nested below another expression do not count: property reads such as
+`getPackageInfo(...).versionName`, other Elvis/conditional expressions, and `${compute().length}`
+are silent in Go. It does not resolve message bindings, property declarations, or constness.
 
 FIR follows Android Lint 32.4.1's resolved `LogDetector` message semantics: non-constant
 concatenations/templates, calls, Kotlin qualified property accesses, and other expressions
@@ -38,10 +41,11 @@ but `if (flag) { val callback = { Log.d("T", compute()) } }` does not.
 All Go verdicts are pinned by `// go-lines:` headers in the `LogConditional*.kt` goldens. Remaining
 Go differences are documented inline: alias/static/star-import resolution and file-wide shadowing
 by a nested `Log` class can cause missed log calls; call-free non-constant templates/concatenations,
-qualified Kotlin properties and Java getters, Elvis expressions, not-null assertions, and
-conditional expressions that FIR treats as work are silent in Go. Calls nested in those latter
-expressions are also silent unless they are the message itself or a direct template/concatenation
-entry. FIR treats Java field reads such as `getPackageInfo(...).versionName` as no work; Go also
+qualified Kotlin properties and Java getters, Elvis expressions without a direct call on the left,
+not-null assertions, and conditional expressions that FIR treats as work are silent in Go. Calls
+nested in those latter expressions are also silent unless they are the message itself, a direct
+template/concatenation entry, or a direct call on the left side of Elvis. FIR treats Java field reads
+such as `getPackageInfo(...).versionName` as no work; Go also
 stays silent because the outer message is not a call. FIR/Lint can fold literal local `val`s in
 concatenations, but not templates; Go does not resolve constness in either case.
 The historical corpus row in `docs/fir-validation.md` predates this semantic change and is not a fresh qualification.

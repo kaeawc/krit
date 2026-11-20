@@ -152,10 +152,14 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 			types = append(types, lintChildTypeText(file, p))
 		}
 	}
-	if len(types) != 2 || !(javaLangTypeRef(file, types[0], "String") || file.Language == scanner.LangKotlin && types[0] == "kotlin.String") || !badHostnameVerifierSessionType(file, types[1], 0) {
+	if len(types) != 2 || !isStringParamType(file, types[0]) || !badHostnameVerifierSessionType(file, types[1], 0) {
 		return 0
 	}
 	return name
+}
+
+func isStringParamType(file *scanner.File, text string) bool {
+	return javaLangTypeRef(file, text, "String") || file.Language == scanner.LangKotlin && text == "kotlin.String"
 }
 
 func badHostnameVerifierSessionType(file *scanner.File, text string, depth int) bool {

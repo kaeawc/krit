@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Negative: verifiers whose verify does not always return true, and verify
-// functions that are not a HostnameVerifier's.
+// go-lines: 30, 39, 46
+// FIR negatives: non-verifiers and nonliteral returns, plus pinned Go-only
+// true positives for literal-true returns with extra statements.
 package test
 
 import javax.net.ssl.HostnameVerifier
@@ -24,6 +24,8 @@ class ExtensionHelper : HostnameVerifier {
     fun verify(hostname: String, vararg session: SSLSession) = true
 }
 
+// Go restores Lint/main's true positive for extra statements; FIR still
+// requires a single return and misses this body.
 class LogsFirst : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean {
         println(hostname)
@@ -31,9 +33,33 @@ class LogsFirst : HostnameVerifier {
     }
 }
 
+// Go also restores the declaration/throw cases from main. FIR's single-return
+// restriction still misses these true positives.
+class DeclaresFirst : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
+        val values = listOf(1)
+        return true
+    }
+}
+
+class ThrowsFirst : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
+        if (hostname.isEmpty()) throw IllegalArgumentException()
+        return true
+    }
+}
+
 class Conditional : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean {
         if (hostname.isEmpty()) return false
+        return true
+    }
+}
+
+// An inline lambda can return from verify; neither engine reports this body.
+class NonlocalReturn : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
+        run { if (hostname.isEmpty()) return false }
         return true
     }
 }

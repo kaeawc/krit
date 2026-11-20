@@ -12,6 +12,12 @@ import (
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
+func TestKnownBadHostnameVerifier(t *testing.T) {
+	if !IsKnownFIRRule("BadHostnameVerifier") {
+		t.Fatal("BadHostnameVerifier must participate in FIR and degraded-mode fallback")
+	}
+}
+
 func TestKnownFIRRulesMatchJar(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

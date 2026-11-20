@@ -1,7 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// FIR resolves the SSL wildcard import. Go deliberately requires an explicit
-// import or FQN, so unresolved simple names remain silent.
+// go-lines: 9
+// Both engines resolve the SSL wildcard import with no same-file shadow.
 package test
 
 import javax.net.ssl.*

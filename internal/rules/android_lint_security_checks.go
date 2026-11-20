@@ -80,16 +80,17 @@ func (r *BadHostnameVerifierRule) check(ctx *api.Context) {
 		}
 		return
 	}
-	if verifyMethodName(file, idx) == 0 || !methodHasBody(file, idx) || !badHostnameVerifierLiteralBody(file, idx) {
+	name := verifyMethodName(file, idx)
+	if name == 0 || !methodHasBody(file, idx) || !badHostnameVerifierLiteralBody(file, idx) {
 		return
 	}
 	for owner, ok := file.FlatParent(idx); ok; owner, ok = file.FlatParent(owner) {
 		switch file.FlatType(owner) {
-		case "function_declaration", "method_declaration", "lambda_literal":
+		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "anonymous_initializer", "static_initializer", "secondary_constructor", "constructor_declaration", "getter", "setter", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration":
 			return
 		case "class_declaration", "object_literal", "object_creation_expression", "object_declaration", "companion_object", "enum_entry":
 			if badHostnameVerifierOwner(file, owner, 0) {
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, badHostnameVerifierMessage)
+				ctx.EmitAt(file.FlatRow(name)+1, file.FlatCol(name)+1, badHostnameVerifierMessage)
 			}
 			return
 		}

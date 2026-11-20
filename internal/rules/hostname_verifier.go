@@ -11,11 +11,12 @@ type hostnameVerifierFacts struct {
 	imports map[string]string
 	shadows map[string]int
 	aliases map[string]uint32
+	stars   map[string]bool
 }
 
 func hostnameVerifierFileFacts(file *scanner.File) *hostnameVerifierFacts {
 	return filefacts.FileFact(fileFactsCache(), file, "hostnameVerifierSource", func() *hostnameVerifierFacts {
-		facts := &hostnameVerifierFacts{imports: map[string]string{}, shadows: map[string]int{}, aliases: map[string]uint32{}}
+		facts := &hostnameVerifierFacts{imports: map[string]string{}, shadows: map[string]int{}, aliases: map[string]uint32{}, stars: map[string]bool{}}
 		var imports []scanner.HeaderImport
 		if file.Language == scanner.LangKotlin {
 			imports = scanner.ParseSourceHeader(file.Content).Imports
@@ -26,16 +27,31 @@ func hostnameVerifierFileFacts(file *scanner.File) *hostnameVerifierFacts {
 				for _, match := range lintImportRe.FindAllStringSubmatch(stripLineAndBlockComments(file.FlatNodeText(node)), -1) {
 					imports = append(imports, scanner.HeaderImport{Path: match[2], Wildcard: match[3] != ""})
 				}
-			case "class_declaration", "interface_declaration", "object_declaration", "type_alias", "type_parameter", "function_declaration", "method_declaration", "parameter", "formal_parameter", "parameter_with_optional_type", "variable_declarator", "variable_declaration":
+			case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_declaration", "companion_object", "type_alias", "type_parameter", "function_declaration", "method_declaration", "parameter", "formal_parameter", "catch_formal_parameter", "class_parameter", "parameter_with_optional_type", "variable_declarator", "variable_declaration":
 				name := hostnameVerifierDeclarationName(file, node)
 				facts.shadows[name]++
 				if file.FlatType(node) == "type_alias" {
 					facts.aliases[name] = node
 				}
+			case "lambda_expression", "inferred_parameters":
+				for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+					if file.FlatType(child) == "identifier" {
+						facts.shadows[file.FlatNodeText(child)]++
+					}
+				}
+			case "object", "class", "interface", "enum", "record":
+				parent, ok := file.FlatParent(node)
+				if ok && file.FlatType(parent) == "ERROR" {
+					name := file.FlatNextSib(node)
+					if file.FlatType(name) == "simple_identifier" || file.FlatType(name) == "identifier" || file.FlatType(name) == "type_identifier" {
+						facts.shadows[strings.Trim(file.FlatNodeText(name), "`")]++
+					}
+				}
 			}
 		})
 		for _, imported := range imports {
 			if imported.Wildcard {
+				facts.stars[imported.Path] = true
 				continue
 			}
 			name := imported.Alias
@@ -56,6 +72,9 @@ func hostnameVerifierSourceMatches(file *scanner.File, _ uint32, text, fqn strin
 	head, _, _ := strings.Cut(text, ".")
 	matched := text == fqn
 	facts := hostnameVerifierFileFacts(file)
+	if strings.HasPrefix(fqn, "javax.net.ssl.") && facts.stars["javax.net.ssl"] {
+		matched = lintTypeRefMatches(file, text, fqn)
+	}
 	if imported, ok := facts.imports[head]; ok {
 		matched = imported+strings.TrimPrefix(text, head) == fqn
 	}
@@ -68,7 +87,8 @@ func hostnameVerifierDeclarationName(file *scanner.File, node uint32) string {
 		case "simple_identifier", "identifier":
 			return strings.Trim(file.FlatNodeText(child), "`")
 		case "type_identifier":
-			if file.FlatType(node) == "class_declaration" || file.FlatType(node) == "interface_declaration" || file.FlatType(node) == "type_alias" || file.FlatType(node) == "type_parameter" {
+			switch file.FlatType(node) {
+			case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_declaration", "companion_object", "type_alias", "type_parameter":
 				return strings.Trim(file.FlatNodeText(child), "`")
 			}
 		}
@@ -143,7 +163,30 @@ func badHostnameVerifierLiteralBody(file *scanner.File, method uint32) bool {
 	} else {
 		body, _ = file.FlatFindChild(method, "block")
 	}
-	return badHostnameVerifierSingleTrueStatement(file, body, false)
+	var returns int
+	valid := true
+	var visit func(uint32)
+	visit = func(node uint32) {
+		if node != body {
+			switch file.FlatType(node) {
+			case "function_declaration", "anonymous_function", "method_declaration", "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_literal", "object_declaration", "object_creation_expression":
+				return
+			}
+		}
+		if file.FlatType(node) == "jump_expression" || file.FlatType(node) == "return_statement" {
+			if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(node)), "return") {
+				returns++
+				valid = valid && badHostnameVerifierTrueReturn(file, node)
+			}
+		}
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			visit(child)
+		}
+	}
+	if body != 0 {
+		visit(body)
+	}
+	return valid && returns > 0
 }
 
 func badHostnameVerifierSingleTrueStatement(file *scanner.File, body uint32, implicitReturn bool) bool {
@@ -163,6 +206,10 @@ func badHostnameVerifierSingleTrueStatement(file *scanner.File, body uint32, imp
 	if implicitReturn && isTrueLiteral(file, flatUnwrapParenExpr(file, statement)) {
 		return true
 	}
+	return badHostnameVerifierTrueReturn(file, statement)
+}
+
+func badHostnameVerifierTrueReturn(file *scanner.File, statement uint32) bool {
 	if file.FlatType(statement) != "jump_expression" && file.FlatType(statement) != "return_statement" {
 		return false
 	}

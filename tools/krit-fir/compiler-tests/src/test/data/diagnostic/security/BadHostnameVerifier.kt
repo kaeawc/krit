@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 16, 22, 28, 36, 40, 47, 52, 60, 64, 68, 74, 90, 94, 100, 110
+// go-lines: 13, 17, 23, 29, 37, 41, 49, 53, 61, 65, 69, 75, 91, 95, 101, 111
 // Positive: a javax.net.ssl.HostnameVerifier whose verify(hostname, session)
-// always returns true. Each is reported on the function's first line (its
-// first annotation or modifier, else `fun`), the line the Go rule reports.
+// always returns true. FIR reports each on the function's first line (its
+// first annotation or modifier, else `fun`). Go reports the verify name,
+// including the following line for the annotated declaration below.
 package test
 
 import javax.net.ssl.HostnameVerifier

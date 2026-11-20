@@ -73,6 +73,22 @@ val lambda = HostnameVerifier { _, _ -> true }`, false, 0},
 class Demo { Object verifier = new AllowAllHostnameVerifier(); }`, true, 0},
 		{"Java shadowed field", `import org.apache.http.conn.ssl.SSLSocketFactory;
 class Demo { Other SSLSocketFactory; Object verifier = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER; }`, true, 0},
+		{"constructor parameter", `import org.apache.http.conn.ssl.SSLSocketFactory
+class Holder(val SSLSocketFactory: Other) { fun value() = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER }`, false, 0},
+		{"object shadow", `import org.apache.http.conn.ssl.SSLSocketFactory
+class Cfg { object SSLSocketFactory { const val ALLOW_ALL_HOSTNAME_VERIFIER = "x" }; val value = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER }`, false, 0},
+		{"companion shadow", `import org.apache.http.conn.ssl.SSLSocketFactory
+class Cfg { companion object SSLSocketFactory { const val ALLOW_ALL_HOSTNAME_VERIFIER = "x" }; val value = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER }`, false, 0},
+		{"Java enum shadow", `import org.apache.http.conn.ssl.SSLSocketFactory;
+class Cfg { enum SSLSocketFactory { ALLOW_ALL_HOSTNAME_VERIFIER } Object value = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER; }`, true, 0},
+		{"Java record shadow", `import org.apache.http.conn.ssl.SSLSocketFactory;
+class Cfg { record SSLSocketFactory() { static Object ALLOW_ALL_HOSTNAME_VERIFIER; } Object value = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER; }`, true, 0},
+		{"Java lambda parameter", `import org.apache.http.conn.ssl.SSLSocketFactory;
+class Cfg { Object value = consume(SSLSocketFactory -> SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER); }`, true, 0},
+		{"Java inferred parameters", `import org.apache.http.conn.ssl.SSLSocketFactory;
+class Cfg { Object value = consume((SSLSocketFactory, other) -> SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER); }`, true, 0},
+		{"Java catch parameter", `import org.apache.http.conn.ssl.SSLSocketFactory;
+class Cfg { void value() { try { work(); } catch (Exception SSLSocketFactory) { consume(SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER); } } }`, true, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			findings := runRuleByName(t, "AllowAllHostnameVerifier", test.source)
@@ -86,6 +102,33 @@ class Demo { Other SSLSocketFactory; Object verifier = SSLSocketFactory.ALLOW_AL
 	}
 }
 
+func TestBadHostnameVerifierJavaOwnerBoundaries(t *testing.T) {
+	for _, declaration := range []string{
+		"interface Helper { default boolean verify(String host, SSLSession session) { return true; } }",
+		"enum Helper { INSTANCE; public boolean verify(String host, SSLSession session) { return true; } }",
+		"record Helper() { public boolean verify(String host, SSLSession session) { return true; } }",
+		"class Helper { public boolean verify(String host, SSLSession session) { return true; } }",
+	} {
+		t.Run(declaration, func(t *testing.T) {
+			source := "import javax.net.ssl.*; class Strict implements HostnameVerifier { public boolean verify(String host, SSLSession session) { return host.equals(session.getPeerHost()); } " + declaration + " }"
+			if findings := runRuleByNameOnJava(t, "BadHostnameVerifier", source); len(findings) != 0 {
+				t.Fatalf("inner verify attributed to outer verifier: %v", findings)
+			}
+		})
+	}
+}
+
+func TestBadHostnameVerifierWildcardShadow(t *testing.T) {
+	for _, source := range []string{
+		"import javax.net.ssl.*; interface HostnameVerifier {} class Demo implements HostnameVerifier { public boolean verify(String host, SSLSession session) { return true; } }",
+		"import javax.net.ssl.*; class SSLSession {} class Demo implements HostnameVerifier { public boolean verify(String host, SSLSession session) { return true; } }",
+	} {
+		if findings := runRuleByNameOnJava(t, "BadHostnameVerifier", source); len(findings) != 0 {
+			t.Fatalf("wildcard shadow reported: %v", findings)
+		}
+	}
+}
+
 func TestBadHostnameVerifierPrecision(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
@@ -96,13 +139,23 @@ func TestBadHostnameVerifierPrecision(t *testing.T) {
 		{"parenthesized", "override fun verify(host: String, session: SSLSession) { return (true) }", 1},
 		{"comparison", "override fun verify(host: String, session: SSLSession) = host.isEmpty() == true", 0},
 		{"conditional false", "override fun verify(host: String, session: SSLSession): Boolean { if (host.isEmpty()) return false; return true }", 0},
-		{"additional statement", "override fun verify(host: String, session: SSLSession): Boolean { println(host); return true }", 0},
+		{"nonlocal false", "override fun verify(host: String, session: SSLSession): Boolean { run { if (host.isEmpty()) return false }; return true }", 0},
+		{"additional statement", "override fun verify(host: String, session: SSLSession): Boolean { println(host); return true }", 1},
+		{"local declaration", "override fun verify(host: String, session: SSLSession): Boolean { val values = listOf(1); return true }", 1},
+		{"throws", "override fun verify(host: String, session: SSLSession): Boolean { if (host.isEmpty()) throw IllegalArgumentException(); return true }", 1},
 		{"overload", "fun verify(first: Int, second: Int) = true", 0},
 		{"vararg overload", "fun verify(host: String, vararg session: SSLSession) = true", 0},
 		{"generic", "fun <Value> verify(host: Value, session: SSLSession) = true", 0},
 		{"extension", "fun Any.verify(host: String, session: SSLSession) = true", 0},
 		{"local", "fun helper() { fun verify(host: String, session: SSLSession) = true }", 0},
 		{"companion helper", "companion object { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"init helper", "init { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"constructor helper", "constructor(value: Int) { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"getter helper", "val helper: Boolean get() { fun verify(host: String, session: SSLSession) = true; return false }", 0},
+		{"setter helper", "var helper: Boolean = false; set(value) { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"nested class", "class Helper { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"nested interface", "interface Helper { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"nested object", "object Helper { fun verify(host: String, session: SSLSession) = true }", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			source := "import javax.net.ssl.HostnameVerifier\nimport javax.net.ssl.SSLSession\nclass Demo : HostnameVerifier {\n" + test.body + "\n}"

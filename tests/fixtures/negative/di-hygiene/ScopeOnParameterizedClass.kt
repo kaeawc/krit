@@ -11,3 +11,7 @@ class Cache<K, V> @Inject constructor() {
 // Scoped but non-generic: fine.
 @Singleton
 class UserRepository @Inject constructor()
+
+// Dagger keys scoped bindings by their full type.
+@Singleton
+class ScopedCache<T> @Inject constructor()

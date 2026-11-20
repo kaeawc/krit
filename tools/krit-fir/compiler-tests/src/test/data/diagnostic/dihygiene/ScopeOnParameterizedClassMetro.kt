@@ -1,8 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14
-// Metro scopes are meta-annotated with Metro's own Scope, which the Metro stub
-// does not declare, so it is declared here with a project scope named like one
-// of Go's.
+// go-lines: none
+// Metro scopes are not reported: keyed by full type.
+// The declarations live here because the stubs have no framework layer.
 package dev.zacsweers.metro
 
 @Target(AnnotationTarget.ANNOTATION_CLASS)
@@ -11,7 +10,7 @@ annotation class Scope
 @Scope
 annotation class Singleton
 
-<!ScopeOnParameterizedClass!>@Singleton<!>
+@Singleton
 class MetroCache<T>
 
 @Singleton

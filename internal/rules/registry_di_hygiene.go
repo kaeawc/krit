@@ -267,7 +267,7 @@ func registerDiHygieneRules() {
 		})
 	}
 	{
-		r := &ScopeOnParameterizedClassRule{BaseRule: BaseRule{RuleName: "ScopeOnParameterizedClass", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects DI scope annotations on generic classes; the type parameter is erased so the scope holds a single instance."}}
+		r := &ScopeOnParameterizedClassRule{BaseRule: BaseRule{RuleName: "ScopeOnParameterizedClass", RuleSetName: diHygieneRuleSet, Sev: "warning", Desc: "Detects DI scope annotations on generic classes in frameworks that key instances by class (Koin, EJB, JSF) or reject them (CDI); Dagger, Hilt, Metro and Guice key by full type and are not reported."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"class_declaration"}, Confidence: r.Confidence(), Implementation: r,
@@ -276,7 +276,7 @@ func registerDiHygieneRules() {
 				if _, ok := file.FlatFindChild(idx, "type_parameters"); !ok {
 					return
 				}
-				scope := scopeOnParameterizedClassScopeFlat(file, idx)
+				scope, kind := scopeOnParameterizedClassScopeFlat(file, idx)
 				if scope == "" {
 					return
 				}
@@ -285,7 +285,11 @@ func registerDiHygieneRules() {
 					name = "class"
 				}
 				// Anchored on the first modifier, as the FIR port reports it.
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, fmt.Sprintf("@%s on generic class '%s' shares one instance across all type arguments because the type parameter is erased at runtime.", scope, name))
+				message := fmt.Sprintf("@%s on generic class '%s' shares one instance across all type arguments because the type parameter is erased at runtime.", scope, name)
+				if kind == parameterizedScopeCDI {
+					message = fmt.Sprintf("@%s on generic class '%s': CDI allows only @Dependent on a bean with type parameters, so this is a definition error.", scope, name)
+				}
+				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, message)
 			},
 		})
 	}

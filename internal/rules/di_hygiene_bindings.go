@@ -204,7 +204,7 @@ func bindsKeyAnnotationTexts(texts []string) []string {
 		if dot := strings.LastIndex(name, "."); dot >= 0 {
 			name = name[dot+1:]
 		}
-		if bindsNonKeyAnnotations[name] || slices.Contains(scopeAnnotationNames, name) {
+		if bindsNonKeyAnnotations[name] || slices.Contains(bindingScopeAnnotationNames, name) {
 			continue
 		}
 		keys = append(keys, name+ref[end:])
@@ -357,9 +357,8 @@ func hasMetroFactoryAnnotationFlat(file *scanner.File, idx uint32) bool {
 		findAnnotationTextFlat(file, idx, "GraphExtension.Factory") != ""
 }
 
-// ScopeOnParameterizedClassRule detects scope annotations on generic classes,
-// where the type parameter is erased at runtime so the scope holds a single
-// instance regardless of the type argument.
+// ScopeOnParameterizedClassRule detects class-keyed scopes and CDI definition
+// errors on generic classes.
 type ScopeOnParameterizedClassRule struct {
 	FlatDispatchBase
 	BaseRule
@@ -368,9 +367,9 @@ type ScopeOnParameterizedClassRule struct {
 // Confidence reports a tier-2 (medium) base confidence. DI hygiene rule.
 func (r *ScopeOnParameterizedClassRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// scopeAnnotationNames lists annotations that mark a DI scope. The list mirrors
+// bindingScopeAnnotationNames lists annotations that mark a DI scope. The list mirrors
 // commonly used Hilt/Dagger scopes plus Anvil/Metro variants.
-var scopeAnnotationNames = []string{
+var bindingScopeAnnotationNames = []string{
 	"Singleton",
 	"Reusable",
 	"ApplicationScoped",
@@ -386,7 +385,7 @@ var scopeAnnotationNames = []string{
 }
 
 func firstScopeAnnotationFlat(file *scanner.File, idx uint32) string {
-	for _, name := range scopeAnnotationNames {
+	for _, name := range bindingScopeAnnotationNames {
 		if hasAnnotationFlat(file, idx, name) {
 			return name
 		}
@@ -394,36 +393,101 @@ func firstScopeAnnotationFlat(file *scanner.File, idx uint32) string {
 	return ""
 }
 
-// scopeOnParameterizedClassScopeFlat returns the first scope name written as an annotation on idx,
-// reading only annotation nodes so a scope named in a comment between them does not count. An
-// unqualified name the file declares as its own annotation class without a scope meta-annotation, and
-// does not import, is not a scope.
-func scopeOnParameterizedClassScopeFlat(file *scanner.File, idx uint32) string {
-	annotations := annotationNodeTextsFlat(file, idx)
-	if len(annotations) == 0 {
-		return ""
-	}
-	for _, name := range scopeAnnotationNames {
-		for _, text := range annotations {
-			if !annotationTextListHasName(text, name) {
-				continue
+// parameterizedScopeKind distinguishes shared class-keyed scopes from CDI definition errors.
+type parameterizedScopeKind uint8
+
+const (
+	parameterizedScopeShared parameterizedScopeKind = iota
+	parameterizedScopeCDI
+)
+
+// scopeAnnotationFrameworks maps scope names to their defining packages and framework semantics.
+var scopeAnnotationFrameworks = map[string]map[string]parameterizedScopeKind{
+	"Single": {
+		"org.koin.core.annotation": parameterizedScopeShared,
+	},
+	"Singleton": {
+		"org.koin.core.annotation": parameterizedScopeShared,
+		"javax.ejb":                parameterizedScopeShared, "jakarta.ejb": parameterizedScopeShared,
+	},
+	"ApplicationScoped": {
+		"javax.faces.bean": parameterizedScopeShared, "jakarta.faces.bean": parameterizedScopeShared,
+		"javax.enterprise.context": parameterizedScopeCDI, "jakarta.enterprise.context": parameterizedScopeCDI,
+	},
+	"SessionScoped": {
+		"javax.faces.bean": parameterizedScopeShared, "jakarta.faces.bean": parameterizedScopeShared,
+		"javax.enterprise.context": parameterizedScopeCDI, "jakarta.enterprise.context": parameterizedScopeCDI,
+	},
+	"RequestScoped": {
+		"javax.faces.bean": parameterizedScopeShared, "jakarta.faces.bean": parameterizedScopeShared,
+		"javax.enterprise.context": parameterizedScopeCDI, "jakarta.enterprise.context": parameterizedScopeCDI,
+	},
+	"ViewScoped": {
+		"javax.faces.bean": parameterizedScopeShared, "jakarta.faces.bean": parameterizedScopeShared,
+		"javax.faces.view": parameterizedScopeCDI, "jakarta.faces.view": parameterizedScopeCDI,
+	},
+	"FlowScoped": {
+		"javax.faces.flow": parameterizedScopeCDI, "jakarta.faces.flow": parameterizedScopeCDI,
+	},
+	"TransactionScoped": {
+		"javax.transaction": parameterizedScopeCDI, "jakarta.transaction": parameterizedScopeCDI,
+	},
+	"ConversationScoped": {
+		"javax.enterprise.context": parameterizedScopeCDI, "jakarta.enterprise.context": parameterizedScopeCDI,
+	},
+}
+
+// scopeOnParameterizedClassScopeFlat resolves annotations through qualified references,
+// explicit imports, then same-file declarations; unresolved packages remain silent.
+func scopeOnParameterizedClassScopeFlat(file *scanner.File, idx uint32) (string, parameterizedScopeKind) {
+	var references []string
+	for _, annotation := range annotationNodesFlat(file, idx) {
+		for child := file.FlatFirstChild(annotation); child != 0; child = file.FlatNextSib(child) {
+			userType := child
+			if file.FlatType(child) == "constructor_invocation" {
+				userType, _ = file.FlatFindChild(child, "user_type")
 			}
-			if annotationQualifiesName(text, name) || !localNonScopeAnnotation(file, name) {
-				return name
+			if userType != 0 && file.FlatType(userType) == "user_type" {
+				references = append(references, file.FlatNodeText(userType))
 			}
 		}
 	}
-	return ""
+	for _, ref := range references {
+		name, pkg := ref, ""
+		if dot := strings.LastIndex(ref, "."); dot >= 0 {
+			name, pkg = ref[dot+1:], ref[:dot]
+		} else if importedRef, imported := diImportedAnnotationReference(file, name); imported {
+			dot := strings.LastIndex(importedRef, ".")
+			name, pkg = importedRef[dot+1:], importedRef[:dot]
+		} else {
+			if !localAnnotationClassHeader(file, name) {
+				continue
+			}
+			pkg = filePackageName(file)
+		}
+		if kind, ok := scopeAnnotationFrameworks[name][pkg]; ok {
+			return name, kind
+		}
+	}
+	return "", parameterizedScopeShared
 }
 
-// annotationNodeTextsFlat returns the text of each annotation node in idx's modifier list and in the
-// modifier and annotation siblings before it, the places hasAnnotationFlat reads, without comments.
+// annotationNodeTextsFlat returns the text of each annotation node associated with idx.
 func annotationNodeTextsFlat(file *scanner.File, idx uint32) []string {
 	var texts []string
+	for _, annotation := range annotationNodesFlat(file, idx) {
+		texts = append(texts, file.FlatNodeText(annotation))
+	}
+	return texts
+}
+
+// annotationNodesFlat returns annotation nodes in idx's modifier list and preceding modifier or annotation siblings.
+func annotationNodesFlat(file *scanner.File, idx uint32) []uint32 {
+	var annotations []uint32
 	addModifiers := func(mods uint32) {
 		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
 			if file.FlatType(child) == "annotation" {
-				texts = append(texts, file.FlatNodeText(child))
+				annotations = append(annotations, child)
 			}
 		}
 	}
@@ -436,71 +500,49 @@ func annotationNodeTextsFlat(file *scanner.File, idx uint32) []string {
 			addModifiers(prev)
 			continue
 		case "annotation":
-			texts = append(texts, file.FlatNodeText(prev))
+			annotations = append(annotations, prev)
 			continue
 		}
 		break
 	}
-	return texts
+	return annotations
 }
 
-// annotationQualifiesName reports whether the annotation text names name through a qualified
-// reference (`@javax.inject.Singleton`), which no local declaration shadows.
-func annotationQualifiesName(text, name string) bool {
-	ref := strings.TrimPrefix(strings.TrimSpace(text), "@")
-	if colon := strings.Index(ref, ":"); colon >= 0 && !strings.ContainsAny(ref[:colon], ".([ ") {
-		ref = ref[colon+1:]
-	}
-	end := 0
-	for end < len(ref) && (isIdentByte(ref[end]) || ref[end] == '.') {
-		end++
-	}
-	return strings.HasSuffix(ref[:end], "."+name)
-}
-
-// unmarkedScopePackages declare scopes that carry no scope meta-annotation: Koin's single definition,
-// EJB's singleton session bean and the JSF managed-bean scopes, as the FIR checker lists them.
-var unmarkedScopePackages = []string{
-	"org.koin.core.annotation", "javax.ejb", "jakarta.ejb", "javax.faces.bean", "jakarta.faces.bean",
-}
-
-var scopeMetaAnnotationRe = regexp.MustCompile(`@(?:[\w.]+\.)?(?:Scope|ScopeAnnotation|NormalScope)\b`)
-
-// localNonScopeAnnotation reports whether the file declares its own annotation class name, without a
-// scope meta-annotation, and does not import name, so an unqualified @name is that local annotation.
-func localNonScopeAnnotation(file *scanner.File, name string) bool {
-	if _, imported := diImportedPackage(file, name); imported {
-		return false
-	}
-	if slices.Contains(unmarkedScopePackages, filePackageName(file)) {
-		return false
-	}
-	header, ok := localAnnotationClassHeader(file, name)
-	return ok && !scopeMetaAnnotationRe.MatchString(header)
-}
-
-// localAnnotationClassHeader returns the annotations and modifiers of the file's own
-// `annotation class name` declaration, and whether the file declares one. It reads declaration
-// nodes, so a commented-out declaration or one inside a string does not count.
-func localAnnotationClassHeader(file *scanner.File, name string) (string, bool) {
+// localAnnotationClassHeader reports whether the file declares its own `annotation class name`.
+// It reads declaration nodes, so a commented-out declaration or one inside a string does not count.
+func localAnnotationClassHeader(file *scanner.File, name string) bool {
 	if !bytes.Contains(file.Content, []byte("class "+name)) {
-		return "", false
+		return false
 	}
-	header, found := "", false
+	found := false
 	file.FlatWalkNodes(0, "class_declaration", func(decl uint32) {
 		if found || !file.FlatHasModifier(decl, "annotation") || extractIdentifierFlat(file, decl) != name {
 			return
 		}
-		header, found = file.FlatChildTextOrEmpty(decl, "modifiers"), true
+		found = true
 	})
-	return header, found
+	return found
 }
 
 // diImportedPackage returns the package the file imports name from, by its own name or an import
 // alias, and whether it imports name at all. It reads the parsed import headers, which sit before the
 // first declaration, so an import written in a comment does not count.
 func diImportedPackage(file *scanner.File, name string) (string, bool) {
-	pkg, imported := "", false
+	ref, imported := diImportedAnnotationReference(file, name)
+	if !imported {
+		return "", false
+	}
+	dot := strings.LastIndex(ref, ".")
+	if ref[dot+1:] != name {
+		return "", true
+	}
+	return ref[:dot], true
+}
+
+// diImportedAnnotationReference resolves an explicit annotation import, including aliases,
+// without guessing packages from wildcard imports.
+func diImportedAnnotationReference(file *scanner.File, name string) (string, bool) {
+	ref, imported := "", false
 	visit := func(header uint32) bool {
 		path, alias, wildcard := getInstanceImportHeaderParts(file, header)
 		dot := strings.LastIndex(path, ".")
@@ -512,16 +554,11 @@ func diImportedPackage(file *scanner.File, name string) (string, bool) {
 			if alias != name {
 				return false
 			}
-			if simple != name {
-				// An alias of another class: no package declares it under name.
-				pkg, imported = "", true
-				return true
-			}
-			pkg, imported = path[:dot], true
+			ref, imported = path, true
 			return true
 		}
 		if simple == name {
-			pkg, imported = path[:dot], true
+			ref, imported = path, true
 			return true
 		}
 		return false
@@ -531,12 +568,12 @@ func diImportedPackage(file *scanner.File, name string) (string, bool) {
 		case "import_list":
 			for header := file.FlatFirstChild(child); header != 0; header = file.FlatNextSib(header) {
 				if file.FlatType(header) == "import_header" && visit(header) {
-					return pkg, imported
+					return ref, imported
 				}
 			}
 		case "import_header":
 			if visit(child) {
-				return pkg, imported
+				return ref, imported
 			}
 		case "class_declaration", "object_declaration", "function_declaration", "property_declaration", "type_alias":
 			return "", false
@@ -580,7 +617,7 @@ func hasDIAnnotationFlat(file *scanner.File, idx uint32, name string, packages [
 	if slices.Contains(packages, filePackageName(file)) {
 		return true
 	}
-	_, local := localAnnotationClassHeader(file, name)
+	local := localAnnotationClassHeader(file, name)
 	return !local
 }
 

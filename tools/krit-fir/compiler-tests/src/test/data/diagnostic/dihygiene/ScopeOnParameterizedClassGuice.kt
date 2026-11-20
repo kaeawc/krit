@@ -1,8 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 14
-// Guice scopes are meta-annotated with Guice's own ScopeAnnotation, not
-// javax.inject.Scope. The Guice declarations live here because the stubs have
-// no Guice layer.
+// go-lines: none
+// Guice scopes are not reported: keyed by full type.
+// The declarations live here because the stubs have no framework layer.
 package com.google.inject
 
 @Target(AnnotationTarget.ANNOTATION_CLASS)
@@ -11,7 +10,7 @@ annotation class ScopeAnnotation
 @ScopeAnnotation
 annotation class Singleton
 
-<!ScopeOnParameterizedClass!>@Singleton<!>
+@Singleton
 class GuiceCache<T>
 
 @Singleton

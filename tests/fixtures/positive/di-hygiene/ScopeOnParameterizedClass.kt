@@ -1,7 +1,7 @@
 package dihygiene
 
 import javax.inject.Inject
-import javax.inject.Singleton
+import org.koin.core.annotation.Singleton
 
 @Singleton
 class Cache<K, V> @Inject constructor() {

@@ -1,12 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 28, 31
+// go-lines: 24, 27, 30, 42
 // CDI normal scopes are meta-annotated with NormalScope, not
-// jakarta.inject.Scope. The CDI declarations live here because the stubs have
-// no CDI layer.
+// jakarta.inject.Scope. The built-in scope declarations live here.
 package jakarta.enterprise.context
-
-@Target(AnnotationTarget.ANNOTATION_CLASS)
-annotation class NormalScope
 
 @NormalScope
 annotation class ApplicationScoped
@@ -16,6 +12,9 @@ annotation class RequestScoped
 
 @NormalScope
 annotation class SessionScoped
+
+@NormalScope
+annotation class ConversationScoped
 
 // The pseudo-scope: meta-annotated with jakarta.inject.Scope, but it creates a
 // new instance for every injection point.
@@ -39,3 +38,12 @@ class PlainBean
 // type arguments. It is the one scope CDI allows on a parameterized bean.
 @Dependent
 class DependentBean<T>
+
+<!ScopeOnParameterizedClass!>@ConversationScoped<!>
+class ConversationBean<T>
+
+@javax.inject.Singleton
+class JavaxInjectBean<T>
+
+@jakarta.inject.Singleton
+class JakartaInjectBean<T>

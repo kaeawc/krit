@@ -326,6 +326,15 @@ All notable changes to Krit will be documented in this file.
   `tools/lintdata`; see `tools/lintdata/README.md`.
 
 ### Changed
+- `ScopeOnParameterizedClass` no longer reports javax/jakarta.inject `@Singleton`, `@Reusable`, Hilt, Metro,
+  kotlin-inject, Guice or project scopes on generic classes: Dagger, Metro and Guice key scoped bindings
+  by the full type (checked with Dagger 2.60.1, Metro 1.5.1 and Guice 5.1.0), so `Cache<String>` and
+  `Cache<Integer>` get separate instances. The rule reports Koin `@Singleton`/`@Single`, EJB
+  `@Singleton` and JSF managed-bean scopes, where the container keys by class, and CDI normal scopes
+  (`@ApplicationScoped`, `@RequestScoped`, `@SessionScoped`, `@ConversationScoped`, faces
+  `@ViewScoped`/`@FlowScoped` and `@TransactionScoped`) as definition errors on generic beans.
+  FIR also resolves custom CDI normal scopes. javax/jakarta.inject `@Singleton` is no longer
+  reported, even under CDI.
 - Krit finds `java` and `javac` under `JAVA_HOME` before `PATH` everywhere it launches a JVM or checks for one
   (jar download, Java facts helper, `--doctor`).
 - On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory

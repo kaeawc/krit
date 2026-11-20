@@ -1,15 +1,28 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11
-// Koin's @Singleton declares a single-instance definition without a scope
-// meta-annotation. The declaration lives here because the stubs have no Koin
+// go-lines: 12, 18, 24, 27
+// Koin's @Singleton and @Single declare single-instance definitions without a scope
+// meta-annotation. An explicit import resolves it from the shared Koin stub
 // layer.
-package org.koin.core.annotation
+package test
 
-@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
-annotation class Singleton
+import org.koin.core.annotation.Singleton
+import org.koin.core.annotation.Single
+
 
 <!ScopeOnParameterizedClass!>@Singleton<!>
 class KoinCache<T>
 
 @Singleton
 class KoinService
+
+<!ScopeOnParameterizedClass!>@Single<!>
+class KoinSingleCache<T>
+
+@Single
+class KoinSingleService
+
+<!ScopeOnParameterizedClass!>@[Singleton]<!>
+class BracketedCache<T>
+
+<!ScopeOnParameterizedClass!>@[Suppress("unused") Single]<!>
+class MultipleAnnotationsCache<T>

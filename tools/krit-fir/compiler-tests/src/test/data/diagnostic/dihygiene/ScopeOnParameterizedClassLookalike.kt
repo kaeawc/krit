@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 26, 30
-// Local lookalikes: annotations in this package named like DI scopes but not
-// meta-annotated as scopes, so no DI framework treats them as one.
+// go-lines: none
+// Inject, Hilt and project scopes do not trigger this rule.
+// Their generic bindings are not class-keyed shared instances.
 package test
 
 import javax.inject.Scope
@@ -19,13 +19,13 @@ class LocalSingleton<T>
 @ActivityScoped
 class LocalActivityScoped<T>
 
-// A project scope named like one of Go's scopes is a real scope, like Go.
+// A project inject scope is not reported.
 @Scope
 annotation class UserScoped
 
-<!ScopeOnParameterizedClass!>@UserScoped<!>
+@UserScoped
 class ProjectScoped<T>
 
-// A qualified reference still reaches the real scope, like Go.
-<!ScopeOnParameterizedClass!>@javax.inject.Singleton<!>
+// A qualified inject scope is not reported either.
+@javax.inject.Singleton
 class RealSingleton<T>

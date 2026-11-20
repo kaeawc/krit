@@ -1,8 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 16, 17, 36, 38, 42, 43, 44, 45, 46, 61, 63, 76, 80, 81, 83, 84, 87, 92, 93, 94, 96, 99, 101, 103, 129, 130
-// FIR follows Android Lint 32.4.1; Go requires calls in messages. Nearest guard wins in both.
+// go-lines: 13, 17, 18, 37, 39, 44, 45, 46, 47, 48, 68, 70, 83, 87, 88, 90, 91, 94, 99, 100, 101, 103, 106, 108, 110, 136, 137
+// FIR follows Android Lint 32.4.1; Go reports direct message calls and direct calls in templates/concatenations.
 package test.logconditional
 
+import android.content.Context
 import android.util.Log
 
 private const val TAG = "Tag"
@@ -39,6 +40,7 @@ class Messages {
         <!LogConditional!>Log.d(TAG, value ?: "fallback")<!> // FIR reports; Go is silent without a call.
         <!LogConditional!>Log.d(TAG, value!!)<!> // FIR reports; Go is silent without a call.
         <!LogConditional!>Log.d(TAG, if (flag) value else "fallback")<!> // FIR reports; Go is silent without a call.
+        <!LogConditional!>Log.d(TAG, value ?: compute())<!> // FIR reports; Go ignores calls nested in Elvis expressions.
         <!LogConditional!>Log.d(TAG, compute())<!>
         <!LogConditional!>Log.d(TAG, compute(), error)<!>
         <!LogConditional!>Log.v(TAG, compute())<!>
@@ -50,6 +52,11 @@ class Messages {
         Log.wtf(TAG, compute())
     }
     companion object { const val NAME = "name" }
+}
+
+fun javaFieldMessages(context: Context, packageName: String, pkg: String) {
+    Log.d(TAG, context.packageManager.getPackageInfo(packageName, 0).versionName)
+    Log.d(TAG, context.packageManager.getApplicationInfo(pkg, 0).packageName)
 }
 
 fun guards(flag: Boolean, number: Int, items: List<String>) {

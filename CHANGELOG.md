@@ -5,9 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Changed
-- The opt-in `LogConditional` rule follows Android Lint 32.4.1 in Go and FIR: only `Log.v`, `Log.d`,
-  `Log.i`, and `Log.println` with message construction work report. Literals, simple references, constant
-  concatenations/templates, and `Log.w`/`Log.e`/`Log.wtf` do not. The nearest `if` or `when` branch decides
+- The opt-in `LogConditional` rule follows Android Lint 32.4.1 fully in FIR. Go reports `Log.v`, `Log.d`,
+  `Log.i`, and `Log.println` only when the message is a call or directly contains one in a string template or
+  `+` concatenation. `Log.w`/`Log.e`/`Log.wtf` do not report. The nearest `if` or `when` branch decides
   guarding (literal `true` and `when`'s `else` do not guard), with enclosing calls and declaration boundaries
   stopping the search. Diagnostics use Lint's method-specific message; the rule remains off by default.
 

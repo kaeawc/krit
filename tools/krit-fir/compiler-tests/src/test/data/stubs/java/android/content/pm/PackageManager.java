@@ -23,6 +23,8 @@ public abstract class PackageManager {
 
     public abstract PackageInfo getPackageInfo(String packageName, int flags) throws NameNotFoundException;
 
+    public abstract ApplicationInfo getApplicationInfo(String packageName, int flags) throws NameNotFoundException;
+
     public PackageInfo getPackageInfo(String packageName, PackageInfoFlags flags) throws NameNotFoundException {
         throw new RuntimeException("Stub!");
     }

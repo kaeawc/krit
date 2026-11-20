@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
 // FIR resolves non-const template references and the Java getter and reports them.
-// Go requires a call_expression inside the message, so all these references are silent.
+// Go reports direct calls and calls that are direct template/concatenation entries; these references are silent.
 package test.logconditional.evidence
 
 import android.util.Log

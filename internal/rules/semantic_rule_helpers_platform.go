@@ -176,11 +176,40 @@ func logExpressionDoesWorkFlat(ctx *api.Context, expression uint32) bool {
 	if expression == 0 {
 		return false
 	}
-	performsWork := false
-	ctx.File.FlatWalkNodes(expression, "call_expression", func(uint32) {
-		performsWork = true
-	})
-	return performsWork
+	switch ctx.File.FlatType(expression) {
+	case "call_expression":
+		return true
+	case "string_literal":
+		for entry := ctx.File.FlatFirstChild(expression); entry != 0; entry = ctx.File.FlatNextSib(entry) {
+			if ctx.File.FlatType(entry) != "interpolated_expression" {
+				continue
+			}
+			for value := ctx.File.FlatFirstChild(entry); value != 0; value = ctx.File.FlatNextSib(value) {
+				if ctx.File.FlatIsNamed(value) && ctx.File.FlatType(flatUnwrapParenExpr(ctx.File, value)) == "call_expression" {
+					return true
+				}
+			}
+		}
+	case "additive_expression", "binary_expression":
+		var operator string
+		var operands []uint32
+		for child := ctx.File.FlatFirstChild(expression); child != 0; child = ctx.File.FlatNextSib(child) {
+			if ctx.File.FlatIsNamed(child) {
+				operands = append(operands, child)
+			} else if operator == "" {
+				operator = ctx.File.FlatNodeText(child)
+			}
+		}
+		if operator != "+" {
+			return false
+		}
+		for _, operand := range operands {
+			if logExpressionDoesWorkFlat(ctx, operand) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

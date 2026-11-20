@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 18, 26, 70, 76, 80
+// go-lines: 12, 18, 26, 70, 76, 80, 98, 102, 106
 package scopeCancellation
 
 import kotlinx.coroutines.*
@@ -60,8 +60,8 @@ class NullParent {
 }
 
 class ProjectChildrenCancellation {
-    // Go counts the cancelChildren name; the resolved project extension is a no-op, even in teardown.
-    val <!CoroutineScopeCreatedButNeverCancelled!>uncancelled<!> = CoroutineScope(Dispatchers.IO)
+    // Match Go conservatively: even a project cancelChildren extension counts as management.
+    val uncancelled = CoroutineScope(Dispatchers.IO)
     fun close() { uncancelled.cancelChildren(1) }
     private fun CoroutineScope.cancelChildren(unused: Int) {}
 }
@@ -90,6 +90,19 @@ val topLevel = CoroutineScope(Dispatchers.IO)
 annotation class Singleton
 @Singleton
 class LookalikeAnnotation {
-    // Go exempts a Singleton name; this resolved project annotation establishes no DI ownership.
-    val <!CoroutineScopeCreatedButNeverCancelled!>notSingleton<!> = CoroutineScope(Dispatchers.IO)
+    // Match Go's simple-name ownership exemption for resolved project annotation classes.
+    val notSingleton = CoroutineScope(Dispatchers.IO)
+}
+
+class HandlerContext {
+    val <!CoroutineScopeCreatedButNeverCancelled!>scope<!> = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
+}
+
+class NamedContext {
+    val <!CoroutineScopeCreatedButNeverCancelled!>scope<!> = CoroutineScope(Dispatchers.IO + CoroutineName("sync"))
+}
+
+class UnrelatedLambdaCancellation {
+    val <!CoroutineScopeCreatedButNeverCancelled!>scope<!> = CoroutineScope(Dispatchers.IO)
+    fun stop(other: CoroutineScope) { other.let { it.cancel() } }
 }

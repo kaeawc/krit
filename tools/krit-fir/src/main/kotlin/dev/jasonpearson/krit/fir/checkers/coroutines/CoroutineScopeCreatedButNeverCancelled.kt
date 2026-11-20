@@ -9,13 +9,13 @@ import dev.jasonpearson.krit.fir.support.identifierAnchor
 import dev.jasonpearson.krit.fir.support.identifierText
 import dev.jasonpearson.krit.fir.support.isNonNothingSubtypeOf
 import dev.jasonpearson.krit.fir.support.isNullLiteral
+import dev.jasonpearson.krit.fir.support.nestedClassIdOf
 import dev.jasonpearson.krit.fir.support.nullableClassType
 import dev.jasonpearson.krit.fir.support.unwrapArgument
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
-import org.jetbrains.kotlin.fir.expressions.FirGetClassCall
 import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
@@ -23,8 +23,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirPropertyChecker
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
+import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
+import org.jetbrains.kotlin.fir.expressions.FirGetClassCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
@@ -33,12 +35,16 @@ import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
+import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
+import org.jetbrains.kotlin.fir.symbols.FirBasedSymbol
 import org.jetbrains.kotlin.fir.symbols.SymbolInternals
 import org.jetbrains.kotlin.fir.symbols.impl.FirFunctionSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirPropertySymbol
+import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.resolvedType
+import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.fir.visitors.FirVisitorVoid
 import org.jetbrains.kotlin.name.CallableId
@@ -54,6 +60,7 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
     private val scopeType = classIdOf("kotlinx.coroutines", "CoroutineScope").nullableClassType()
     private val jobType = classIdOf("kotlinx.coroutines", "Job").nullableClassType()
     private val contextType = classIdOf("kotlin.coroutines", "CoroutineContext").nullableClassType()
+    private val elementType = nestedClassIdOf("kotlin.coroutines", "CoroutineContext.Element").nullableClassType()
     private val dispatcherType = classIdOf("kotlinx.coroutines", "CoroutineDispatcher").nullableClassType()
     private val factories = setOf(coroutineId("CoroutineScope"), coroutineId("MainScope"))
     private val jobs = setOf(coroutineId("Job"), coroutineId("SupervisorJob"))
@@ -64,16 +71,6 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
         "destroy", "onDispose", "detach", "onDetach", "cleanup", "tearDown",
     )
     private val resets = setOf("reset", "clear", "cancelAll", "cancelChildren", "shutdown", "dispose", "close")
-    private val contributions = setOf(
-        "SingleIn", "ContributesBinding", "ContributesTo", "ContributesIntoSet", "ContributesIntoMap",
-        "ContributesMultibinding",
-    ).map { classIdOf("com.squareup.anvil.annotations", it) }.toSet()
-    private val singletons = setOf(classIdOf("javax.inject", "Singleton"), classIdOf("jakarta.inject", "Singleton"))
-    private val singleIn = setOf(
-        classIdOf("com.squareup.anvil.annotations", "SingleIn"),
-        classIdOf("com.squareup.anvil.annotations.optional", "SingleIn"),
-        classIdOf("software.amazon.lastmile.kotlin.inject.anvil", "SingleIn"),
-    )
 
     @OptIn(SymbolInternals::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
@@ -88,8 +85,8 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
         val path = context.containingFile?.path
         if (isTestFile(path) || "/test/" in scanPath(path).orEmpty().replace('\\', '/')) return
         if (fakePrefixes.any { owner.name.asString().startsWith(it) }) return
-        val annotations = owner.symbol.resolvedAnnotationClassIds
-        if (annotations.any { it in singletons }) return
+        val annotations = owner.symbol.resolvedAnnotationClassIds.map { it.shortClassName.asString() }
+        if ("Singleton" in annotations) return
         var hasHook = false
         owner.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
@@ -97,9 +94,9 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
                 element.acceptChildren(this)
             }
         })
-        if (!hasHook && annotations.any { it in contributions || it in singleIn }) return
+        if (!hasHook && annotations.any { it.startsWith("Contributes") || it == "SingleIn" }) return
         if (owner.annotations.any {
-                it.annotationTypeRef.coneType.classId in singleIn &&
+                it.annotationTypeRef.coneType.classId?.shortClassName?.asString() == "SingleIn" &&
                     it.argumentMapping.mapping.values.any { argument -> appScopeArgument(argument) }
             }) return
         if (initializer.argumentList.arguments.any { hasParentContext(unwrapArgument(it), 0) }) return
@@ -111,9 +108,11 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
         )
     }
 
+    context(context: CheckerContext)
     private fun appScopeArgument(expression: FirExpression): Boolean =
         expression is FirGetClassCall &&
-            expression.argument.resolvedType.classId?.shortClassName?.asString() == "AppScope"
+            (expression.resolvedType as? ConeClassLikeType)?.typeArguments?.singleOrNull()
+                ?.type?.fullyExpandedType()?.classId?.shortClassName?.asString() == "AppScope"
 
     context(context: CheckerContext)
     private fun hasParentContext(expression: FirExpression, depth: Int): Boolean {
@@ -130,6 +129,8 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
                     current.argumentList.arguments.any { hasParentContext(unwrapArgument(it), depth + 1) }
             }
         }
+        if (current.resolvedType.isNonNothingSubtypeOf(jobType)) return true
+        if (current.resolvedType.isNonNothingSubtypeOf(elementType)) return false
         return current.resolvedType.isNonNothingSubtypeOf(contextType)
     }
 
@@ -141,6 +142,7 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
         var collected = false
         var cancelled = false
         var functionName: String? = null
+        val bindings = mutableMapOf<FirBasedSymbol<*>, FirExpression>()
         file.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (managed) return
@@ -151,7 +153,16 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
                         val symbol = element.calleeReference.toResolvedCallableSymbol()
                         val id = symbol?.unwrapFakeOverrides()?.callableId
                         val receiver = receiverOf(element)
-                        val related = receiver?.let { relatesTo(it, declaration.symbol, 0) }
+                        if (id?.packageName?.asString() == "kotlin" && id.classId == null &&
+                            id.callableName.asString() in setOf("let", "also", "run", "apply") && receiver != null
+                        ) {
+                            element.argumentList.arguments.map(::unwrapArgument)
+                                .filterIsInstance<FirAnonymousFunctionExpression>().forEach { lambda ->
+                                    lambda.anonymousFunction.valueParameters.forEach { bindings[it.symbol] = receiver }
+                                    lambda.anonymousFunction.receiverParameter?.let { bindings[it.symbol] = receiver }
+                                }
+                        }
+                        val related = receiver?.let { relatesTo(it, declaration.symbol, 0, bindings) }
                         if (isCancellation(element)) {
                             cancelled = true
                             if (related != false) managed = true
@@ -160,17 +171,18 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
                             couldManage(symbol as? FirFunctionSymbol<*>)
                         ) managed = true
                         if (id != null && !borrowsOnly(id) && element !== declaration.initializer &&
-                            element.argumentList.arguments.any { relatesTo(unwrapArgument(it), declaration.symbol, 0) == true }
+                            element.argumentList.arguments.any { relatesTo(unwrapArgument(it), declaration.symbol, 0, bindings) == true }
                         ) managed = true
                         if (id != null && id.packageName.asString() == "kotlin.collections" && borrowsOnly(id) &&
-                            element.argumentList.arguments.any { relatesTo(unwrapArgument(it), declaration.symbol, 0) == true }
+                            element.argumentList.arguments.any { relatesTo(unwrapArgument(it), declaration.symbol, 0, bindings) == true }
                         ) collected = true
-                        if (id?.callableName?.asString() == "cancel" && !isCancellation(element) && related == true &&
-                            couldManage(symbol as? FirFunctionSymbol<*>)
+                        if (id?.callableName?.asString() in setOf("cancel", "cancelChildren") &&
+                            !isCancellation(element) && related == true &&
+                            (id?.callableName?.asString() == "cancelChildren" || couldManage(symbol as? FirFunctionSymbol<*>))
                         ) managed = true
                     }
-                    is FirReturnExpression -> if (relatesTo(element.result, declaration.symbol, 0) == true) managed = true
-                    is FirVariableAssignment -> if (relatesTo(element.rValue, declaration.symbol, 0) == true) managed = true
+                    is FirReturnExpression -> if (relatesTo(element.result, declaration.symbol, 0, bindings) == true) managed = true
+                    is FirVariableAssignment -> if (relatesTo(element.rValue, declaration.symbol, 0, bindings) == true) managed = true
                     else -> Unit
                 }
                 if (!managed) element.acceptChildren(this)
@@ -198,26 +210,35 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
     }
 
     context(context: CheckerContext)
-    private fun relatesTo(expression: FirExpression, target: FirPropertySymbol, depth: Int): Boolean? {
+    private fun relatesTo(
+        expression: FirExpression,
+        target: FirPropertySymbol,
+        depth: Int,
+        bindings: Map<FirBasedSymbol<*>, FirExpression>,
+    ): Boolean? {
         if (depth > 16) return null
         val current = unwrapSmartCasts(unwrapArgument(expression), throughNotNull = true)
         when (current) {
-            is FirSafeCallExpression -> return relatesTo(current.receiver, target, depth + 1)
+            is FirSafeCallExpression -> return relatesTo(current.receiver, target, depth + 1, bindings)
             is FirVarargArgumentsExpression -> {
-                val relations = current.arguments.map { relatesTo(it, target, depth + 1) }
+                val relations = current.arguments.map { relatesTo(it, target, depth + 1, bindings) }
                 return if (relations.any { it == true }) true else if (relations.any { it == null }) null else false
             }
-            is FirThisReceiverExpression -> return null
+            is FirThisReceiverExpression -> {
+                val symbol = current.calleeReference.boundSymbol as? FirBasedSymbol<*> ?: return null
+                return bindings[symbol]?.let { relatesTo(it, target, depth + 1, bindings) }
+            }
             is FirPropertyAccessExpression -> {
                 val symbol = current.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides() ?: return null
                 if (symbol == target) return true
+                bindings[symbol]?.let { return relatesTo(it, target, depth + 1, bindings) }
                 val id = symbol.callableId
                 if (id != null &&
                     ((id.classId == classIdOf("kotlinx.coroutines", "CoroutineScope") &&
                         id.callableName.asString() == "coroutineContext") || id == coroutineId("job"))
-                ) return receiverOf(current)?.let { relatesTo(it, target, depth + 1) }
+                ) return receiverOf(current)?.let { relatesTo(it, target, depth + 1, bindings) }
                 if (symbol is FirPropertySymbol && symbol.isVal && !symbol.hasDelegate && symbol.getterSymbol?.isDefault != false) {
-                    symbol.initializerInCheckedFile()?.let { return relatesTo(it, target, depth + 1) }
+                    symbol.initializerInCheckedFile()?.let { return relatesTo(it, target, depth + 1, bindings) }
                 }
                 return if (symbol is FirPropertySymbol && resourceType(current)) null else false
             }
@@ -225,9 +246,9 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
                 val id = current.calleeReference.toResolvedCallableSymbol()?.unwrapFakeOverrides()?.callableId ?: return null
                 if (id in factories || id in jobs) return false
                 if (id.classId == classIdOf("kotlin.coroutines", "CoroutineContext") && id.callableName.asString() == "get") {
-                    return receiverOf(current)?.let { relatesTo(it, target, depth + 1) }
+                    return receiverOf(current)?.let { relatesTo(it, target, depth + 1, bindings) }
                 }
-                if (current.argumentList.arguments.any { relatesTo(unwrapArgument(it), target, depth + 1) == true }) return true
+                if (current.argumentList.arguments.any { relatesTo(unwrapArgument(it), target, depth + 1, bindings) == true }) return true
                 return null
             }
             else -> return if (resourceType(current)) null else false

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 34, 40, 82, 95, 102, 108
+// go-lines: 34, 40, 82, 95, 102, 108, 124, 130, 136, 142, 148, 154
 package scopeCancellationNegative
 
 import kotlinx.coroutines.*
@@ -117,4 +117,40 @@ class NullableCancellation {
 class MainCancelled {
     val main = MainScope()
     fun close() { main.cancel() }
+}
+
+class LetCancellation {
+    // Go misses lambda parameter aliases; FIR follows the resolved scope-function binding.
+    val letScope = CoroutineScope(Dispatchers.IO)
+    fun stop() { letScope.let { it.cancel() } }
+}
+
+class NamedLetCancellation {
+    // Go misses lambda parameter aliases; FIR binds the named parameter to the scope.
+    val namedScope = CoroutineScope(Dispatchers.IO)
+    fun stop() { namedScope.let { bound -> bound.cancel() } }
+}
+
+class NullableLetCancellation {
+    // Go misses nullable lambda aliases; FIR follows the safe-call receiver.
+    val nullableScope: CoroutineScope? = CoroutineScope(Dispatchers.IO)
+    fun stop() { nullableScope?.let { it.cancel() } }
+}
+
+class AlsoCancellation {
+    // Go misses also aliases; FIR follows the resolved parameter.
+    val alsoScope = CoroutineScope(Dispatchers.IO)
+    fun stop() { alsoScope.also { bound -> bound.cancel() } }
+}
+
+class RunCancellation {
+    // Go misses run receivers; FIR follows the lambda receiver binding.
+    val runScope = CoroutineScope(Dispatchers.IO)
+    fun stop() { runScope.run { cancel() } }
+}
+
+class ApplyCancellation {
+    // Go misses apply receivers; FIR follows the lambda receiver binding.
+    val applyScope = CoroutineScope(Dispatchers.IO)
+    fun stop() { applyScope.apply { this.cancel() } }
 }

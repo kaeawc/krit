@@ -74,6 +74,8 @@ func TestXmlExternalEntity_LogTagMismatch_KotlinVisibilityRepair(t *testing.T) {
 		{"forward reference retained", "fun enclosing() { USE; class LOOKALIKE }", 0},
 		{"qualified supername retained", "open class Base { class LOOKALIKE }; class Loader : com.lib.Base() { USE }", 0},
 		{"imported supername retained", "import com.lib.Base\nopen class Base { class LOOKALIKE }; class Loader : Base() { USE }", 0},
+		{"alias preserves same-name nested superclass", "typealias Base = Other; class Outer { open class Base { class LOOKALIKE }; class Loader : Base() { USE } }", 0},
+		{"alias preserves self-named target superclass", "typealias Base = lib.Base; class Outer { open class Base { class LOOKALIKE }; class Loader : Base() { USE } }", 0},
 		{"ambiguous supername suppresses", "class Other { open class Base }; open class Base { class LOOKALIKE }; class Loader : Base() { USE }", 0},
 		{"cycle with lookalike", "open class Base : Middle() { class LOOKALIKE }; open class Middle : Base(); class Loader : Middle() { USE }", 0},
 		{"cycle without lookalike", "open class Base : Middle(); open class Middle : Base(); class Loader : Base() { USE }", 1},

@@ -151,21 +151,14 @@ func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32
 				superName = superName[dot+1:]
 			}
 			seenAliases := make(map[string]bool)
-			for typeAliasesByName[superName] != "" {
-				if seenAliases[superName] {
-					superName = ""
-					break
-				}
+			for superName != "" && !seenAliases[superName] {
 				seenAliases[superName] = true
-				superName = typeAliasesByName[superName]
-			}
-			if superName == "" {
-				continue
-			}
-			for _, superClass := range classesByName[superName] {
-				if inherits(superClass) {
-					return true
+				for _, superClass := range classesByName[superName] {
+					if inherits(superClass) {
+						return true
+					}
 				}
+				superName = typeAliasesByName[superName]
 			}
 		}
 		return false

@@ -156,6 +156,21 @@ suspend fun Job.cancelAndJoin() {
     TODO()
 }
 
+fun Job.cancelChildren(cause: CancellationException? = null) {
+    TODO()
+}
+
+val CoroutineContext.job: Job
+    get() = TODO()
+
+fun CoroutineContext.cancel(cause: CancellationException? = null) {
+    TODO()
+}
+
+fun CoroutineContext.cancelChildren(cause: CancellationException? = null) {
+    TODO()
+}
+
 fun Job.ensureActive() {
     TODO()
 }

@@ -250,9 +250,10 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
   Shadowed or unimported aliases and ambiguous non-stdlib wildcard imports
   are skipped by Go; unresolved source types are not guessed. Without a source
   resolver (daemon buffers, IDE, MCP and precommit fallback), Go compatibility
-  mode falls back to the default-mode candidates, never reporting more than
-  default mode without types. This fallback also retains default-mode
-  factory-name heuristics and can miss detekt findings.
+  mode checks only default-mode candidates with unshadowed explicit mutable
+  types or proven factories without an explicit read-only type. This
+  conservative fallback can miss detekt findings. The CLI builds the source
+  resolver even when no active rule requires it.
 - Java platform types are a compatibility gap in both engines:
   `var env = System.getenv()` and vars initialized from Java `List` getters
   are not reported. Go does not infer these types; FIR requires all flexible

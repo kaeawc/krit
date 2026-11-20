@@ -162,7 +162,7 @@ func registerPotentialbugsTypesRules() {
 				if useCandidates && !isCandidate {
 					return
 				}
-				if !useCandidates {
+				if !r.OnlyValCandidates {
 					if !r.hasConfiguredResolvedType(ctx, idx, varDecl) {
 						return
 					}

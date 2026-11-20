@@ -99,14 +99,15 @@ class Foo(val id: Int) {
 
 func TestDontDowncastCollectionTypes_FollowsDetekt(t *testing.T) {
 	flagged := map[string]string{
-		"as MutableList":    "fun f(l: List<String>) { val m = l as MutableList<String> }",
-		"is MutableList":    "fun f(l: List<String>) { val m = l is MutableList<*> }",
-		"not is ArrayList":  "fun f(l: List<String>) { val m = l !is ArrayList<String> }",
-		"safe cast":         "fun f(l: Set<String>) { val m = l as? HashSet<String> }",
-		"nullable source":   "fun f(l: List<String>?) { val m = l as MutableList<String> }",
-		"map to hash map":   "fun f(l: Map<String, Int>) { val m = l as HashMap<String, Int> }",
-		"qualified array":   "fun f(l: List<String>) { val m = l as java.util.ArrayList<String> }",
-		"parenthesized lhs": "fun f(l: List<String>) { val m = (l) as MutableList<String> }",
+		"same-package alias with wildcard": "import kotlinx.coroutines.*\ntypealias Names = List<String>\nfun f(names: Names) = names as MutableList<String>",
+		"as MutableList":                   "fun f(l: List<String>) { val m = l as MutableList<String> }",
+		"is MutableList":                   "fun f(l: List<String>) { val m = l is MutableList<*> }",
+		"not is ArrayList":                 "fun f(l: List<String>) { val m = l !is ArrayList<String> }",
+		"safe cast":                        "fun f(l: Set<String>) { val m = l as? HashSet<String> }",
+		"nullable source":                  "fun f(l: List<String>?) { val m = l as MutableList<String> }",
+		"map to hash map":                  "fun f(l: Map<String, Int>) { val m = l as HashMap<String, Int> }",
+		"qualified array":                  "fun f(l: List<String>) { val m = l as java.util.ArrayList<String> }",
+		"parenthesized lhs":                "fun f(l: List<String>) { val m = (l) as MutableList<String> }",
 	}
 	for name, src := range flagged {
 		if got := runRuleByNameWithResolver(t, "DontDowncastCollectionTypes", "package test\n"+src+"\n"); len(got) != 1 {
@@ -1348,8 +1349,10 @@ var readOnly: List<String> = mutableListOf()`, false, 0, 1, 0},
 			{"extensionDeclaredMutableType", `var String.items: MutableList<String>
     get() = mutableListOf()
     set(value) {}`, false, 0, 1, 0},
-			{"wildcardMutableListLookalike", `import com.lib.*
-private var items: MutableList<String> = MutableList()`, false, 0, 0, 0},
+			{"unrelatedWildcard", `import kotlinx.coroutines.*
+class Repo { var items: MutableList<String> = mutableListOf() }`, false, 0, 1, 0},
+			{"unrelatedWildcardFactory", `import kotlinx.coroutines.*
+class Repo { var items = mutableListOf<String>() }`, false, 0, 1, 0},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				file := parseInline(t, test.source)
@@ -1413,7 +1416,7 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 				})
 			}
 		})
-		t.Run("withoutResolverFallsBackToDefault", func(t *testing.T) {
+		t.Run("withoutResolverConservativeFallback", func(t *testing.T) {
 			file := parseInline(t, `class Cache {
     var publicItems: MutableList<String> = mutableListOf()
     private var candidate = mutableListOf<String>()
@@ -1428,16 +1431,35 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 			dispatcher := rules.NewDispatcher([]*api.Rule{entry}, nil)
 			compatColumns := dispatcher.Run(file)
 			compatFindings := compatColumns.Findings()
-			if len(defaultFindings) != 2 || len(compatFindings) != len(defaultFindings) {
-				t.Fatalf("default=%v compat=%v; want the same two candidates", defaultFindings, compatFindings)
-			}
-			for index, finding := range defaultFindings {
-				if finding.Line != compatFindings[index].Line {
-					t.Fatalf("default=%v compat=%v; candidate lines differ", defaultFindings, compatFindings)
-				}
+			if len(defaultFindings) != 2 || len(compatFindings) != 1 || compatFindings[0].Line != 3 {
+				t.Fatalf("default=%v compat=%v; want only the proven factory in compatibility mode", defaultFindings, compatFindings)
 			}
 			if ids := dispatcher.SingleFileRuleIDs(); len(ids) != 1 || ids[0] != entry.ID {
 				t.Fatalf("rule must be evaluated without a resolver: %v", ids)
+			}
+		})
+		t.Run("withoutResolverEvidence", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			for _, test := range []struct {
+				name, source string
+				want         int
+			}{
+				{"explicitMutable", "private var items: MutableList<String> = mutableListOf()", 1},
+				{"qualifiedFactory", "private var items = kotlin.collections.mutableListOf<String>()", 1},
+				{"qualifiedReadOnly", "private var items: kotlin.collections.List<String> = mutableListOf()", 0},
+				{"shadowedFactory", "fun mutableListOf(): Int = 0\nprivate var count = mutableListOf()", 0},
+				{"receiverLookalike", "class Builder { fun mutableListOf(): Int = 0 }\nprivate var count = Builder().mutableListOf()", 0},
+				{"typeLookalike", "class MutableList<T>\nprivate var items: MutableList<String> = MutableList()", 0},
+				{"importLookalike", "import other.mutableListOf\nprivate var count = mutableListOf()", 0},
+				{"wildcardWithoutEvidence", "import other.*\nprivate var count = mutableListOf()", 0},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					file := parseInline(t, test.source)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, nil).Run(file)
+					if got := columns.Findings(); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
 			}
 		})
 		t.Run("scopedAliases", func(t *testing.T) {
@@ -1448,6 +1470,8 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 				want                int
 			}{
 				{"samePackage", "package a\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"samePackageWildcard", "package a\nimport kotlinx.coroutines.*\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"wildcardAlias", "package b\nimport a.*\nvar registry: Registry = mutableMapOf()", "", 1},
 				{"explicitAliasImport", "package b\nimport a.Registry\nvar registry: Registry = mutableMapOf()", "", 1},
 				{"aliasedImport", "package b\nimport a.Registry as Items\nvar registry: Items = mutableMapOf()", "", 1},
 				{"unimported", "package b\nvar registry: Registry = Registry()", "", 0},

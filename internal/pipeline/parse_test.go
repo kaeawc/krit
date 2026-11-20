@@ -43,6 +43,15 @@ func TestParsePhase_Name(t *testing.T) {
 	}
 }
 
+func TestUnionNeedsOptionalResolver(t *testing.T) {
+	for _, optional := range []bool{false, true} {
+		caps := unionNeeds([]*api.Rule{nil, {OptionalResolver: optional}})
+		if caps.Has(api.NeedsResolver) != optional {
+			t.Fatalf("OptionalResolver=%v: got capabilities %v", optional, caps)
+		}
+	}
+}
+
 func TestParsePhase_Run_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Foo.kt")

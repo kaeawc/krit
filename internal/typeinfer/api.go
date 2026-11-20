@@ -433,11 +433,32 @@ func (r *defaultResolver) resolveTypeAlias(simpleName string, file *scanner.File
 		if fqn, ok := it.Aliases[simpleName]; ok {
 			return r.typeAliases[fqn]
 		}
-		if len(it.Wildcard) > 0 {
+	}
+	if alias := r.typeAliases[localName]; alias != nil {
+		return alias
+	}
+	var candidate *ResolvedType
+	if it != nil {
+		matches := 0
+		seen := make(map[string]bool)
+		for _, wildcardPkg := range it.Wildcard {
+			fqn := wildcardPkg + "." + simpleName
+			if seen[fqn] {
+				continue
+			}
+			seen[fqn] = true
+			if alias := r.typeAliases[fqn]; alias != nil {
+				candidate = alias
+				matches++
+			} else if r.classFQN[fqn] != nil {
+				matches++
+			}
+		}
+		if matches != 1 {
 			return nil
 		}
 	}
-	return r.typeAliases[localName]
+	return candidate
 }
 
 func (r *defaultResolver) attachFlatTypeArgs(result *ResolvedType, idx uint32, file *scanner.File, it *ImportTable) {

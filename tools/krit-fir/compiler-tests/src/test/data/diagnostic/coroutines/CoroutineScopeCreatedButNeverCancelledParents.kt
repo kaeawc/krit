@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 21, 26
+// go-lines: 17, 22, 27
 package scopeParentContexts
 
 import kotlinx.coroutines.*
@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.test.TestScope
+import kotlin.coroutines.ContinuationInterceptor
 
 class LocalJobParent {
     private val job = SupervisorJob()
@@ -24,6 +25,11 @@ class ParameterJobParent(job: Job) {
 class ContextParameterParent(context: CoroutineContext) {
     // Go reports; FIR cannot rule out a parent Job inside an opaque CoroutineContext parameter.
     val scope = CoroutineScope(context)
+}
+
+class DispatcherElementIsNotAParent(parent: CoroutineScope) {
+    // Go sees coroutineContext and stays silent; this contains only a dispatcher, so CoroutineScope creates a fresh Job.
+    val <!CoroutineScopeCreatedButNeverCancelled!>scope<!> = CoroutineScope(parent.coroutineContext[ContinuationInterceptor]!!)
 }
 
 class ViewModelParent : ViewModel() {

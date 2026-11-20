@@ -111,8 +111,11 @@ internal object CoroutineScopeCreatedButNeverCancelled : FirPropertyChecker(MppC
     context(context: CheckerContext)
     private fun appScopeArgument(expression: FirExpression): Boolean =
         expression is FirGetClassCall &&
-            (expression.resolvedType as? ConeClassLikeType)?.typeArguments?.singleOrNull()
-                ?.type?.fullyExpandedType()?.classId?.shortClassName?.asString() == "AppScope"
+            (expression.resolvedType as? ConeClassLikeType)?.typeArguments?.singleOrNull()?.type?.let { scopeType ->
+                val scopeClass = scopeType as? ConeClassLikeType
+                scopeClass?.classId?.shortClassName?.asString() == "AppScope" ||
+                    scopeType.fullyExpandedType().classId?.shortClassName?.asString() == "AppScope"
+            } == true
 
     context(context: CheckerContext)
     private fun hasParentContext(expression: FirExpression, depth: Int): Boolean {

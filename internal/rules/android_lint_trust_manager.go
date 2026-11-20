@@ -235,7 +235,7 @@ func lintSupertypeNames(file *scanner.File, idx uint32) []string {
 		switch file.FlatType(child) {
 		case "delegation_specifier":
 			add(child)
-		case "superclass", "super_interfaces":
+		case "superclass", "super_interfaces", "extends_interfaces":
 			file.FlatWalkAllNodes(child, func(n uint32) {
 				switch file.FlatType(n) {
 				case "type_identifier", "scoped_type_identifier":

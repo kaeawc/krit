@@ -391,12 +391,8 @@ func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool 
 			return
 		}
 		switch file.FlatType(decl) {
-		case "class_declaration", "object_declaration", "type_alias":
-			id := lintClassNameNode(file, decl)
-			if id == 0 {
-				id, _ = file.FlatFindChild(decl, "type_identifier")
-			}
-			if id != 0 && file.FlatNodeTextEquals(id, name) && typeDeclarationVisibleAt(file, decl, at) {
+		case "class_declaration", "object_declaration", "type_alias", "interface_declaration", "enum_declaration", "record_declaration":
+			if lintDeclTypeName(file, decl) == name && typeDeclarationVisibleAt(file, decl, at) {
 				found = true
 			}
 		}

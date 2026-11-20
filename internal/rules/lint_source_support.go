@@ -16,27 +16,63 @@ import (
 // contains at, so the declaration can be named there without a qualifier.
 func typeDeclarationVisibleAt(file *scanner.File, decl, at uint32) bool {
 	container, ok := file.FlatParent(decl)
-	for ok && file.FlatType(container) != "class_body" && file.FlatType(container) != "source_file" &&
-		file.FlatType(container) != "statements" && file.FlatType(container) != "function_body" {
+	for ok && !lintTypeScope(file.FlatType(container)) {
 		container, ok = file.FlatParent(container)
 	}
 	if !ok || file.FlatType(container) == "source_file" {
 		return true
 	}
-	if file.FlatStartByte(container) <= file.FlatStartByte(at) && file.FlatEndByte(at) <= file.FlatEndByte(container) {
+	// Forward references intentionally suppress more: false negatives are preferable to false positives.
+	if lintNodeContains(file, container, at) {
 		return true
 	}
-	if file.FlatType(container) == "class_body" {
+	if lintClassBody(file.FlatType(container)) {
 		if companion, found := enclosingCompanionObject(file, container); found {
-			if body, found := enclosingClassBody(file, companion); found && lintNodeContains(file, body, at) {
-				return true
+			if body, found := enclosingClassBody(file, companion); found {
+				if lintNodeContains(file, body, at) {
+					return true
+				}
+				if owner, found := file.FlatParent(body); found && visibleThroughSameFileSuperclass(file, owner, at) {
+					return true
+				}
 			}
 		}
-		if owner, found := file.FlatParent(container); found && file.FlatType(owner) == "class_declaration" {
-			if visibleThroughSameFileSuperclass(file, owner, at) {
-				return true
+		for owner, found := file.FlatParent(container); found; owner, found = file.FlatParent(owner) {
+			if lintClassLike(file.FlatType(owner)) {
+				return visibleThroughSameFileSuperclass(file, owner, at)
+			}
+			if !lintClassBody(file.FlatType(owner)) {
+				break
 			}
 		}
+	}
+	return false
+}
+
+func lintClassBody(kind string) bool {
+	switch kind {
+	case "class_body", "enum_class_body", "interface_body", "enum_body", "enum_body_declarations":
+		return true
+	}
+	return false
+}
+
+func lintTypeScope(kind string) bool {
+	if lintClassBody(kind) {
+		return true
+	}
+	switch kind {
+	case "source_file", "program", "statements", "function_body", "block", "constructor_body", "lambda_literal", "lambda_expression":
+		return true
+	}
+	return false
+}
+
+func lintClassLike(kind string) bool {
+	switch kind {
+	case "class_declaration", "object_declaration", "companion_object", "object_literal",
+		"interface_declaration", "enum_declaration", "record_declaration", "object_creation_expression":
+		return true
 	}
 	return false
 }
@@ -59,7 +95,7 @@ func enclosingCompanionObject(file *scanner.File, node uint32) (uint32, bool) {
 
 func enclosingClassBody(file *scanner.File, node uint32) (uint32, bool) {
 	for parent, ok := file.FlatParent(node); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) == "class_body" {
+		if lintClassBody(file.FlatType(parent)) {
 			return parent, true
 		}
 		if file.FlatType(parent) == "source_file" {
@@ -70,19 +106,12 @@ func enclosingClassBody(file *scanner.File, node uint32) (uint32, bool) {
 }
 
 func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32) bool {
-	owner := declaration
-	var useClass uint32
-	for current, ok := file.FlatParent(at); ok; current, ok = file.FlatParent(current) {
-		if file.FlatType(current) == "class_declaration" {
-			useClass = current
-			break
-		}
-	}
-	if useClass == 0 {
-		return false
-	}
 	classesByName := make(map[string][]uint32)
-	file.FlatWalkNodes(0, "class_declaration", func(class uint32) {
+	file.FlatWalkAllNodes(0, func(class uint32) {
+		kind := file.FlatType(class)
+		if !lintClassLike(kind) || kind == "object_literal" || kind == "object_creation_expression" {
+			return
+		}
 		if name := lintDeclTypeName(file, class); name != "" {
 			classesByName[name] = append(classesByName[name], class)
 		}
@@ -90,22 +119,36 @@ func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32
 	visited := make(map[uint32]bool)
 	var inherits func(uint32) bool
 	inherits = func(class uint32) bool {
+		if class == declaration {
+			return true
+		}
 		if visited[class] {
 			return false
 		}
 		visited[class] = true
-		for _, superName := range directSuperNames(file, class) {
-			superClasses := classesByName[superName]
-			if len(superClasses) != 1 {
-				continue
+		supers := directSuperNames(file, class)
+		if file.Language == scanner.LangJava {
+			supers = lintSupertypeNames(file, class)
+		}
+		for _, superName := range supers {
+			// Simple-name matches intentionally suppress more: false negatives are preferable to false positives.
+			if dot := strings.LastIndexByte(superName, '.'); dot >= 0 {
+				superName = superName[dot+1:]
 			}
-			if superClasses[0] == owner || inherits(superClasses[0]) {
-				return true
+			for _, superClass := range classesByName[superName] {
+				if inherits(superClass) {
+					return true
+				}
 			}
 		}
 		return false
 	}
-	return inherits(useClass)
+	for current, ok := file.FlatParent(at); ok; current, ok = file.FlatParent(current) {
+		if lintClassLike(file.FlatType(current)) && inherits(current) {
+			return true
+		}
+	}
+	return false
 }
 
 // lintCall is a Kotlin call_expression or Java method_invocation seen through one shape.

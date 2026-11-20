@@ -818,12 +818,20 @@ func handlerExprIsLooperArgument(ctx *api.Context, expr uint32) bool {
 				return true
 			}
 		}
-	case "call_expression":
-		name := flatCallExpressionName(file, expr)
-		if name != "checkNotNull" && name != "requireNotNull" {
-			return false
+	case "ternary_expression":
+		for branch := 1; branch < file.FlatNamedChildCount(expr); branch++ {
+			if handlerExprIsLooperArgument(ctx, file.FlatNamedChild(expr, branch)) {
+				return true
+			}
 		}
-		if call, ok := lintCallAt(file, expr); ok && len(call.Args) > 0 {
+	case "call_expression", "method_invocation":
+		if file.FlatType(expr) == "call_expression" && flatCallExpressionName(file, expr) == "" {
+			if inner := file.FlatNamedChild(expr, 0); file.FlatType(inner) == "call_expression" {
+				return handlerExprIsLooperArgument(ctx, inner)
+			}
+		}
+		if call, ok := lintCallAt(file, expr); ok && len(call.Args) > 0 &&
+			(call.Name == "checkNotNull" || call.Name == "requireNotNull" || call.Name == "requireNonNull") {
 			return handlerExprIsLooperArgument(ctx, call.Args[0])
 		}
 	}

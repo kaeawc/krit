@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 16, 17, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 61, 63, 76, 80, 81, 83, 84, 87, 92, 93, 94, 96, 99, 101, 103, 129, 130
-// Android Lint 32.4.1: only v/d/i/println with message work, nearest guard wins.
+// go-lines: 12, 16, 17, 36, 38, 42, 43, 44, 45, 46, 61, 63, 76, 80, 81, 83, 84, 87, 92, 93, 94, 96, 99, 101, 103, 129, 130
+// FIR follows Android Lint 32.4.1; Go requires calls in messages. Nearest guard wins in both.
 package test.logconditional
 
 import android.util.Log
@@ -28,17 +28,17 @@ class Messages {
         Log.d(TAG, "x" + CONSTANT)
         val local = "literal"
         Log.d(TAG, local + "suffix")
-        <!LogConditional!>Log.d(TAG, "x$local")<!>
-        <!LogConditional!>Log.d(TAG, "x$topValue")<!>
-        <!LogConditional!>Log.d(TAG, "x$field")<!>
-        <!LogConditional!>Log.d(TAG, "x$value")<!>
-        <!LogConditional!>Log.d(TAG, "x" + value)<!>
+        <!LogConditional!>Log.d(TAG, "x$local")<!> // FIR reports non-const template references; Go is silent.
+        <!LogConditional!>Log.d(TAG, "x$topValue")<!> // FIR reports; Go is silent without a message call.
+        <!LogConditional!>Log.d(TAG, "x$field")<!> // FIR reports; Go is silent without a message call.
+        <!LogConditional!>Log.d(TAG, "x$value")<!> // FIR reports; Go is silent without a message call.
+        <!LogConditional!>Log.d(TAG, "x" + value)<!> // FIR reports non-const concatenation; Go is silent.
         <!LogConditional!>Log.d(TAG, (compute()))<!>
-        <!LogConditional!>Log.d(TAG, this.field)<!>
+        <!LogConditional!>Log.d(TAG, this.field)<!> // FIR reports a Kotlin property read; Go is silent.
         <!LogConditional!>Log.d(TAG, value.length.toString())<!>
-        <!LogConditional!>Log.d(TAG, value ?: "fallback")<!>
-        <!LogConditional!>Log.d(TAG, value!!)<!>
-        <!LogConditional!>Log.d(TAG, if (flag) value else "fallback")<!>
+        <!LogConditional!>Log.d(TAG, value ?: "fallback")<!> // FIR reports; Go is silent without a call.
+        <!LogConditional!>Log.d(TAG, value!!)<!> // FIR reports; Go is silent without a call.
+        <!LogConditional!>Log.d(TAG, if (flag) value else "fallback")<!> // FIR reports; Go is silent without a call.
         <!LogConditional!>Log.d(TAG, compute())<!>
         <!LogConditional!>Log.d(TAG, compute(), error)<!>
         <!LogConditional!>Log.v(TAG, compute())<!>
@@ -85,7 +85,7 @@ fun guards(flag: Boolean, number: Int, items: List<String>) {
     when { Log.d(TAG, compute()) > 0 -> 0; else -> 0 }
     if (flag) {
         run { <!LogConditional!>Log.d(TAG, compute())<!> }
-        items.forEach { <!LogConditional!>Log.d(TAG, "x$it")<!> } // Go cannot bind implicit lambda parameters and stays silent.
+        items.forEach { <!LogConditional!>Log.d(TAG, "x$it")<!> } // FIR reports; Go is silent without a message call.
         val callback = { Log.d(TAG, compute()) }
         val anonymous = fun() { Log.d(TAG, compute()) }
         fun local() { Log.d(TAG, compute()) }
@@ -95,7 +95,7 @@ fun guards(flag: Boolean, number: Int, items: List<String>) {
     }
     val callback = { <!LogConditional!>Log.d(TAG, compute())<!> }
     run { if (flag) Log.d(TAG, compute()) }
-    for (item in items) { <!LogConditional!>Log.d(TAG, "x$item")<!> } // Go lacks loop-variable binding and stays silent.
+    for (item in items) { <!LogConditional!>Log.d(TAG, "x$item")<!> } // FIR reports; Go is silent without a message call.
     while (flag) { <!LogConditional!>Log.d(TAG, compute())<!> }
     try {
         <!LogConditional!>Log.d(TAG, compute())<!>

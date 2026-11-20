@@ -1,6 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Go cannot resolve these other-file camelCase consts and stays silent, like FIR/Lint.
+// Go is silent without a message call, regardless of declarations; FIR/Lint resolve these consts.
 package test.logconditional.constants
 
 import android.util.Log
@@ -9,6 +9,10 @@ import test.logconditional.external.Config.prefix
 import test.logconditional.external.Config.timeoutMs
 
 private fun compute(): String = "computed"
+typealias Sink = (prefix: String) -> Unit
+class CallbackHolder {
+    val callback: (prefix: String) -> Unit = { println(it) }
+}
 fun unrelated() { val prefix = compute(); val timeoutMs = compute() }
 fun constants() {
     Log.d("Tag", "timeout=${Config.timeoutMs}")

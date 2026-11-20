@@ -55,13 +55,13 @@ func TestLogConditionalAnyConditionGuards(t *testing.T) {
 		body string
 		want int
 	}{
-		{"debug and flag", `if (BuildConfig.DEBUG && flag) { Log.d("T", "x" + flag) }`, 0},
-		{"flag and debug", `if (flag && BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
-		{"debug or flag", `if (BuildConfig.DEBUG || flag) { Log.d("T", "x" + flag) }`, 0},
-		{"literal true", `if (true) { Log.d("T", "x" + flag) }`, 1},
-		{"bare debug", `if (BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
-		{"negated debug", `if (!BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
-		{"unrelated if", `if (flag) Log.d("T", "x" + flag)`, 0},
+		{"debug and flag", `if (BuildConfig.DEBUG && flag) { Log.d("T", "x" + flag.toString()) }`, 0},
+		{"flag and debug", `if (flag && BuildConfig.DEBUG) { Log.d("T", "x" + flag.toString()) }`, 0},
+		{"debug or flag", `if (BuildConfig.DEBUG || flag) { Log.d("T", "x" + flag.toString()) }`, 0},
+		{"literal true", `if (true) { Log.d("T", "x" + flag.toString()) }`, 1},
+		{"bare debug", `if (BuildConfig.DEBUG) { Log.d("T", "x" + flag.toString()) }`, 0},
+		{"negated debug", `if (!BuildConfig.DEBUG) { Log.d("T", "x" + flag.toString()) }`, 0},
+		{"unrelated if", `if (flag) Log.d("T", "x" + flag.toString())`, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

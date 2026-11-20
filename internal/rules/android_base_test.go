@@ -293,7 +293,7 @@ fun real() { Log.d("T", compute()) }
 	}
 }
 
-func TestLogConditionalLintSemantics(t *testing.T) {
+func TestLogConditionalCallWorkAndGuards(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
@@ -302,8 +302,14 @@ func TestLogConditionalLintSemantics(t *testing.T) {
 		{"literal", `Log.d("T", "literal")`, 0},
 		{"reference", `Log.d("T", value)`, 0},
 		{"call", `Log.d("T", compute())`, 1},
-		{"concat", `Log.d("T", "x" + value)`, 1},
-		{"template", `Log.d("T", "x$value")`, 1},
+		{"concat reference", `Log.d("T", "x" + value)`, 0},
+		{"template reference", `Log.d("T", "x$value")`, 0},
+		{"concat call right", `Log.d("T", "x" + compute())`, 1},
+		{"concat call left", `Log.d("T", compute() + "x")`, 1},
+		{"template call", `Log.d("T", "x${compute()}")`, 1},
+		{"raw template call", `Log.d("T", """x${value.toString()}""")`, 1},
+		{"nested concat call", `Log.d("T", "x" + (value + compute()))`, 1},
+		{"receiver call property", `Log.d("T", compute().length)`, 1},
 		{"constant concat", `Log.d("T", "a" + "b")`, 0},
 		{"constant template", `Log.d("T", "x$CONSTANT")`, 0},
 		{"constant interpolation", `Log.d("T", "${1}")`, 0},
@@ -311,17 +317,24 @@ func TestLogConditionalLintSemantics(t *testing.T) {
 		{"constant comparison interpolation", `Log.d("T", "${1 > 0}")`, 0},
 		{"constant path", `Log.d("T", "x${Constants.NAME}")`, 0},
 		{"local literal concat", `val local = "literal"; Log.d("T", local + "x")`, 0},
-		{"local literal template", `val local = "literal"; Log.d("T", "x$local")`, 1},
-		{"top val template", `Log.d("T", "x$topValue")`, 1},
-		{"qualified property", `Log.d("T", value.length)`, 1},
+		{"local literal template", `val local = "literal"; Log.d("T", "x$local")`, 0},
+		{"local computed reference", `val local = compute(); Log.d("T", "x$local")`, 0},
+		{"top val template", `Log.d("T", "x$topValue")`, 0},
+		{"qualified property", `Log.d("T", value.length)`, 0},
 		{"Java field", `Log.d("T", java.io.File.separator)`, 0},
 		{"Java field import", `Log.d("T", File.separator)`, 0},
 		{"imported constant template", `Log.d("T", "x${Integer.MAX_VALUE}")`, 0},
 		{"parenthesized reference", `Log.d("T", (value))`, 0},
 		{"parenthesized call", `Log.d("T", (compute()))`, 1},
-		{"elvis", `Log.d("T", value ?: "fallback")`, 1},
-		{"not null", `Log.d("T", value!!)`, 1},
-		{"if message", `Log.d("T", if (flag) value else "fallback")`, 1},
+		{"elvis reference", `Log.d("T", value ?: "fallback")`, 0},
+		{"elvis call", `Log.d("T", value ?: compute())`, 1},
+		{"not null reference", `Log.d("T", value!!)`, 0},
+		{"not null call", `Log.d("T", compute()!!)`, 1},
+		{"if message references", `Log.d("T", if (flag) value else "fallback")`, 0},
+		{"if message call", `Log.d("T", if (flag) value else compute())`, 1},
+		{"tag call only", `Log.d(compute(), value)`, 0},
+		{"throwable call only", `Log.d("T", value, error())`, 0},
+		{"call text literal", `Log.d("T", "compute()")`, 0},
 		{"named arguments", `Log.d(tag = "T", msg = compute())`, 1},
 		{"missing message", `Log.d("T")`, 0},
 		{"verbose", `Log.v("T", compute())`, 1},
@@ -398,18 +411,6 @@ class Screen(flag: Boolean) {
 }`
 	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
 		t.Fatalf("expected guarded locals to be silent, got %v", findings)
-	}
-}
-
-func TestLogConditionalImportedConstantUnrelatedDeclaration(t *testing.T) {
-	source := `import android.util.Log
-import example.Config.prefix
-fun compute(): String = "computed"
-fun unrelated() { val prefix = compute() }
-class Unrelated(prefix: String)
-fun log() { Log.d("T", "x$prefix"); Log.d("T", "x" + prefix) }`
-	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
-		t.Fatalf("unrelated declarations must not turn imported constants into work: %v", findings)
 	}
 }
 

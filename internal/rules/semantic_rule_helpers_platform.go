@@ -172,137 +172,15 @@ func logMessageDoesWorkFlat(ctx *api.Context, call uint32) bool {
 }
 
 func logExpressionDoesWorkFlat(ctx *api.Context, expression uint32) bool {
-	file := ctx.File
-	expression = flatUnwrapParenExpr(file, expression)
-	switch file.FlatType(expression) {
-	case "simple_identifier", "integer_literal", "long_literal", "real_literal", "boolean_literal", "character_literal", "null_literal":
-		return false
-	case "string_literal", "line_string_literal", "multi_line_string_literal", "additive_expression":
-		return !logExpressionIsConstantFlat(ctx, expression, false, make(map[uint32]bool))
-	case "navigation_expression":
-		return !logExpressionIsConstantFlat(ctx, expression, false, make(map[uint32]bool)) && logQualifiedPropertyDoesWorkFlat(ctx, expression)
-	default:
-		return expression != 0
-	}
-}
-
-func logQualifiedPropertyDoesWorkFlat(ctx *api.Context, expression uint32) bool {
-	file := ctx.File
-	receiver := file.FlatNamedChild(expression, 0)
-	name := flatNavigationExpressionLastIdentifier(file, expression)
-	if ctx.Resolver != nil {
-		if typ := ctx.Resolver.ResolveFlatNode(receiver, file); typ != nil {
-			if strings.HasPrefix(typ.FQN, "kotlin.") {
-				return true
-			}
-			if info := ctx.Resolver.ClassHierarchy(typ.FQN); info != nil && strings.HasSuffix(info.File, ".kt") {
-				for _, member := range info.Members {
-					if member.Kind == "property" && member.Name == name {
-						return true
-					}
-				}
-			}
-		}
-	}
-	if file.FlatNodeText(receiver) != "this" {
+	expression = flatUnwrapParenExpr(ctx.File, expression)
+	if expression == 0 {
 		return false
 	}
-	found := false
-	file.FlatWalkNodes(0, "property_declaration", func(declaration uint32) {
-		if semantics.DeclarationName(file, declaration) == name && semantics.SameEnclosingOwner(file, declaration, expression) {
-			found = true
-		}
+	performsWork := false
+	ctx.File.FlatWalkNodes(expression, "call_expression", func(uint32) {
+		performsWork = true
 	})
-	return found
-}
-
-func logExpressionIsConstantFlat(ctx *api.Context, expression uint32, localValues bool, seen map[uint32]bool) bool {
-	file := ctx.File
-	expression = flatUnwrapParenExpr(file, expression)
-	if expression == 0 || seen[expression] {
-		return false
-	}
-	seen[expression] = true
-	defer delete(seen, expression)
-	switch file.FlatType(expression) {
-	case "integer_literal", "long_literal", "real_literal", "boolean_literal", "character_literal", "null_literal":
-		return true
-	case "string_literal", "line_string_literal", "multi_line_string_literal":
-		for child := file.FlatFirstChild(expression); child != 0; child = file.FlatNextSib(child) {
-			switch file.FlatType(child) {
-			case "interpolated_identifier":
-				if !logConstantReferenceFlat(ctx, child, false, seen) {
-					return false
-				}
-			case "interpolated_expression":
-				if !logExpressionIsConstantFlat(ctx, file.FlatNamedChild(child, 0), false, seen) {
-					return false
-				}
-			}
-		}
-		return true
-	case "additive_expression", "multiplicative_expression", "comparison_expression", "equality_expression",
-		"conjunction_expression", "disjunction_expression", "prefix_expression":
-		for child := file.FlatFirstChild(expression); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatIsNamed(child) && !logExpressionIsConstantFlat(ctx, child, true, seen) {
-				return false
-			}
-		}
-		return true
-	case "simple_identifier", "navigation_expression", "interpolated_identifier":
-		return logConstantReferenceFlat(ctx, expression, localValues, seen)
-	default:
-		_, constant := semantics.EvalConst(ctx, expression)
-		return constant
-	}
-}
-
-func logConstantReferenceFlat(ctx *api.Context, reference uint32, localValues bool, seen map[uint32]bool) bool {
-	file := ctx.File
-	name := strings.TrimPrefix(file.FlatNodeText(reference), "$")
-	if file.FlatType(reference) == "navigation_expression" {
-		name = flatNavigationExpressionLastIdentifier(file, reference)
-	}
-	constant := false
-	declared := false
-	qualified := file.FlatType(reference) == "navigation_expression"
-	if qualified && !logQualifiedPropertyDoesWorkFlat(ctx, reference) {
-		return true
-	}
-	file.FlatWalkNodes(0, "property_declaration", func(declaration uint32) {
-		if semantics.DeclarationName(file, declaration) != name {
-			return
-		}
-		modifiers, _ := file.FlatFindChild(declaration, "modifiers")
-		isConst := false
-		if modifiers != 0 {
-			file.FlatWalkNodes(modifiers, "property_modifier", func(modifier uint32) {
-				isConst = isConst || file.FlatNodeText(modifier) == "const"
-			})
-		}
-		if isConst || (localValues && logDeclarationIsLocalFlat(file, declaration) && !propertyDeclarationIsVar(file, declaration)) {
-			constant = constant || logExpressionIsConstantFlat(ctx, propertyInitializerExpression(file, declaration), localValues, seen)
-		}
-		declared = declared || logReferenceInScopeFlat(file, declaration, reference)
-	})
-	file.FlatWalkNodes(0, "parameter", func(declaration uint32) {
-		if semantics.DeclarationName(file, declaration) == name && logReferenceInScopeFlat(file, declaration, reference) {
-			declared = true
-		}
-	})
-	return constant || (!declared && !qualified)
-}
-
-func logReferenceInScopeFlat(file *scanner.File, declaration, reference uint32) bool {
-	for scope, ok := file.FlatParent(declaration); ok; scope, ok = file.FlatParent(scope) {
-		switch file.FlatType(scope) {
-		case "statements", "block":
-			return file.FlatStartByte(declaration) <= file.FlatStartByte(reference) && file.FlatEndByte(reference) <= file.FlatEndByte(scope)
-		case "lambda_literal", "function_declaration", "anonymous_function", "secondary_constructor", "class_declaration", "object_declaration", "class_body", "source_file":
-			return file.FlatStartByte(scope) <= file.FlatStartByte(reference) && file.FlatEndByte(reference) <= file.FlatEndByte(scope)
-		}
-	}
-	return false
+	return performsWork
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

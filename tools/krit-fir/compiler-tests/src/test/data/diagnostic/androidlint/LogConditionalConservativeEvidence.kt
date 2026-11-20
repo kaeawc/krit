@@ -1,8 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16
-// Pinned conservative Go recall differences: an unresolved reference may be an external constant,
-// and a qualified Java property may be a field (a reference, not work). FIR resolves the parameter
-// and Java getter, so it reports the work. Go resolves in-scope parameters but does not guess at imports.
+// go-lines: none
+// FIR resolves non-const template references and the Java getter and reports them.
+// Go requires a call_expression inside the message, so all these references are silent.
 package test.logconditional.evidence
 
 import android.util.Log
@@ -21,13 +20,32 @@ fun evidence(UPPERCASE: String, locale: Locale) {
 }
 
 fun ready() { val msg = "ready"; Log.d("Tag", msg + "!") }
-// Go still folds a same-named literal val in another scope; FIR/Lint bind the parameter and report.
+// FIR/Lint bind the non-const parameter and report; Go is silent without a message call.
 fun failed(msg: String) { <!LogConditional!>Log.d("Tag", msg + "!")<!> }
 
-// Go cannot prove these other-file Kotlin members are non-constant; FIR/Lint resolve them and report.
+// FIR/Lint resolve non-const Kotlin members and report; Go is silent without a message call.
 fun externalValues() {
     <!LogConditional!>Log.d("Tag", "x${Config.runtimePrefix}")<!>
     <!LogConditional!>Log.d("Tag", "x$runtimePrefix")<!>
     <!LogConditional!>Log.d("Tag", "x" + Config.runtimePrefix)<!>
     <!LogConditional!>Log.d("Tag", "x" + runtimePrefix)<!>
+}
+
+// FIR reports resolved non-const bindings in templates/concatenations; Go is silent without calls.
+class Repo(private val name: String) {
+    fun load() { <!LogConditional!>Log.d("Tag", "load $name")<!> }
+}
+
+fun bindings(users: List<String>, pair: Pair<String, String>) {
+    val name = "name"
+    <!LogConditional!>Log.d("Tag", "load $name")<!>
+    users.forEach { user -> <!LogConditional!>Log.d("Tag", "user $user")<!> }
+    try {
+        println("try")
+    } catch (error: Exception) {
+        <!LogConditional!>Log.d("Tag", "failed $error")<!>
+    }
+    val (first, second) = pair
+    <!LogConditional!>Log.d("Tag", "x" + first)<!>
+    <!LogConditional!>Log.d("Tag", "x$second")<!>
 }

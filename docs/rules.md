@@ -52,6 +52,13 @@ Krit recognizes common Compose patterns without extra config:
 - Color hex literals and `.dp` / `.sp` values are recognized
 - Ignore-by-annotation lists (`ignoreAnnotated`) take short names (`Composable`, not the FQN)
 
+## Production-only security rules
+
+`HardcodedSecretKey` and `StaticIv` are enabled by default and report only in
+production source. Both Go and FIR skip files classified as tests, including
+Gradle `src/test` and `src/androidTest` source sets. Hardcoded keys and static
+IVs in tests are therefore left silent without changing production findings.
+
 ## Auto-fix safety levels
 
 | Level     | What it changes | Example |

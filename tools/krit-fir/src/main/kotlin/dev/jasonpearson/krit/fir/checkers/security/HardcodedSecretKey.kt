@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.checkers.bodyInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
@@ -135,6 +136,7 @@ internal object HardcodedSecretKey : FirFunctionCallChecker(MppCheckerKind.Commo
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
+        if (isInTestFile()) return
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol ?: return
         if (callee.containingClassLookupTag()?.classId != secretKeySpecClassId) return
         val key = expression.argumentList.arguments.firstOrNull()?.let(::unwrap) ?: return

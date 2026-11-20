@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.fir.checkers.coroutines
 import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.expressions.FirImplicitInvokeCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirVarargArgumentsExpression
 import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -107,8 +107,8 @@ internal object SynchronizedOnNonFinal : FirFunctionCallChecker(MppCheckerKind.C
     private fun unwrapConversions(argument: FirExpression): FirExpression {
         var current = argument
         while (true) {
+            current = unwrapSmartCasts(current, throughSafeCallSubject = false)
             current = when (current) {
-                is FirSmartCastExpression -> current.originalExpression
                 is FirFunctionTypeConversionExpression -> current.expression
                 else -> return current
             }

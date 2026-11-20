@@ -27,12 +27,10 @@ import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirBlock
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
 import org.jetbrains.kotlin.fir.references.FirNamedReference
@@ -189,10 +187,9 @@ internal object UpperLowerInvariantMisuse : FirFunctionCallChecker(MppCheckerKin
     private fun writtenReceiver(receiver: FirExpression?): FirExpression? {
         var expression = receiver
         while (true) {
+            expression = unwrapSmartCasts(expression)
             expression = when (expression) {
-                is FirSmartCastExpression -> expression.originalExpression
                 is FirSafeCallExpression -> expression.selector as? FirExpression
-                is FirCheckedSafeCallSubject -> expression.originalReceiverRef.value
                 else -> return expression
             }
         }

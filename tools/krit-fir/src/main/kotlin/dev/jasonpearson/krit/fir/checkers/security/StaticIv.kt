@@ -5,6 +5,7 @@ import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.nestedClassIdOf
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
 import org.jetbrains.kotlin.fir.FirElement
@@ -17,7 +18,6 @@ import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
 import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
 import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
-import org.jetbrains.kotlin.fir.expressions.FirCheckedSafeCallSubject
 import org.jetbrains.kotlin.fir.expressions.FirElvisExpression
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
@@ -29,7 +29,6 @@ import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirResolvedQualifier
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirSpreadArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.FirStringConcatenationCall
 import org.jetbrains.kotlin.fir.expressions.FirThisReceiverExpression
@@ -190,17 +189,16 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
     private fun unwrap(expression: FirExpression): FirExpression {
         var current = expression
         while (true) {
+            current = unwrapSmartCasts(current)
             current = when (current) {
                 is FirSpreadArgumentExpression -> return current
                 is FirWrappedArgumentExpression -> current.expression
-                is FirSmartCastExpression -> current.originalExpression
                 is FirCheckNotNullCall -> current.argumentList.arguments.singleOrNull() ?: return current
                 is FirTypeOperatorCall -> {
                     if (current.operation != FirOperation.AS && current.operation != FirOperation.SAFE_AS) return current
                     current.argumentList.arguments.singleOrNull() ?: return current
                 }
                 is FirSafeCallExpression -> current.selector as? FirExpression ?: return current
-                is FirCheckedSafeCallSubject -> current.originalReceiverRef.value
                 else -> return current
             }
         }

@@ -8,6 +8,7 @@ import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.lightChildren
 import dev.jasonpearson.krit.fir.support.lightSourceOf
+import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtFakeSourceElementKind
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
@@ -26,12 +27,10 @@ import org.jetbrains.kotlin.fir.declarations.FirPropertyAccessor
 import org.jetbrains.kotlin.fir.declarations.FirVariable
 import org.jetbrains.kotlin.fir.expressions.FirBlock
 import org.jetbrains.kotlin.fir.expressions.FirCallableReferenceAccess
-import org.jetbrains.kotlin.fir.expressions.FirCheckNotNullCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirOperation
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
-import org.jetbrains.kotlin.fir.expressions.FirSmartCastExpression
 import org.jetbrains.kotlin.fir.expressions.FirTypeOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirWhileLoop
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -236,9 +235,8 @@ internal object CollectionsSynchronizedListIteration : FirFunctionCallChecker(Mp
     private fun unwrapValue(expression: FirExpression): FirExpression {
         var current = expression
         while (true) {
+            current = unwrapSmartCasts(current, throughNotNull = true, throughSafeCallSubject = false)
             current = when {
-                current is FirSmartCastExpression -> current.originalExpression
-                current is FirCheckNotNullCall -> current.argumentList.arguments.firstOrNull() ?: return current
                 current is FirTypeOperatorCall &&
                     (current.operation == FirOperation.AS || current.operation == FirOperation.SAFE_AS) ->
                     current.argumentList.arguments.firstOrNull() ?: return current

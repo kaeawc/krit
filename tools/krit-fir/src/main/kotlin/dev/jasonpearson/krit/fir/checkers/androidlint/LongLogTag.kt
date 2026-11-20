@@ -11,6 +11,7 @@ import dev.jasonpearson.krit.fir.support.classIdOf
 import dev.jasonpearson.krit.fir.support.inheritsFrom
 import dev.jasonpearson.krit.fir.support.isCompoundAssignment
 import dev.jasonpearson.krit.fir.support.lightChildren
+import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.Modality
@@ -35,7 +36,6 @@ import org.jetbrains.kotlin.fir.expressions.FirPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.expressions.FirSafeCallExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
-import org.jetbrains.kotlin.fir.expressions.FirWrappedArgumentExpression
 import org.jetbrains.kotlin.fir.expressions.resolvedArgumentMapping
 import org.jetbrains.kotlin.fir.expressions.unwrapSmartcastExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
@@ -329,10 +329,9 @@ internal object LongLogTag : FirFunctionCallChecker(MppCheckerKind.Common), FirR
     private fun unwrap(argument: FirExpression): FirExpression {
         var current = argument
         while (true) {
-            val next = when (current) {
-                is FirWrappedArgumentExpression -> current.expression
-                is FirSafeCallExpression -> current.selector as? FirExpression ?: return current
-                else -> current.unwrapSmartcastExpression()
+            val next = when (val value = unwrapArgument(current)) {
+                is FirSafeCallExpression -> value.selector as? FirExpression ?: return value
+                else -> value.unwrapSmartcastExpression()
             }
             if (next === current) return current
             current = next

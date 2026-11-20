@@ -87,15 +87,36 @@ func (r *BadHostnameVerifierRule) check(ctx *api.Context) {
 	}
 	body, _ := file.FlatFindChild(ctx.Idx, "class_body")
 	if body == 0 {
+		body, _ = file.FlatFindChild(ctx.Idx, "enum_class_body")
+	}
+	if body == 0 {
 		return
 	}
+	badHostnameVerifierMembers(ctx, ctx.Idx, body)
+}
+
+func badHostnameVerifierMembers(ctx *api.Context, owner, body uint32) {
+	file := ctx.File
+	bodyParent, _ := file.FlatParent(body)
+	enumMembers := file.FlatType(body) == "enum_class_body" || file.FlatType(bodyParent) == "enum_entry"
 	for member := file.FlatFirstChild(body); member != 0; member = file.FlatNextSib(member) {
+		if file.FlatType(member) == "enum_entry" {
+			entryBody, _ := file.FlatFindChild(member, "class_body")
+			if entryBody != 0 {
+				badHostnameVerifierMembers(ctx, owner, entryBody)
+			}
+			continue
+		}
 		name := verifyMethodName(file, member)
 		if name == 0 || !methodHasBody(file, member) {
 			continue
 		}
-		if !verifierAlwaysTrue(file, ctx.Idx) {
-			if badHostnameVerifierAdditionalMethod(file, ctx.Idx, member) {
+		alwaysTrue := verifierAlwaysTrue(file, owner)
+		if enumMembers {
+			alwaysTrue = badHostnameVerifierAdditionalMethod(file, owner, member)
+		}
+		if !alwaysTrue {
+			if badHostnameVerifierAdditionalMethod(file, owner, member) {
 				ctx.Emit(lintFindingAtNode(ctx, name, "", badHostnameVerifierMessage))
 				return
 			}

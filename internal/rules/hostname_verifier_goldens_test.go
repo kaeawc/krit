@@ -86,8 +86,7 @@ enum class AllowAllEnum : HostnameVerifier {
 }
 
 enum class AllowAllEntries : HostnameVerifier {
-    // FIR inherits the enum's verifier interface for the entry body; Go does
-    // not infer an entry's implicit superclass and leaves this use silent.
+    // Both engines recognize the enum's verifier interface for entry bodies.
     LENIENT {
         override fun verify(hostname: String, session: SSLSession): Boolean = true
     },
@@ -120,7 +119,7 @@ class Factory : HostnameVerifier {
     fun lenient(): HostnameVerifier = object : HostnameVerifier {
         override fun verify(hostname: String, session: SSLSession): Boolean = true
     }
-}`, "13:18,17:18,23:18,29:18,37:18,41:18,49:18,53:18,61:24,65:18,69:18,91:22,95:22,101:22,108:18,111:22"},
+}`, "13:18,17:18,23:18,29:18,37:18,41:18,49:18,53:18,61:24,65:18,69:18,75:18,81:22,90:22,94:22,100:22,107:18,110:22"},
 		{"BadHostnameVerifierCrossFile", `
 
 

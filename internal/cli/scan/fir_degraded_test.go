@@ -17,8 +17,8 @@ func TestFirFallbackRulesListsDefaultOnTwins(t *testing.T) {
 	if len(ids) == 0 {
 		t.Fatal("expected default-on rules with FIR twins")
 	}
-	if slices.Contains(ids, "BadHostnameVerifier") {
-		t.Fatal("Go-only BadHostnameVerifier must not appear in degraded-mode fallback")
+	if !slices.Contains(ids, "BadHostnameVerifier") {
+		t.Fatal("BadHostnameVerifier must appear in degraded-mode fallback")
 	}
 	for i := 1; i < len(ids); i++ {
 		if ids[i-1] >= ids[i] {

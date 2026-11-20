@@ -13,8 +13,8 @@ import (
 )
 
 func TestKnownBadHostnameVerifier(t *testing.T) {
-	if IsKnownFIRRule("BadHostnameVerifier") {
-		t.Fatal("BadHostnameVerifier is Go-only and must not participate in FIR or degraded-mode fallback")
+	if !IsKnownFIRRule("BadHostnameVerifier") {
+		t.Fatal("BadHostnameVerifier must participate in FIR and degraded-mode fallback")
 	}
 }
 

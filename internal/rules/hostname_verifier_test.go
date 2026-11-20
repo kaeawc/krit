@@ -89,6 +89,14 @@ class Cfg { Object value = consume(SSLSocketFactory -> SSLSocketFactory.ALLOW_AL
 class Cfg { Object value = consume((SSLSocketFactory, other) -> SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER); }`, true, 0},
 		{"Java catch parameter", `import org.apache.http.conn.ssl.SSLSocketFactory;
 class Cfg { void value() { try { work(); } catch (Exception SSLSocketFactory) { consume(SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER); } } }`, true, 0},
+		{"Kotlin enum entry", `import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
+enum class VerifierPolicy { ALLOW_ALL_HOSTNAME_VERIFIER, STRICT }`, false, 0},
+		{"Kotlin named argument", `import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER as verifier
+val client = Client.create(verifier = DefaultVerifier())`, false, 0},
+		{"Kotlin named argument value", `import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER as verifier
+val client = Client.create(verifier = verifier)`, false, 1},
+		{"Kotlin catch parameter", `import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER as verifier
+fun example() { try { work() } catch (verifier: Exception) { log(verifier) } }`, false, 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			findings := runRuleByName(t, "AllowAllHostnameVerifier", test.source)

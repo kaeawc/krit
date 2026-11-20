@@ -148,6 +148,10 @@ func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
 				}
 			case "navigation_suffix", "import_header", "import_declaration", "identifier":
 				return
+			case "value_argument":
+				if _, named := file.FlatFindChild(parent, "="); named && file.FlatFirstChild(parent) == idx {
+					return
+				}
 			}
 		}
 		target = "ALLOW_ALL_HOSTNAME_VERIFIER"

@@ -27,7 +27,7 @@ func hostnameVerifierFileFacts(file *scanner.File) *hostnameVerifierFacts {
 				for _, match := range lintImportRe.FindAllStringSubmatch(stripLineAndBlockComments(file.FlatNodeText(node)), -1) {
 					imports = append(imports, scanner.HeaderImport{Path: match[2], Wildcard: match[3] != ""})
 				}
-			case "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_declaration", "companion_object", "type_alias", "type_parameter", "function_declaration", "method_declaration", "parameter", "formal_parameter", "catch_formal_parameter", "class_parameter", "parameter_with_optional_type", "variable_declarator", "variable_declaration":
+			case "class_declaration", "interface_declaration", "enum_declaration", "enum_entry", "record_declaration", "object_declaration", "companion_object", "type_alias", "type_parameter", "function_declaration", "method_declaration", "parameter", "formal_parameter", "catch_formal_parameter", "catch_block", "class_parameter", "parameter_with_optional_type", "variable_declarator", "variable_declaration":
 				name := hostnameVerifierDeclarationName(file, node)
 				facts.shadows[name]++
 				if file.FlatType(node) == "type_alias" {

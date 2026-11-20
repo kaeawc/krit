@@ -6,7 +6,6 @@ package firchecks
 // knownFIRRules is the checked-in rule ID set from tools/krit-fir/checkers.
 // A zero-rule response is suspicious only when the request includes one of these.
 var knownFIRRules = map[string]bool{
-	"BadHostnameVerifier":                     true,
 	"AllowAllHostnameVerifier":                true,
 	"AssertNullableWithNotNullAssertion":      true,
 	"AssertTrueOnComparison":                  true,

@@ -9,12 +9,14 @@ class ListRulesTest {
         val ids = listRulesOutput().lines().filter { it.isNotEmpty() }
         assertEquals(FirRuleDiscovery.rules.map { it.ruleId }, ids)
         assertEquals(ids.sorted(), ids)
+        assertTrue("BadHostnameVerifier" !in ids, "BadHostnameVerifier is Go-only")
         assertTrue(
             ids.containsAll(listOf(
                 "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "PlainFileWriteOfSensitive",
             )),
             ids.containsAll(listOf("BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey", "InjectDispatcher")),
+            ids.containsAll(listOf("CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey", "InjectDispatcher")),
             ids.toString(),
         )
         assertTrue(listRulesOutput().endsWith("\n"))

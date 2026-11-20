@@ -54,11 +54,15 @@ All notable changes to Krit will be documented in this file.
 - `AllowAllHostnameVerifier` now reports Apache `AllowAllHostnameVerifier` constructions and constructor
   references, and `SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER` references, using Android Lint 32.4.1's
   messages. Custom always-true `javax.net.ssl.HostnameVerifier.verify` implementations and SAM lambdas
-  belong only to `BadHostnameVerifier`, removing duplicate findings. Baselines for custom verifiers
-  need regeneration for the new issue ID. Go retains JDK wildcard-import resolution and always-true
-  bodies with extra statements, and reports at the `verify` name; FIR uses the declaration's first
-  annotation or modifier and currently requires a single return. Apache references require an explicit
-  import or fully qualified name in Go; FIR resolves symbols. Unresolved names and lookalikes are silent.
+  belong only to `BadHostnameVerifier`, removing duplicate findings. `BadHostnameVerifier` is Go-only
+  even with FIR enabled; its original class-wide Lint visitor, signature matching, inheritance and
+  `verify` name anchor are retained, including extra statements, last-return-wins and overload quirks.
+  Safe literal-true methods and explicit SAM constructors previously found only by the old
+  `AllowAllHostnameVerifier` remain covered. Its former FIR goldens now run as Go tests. Old custom
+  verifier baseline entries change issue ID or collapse into an existing `BadHostnameVerifier`
+  finding; the playground baseline changes only `NetworkHelper.kt:35`, with no duplicate.
+  Apache references require an explicit import or fully qualified name in Go; FIR resolves symbols.
+  Unresolved names and lookalikes are silent.
 
 ### Fixed
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit

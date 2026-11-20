@@ -1757,7 +1757,7 @@ class V17 : HostnameVerifier {
   override fun verify(h: String, s: SSLSession): Boolean { return (true) }
 }
 `))
-	if want := "94:16,105:16,129:10,132:16,135:16,139:16,143:16,147:16,151:16,154:16"; got != want {
+	if want := "94:16,99:16,105:16,129:10,132:16,135:16,139:16,147:16,151:16"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2333,7 +2333,7 @@ public class J2 {
   static class F extends A { }
 }
 `))
-	if want := "22:20,35:20"; got != want {
+	if want := "22:20,25:20,28:20,35:20"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2576,7 +2576,7 @@ class T2 : T1() {
   override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
 }
 `))
-	if want := "32:16,35:16,38:16"; got != want {
+	if want := "32:16"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }

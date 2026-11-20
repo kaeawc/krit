@@ -72,28 +72,38 @@ func (r *UnsafeDynamicallyLoadedCodeRule) check(ctx *api.Context) {
 		"Dynamically loading code using `load` is risky, please use `loadLibrary` instead when possible"))
 }
 
+var hostnameVerifierTypes = []string{"javax.net.ssl.HostnameVerifier"}
+
 func (r *BadHostnameVerifierRule) check(ctx *api.Context) {
-	file, idx := ctx.File, ctx.Idx
-	if file.FlatType(idx) == "call_expression" {
-		if badHostnameVerifierSamLambda(file, idx) {
-			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, badHostnameVerifierMessage)
+	file := ctx.File
+	if file.FlatType(ctx.Idx) == "call_expression" {
+		if badHostnameVerifierSamLambda(file, ctx.Idx) {
+			ctx.EmitAt(file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1, badHostnameVerifierMessage)
 		}
 		return
 	}
-	name := verifyMethodName(file, idx)
-	if name == 0 || !methodHasBody(file, idx) || !badHostnameVerifierLiteralBody(file, idx) {
+	if !lintHasSupertype(file, ctx.Idx, hostnameVerifierTypes, true, 0) {
 		return
 	}
-	for owner, ok := file.FlatParent(idx); ok; owner, ok = file.FlatParent(owner) {
-		switch file.FlatType(owner) {
-		case "function_declaration", "method_declaration", "lambda_literal", "lambda_expression", "anonymous_initializer", "static_initializer", "secondary_constructor", "constructor_declaration", "getter", "setter", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration":
-			return
-		case "class_declaration", "object_literal", "object_creation_expression", "object_declaration", "companion_object", "enum_entry":
-			if badHostnameVerifierOwner(file, owner, 0) {
-				ctx.EmitAt(file.FlatRow(name)+1, file.FlatCol(name)+1, badHostnameVerifierMessage)
+	body, _ := file.FlatFindChild(ctx.Idx, "class_body")
+	if body == 0 {
+		return
+	}
+	for member := file.FlatFirstChild(body); member != 0; member = file.FlatNextSib(member) {
+		name := verifyMethodName(file, member)
+		if name == 0 || !methodHasBody(file, member) {
+			continue
+		}
+		if !verifierAlwaysTrue(file, ctx.Idx) {
+			if badHostnameVerifierAdditionalMethod(file, ctx.Idx, member) {
+				ctx.Emit(lintFindingAtNode(ctx, name, "", badHostnameVerifierMessage))
+				return
 			}
-			return
+			continue
 		}
+		ctx.Emit(lintFindingAtNode(ctx, name, "",
+			"`verify` always returns `true`, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames"))
+		return
 	}
 }
 
@@ -112,16 +122,7 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 	default:
 		return 0
 	}
-	if name == 0 || params == 0 || strings.Trim(file.FlatNodeText(name), "`") != "verify" {
-		return 0
-	}
-	var vararg bool
-	file.FlatWalkAllNodes(params, func(node uint32) {
-		if file.FlatType(node) == "vararg" {
-			vararg = true
-		}
-	})
-	if vararg {
+	if name == 0 || params == 0 || file.FlatNodeText(name) != "verify" {
 		return 0
 	}
 	var types []string
@@ -130,7 +131,7 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 			types = append(types, lintChildTypeText(file, p))
 		}
 	}
-	if len(types) != 2 || !badHostnameVerifierStringType(file, types[0]) || !hostnameVerifierSourceMatches(file, member, strings.TrimSuffix(types[1], "?"), "javax.net.ssl.SSLSession") {
+	if len(types) != 2 || !javaLangTypeRef(file, types[0], "String") || !lintTypeRefMatches(file, types[1], "javax.net.ssl.SSLSession") {
 		return 0
 	}
 	return name
@@ -146,6 +147,79 @@ func methodHasBody(file *scanner.File, member uint32) bool {
 	return ok
 }
 
+// verifierState tracks Lint's ComplexVisitor over a class: a throw or call makes it complex, and each return sets or
+// clears the flag by whether it returns the literal true, so the last return decides.
+type verifierState struct {
+	file    *scanner.File
+	complex bool
+}
+
+func (v *verifierState) visit(n uint32) {
+	file := v.file
+	switch file.FlatType(n) {
+	case "call_expression", "method_invocation", "object_creation_expression", "throw_statement":
+		v.complex = true
+	case "jump_expression", "return_statement":
+		v.complex = jumpIsComplex(file, n, v.complex)
+	case "function_body":
+		if expr := expressionBodyValue(file, n); expr != 0 {
+			v.complex = !isTrueLiteral(file, expr)
+		}
+	}
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		v.visit(c)
+	}
+}
+
+// verifierAlwaysTrue reports whether Lint's visitor leaves the class non-complex. Lint's UAST order puts Kotlin
+// superclass constructor calls, secondary constructors and nested classes after the methods, so they decide last.
+func verifierAlwaysTrue(file *scanner.File, class uint32) bool {
+	v := &verifierState{file: file}
+	var deferred []uint32
+	late := false
+	for c := file.FlatFirstChild(class); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "delegation_specifier":
+			if _, ok := file.FlatFindChild(c, "constructor_invocation"); ok {
+				late = true
+			}
+		case "class_body":
+			for m := file.FlatFirstChild(c); m != 0; m = file.FlatNextSib(m) {
+				switch file.FlatType(m) {
+				case "secondary_constructor":
+					late = true
+				case "companion_object", "class_declaration", "object_declaration":
+					deferred = append(deferred, m)
+				default:
+					v.visit(m)
+				}
+			}
+		}
+	}
+	for _, d := range deferred {
+		v.visit(d)
+	}
+	return !v.complex && !late
+}
+
+// jumpIsComplex updates the complex flag for a Kotlin jump or Java return statement.
+func jumpIsComplex(file *scanner.File, n uint32, prev bool) bool {
+	text := strings.TrimSpace(file.FlatNodeText(n))
+	switch {
+	case strings.HasPrefix(text, "throw"):
+		return true
+	case !strings.HasPrefix(text, "return"):
+		return prev
+	}
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) && file.FlatType(c) != "label" {
+			return !isTrueLiteral(file, c)
+		}
+	}
+	return prev
+}
+
+// expressionBodyValue returns the expression of a Kotlin `= expr` function body, or 0 for a block body.
 func expressionBodyValue(file *scanner.File, body uint32) uint32 {
 	if !strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(body)), "=") {
 		return 0

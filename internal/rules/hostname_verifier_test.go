@@ -129,25 +129,26 @@ func TestBadHostnameVerifierWildcardShadow(t *testing.T) {
 	}
 }
 
-func TestBadHostnameVerifierPrecision(t *testing.T) {
+func TestBadHostnameVerifierMainCompatibility(t *testing.T) {
 	for _, test := range []struct {
 		name, body string
 		want       int
 	}{
 		{"literal", "override fun verify(host: String, session: SSLSession) = true", 1},
-		{"no return", "override fun verify(host: String, session: SSLSession) { true }", 0},
-		{"parenthesized", "override fun verify(host: String, session: SSLSession) { return (true) }", 1},
+		{"no return", "override fun verify(host: String, session: SSLSession) { true }", 1},
+		{"parenthesized", "override fun verify(host: String, session: SSLSession) { return (true) }", 0},
 		{"comparison", "override fun verify(host: String, session: SSLSession) = host.isEmpty() == true", 0},
-		{"conditional false", "override fun verify(host: String, session: SSLSession): Boolean { if (host.isEmpty()) return false; return true }", 0},
-		{"nonlocal false", "override fun verify(host: String, session: SSLSession): Boolean { run { if (host.isEmpty()) return false }; return true }", 0},
+		{"conditional false", "override fun verify(host: String, session: SSLSession): Boolean { if (host.isEmpty()) return false; return true }", 1},
+		{"nonlocal false", "override fun verify(host: String, session: SSLSession): Boolean { run { if (host.isEmpty()) return false }; return true }", 1},
 		{"additional statement", "override fun verify(host: String, session: SSLSession): Boolean { println(host); return true }", 1},
 		{"local declaration", "override fun verify(host: String, session: SSLSession): Boolean { val values = listOf(1); return true }", 1},
 		{"throws", "override fun verify(host: String, session: SSLSession): Boolean { if (host.isEmpty()) throw IllegalArgumentException(); return true }", 1},
 		{"overload", "fun verify(first: Int, second: Int) = true", 0},
-		{"vararg overload", "fun verify(host: String, vararg session: SSLSession) = true", 0},
+		{"vararg overload", "fun verify(host: String, vararg session: SSLSession) = true", 1},
 		{"generic", "fun <Value> verify(host: Value, session: SSLSession) = true", 0},
-		{"extension", "fun Any.verify(host: String, session: SSLSession) = true", 0},
+		{"extension", "fun Any.verify(host: String, session: SSLSession) = true", 1},
 		{"local", "fun helper() { fun verify(host: String, session: SSLSession) = true }", 0},
+		{"anonymous helper", "val helper = fun() { fun verify(host: String, session: SSLSession) = true }", 0},
 		{"companion helper", "companion object { fun verify(host: String, session: SSLSession) = true }", 0},
 		{"init helper", "init { fun verify(host: String, session: SSLSession) = true }", 0},
 		{"constructor helper", "constructor(value: Int) { fun verify(host: String, session: SSLSession) = true }", 0},
@@ -197,6 +198,46 @@ fun HostnameVerifier(predicate: (String, SSLSession) -> Boolean): HostnameVerifi
 val verifier = HostnameVerifier(predicate = { _, _ -> true })`
 	if findings := runRuleByName(t, "BadHostnameVerifier", source); len(findings) != 0 {
 		t.Fatalf("a same-named factory is not a SAM constructor: %v", findings)
+	}
+}
+
+func TestBadHostnameVerifierLocalBase(t *testing.T) {
+	java := `import javax.net.ssl.*;
+class Outer { HostnameVerifier make() {
+ abstract class Base implements HostnameVerifier {}
+ class Impl extends Base {
+  public boolean verify(String host, SSLSession session) { return true; }
+ }
+ return new Impl();
+} }`
+	if got := findingPositions(runRuleByNameOnJava(t, "BadHostnameVerifier", java)); got != "5:18" {
+		t.Fatalf("local Java base positions = %s, want 5:18", got)
+	}
+	kotlin := `import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLSession
+fun make(): HostnameVerifier {
+ abstract class Base : HostnameVerifier
+ class Impl : Base() {
+  override fun verify(host: String, session: SSLSession) = true
+ }
+ return Impl()
+}`
+	if got := findingPositions(runRuleByName(t, "BadHostnameVerifier", kotlin)); got != "" {
+		t.Fatalf("main's superclass-constructor behavior changed: %s", got)
+	}
+}
+
+func TestBadHostnameVerifierImportedLookalike(t *testing.T) {
+	source := `import javax.net.ssl.SSLSession
+import other.HostnameVerifier
+class Lookalike : HostnameVerifier {
+ override fun verify(host: String, session: SSLSession) = true
+}
+class JdkVerifier : javax.net.ssl.HostnameVerifier {
+ override fun verify(host: String, session: SSLSession) = true
+}`
+	if got := findingPositions(runRuleByName(t, "BadHostnameVerifier", source)); got != "7:15" {
+		t.Fatalf("imported lookalike positions = %s, want 7:15", got)
 	}
 }
 

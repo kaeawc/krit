@@ -96,97 +96,46 @@ func hostnameVerifierDeclarationName(file *scanner.File, node uint32) string {
 	return ""
 }
 
-func badHostnameVerifierStringType(file *scanner.File, text string) bool {
-	text = strings.TrimSuffix(strings.TrimSpace(text), "?")
-	if file.Language == scanner.LangKotlin && text == "String" {
-		return lintSameFileClass(file, "String") == 0 && lintSameFileTypeAlias(file, "String") == "" &&
-			(lintImportsOf(file).bySimple["String"] == "" || lintImportsOf(file).bySimple["String"] == "kotlin.String")
-	}
-	return javaLangTypeRef(file, text, "String") || text == "kotlin.String"
-}
-
-func badHostnameVerifierOwner(file *scanner.File, owner uint32, depth int) bool {
-	if depth > 5 {
-		return false
-	}
+func badHostnameVerifierAdditionalMethod(file *scanner.File, owner, method uint32) bool {
+	var direct bool
 	for _, supertype := range lintSupertypeNames(file, owner) {
-		if hostnameVerifierSourceMatches(file, owner, supertype, "javax.net.ssl.HostnameVerifier") {
-			return true
-		}
-		facts := hostnameVerifierFileFacts(file)
-		if facts.imports[supertype] != "" || facts.shadows[supertype] != 1 {
-			continue
-		}
-		if declared := lintSameFileClass(file, supertype); declared != 0 && declared != owner && badHostnameVerifierClassVisible(file, declared, owner) && badHostnameVerifierOwner(file, declared, depth+1) {
-			return true
-		}
-		if target := lintSameFileTypeAlias(file, supertype); target != "" && badHostnameVerifierClassVisible(file, facts.aliases[supertype], owner) && hostnameVerifierSourceMatches(file, owner, target, "javax.net.ssl.HostnameVerifier") {
-			return true
-		}
+		direct = direct || lintTypeRefMatches(file, supertype, "javax.net.ssl.HostnameVerifier")
 	}
-	return false
-}
-
-func badHostnameVerifierClassVisible(file *scanner.File, declaration, owner uint32) bool {
-	for parent, ok := file.FlatParent(declaration); ok; parent, ok = file.FlatParent(parent) {
-		switch file.FlatType(parent) {
-		case "function_declaration", "method_declaration":
-			return false
-		case "class_declaration", "interface_declaration", "object_declaration", "companion_object", "object_literal":
-			for scope, found := file.FlatParent(owner); found; scope, found = file.FlatParent(scope) {
-				if scope == parent {
-					return true
-				}
-			}
-			return false
-		}
-	}
-	return true
-}
-
-func badHostnameVerifierLiteralBody(file *scanner.File, method uint32) bool {
-	if _, generic := file.FlatFindChild(method, "type_parameters"); generic {
+	if !direct {
 		return false
 	}
-	if _, context := file.FlatFindChild(method, scanner.ContextParametersNodeType); context {
+	for parent, ok := file.FlatParent(method); ok; parent, ok = file.FlatParent(parent) {
+		if parent == owner {
+			break
+		}
+		switch file.FlatType(parent) {
+		case "function_declaration", "anonymous_function", "method_declaration", "lambda_literal", "lambda_expression", "anonymous_initializer", "static_initializer", "secondary_constructor", "constructor_declaration", "getter", "setter", "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_literal", "object_declaration", "object_creation_expression":
+			return false
+		}
+	}
+	if _, generic := file.FlatFindChild(method, "type_parameters"); generic {
 		return false
 	}
 	if file.Language == scanner.LangKotlin && flatFunctionReceiverTypeName(file, method) != "" {
 		return false
 	}
+	var vararg bool
+	file.FlatWalkAllNodes(method, func(node uint32) {
+		vararg = vararg || file.FlatType(node) == "vararg"
+	})
+	if vararg {
+		return false
+	}
 	body, ok := file.FlatFindChild(method, "function_body")
 	if ok {
 		if expression := expressionBodyValue(file, body); expression != 0 {
-			return isTrueLiteral(file, flatUnwrapParenExpr(file, expression))
+			return isTrueLiteral(file, expression)
 		}
 		body, _ = file.FlatFindChild(body, "statements")
 	} else {
 		body, _ = file.FlatFindChild(method, "block")
 	}
-	var returns int
-	valid := true
-	var visit func(uint32)
-	visit = func(node uint32) {
-		if node != body {
-			switch file.FlatType(node) {
-			case "function_declaration", "anonymous_function", "method_declaration", "class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "object_literal", "object_declaration", "object_creation_expression":
-				return
-			}
-		}
-		if file.FlatType(node) == "jump_expression" || file.FlatType(node) == "return_statement" {
-			if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(node)), "return") {
-				returns++
-				valid = valid && badHostnameVerifierTrueReturn(file, node)
-			}
-		}
-		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
-			visit(child)
-		}
-	}
-	if body != 0 {
-		visit(body)
-	}
-	return valid && returns > 0
+	return badHostnameVerifierSingleTrueStatement(file, body, false)
 }
 
 func badHostnameVerifierSingleTrueStatement(file *scanner.File, body uint32, implicitReturn bool) bool {
@@ -206,10 +155,10 @@ func badHostnameVerifierSingleTrueStatement(file *scanner.File, body uint32, imp
 	if implicitReturn && isTrueLiteral(file, flatUnwrapParenExpr(file, statement)) {
 		return true
 	}
-	return badHostnameVerifierTrueReturn(file, statement)
+	return badHostnameVerifierTrueReturn(file, statement, implicitReturn)
 }
 
-func badHostnameVerifierTrueReturn(file *scanner.File, statement uint32) bool {
+func badHostnameVerifierTrueReturn(file *scanner.File, statement uint32, allowParentheses bool) bool {
 	if file.FlatType(statement) != "jump_expression" && file.FlatType(statement) != "return_statement" {
 		return false
 	}
@@ -217,7 +166,11 @@ func badHostnameVerifierTrueReturn(file *scanner.File, statement uint32) bool {
 		return false
 	}
 	for child := file.FlatFirstChild(statement); child != 0; child = file.FlatNextSib(child) {
-		if file.FlatIsNamed(child) && !strings.Contains(file.FlatType(child), "comment") && isTrueLiteral(file, flatUnwrapParenExpr(file, child)) {
+		value := child
+		if allowParentheses {
+			value = flatUnwrapParenExpr(file, value)
+		}
+		if file.FlatIsNamed(child) && !strings.Contains(file.FlatType(child), "comment") && isTrueLiteral(file, value) {
 			return true
 		}
 	}
@@ -230,6 +183,9 @@ func badHostnameVerifierSamLambda(file *scanner.File, call uint32) bool {
 		return false
 	}
 	lambda := flatCallTrailingLambda(file, call)
+	if lambda != 0 && len(callee.Args) != 0 {
+		return false
+	}
 	if lambda == 0 && len(callee.Args) == 1 {
 		lambda = flatUnwrapParenExpr(file, callee.Args[0])
 		if file.FlatType(lambda) != "lambda_literal" {

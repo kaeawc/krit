@@ -41,6 +41,7 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
+import org.jetbrains.kotlin.fir.types.isNothing
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -135,7 +136,9 @@ internal object BadHostnameVerifier :
         function.body?.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (element is FirClass) return
-                if (element is FirThrowExpression || element is FirFunctionCall && isKotlinGuard(element)) {
+                if (element is FirThrowExpression || element is FirFunctionCall &&
+                    (element.resolvedType.isNothing || isKotlinGuard(element))
+                ) {
                     hasRejectingPath = true
                 }
                 element.acceptChildren(this)
@@ -163,7 +166,9 @@ internal object BadHostnameVerifier :
         val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
         val callableId = callee.callableId
         return callableId.packageName == FqName("kotlin") &&
-            callableId.callableName.asString() in setOf("require", "check")
+            callableId.callableName.asString() in setOf(
+                "require", "requireNotNull", "check", "checkNotNull", "assert",
+            )
     }
 
     private fun firstLine(source: KtSourceElement): KtSourceElement =

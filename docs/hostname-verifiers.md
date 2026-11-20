@@ -59,9 +59,9 @@ call/lambda source.
 | `= (true)`, `return (true)`, backticked `verify` | No | Yes | `GoMisses` |
 | Explicit SAM constructor; parenthesized lambda value; labeled return; lambda in parentheses | Yes | Yes | `Lambda` |
 | Implicit SAM conversion: JDK static/instance setters, OkHttp builder, named lambda argument | No | Yes | `SamConversion` |
-| Logging or local declarations before an all-literal-true result | Yes | Yes | `Negative`, `LintBodies` |
+| Logging or local declarations before an all-literal-true result | Yes for plain class members; No for enum, entry, superclass-constructor or secondary-constructor owners | Yes | `Negative`, `LintBodies` |
 | Earlier false/nonliteral return followed by literal true | Yes | No; Go-only Lint parity | `Negative`, `LintBodies` |
-| Throwing path or `require`/`check` before literal true | Yes for class members | No; Go-only Lint parity | `Negative`, `StrictObjects`, `LintBodies` |
+| Throw, `Nothing`-returning call, or Kotlin precondition before literal true | Yes for plain class members; No for enum, entry, superclass-constructor or secondary-constructor owners | No | `Negative`, `StrictObjects`, `RejectingPaths`, `LintBodies` |
 | Multiple literal-true returns; inline nonlocal true return | Yes | Yes | `LintBodies` |
 | Direct literal-true override with helper calls, initializer/property calls, another base or secondary constructor | Yes | Yes | `LintBodies` |
 | Wrong overload preceding the real literal-true override | Yes, at the actual override | Yes, at the actual override | `Divergence` |

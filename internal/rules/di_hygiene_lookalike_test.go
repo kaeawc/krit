@@ -214,17 +214,17 @@ class Cache<T>
 			rule: "ScopeOnParameterizedClass",
 			code: `package demo
 
-import javax.inject.Scope
+import org.koin.core.annotation.Singleton as KoinSingleton
 
 annotation class Singleton
 
-@Scope
+@Deprecated("lookalike")
 @Retention(AnnotationRetention.RUNTIME)
 annotation class UserScoped
 
 @Singleton class Local<T>
-@javax.inject.Singleton class Qualified<T>
-@UserScoped class Project<T>
+@org.koin.core.annotation.Singleton class Qualified<T>
+@KoinSingleton class Project<T>
 `,
 			lines: []int{12, 13},
 		},
@@ -233,7 +233,7 @@ annotation class UserScoped
 			rule: "ScopeOnParameterizedClass",
 			code: `package demo
 
-import javax.inject.Singleton
+import org.koin.core.annotation.Singleton
 
 annotation class Other
 
@@ -251,6 +251,63 @@ annotation class Singleton
 @Singleton class KoinBean<T>
 `,
 			lines: []int{5},
+		},
+		{
+			name: "inject Singleton keys by full type",
+			rule: "ScopeOnParameterizedClass",
+			code: `import javax.inject.Singleton
+@Singleton class Cache<T>
+@jakarta.inject.Singleton class JakartaCache<T>
+`,
+		},
+		{
+			name: "wildcard imported CDI scope is unresolved",
+			rule: "ScopeOnParameterizedClass",
+			code: `import jakarta.enterprise.context.*
+@ApplicationScoped class Cache<T>
+`,
+		},
+		{
+			name: "Dagger Reusable keys by full type",
+			rule: "ScopeOnParameterizedClass",
+			code: `import dagger.Reusable
+@Reusable class Cache<T>
+`,
+		},
+		{
+			name: "same package scope without declaration is unresolved",
+			rule: "ScopeOnParameterizedClass",
+			code: `package org.koin.core.annotation
+@Singleton class Cache<T>
+`,
+		},
+		{
+			name: "scope imported from another package is a lookalike",
+			rule: "ScopeOnParameterizedClass",
+			code: `import example.Singleton
+@Singleton class Cache<T>
+`,
+		},
+		{
+			name: "project inject scopes do not share generic instances",
+			rule: "ScopeOnParameterizedClass",
+			code: `package demo
+import javax.inject.Scope
+@Scope annotation class UserScoped
+@Scope annotation class PerActivity
+@UserScoped class Cache<T>
+@PerActivity class ActivityCache<T>
+`,
+		},
+		{
+			name: "dropped framework scopes are silent",
+			rule: "ScopeOnParameterizedClass",
+			code: `package demo
+@dagger.hilt.android.scopes.ActivityScoped class HiltCache<T>
+@com.google.inject.Singleton class GuiceCache<T>
+@dev.zacsweers.metro.Singleton class MetroCache<T>
+@me.tatarka.inject.annotations.Singleton class InjectCache<T>
+`,
 		},
 	}
 	index := buildRuleIndex()

@@ -20,7 +20,6 @@ import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.resolve.toClassSymbol
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
 import org.jetbrains.kotlin.fir.types.coneType
-import org.jetbrains.kotlin.name.Name
 
 /**
  * Port of the Go ScopeOnParameterizedClass rule: a class or interface that
@@ -28,29 +27,19 @@ import org.jetbrains.kotlin.name.Name
  * on the declaration's first line (its modifier list), like Go. The message
  * names the scope annotation and the class.
  *
- * An annotation is a DI scope when its class is meta-annotated as one
- * (`javax.inject.Scope`, `jakarta.inject.Scope`, Guice's `ScopeAnnotation`,
- * CDI's `NormalScope`, kotlin-inject's and Metro's `Scope`), which covers
- * `javax`/`jakarta` `@Singleton`, Dagger's `@Reusable`, the Hilt scopes, Guice
- * and CDI scopes, and project scopes, or when it is Koin's `@Singleton`
- * definition annotation, EJB's `@Singleton` or a JSF managed-bean scope. The
- * pseudo-scopes CDI `@Dependent` and Micronaut `@Prototype` are meta-annotated
- * as scopes but create an instance per injection point, so they do not count.
- * Go takes the first name of its scope list that appears as `@<Name>` in the
- * class's modifier text; with several scopes the message names the one that
- * comes first in that list, as in Go. The class name is the identifier as
- * written, backticks included, as in Go.
+ * Koin's `@Singleton`/`@Single`, EJB's `@Singleton` and JSF managed-bean scopes share an
+ * instance across type arguments. CDI normal scopes, identified through
+ * `NormalScope`, instead make a generic bean a definition error: only
+ * `@Dependent` is allowed. Dagger 2.60.1, Metro 1.5.1 and Guice 5.1.0 key
+ * scoped bindings by full type, so their scopes are not reported.
+ * With several supported scopes, the first in source order names the finding.
+ * The class name is the identifier as written, backticks included, as in Go.
  *
  * Deliberate differences from Go, each pinned in the golden data
  * (`ScopeOnParameterizedClass*.kt`):
- * - Go reads the annotation's simple name, so it reports a generic class
- *   annotated with a same-named annotation that is not a DI scope when the
- *   file does not declare it (one declared elsewhere in its package, or
- *   imported from a package that is not a DI framework's). That class is not
- *   scoped, so it is not reported here.
- * - Go only knows the names in its list, so it misses an import alias, a type
- *   alias, and a project scope with another name (`@PerActivity`, Metro's
- *   `@SingleIn`). Those are scoped generic types and are reported here.
+ * - Go requires a qualified reference, an explicit import (including aliases),
+ *   or a scope declaration in the file's own framework package. It does not
+ *   resolve wildcard imports, type aliases or custom CDI normal scopes.
  */
 internal object ScopeOnParameterizedClass :
     FirRegularClassChecker(MppCheckerKind.Common), FirRule {
@@ -59,38 +48,19 @@ internal object ScopeOnParameterizedClass :
         override val regularClassCheckers = setOf(ScopeOnParameterizedClass)
     }
 
-    // Go's scope-name list, in Go's order: it decides which name the message
-    // uses when a class carries more than one scope.
-    private val goScopeNames = listOf(
-        "Singleton",
-        "Reusable",
-        "ApplicationScoped",
-        "ActivityScoped",
-        "ActivityRetainedScoped",
-        "FragmentScoped",
-        "ViewScoped",
-        "ViewModelScoped",
-        "ServiceScoped",
-        "SessionScoped",
-        "RequestScoped",
-        "UserScoped",
-    )
+    private enum class ScopeKind { SHARED, CDI }
 
     private val scopeMetaAnnotations = setOf(
-        classIdOf("javax.inject", "Scope"),
-        classIdOf("jakarta.inject", "Scope"),
-        classIdOf("com.google.inject", "ScopeAnnotation"),
         classIdOf("javax.enterprise.context", "NormalScope"),
         classIdOf("jakarta.enterprise.context", "NormalScope"),
-        classIdOf("me.tatarka.inject.annotations", "Scope"),
-        classIdOf("dev.zacsweers.metro", "Scope"),
     )
 
     // Scope annotations that carry no scope meta-annotation: Koin's single
     // definition, EJB's singleton session bean (one instance per application)
-    // and the JSF managed-bean scopes, which Go reports by their simple names.
+    // and the JSF managed-bean scopes, which Go reports from resolved framework packages.
     private val scopeAnnotations = setOf(
         classIdOf("org.koin.core.annotation", "Singleton"),
+        classIdOf("org.koin.core.annotation", "Single"),
         classIdOf("javax.ejb", "Singleton"),
         classIdOf("jakarta.ejb", "Singleton"),
         classIdOf("javax.faces.bean", "ApplicationScoped"),
@@ -103,16 +73,6 @@ internal object ScopeOnParameterizedClass :
         classIdOf("jakarta.faces.bean", "ViewScoped"),
     )
 
-    // Pseudo-scopes meta-annotated as scopes that create a new instance for
-    // every injection point, so no instance is shared across type arguments:
-    // CDI's `@Dependent` and Micronaut's `@Prototype`.
-    private val excludedScopes = setOf(
-        classIdOf("javax.enterprise.context", "Dependent"),
-        classIdOf("jakarta.enterprise.context", "Dependent"),
-        classIdOf("io.micronaut.context.annotation", "Prototype"),
-    )
-
-
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {
         val source = declaration.source ?: return
@@ -123,31 +83,34 @@ internal object ScopeOnParameterizedClass :
         if (declaration.typeParameters.none { it is FirTypeParameter }) return
         val scopes = declaration.annotations.mapNotNull { scopeName(it, context.session) }
         if (scopes.isEmpty()) return
-        val scope = scopes.minBy { goScopeNames.indexOf(it).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+        val (scope, kind) = scopes.first()
         // The class name as written, backticks included, like Go's identifier text.
         val name = identifierText(source) ?: declaration.name.asString()
         // Go reports the declaration's first line, where its modifier list
         // (the scope annotation included) starts.
         report(
             firstModifierAnchor(source) ?: source,
-            "@$scope on generic class '$name' shares one instance across all type " +
-                "arguments because the type parameter is erased at runtime.",
+            when (kind) {
+                ScopeKind.SHARED -> "@$scope on generic class '$name' shares one instance across all type " +
+                    "arguments because the type parameter is erased at runtime."
+                ScopeKind.CDI -> "@$scope on generic class '$name': CDI allows only @Dependent on a bean " +
+                    "with type parameters, so this is a definition error."
+            },
         )
     }
 
-    // The simple name of the annotation's class when it is a DI scope, else
+    // The simple name and kind of the annotation's class when it is a supported scope, else
     // null. The annotation type is read from its own lookup tag (annotation
     // classes are never local), expanding a type alias.
-    private fun scopeName(annotation: FirAnnotation, session: FirSession): String? {
+    private fun scopeName(annotation: FirAnnotation, session: FirSession): Pair<String, ScopeKind>? {
         val type = annotation.annotationTypeRef.coneType.fullyExpandedType(session) as? ConeClassLikeType ?: return null
         val classId = type.lookupTag.classId
         val name = classId.shortClassName.asString()
-        if (classId in excludedScopes) return null
-        if (classId in scopeAnnotations) return name
+        if (classId in scopeAnnotations) return name to ScopeKind.SHARED
         val symbol = type.lookupTag.toClassSymbol(session) ?: return null
         val isScope = symbol.resolvedAnnotationsWithClassIds.any {
             it.toAnnotationClassIdSafe(session) in scopeMetaAnnotations
         }
-        return if (isScope) name else null
+        return if (isScope) name to ScopeKind.CDI else null
     }
 }

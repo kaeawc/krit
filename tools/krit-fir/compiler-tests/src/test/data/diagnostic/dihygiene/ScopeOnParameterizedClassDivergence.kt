@@ -1,9 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 36, 41
-// Generic classes whose modifier text mentions a scope name without carrying
-// the scope. They carry no DI scope, so the message ("@Singleton on generic
-// class ... shares one instance") is false of them, and neither Go nor FIR
-// reports them.
+// go-lines: none
+// Inject, Hilt and project scopes do not trigger this rule.
+// Their generic bindings are not class-keyed shared instances.
 package test
 
 import dagger.hilt.android.scopes.ActivityScoped
@@ -32,11 +30,10 @@ class InStringArgument<T>
 @Suppress("unused")
 class InComment<T>
 
-// A real scope next to the lookalike is still reported, like Go.
-<!ScopeOnParameterizedClass!>@SingletonHolder<!> @Singleton
+// An inject scope next to the lookalike is also silent.
+@SingletonHolder @Singleton
 class LookalikeAndScope<T>
 
-// Both report this line and name `@ActivityScoped`, the scope the class
-// carries, not the `@SingletonHolder` lookalike.
-<!ScopeOnParameterizedClass!>@SingletonHolder<!> @ActivityScoped
+// Hilt scopes next to lookalikes are silent too.
+@SingletonHolder @ActivityScoped
 class Mixed<T>

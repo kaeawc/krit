@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 18, 25, 28, 31, 34, 37, 40, 43, 46, 51, 56, 60, 63, 66, 70, 73, 76, 79, 83, 87, 91, 95, 101, 106, 111
-// Scoped generic classes, the shapes Go reports: the finding sits on the
-// declaration's first line (its modifier list), like Go.
+// go-lines: 18, 50, 55, 59, 62, 65, 69, 72, 75, 78, 82, 86, 90, 94, 100, 105, 110
+// Koin scoped generic classes retain declaration-first-line anchoring.
+// Dagger 2.60.1 gives Cache<String> and Cache<Integer> separate instances.
 package test
 
 import dagger.Reusable
@@ -13,41 +13,40 @@ import dagger.hilt.android.scopes.ViewModelScoped
 import dagger.hilt.android.scopes.ViewScoped
 import javax.inject.Inject
 import javax.inject.Named
-import javax.inject.Singleton
+import org.koin.core.annotation.Singleton
 
 <!ScopeOnParameterizedClass!>@Singleton<!>
 class Cache<K, V> @Inject constructor() {
     fun get(key: K): V? = null
 }
 
-// The scope written with its package, which Go reports too; it is a scope on
-// a generic class, so the message is true of it.
-<!ScopeOnParameterizedClass!>@jakarta.inject.Singleton<!>
+// Inject scopes are not reported, including qualified references.
+@jakarta.inject.Singleton
 class JakartaCache<T> @jakarta.inject.Inject constructor()
 
-<!ScopeOnParameterizedClass!>@Reusable<!>
+@Reusable
 class ReusableHolder<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@ActivityScoped<!>
+@ActivityScoped
 class ActivityStore<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@ActivityRetainedScoped<!>
+@ActivityRetainedScoped
 class RetainedStore<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@FragmentScoped<!>
+@FragmentScoped
 class FragmentStore<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@ViewScoped<!>
+@ViewScoped
 class ViewStore<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@ViewModelScoped<!>
+@ViewModelScoped
 class ViewModelStore<T> @Inject constructor()
 
-<!ScopeOnParameterizedClass!>@ServiceScoped<!>
+@ServiceScoped
 class ServiceStore<T> @Inject constructor()
 
-// Two scopes: one finding, naming the scope that comes first in Go's list
-// (Singleton), as Go does.
+// Only the Koin scope is supported; the finding anchors on the first modifier.
+// Dagger Reusable does not itself trigger a finding.
 <!ScopeOnParameterizedClass!>@Reusable<!> @Singleton
 class DoublyScoped<T>
 
@@ -132,7 +131,7 @@ class Generic<T> {
 
 // The scope is on the constructor, not the class; Go reads only the class's
 // own modifier list.
-class ConstructorScoped<T> @Singleton @Inject constructor()
+class ConstructorScoped<T> @javax.inject.Singleton @Inject constructor()
 
 // A qualifier is not a scope.
 @Named("cache")
@@ -151,3 +150,7 @@ fun <T> genericFunction(value: T): Any {
     }
     return LocalInGeneric()
 }
+
+// The javax inject flavor is also silent.
+@javax.inject.Singleton
+class JavaxCache<T>

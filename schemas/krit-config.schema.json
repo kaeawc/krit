@@ -18115,7 +18115,7 @@
           }
         },
         "ScopeOnParameterizedClass": {
-          "description": "Detects DI scope annotations on generic classes; the type parameter is erased so the scope holds a single instance. [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects DI scope annotations on generic classes in frameworks that key instances by class (Koin, EJB, JSF) or reject them (CDI); Dagger, Hilt, Metro and Guice key by full type and are not reported. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

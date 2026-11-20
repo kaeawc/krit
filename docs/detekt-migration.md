@@ -254,6 +254,11 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
   types or proven factories without an explicit read-only type. This
   conservative fallback can miss detekt findings. The CLI builds the source
   resolver even when no active rule requires it.
+  Non-constructor factory names under non-stdlib wildcard imports are skipped
+  unless explicitly resolved to stdlib; indexed same-package or wildcard-imported
+  functions suppress the factory fallback. A wildcard-imported mutable-type
+  lookalike available only in a binary dependency can still be missed when
+  classpath symbols are not loaded; the Go tests pin this unresolved gap.
 - Java platform types are a compatibility gap in both engines:
   `var env = System.getenv()` and vars initialized from Java `List` getters
   are not reported. Go does not infer these types; FIR requires all flexible

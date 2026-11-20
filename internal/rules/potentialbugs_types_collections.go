@@ -86,6 +86,9 @@ func doubleMutabilityDeclaredTypeName(ctx *api.Context, typeNode uint32) string 
 func doubleMutabilityWildcardTypeShadowed(ctx *api.Context, name string) bool {
 	for _, pkg := range doubleMutabilityShadows(ctx.File).wildcardPackages {
 		fqn := pkg + "." + name
+		if knownMutableCollectionFQN(fqn) {
+			continue
+		}
 		if class := ctx.Resolver.ClassHierarchy(fqn); class != nil && class.FQN == fqn {
 			return true
 		}
@@ -115,9 +118,12 @@ func doubleMutabilityInferredFactoryType(ctx *api.Context, prop uint32) string {
 			imported = ctx.Resolver.ResolveImport(name, file)
 		}
 		knownImport := imported == "kotlin.collections."+name || doubleMutabilityCanonicalType(imported) == doubleMutabilityCanonicalType(name)
+		set := doubleMutabilityShadows(file)
+		if _, factory := doubleMutabilityFactoryReturnTypes[name]; factory && set.wildcardShadow && !knownImport {
+			return ""
+		}
 		shadowed := doubleMutabilitySimpleTypeShadowed(file, name)
 		if ctx.Resolver != nil {
-			set := doubleMutabilityShadows(file)
 			_, declared := set.declared[name]
 			_, importedShadow := set.importedShadow[name]
 			shadowed = declared || importedShadow || doubleMutabilityWildcardTypeShadowed(ctx, name)
@@ -126,6 +132,14 @@ func doubleMutabilityInferredFactoryType(ctx *api.Context, prop uint32) string {
 			return ""
 		}
 		if ctx.Resolver != nil {
+			if ctx.Resolver.HasFunction(qualifySourceName(sourcePackageName(file), name)) {
+				return ""
+			}
+			for _, pkg := range set.wildcardPackages {
+				if ctx.Resolver.HasFunction(pkg + "." + name) {
+					return ""
+				}
+			}
 			if class := ctx.Resolver.ClassHierarchy(name); class != nil && doubleMutabilityCanonicalType(class.FQN) != doubleMutabilityCanonicalType(name) {
 				return ""
 			}
@@ -321,9 +335,9 @@ func doubleMutabilityShadows(file *scanner.File) *doubleMutabilityShadowSet {
 			}
 			if strings.HasSuffix(text, ".*") {
 				pkg := strings.TrimSuffix(text, ".*")
+				set.wildcardPackages = append(set.wildcardPackages, pkg)
 				if pkg != "kotlin.collections" && pkg != "java.util" {
 					set.wildcardShadow = true
-					set.wildcardPackages = append(set.wildcardPackages, pkg)
 				}
 				return
 			}

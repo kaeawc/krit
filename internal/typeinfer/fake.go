@@ -10,11 +10,12 @@ type FakeResolver struct {
 	NodeTypes   map[string]*ResolvedType // node text → type
 	NameTypes   map[string]*ResolvedType // variable name → type
 	Imports     map[string]string        // simple name → FQN
-	Nullability map[string]*bool         // node text → nullable
-	Classes     map[string]*ClassInfo    // type name → class info
-	SealedMap   map[string][]string      // sealed class → variants
-	EnumMap     map[string][]string      // enum class → entries
-	Annotations map[string]string        // "AnnotationName.argName" → value
+	Functions   map[string]bool
+	Nullability map[string]*bool      // node text → nullable
+	Classes     map[string]*ClassInfo // type name → class info
+	SealedMap   map[string][]string   // sealed class → variants
+	EnumMap     map[string][]string   // enum class → entries
+	Annotations map[string]string     // "AnnotationName.argName" → value
 }
 
 // NewFakeResolver creates a FakeResolver with all maps initialized.
@@ -23,6 +24,7 @@ func NewFakeResolver() *FakeResolver {
 		NodeTypes:   make(map[string]*ResolvedType),
 		NameTypes:   make(map[string]*ResolvedType),
 		Imports:     make(map[string]string),
+		Functions:   make(map[string]bool),
 		Nullability: make(map[string]*bool),
 		Classes:     make(map[string]*ClassInfo),
 		SealedMap:   make(map[string][]string),
@@ -54,6 +56,10 @@ func (f *FakeResolver) ResolveImport(simpleName string, _ *scanner.File) string 
 		return fqn
 	}
 	return ""
+}
+
+func (f *FakeResolver) HasFunction(fqn string) bool {
+	return f.Functions[fqn]
 }
 
 func (f *FakeResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {

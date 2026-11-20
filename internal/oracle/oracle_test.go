@@ -941,6 +941,7 @@ func (f *fakeTypeResolver) ResolveByNameFlat(_ string, _ uint32, _ *scanner.File
 	return f.nameResult
 }
 func (f *fakeTypeResolver) ResolveImport(_ string, _ *scanner.File) string { return f.importResult }
+func (f *fakeTypeResolver) HasFunction(string) bool                        { return false }
 func (f *fakeTypeResolver) IsNullableFlat(_ uint32, _ *scanner.File) *bool { return f.nullResult }
 func (f *fakeTypeResolver) ClassHierarchy(_ string) *typeinfer.ClassInfo   { return f.classResult }
 func (f *fakeTypeResolver) SealedVariants(_ string) []string               { return f.sealedResult }
@@ -1044,6 +1045,15 @@ func TestComposite_ResolveByNameFlat_OracleWhenFallbackNil(t *testing.T) {
 	result := composite.ResolveByNameFlat("DepType", 1, nil)
 	if result == nil || result.FQN != "lib.DepType" {
 		t.Error("expected oracle to provide flat type when fallback returns nil")
+	}
+}
+
+func TestComposite_HasFunction_Fallback(t *testing.T) {
+	fallback := typeinfer.NewFakeResolver()
+	fallback.Functions["other.mutableListOf"] = true
+	resolver := NewCompositeResolver(nil, fallback)
+	if !resolver.HasFunction("other.mutableListOf") || resolver.HasFunction("app.mutableListOf") {
+		t.Fatal("function lookup must delegate to source resolution")
 	}
 }
 

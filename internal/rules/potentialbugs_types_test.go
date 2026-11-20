@@ -1352,7 +1352,7 @@ var readOnly: List<String> = mutableListOf()`, false, 0, 1, 0},
 			{"unrelatedWildcard", `import kotlinx.coroutines.*
 class Repo { var items: MutableList<String> = mutableListOf() }`, false, 0, 1, 0},
 			{"unrelatedWildcardFactory", `import kotlinx.coroutines.*
-class Repo { var items = mutableListOf<String>() }`, false, 0, 1, 0},
+class Repo { var items = mutableListOf<String>() }`, false, 0, 0, 0},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				file := parseInline(t, test.source)
@@ -1452,10 +1452,43 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 				{"typeLookalike", "class MutableList<T>\nprivate var items: MutableList<String> = MutableList()", 0},
 				{"importLookalike", "import other.mutableListOf\nprivate var count = mutableListOf()", 0},
 				{"wildcardWithoutEvidence", "import other.*\nprivate var count = mutableListOf()", 0},
+				{"wildcardWithStdlibImport", "import other.*\nimport kotlin.collections.mutableListOf\nprivate var count = mutableListOf<String>()", 0},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					file := parseInline(t, test.source)
 					columns := rules.NewDispatcher([]*api.Rule{entry}, nil).Run(file)
+					if got := columns.Findings(); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		t.Run("indexedFactoryShadows", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			rule.MutableTypes = originalTypes
+			for _, test := range []struct {
+				name, source, extra string
+				want                int
+			}{
+				{"wildcardFactory", "package app\nimport other.*\nprivate var count = mutableListOf()", "package other\nfun mutableListOf(): Int = 0", 0},
+				{"wildcardFactoryExplicitImport", "package app\nimport other.*\nimport kotlin.collections.mutableListOf\nprivate var count = mutableListOf()", "package other\nfun mutableListOf(): Int = 0", 0},
+				{"samePackageFactory", "package app\nprivate var count = mutableListOf()", "package app\nfun mutableListOf(): Int = 0", 0},
+				{"samePackageUnknownReturn", "package app\nprivate var count = mutableListOf()", "package app\nfun mutableListOf() = unknown()", 0},
+				{"defaultPackageFactory", "private var count = mutableListOf()", "fun mutableListOf(): Int = 0", 0},
+				{"unimportedFactory", "package app\nprivate var items = mutableListOf<String>()", "package other\nfun mutableListOf(): Int = 0", 1},
+				{"qualifiedFactory", "package app\nimport other.*\nprivate var items = kotlin.collections.mutableListOf<String>()", "package app\nfun mutableListOf(): Int = 0", 1},
+				{"wildcardConstructorFunction", "package app\nimport other.*\nprivate var count = ArrayList()", "package other\nfun ArrayList(): Int = 0", 0},
+				{"stdlibWildcardFactory", "package app\nimport kotlin.collections.*\nprivate var count = mutableListOf()", "package kotlin.collections\nfun mutableListOf(): Int = 0", 0},
+				{"stdlibWildcardUnrelatedFunction", "package app\nimport kotlin.collections.*\nprivate var items = mutableListOf<String>()", "package other\nfun mutableListOf(): Int = 0", 1},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					use := parseInline(t, test.source)
+					use.Path = "/project/src/main/kotlin/Use.kt"
+					extra := parseInline(t, test.extra)
+					extra.Path = "/project/src/main/kotlin/Other.kt"
+					resolver := typeinfer.NewResolver()
+					resolver.IndexFilesParallel([]*scanner.File{use, extra}, 1)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, resolver).Run(use)
 					if got := columns.Findings(); len(got) != test.want {
 						t.Fatalf("got %v, want %d findings", got, test.want)
 					}
@@ -1479,6 +1512,7 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 				{"importShadow", "package b\nimport com.lib.Registry\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
 				{"wildcardShadow", "package b\nimport com.lib.*\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
 				{"wildcardMutableList", "package b\nimport com.lib.*\nvar items: MutableList<String> = MutableList()", "package com.lib\nclass MutableList<T>", 0},
+				{"unindexedBinaryWildcardGap", "package b\nimport com.lib.*\nvar items: MutableList<String> = MutableList()", "", 1},
 				{"sameFileClass", "package b\nclass Registry\nvar registry: Registry = Registry()", "", 0},
 				{"samePackageClass", "package b\nvar registry: Registry = Registry()", "package b\nclass Registry", 0},
 			} {

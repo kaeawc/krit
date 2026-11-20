@@ -23,12 +23,12 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
+import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirConstructor
 import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
-import org.jetbrains.kotlin.fir.declarations.processAllDeclarations
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassIdSafe
 import org.jetbrains.kotlin.fir.declarations.utils.isAbstract
 import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
@@ -144,7 +144,7 @@ internal object SingletonOnMutableClass :
         listOf("AtomicBoolean", "AtomicInt", "AtomicLong", "AtomicReference", "AtomicIntArray",
             "AtomicLongArray", "AtomicArray").map { classIdOf("kotlin.concurrent.atomics", it) }
 
-    @OptIn(SymbolInternals::class)
+    @OptIn(DirectDeclarationsAccess::class, SymbolInternals::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {
         if (declaration.source?.kind !is KtRealSourceElementKind ||
@@ -155,10 +155,10 @@ internal object SingletonOnMutableClass :
         if (hasAnnotation(declaration.annotations, threadAnnotations, context.session)) return
         var primary: FirConstructor? = null
         val members = mutableListOf<FirProperty>()
-        declaration.processAllDeclarations(context.session) { symbol ->
-            when (val member = symbol.fir) {
+        declaration.declarations.filter { it.source?.kind is KtRealSourceElementKind }.forEach { member ->
+            when (member) {
                 is FirConstructor -> if (member.isPrimary) primary = member
-                is FirProperty -> if (member.source?.kind is KtRealSourceElementKind && !member.isAbstract) {
+                is FirProperty -> if (!member.isAbstract) {
                     members += member
                 }
                 else -> Unit

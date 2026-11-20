@@ -9,7 +9,6 @@ import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
-import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirFunction
@@ -28,16 +27,22 @@ import org.jetbrains.kotlin.fir.expressions.FirAnonymousFunctionExpression
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.expressions.FirFunctionConversionKind
 import org.jetbrains.kotlin.fir.expressions.FirFunctionTypeConversionExpression
+import org.jetbrains.kotlin.fir.expressions.FirBlock
+import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.FirThrowExpression
+import org.jetbrains.kotlin.fir.expressions.FirTryExpression
+import org.jetbrains.kotlin.fir.expressions.FirWhenExpression
+import org.jetbrains.kotlin.fir.expressions.FirWrappedExpression
 import org.jetbrains.kotlin.fir.references.toResolvedCallableSymbol
 import org.jetbrains.kotlin.fir.types.resolvedType
 import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
-import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
@@ -78,7 +83,7 @@ internal object BadHostnameVerifier :
         // named verify, even inside a verifier, is not the verifier's verify.
         val owner = context.containingDeclarations.lastOrNull { it != declaration.symbol } as? FirClassSymbol<*> ?: return
         if (!isHostnameVerifier(owner, session)) return
-        if (!alwaysReturnsTrue(declaration, requireEveryReturn = (owner as? FirRegularClassSymbol)?.classKind == ClassKind.OBJECT)) return
+        if (!alwaysReturnsTrue(declaration)) return
         report(firstLine(source), MESSAGE)
     }
 
@@ -95,7 +100,7 @@ internal object BadHostnameVerifier :
             val lambda = (expression.argumentList.arguments.singleOrNull() as? FirAnonymousFunctionExpression)
                 ?.anonymousFunction ?: return
             if (lambda.body == null) return
-            if (!alwaysReturnsTrue(lambda, requireEveryReturn = true)) return
+            if (!alwaysReturnsTrue(lambda)) return
             report(source, MESSAGE)
         }
 
@@ -108,7 +113,7 @@ internal object BadHostnameVerifier :
                 if (conversion.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId != hostnameVerifier) continue
                 val lambda = (conversion.expression as? FirAnonymousFunctionExpression)?.anonymousFunction ?: continue
                 if (lambda.body == null) continue
-                if (!alwaysReturnsTrue(lambda, requireEveryReturn = true)) continue
+                if (!alwaysReturnsTrue(lambda)) continue
                 report(lambda.source ?: continue, MESSAGE)
             }
         }
@@ -123,21 +128,42 @@ internal object BadHostnameVerifier :
     private fun isHostnameVerifier(owner: FirClassSymbol<*>, session: FirSession): Boolean =
         inheritsFrom(owner, session, lookupInterfaces = true) { it == hostnameVerifier }
 
-    private fun alwaysReturnsTrue(function: FirFunction, requireEveryReturn: Boolean = false): Boolean {
-        var lastReturnTrue = false
-        var allReturnsTrue = true
+    private fun alwaysReturnsTrue(function: FirFunction): Boolean {
+        var sawReturn = false
+        var returnsAreTrue = true
+        var hasRejectingPath = false
         function.body?.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (element is FirClass) return
+                if (element is FirThrowExpression || element is FirFunctionCall && isKotlinGuard(element)) {
+                    hasRejectingPath = true
+                }
                 element.acceptChildren(this)
                 if (element is FirReturnExpression && element.target.labeledElement === function) {
-                    val returned = element.result as? FirLiteralExpression
-                    lastReturnTrue = returned?.kind == ConstantValueKind.Boolean && returned.value == true
-                    allReturnsTrue = allReturnsTrue && lastReturnTrue
+                    sawReturn = true
+                    returnsAreTrue = returnsAreTrue && isLiteralTruePath(element.result)
                 }
             }
         })
-        return lastReturnTrue && (!requireEveryReturn || allReturnsTrue)
+        return sawReturn && returnsAreTrue && !hasRejectingPath
+    }
+
+    private fun isLiteralTruePath(expression: FirExpression?): Boolean = when (expression) {
+        is FirLiteralExpression -> expression.kind == ConstantValueKind.Boolean && expression.value == true
+        is FirWrappedExpression -> isLiteralTruePath(expression.expression)
+        is FirWhenExpression -> expression.branches.isNotEmpty() &&
+            expression.branches.all { isLiteralTruePath(it.result) }
+        is FirTryExpression -> isLiteralTruePath(expression.tryBlock) &&
+            expression.catches.all { isLiteralTruePath(it.block) }
+        is FirBlock -> isLiteralTruePath(expression.statements.lastOrNull() as? FirExpression)
+        else -> false
+    }
+
+    private fun isKotlinGuard(call: FirFunctionCall): Boolean {
+        val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
+        val callableId = callee.callableId
+        return callableId.packageName == FqName("kotlin") &&
+            callableId.callableName.asString() in setOf("require", "check")
     }
 
     private fun firstLine(source: KtSourceElement): KtSourceElement =

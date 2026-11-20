@@ -23,29 +23,33 @@ initializers, constructors and accessors. Enum classes and their entry overrides
 Unresolved SAM lookalikes are silent. Go does not infer implicit SAM conversions from setter names
 alone; FIR checks the resolved JDK interface and the compiler's SAM conversion.
 
-FIR retains the former custom-verifier checker's declaration and SAM coverage. It visits returns
-targeting the actual verifier member or SAM lambda, ignoring unrelated nested functions and classes.
-For class members, extra statements, multiple returns and a final literal-true return retain main's
-Go/Lint coverage, including the compatibility case `if (...) return false; return true`. SAM lambdas,
-objects and companions require every targeted return to yield literal true; an earlier labeled false
-or nonliteral return is silent. Go's SAM check is narrower still: it requires a single true statement.
-This is deliberately not a control-flow proof that every path accepts the host. FIR does not reproduce Go's class-wide helper
+FIR retains the former custom-verifier checker's declaration and SAM coverage. Only return
+expressions targeting the actual verifier member or SAM lambda contribute to its return-value check;
+nested class bodies are skipped.
+For every class, object, enum, enum entry, companion and SAM lambda, FIR reports only when every
+targeted return yields the literal `true`; expression-bodied `if`/`when` branches must all yield that
+literal as well. An earlier false/nonliteral return, a throwing path, or Kotlin `require`/`check`
+guard makes the verifier silent. This is intentionally stricter than Go's Android Lint-compatible
+last-return-wins behavior: for example, Go may report `if (...) return false; return true` while FIR
+does not. Those Go-only findings are pinned in goldens rather than changing Go. Go's SAM check is
+narrower still: it requires a single true statement. FIR does not reproduce Go's class-wide helper
 overload false positives: only the resolved `verify(String, SSLSession)` member is considered.
 
 ## Main coverage self-check
 
-Every true-positive Kotlin shape reported by main's Go `BadHostnameVerifier` or former Go/FIR
-`AllowAllHostnameVerifier` is covered by `BadHostnameVerifier` in FIR mode now; source-only Go
-coverage remains limited for compiler-resolved cases, as the table records. The former FIR goldens retain
-their diagnostic markers under `BadHostnameVerifier*` names; `// go-lines:` records current Go
-findings, including any Go-only compatibility quirks. Go reports the `verify` name; FIR reports the
-declaration's first annotation/modifier or `fun`, and SAM findings use the call/lambda source.
+The FIR port covers the resolved verifier and SAM shapes shown below, while deliberately dropping
+Go/Lint findings whose return-order or throw behavior does not establish an always-true verifier.
+Source-only Go coverage remains limited for compiler-resolved cases, as the table records. The FIR
+goldens retain their diagnostic markers under `BadHostnameVerifier*` names; `// go-lines:` records
+current Go findings, including intentional Go-only compatibility quirks. Go reports the `verify`
+name; FIR reports the declaration's first annotation/modifier or `fun`, and SAM findings use the
+call/lambda source.
 
 | Kotlin shape from main | Current Go | Current FIR | Evidence (`BadHostnameVerifier*.kt`) |
 | --- | --- | --- | --- |
 | Direct class; expression `= true`; block `return true`; semicolon/comments | Yes | Yes | base golden |
 | Nullable/FQN parameters; annotations/KDoc; multiline signature/body; `final`, abstract class, interface default | Yes | Yes | base golden |
-| Enum member and enum entry override | Yes | Yes | base golden |
+| Enum member and enum entry override returning literal true on every path | Yes | Yes | base golden |
 | Nested, inner and local class; anonymous object at top level, in a function or a factory | Yes | Yes | base golden, `GoMisses` |
 | Named object or verifier companion, including a class and companion that both verify | No for object/companion | Yes | `GoMisses` |
 | Inherited verifier base, qualified/nested base, long inheritance chain or cross-file base | Limited same-file lookup | Yes | `GoMisses`, `Inheritance`, `CrossFile` |
@@ -55,8 +59,10 @@ declaration's first annotation/modifier or `fun`, and SAM findings use the call/
 | `= (true)`, `return (true)`, backticked `verify` | No | Yes | `GoMisses` |
 | Explicit SAM constructor; parenthesized lambda value; labeled return; lambda in parentheses | Yes | Yes | `Lambda` |
 | Implicit SAM conversion: JDK static/instance setters, OkHttp builder, named lambda argument | No | Yes | `SamConversion` |
-| Logging, local declarations or throws before a final true return | Yes | Yes | `Negative`, `LintBodies` |
-| Multiple true returns; earlier false/nonliteral return followed by literal true; inline nonlocal true return | Yes | Yes | `Negative`, `LintBodies` |
+| Logging or local declarations before an all-literal-true result | Yes | Yes | `Negative`, `LintBodies` |
+| Earlier false/nonliteral return followed by literal true | Yes | No; Go-only Lint parity | `Negative`, `LintBodies` |
+| Throwing path or `require`/`check` before literal true | Yes for class members | No; Go-only Lint parity | `Negative`, `StrictObjects`, `LintBodies` |
+| Multiple literal-true returns; inline nonlocal true return | Yes | Yes | `LintBodies` |
 | Direct literal-true override with helper calls, initializer/property calls, another base or secondary constructor | Yes | Yes | `LintBodies` |
 | Wrong overload preceding the real literal-true override | Yes, at the actual override | Yes, at the actual override | `Divergence` |
 
@@ -73,9 +79,13 @@ remain silent in the compiler test.
 
 Both rules use Android Lint 32.4.1's diagnostic messages, confirmed with `javap` against
 `lint-checks-32.4.1.jar`. Lint checks the Apache constructor and a field argument to `setHostnameVerifier`
-or `setDefaultHostnameVerifier`. Krit deliberately covers all references to the Apache field and constructor
-references (`::AllowAllHostnameVerifier`), not just setter arguments. It does not report imports or custom
-always-true implementations under this issue ID.
+or `setDefaultHostnameVerifier`. Krit covers Apache field references and constructor references
+(`::AllowAllHostnameVerifier`), not just setter arguments. The Go source visitor still misses the
+Kotlin imported property reference `::ALLOW_ALL_HOSTNAME_VERIFIER` and Java field method references
+(`ALLOW_ALL_HOSTNAME_VERIFIER::verify` and
+`SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER::verify`); the Kotlin FIR/Go divergence is pinned in
+`AllowAllHostnameVerifier.kt`. These source-only Go gaps remain unchanged here. Krit does not report
+imports or custom always-true implementations under this issue ID.
 
 Go requires an explicit import (including aliases and Java static imports) or a fully qualified name
 for Apache references; JDK verifier types also resolve `javax.net.ssl.*` with same-file shadow checks.

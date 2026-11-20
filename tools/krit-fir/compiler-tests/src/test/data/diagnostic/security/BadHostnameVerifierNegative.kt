@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 21, 30, 39, 46, 53, 61, 102
-// Non-verifiers and nonliteral returns remain silent in FIR. Literal-true
-// returns with extra statements retain main's Go/Lint findings in both engines.
+// go-lines: 21, 30, 40, 47, 55, 64, 105
+// Non-verifiers and nonliteral returns remain silent in FIR. Go retains
+// Lint's last-return-wins reports where every FIR return path is not true.
 package test
 
 import javax.net.ssl.HostnameVerifier
@@ -33,7 +33,8 @@ class LogsFirst : HostnameVerifier {
     }
 }
 
-// Declarations and throws before a final true return also retain coverage.
+// Declarations before a true return retain coverage. A throwing path rejects
+// the verifier and is silent in FIR, though Go's Lint visitor reports it.
 
 class DeclaresFirst : HostnameVerifier {
     <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
@@ -43,22 +44,24 @@ class DeclaresFirst : HostnameVerifier {
 }
 
 class ThrowsFirst : HostnameVerifier {
-    <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
         if (hostname.isEmpty()) throw IllegalArgumentException()
         return true
     }
 }
 
+// Go reports the final true; FIR sees the direct false path.
 class Conditional : HostnameVerifier {
-    <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
         if (hostname.isEmpty()) return false
         return true
     }
 }
 
-// Main's last-return-wins quirk is retained, including inline nonlocal returns.
+// The inline nonlocal false return also rejects a host; Go retains the
+// last-return finding while strict FIR stays silent.
 class NonlocalReturn : HostnameVerifier {
-    <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
         run { if (hostname.isEmpty()) return false }
         return true
     }

@@ -1,6 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 15, 21, 45, 48, 51, 55, 63, 67, 75, 78, 82, 87, 92, 97, 100, 106, 122, 124, 126, 130, 138, 145
-// Main's K2/K4 Lint parity bodies, including last-return-wins compatibility.
+// go-lines: 11, 18, 24, 48, 51, 54, 58, 66, 70, 78, 81, 85, 90, 95, 100, 103, 110, 126, 128, 130, 134, 144, 151, 176
+// FIR requires every return path to be the literal true; Go retains Lint's
+// class-wide last-return-wins compatibility on the pinned divergences below.
 package test
 
 import javax.net.ssl.HostnameVerifier
@@ -11,8 +12,10 @@ val v1 = object : HostnameVerifier {
     return true
   }
 }
+// FIR is silent because the false return rejects a host; Go's Lint visitor
+// reports the final true return.
 val v2 = object : HostnameVerifier {
-  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
+  override fun verify(h: String, s: SSLSession): Boolean {
     if (h == "a") return false
     return true
   }
@@ -102,14 +105,15 @@ class P7 : HostnameVerifier {
     return true
   }
 }
+// Go reports the final true but FIR rejects the explicit throwing path.
 class P8 : HostnameVerifier {
-  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
+  override fun verify(h: String, s: SSLSession): Boolean {
     if (h.isEmpty()) throw RuntimeException()
     return true
   }
 }
 class P9 : HostnameVerifier {
-  override fun verify(h: String, s: SSLSession): Boolean = when { true -> true else -> true }
+  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean = when { true -> true else -> true }
 }
 class P10 : HostnameVerifier {
   override fun verify(h: String, s: SSLSession): Boolean {
@@ -134,8 +138,10 @@ class MultipleTrue : HostnameVerifier {
   }
 }
 
+// Go reports the final true but FIR also requires the earlier return value
+// to be the literal true.
 class EarlierNonliteral : HostnameVerifier {
-  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
+  override fun verify(h: String, s: SSLSession): Boolean {
     if (h.isEmpty()) return h == s.peerHost
     return true
   }
@@ -145,4 +151,63 @@ class InlineNonlocalReturn : HostnameVerifier {
   <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
     run { return true }
   }
+}
+
+// Go reports the class-member last-return case; FIR sees the false path and
+// rejects it. Enum, entry, and constructor variants below pin strict FIR for
+// owner shapes where Go's legacy fallback can instead remain silent.
+enum class EnumFalseThenTrue : HostnameVerifier {
+  INSTANCE;
+
+  override fun verify(h: String, s: SSLSession): Boolean {
+    if (h != "x") return false
+    return true
+  }
+}
+
+enum class EntryFalseThenTrue : HostnameVerifier {
+  INSTANCE {
+    override fun verify(h: String, s: SSLSession): Boolean {
+      if (h != "x") return false
+      return true
+    }
+  };
+
+  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean = true
+}
+
+open class OtherBase
+
+class ConstructorFalseThenTrue : OtherBase(), HostnameVerifier {
+  override fun verify(h: String, s: SSLSession): Boolean {
+    if (h != "x") return false
+    return true
+  }
+}
+
+class SecondaryFalseThenTrue(val marker: Int) : HostnameVerifier {
+  constructor() : this(0)
+
+  override fun verify(h: String, s: SSLSession): Boolean {
+    if (h != "x") return false
+    return true
+  }
+}
+
+abstract class VerifierBase : HostnameVerifier
+
+class DerivedFalseThenTrue : VerifierBase() {
+  override fun verify(h: String, s: SSLSession): Boolean {
+    if (h != "x") return false
+    return true
+  }
+}
+
+class BranchResults : HostnameVerifier {
+  override fun verify(h: String, s: SSLSession): Boolean =
+    if (h.isEmpty()) true else h == s.peerHost
+}
+class AllTrueBranches : HostnameVerifier {
+  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean =
+    if (h.isEmpty()) true else true
 }

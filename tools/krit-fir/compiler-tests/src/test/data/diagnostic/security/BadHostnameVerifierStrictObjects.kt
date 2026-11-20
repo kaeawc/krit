@@ -27,3 +27,26 @@ object AllTrue : HostnameVerifier {
         return true
     }
 }
+
+// A throwing path or a Kotlin guard can reject a hostname even though the
+// sole explicit return is true, so strict FIR deliberately does not report.
+object ThrowsOnMismatch : HostnameVerifier {
+    override fun verify(host: String, session: SSLSession): Boolean {
+        if (host != "x") throw javax.net.ssl.SSLPeerUnverifiedException(host)
+        return true
+    }
+}
+
+object RequiresMatch : HostnameVerifier {
+    override fun verify(host: String, session: SSLSession): Boolean {
+        require(host == "x")
+        return true
+    }
+}
+
+object ChecksMatch : HostnameVerifier {
+    override fun verify(host: String, session: SSLSession): Boolean {
+        check(host == "x")
+        return true
+    }
+}

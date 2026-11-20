@@ -26326,7 +26326,7 @@
       "additionalProperties": false,
       "properties": {
         "AllowAllHostnameVerifier": {
-          "description": "HostnameVerifier accepts all hostnames [precision: ast-backed] [noisiness: normal]",
+          "description": "Apache allow-all hostname verifier use [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

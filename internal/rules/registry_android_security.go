@@ -357,13 +357,13 @@ func registerAndroidSecurityRules() {
 	{
 		r := &AllowAllHostnameVerifierRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "AllowAllHostnameVerifier", RuleSetName: "security", Sev: "warning"},
-			IssueID:  "AllowAllHostnameVerifier", Brief: "HostnameVerifier accepts all hostnames",
+			IssueID:  "AllowAllHostnameVerifier", Brief: "Apache allow-all hostname verifier use",
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "Krit",
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes:  []string{"class_declaration", "object_literal", "object_creation_expression", "call_expression"},
+			NodeTypes:  []string{"call_expression", "object_creation_expression", "constructor_invocation", "callable_reference", "method_reference", "navigation_expression", "field_access", "simple_identifier", "identifier"},
 			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})

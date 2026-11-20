@@ -461,7 +461,7 @@ class WC3 : WebViewClient() {
   override fun onReceivedSslError(v: WebView, h: SslErrorHandler, e: SslError) { if (e.primaryError == 1) h.proceed() else h.cancel() }
 }
 `))
-	if want := "106:20"; got != want {
+	if want := "106:7"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -1178,7 +1178,7 @@ public class J {
   }
 }
 `))
-	if want := "55:22"; got != want {
+	if want := ""; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -1757,7 +1757,7 @@ class V17 : HostnameVerifier {
   override fun verify(h: String, s: SSLSession): Boolean { return (true) }
 }
 `))
-	if want := "94:16,99:16,105:16,132:16,139:16,147:16,151:16"; got != want {
+	if want := "94:3,129:10,132:3,135:3,139:3,143:3,147:3,151:3,154:3"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2333,7 +2333,7 @@ public class J2 {
   static class F extends A { }
 }
 `))
-	if want := "22:20,25:20,28:20,35:20"; got != want {
+	if want := "22:5,35:5"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2576,7 +2576,7 @@ class T2 : T1() {
   override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
 }
 `))
-	if want := "32:16"; got != want {
+	if want := "32:3,35:3,38:3"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2643,7 +2643,7 @@ fun fn(): HostnameVerifier = object : HostnameVerifier {
   override fun verify(h: String, s: SSLSession) = true
 }
 `))
-	if want := "11:16,20:16,25:16,30:16,33:16,39:16,59:16"; got != want {
+	if want := "8:3,11:3,15:3,20:3,25:3,30:3,55:3,57:11,59:3"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2681,7 +2681,7 @@ public class J4 {
   static abstract class Base2 implements HostnameVerifier {}
 }
 `))
-	if want := "7:20,11:20,15:20,25:20,27:71,29:60"; got != want {
+	if want := "7:5,11:5,15:5,25:5,27:56,29:45"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }

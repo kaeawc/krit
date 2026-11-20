@@ -1,8 +1,7 @@
 package test
 
-import javax.net.ssl.HostnameVerifier
-import javax.net.ssl.SSLSession
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier
+import org.apache.http.conn.ssl.SSLSocketFactory
 
-class AllowAllVerifier : HostnameVerifier {
-    override fun verify(hostname: String, session: SSLSession): Boolean = true
-}
+val verifier = AllowAllHostnameVerifier()
+val defaultVerifier = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER

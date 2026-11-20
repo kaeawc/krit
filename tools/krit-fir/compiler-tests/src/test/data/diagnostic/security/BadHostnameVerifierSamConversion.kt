@@ -8,17 +8,17 @@ import javax.net.ssl.HttpsURLConnection
 import okhttp3.OkHttpClient
 
 fun installDefault() {
-    HttpsURLConnection.setDefaultHostnameVerifier <!AllowAllHostnameVerifier!>{ _, _ -> true }<!>
+    HttpsURLConnection.setDefaultHostnameVerifier <!BadHostnameVerifier!>{ _, _ -> true }<!>
 }
 
-fun okHttp(): OkHttpClient.Builder = OkHttpClient.Builder().hostnameVerifier <!AllowAllHostnameVerifier!>{ _, _ -> true }<!>
+fun okHttp(): OkHttpClient.Builder = OkHttpClient.Builder().hostnameVerifier <!BadHostnameVerifier!>{ _, _ -> true }<!>
 
 fun parenthesized(connection: HttpsURLConnection) {
-    connection.setHostnameVerifier(<!AllowAllHostnameVerifier!>{ hostname, session -> true }<!>)
+    connection.setHostnameVerifier(<!BadHostnameVerifier!>{ hostname, session -> true }<!>)
 }
 
 fun named(): OkHttpClient.Builder =
-    OkHttpClient.Builder().hostnameVerifier(hostnameVerifier = <!AllowAllHostnameVerifier!>{ _, _ -> true }<!>)
+    OkHttpClient.Builder().hostnameVerifier(hostnameVerifier = <!BadHostnameVerifier!>{ _, _ -> true }<!>)
 
 // A lambda that checks the host does not accept every host.
 fun checksHost() {

@@ -1,11 +1,9 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10
-// Positive: the verifier interface comes from a star import of the SSL
-// package. Go's import facts resolve the star import too, so both report it.
+// go-lines: none
+// FIR resolves wildcard imports; Go intentionally requires an explicit import or FQN.
 package test
 
-import javax.net.ssl.*
+import org.apache.http.conn.ssl.*
 
-class StarImportAllowAll : HostnameVerifier {
-    <!AllowAllHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean = true
-}
+val constructed = <!AllowAllHostnameVerifier!>AllowAllHostnameVerifier<!>()
+val constant = <!AllowAllHostnameVerifier!>SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER<!>

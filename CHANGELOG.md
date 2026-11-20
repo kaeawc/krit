@@ -51,6 +51,11 @@ All notable changes to Krit will be documented in this file.
 ### Changed
 - `HardcodedSecretKey` and `StaticIv` now skip test source files in both Go and FIR. They remain enabled by default and
   continue to report hardcoded keys and static IVs in production source.
+- `AllowAllHostnameVerifier` now reports Apache `AllowAllHostnameVerifier` constructions and constructor
+  references, and `SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER` references, using Android Lint 32.4.1's
+  messages. Custom always-true `javax.net.ssl.HostnameVerifier.verify` implementations and SAM lambdas
+  belong only to `BadHostnameVerifier`, removing duplicate findings. Go requires an explicit import or
+  fully qualified name; FIR resolves symbols. Unresolved names and lookalikes are silent.
 
 ### Fixed
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit

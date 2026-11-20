@@ -20,7 +20,7 @@ class AcceptAll : HostnameVerifier {
   override fun verify(hostname: String, session: SSLSession): Boolean = true
 }
 `))
-	if want := "15:16"; got != want {
+	if want := "15:3"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -39,7 +39,7 @@ class AcceptAll implements HostnameVerifier {
   public boolean verify(String hostname, SSLSession session) { return true; }
 }
 `))
-	if want := "11:18"; got != want {
+	if want := "11:3"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }

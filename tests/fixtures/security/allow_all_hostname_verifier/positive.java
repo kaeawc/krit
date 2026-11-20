@@ -1,10 +1,9 @@
 package test;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.SSLSession;
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier;
+import org.apache.http.conn.ssl.SSLSocketFactory;
 
-class AllowAll implements HostnameVerifier {
-    public boolean verify(String hostname, SSLSession session) {
-        return true;
-    }
+class AllowAll {
+    Object verifier = new AllowAllHostnameVerifier();
+    Object defaultVerifier = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
 }

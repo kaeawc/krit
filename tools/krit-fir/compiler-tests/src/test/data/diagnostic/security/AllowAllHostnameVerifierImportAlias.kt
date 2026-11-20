@@ -1,12 +1,12 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Deliberate improvement: an import alias of the verifier interface. Go
-// misses it because the class header does not spell HostnameVerifier.
+// go-lines: 9, 10, 11, 12
 package test
 
-import javax.net.ssl.HostnameVerifier as Checker
-import javax.net.ssl.SSLSession
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier as UnsafeVerifier
+import org.apache.http.conn.ssl.SSLSocketFactory as ApacheFactory
+import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER as unsafe
 
-class AliasImportAllowAll : Checker {
-    <!AllowAllHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean = true
-}
+val constructed = <!AllowAllHostnameVerifier!>UnsafeVerifier<!>()
+val constant = <!AllowAllHostnameVerifier!>ApacheFactory.ALLOW_ALL_HOSTNAME_VERIFIER<!>
+val importedConstant = <!AllowAllHostnameVerifier!>unsafe<!>
+val description = <!AllowAllHostnameVerifier!>unsafe<!>.toString()

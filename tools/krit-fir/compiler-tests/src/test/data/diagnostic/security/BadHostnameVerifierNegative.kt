@@ -17,6 +17,13 @@ class RejectAll : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean = false
 }
 
+class ExtensionHelper : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession) = hostname == session.peerHost
+    fun Any.verify(hostname: String, session: SSLSession) = true
+    fun <Value> verify(hostname: Value, session: SSLSession) = true
+    fun verify(hostname: String, vararg session: SSLSession) = true
+}
+
 class LogsFirst : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean {
         println(hostname)

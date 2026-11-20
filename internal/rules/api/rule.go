@@ -925,7 +925,8 @@ type Rule struct {
 	// lookups. Zero value (PreferAny, Required=false) is backwards
 	// compatible — the dispatcher wires the composite resolver just
 	// as it did before the hint existed. See TypeInfoHint.
-	TypeInfo TypeInfoHint
+	TypeInfo         TypeInfoHint
+	OptionalResolver bool
 
 	// JavaFacts optionally requests javac-backed facts for Java files.
 	// This does not make javac mandatory; unavailable facts are a warning
@@ -1034,7 +1035,7 @@ type Context struct {
 	// Must be set before Check is called.
 	Collector *scanner.FindingCollector
 
-	// Populated only when the rule declares NeedsResolver:
+	// Populated when the rule declares NeedsResolver or OptionalResolver:
 	Resolver typeinfer.TypeResolver
 
 	// Populated only when the rule declares NeedsModuleIndex:

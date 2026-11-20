@@ -70,8 +70,9 @@ func (r *defaultResolver) indexTypeAliasFlat(aliasIdx uint32, file *scanner.File
 	if r.typeAliases == nil {
 		r.typeAliases = make(map[string]*ResolvedType)
 	}
-	r.typeAliases[name] = &targetCopy
-	if pkg != "" {
+	if pkg == "" {
+		r.typeAliases[name] = &targetCopy
+	} else {
 		fqnCopy := targetCopy
 		r.typeAliases[pkg+"."+name] = &fqnCopy
 	}

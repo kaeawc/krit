@@ -215,6 +215,33 @@ class DoubleMutabilityForCollectionTest {
         )
     }
 
+    // Paired with the Go compatibilitySourceAnalysisDivergences case: FIR expands
+    // the qualified alias and resolves toMutableList(); Go reports only line 5.
+    @Test fun compatibilitySourceAnalysisDivergences() {
+        val use = """
+            package use
+            typealias Items = MutableList<String>
+            var qualified: use.Items = mutableListOf()
+            var converted = listOf("item").toMutableList()
+            var factory = mutableListOf<String>()
+            var readOnly: List<String> = mutableListOf()
+        """
+        assertEquals(
+            mapOf("Use.kt" to mapOf(3 to 1, 4 to 1, 5 to 1)),
+            findings(use, mapOf("onlyValCandidates" to false)),
+        )
+    }
+
+    @Test fun compatibilityExtensionUsesDeclaredTypeNotReceiver() {
+        val use = """
+            package use
+            var MutableMap<String, String>.contentType: String?
+                get() = this["Content-Type"]
+                set(value) { if (value != null) this["Content-Type"] = value }
+        """
+        assertEquals(emptyMap(), findings(use, mapOf("onlyValCandidates" to false)))
+    }
+
     @Test fun compatibilityHandlesQualifiedTypesAndFactoryImports() {
         val use = """
             package use

@@ -1334,6 +1334,22 @@ private var nullable: java.util.HashMap<String, Int>? = null`, false, 2, 3, 2},
 private var items = java.util.ArrayList<String>()`, false, 1, 1, 1},
 			{"factoryImport", `import kotlin.collections.mutableListOf
 private var items = mutableListOf<String>()`, false, 1, 1, 1},
+			// Paired with FIR compatibilitySourceAnalysisDivergences: Go reads
+			// qualified aliases as written and cannot infer toMutableList().
+			{"compatibilitySourceAnalysisDivergences", `package use
+typealias Items = MutableList<String>
+var qualified: use.Items = mutableListOf()
+var converted = listOf("item").toMutableList()
+var factory = mutableListOf<String>()
+var readOnly: List<String> = mutableListOf()`, false, 0, 1, 0},
+			{"extensionReceiver", `var MutableMap<String, String>.contentType: String?
+    get() = this["Content-Type"]
+    set(value) { if (value != null) this["Content-Type"] = value }`, false, 0, 0, 0},
+			{"extensionDeclaredMutableType", `var String.items: MutableList<String>
+    get() = mutableListOf()
+    set(value) {}`, false, 0, 1, 0},
+			{"wildcardMutableListLookalike", `import com.lib.*
+private var items: MutableList<String> = MutableList()`, false, 0, 0, 0},
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				file := parseInline(t, test.source)
@@ -1352,6 +1368,9 @@ private var items = mutableListOf<String>()`, false, 1, 1, 1},
 					}
 					if len(findings) != want {
 						t.Fatalf("onlyValCandidates=%v: got %v, want %d findings", onlyCandidates, findings, want)
+					}
+					if !onlyCandidates && test.name == "compatibilitySourceAnalysisDivergences" && findings[0].Line != 5 {
+						t.Fatalf("Go must report only the factory on line 5, got %v", findings)
 					}
 					if !onlyCandidates {
 						fixes := 0
@@ -1389,6 +1408,71 @@ private var items: other.Bag = Bag()`, "com.example.Bag", 0},
 				t.Run(test.name, func(t *testing.T) {
 					rule.MutableTypes = []string{test.mutableType}
 					if got := runRuleByNameWithResolver(t, entry.ID, test.source); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		t.Run("withoutResolverFallsBackToDefault", func(t *testing.T) {
+			file := parseInline(t, `class Cache {
+    var publicItems: MutableList<String> = mutableListOf()
+    private var candidate = mutableListOf<String>()
+    private var readOnly: List<String> = mutableListOf()
+    private var nullable: MutableList<String>? = null
+}`)
+			rule.MutableTypes = originalTypes
+			rule.OnlyValCandidates = true
+			defaultColumns := rules.NewDispatcher([]*api.Rule{entry}, nil).Run(file)
+			defaultFindings := defaultColumns.Findings()
+			rule.OnlyValCandidates = false
+			dispatcher := rules.NewDispatcher([]*api.Rule{entry}, nil)
+			compatColumns := dispatcher.Run(file)
+			compatFindings := compatColumns.Findings()
+			if len(defaultFindings) != 2 || len(compatFindings) != len(defaultFindings) {
+				t.Fatalf("default=%v compat=%v; want the same two candidates", defaultFindings, compatFindings)
+			}
+			for index, finding := range defaultFindings {
+				if finding.Line != compatFindings[index].Line {
+					t.Fatalf("default=%v compat=%v; candidate lines differ", defaultFindings, compatFindings)
+				}
+			}
+			if ids := dispatcher.SingleFileRuleIDs(); len(ids) != 1 || ids[0] != entry.ID {
+				t.Fatalf("rule must be evaluated without a resolver: %v", ids)
+			}
+		})
+		t.Run("scopedAliases", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			rule.MutableTypes = []string{"kotlin.collections.MutableMap", "kotlin.collections.MutableList"}
+			for _, test := range []struct {
+				name, source, extra string
+				want                int
+			}{
+				{"samePackage", "package a\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"explicitAliasImport", "package b\nimport a.Registry\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"aliasedImport", "package b\nimport a.Registry as Items\nvar registry: Items = mutableMapOf()", "", 1},
+				{"unimported", "package b\nvar registry: Registry = Registry()", "", 0},
+				{"defaultPackageUnimported", "var registry: Registry = Registry()", "", 0},
+				{"importShadow", "package b\nimport com.lib.Registry\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
+				{"wildcardShadow", "package b\nimport com.lib.*\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
+				{"wildcardMutableList", "package b\nimport com.lib.*\nvar items: MutableList<String> = MutableList()", "package com.lib\nclass MutableList<T>", 0},
+				{"sameFileClass", "package b\nclass Registry\nvar registry: Registry = Registry()", "", 0},
+				{"samePackageClass", "package b\nvar registry: Registry = Registry()", "package b\nclass Registry", 0},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					aliases := parseInline(t, "package a\ntypealias Registry = MutableMap<String, Int>")
+					aliases.Path = "/project/src/main/kotlin/a/Aliases.kt"
+					use := parseInline(t, test.source)
+					use.Path = "/project/src/main/kotlin/Use.kt"
+					files := []*scanner.File{aliases, use}
+					if test.extra != "" {
+						extra := parseInline(t, test.extra)
+						extra.Path = "/project/src/main/kotlin/Other.kt"
+						files = append(files, extra)
+					}
+					resolver := typeinfer.NewResolver()
+					resolver.IndexFilesParallel(files, 1)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, resolver).Run(use)
+					if got := columns.Findings(); len(got) != test.want {
 						t.Fatalf("got %v, want %d findings", got, test.want)
 					}
 				})

@@ -33,7 +33,7 @@ func (r *DoubleMutabilityForCollectionRule) hasConfiguredResolvedType(ctx *api.C
 	if typeNode == 0 {
 		resolvedName = doubleMutabilityInferredFactoryType(ctx, prop)
 	} else {
-		resolvedName = doubleMutabilityDeclaredTypeName(ctx, prop, typeNode)
+		resolvedName = doubleMutabilityDeclaredTypeName(ctx, typeNode)
 	}
 	if resolvedName == "" {
 		return false
@@ -52,13 +52,19 @@ func (r *DoubleMutabilityForCollectionRule) hasConfiguredResolvedType(ctx *api.C
 	return false
 }
 
-func doubleMutabilityDeclaredTypeName(ctx *api.Context, prop, typeNode uint32) string {
+func doubleMutabilityDeclaredTypeName(ctx *api.Context, typeNode uint32) string {
 	file := ctx.File
 	writtenType := strings.TrimSpace(strings.TrimSuffix(strings.SplitN(file.FlatNodeText(typeNode), "<", 2)[0], "?"))
 	if strings.Contains(writtenType, ".") {
 		return writtenType
 	}
-	typ := ctx.Resolver.ResolveFlatNode(prop, file)
+	if class := ctx.Resolver.ClassHierarchy(writtenType); class != nil && class.FQN != doubleMutabilityCanonicalType(writtenType) {
+		return ""
+	}
+	if doubleMutabilityShadows(file).wildcardShadow {
+		return ""
+	}
+	typ := ctx.Resolver.ResolveFlatNode(typeNode, file)
 	if typ == nil {
 		return ""
 	}

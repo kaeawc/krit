@@ -142,7 +142,8 @@ func registerPotentialbugsTypesRules() {
 		r := &DoubleMutabilityForCollectionRule{OnlyValCandidates: true, BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-			NodeTypes: []string{"property_declaration"}, Needs: api.NeedsResolver, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
+			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
+			OptionalResolver: true, TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
 				if r.OnlyValCandidates && scanner.IsTestFile(file.Path) {
@@ -157,10 +158,11 @@ func registerPotentialbugsTypesRules() {
 					return
 				}
 				isCandidate := !scanner.IsTestFile(file.Path) && doubleMutabilityVarIsCandidate(file, idx, varDecl)
-				if r.OnlyValCandidates && !isCandidate {
+				useCandidates := r.OnlyValCandidates || ctx.Resolver == nil
+				if useCandidates && !isCandidate {
 					return
 				}
-				if !r.OnlyValCandidates {
+				if !useCandidates {
 					if !r.hasConfiguredResolvedType(ctx, idx, varDecl) {
 						return
 					}

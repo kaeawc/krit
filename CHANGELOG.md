@@ -10,8 +10,13 @@ All notable changes to Krit will be documented in this file.
   Imported detekt configurations default it to `false` in both Go and FIR,
   reporting properties whose resolved type is in `mutableTypes`, including
   public, nullable, reassigned and test-source vars, but not constructor
-  parameters. Compatibility mode does not guess mutable types from factory
-  names or report read-only declared types. The `var` → `val` fix remains
+  parameters. With source resolution, compatibility mode does not guess mutable
+  types from factory names or report read-only declared types. Without a resolver,
+  Go falls back to default-mode candidates, preserving live daemon/IDE, MCP and
+  precommit behavior. Go reads qualified written types as written; FIR expands
+  aliases and resolves calls such as `toMutableList()` that Go skips. Both engines
+  miss detekt's Java platform-type findings (`System.getenv()` and Java `List`
+  getters); this gap is documented, not implemented. The `var` → `val` fix remains
   available only for val candidates.
 
 ### Added

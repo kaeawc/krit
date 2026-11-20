@@ -237,16 +237,33 @@ aligned on conditions, messages, anchors and defaults. Intentional differences:
   nullability, reassignment or test-source location. Constructor parameters are
   excluded in this mode, as in detekt 1.23.8. The `var` → `val` autofix remains
   limited to val candidates. Compatibility-mode `mutableTypes` entries match
-  expanded fully qualified type names, not bare simple names. The default mode
-  retains Go's factory-name
-  fallback (including read-only declared types) and FIR's additional resolved
+  fully qualified type names, not bare simple names. FIR expands type aliases;
+  Go reads a qualified written type as written, so an alias written as
+  `com.example.Items` does not match `kotlin.collections.MutableList` in Go.
+  The default mode retains Go's factory-name fallback (including read-only
+  declared types) and FIR's additional resolved
   type findings and private constructor properties; the diagnostic goldens pin
   these source-analysis differences. In compatibility mode Go conservatively
   skips inferred calls without proven factory evidence, while FIR can resolve
-  arbitrary calls and aliases; unresolved source types are not guessed.
+  arbitrary calls and aliases (for example, `list.toMutableList()` reports only
+  in FIR). Paired Go and FIR compatibility-mode file tests pin these gaps.
+  Shadowed or unimported aliases and ambiguous non-stdlib wildcard imports
+  are skipped by Go; unresolved source types are not guessed. Without a source
+  resolver (daemon buffers, IDE, MCP and precommit fallback), Go compatibility
+  mode falls back to the default-mode candidates, never reporting more than
+  default mode without types. This fallback also retains default-mode
+  factory-name heuristics and can miss detekt findings.
+- Java platform types are a compatibility gap in both engines:
+  `var env = System.getenv()` and vars initialized from Java `List` getters
+  are not reported. Go does not infer these types; FIR requires all flexible
+  type bounds to match, so the read-only upper bound prevents a finding.
+  Detekt 1.23.8 can report the mutable lower bound. This gap is not implemented.
 
-Checked against a detekt 1.23.8 run on synthetic sources. Everything else in the
-potential-bugs, coroutines, empty-blocks and `UseIfInsteadOfWhen` rules reports the same lines.
+Checked against a detekt 1.23.8 run on synthetic sources, except the Java
+platform-type gap above, which is based on compiler type semantics rather than
+a detekt execution. Outside the documented differences, those synthetic
+potential-bugs, coroutines, empty-blocks and `UseIfInsteadOfWhen` cases report
+the same lines.
 
 - Rules ported from detekt analyze Kotlin sources only (`.kt`, `.kts`), as detekt does; they skip `.java` files. Rules that mirror Android Lint, which does analyze Java, keep their Java support.
 - `PropertyUsedBeforeDeclaration` reports a read during construction (property initializers, `init`

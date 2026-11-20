@@ -615,7 +615,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 				}
 			}()
 			ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts}
-			if r.Needs.Has(api.NeedsResolver) {
+			if r.Needs.Has(api.NeedsResolver) || r.OptionalResolver {
 				ctx.Resolver = resolver
 			}
 			t := time.Now()
@@ -680,7 +680,7 @@ func safeCheckV2NodeColumnar(ctx *api.Context, r *api.Rule, idx uint32, node *sc
 		JavaSemanticFacts: javaSemanticFacts,
 		Facts:             fileFacts,
 	}
-	if r.Needs.Has(api.NeedsResolver) {
+	if r.Needs.Has(api.NeedsResolver) || r.OptionalResolver {
 		ctx.Resolver = typeResolver
 	}
 	r.Check(ctx)
@@ -702,8 +702,8 @@ type fallbackAware interface {
 //
 // The zero-value hint (PreferAny, Required=false) preserves the pre-
 // hint behaviour: whatever the caller handed NewDispatcher is passed
-// through untouched. Rules that don't declare NeedsResolver never ask
-// this helper — their ctx.Resolver stays nil as before.
+// through untouched. Rules that declare neither NeedsResolver nor
+// OptionalResolver keep their ctx.Resolver nil as before.
 func (d *Dispatcher) resolveForRule(r *api.Rule) (typeinfer.TypeResolver, bool) {
 	base := d.typeResolver
 	hint := r.TypeInfo
@@ -1146,7 +1146,7 @@ func (d *Dispatcher) runProjectRule(r *api.Rule, file *scanner.File, populate fu
 	collector := scanner.NewFindingCollector(0)
 	javaFileFacts, javaSourceIndex := javaContextFactsForFile(file)
 	ctx := &api.Context{File: file, Rule: r, DefaultConfidence: api.ConfidenceMedium, Collector: collector, LibraryFacts: d.libraryFacts, JavaFacts: javaFileFacts, JavaSourceIndex: javaSourceIndex, JavaSemanticFacts: d.javaSemanticFacts, Facts: d.fileFacts, RtlMainsFor: d.rtlMainsFor, DescribedViewNames: d.describedViews, ResourceCodeRefs: d.resourceCodeRefs}
-	if r.Needs.Has(api.NeedsResolver) {
+	if r.Needs.Has(api.NeedsResolver) || r.OptionalResolver {
 		if resolver, ok := d.resolveForRule(r); ok {
 			ctx.Resolver = resolver
 		}
@@ -1189,7 +1189,7 @@ func safeCheckV2ResourceNodeColumnar(r *api.Rule, idx uint32, node *scanner.Flat
 		JavaSemanticFacts: javaSemanticFacts,
 		Facts:             fileFacts,
 	}
-	if r.Needs.Has(api.NeedsResolver) {
+	if r.Needs.Has(api.NeedsResolver) || r.OptionalResolver {
 		ctx.Resolver = typeResolver
 	}
 	r.Check(ctx)

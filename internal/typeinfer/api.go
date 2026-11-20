@@ -388,7 +388,7 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 		}
 	}
 
-	if alias := r.resolveTypeAlias(simpleName, it); alias != nil {
+	if alias := r.resolveTypeAlias(simpleName, file, it); alias != nil {
 		result := *alias
 		if hasTypeArgs {
 			r.attachFlatTypeArgs(&result, idx, file, it)
@@ -411,19 +411,33 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 	return result
 }
 
-func (r *defaultResolver) resolveTypeAlias(simpleName string, it *ImportTable) *ResolvedType {
+func (r *defaultResolver) resolveTypeAlias(simpleName string, file *scanner.File, it *ImportTable) *ResolvedType {
 	if r == nil || simpleName == "" {
 		return nil
 	}
-	if alias := r.typeAliases[simpleName]; alias != nil {
-		return alias
+	if strings.Contains(simpleName, ".") {
+		return r.typeAliases[simpleName]
+	}
+	pkg := extractPackageFlat(file)
+	localName := simpleName
+	if pkg != "" {
+		localName = pkg + "." + simpleName
+	}
+	if r.classFQN[localName] != nil {
+		return nil
 	}
 	if it != nil {
-		if fqn := it.Resolve(simpleName); fqn != "" {
+		if fqn, ok := it.Explicit[simpleName]; ok {
 			return r.typeAliases[fqn]
 		}
+		if fqn, ok := it.Aliases[simpleName]; ok {
+			return r.typeAliases[fqn]
+		}
+		if len(it.Wildcard) > 0 {
+			return nil
+		}
 	}
-	return nil
+	return r.typeAliases[localName]
 }
 
 func (r *defaultResolver) attachFlatTypeArgs(result *ResolvedType, idx uint32, file *scanner.File, it *ImportTable) {

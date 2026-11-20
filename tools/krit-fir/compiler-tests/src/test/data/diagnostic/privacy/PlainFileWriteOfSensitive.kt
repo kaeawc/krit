@@ -1,9 +1,11 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 10, 11, 12, 13, 14, 18, 22, 26, 32, 42, 43
+// go-lines: 11, 12, 13, 14, 15, 16, 20, 24, 28, 34, 44, 45, 49, 50, 54
 package test.plainfile
 
 import java.io.File
 import java.io.File as JavaFile
+import kotlin.io.path.writeBytes
+import kotlin.io.path.writeText
 
 fun paths(dir: File, text: String, bytes: ByteArray) {
     <!PlainFileWriteOfSensitive!>File(dir, "credentials.json").writeText(text)<!>
@@ -41,4 +43,13 @@ fun identity(file: File): File = file
 fun wrapped(text: String) {
     <!PlainFileWriteOfSensitive!>identity(File("tokens.txt")).writeText(text)<!>
     <!PlainFileWriteOfSensitive!>File("secret.txt").absoluteFile.writeText(text)<!>
+}
+
+fun pathWrites(dir: File, text: String, bytes: ByteArray) {
+    <!PlainFileWriteOfSensitive!>File(dir, "token.txt").toPath().writeText(text)<!>
+    <!PlainFileWriteOfSensitive!>File(dir, "token.txt").toPath().writeBytes(bytes)<!>
+}
+
+fun escapedPath(text: String) {
+    <!PlainFileWriteOfSensitive!>File("C:\\auth\\data.txt").writeText(text)<!>
 }

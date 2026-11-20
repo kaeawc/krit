@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.support
 
 import dev.jasonpearson.krit.fir.checkers.delegateInCheckedFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
+import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
@@ -34,9 +35,6 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
 
-// Shared by the SharedPreferences rules that decide whether a preference key names a secret
-// (SharedPreferencesForSensitiveKey, LogOfSharedPreferenceRead).
-
 private val SENSITIVE_KEY_WORDS = Regex(
     "(^|_)(tokens?|secrets?|passwords?|passwd|pin|pins|auth|oauth|credentials?|private_?keys?|api_?keys?)(_|$)",
     RegexOption.IGNORE_CASE,
@@ -57,6 +55,7 @@ private val BENIGN_KEY_WORDS = setOf(
 
 private val SHARED_PREFERENCES = classIdOf("android.content", "SharedPreferences")
 private val PLAIN_FILE = classIdOf("java.io", "File")
+private val PLAIN_PATH = classIdOf("java.nio.file", "Path")
 private val SHARED_PREFERENCES_EDITOR = SHARED_PREFERENCES.createNestedClassId(Name.identifier("Editor"))
 private val ENCRYPTED_STORAGE = listOf(
     classIdOf("androidx.security.crypto", "EncryptedSharedPreferences"),
@@ -87,7 +86,13 @@ fun isPlainFileWrite(call: FirFunctionCall): Boolean {
     val id = callee.callableId ?: return false
     if (id.callableName.asString() !in setOf("writeText", "writeBytes")) return false
     if (id.classId == PLAIN_FILE) return true
-    return id.classId == null && id.packageName.asString() == "kotlin.io" && isMemberOf(call, PLAIN_FILE)
+    if (id.classId != null) return false
+    if (id.packageName.asString() == "kotlin.io") return isMemberOf(call, PLAIN_FILE)
+    if (id.packageName.asString() != "kotlin.io.path" || !isMemberOf(call, PLAIN_PATH)) return false
+    val receiver = call.explicitReceiver ?: call.extensionReceiver ?: return false
+    val toPath = unwrapSmartCasts(unwrapArgument(receiver), throughNotNull = true) as? FirFunctionCall ?: return false
+    val toPathId = toPath.calleeReference.toResolvedCallableSymbol()?.callableId ?: return false
+    return toPathId.classId == PLAIN_FILE && toPathId.callableName.asString() == "toPath"
 }
 
 fun plainFileReceiverLiteral(call: FirFunctionCall): String? {
@@ -110,17 +115,30 @@ fun plainFileReceiverLiteral(call: FirFunctionCall): String? {
     for (argument in file?.argumentList?.arguments.orEmpty()) {
         val value = unwrapArgument(argument)
         if (value is FirLiteralExpression || value is FirStringConcatenationCall) {
-            storageKeyLiteral(value)?.let { return it }
+            plainFileNameLiteral(value)?.let { return it }
         }
     }
     return null
 }
 
+private fun plainFileNameLiteral(expression: FirExpression): String? {
+    if (expression !is FirLiteralExpression && expression !is FirStringConcatenationCall) return null
+    val source = expression.source?.takeIf { it.kind is KtRealSourceElementKind } ?: return null
+    val literal = source.lighterASTNode
+    if (literal.tokenType != KtNodeTypes.STRING_TEMPLATE) return null
+    return lightChildren(source, literal)
+        .filter {
+            it.tokenType == KtNodeTypes.LITERAL_STRING_TEMPLATE_ENTRY ||
+                it.tokenType == KtNodeTypes.ESCAPE_STRING_TEMPLATE_ENTRY
+        }
+        .joinToString("") { lightText(source, it) }
+}
+
 /**
- * The key text of [argument] when it is a string literal or template, as written between the quotes (templates
- * keep their `$name` text, as Go reads the source). A `+` chain that starts and ends with a literal
- * (`"user_" + id + "_token"`) is read the same way, from its first quote to its last, as Go does. Null for any
- * other expression, including a constant.
+ * SharedPreferences key text of [argument]: a plain literal uses its FIR value, while a template keeps its
+ * `$name` source text, matching the template reading of the SharedPreferences Go rules. A `+` chain that starts
+ * and ends with a literal (`"user_" + id + "_token"`) is read the same way, from its first quote to its last,
+ * as Go does. Null for any other expression, including a constant.
  */
 fun storageKeyLiteral(argument: FirExpression): String? {
     val expression = unwrapArgument(argument)

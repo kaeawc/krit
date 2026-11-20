@@ -43,3 +43,9 @@ fun projectExtension(text: String) {
     fun File.writeText(text: String) {}
     File("credentials.json").writeText(text)
 }
+
+fun templates(dir: File, tokenHash: String, id: String, text: String) {
+    File(dir, "$tokenHash.cache").writeText(text)
+    File(dir, "user${id}token.txt").writeText(text)
+    File(dir, "\u0074oken.txt").writeText(text)
+}

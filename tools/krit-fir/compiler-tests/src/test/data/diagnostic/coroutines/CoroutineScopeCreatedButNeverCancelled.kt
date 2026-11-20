@@ -55,8 +55,8 @@ class ProjectCancellation {
 }
 
 class MisleadingParentName {
-    // Go exempts the parentJob token, but the resolved dispatcher supplies no parent Job.
-    val <!CoroutineScopeCreatedButNeverCancelled!>parentJobScope<!> = CoroutineScope(Dispatchers.IO)
+    // Both engines exempt names containing Go's parent-context tokens.
+    val parentJobScope = CoroutineScope(Dispatchers.IO)
 }
 
 class NullParent {

@@ -103,6 +103,33 @@ func TestXmlExternalEntity_LogTagMismatch_KotlinVisibilityRepair(t *testing.T) {
 			})
 		}
 	}
+	t.Run("XmlExternalEntity imported intermediate alias", func(t *testing.T) {
+		source := `package test
+import com.example.FactoryAlias
+typealias DocumentBuilderFactory = FactoryAlias
+typealias FactoryAlias = javax.xml.parsers.DocumentBuilderFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+`
+		if findings := runVisibilityRepairRule(t, "kt", "XmlExternalEntity", source); len(findings) != 0 {
+			t.Fatalf("expected imported intermediate alias to suppress finding, got %v", findings)
+		}
+	})
+	t.Run("LogTagMismatch imported intermediate alias", func(t *testing.T) {
+		source := `package test
+import com.example.LogAlias
+typealias Log = LogAlias
+typealias LogAlias = android.util.Log
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}
+`
+		if findings := runVisibilityRepairRule(t, "kt", "LogTagMismatch", source); len(findings) != 0 {
+			t.Fatalf("expected imported intermediate alias to suppress finding, got %v", findings)
+		}
+	})
 }
 
 func TestNamedCompanionObjectsAndTypeAliasSuperclassesVisibilityRepair(t *testing.T) {

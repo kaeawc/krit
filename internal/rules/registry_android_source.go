@@ -426,6 +426,9 @@ func typeAliasResolvesTo(file *scanner.File, alias uint32, platformType string) 
 		if strings.Contains(targetName, ".") {
 			return false
 		}
+		if imported, ok := lintImportsOf(file).bySimple[targetName]; ok {
+			return imported == platformType
+		}
 
 		var next uint32
 		file.FlatWalkAllNodes(0, func(decl uint32) {

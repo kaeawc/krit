@@ -380,7 +380,8 @@ func registerAndroidSourceRules() {
 	}
 }
 
-// fileDeclaresTypeVisibleAt reports whether a same-named class, object or typealias is visible at at.
+// fileDeclaresTypeVisibleAt reports whether a same-named class, object, companion
+// object, interface, enum, record, or typealias is visible at at.
 func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool {
 	if file == nil || at == 0 {
 		return false
@@ -391,7 +392,7 @@ func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool 
 			return
 		}
 		switch file.FlatType(decl) {
-		case "class_declaration", "object_declaration", "type_alias", "interface_declaration", "enum_declaration", "record_declaration":
+		case "class_declaration", "object_declaration", "companion_object", "type_alias", "interface_declaration", "enum_declaration", "record_declaration":
 			if lintDeclTypeName(file, decl) == name && typeDeclarationVisibleAt(file, decl, at) {
 				found = true
 			}

@@ -107,8 +107,23 @@ func enclosingClassBody(file *scanner.File, node uint32) (uint32, bool) {
 
 func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32) bool {
 	classesByName := make(map[string][]uint32)
+	typeAliasesByName := make(map[string]string)
 	file.FlatWalkAllNodes(0, func(class uint32) {
 		kind := file.FlatType(class)
+		if kind == "type_alias" {
+			name := lintDeclTypeName(file, class)
+			target := file.FlatNamedChild(class, file.FlatNamedChildCount(class)-1)
+			if name != "" && target != 0 {
+				targetName := strings.TrimSuffix(lintTrimGenerics(file.FlatNodeText(target)), "?")
+				if dot := strings.LastIndexByte(targetName, '.'); dot >= 0 {
+					targetName = targetName[dot+1:]
+				}
+				if targetName != "" {
+					typeAliasesByName[name] = targetName
+				}
+			}
+			return
+		}
 		if !lintClassLike(kind) || kind == "object_literal" || kind == "object_creation_expression" {
 			return
 		}
@@ -134,6 +149,18 @@ func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32
 			// Simple-name matches intentionally suppress more: false negatives are preferable to false positives.
 			if dot := strings.LastIndexByte(superName, '.'); dot >= 0 {
 				superName = superName[dot+1:]
+			}
+			seenAliases := make(map[string]bool)
+			for typeAliasesByName[superName] != "" {
+				if seenAliases[superName] {
+					superName = ""
+					break
+				}
+				seenAliases[superName] = true
+				superName = typeAliasesByName[superName]
+			}
+			if superName == "" {
+				continue
 			}
 			for _, superClass := range classesByName[superName] {
 				if inherits(superClass) {

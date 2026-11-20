@@ -102,6 +102,51 @@ func TestXmlExternalEntity_LogTagMismatch_KotlinVisibilityRepair(t *testing.T) {
 	}
 }
 
+func TestNamedCompanionObjectsAndTypeAliasSuperclassesVisibilityRepair(t *testing.T) {
+	t.Run("LogTagMismatch named Log companion", func(t *testing.T) {
+		source := `package test
+import android.util.Log
+class Logger {
+    companion object Log {
+        const val DEBUG = 3
+        fun isLoggable(tag: String, level: Int) = true
+        fun i(tag: String, message: String) {}
+    }
+    fun use() { if (Log.isLoggable("a", Log.DEBUG)) { Log.i("b", "m") } }
+}`
+		if findings := runVisibilityRepairRule(t, "kt", "LogTagMismatch", source); len(findings) != 0 {
+			t.Fatalf("want no findings, got %v", findings)
+		}
+	})
+
+	t.Run("XmlExternalEntity named factory companion", func(t *testing.T) {
+		source := `package test
+import javax.xml.parsers.DocumentBuilderFactory
+class Loader {
+    companion object DocumentBuilderFactory {
+        fun newInstance() = this
+        fun newDocumentBuilder() = this
+        fun parse(input: java.io.InputStream) {}
+    }
+    fun use(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+}`
+		if findings := runVisibilityRepairRule(t, "kt", "XmlExternalEntity", source); len(findings) != 0 {
+			t.Fatalf("want no findings, got %v", findings)
+		}
+	})
+
+	t.Run("XmlExternalEntity superclass typealias", func(t *testing.T) {
+		source := `package test
+import javax.xml.parsers.DocumentBuilderFactory
+open class Base { class DocumentBuilderFactory { companion object { fun newInstance() = Any() } } }
+typealias B = Base
+class Loader : B() { fun use() = DocumentBuilderFactory.newInstance() }`
+		if findings := runVisibilityRepairRule(t, "kt", "XmlExternalEntity", source); len(findings) != 0 {
+			t.Fatalf("want no findings, got %v", findings)
+		}
+	})
+}
+
 func TestXmlExternalEntity_LogTagMismatch_JavaVisibilityRepair(t *testing.T) {
 	cases := []struct {
 		name string

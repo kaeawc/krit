@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.fir.checkers.security
 
 import dev.jasonpearson.krit.fir.FirRule
+import dev.jasonpearson.krit.fir.isInTestFile
 import dev.jasonpearson.krit.fir.checkers.initializerInCheckedFile
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.classIdOf
@@ -167,6 +168,7 @@ internal object StaticIv : FirFunctionCallChecker(MppCheckerKind.Common), FirRul
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(expression: FirFunctionCall) {
+        if (isInTestFile()) return
         val callee = expression.calleeReference.toResolvedCallableSymbol() as? FirConstructorSymbol ?: return
         // The call's type is the constructed class, also through a typealias.
         val constructed = expression.resolvedType.fullyExpandedType().classId ?: return

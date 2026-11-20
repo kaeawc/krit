@@ -27,6 +27,10 @@ All notable changes to Krit will be documented in this file.
   attribute part of `DiscouragedApi` (fixed orientation, aspect ratios and non-resizeable activities, which
   Android 16 ignores on large screens).
 
+### Changed
+- `HardcodedSecretKey` and `StaticIv` now skip test source files in both Go and FIR. They remain enabled by default and
+  continue to report hardcoded keys and static IVs in production source.
+
 ### Fixed
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit
   compiles a project's scanned source sets together (#972). When that compile gates a file on

@@ -2462,6 +2462,40 @@ class Crypto {
 	})
 }
 
+func TestCryptoKeyRulesSkipTestSourceSets(t *testing.T) {
+	code := `
+package test
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+fun crypto() {
+    IvParameterSpec(byteArrayOf(1, 2, 3, 4))
+    SecretKeySpec(byteArrayOf(1, 2, 3, 4), "AES")
+}
+`
+	paths := []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "unit tests", path: "app/src/test/kotlin/Crypto.kt", want: 0},
+		{name: "instrumented tests", path: "app/src/androidTest/kotlin/Crypto.kt", want: 0},
+		{name: "production", path: "app/src/main/kotlin/Crypto.kt", want: 1},
+	}
+	for _, rule := range []string{"HardcodedSecretKey", "StaticIv"} {
+		t.Run(rule, func(t *testing.T) {
+			for _, tc := range paths {
+				t.Run(tc.name, func(t *testing.T) {
+					findings := runRuleByNameOnPath(t, rule, tc.path, code)
+					if len(findings) != tc.want {
+						t.Fatalf("expected %d finding(s), got %d: %v", tc.want, len(findings), findings)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestHardcodedHttpUrl(t *testing.T) {
 	t.Run("Kotlin flags network builders and URL constructor", func(t *testing.T) {
 		findings := runRuleByName(t, "HardcodedHttpUrl", `

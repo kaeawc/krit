@@ -180,7 +180,7 @@ func registerAndroidSecurityRules() {
 	{
 		r := &StaticIvRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "StaticIv", RuleSetName: "security", Sev: "warning"},
-			IssueID:  "StaticIv", Brief: "Static IV literal",
+			IssueID:  "StaticIv", Brief: "Static IV literal in production source",
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "Krit",
 		}}
@@ -194,7 +194,7 @@ func registerAndroidSecurityRules() {
 	{
 		r := &HardcodedSecretKeyRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "HardcodedSecretKey", RuleSetName: "security", Sev: "warning"},
-			IssueID:  "HardcodedSecretKey", Brief: "SecretKeySpec uses literal key bytes",
+			IssueID:  "HardcodedSecretKey", Brief: "SecretKeySpec uses literal key bytes in production source",
 			Category: ALCSecurity, ALSeverity: ALSWarning, Priority: 7,
 			Origin: "Krit",
 		}}

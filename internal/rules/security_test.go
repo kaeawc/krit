@@ -830,6 +830,49 @@ fun load(input: java.io.InputStream) {
 	}
 }
 
+func TestXmlExternalEntity_SameNamedTypeVisibility(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{
+			name: "unrelated nested class does not shadow import",
+			src: `package test
+import javax.xml.parsers.DocumentBuilderFactory
+class Other { class DocumentBuilderFactory }
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+`,
+			want: 1,
+		},
+		{
+			name: "top-level class shadows type name",
+			src: `package test
+class DocumentBuilderFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+`,
+			want: 0,
+		},
+		{
+			name: "nested class shadows within containing class",
+			src: `package test
+class Loader {
+    class DocumentBuilderFactory
+    fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)
+}
+`,
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if findings := runRuleByName(t, "XmlExternalEntity", tc.src); len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %v", tc.want, findings)
+			}
+		})
+	}
+}
+
 func TestXmlExternalEntity_JavaPositive(t *testing.T) {
 	findings := runRuleByNameOnJava(t, "XmlExternalEntity", `
 package test;

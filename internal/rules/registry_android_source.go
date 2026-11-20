@@ -380,15 +380,22 @@ func registerAndroidSourceRules() {
 	}
 }
 
-// fileDeclaresTypeNamed reports whether the file declares a class, interface or object with the given simple name.
-func fileDeclaresTypeNamed(file *scanner.File, name string) bool {
-	if lintSameFileClass(file, name) != 0 {
-		return true
+// fileDeclaresTypeVisibleAt reports whether a same-named class, object or typealias is visible at at.
+func fileDeclaresTypeVisibleAt(file *scanner.File, name string, at uint32) bool {
+	if file == nil || at == 0 {
+		return false
 	}
 	found := false
-	file.FlatWalkNodes(0, "object_declaration", func(decl uint32) {
-		if !found && extractIdentifierFlat(file, decl) == name {
-			found = true
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "class_declaration", "object_declaration", "type_alias":
+			if id, ok := file.FlatFindChild(decl, "type_identifier"); ok && file.FlatNodeTextEquals(id, name) &&
+				typeDeclarationVisibleAt(file, decl, at) {
+				found = true
+			}
 		}
 	})
 	return found
@@ -404,7 +411,7 @@ func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
 		return
 	}
 	// Without an oracle, a Log class or object declared in the file is not android.util.Log.
-	if lookup == nil && fileDeclaresTypeNamed(file, "Log") {
+	if lookup == nil && fileDeclaresTypeVisibleAt(file, "Log", ifExpr) {
 		return
 	}
 	tag, level := logCallArgText(file, cond, 0), logLevelConstantName(file, logCallArgText(file, cond, 1))

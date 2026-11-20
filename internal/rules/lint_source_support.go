@@ -12,6 +12,20 @@ import (
 
 // Shared helpers for the Android Lint source checks that work on both Kotlin and Java call sites.
 
+// typeDeclarationVisibleAt reports whether a declaration's enclosing scope (the file, or a class body or block)
+// contains at, so the declaration can be named there without a qualifier.
+func typeDeclarationVisibleAt(file *scanner.File, decl, at uint32) bool {
+	container, ok := file.FlatParent(decl)
+	for ok && file.FlatType(container) != "class_body" && file.FlatType(container) != "source_file" &&
+		file.FlatType(container) != "statements" && file.FlatType(container) != "function_body" {
+		container, ok = file.FlatParent(container)
+	}
+	if !ok || file.FlatType(container) == "source_file" {
+		return true
+	}
+	return file.FlatStartByte(container) <= file.FlatStartByte(at) && file.FlatEndByte(at) <= file.FlatEndByte(container)
+}
+
 // lintCall is a Kotlin call_expression or Java method_invocation seen through one shape.
 type lintCall struct {
 	File *scanner.File

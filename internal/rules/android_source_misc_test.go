@@ -920,6 +920,20 @@ class A {
 `,
 			want: 0,
 		},
+		{
+			name: "companion nested Log is visible in containing class",
+			src: `package test
+class A {
+    companion object {
+        class Log
+    }
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.i("b", "m") }
+    }
+}
+`,
+			want: 0,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

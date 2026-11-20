@@ -758,6 +758,21 @@ class Holder {
 	}
 }
 
+func TestExc_ObjectExtendsThrowable_InheritedNestedException(t *testing.T) {
+	findings := runRuleByName(t, "ObjectExtendsThrowable", `
+package test
+open class Base {
+    open class Exception
+}
+class Sub : Base() {
+    object X : Exception()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected inherited nested Exception to shadow kotlin.Exception, got %v", findings)
+	}
+}
+
 func TestExc_ObjectExtendsThrowable_Positive(t *testing.T) {
 	findings := runRuleByName(t, "ObjectExtendsThrowable", `
 object MyError : RuntimeException("singleton error")

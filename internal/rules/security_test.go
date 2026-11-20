@@ -908,6 +908,45 @@ class XmlLoader {
 	}
 }
 
+func TestXmlExternalEntity_JavaSameNamedTypeVisibility(t *testing.T) {
+	t.Run("nested class shadows within containing class", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "XmlExternalEntity", `
+package test;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+
+class XmlLoader {
+    static class DocumentBuilderFactory {}
+
+    void load(java.io.InputStream input) throws Exception {
+        DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+    }
+}`)
+		if len(findings) != 0 {
+			t.Fatalf("expected no findings for the nested lookalike, got %d", len(findings))
+		}
+	})
+	t.Run("unrelated nested class does not shadow import", func(t *testing.T) {
+		findings := runRuleByNameOnJava(t, "XmlExternalEntity", `
+package test;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+
+class Other {
+    static class DocumentBuilderFactory {}
+}
+
+class XmlLoader {
+    void load(java.io.InputStream input) throws Exception {
+        DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input);
+    }
+}`)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding for the imported factory, got %d", len(findings))
+		}
+	})
+}
+
 func TestXmlExternalEntity_HardeningFormattingVariants(t *testing.T) {
 	t.Run("multi-line setFeature kotlin", func(t *testing.T) {
 		findings := runRuleByName(t, "XmlExternalEntity", `

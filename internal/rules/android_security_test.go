@@ -3946,6 +3946,8 @@ class Outer(private val thread: HandlerThread, private val callback: Handler.Cal
     val viaThread = object : Handler(thread.looper) {}
     val viaContext = object : Handler(mainLooper) {}
     val viaGetter = object : Handler(thread.getLooper()) {}
+    val viaElvis = object : Handler(android.os.Looper.myLooper() ?: android.os.Looper.getMainLooper()) {}
+    val viaCheckNotNull = object : Handler(checkNotNull(android.os.Looper.myLooper())) {}
 }
 `)
 	var lines []int

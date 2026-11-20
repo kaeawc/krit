@@ -798,8 +798,33 @@ func handlerArgumentsPassLooper(ctx *api.Context, args uint32) bool {
 		if expr == 0 {
 			continue
 		}
-		if handlerExprIsLooperAccessor(file, expr) || handlerExprIsLooper(ctx, expr) {
+		if handlerExprIsLooperArgument(ctx, expr) {
 			return true
+		}
+	}
+	return false
+}
+
+func handlerExprIsLooperArgument(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	expr = flatUnwrapParenExpr(file, expr)
+	if handlerExprIsLooperAccessor(file, expr) || handlerExprIsLooper(ctx, expr) {
+		return true
+	}
+	switch file.FlatType(expr) {
+	case "elvis_expression":
+		for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && handlerExprIsLooperArgument(ctx, child) {
+				return true
+			}
+		}
+	case "call_expression":
+		name := flatCallExpressionName(file, expr)
+		if name != "checkNotNull" && name != "requireNotNull" {
+			return false
+		}
+		if call, ok := lintCallAt(file, expr); ok && len(call.Args) > 0 {
+			return handlerExprIsLooperArgument(ctx, call.Args[0])
 		}
 	}
 	return false

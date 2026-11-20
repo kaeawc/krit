@@ -3,6 +3,7 @@ package parity_test
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,8 +13,10 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -128,6 +131,73 @@ func TestFirFixtureParity(t *testing.T) {
 	t.Run("CrossRule", func(t *testing.T) {
 		checkCrossRuleParity(t, root, checked, fixtures, crashed, firByPath)
 	})
+}
+
+func TestFirHostnameFixtureParity(t *testing.T) {
+	root := repoRoot(t)
+	jar, stdlib := firJar(t)
+	var fixtures []firFixture
+	tmp := t.TempDir()
+	for _, kind := range []string{"positive", "negative"} {
+		matches, err := filepath.Glob(filepath.Join(root, "tests", "fixtures", kind, "android-lint", "*HostnameVerifier*.kt"))
+		if err != nil || len(matches) == 0 {
+			t.Fatalf("hostname fixtures for %s: %v", kind, err)
+		}
+		for _, path := range matches {
+			fixtures = append(fixtures, writeParityFixture(t, root, tmp, "BadHostnameVerifier", kind, path))
+		}
+	}
+	stubs, classpath := firStubLibrary(t)
+	classpath = append([]string{stdlib}, classpath...)
+	files := make([]map[string]string, 0, len(stubs)+len(fixtures))
+	for _, path := range stubs {
+		files = append(files, map[string]string{"path": path})
+	}
+	scanPaths := map[string]string{}
+	for _, fixture := range fixtures {
+		files = append(files, map[string]string{"path": fixture.tmp})
+		scanPaths[fixture.tmp] = fixture.scan
+	}
+	request, err := json.Marshal(map[string]any{
+		"id": 1, "command": "check", "files": files, "classpath": classpath,
+		"rules": []string{"BadHostnameVerifier"}, "scanPaths": scanPaths,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	java, err := oracle.JavaPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, java, "-Xmx1g", "-XX:ActiveProcessorCount=4", "-jar", jar, "--daemon")
+	cmd.Stdin = strings.NewReader(string(request) + "\n")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("hostname FIR stdio check: %v\n%s", err, output)
+	}
+	var response firchecks.CheckResponse
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if err := json.Unmarshal([]byte(line), &response); err != nil {
+			t.Fatalf("invalid FIR response: %v\n%s", err, output)
+		}
+		if response.ID == 1 {
+			break
+		}
+	}
+	if response.ID != 1 || response.Succeeded == 0 || !containsString(response.Rules, "BadHostnameVerifier") || len(response.ErrorFiles)+len(response.Crashed)+len(response.RuleErrors) != 0 {
+		t.Fatalf("non-authoritative hostname FIR response: %s", output)
+	}
+	firByPath := map[string][]scanner.Finding{}
+	for _, finding := range response.Findings {
+		firByPath[finding.Path] = append(firByPath[finding.Path], firchecks.ToScannerFinding(finding))
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.rel, func(t *testing.T) {
+			checkParityFixture(t, root, fixture, map[string]string{}, firByPath[fixture.tmp], map[string]bool{})
+		})
+	}
 }
 
 // firCrossRuleAllowlist lists (rule, fixture) pairs where a FIR rule's

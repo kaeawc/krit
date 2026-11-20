@@ -146,8 +146,12 @@ func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
 				if file.FlatFirstChild(parent) != idx || hostnameVerifierSourceMatches(file, parent, strings.ReplaceAll(file.FlatNodeText(parent), "::", "."), "org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER") {
 					return
 				}
-			case "navigation_suffix", "import_header", "import_declaration", "identifier":
+			case "navigation_suffix", "import_header", "import_declaration", "identifier", "callable_reference", "method_reference":
 				return
+			case "enum_constant", "element_value_pair":
+				if file.FlatFirstChild(parent) == idx {
+					return
+				}
 			case "value_argument":
 				if _, named := file.FlatFindChild(parent, "="); named && file.FlatFirstChild(parent) == idx {
 					return

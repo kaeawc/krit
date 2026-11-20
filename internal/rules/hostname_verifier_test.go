@@ -26,6 +26,15 @@ class Demo {
 }`, true, 2},
 		{"Java static", `import static org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
 class Demo { Object verifier = ALLOW_ALL_HOSTNAME_VERIFIER; }`, true, 1},
+		{"Java enum constant", `import static org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+enum Policy { ALLOW_ALL_HOSTNAME_VERIFIER, STRICT }`, true, 0},
+		{"Java annotation key", `import static org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+@Cfg(ALLOW_ALL_HOSTNAME_VERIFIER = 1) class Demo {}`, true, 0},
+		{"Java annotation value", `import static org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+@Cfg(value = ALLOW_ALL_HOSTNAME_VERIFIER) class Demo {}`, true, 1},
+		{"Kotlin imported field reference", `import org.apache.http.conn.ssl.SSLSocketFactory
+import org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
+val ref = SSLSocketFactory::ALLOW_ALL_HOSTNAME_VERIFIER`, false, 1},
 		{"Java FQN", `class Demo {
  Object first = new org.apache.http.conn.ssl.AllowAllHostnameVerifier();
  Object second = org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
@@ -232,6 +241,28 @@ fun make(): HostnameVerifier {
 }`
 	if got := findingPositions(runRuleByName(t, "BadHostnameVerifier", kotlin)); got != "" {
 		t.Fatalf("main's superclass-constructor behavior changed: %s", got)
+	}
+}
+
+func TestBadHostnameVerifierQualifiedAndAliasedParameters(t *testing.T) {
+	for _, sessionType := range []string{"SSLSession", "Session", "Chained"} {
+		t.Run(sessionType, func(t *testing.T) {
+			source := "import javax.net.ssl.HostnameVerifier\nimport javax.net.ssl.SSLSession\ntypealias Session = SSLSession\ntypealias Chained = Session\nclass Demo : HostnameVerifier {\n override fun verify(host: kotlin.String, session: " + sessionType + ") = true\n}"
+			if got := findingPositions(runRuleByName(t, "BadHostnameVerifier", source)); got != "6:15" {
+				t.Fatalf("qualified/aliased parameters positions = %s, want 6:15", got)
+			}
+		})
+	}
+}
+
+func TestBadHostnameVerifierStrictSam(t *testing.T) {
+	for _, body := range []string{
+		`if (host != "example.com") return@HostnameVerifier false; true`,
+		`if (host.isEmpty()) return@HostnameVerifier host == "example.com"; true`,
+	} {
+		if findings := runRuleByName(t, "BadHostnameVerifier", "import javax.net.ssl.HostnameVerifier\nval strict = HostnameVerifier { host, _ -> "+body+" }"); len(findings) != 0 {
+			t.Fatalf("validating SAM must be silent: %v", findings)
+		}
 	}
 }
 

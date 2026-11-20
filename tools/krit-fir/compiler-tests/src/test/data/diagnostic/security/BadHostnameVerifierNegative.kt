@@ -97,7 +97,7 @@ fun verify(hostname: String, session: SSLSession): Boolean = true
 val validatingLambda = HostnameVerifier { host, _ -> host == "example.com" }
 
 // The anonymous object's verify is not HostnameVerifier.verify, because the
-// object is not a verifier; both Go and FIR skip it.
+// object is not a verifier; FIR skips it, while Go's class-wide visitor reports the outer member.
 class AnonymousHelper : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean = hostname == session.peerHost
 

@@ -562,7 +562,7 @@ class Chained : ChainedVerifier {
     override fun verify(host: String, session: SSLSession) = true
 }
 
-val aliasedSam = Verifier { _, _ -> true }`, ""},
+val aliasedSam = Verifier { _, _ -> true }`, "15:18"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			findings := runRuleByName(t, "BadHostnameVerifier", test.source)

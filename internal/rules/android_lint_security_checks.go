@@ -152,10 +152,25 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 			types = append(types, lintChildTypeText(file, p))
 		}
 	}
-	if len(types) != 2 || !javaLangTypeRef(file, types[0], "String") || !lintTypeRefMatches(file, types[1], "javax.net.ssl.SSLSession") {
+	if len(types) != 2 || !(javaLangTypeRef(file, types[0], "String") || file.Language == scanner.LangKotlin && types[0] == "kotlin.String") || !badHostnameVerifierSessionType(file, types[1], 0) {
 		return 0
 	}
 	return name
+}
+
+func badHostnameVerifierSessionType(file *scanner.File, text string, depth int) bool {
+	if lintTypeRefMatches(file, text, "javax.net.ssl.SSLSession") {
+		return true
+	}
+	if file.Language != scanner.LangKotlin || depth >= 8 {
+		return false
+	}
+	facts := hostnameVerifierFileFacts(file)
+	alias := facts.aliases[text]
+	if alias == 0 || facts.shadows[text] != 1 {
+		return false
+	}
+	return badHostnameVerifierSessionType(file, lintSameFileTypeAlias(file, text), depth+1)
 }
 
 // methodHasBody reports whether a Kotlin or Java method declaration has an implementation, so abstract and interface

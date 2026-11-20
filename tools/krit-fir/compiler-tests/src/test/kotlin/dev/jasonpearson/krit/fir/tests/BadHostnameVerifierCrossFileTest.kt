@@ -15,7 +15,7 @@ class BadHostnameVerifierCrossFileTest {
             FirRuleCompileContext(enabledRuleIds = setOf("BadHostnameVerifier")),
         )
         assertTrue(result.clean, result.problems())
-        return result.diags.filter { it.name == "BadHostnameVerifier" && it.file in sources }.map { it.file to it.line }
+        return result.diags.filter { it.name == "BadHostnameVerifier" }.map { it.file to it.line }
     }
 
     // An explicit lookalike import is silent; the JDK FQN remains reportable.

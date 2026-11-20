@@ -30,3 +30,17 @@ fun otherInterfaces(list: ArrayList<String>): java.util.function.BiPredicate<Str
     list.removeIf { true }
     return java.util.function.BiPredicate { _, _ -> true }
 }
+
+fun strictDefault() {
+    HttpsURLConnection.setDefaultHostnameVerifier { host, _ ->
+        if (host != "x") return@setDefaultHostnameVerifier false
+        true
+    }
+}
+
+fun allTrueDefault() {
+    HttpsURLConnection.setDefaultHostnameVerifier <!BadHostnameVerifier!>{<!> host, _ ->
+        if (host.isEmpty()) return@setDefaultHostnameVerifier true
+        true
+    }
+}

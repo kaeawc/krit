@@ -1,7 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// FIR expands parameter and chained supertype aliases. Go requires the
-// parameter type's explicit import/FQN and expands only direct supertype aliases.
+// go-lines: 14, 26, 30
+// FIR expands all aliases. Go expands parameter aliases but only direct supertype aliases.
 package test
 
 import javax.net.ssl.HostnameVerifier
@@ -20,3 +19,13 @@ class Chained : ChainedVerifier {
 }
 
 val aliasedSam = <!BadHostnameVerifier!>Verifier { _, _ -> true }<!>
+
+typealias ChainedSession = Session
+
+class QualifiedString : HostnameVerifier {
+    <!BadHostnameVerifier!>override<!> fun verify(host: kotlin.String, session: SSLSession) = true
+}
+
+class ChainedParameter : HostnameVerifier {
+    <!BadHostnameVerifier!>override<!> fun verify(host: String, session: ChainedSession) = true
+}

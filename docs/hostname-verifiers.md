@@ -25,15 +25,18 @@ alone; FIR checks the resolved JDK interface and the compiler's SAM conversion.
 
 FIR retains the former custom-verifier checker's declaration and SAM coverage. It visits returns
 targeting the actual verifier member or SAM lambda, ignoring unrelated nested functions and classes.
-Extra statements, multiple returns and a final literal-true return retain main's Go/Lint coverage,
-including the compatibility case `if (...) return false; return true`. This is deliberately not a
-control-flow proof that every path accepts the host. FIR does not reproduce Go's class-wide helper
+For class members, extra statements, multiple returns and a final literal-true return retain main's
+Go/Lint coverage, including the compatibility case `if (...) return false; return true`. SAM lambdas,
+objects and companions require every targeted return to yield literal true; an earlier labeled false
+or nonliteral return is silent. Go's SAM check is narrower still: it requires a single true statement.
+This is deliberately not a control-flow proof that every path accepts the host. FIR does not reproduce Go's class-wide helper
 overload false positives: only the resolved `verify(String, SSLSession)` member is considered.
 
 ## Main coverage self-check
 
 Every true-positive Kotlin shape reported by main's Go `BadHostnameVerifier` or former Go/FIR
-`AllowAllHostnameVerifier` is covered by `BadHostnameVerifier` now. The former FIR goldens retain
+`AllowAllHostnameVerifier` is covered by `BadHostnameVerifier` in FIR mode now; source-only Go
+coverage remains limited for compiler-resolved cases, as the table records. The former FIR goldens retain
 their diagnostic markers under `BadHostnameVerifier*` names; `// go-lines:` records current Go
 findings, including any Go-only compatibility quirks. Go reports the `verify` name; FIR reports the
 declaration's first annotation/modifier or `fun`, and SAM findings use the call/lambda source.
@@ -46,7 +49,7 @@ declaration's first annotation/modifier or `fun`, and SAM findings use the call/
 | Nested, inner and local class; anonymous object at top level, in a function or a factory | Yes | Yes | base golden, `GoMisses` |
 | Named object or verifier companion, including a class and companion that both verify | No for object/companion | Yes | `GoMisses` |
 | Inherited verifier base, qualified/nested base, long inheritance chain or cross-file base | Limited same-file lookup | Yes | `GoMisses`, `Inheritance`, `CrossFile` |
-| Import aliases; direct/chained supertype or parameter type aliases | Explicit parameter imports/FQN; limited supertype aliases | Yes | `ImportAlias`, `TypeAlias`, `GoMisses` |
+| Import aliases; direct/chained supertype or parameter type aliases | Parameter aliases and `kotlin.String`; limited supertype aliases | Yes | `ImportAlias`, `TypeAlias`, `GoMisses` |
 | `javax.net.ssl.*` imports; unrelated local lookalike alongside the JDK FQN | Yes | Yes | `StarImport`, `Lookalike` |
 | Labeled `return@verify true`; trailing parameter comma | Yes | Yes | `GoMisses` |
 | `= (true)`, `return (true)`, backticked `verify` | No | Yes | `GoMisses` |
@@ -59,12 +62,16 @@ declaration's first annotation/modifier or `fun`, and SAM findings use the call/
 
 Main's false positives from header mentions, wrong-type/generic overloads, local non-members and
 comparisons against true are not part of the preserved true-positive contract. The current Go
-class-wide helper-return quirks remain pinned in `Negative` and `Divergence`; FIR excludes them.
-FIR-only resolution for SAM aliases is pinned in `TypeAlias` and `SamLookalike`; `Shadow` checks
+class-wide helper-return quirks remain pinned in the base golden (`Factory`), `Negative`
+(`AnonymousHelper`, `ExtensionHelper`) and `Divergence` (`CompanionHelper`); FIR excludes them.
+They deliberately retain main's class-wide visitor compatibility rather than changing its return order.
+FIR-only resolution for SAM aliases and a positional SAM beside a same-named factory is pinned in
+`TypeAlias` and `SamLookalike`: Go's file-wide shadow guard intentionally rejects both factory and SAM
+calls rather than guessing overload resolution. `Shadow` checks
 that an unrelated parameter leaves a real verifier reportable. Imported cross-file lookalikes
 remain silent in the compiler test.
 
-`AllowAllHostnameVerifier` uses Android Lint 32.4.1's diagnostic messages, confirmed with `javap` against
+Both rules use Android Lint 32.4.1's diagnostic messages, confirmed with `javap` against
 `lint-checks-32.4.1.jar`. Lint checks the Apache constructor and a field argument to `setHostnameVerifier`
 or `setDefaultHostnameVerifier`. Krit deliberately covers all references to the Apache field and constructor
 references (`::AllowAllHostnameVerifier`), not just setter arguments. It does not report imports or custom

@@ -54,12 +54,14 @@ All notable changes to Krit will be documented in this file.
 - `AllowAllHostnameVerifier` now reports Apache `AllowAllHostnameVerifier` constructions and constructor
   references, and `SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER` references, using Android Lint 32.4.1's
   messages. Custom always-true `javax.net.ssl.HostnameVerifier.verify` implementations and SAM lambdas
-  belong only to `BadHostnameVerifier`, removing duplicate findings. Its Go implementation retains
+  belong only to `BadHostnameVerifier`, removing duplicate findings. `BadHostnameVerifier`'s Go implementation retains
   the original class-wide Lint visitor, signature matching, inheritance and `verify` name anchor,
   including extra statements, last-return-wins and overload quirks, and restores enum entry coverage.
-  Its FIR checker retains the former custom-verifier checker, including implicit SAM conversions,
+  `BadHostnameVerifier`'s FIR checker replaces Go findings on compiled Kotlin files and retains the
+  former custom-verifier checker, including implicit SAM conversions,
   objects, companions, aliases and cross-file inheritance, and now visits all member return paths
-  with last-return-wins compatibility. Former FIR goldens run under `BadHostnameVerifier` with
+  with class-member last-return-wins compatibility; SAM lambdas, objects and companions require
+  every return to yield true. Former FIR goldens run under `BadHostnameVerifier` with
   machine-checked Go lines. Apache lookalike enum entries, catch parameters and named-argument
   labels are silent. Old custom
   verifier baseline entries change issue ID or collapse into an existing `BadHostnameVerifier`

@@ -9,6 +9,7 @@ import dev.jasonpearson.krit.fir.support.unwrapArgument
 import org.jetbrains.kotlin.KtRealSourceElementKind
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
+import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.fir.FirElement
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.declarations.FirFunction
@@ -33,6 +34,7 @@ import org.jetbrains.kotlin.fir.expressions.FirLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.FirReturnExpression
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirRegularClassSymbol
 import org.jetbrains.kotlin.fir.types.classId
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
@@ -59,7 +61,7 @@ internal object BadHostnameVerifier :
     private val sslSession = classIdOf(sslPackage, "SSLSession")
 
     private const val MESSAGE =
-        "HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host."
+        "`verify` always returns `true`, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames"
 
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirNamedFunction) {
@@ -76,7 +78,7 @@ internal object BadHostnameVerifier :
         // named verify, even inside a verifier, is not the verifier's verify.
         val owner = context.containingDeclarations.lastOrNull { it != declaration.symbol } as? FirClassSymbol<*> ?: return
         if (!isHostnameVerifier(owner, session)) return
-        if (!alwaysReturnsTrue(declaration)) return
+        if (!alwaysReturnsTrue(declaration, requireEveryReturn = (owner as? FirRegularClassSymbol)?.classKind == ClassKind.OBJECT)) return
         report(firstLine(source), MESSAGE)
     }
 
@@ -93,7 +95,7 @@ internal object BadHostnameVerifier :
             val lambda = (expression.argumentList.arguments.singleOrNull() as? FirAnonymousFunctionExpression)
                 ?.anonymousFunction ?: return
             if (lambda.body == null) return
-            if (!alwaysReturnsTrue(lambda)) return
+            if (!alwaysReturnsTrue(lambda, requireEveryReturn = true)) return
             report(source, MESSAGE)
         }
 
@@ -106,7 +108,7 @@ internal object BadHostnameVerifier :
                 if (conversion.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId != hostnameVerifier) continue
                 val lambda = (conversion.expression as? FirAnonymousFunctionExpression)?.anonymousFunction ?: continue
                 if (lambda.body == null) continue
-                if (!alwaysReturnsTrue(lambda)) continue
+                if (!alwaysReturnsTrue(lambda, requireEveryReturn = true)) continue
                 report(lambda.source ?: continue, MESSAGE)
             }
         }
@@ -121,8 +123,9 @@ internal object BadHostnameVerifier :
     private fun isHostnameVerifier(owner: FirClassSymbol<*>, session: FirSession): Boolean =
         inheritsFrom(owner, session, lookupInterfaces = true) { it == hostnameVerifier }
 
-    private fun alwaysReturnsTrue(function: FirFunction): Boolean {
+    private fun alwaysReturnsTrue(function: FirFunction, requireEveryReturn: Boolean = false): Boolean {
         var lastReturnTrue = false
+        var allReturnsTrue = true
         function.body?.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (element is FirClass) return
@@ -130,10 +133,11 @@ internal object BadHostnameVerifier :
                 if (element is FirReturnExpression && element.target.labeledElement === function) {
                     val returned = element.result as? FirLiteralExpression
                     lastReturnTrue = returned?.kind == ConstantValueKind.Boolean && returned.value == true
+                    allReturnsTrue = allReturnsTrue && lastReturnTrue
                 }
             }
         })
-        return lastReturnTrue
+        return lastReturnTrue && (!requireEveryReturn || allReturnsTrue)
     }
 
     private fun firstLine(source: KtSourceElement): KtSourceElement =

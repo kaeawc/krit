@@ -346,6 +346,10 @@ func TestLogConditionalLintSemantics(t *testing.T) {
 		{"when condition", `when { Log.d("T", compute()) > 0 -> 0; else -> 0 }`, 0},
 		{"call lambda", `if (flag) { run { Log.d("T", compute()) } }`, 1},
 		{"call argument", `if (flag) { println(Log.d("T", compute())) }`, 1},
+		{"guarded receiver", `if (flag) Log.d("T", compute()).also { println(it) }`, 0},
+		{"unguarded receiver", `Log.d("T", compute()).also { println(it) }`, 1},
+		{"receiver in argument", `if (flag) println(Log.d("T", compute()).also { println(it) })`, 1},
+		{"unknown camelCase constant", `Log.d("T", "x${Config.timeoutMs}"); Log.d("T", "x" + timeoutMs)`, 0},
 		{"guard in lambda", `run { if (flag) Log.d("T", compute()) }`, 0},
 		{"standalone lambda", `if (flag) { val callback = { Log.d("T", compute()) } }`, 0},
 		{"standalone anonymous function", `if (flag) { val callback = fun() { Log.d("T", compute()) } }`, 0},
@@ -370,6 +374,42 @@ fun work(value: String, flag: Boolean, number: Int) {
 				t.Errorf("expected %d findings, got %d: %v", test.want, len(findings), findings)
 			}
 		})
+	}
+}
+
+func TestLogConditionalInitializerAndConstructorLocals(t *testing.T) {
+	source := `import android.util.Log
+fun compute(): String = "computed"
+class Screen(flag: Boolean) {
+    init {
+        if (flag) {
+            val result = Log.d("T", compute())
+            val callback = { Log.d("T", compute()) }
+            fun trace() { Log.d("T", compute()) }
+        }
+    }
+    constructor(number: Int) : this(true) {
+        if (number > 0) {
+            val result = Log.d("T", compute())
+            val callback = { Log.d("T", compute()) }
+            fun trace() { Log.d("T", compute()) }
+        }
+    }
+}`
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
+		t.Fatalf("expected guarded locals to be silent, got %v", findings)
+	}
+}
+
+func TestLogConditionalImportedConstantUnrelatedDeclaration(t *testing.T) {
+	source := `import android.util.Log
+import example.Config.prefix
+fun compute(): String = "computed"
+fun unrelated() { val prefix = compute() }
+class Unrelated(prefix: String)
+fun log() { Log.d("T", "x$prefix"); Log.d("T", "x" + prefix) }`
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
+		t.Fatalf("unrelated declarations must not turn imported constants into work: %v", findings)
 	}
 }
 

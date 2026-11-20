@@ -128,7 +128,12 @@ func logCallIsConditionalFlat(file *scanner.File, call uint32) bool {
 			if !logDeclarationIsLocalFlat(file, parent) {
 				return false
 			}
-		case "call_expression", "class_declaration", "object_declaration", "object_literal",
+		case "call_expression":
+			callee, _ := flatCallExpressionParts(file, parent)
+			if callee == 0 || file.FlatStartByte(callee) > file.FlatStartByte(call) || file.FlatEndByte(call) > file.FlatEndByte(callee) {
+				return false
+			}
+		case "class_declaration", "object_declaration", "object_literal",
 			"primary_constructor", "secondary_constructor", "getter", "setter", "anonymous_initializer", "source_file":
 			return false
 		}
@@ -139,7 +144,7 @@ func logCallIsConditionalFlat(file *scanner.File, call uint32) bool {
 func logDeclarationIsLocalFlat(file *scanner.File, declaration uint32) bool {
 	for parent, ok := file.FlatParent(declaration); ok; parent, ok = file.FlatParent(parent) {
 		switch file.FlatType(parent) {
-		case "function_body", "lambda_literal", "anonymous_function":
+		case "function_body", "lambda_literal", "anonymous_function", "anonymous_initializer", "secondary_constructor":
 			return true
 		case "class_body", "source_file":
 			return false
@@ -260,11 +265,14 @@ func logConstantReferenceFlat(ctx *api.Context, reference uint32, localValues bo
 	}
 	constant := false
 	declared := false
+	qualified := file.FlatType(reference) == "navigation_expression"
+	if qualified && !logQualifiedPropertyDoesWorkFlat(ctx, reference) {
+		return true
+	}
 	file.FlatWalkNodes(0, "property_declaration", func(declaration uint32) {
 		if semantics.DeclarationName(file, declaration) != name {
 			return
 		}
-		declared = true
 		modifiers, _ := file.FlatFindChild(declaration, "modifiers")
 		isConst := false
 		if modifiers != 0 {
@@ -275,14 +283,26 @@ func logConstantReferenceFlat(ctx *api.Context, reference uint32, localValues bo
 		if isConst || (localValues && logDeclarationIsLocalFlat(file, declaration) && !propertyDeclarationIsVar(file, declaration)) {
 			constant = constant || logExpressionIsConstantFlat(ctx, propertyInitializerExpression(file, declaration), localValues, seen)
 		}
+		declared = declared || logReferenceInScopeFlat(file, declaration, reference)
 	})
-	if !declared && strings.ToUpper(name) == name && strings.ToLower(name) != name {
-		return true
+	file.FlatWalkNodes(0, "parameter", func(declaration uint32) {
+		if semantics.DeclarationName(file, declaration) == name && logReferenceInScopeFlat(file, declaration, reference) {
+			declared = true
+		}
+	})
+	return constant || (!declared && !qualified)
+}
+
+func logReferenceInScopeFlat(file *scanner.File, declaration, reference uint32) bool {
+	for scope, ok := file.FlatParent(declaration); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "statements", "block":
+			return file.FlatStartByte(declaration) <= file.FlatStartByte(reference) && file.FlatEndByte(reference) <= file.FlatEndByte(scope)
+		case "lambda_literal", "function_declaration", "anonymous_function", "secondary_constructor", "class_declaration", "object_declaration", "class_body", "source_file":
+			return file.FlatStartByte(scope) <= file.FlatStartByte(reference) && file.FlatEndByte(reference) <= file.FlatEndByte(scope)
+		}
 	}
-	if !declared && ctx.Resolver != nil && ctx.Resolver.ResolveImport(name, file) != "" {
-		return true
-	}
-	return constant
+	return false
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

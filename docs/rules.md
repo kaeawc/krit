@@ -5,6 +5,44 @@ performance, Android manifests, resources, icons, and Gradle. Many are
 detekt-compatible (same names and config keys) or Android Lint-compatible. Many
 are auto-fixable.
 
+## LogConditional Semantics
+
+The opt-in Go and FIR checkers now follow Android Lint 32.4.1's `LogDetector` on synthetic Kotlin
+inputs. They report only `android.util.Log.v/d/i/println` when the message performs work: a
+non-constant concatenation/template, call, Kotlin qualified property access, or other expression.
+Literals, simple references, and constant concatenations/templates are silent; `w/e/wtf` are silent.
+`println` uses argument index 2; the other methods use index 1. Go also checks positional values
+inside named argument wrappers, but Kotlin rejects named arguments to the real Java `Log` methods;
+the receiver-shape compile test records that boundary rather than using invalid code as FIR proof.
+
+The nearest `if` decides guarding, regardless of flag spelling; only literal `true` does not guard.
+A `when` entry guards if any of its case values is not literal `true`; `else` does not guard.
+Enclosing source calls, classes/objects, member/top-level functions and properties, constructors,
+accessors, and initializers stop the search. Local functions, standalone lambdas/anonymous functions,
+declarations local to init blocks and secondary constructors, loops, and try/catch continue it.
+A log used as a receiver, such as `if (flag) Log.d("T", compute()).also { }`, is guarded:
+the selector call is not an enclosing call. A call taking that expression as an argument still
+stops the search. Thus `if (flag) { run { Log.d("T", compute()) } }` reports,
+but `if (flag) { val callback = { Log.d("T", compute()) } }` does not.
+
+All Go verdicts are pinned by `// go-lines:` headers in the `LogConditional*.kt` goldens. Remaining
+conservative Go recall differences are documented inline: alias/static/star-import resolution,
+file-wide shadowing by a nested `Log` class, unresolved constant references (including camelCase
+names and imported owners, implicit lambda parameters, and loop variables), and qualified
+properties lacking Kotlin declaration evidence (including Java getters, which Go cannot
+distinguish from fields). FIR has resolved-symbol evidence.
+Go reports reference-based work only with evidence of an in-scope non-constant declaration;
+unknown references stay silent even if they are non-constant at runtime. An unrelated non-constant
+declaration does not override an imported reference. Go still folds same-named literal local
+`val`s across scopes in concatenations: a parameter named `msg` can be mistaken for another
+function's literal `val msg`. This lost true positive is pinned in
+`LogConditionalConservativeEvidence.kt`; FIR/Lint bind the actual symbol. Local literal `val`
+folding in concatenations (but not templates) is otherwise covered by both engines.
+The historical corpus row in `docs/fir-validation.md` predates this semantic change and is not a fresh qualification.
+
+Follow-ups, not implemented here: Java-source coverage and the scanner's `/benchmark/` test-path
+substring classification. The existing Go-provided test-file skip remains unchanged in FIR.
+
 ## Categories
 
 | Category           | What it catches |

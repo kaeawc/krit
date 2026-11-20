@@ -120,7 +120,11 @@ object LogConditional : FirFunctionCallChecker(MppCheckerKind.Common), FirRule {
             when (val element = elements[index]) {
                 is FirFunctionCall -> if (element !== call && element.source?.let {
                     selectorCallExpression(it)
-                } != null) return false
+                } != null && element.explicitReceiver?.source?.let { receiver ->
+                    call.source?.let { source ->
+                        receiver.startOffset <= source.startOffset && source.endOffset <= receiver.endOffset
+                    }
+                } != true) return false
                 is FirNamedFunction -> if (!element.isLocal) return false
                 is FirProperty -> if (!element.isLocal) return false
                 is FirRegularClass, is FirAnonymousObject, is FirConstructor, is FirPropertyAccessor,

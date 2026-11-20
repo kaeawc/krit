@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 12, 16, 17, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 61, 63, 76, 80, 81, 83, 84, 87, 88, 92, 93, 94, 96, 98, 99, 101, 103
+// go-lines: 12, 16, 17, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 61, 63, 76, 80, 81, 83, 84, 87, 92, 93, 94, 96, 99, 101, 103, 129, 130
 // Android Lint 32.4.1: only v/d/i/println with message work, nearest guard wins.
 package test.logconditional
 
@@ -85,7 +85,7 @@ fun guards(flag: Boolean, number: Int, items: List<String>) {
     when { Log.d(TAG, compute()) > 0 -> 0; else -> 0 }
     if (flag) {
         run { <!LogConditional!>Log.d(TAG, compute())<!> }
-        items.forEach { <!LogConditional!>Log.d(TAG, "x$it")<!> }
+        items.forEach { <!LogConditional!>Log.d(TAG, "x$it")<!> } // Go cannot bind implicit lambda parameters and stays silent.
         val callback = { Log.d(TAG, compute()) }
         val anonymous = fun() { Log.d(TAG, compute()) }
         fun local() { Log.d(TAG, compute()) }
@@ -95,7 +95,7 @@ fun guards(flag: Boolean, number: Int, items: List<String>) {
     }
     val callback = { <!LogConditional!>Log.d(TAG, compute())<!> }
     run { if (flag) Log.d(TAG, compute()) }
-    for (item in items) { <!LogConditional!>Log.d(TAG, "x$item")<!> }
+    for (item in items) { <!LogConditional!>Log.d(TAG, "x$item")<!> } // Go lacks loop-variable binding and stays silent.
     while (flag) { <!LogConditional!>Log.d(TAG, compute())<!> }
     try {
         <!LogConditional!>Log.d(TAG, compute())<!>
@@ -104,4 +104,28 @@ fun guards(flag: Boolean, number: Int, items: List<String>) {
     }
     Log.d(TAG, Messages.NAME)
     Log.d(TAG, "x${Messages.NAME}")
+}
+
+class Initializers(flag: Boolean) {
+    init {
+        if (flag) {
+            val result = Log.d(TAG, compute())
+            val callback = { Log.d(TAG, compute()) }
+            fun trace() { Log.d(TAG, compute()) }
+        }
+    }
+    constructor(number: Int) : this(true) {
+        if (number > 0) {
+            val result = Log.d(TAG, compute())
+            val callback = { Log.d(TAG, compute()) }
+            fun trace() { Log.d(TAG, compute()) }
+        }
+    }
+}
+
+fun receiverGuards(flag: Boolean) {
+    if (flag) Log.d(TAG, compute()).also { println(it) }
+    if (flag) Log.d(TAG, compute()).also { println(it) }.toString()
+    <!LogConditional!>Log.d(TAG, compute())<!>.also { println(it) }
+    if (flag) println(<!LogConditional!>Log.d(TAG, compute())<!>.also { println(it) })
 }

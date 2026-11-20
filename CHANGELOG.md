@@ -7,6 +7,7 @@ All notable changes to Krit will be documented in this file.
 ### Added
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
+- FIR-backed `SingletonOnMutableClass` resolves singleton scopes, mutable collection types and state-protection references; Go remains the fallback without a classpath or for files with compiler errors.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,

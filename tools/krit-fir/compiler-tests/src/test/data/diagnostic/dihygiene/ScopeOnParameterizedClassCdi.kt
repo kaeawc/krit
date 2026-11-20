@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: 24, 27, 30, 42
 // CDI normal scopes are meta-annotated with NormalScope, not
-// jakarta.inject.Scope. The built-in scope declarations live here.
+// jakarta.inject.Scope. The shared NormalScope stub is used below.
 package jakarta.enterprise.context
 
 @NormalScope

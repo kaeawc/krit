@@ -61,9 +61,9 @@ All notable changes to Krit will be documented in this file.
   former custom-verifier checker, including implicit SAM conversions,
   objects, companions, aliases and cross-file inheritance. FIR now requires every targeted return
   and every expression-body branch to yield the literal `true` for classes, objects, enums, SAMs and
-  companions alike; throwing paths and Kotlin `require`/`check` guards are silent. Go retains its
-  existing Lint-compatible last-return-wins behavior, and those Go-only reports are pinned in
-  goldens. Former FIR goldens run under `BadHostnameVerifier` with
+  companions alike; throwing paths and Kotlin `require`/`check` or JDK `Objects.requireNonNull` guards
+  are silent. Go retains its existing Lint-compatible last-return-wins behavior, and those Go-only
+  reports are pinned in goldens. Former FIR goldens run under `BadHostnameVerifier` with
   machine-checked Go lines. Apache lookalike enum entries, catch parameters and named-argument
   labels are silent. Old custom
   verifier baseline entries change issue ID or collapse into an existing `BadHostnameVerifier`

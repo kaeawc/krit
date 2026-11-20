@@ -28,11 +28,12 @@ expressions targeting the actual verifier member or SAM lambda contribute to its
 nested class bodies are skipped.
 For every class, object, enum, enum entry, companion and SAM lambda, FIR reports only when every
 targeted return yields the literal `true`; expression-bodied `if`/`when` branches must all yield that
-literal as well. An earlier false/nonliteral return, a throwing path, or Kotlin `require`/`check`
-guard makes the verifier silent. This is intentionally stricter than Go's Android Lint-compatible
-last-return-wins behavior: for example, Go may report `if (...) return false; return true` while FIR
-does not. Those Go-only findings are pinned in goldens rather than changing Go. Go's SAM check is
-narrower still: it requires a single true statement. FIR does not reproduce Go's class-wide helper
+literal as well. An earlier false/nonliteral return, a throwing path, or a Kotlin `require`/`check`
+or JDK `Objects.requireNonNull` guard makes the verifier silent. This is intentionally stricter than
+Go's Android Lint-compatible last-return-wins behavior: for example, Go may report
+`if (...) return false; return true` while FIR does not. Those Go-only findings are pinned in goldens
+rather than changing Go. Go's SAM check is narrower still: it requires a single true statement. FIR
+does not reproduce Go's class-wide helper
 overload false positives: only the resolved `verify(String, SSLSession)` member is considered.
 
 ## Main coverage self-check

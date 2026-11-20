@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 18, 24, 48, 51, 54, 58, 66, 70, 78, 81, 85, 90, 95, 100, 103, 110, 126, 128, 130, 134, 144, 151, 176
+// go-lines: 11, 18, 24, 48, 51, 54, 58, 66, 70, 78, 81, 85, 90, 95, 100, 103, 110, 126, 128, 130, 134, 144, 151, 157, 183
 // FIR requires every return path to be the literal true; Go retains Lint's
 // class-wide last-return-wins compatibility on the pinned divergences below.
 package test
@@ -150,6 +150,13 @@ class EarlierNonliteral : HostnameVerifier {
 class InlineNonlocalReturn : HostnameVerifier {
   <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
     run { return true }
+  }
+}
+
+class ElvisInlineNonlocalReturn : HostnameVerifier {
+  <!BadHostnameVerifier!>override<!> fun verify(h: String, s: SSLSession): Boolean {
+    h.takeIf { it.isNotEmpty() } ?: run { return true }
+    return true
   }
 }
 

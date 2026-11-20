@@ -137,7 +137,7 @@ internal object BadHostnameVerifier :
             override fun visitElement(element: FirElement) {
                 if (element is FirClass) return
                 if (element is FirThrowExpression || element is FirFunctionCall &&
-                    (element.resolvedType.isNothing || isKotlinGuard(element))
+                    (declaredReturnTypeIsNothing(element) || isRejectingGuard(element))
                 ) {
                     hasRejectingPath = true
                 }
@@ -151,6 +151,10 @@ internal object BadHostnameVerifier :
         return sawReturn && returnsAreTrue && !hasRejectingPath
     }
 
+    private fun declaredReturnTypeIsNothing(call: FirFunctionCall): Boolean =
+        (call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol)
+            ?.resolvedReturnType?.isNothing == true
+
     private fun isLiteralTruePath(expression: FirExpression?): Boolean = when (expression) {
         is FirLiteralExpression -> expression.kind == ConstantValueKind.Boolean && expression.value == true
         is FirWrappedExpression -> isLiteralTruePath(expression.expression)
@@ -162,13 +166,18 @@ internal object BadHostnameVerifier :
         else -> false
     }
 
-    private fun isKotlinGuard(call: FirFunctionCall): Boolean {
+    private fun isRejectingGuard(call: FirFunctionCall): Boolean {
         val callee = call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol ?: return false
         val callableId = callee.callableId
-        return callableId.packageName == FqName("kotlin") &&
-            callableId.callableName.asString() in setOf(
-                "require", "requireNotNull", "check", "checkNotNull", "assert",
-            )
+        val name = callableId.callableName.asString()
+        return when {
+            callableId.packageName == FqName("kotlin") && name in setOf(
+                "require", "requireNotNull", "check", "checkNotNull",
+            ) -> true
+            callableId.packageName == FqName("java.util") &&
+                callableId.className?.asString() == "Objects" && name == "requireNonNull" -> true
+            else -> false
+        }
     }
 
     private fun firstLine(source: KtSourceElement): KtSourceElement =

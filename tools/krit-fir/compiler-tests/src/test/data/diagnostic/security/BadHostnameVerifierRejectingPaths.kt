@@ -35,8 +35,15 @@ class ChecksNotNull : HostnameVerifier {
 }
 
 class Asserts : HostnameVerifier {
-    override fun verify(host: String, session: SSLSession): Boolean {
+    <!BadHostnameVerifier!>override<!> fun verify(host: String, session: SSLSession): Boolean {
         assert(host == "x")
+        return true
+    }
+}
+
+object RequiresNonNull : HostnameVerifier {
+    override fun verify(host: String, session: SSLSession): Boolean {
+        java.util.Objects.requireNonNull(host.takeIf { it == "x" })
         return true
     }
 }

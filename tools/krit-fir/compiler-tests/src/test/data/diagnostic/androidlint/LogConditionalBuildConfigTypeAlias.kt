@@ -1,9 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 27
-// A condition written `BuildConfig.DEBUG` guards the call when BuildConfig is
-// a typealias, as Go matches the condition text `BuildConfig.DEBUG`. FIR
-// matches. A typealias with another name (`Flags.DEBUG`) is not a guard for
-// either (see the go-lines header).
+// go-lines: none
+// Any non-literal-true if condition guards message work in both engines.
 package test.logconditional.aliased
 
 import android.util.Log
@@ -18,12 +15,14 @@ typealias Flags = GeneratedBuildConfig
 
 fun typeAliasGuard() {
     if (BuildConfig.DEBUG) {
-        Log.d("Tag", "guarded through a typealias spelled BuildConfig")
+        Log.d("Tag", compute())
     }
 }
 
 fun otherTypeAlias() {
     if (Flags.DEBUG) {
-        <!LogConditional!>Log.d("Tag", "DEBUG through a typealias with another name")<!>
+        Log.d("Tag", compute())
     }
 }
+
+private fun compute(): String = "computed"

@@ -49,18 +49,19 @@ fun foo() { Log.d("ThisIsAVeryLongTagNameThatExceeds", "msg") }
 	}
 }
 
-func TestLogConditionalDebugConjunctGuards(t *testing.T) {
+func TestLogConditionalAnyConditionGuards(t *testing.T) {
 	cases := []struct {
 		name string
 		body string
 		want int
 	}{
-		{"debug and flag", `if (BuildConfig.DEBUG && flag) { Log.d("T", "m") }`, 0},
-		{"flag and debug", `if (flag && BuildConfig.DEBUG) { Log.d("T", "m") }`, 0},
-		{"debug or flag", `if (BuildConfig.DEBUG || flag) { Log.d("T", "m") }`, 1},
-		{"bare debug", `if (BuildConfig.DEBUG) { Log.d("T", "m") }`, 0},
-		{"negated debug", `if (!BuildConfig.DEBUG) { Log.d("T", "m") }`, 1},
-		{"unrelated if", `if (flag) Log.d("T", "m")`, 1},
+		{"debug and flag", `if (BuildConfig.DEBUG && flag) { Log.d("T", "x" + flag) }`, 0},
+		{"flag and debug", `if (flag && BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
+		{"debug or flag", `if (BuildConfig.DEBUG || flag) { Log.d("T", "x" + flag) }`, 0},
+		{"literal true", `if (true) { Log.d("T", "x" + flag) }`, 1},
+		{"bare debug", `if (BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
+		{"negated debug", `if (!BuildConfig.DEBUG) { Log.d("T", "x" + flag) }`, 0},
+		{"unrelated if", `if (flag) Log.d("T", "x" + flag)`, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

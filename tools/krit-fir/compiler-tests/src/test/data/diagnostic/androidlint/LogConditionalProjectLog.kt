@@ -1,8 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// A project class named Log with level-like methods is not android.util.Log.
-// Neither FIR nor Go reports it: without an import of android.util.Log, Go
-// does not treat the receiver `Log` as Android's.
+// Lookalike owners never report, even when their messages perform work.
 package test.logconditional.projectlog
 
 object Log {
@@ -18,18 +16,20 @@ class Holder {
     }
 
     fun nested() {
-        Log.w("Tag", "nested lookalike")
+        Log.w("Tag", compute())
     }
 }
 
 fun projectObject() {
-    Log.d("Tag", "project lookalike")
-    Log.e("Tag", "project lookalike")
+    Log.d("Tag", compute())
+    Log.e("Tag", compute())
 }
 
 fun localClass() {
     class Log {
         fun i(tag: String, message: String) {}
     }
-    Log().i("Tag", "local lookalike")
+    Log().i("Tag", compute())
 }
+
+private fun compute(): String = "computed"

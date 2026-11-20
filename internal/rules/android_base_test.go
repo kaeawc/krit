@@ -150,10 +150,16 @@ func TestLogConditional_Positive(t *testing.T) {
 package test
 import android.util.Log
 fun doWork() {
-    Log.d("TAG", "doing work")
+    Log.d("TAG", "doing work " + System.nanoTime())
 }`)
 	if len(findings) == 0 {
 		t.Error("expected LogConditional finding for unconditional Log call")
+	}
+	for _, finding := range findings {
+		want := "The log call Log.d(...) should be conditional: surround with `if (Log.isLoggable(...))` or `if (BuildConfig.DEBUG) { ... }`"
+		if finding.Message != want {
+			t.Errorf("expected Lint message %q, got %q", want, finding.Message)
+		}
 	}
 }
 
@@ -163,7 +169,7 @@ package test
 import android.util.Log
 fun doWork() {
     if (Log.isLoggable("TAG", Log.DEBUG)) {
-        Log.d("TAG", "doing work")
+        Log.d("TAG", "doing work " + System.nanoTime())
     }
 }`)
 	if len(findings) != 0 {
@@ -177,7 +183,7 @@ package test
 import android.util.Log
 fun doWork() {
     if (BuildConfig.DEBUG) {
-        Log.d("TAG", "doing work")
+        Log.d("TAG", "doing work " + System.nanoTime())
     }
 }`)
 	if len(findings) != 0 {
@@ -253,7 +259,7 @@ func TestLogConditional_NegativeTestSource(t *testing.T) {
 import android.util.Log
 class MyTest {
     fun runs() {
-        Log.d("TAG", "from test")
+        Log.d("TAG", "from test " + System.nanoTime())
     }
 }`
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
@@ -266,6 +272,104 @@ class MyTest {
 	findings := runRuleByNameOnFile(t, "LogConditional", file)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings in test source path, got %d", len(findings))
+	}
+}
+
+func TestLogConditionalReceiverShadowing(t *testing.T) {
+	source := `package example
+import android.util.Log
+class FakeLog { fun d(tag: String, message: String) {} }
+fun compute(): String = "computed"
+fun local() { val Log = FakeLog(); Log.d("T", compute()) }
+fun parameter(Log: FakeLog) { Log.d("T", compute()) }
+fun lambda(loggers: List<FakeLog>) { loggers.forEach { Log -> Log.d("T", compute()) } }
+fun real() { Log.d("T", compute()) }
+`
+	if findings := runRuleByName(t, "LogConditional", source); len(findings) != 1 {
+		t.Errorf("without resolver: expected only the real call, got %v", findings)
+	}
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 1 {
+		t.Errorf("with resolver: expected only the real call, got %v", findings)
+	}
+}
+
+func TestLogConditionalLintSemantics(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"literal", `Log.d("T", "literal")`, 0},
+		{"reference", `Log.d("T", value)`, 0},
+		{"call", `Log.d("T", compute())`, 1},
+		{"concat", `Log.d("T", "x" + value)`, 1},
+		{"template", `Log.d("T", "x$value")`, 1},
+		{"constant concat", `Log.d("T", "a" + "b")`, 0},
+		{"constant template", `Log.d("T", "x$CONSTANT")`, 0},
+		{"constant interpolation", `Log.d("T", "${1}")`, 0},
+		{"constant arithmetic interpolation", `Log.d("T", "${2 * 3}")`, 0},
+		{"constant comparison interpolation", `Log.d("T", "${1 > 0}")`, 0},
+		{"constant path", `Log.d("T", "x${Constants.NAME}")`, 0},
+		{"local literal concat", `val local = "literal"; Log.d("T", local + "x")`, 0},
+		{"local literal template", `val local = "literal"; Log.d("T", "x$local")`, 1},
+		{"top val template", `Log.d("T", "x$topValue")`, 1},
+		{"qualified property", `Log.d("T", value.length)`, 1},
+		{"Java field", `Log.d("T", java.io.File.separator)`, 0},
+		{"Java field import", `Log.d("T", File.separator)`, 0},
+		{"imported constant template", `Log.d("T", "x${Integer.MAX_VALUE}")`, 0},
+		{"parenthesized reference", `Log.d("T", (value))`, 0},
+		{"parenthesized call", `Log.d("T", (compute()))`, 1},
+		{"elvis", `Log.d("T", value ?: "fallback")`, 1},
+		{"not null", `Log.d("T", value!!)`, 1},
+		{"if message", `Log.d("T", if (flag) value else "fallback")`, 1},
+		{"named arguments", `Log.d(tag = "T", msg = compute())`, 1},
+		{"missing message", `Log.d("T")`, 0},
+		{"verbose", `Log.v("T", compute())`, 1},
+		{"info", `Log.i("T", compute())`, 1},
+		{"warn", `Log.w("T", compute())`, 0},
+		{"error", `Log.e("T", compute())`, 0},
+		{"wtf", `Log.wtf("T", compute())`, 0},
+		{"println", `Log.println(Log.INFO, "T", compute())`, 1},
+		{"println tag work", `Log.println(Log.INFO, compute(), "literal")`, 0},
+		{"any if", `if (flag) Log.d("T", compute())`, 0},
+		{"false if", `if (false) Log.d("T", compute())`, 0},
+		{"true if", `if (true) Log.d("T", compute())`, 1},
+		{"nearest true if", `if (flag) { if (true) Log.d("T", compute()) }`, 1},
+		{"else if", `if (true) {} else if (flag) {} else { Log.d("T", compute()) }`, 0},
+		{"when case", `when (number) { 1 -> Log.d("T", compute()) }`, 0},
+		{"when else", `when (number) { else -> Log.d("T", compute()) }`, 1},
+		{"when true", `when { true -> Log.d("T", compute()) }`, 1},
+		{"when parenthesized true", `when { (true) -> Log.d("T", compute()) }`, 1},
+		{"when false", `when { false -> Log.d("T", compute()) }`, 0},
+		{"when multiple", `when (flag) { true, false -> Log.d("T", compute()) }`, 0},
+		{"when subject", `when (Log.d("T", compute())) { else -> 0 }`, 1},
+		{"when condition", `when { Log.d("T", compute()) > 0 -> 0; else -> 0 }`, 0},
+		{"call lambda", `if (flag) { run { Log.d("T", compute()) } }`, 1},
+		{"call argument", `if (flag) { println(Log.d("T", compute())) }`, 1},
+		{"guard in lambda", `run { if (flag) Log.d("T", compute()) }`, 0},
+		{"standalone lambda", `if (flag) { val callback = { Log.d("T", compute()) } }`, 0},
+		{"standalone anonymous function", `if (flag) { val callback = fun() { Log.d("T", compute()) } }`, 0},
+		{"local function", `if (flag) { fun local() { Log.d("T", compute()) } }`, 0},
+		{"local class", `if (flag) { class Local { val field = Log.d("T", compute()) } }`, 1},
+		{"anonymous object", `if (flag) { val holder = object { val field = Log.d("T", compute()) } }`, 1},
+		{"while", `while (flag) { Log.d("T", compute()) }`, 1},
+		{"try", `try { Log.d("T", compute()) } catch (error: Exception) { Log.d("T", compute()) }`, 2},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			source := `package example
+import android.util.Log
+import java.io.File
+const val CONSTANT = "constant"
+val topValue = "value"
+object Constants { const val NAME = "name" }
+fun compute(): String = "computed"
+fun work(value: String, flag: Boolean, number: Int) {
+` + test.body + "\n}"
+			if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != test.want {
+				t.Errorf("expected %d findings, got %d: %v", test.want, len(findings), findings)
+			}
+		})
 	}
 }
 

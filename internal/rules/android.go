@@ -84,7 +84,7 @@ var hardcodedTextLabels = map[string]bool{
 }
 
 var logLevelNames = map[string]bool{
-	"v": true, "d": true, "i": true, "w": true, "e": true,
+	"v": true, "d": true, "i": true, "println": true,
 }
 
 // ContentDescriptionRule checks for ImageView/ImageButton without contentDescription.

@@ -1,9 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// A condition written `BuildConfig.DEBUG` guards the call wherever DEBUG is
-// declared: in the companion object of a class named BuildConfig, or in a
-// supertype of an object named BuildConfig. Go matches the condition text
-// `BuildConfig.DEBUG`, and FIR matches.
+// Any non-literal-true if condition guards message work in both engines.
 package test.logconditional.companion
 
 import android.util.Log
@@ -16,9 +13,9 @@ class BuildConfig {
 
 fun companionGuard() {
     if (BuildConfig.DEBUG) {
-        Log.d("Tag", "guarded by a companion DEBUG")
+        Log.d("Tag", compute())
     }
-    if (test.logconditional.companion.BuildConfig.DEBUG) Log.d("Tag", "qualified companion DEBUG")
+    if (test.logconditional.companion.BuildConfig.DEBUG) Log.d("Tag", compute())
 }
 
 open class BaseConfig {
@@ -29,6 +26,8 @@ class Holder {
     object BuildConfig : BaseConfig()
 
     fun inheritedGuard() {
-        if (BuildConfig.DEBUG) Log.d("Tag", "guarded by an inherited DEBUG")
+        if (BuildConfig.DEBUG) Log.d("Tag", compute())
     }
 }
+
+private fun compute(): String = "computed"

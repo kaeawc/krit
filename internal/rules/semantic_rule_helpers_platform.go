@@ -19,6 +19,9 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 	receiver := flatReceiverNameFromCall(ctx.File, call)
 	switch receiver {
 	case "Log":
+		if logReceiverShadowedFlat(ctx.File, call, receiver) {
+			return false
+		}
 		// Require an import of `android.util.Log` so Timber.Log,
 		// slf4j Logger aliases, kotlin-logging KLogger, and same-file
 		// `class Log` lookalikes are not misclassified as
@@ -36,6 +39,25 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 	default:
 		return false
 	}
+}
+
+func logReceiverShadowedFlat(file *scanner.File, call uint32, name string) bool {
+	shadowed := false
+	for _, kind := range []string{"variable_declaration", "parameter"} {
+		file.FlatWalkNodes(0, kind, func(declaration uint32) {
+			if shadowed || semantics.DeclarationName(file, declaration) != name {
+				return
+			}
+			for scope, ok := file.FlatParent(declaration); ok; scope, ok = file.FlatParent(scope) {
+				switch file.FlatType(scope) {
+				case "statements", "lambda_literal", "function_declaration", "anonymous_function", "class_body", "source_file":
+					shadowed = file.FlatStartByte(scope) <= file.FlatStartByte(call) && file.FlatEndByte(call) <= file.FlatEndByte(scope)
+					return
+				}
+			}
+		})
+	}
+	return shadowed
 }
 
 // logReceiverImportsAndroidLog reports whether the `Log` receiver of a call
@@ -85,90 +107,182 @@ func fileDeclaresSimpleTypeNameLocal(file *scanner.File, name string) bool {
 	return false
 }
 
-// hasAndroidLogGuardFlat reports whether `call` is wrapped in a debug-only
-// guard recognized by AOSP Android lint: either
-//   - `if (Log.isLoggable(...))`, or
-//   - `if (BuildConfig.DEBUG)`
-//
-// The walk stops at the nearest scope boundary (function/class/lambda) so an
-// `isLoggable` guard inside a sibling block does not satisfy this call.
-func hasAndroidLogGuardFlat(ctx *api.Context, call uint32) bool {
-	file := ctx.File
-	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
-		switch file.FlatType(p) {
+func logCallIsConditionalFlat(file *scanner.File, call uint32) bool {
+	for parent, ok := file.FlatParent(call); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
 		case "if_expression":
-			condition, _ := ifConditionAndThenBodyFlat(file, p)
-			if condition != 0 && conditionIsBuildConfigDebugFlat(file, condition) {
-				return true
+			condition, _ := ifConditionAndThenBodyFlat(file, parent)
+			return file.FlatNodeText(flatUnwrapParenExpr(file, condition)) != "true"
+		case "when_entry":
+			for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "when_condition" && file.FlatNodeText(flatUnwrapParenExpr(file, file.FlatNamedChild(child, 0))) != "true" {
+					return true
+				}
 			}
-			found := false
-			file.FlatWalkNodes(p, "call_expression", func(c uint32) {
-				if found || c == call || flatCallExpressionName(file, c) != "isLoggable" {
-					return
-				}
-				if semanticResolvedTargetMatches(ctx, c, "android.util.Log.isLoggable") {
-					found = true
-					return
-				}
-				if flatReceiverNameFromCall(file, c) != "Log" {
-					return
-				}
-				if ctx.Resolver != nil {
-					if ctx.Resolver.ResolveImport("Log", file) == "android.util.Log" {
-						found = true
-					}
-					return
-				}
-				// Resolver missing: accept the guard only when the
-				// file actually imports android.util.Log and does
-				// not declare a same-file `Log` lookalike.
-				if fileImportsFQN(file, "android.util.Log") &&
-					!fileDeclaresSimpleTypeNameLocal(file, "Log") {
-					found = true
-				}
-			})
-			if found {
-				return true
+			return false
+		case "function_declaration":
+			if !logDeclarationIsLocalFlat(file, parent) {
+				return false
 			}
-		case "function_declaration", "method_declaration",
-			"class_declaration", "object_declaration",
-			"lambda_literal", "anonymous_function",
-			"source_file":
+		case "property_declaration":
+			if !logDeclarationIsLocalFlat(file, parent) {
+				return false
+			}
+		case "call_expression", "class_declaration", "object_declaration", "object_literal",
+			"primary_constructor", "secondary_constructor", "getter", "setter", "anonymous_initializer", "source_file":
 			return false
 		}
 	}
 	return false
 }
 
-// conditionIsBuildConfigDebugFlat reports whether `cond` is a non-negated
-// BuildConfig.DEBUG reference (optionally parenthesized). The release-
-// engineering BuildConfigDebugInverted rule handles the negated form
-// separately; here we only treat the positive guard as a no-fire signal.
-func conditionIsBuildConfigDebugFlat(file *scanner.File, cond uint32) bool {
-	if file == nil || cond == 0 {
-		return false
+func logDeclarationIsLocalFlat(file *scanner.File, declaration uint32) bool {
+	for parent, ok := file.FlatParent(declaration); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_body", "lambda_literal", "anonymous_function":
+			return true
+		case "class_body", "source_file":
+			return false
+		}
 	}
-	// `BuildConfig.DEBUG && other` still only runs when DEBUG is true.
-	if inner := flatUnwrapParenExpr(file, cond); file.FlatType(inner) == "conjunction_expression" {
-		for c := file.FlatFirstChild(inner); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatIsNamed(c) && conditionIsBuildConfigDebugFlat(file, c) {
+	return false
+}
+
+func logMessageDoesWorkFlat(ctx *api.Context, call uint32) bool {
+	_, arguments := flatCallExpressionParts(ctx.File, call)
+	position := 1
+	if flatCallExpressionName(ctx.File, call) == "println" {
+		position = 2
+	}
+	for argument := ctx.File.FlatFirstChild(arguments); argument != 0; argument = ctx.File.FlatNextSib(argument) {
+		if ctx.File.FlatType(argument) != "value_argument" {
+			continue
+		}
+		if position == 0 {
+			return logExpressionDoesWorkFlat(ctx, flatValueArgumentExpression(ctx.File, argument))
+		}
+		position--
+	}
+	return false
+}
+
+func logExpressionDoesWorkFlat(ctx *api.Context, expression uint32) bool {
+	file := ctx.File
+	expression = flatUnwrapParenExpr(file, expression)
+	switch file.FlatType(expression) {
+	case "simple_identifier", "integer_literal", "long_literal", "real_literal", "boolean_literal", "character_literal", "null_literal":
+		return false
+	case "string_literal", "line_string_literal", "multi_line_string_literal", "additive_expression":
+		return !logExpressionIsConstantFlat(ctx, expression, false, make(map[uint32]bool))
+	case "navigation_expression":
+		return !logExpressionIsConstantFlat(ctx, expression, false, make(map[uint32]bool)) && logQualifiedPropertyDoesWorkFlat(ctx, expression)
+	default:
+		return expression != 0
+	}
+}
+
+func logQualifiedPropertyDoesWorkFlat(ctx *api.Context, expression uint32) bool {
+	file := ctx.File
+	receiver := file.FlatNamedChild(expression, 0)
+	name := flatNavigationExpressionLastIdentifier(file, expression)
+	if ctx.Resolver != nil {
+		if typ := ctx.Resolver.ResolveFlatNode(receiver, file); typ != nil {
+			if strings.HasPrefix(typ.FQN, "kotlin.") {
 				return true
 			}
+			if info := ctx.Resolver.ClassHierarchy(typ.FQN); info != nil && strings.HasSuffix(info.File, ".kt") {
+				for _, member := range info.Members {
+					if member.Kind == "property" && member.Name == name {
+						return true
+					}
+				}
+			}
 		}
+	}
+	if file.FlatNodeText(receiver) != "this" {
 		return false
 	}
-	text := strings.TrimSpace(file.FlatNodeText(cond))
-	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
-		inner := strings.TrimSpace(text[1 : len(text)-1])
-		if inner == text {
-			break
+	found := false
+	file.FlatWalkNodes(0, "property_declaration", func(declaration uint32) {
+		if semantics.DeclarationName(file, declaration) == name && semantics.SameEnclosingOwner(file, declaration, expression) {
+			found = true
 		}
-		text = inner
-	}
-	if strings.HasPrefix(text, "!") {
+	})
+	return found
+}
+
+func logExpressionIsConstantFlat(ctx *api.Context, expression uint32, localValues bool, seen map[uint32]bool) bool {
+	file := ctx.File
+	expression = flatUnwrapParenExpr(file, expression)
+	if expression == 0 || seen[expression] {
 		return false
 	}
-	return text == "BuildConfig.DEBUG" || strings.HasSuffix(text, ".BuildConfig.DEBUG")
+	seen[expression] = true
+	defer delete(seen, expression)
+	switch file.FlatType(expression) {
+	case "integer_literal", "long_literal", "real_literal", "boolean_literal", "character_literal", "null_literal":
+		return true
+	case "string_literal", "line_string_literal", "multi_line_string_literal":
+		for child := file.FlatFirstChild(expression); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "interpolated_identifier":
+				if !logConstantReferenceFlat(ctx, child, false, seen) {
+					return false
+				}
+			case "interpolated_expression":
+				if !logExpressionIsConstantFlat(ctx, file.FlatNamedChild(child, 0), false, seen) {
+					return false
+				}
+			}
+		}
+		return true
+	case "additive_expression", "multiplicative_expression", "comparison_expression", "equality_expression",
+		"conjunction_expression", "disjunction_expression", "prefix_expression":
+		for child := file.FlatFirstChild(expression); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && !logExpressionIsConstantFlat(ctx, child, true, seen) {
+				return false
+			}
+		}
+		return true
+	case "simple_identifier", "navigation_expression", "interpolated_identifier":
+		return logConstantReferenceFlat(ctx, expression, localValues, seen)
+	default:
+		_, constant := semantics.EvalConst(ctx, expression)
+		return constant
+	}
+}
+
+func logConstantReferenceFlat(ctx *api.Context, reference uint32, localValues bool, seen map[uint32]bool) bool {
+	file := ctx.File
+	name := strings.TrimPrefix(file.FlatNodeText(reference), "$")
+	if file.FlatType(reference) == "navigation_expression" {
+		name = flatNavigationExpressionLastIdentifier(file, reference)
+	}
+	constant := false
+	declared := false
+	file.FlatWalkNodes(0, "property_declaration", func(declaration uint32) {
+		if semantics.DeclarationName(file, declaration) != name {
+			return
+		}
+		declared = true
+		modifiers, _ := file.FlatFindChild(declaration, "modifiers")
+		isConst := false
+		if modifiers != 0 {
+			file.FlatWalkNodes(modifiers, "property_modifier", func(modifier uint32) {
+				isConst = isConst || file.FlatNodeText(modifier) == "const"
+			})
+		}
+		if isConst || (localValues && logDeclarationIsLocalFlat(file, declaration) && !propertyDeclarationIsVar(file, declaration)) {
+			constant = constant || logExpressionIsConstantFlat(ctx, propertyInitializerExpression(file, declaration), localValues, seen)
+		}
+	})
+	if !declared && strings.ToUpper(name) == name && strings.ToLower(name) != name {
+		return true
+	}
+	if !declared && ctx.Resolver != nil && ctx.Resolver.ResolveImport(name, file) != "" {
+		return true
+	}
+	return constant
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

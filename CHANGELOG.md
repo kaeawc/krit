@@ -4,6 +4,13 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- The opt-in `LogConditional` rule follows Android Lint 32.4.1 in Go and FIR: only `Log.v`, `Log.d`,
+  `Log.i`, and `Log.println` with message construction work report. Literals, simple references, constant
+  concatenations/templates, and `Log.w`/`Log.e`/`Log.wtf` do not. The nearest `if` or `when` branch decides
+  guarding (literal `true` and `when`'s `else` do not guard), with enclosing calls and declaration boundaries
+  stopping the search. Diagnostics use Lint's method-specific message; the rule remains off by default.
+
 ### Added
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,

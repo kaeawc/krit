@@ -396,16 +396,48 @@ func fileDeclaresTypeVisibleAt(file *scanner.File, name, platformType string, at
 			if lintDeclTypeName(file, decl) != name || !typeDeclarationVisibleAt(file, decl, at) {
 				return
 			}
-			if file.FlatType(decl) == "type_alias" {
-				target := file.FlatNamedChild(decl, file.FlatNamedChildCount(decl)-1)
-				if target != 0 && lintTypeRefMatches(file, lintTrimGenerics(file.FlatNodeText(target)), platformType) {
-					return
-				}
+			if file.FlatType(decl) == "type_alias" && typeAliasResolvesTo(file, decl, platformType) {
+				return
 			}
 			found = true
 		}
 	})
 	return found
+}
+
+const maxSameFileTypeAliasDepth = 32
+
+func typeAliasResolvesTo(file *scanner.File, alias uint32, platformType string) bool {
+	seen := make(map[uint32]struct{})
+	for depth := 0; alias != 0 && depth < maxSameFileTypeAliasDepth; depth++ {
+		if _, ok := seen[alias]; ok {
+			return false
+		}
+		seen[alias] = struct{}{}
+
+		target := file.FlatNamedChild(alias, file.FlatNamedChildCount(alias)-1)
+		if target == 0 {
+			return false
+		}
+		targetName := lintTrimGenerics(file.FlatNodeText(target))
+		if lintTypeRefMatches(file, targetName, platformType) {
+			return true
+		}
+		if strings.Contains(targetName, ".") {
+			return false
+		}
+
+		var next uint32
+		file.FlatWalkAllNodes(0, func(decl uint32) {
+			if next != 0 || file.FlatType(decl) != "type_alias" ||
+				lintDeclTypeName(file, decl) != targetName || !typeDeclarationVisibleAt(file, decl, alias) {
+				return
+			}
+			next = decl
+		})
+		alias = next
+	}
+	return false
 }
 
 // checkLogTagMismatch reports log calls in the branches of `if (Log.isLoggable(tag, level))`

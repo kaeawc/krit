@@ -295,7 +295,7 @@ func TestHandlerLeak_NullWrappersAndBranchesRepair(t *testing.T) {
 	}
 }
 
-func TestPlatformTypeAliasesDoNotLookLikeOverrides(t *testing.T) {
+func TestXmlExternalEntityPlatformTypeAliasesDoNotLookLikeOverrides(t *testing.T) {
 	for _, test := range []struct {
 		name, source string
 		want         int
@@ -314,9 +314,31 @@ fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().new
 			want: 1,
 		},
 		{
+			name: "XML alias chain to platform FQN",
+			source: `typealias DocumentBuilderFactory = FactoryAlias
+typealias FactoryAlias = javax.xml.parsers.DocumentBuilderFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 1,
+		},
+		{
 			name: "XML alias to project type",
 			source: `class ProjectFactory
 typealias DocumentBuilderFactory = ProjectFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 0,
+		},
+		{
+			name: "XML alias chain to project type",
+			source: `class ProjectFactory
+typealias DocumentBuilderFactory = FactoryAlias
+typealias FactoryAlias = ProjectFactory
+fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
+			want: 0,
+		},
+		{
+			name: "XML alias cycle",
+			source: `typealias DocumentBuilderFactory = FactoryAlias
+typealias FactoryAlias = DocumentBuilderFactory
 fun parse(input: java.io.InputStream) = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(input)`,
 			want: 0,
 		},
@@ -347,9 +369,46 @@ class MyActivity {
 			want: 1,
 		},
 		{
+			name: "alias chain to platform type still checks tags",
+			source: `typealias Log = LogAlias
+typealias LogAlias = android.util.Log
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}`,
+			want: 1,
+		},
+		{
 			name: "alias to project type remains guarded",
 			source: `class ProjectLog
 typealias Log = ProjectLog
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}`,
+			want: 0,
+		},
+		{
+			name: "alias chain to project type remains guarded",
+			source: `class ProjectLog
+typealias Log = LogAlias
+typealias LogAlias = ProjectLog
+class MyActivity {
+    companion object { const val TAG = "WrongName" }
+    fun doStuff() {
+        if (Log.isLoggable(TAG, Log.DEBUG)) { Log.d("Other", "message") }
+    }
+}`,
+			want: 0,
+		},
+		{
+			name: "alias cycle remains guarded",
+			source: `typealias Log = LogAlias
+typealias LogAlias = Log
 class MyActivity {
     companion object { const val TAG = "WrongName" }
     fun doStuff() {

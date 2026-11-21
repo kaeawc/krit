@@ -2358,6 +2358,63 @@ object Counter {
 	}
 }
 
+func TestMutableStateInObject_UnwrittenPrivateState(t *testing.T) {
+	for _, source := range []string{
+		`object Config { private var unused = 0 }`,
+		`object Config {
+    var endpoint = "x"
+        private set
+    fun read() = endpoint
+}`,
+		`object Config {
+    var endpoint = "x"
+        get() = field
+        private set
+}`,
+	} {
+		findings := runRuleByName(t, "MutableStateInObject", source)
+		if len(findings) != 0 {
+			t.Errorf("expected unwritten private state to be silent, got %d: %s", len(findings), source)
+		}
+	}
+}
+
+func TestMutableStateInObject_WrittenPrivateState(t *testing.T) {
+	for _, source := range []string{
+		`object Config { private var count = 0; fun bump() { count++ } }`,
+		`object Config {
+    var endpoint = "x"
+        private set
+    fun update() { endpoint = "y" }
+}`,
+		`object Config { private var count = 0; fun bump() { count += 1 } }`,
+		`object Config { var privateKey = 0 }`,
+	} {
+		findings := runRuleByName(t, "MutableStateInObject", source)
+		if len(findings) != 1 {
+			t.Errorf("expected mutable state finding, got %d: %s", len(findings), source)
+		}
+	}
+}
+
+func TestMutableStateInObject_JdkThreadSafeTypes(t *testing.T) {
+	for _, typeName := range []string{
+		"AtomicIntegerArray", "AtomicLongArray", "AtomicReferenceArray", "AtomicMarkableReference", "AtomicStampedReference",
+		"AtomicIntegerFieldUpdater", "AtomicLongFieldUpdater", "AtomicReferenceFieldUpdater",
+		"ConcurrentLinkedQueue", "ConcurrentLinkedDeque", "CopyOnWriteArrayList", "CopyOnWriteArraySet",
+		"ConcurrentSkipListMap", "ConcurrentSkipListSet", "ArrayBlockingQueue", "LinkedBlockingQueue",
+		"LinkedBlockingDeque", "PriorityBlockingQueue", "SynchronousQueue", "LinkedTransferQueue", "DelayQueue",
+		"LongAdder", "DoubleAdder", "LongAccumulator", "DoubleAccumulator",
+	} {
+		t.Run(typeName, func(t *testing.T) {
+			findings := runRuleByName(t, "MutableStateInObject", "object SafeState { var state = "+typeName+"() }")
+			if len(findings) != 0 {
+				t.Errorf("expected thread-safe type to be silent, got %d", len(findings))
+			}
+		})
+	}
+}
+
 func TestMutableStateInObject_Negative(t *testing.T) {
 	findings := runRuleByName(t, "MutableStateInObject", `
 package test
@@ -2397,6 +2454,22 @@ object Holder {
 `)
 	if len(findings) != 2 {
 		t.Errorf("expected findings for properties that use field, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_PrivateWriterOutsideObjectDoesNotCount(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Settings {
+    private var enabled = false
+    fun isOn() = enabled
+}
+class Toggle(var enabled: Boolean) {
+    fun off() { enabled = false }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected same-named writes outside Settings not to count, got %d findings", len(findings))
 	}
 }
 
@@ -3227,6 +3300,49 @@ object Flags {
 `)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresImplicitReceiverFinallyReset(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Trace { var depth = 0 }
+fun <T> traced(block: () -> T): T = with(Trace) {
+    depth++
+    try { block() } finally { depth-- }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected implicit receiver reset to exempt state, got %d findings", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresNestedClassWrites(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `
+package test
+object Settings {
+    private var enabled = false
+    fun isOn() = enabled
+    class Toggle(var enabled: Boolean) { fun off() { enabled = false } }
+}
+`)
+	if len(findings) != 0 {
+		t.Errorf("expected nested class writes not to affect object state, got %d findings", len(findings))
+	}
+}
+
+func TestMutableStateInObject_IgnoresJunit5AllLifecycleResets(t *testing.T) {
+	for _, annotation := range []string{"AfterAll", "BeforeAll"} {
+		t.Run(annotation, func(t *testing.T) {
+			findings := runRuleByName(t, "MutableStateInObject", fmt.Sprintf(`
+package test
+object Registry { var count = 0 }
+class Harness { @org.junit.jupiter.api.%s fun reset() { Registry.count = 0 } }
+`, annotation))
+			if len(findings) != 0 {
+				t.Errorf("expected %s reset to exempt state, got %d findings", annotation, len(findings))
+			}
+		})
 	}
 }
 

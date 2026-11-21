@@ -3935,6 +3935,98 @@ class SharedStateTest {
 	}
 }
 
+func TestSharedMutableStateInObject_NegativeResetInFinallyOutsideObject(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+class FooTest {
+    @Test
+    fun t() {
+        try {
+            Counter.count++
+        } finally {
+            Counter.count = 0
+            Holder.content = null
+        }
+    }
+}
+
+class Counter {
+    companion object {
+        var count = 0
+    }
+}
+
+object Holder {
+    var content: String? = null
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_FlagsJunit5AfterAllReset(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.Test
+
+class FooTest {
+    companion object {
+        var count = 0
+        @JvmStatic @AfterAll fun tearDown() { count = 0 }
+    }
+    @Test fun t() { count++ }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected AfterAll reset to retain the finding, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_PrivateVarWrittenOnlyByNestedTestHook(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+class FooTest {
+    @Test fun t() {}
+    companion object {
+        private var counter = 0
+        object Hooks { @VisibleForTesting fun resetForTesting() { counter = 0 } }
+    }
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected nested test hook to exempt the finding, got %d", len(findings))
+	}
+}
+
+func TestSharedMutableStateInObject_PrivateVarWrittenOutsideNestedTestHook(t *testing.T) {
+	findings := runRuleByName(t, "SharedMutableStateInObject", `
+package test
+
+import org.junit.Test
+
+class FooTest {
+    @Test fun t() {}
+    companion object {
+        private var counter = 0
+        @VisibleForTesting fun resetForTesting() { counter = 0 }
+        object Bumper { fun bump() { counter++ } }
+    }
+}
+`)
+	if len(findings) != 1 {
+		t.Fatalf("expected nested non-hook write to retain the finding, got %d", len(findings))
+	}
+}
+
 func TestSharedMutableStateInObject_PositiveUnresetVar(t *testing.T) {
 	findings := runRuleByName(t, "SharedMutableStateInObject", `
 package test

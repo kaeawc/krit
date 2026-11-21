@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
 import org.jetbrains.kotlin.fir.declarations.FirDeclaration
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
@@ -44,7 +45,6 @@ import org.jetbrains.kotlin.fir.types.ConeErrorType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.coneType
 import org.jetbrains.kotlin.fir.types.resolvedType
-import org.jetbrains.kotlin.fir.types.type
 import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
@@ -123,9 +123,14 @@ internal object MutableStateInObject : FirRegularClassChecker(MppCheckerKind.Com
                 }
             }
             if (element is FirVariableAssignment) {
-                val target = assignedAccess(element)?.calleeReference?.toResolvedCallableSymbol()
-                    ?.unwrapFakeOverrides() as? FirPropertySymbol
-                if (parents.none { it is FirProperty && it.symbol == target }) {
+                val reference = assignedAccess(element)?.calleeReference
+                val target = when (reference) {
+                    is FirBackingFieldReference -> reference.resolvedSymbol.propertySymbol
+                    else -> reference?.toResolvedCallableSymbol()?.unwrapFakeOverrides() as? FirPropertySymbol
+                }
+                val isPropertyInitializer = parents.none { it is FirPropertyAccessor } &&
+                    parents.any { it is FirProperty && it.symbol == target }
+                if (!isPropertyInitializer) {
                     writes[target]?.add(Site(parents.toList()))
                 }
             }
@@ -214,8 +219,9 @@ internal object MutableStateInObject : FirRegularClassChecker(MppCheckerKind.Com
             calls: Map<FirCallableSymbol<*>, List<Site>>,
             visiting: MutableSet<FirCallableSymbol<*>>,
         ): Boolean {
-            val hasSynchronizedCall = parents.filterIsInstance<FirFunctionCall>().any {
-                it.calleeReference.toResolvedCallableSymbol()?.callableId in synchronizedCalls
+            val hasSynchronizedCall = parents.filterIsInstance<FirFunctionCall>().any { call ->
+                call.calleeReference.toResolvedCallableSymbol()?.callableId in synchronizedCalls &&
+                    call.actionContains(parents)
             }
             if (hasSynchronizedCall) return true
             val accessorIsSynchronized =
@@ -229,6 +235,17 @@ internal object MutableStateInObject : FirRegularClassChecker(MppCheckerKind.Com
             val result = sites.isNotEmpty() && sites.all { it.isSynchronized(calls, visiting) }
             visiting.remove(function.symbol)
             return result
+        }
+
+        private fun FirFunctionCall.actionContains(siteParents: List<FirElement>): Boolean {
+            val action = argumentList.arguments.lastOrNull() ?: return false
+            var containsSite = false
+            walkWithParents(action) { element, _ ->
+                if (element is FirAnonymousFunction && element.isLambda && element in siteParents) {
+                    containsSite = true
+                }
+            }
+            return containsSite
         }
     }
 }
@@ -259,6 +276,13 @@ private object MutableStateInObjectCandidates {
         )
         for (name in kotlinAtomicTypes) {
             add(classIdOf("kotlin.concurrent.atomics", name))
+        }
+        val atomicFuTypes = listOf(
+            "AtomicInt", "AtomicLong", "AtomicBoolean", "AtomicRef", "AtomicIntArray", "AtomicLongArray",
+            "AtomicBooleanArray", "AtomicRefArray",
+        )
+        for (name in atomicFuTypes) {
+            add(classIdOf("kotlinx.atomicfu", name))
         }
     }
     private val volatile = setOf(classIdOf("kotlin.jvm", "Volatile"), classIdOf("kotlin.concurrent", "Volatile"))
@@ -300,7 +324,8 @@ private object MutableStateInObjectCandidates {
     private fun hasSafeStateType(declaration: FirProperty): Boolean {
         val declaredTypeIsSafe = mentionsSafeType(declaration.returnTypeRef.coneType)
         if (declaredTypeIsSafe) return true
-        return declaration.initializer?.resolvedType?.let { mentionsSafeType(it) } == true
+        if (declaration.initializer?.resolvedType?.let { mentionsSafeType(it) } == true) return true
+        return declaration.delegate?.resolvedType?.let { mentionsSafeType(it) } == true
     }
 
     private fun usesBackingFieldWhenRequired(declaration: FirProperty): Boolean {
@@ -328,10 +353,7 @@ private object MutableStateInObjectCandidates {
             expanded.lookupTag.classId.packageFqName.asString() == "java.util.concurrent.atomic"
         if (expandedTypeIsSafe) return true
         val symbol = expanded.lookupTag.toRegularClassSymbol(context.session)
-        if (symbol != null && inheritsFromAny(symbol, safeTypes, context.session, lookupInterfaces = true)) return true
-        return expanded.typeArguments.any { argument ->
-            argument.type?.let { nestedType -> mentionsSafeType(nestedType, depth + 1) } == true
-        }
+        return symbol != null && inheritsFromAny(symbol, safeTypes, context.session, lookupInterfaces = true)
     }
 
     context(context: CheckerContext)

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 55, 56, 58, 64, 70, 80, 85, 100, 121, 134, 153, 202
+// go-lines: 56, 57, 59, 65, 71, 81, 86, 92, 98, 111, 115, 122, 130, 145, 146, 152, 182, 203, 216, 235, 284
 package test.resolution
 
 import java.util.concurrent.atomic.AtomicInteger as SafeCounter
@@ -9,6 +9,7 @@ import kotlin.synchronized as withMonitor
 import org.junit.After as Cleanup
 import androidx.annotation.VisibleForTesting
 import kotlinx.atomicfu.locks.withLock
+import kotlinx.atomicfu.atomic
 import kotlin.concurrent.withLock as jdkWithLock
 
 class AtomicInteger(var value: Int)
@@ -85,6 +86,87 @@ object AliasedLifecycle {
     var resetCount = 0
 }
 @Cleanup fun cleanup() { AliasedLifecycle.resetCount = 0 }
+
+object MutatingGetter {
+    // The getter mutates the property's backing field on every read.
+    private var <!MutableStateInObject!>count<!> = 0
+        get() { field += 1; return field }
+    fun next() = count
+}
+
+object NestedWriter {
+    private var <!MutableStateInObject!>count<!> = 0
+    object Writer { fun bump() { NestedWriter.count++ } }
+}
+
+object ReadOnlyBackingGetter {
+    private var count = 0
+        get() = field
+    fun read() = count
+}
+
+object NestedOwnWrite {
+    // A nested declaration's own storage does not write this object's property.
+    private var count = 0
+    object Writer { private var <!MutableStateInObject!>count<!> = 0; fun bump() { count++ } }
+}
+
+object Registry {
+    var <!MutableStateInObject!>count<!> = 0
+}
+class OtherReceiver {
+    var count = 0
+    fun reset() { try { println(count) } finally { this.count = 0 } }
+}
+object ShadowedReceiverState {
+    var <!MutableStateInObject!>count<!> = 0
+}
+class OtherQualifiedReceiver { var count = 0 }
+fun resetShadowedReceiver(ShadowedReceiverState: OtherQualifiedReceiver) {
+    try { println(ShadowedReceiverState.count) } finally { ShadowedReceiverState.count = 0 }
+}
+
+object LockArgumentEvaluation {
+    private var <!MutableStateInObject!>count<!> = 0
+    private fun nextLock(): Any { count++; return Any() }
+    fun run() { kotlin.synchronized(nextLock()) {} }
+}
+
+object LockActionHelper {
+    private var count = 0
+    private fun bump() { count++ }
+    fun run() { kotlin.synchronized(this) { bump() } }
+}
+
+object AtomicFuScalars {
+    var int = kotlinx.atomicfu.AtomicInt(0)
+    var long = kotlinx.atomicfu.AtomicLong(0L)
+    var boolean = kotlinx.atomicfu.AtomicBoolean(false)
+    var ref = kotlinx.atomicfu.AtomicRef("value")
+    var delegated by atomic(0)
+}
+
+object AtomicFuArrays {
+    // The Go name-only rule is intentionally conservative for these resolved external types.
+    var booleanArray = kotlinx.atomicfu.AtomicBooleanArray(4)
+    var refArray = kotlinx.atomicfu.AtomicRefArray(4, "value")
+}
+
+class AtomicInt
+object AtomicFuLookalike {
+    // FIR must not treat a local type with an atomicfu short name as safe.
+    var <!MutableStateInObject!>counter<!> = AtomicInt()
+}
+
+class Box<T>(var value: T)
+object UnsafeGenericWrapper {
+    // An atomic type argument does not make Box's mutable storage safe.
+    var <!MutableStateInObject!>box<!> = Box(java.util.concurrent.atomic.AtomicInteger(0))
+}
+object SafeAtomicWrapper {
+    var wrapper: java.util.concurrent.atomic.AtomicReference<Box<Int>> =
+        java.util.concurrent.atomic.AtomicReference(Box(0))
+}
 
 object ShadowedWrite {
     // Go treats a same-named bare local finally write as a reset of this property.

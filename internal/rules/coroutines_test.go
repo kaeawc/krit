@@ -2397,6 +2397,82 @@ func TestMutableStateInObject_WrittenPrivateState(t *testing.T) {
 	}
 }
 
+func TestMutableStateInObject_BackingFieldWrites(t *testing.T) {
+	for _, source := range []string{
+		`object State {
+    private var count = 0
+        get() { field += 1; return field }
+    fun next() = count
+}`,
+		`object State {
+    private var count = 0
+        get() { field++; return field }
+    fun next() = count
+}`,
+	} {
+		findings := runRuleByName(t, "MutableStateInObject", source)
+		if len(findings) != 1 {
+			t.Errorf("expected mutating getter state finding, got %d: %s", len(findings), source)
+		}
+	}
+	findings := runRuleByName(t, "MutableStateInObject", `object State {
+    private var count = 0
+        get() = field
+    fun next() = count
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected read-only backing-field getter to remain silent, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_NestedObjectWrites(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `object State {
+    private var count = 0
+    object Writer { fun bump() { State.count++ } }
+}`)
+	if len(findings) != 1 {
+		t.Errorf("expected nested write to State.count to count, got %d", len(findings))
+	}
+	findings = runRuleByName(t, "MutableStateInObject", `object State {
+    private var count = 0
+    class Writer { private var count = 0; fun bump() { count++ } }
+}`)
+	if len(findings) != 0 {
+		t.Errorf("expected nested object's own write not to count for State.count, got %d", len(findings))
+	}
+}
+
+func TestMutableStateInObject_UnrelatedThisFinallyWriteDoesNotReset(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `object Registry { var count = 0 }
+class Other {
+    var count = 0
+    fun reset() { try { println(count) } finally { this.count = 0 } }
+}`)
+	if len(findings) != 1 {
+		t.Errorf("expected unrelated this.count write not to reset Registry.count, got %d findings", len(findings))
+	}
+}
+
+func TestMutableStateInObject_ShadowedQualifiedFinallyWriteDoesNotReset(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `object Registry { var count = 0 }
+class Other { var count = 0 }
+fun reset(Registry: Other) { try { println(Registry.count) } finally { Registry.count = 0 } }`)
+	if len(findings) != 1 {
+		t.Errorf("expected shadowed Registry receiver not to reset object state, got %d findings", len(findings))
+	}
+}
+
+func TestMutableStateInObject_SynchronizedLockArgumentIsNotProtected(t *testing.T) {
+	findings := runRuleByName(t, "MutableStateInObject", `object State {
+    private var count = 0
+    private fun nextLock(): Any { count++; return Any() }
+    fun run() { synchronized(nextLock()) {} }
+}`)
+	if len(findings) != 1 {
+		t.Errorf("expected unsynchronized lock-argument state finding, got %d", len(findings))
+	}
+}
+
 func TestMutableStateInObject_JdkThreadSafeTypes(t *testing.T) {
 	for _, typeName := range []string{
 		"AtomicIntegerArray", "AtomicLongArray", "AtomicReferenceArray", "AtomicMarkableReference", "AtomicStampedReference",

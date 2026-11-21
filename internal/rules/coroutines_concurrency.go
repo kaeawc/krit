@@ -577,7 +577,7 @@ func mutableObjectPropertyReferencesAreSynchronized(file *scanner.File, objectId
 }
 
 func mutableStateReferenceIsSynchronized(file *scanner.File, objectIdx, refIdx uint32, visiting map[uint32]bool) bool {
-	if flatNodeInsideCallNamed(file, refIdx, "synchronized") {
+	if flatNodeInsideSynchronizedAction(file, refIdx) {
 		return true
 	}
 	fn, ok := flatEnclosingFunction(file, refIdx)
@@ -686,9 +686,20 @@ func flatNodeHasAncestor(file *scanner.File, idx, ancestor uint32) bool {
 	return false
 }
 
-func flatNodeInsideCallNamed(file *scanner.File, idx uint32, name string) bool {
+func flatNodeInsideSynchronizedAction(file *scanner.File, idx uint32) bool {
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
-		if file.FlatType(parent) == "call_expression" && flatCallExpressionName(file, parent) == name {
+		if file.FlatType(parent) != "lambda_literal" {
+			continue
+		}
+		owner := lambdaOwnerCall(file, parent)
+		if owner == 0 {
+			continue
+		}
+		call := lambdaOwnerInnerCall(file, owner)
+		if call == 0 {
+			call = owner
+		}
+		if flatCallExpressionName(file, call) == "synchronized" {
 			return true
 		}
 	}
@@ -706,38 +717,71 @@ func pathIsSampleOrPlayground(path string) bool {
 	return false
 }
 
-// mutableVarWrites returns the assignment and increment nodes that write propName under root.
+// mutableVarWrites returns nodes that write the property or its backing field under root.
 func mutableVarWrites(file *scanner.File, root, propIdx uint32, propName string) []uint32 {
 	var writes []uint32
+	objectName := ""
+	if root != 0 && file.FlatType(root) == "object_declaration" {
+		objectName = extractIdentifierFlat(file, root)
+	}
 	targetMatches := func(text string) bool {
 		text = strings.TrimSpace(text)
 		return text == propName || strings.HasSuffix(text, "."+propName)
+	}
+	qualifiedObjectTarget := func(text string) bool {
+		text = strings.TrimSpace(text)
+		return objectName != "" && (text == objectName+"."+propName || strings.HasSuffix(text, "."+objectName+"."+propName))
 	}
 	file.FlatWalkAllNodes(root, func(n uint32) {
 		if flatNodeHasAncestor(file, n, propIdx) {
 			return
 		}
+		crossesNestedDeclaration := false
 		for parent, ok := file.FlatParent(n); root != 0 && ok && parent != root; parent, ok = file.FlatParent(parent) {
 			switch file.FlatType(parent) {
 			case "class_declaration", "object_declaration":
-				return
+				crossesNestedDeclaration = true
 			}
 		}
 		switch file.FlatType(n) {
 		case "assignment":
-			if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); ok && targetMatches(file.FlatNodeText(target)) {
-				writes = append(writes, n)
+			if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); ok {
+				targetText := file.FlatNodeText(target)
+				if (!crossesNestedDeclaration && targetMatches(targetText)) || (crossesNestedDeclaration && qualifiedObjectTarget(targetText)) {
+					writes = append(writes, n)
+				}
 			}
 		case "postfix_expression", "prefix_expression":
 			text := file.FlatNodeText(n)
 			if strings.Contains(text, "++") || strings.Contains(text, "--") {
 				trimmed := strings.Trim(strings.TrimSpace(text), "+-")
-				if targetMatches(trimmed) {
+				if (!crossesNestedDeclaration && targetMatches(trimmed)) || (crossesNestedDeclaration && qualifiedObjectTarget(trimmed)) {
 					writes = append(writes, n)
 				}
 			}
 		}
 	})
+	for accessor := file.FlatNextSib(propIdx); accessor != 0; accessor = file.FlatNextSib(accessor) {
+		if file.FlatType(accessor) != "getter" && file.FlatType(accessor) != "setter" {
+			if file.FlatIsNamed(accessor) && file.FlatType(accessor) != "line_comment" && file.FlatType(accessor) != "multiline_comment" {
+				break
+			}
+			continue
+		}
+		file.FlatWalkAllNodes(accessor, func(n uint32) {
+			switch file.FlatType(n) {
+			case "assignment":
+				if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); ok && file.FlatNodeTextEquals(target, "field") {
+					writes = append(writes, n)
+				}
+			case "postfix_expression", "prefix_expression":
+				text := strings.Trim(strings.TrimSpace(file.FlatNodeText(n)), "+-")
+				if text == "field" && (strings.Contains(file.FlatNodeText(n), "++") || strings.Contains(file.FlatNodeText(n), "--")) {
+					writes = append(writes, n)
+				}
+			}
+		})
+	}
 	return writes
 }
 
@@ -829,7 +873,51 @@ func mutableVarWriteTargetsObject(file *scanner.File, write, objectIdx uint32, p
 		target = strings.Trim(strings.TrimSpace(file.FlatNodeText(write)), "+-")
 	}
 	target = strings.TrimSpace(target)
-	return target == propName || target == "this."+propName || target == objectName+"."+propName || strings.HasSuffix(target, "."+objectName+"."+propName)
+	if target == propName {
+		return true
+	}
+	if target == "this."+propName {
+		return flatNodeHasAncestor(file, write, objectIdx)
+	}
+	if target != objectName+"."+propName && !strings.HasSuffix(target, "."+objectName+"."+propName) {
+		return false
+	}
+	return !mutableObjectNameShadowedAtWrite(file, write, objectName)
+}
+
+func mutableObjectNameShadowedAtWrite(file *scanner.File, write uint32, objectName string) bool {
+	declarationTypes := []string{"class_parameter", "function_value_parameter", "parameter", "variable_declaration", "property_declaration"}
+	for scope, ok := file.FlatParent(write); ok; scope, ok = file.FlatParent(scope) {
+		switch file.FlatType(scope) {
+		case "function_declaration", "lambda_literal", "class_declaration", "object_declaration":
+			for _, nodeType := range declarationTypes {
+				shadowed := false
+				file.FlatWalkNodes(scope, nodeType, func(declaration uint32) {
+					declaredName := file.FlatChildTextOrEmpty(declaration, "simple_identifier")
+					if declaredName == "" {
+						declaredName = extractIdentifierFlat(file, declaration)
+					}
+					if shadowed || declaredName != objectName {
+						return
+					}
+					for parent, found := file.FlatParent(declaration); found; parent, found = file.FlatParent(parent) {
+						if parent == scope {
+							shadowed = true
+							return
+						}
+						switch file.FlatType(parent) {
+						case "function_declaration", "lambda_literal", "class_declaration", "object_declaration":
+							return
+						}
+					}
+				})
+				if shadowed {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // mutableObjectVarOnlyWrittenByTestHooks reports whether every write to the var is in a test-only hook.

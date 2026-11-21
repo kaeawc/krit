@@ -17,6 +17,25 @@ import (
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
+func TestComposeSideEffectInComposition_FixtureVerdicts(t *testing.T) {
+	for _, fixture := range []struct {
+		kind  string
+		count int
+	}{{"positive", 1}, {"negative", 0}} {
+		t.Run(fixture.kind, func(t *testing.T) {
+			path := filepath.Join(fixtureRoot(t), fixture.kind, "compose", "ComposeSideEffectInComposition.kt")
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			findings := runRuleByName(t, "ComposeSideEffectInComposition", string(source))
+			if len(findings) != fixture.count {
+				t.Fatalf("fixture findings = %v, want %d", findings, fixture.count)
+			}
+		})
+	}
+}
+
 // runRuleWithKotlin runs a rule with project facts that declare the given Kotlin
 // language version; an empty version leaves the Kotlin version unknown.
 func runRuleWithKotlin(t *testing.T, ruleName, version, code string) []scanner.Finding {

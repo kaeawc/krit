@@ -3,15 +3,32 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rxjava3.subscribeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.retained.produceRetainedState
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.max
+
+class Tracker(var seen: Boolean = false)
+class State(val enabled: Boolean = false)
+class VM(val tracker: Tracker = Tracker(), val state: State = State(), var expanded: Boolean = false, var position: Float = 0f)
+class Output(var enabled: Boolean = false)
+class Player
+class PlayerView(context: android.content.Context) : android.view.View(context) { var player: Player? = null }
+class Input
+class Repo { suspend fun load(): List<String> = emptyList() }
+class Source(val events: io.reactivex.rxjava3.core.Observable<SourceEvent>, var expanded: Boolean = false)
+class SourceEvent(val shouldExpand: Boolean, val items: List<String>)
+@Composable fun Content(value: Any? = null, modifier: Modifier = Modifier) {}
+fun dialog(route: String, arguments: List<androidx.navigation.NamedNavArgument>, content: @Composable () -> Unit) {}
 
 @Composable
 fun Screen(vm: VM) {

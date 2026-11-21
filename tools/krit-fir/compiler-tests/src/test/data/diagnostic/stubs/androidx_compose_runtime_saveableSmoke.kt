@@ -19,9 +19,9 @@ val SavedPointSaver: Saver<SavedPoint, Any> = Saver(
 )
 
 @Composable
-fun SaveableSmoke() {
+fun SaveableSmoke(): () -> Unit {
     var text by rememberSaveable { mutableStateOf("") }
     val length = rememberSaveable(text) { text.length }
     val point = rememberSaveable(saver = SavedPointSaver) { SavedPoint(1, 2) }
-    text = "x$length$point"
+    return { text = "x$length$point" }
 }

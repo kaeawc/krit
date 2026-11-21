@@ -13,8 +13,8 @@ class ListRulesTest {
         assertTrue(
             ids.containsAll(listOf(
                 "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
-                "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "PlainFileWriteOfSensitive",
-                "TestWithoutAssertion",
+                "ComposeSideEffectInComposition", "CoroutineScopeCreatedButNeverCancelled",
+                "InjectDispatcher", "PlainFileWriteOfSensitive", "TestWithoutAssertion",
             )),
             ids.toString(),
         )

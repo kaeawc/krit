@@ -52,3 +52,25 @@ fun writtenArgumentName(argument: FirExpression): String? {
     val name = lightChildren(source, valueArgument).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME } ?: return null
     return lightText(source, name).trim()
 }
+
+/**
+ * The name written for a lambda argument, looking through parenthesized,
+ * labeled, and annotated wrappers around its expression.
+ */
+fun writtenArgumentNameThroughWrappers(argument: FirExpression): String? {
+    val source = argument.source ?: return null
+    var node = source.lighterASTNode
+    while (node.tokenType != KtNodeTypes.VALUE_ARGUMENT) {
+        val parent = source.treeStructure.getParent(node) ?: return null
+        if (parent.tokenType != KtNodeTypes.VALUE_ARGUMENT && parent.tokenType !in argumentExpressionWrappers) return null
+        node = parent
+    }
+    val name = lightChildren(source, node).firstOrNull { it.tokenType == KtNodeTypes.VALUE_ARGUMENT_NAME } ?: return null
+    return lightText(source, name).trim()
+}
+
+private val argumentExpressionWrappers = setOf(
+    KtNodeTypes.PARENTHESIZED,
+    KtNodeTypes.LABELED_EXPRESSION,
+    KtNodeTypes.ANNOTATED_EXPRESSION,
+)

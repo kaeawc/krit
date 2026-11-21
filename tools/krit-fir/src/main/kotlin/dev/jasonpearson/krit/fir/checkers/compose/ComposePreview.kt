@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.support.simpleName
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassId
 import org.jetbrains.kotlin.fir.expressions.FirAnnotation
 import org.jetbrains.kotlin.fir.resolve.providers.symbolProvider
@@ -35,6 +36,14 @@ private fun isPreviewAnnotationName(simple: String, config: PreviewConfig): Bool
     }
     if (!config.wildcard) return false
     return simple.endsWith("Preview") || simple.endsWith("Previews") || simple.startsWith("Preview")
+}
+
+context(context: CheckerContext)
+internal fun FirFunction.isCompositionPreview(config: PreviewConfig): Boolean = annotations.any {
+    val name = it.simpleName().orEmpty()
+    isPreviewAnnotationName(name, config) || name in setOf(
+        "ComposePreview", "DarkPreview", "LightPreview", "NightPreview", "DayPreview", "DayNightPreviews",
+    ) || isMultipreview(it)
 }
 
 /**

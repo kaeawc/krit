@@ -31,6 +31,7 @@ All notable changes to Krit will be documented in this file.
   cross-file/source-set/module helpers, and library calls outside an explicit non-asserting allowlist abstain
   without disabling incremental slices;
   non-compiling files and scans without a classpath keep the Go fallback.
+- FIR-backed `ComposeSideEffectInComposition` resolves composable bodies, state receivers and Compose APIs; Go remains the fallback without a classpath or when compilation fails.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,

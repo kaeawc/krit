@@ -1,8 +1,10 @@
 package dev.jasonpearson.krit.fir.support
 
 import org.jetbrains.kotlin.fir.expressions.FirDesugaredAssignmentValueReferenceExpression
+import org.jetbrains.kotlin.fir.expressions.FirExpression
 import org.jetbrains.kotlin.fir.expressions.FirQualifiedAccessExpression
 import org.jetbrains.kotlin.fir.expressions.FirVariableAssignment
+import org.jetbrains.kotlin.fir.expressions.FirWrappedDelegateExpression
 
 /**
  * The variable access that [assignment] writes to, or null when the target is
@@ -21,3 +23,7 @@ fun assignedAccess(assignment: FirVariableAssignment): FirQualifiedAccessExpress
 /** True when [assignment] is a compound write (`x += y`, `x++`) that K2 desugars through a value reference. */
 fun isCompoundAssignment(assignment: FirVariableAssignment): Boolean =
     assignment.lValue is FirDesugaredAssignmentValueReferenceExpression
+
+/** The initializer behind a delegated-property wrapper, or the unchanged expression. */
+fun unwrapDelegate(expression: FirExpression): FirExpression =
+    if (expression is FirWrappedDelegateExpression) expression.expression else expression

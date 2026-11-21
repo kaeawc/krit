@@ -12,7 +12,7 @@ class ListRulesTest {
         assertTrue(
             ids.containsAll(listOf(
                 "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
-                "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher",
+                "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "PlainFileWriteOfSensitive",
             )),
             ids.toString(),
         )

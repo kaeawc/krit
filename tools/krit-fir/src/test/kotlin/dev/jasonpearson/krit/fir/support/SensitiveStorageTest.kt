@@ -46,4 +46,27 @@ class SensitiveStorageTest {
             assertEquals(expected, isSensitiveStorageKey(key), "key \"$key\"")
         }
     }
+
+    @Test
+    fun sensitiveFileNamesFollowGo() {
+        val verdicts = mapOf(
+            "credentials.json" to true,
+            "auth_token.bin" to true,
+            "userPassword.txt" to true,
+            "private-key.pem" to true,
+            "OAUTH.json" to true,
+            "token_expires_at.txt" to true,
+            "password_attempts.txt" to true,
+            "cache.json" to false,
+            "pin.txt" to false,
+            "api_key.txt" to false,
+            "tokenizer.txt" to false,
+            "shipping.txt" to false,
+            "token2.txt" to false,
+            "" to false,
+        )
+        for ((path, expected) in verdicts) {
+            assertEquals(expected, isSensitiveFileName(path), "path \"$path\"")
+        }
+    }
 }

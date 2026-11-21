@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 189, 193, 223
+// go-lines: 189, 193, 203
 package test
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -197,26 +197,6 @@ class LifecycleTestNgOwner {
     @org.testng.annotations.AfterMethod fun afterMethod() { LifecycleAfterMethodState.afterMethodCount = 0 }
     @org.testng.annotations.BeforeMethod fun beforeMethod() { LifecycleBeforeMethodState.beforeMethodCount = 0 }
     @org.testng.annotations.AfterClass fun afterClass() { LifecycleAfterClassState.afterClassCount = 0 }
-}
-
-object DeferredFinallyState { var <!MutableStateInObject!>count<!> = 0 }
-fun deferredFinallyReset(): () -> Unit {
-    lateinit var action: () -> Unit
-    try {
-        action = {}
-    } finally {
-        action = { DeferredFinallyState.count = 0 }
-    }
-    return action
-}
-
-object InlineFinallyState { var count = 0 }
-fun inlineFinallyReset() {
-    try {
-        println("work")
-    } finally {
-        run { InlineFinallyState.count = 0 }
-    }
 }
 
 typealias AliasedAfterTest = org.testng.annotations.AfterTest

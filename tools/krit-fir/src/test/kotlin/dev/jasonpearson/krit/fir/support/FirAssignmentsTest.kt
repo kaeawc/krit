@@ -14,6 +14,8 @@ import org.jetbrains.kotlin.fir.expressions.builder.buildDesugaredAssignmentValu
 import org.jetbrains.kotlin.fir.expressions.builder.buildLiteralExpression
 import org.jetbrains.kotlin.fir.expressions.builder.buildPropertyAccessExpression
 import org.jetbrains.kotlin.fir.expressions.builder.buildVariableAssignment
+import org.jetbrains.kotlin.fir.expressions.builder.buildWrappedDelegateExpression
+import org.jetbrains.kotlin.fir.expressions.builder.buildFunctionCall
 import org.jetbrains.kotlin.fir.references.builder.buildSimpleNamedReference
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.types.ConstantValueKind
@@ -50,5 +52,17 @@ class FirAssignmentsTest {
     @Test
     fun nonAccessTargetReturnsNull() {
         assertNull(assignedAccess(assignmentTo(literal)))
+    }
+
+    @Test
+    fun wrappedDelegateReturnsTheWrittenInitializer() {
+        val wrapped = buildWrappedDelegateExpression {
+            expression = access
+            provideDelegateCall = buildFunctionCall {
+                calleeReference = buildSimpleNamedReference { name = Name.identifier("provideDelegate") }
+            }
+        }
+        assertSame(access, unwrapDelegate(wrapped))
+        assertSame(access, unwrapDelegate(access))
     }
 }

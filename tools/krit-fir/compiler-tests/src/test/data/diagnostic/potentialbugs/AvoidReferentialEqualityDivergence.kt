@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 7, 49, 74, 78, 81, 83, 94, 103, 108, 112, 125, 126, 129, 130, 139, 140, 143
+// go-lines: 7, 49, 74, 78, 81, 83, 94, 103, 110, 114, 127, 128, 131, 132, 141, 142, 145
 package test
 
 typealias Text = String
@@ -91,7 +91,7 @@ class ElseComparator : Comparator<String> {
 
 class NestedReturnComparator : Comparator<String> {
     override fun compare(a: String, b: String): Int {
-        if (a === b) { run { return@run 0 }; return 1 }
+        if (<!AvoidReferentialEquality!>a === b<!>) { run { return@run 0 }; return 1 }
         return 2
     }
 }
@@ -101,6 +101,8 @@ fun fresh(block: () -> Unit): String {
     return "replacement"
 }
 fun ignoredCallback(text: String) = <!AvoidReferentialEquality!>fresh { println(text) } === text<!>
+// FIR stops at an anonymous function argument; Go currently misses this shape.
+fun ignoredAnonymousFunction(text: String) = <!AvoidReferentialEquality!>fresh(fun() { println(text) }) === text<!>
 
 // A sibling or nested helper's vararg does not shadow the nearest plain parameter.
 class Matcher {
@@ -142,3 +144,7 @@ fun siblingShadow(vararg tags: String, candidate: Any): Boolean {
     run { val tags = 1; println(tags) }
     return tags === candidate
 }
+
+// With forbiddenTypePatterns: [kotlin.IntArray], Go reports this nullable vararg as IntArray;
+// FIR sees Array<out Int?>. The golden uses default options, so neither engine reports it here.
+fun nullablePrimitiveVararg(vararg values: Int?, other: Any) = values === other

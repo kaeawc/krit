@@ -33,6 +33,11 @@ All notable changes to Krit will be documented in this file.
   non-compiling files and scans without a classpath keep the Go fallback.
 - FIR-backed `ComposeSideEffectInComposition` resolves composable bodies, state receivers and Compose APIs; Go remains the fallback without a classpath or when compilation fails.
 - FIR checker for `MutableStateInObject`, with resolved synchronization and thread-safe type exemptions; Go remains the fallback without a classpath or for non-compiling files.
+- FIR `AvoidReferentialEquality` checker with resolved, alias-expanded operand
+  types and configurable `forbiddenTypePatterns`. FIR retains call-argument
+  same-instance probes, including receiver chains and safe-call receivers, but
+  drops broad identity-name heuristics when a forbidden operand type is resolved. In both engines,
+  `forbiddenTypePatterns: []` turns the rule off.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,
@@ -390,6 +395,13 @@ All notable changes to Krit will be documented in this file.
   `@ViewScoped`/`@FlowScoped` and `@TransactionScoped`) as definition errors on generic beans.
   FIR also resolves custom CDI normal scopes. javax/jakarta.inject `@Singleton` is no longer
   reported, even under CDI.
+- The Go `AvoidReferentialEquality` rule trusts resolver-provided operand types,
+  including through wildcard imports, and applies `forbiddenTypePatterns` to
+  them. Adds guards for explicit `String` lookalikes and ambiguous top-level
+  bindings under inherited or extension receivers. When neither operand has a
+  resolved type, only string literals and templates supply evidence; unresolved
+  identifiers stay silent. Adds a vararg correction limited to an immediately
+  enclosing function's parameter with no potentially shadowing declaration.
 - Krit finds `java` and `javac` under `JAVA_HOME` before `PATH` everywhere it launches a JVM or checks for one
   (jar download, Java facts helper, `--doctor`).
 - On Linux, `-j` and other worker defaults follow `GOMAXPROCS`, which tracks the cgroup CPU quota, and memory

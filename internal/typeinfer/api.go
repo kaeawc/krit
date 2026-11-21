@@ -334,6 +334,31 @@ func (r *defaultResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {
 	return &result
 }
 
+func IsTopLevelBindingFlat(resolver TypeResolver, idx uint32, file *scanner.File) bool {
+	binding, ok := resolver.(interface {
+		IsTopLevelBindingFlat(uint32, *scanner.File) bool
+	})
+	return ok && binding.IsTopLevelBindingFlat(idx, file)
+}
+
+func (r *defaultResolver) IsTopLevelBindingFlat(idx uint32, file *scanner.File) bool {
+	if file.FlatType(idx) != "simple_identifier" {
+		return false
+	}
+	root := r.scopes[file.Path]
+	if root == nil {
+		return false
+	}
+	offset := file.FlatStartByte(idx)
+	name := file.FlatNodeText(idx)
+	for scope := root.FindScopeAtOffset(offset); scope != nil; scope = scope.Parent {
+		if scope.Entries[name] != nil && offset >= scope.EntryStarts[name] {
+			return scope.Parent == nil
+		}
+	}
+	return false
+}
+
 func (r *defaultResolver) resolveFlatName(name string, offset uint32, file *scanner.File) *ResolvedType {
 	rootScope := r.scopes[file.Path]
 	it := r.imports[file.Path]

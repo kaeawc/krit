@@ -85,6 +85,11 @@ func (c *CompositeResolver) ResolveFlatNode(idx uint32, file *scanner.File) *typ
 	return c.fallback.ResolveFlatNode(idx, file)
 }
 
+func (c *CompositeResolver) IsTopLevelBindingFlat(idx uint32, file *scanner.File) bool {
+	return file.FlatType(idx) == "simple_identifier" && c.OracleExpressionFlat(file, idx) == nil &&
+		typeinfer.IsTopLevelBindingFlat(c.fallback, idx, file)
+}
+
 func (c *CompositeResolver) ResolveByNameFlat(name string, idx uint32, file *scanner.File) *typeinfer.ResolvedType {
 	src := c.fallback.ResolveByNameFlat(name, idx, file)
 	if src != nil && src.Kind != typeinfer.TypeUnknown && src.Resolved {

@@ -12,6 +12,174 @@ import (
 
 // Shared helpers for the Android Lint source checks that work on both Kotlin and Java call sites.
 
+// typeDeclarationVisibleAt reports whether a declaration's enclosing scope (the file, or a class body or block)
+// contains at, so the declaration can be named there without a qualifier.
+func typeDeclarationVisibleAt(file *scanner.File, decl, at uint32) bool {
+	container, ok := file.FlatParent(decl)
+	for ok && !lintTypeScope(file.FlatType(container)) {
+		container, ok = file.FlatParent(container)
+	}
+	if !ok || file.FlatType(container) == "source_file" {
+		return true
+	}
+	// Forward references intentionally suppress more: false negatives are preferable to false positives.
+	if lintNodeContains(file, container, at) {
+		return true
+	}
+	if lintClassBody(file.FlatType(container)) {
+		if companion, found := enclosingCompanionObject(file, container); found {
+			if body, found := enclosingClassBody(file, companion); found {
+				if lintNodeContains(file, body, at) {
+					return true
+				}
+				if owner, found := file.FlatParent(body); found && visibleThroughSameFileSuperclass(file, owner, at) {
+					return true
+				}
+			}
+		}
+		for owner, found := file.FlatParent(container); found; owner, found = file.FlatParent(owner) {
+			if lintClassLike(file.FlatType(owner)) {
+				return visibleThroughSameFileSuperclass(file, owner, at)
+			}
+			if !lintClassBody(file.FlatType(owner)) {
+				break
+			}
+		}
+	}
+	return false
+}
+
+func lintClassBody(kind string) bool {
+	switch kind {
+	case "class_body", "enum_class_body", "interface_body", "enum_body", "enum_body_declarations":
+		return true
+	}
+	return false
+}
+
+func lintTypeScope(kind string) bool {
+	if lintClassBody(kind) {
+		return true
+	}
+	switch kind {
+	case "source_file", "program", "statements", "function_body", "block", "constructor_body", "lambda_literal", "lambda_expression":
+		return true
+	}
+	return false
+}
+
+func lintClassLike(kind string) bool {
+	switch kind {
+	case "class_declaration", "object_declaration", "companion_object", "object_literal",
+		"interface_declaration", "enum_declaration", "record_declaration", "object_creation_expression":
+		return true
+	}
+	return false
+}
+
+func lintNodeContains(file *scanner.File, container, node uint32) bool {
+	return file.FlatStartByte(container) <= file.FlatStartByte(node) && file.FlatEndByte(node) <= file.FlatEndByte(container)
+}
+
+func enclosingCompanionObject(file *scanner.File, node uint32) (uint32, bool) {
+	for parent, ok := file.FlatParent(node); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "companion_object" {
+			return parent, true
+		}
+		if lintClassLike(file.FlatType(parent)) || lintCallableScope(file.FlatType(parent)) || file.FlatType(parent) == "source_file" {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func lintCallableScope(kind string) bool {
+	switch kind {
+	case "function_declaration", "method_declaration", "constructor_declaration", "secondary_constructor",
+		"anonymous_function", "lambda_literal", "lambda_expression", "getter", "setter", "property_accessor":
+		return true
+	}
+	return false
+}
+
+func enclosingClassBody(file *scanner.File, node uint32) (uint32, bool) {
+	for parent, ok := file.FlatParent(node); ok; parent, ok = file.FlatParent(parent) {
+		if lintClassBody(file.FlatType(parent)) {
+			return parent, true
+		}
+		if file.FlatType(parent) == "source_file" {
+			return 0, false
+		}
+	}
+	return 0, false
+}
+
+func visibleThroughSameFileSuperclass(file *scanner.File, declaration, at uint32) bool {
+	classesByName := make(map[string][]uint32)
+	typeAliasesByName := make(map[string]string)
+	file.FlatWalkAllNodes(0, func(class uint32) {
+		kind := file.FlatType(class)
+		if kind == "type_alias" {
+			name := lintDeclTypeName(file, class)
+			target := file.FlatNamedChild(class, file.FlatNamedChildCount(class)-1)
+			if name != "" && target != 0 {
+				targetName := strings.TrimSuffix(lintTrimGenerics(file.FlatNodeText(target)), "?")
+				if dot := strings.LastIndexByte(targetName, '.'); dot >= 0 {
+					targetName = targetName[dot+1:]
+				}
+				if targetName != "" {
+					typeAliasesByName[name] = targetName
+				}
+			}
+			return
+		}
+		if !lintClassLike(kind) || kind == "object_literal" || kind == "object_creation_expression" {
+			return
+		}
+		if name := lintDeclTypeName(file, class); name != "" {
+			classesByName[name] = append(classesByName[name], class)
+		}
+	})
+	visited := make(map[uint32]bool)
+	var inherits func(uint32) bool
+	inherits = func(class uint32) bool {
+		if class == declaration {
+			return true
+		}
+		if visited[class] {
+			return false
+		}
+		visited[class] = true
+		supers := directSuperNames(file, class)
+		if file.Language == scanner.LangJava {
+			supers = lintSupertypeNames(file, class)
+		}
+		for _, superName := range supers {
+			// Simple-name matches intentionally suppress more: false negatives are preferable to false positives.
+			if dot := strings.LastIndexByte(superName, '.'); dot >= 0 {
+				superName = superName[dot+1:]
+			}
+			seenAliases := make(map[string]bool)
+			for superName != "" && !seenAliases[superName] {
+				seenAliases[superName] = true
+				for _, superClass := range classesByName[superName] {
+					if inherits(superClass) {
+						return true
+					}
+				}
+				superName = typeAliasesByName[superName]
+			}
+		}
+		return false
+	}
+	for current, ok := file.FlatParent(at); ok; current, ok = file.FlatParent(current) {
+		if lintClassLike(file.FlatType(current)) && inherits(current) {
+			return true
+		}
+	}
+	return false
+}
+
 // lintCall is a Kotlin call_expression or Java method_invocation seen through one shape.
 type lintCall struct {
 	File *scanner.File

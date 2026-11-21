@@ -878,6 +878,72 @@ class A {
 	}
 }
 
+func TestLogTagMismatchIsLoggableSameNamedTypeVisibility(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{
+			name: "unrelated nested Log does not shadow Android Log",
+			src: `package test
+class Other { class Log }
+class A {
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.d("b", "m") }
+    }
+}
+`,
+			want: 1,
+		},
+		{
+			name: "top-level Log shadows Android Log",
+			src: `package test
+class Log
+class A {
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.d("b", "m") }
+    }
+}
+`,
+			want: 0,
+		},
+		{
+			name: "nested Log shadows within containing class",
+			src: `package test
+class A {
+    class Log
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.i("b", "m") }
+    }
+}
+`,
+			want: 0,
+		},
+		{
+			name: "companion nested Log is visible in containing class",
+			src: `package test
+class A {
+    companion object {
+        class Log
+    }
+    fun f() {
+        if (Log.isLoggable("a", Log.DEBUG)) { Log.i("b", "m") }
+    }
+}
+`,
+			want: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if findings := runRuleByName(t, "LogTagMismatch", tc.src); len(findings) != tc.want {
+				t.Fatalf("expected %d findings, got %v", tc.want, findings)
+			}
+		})
+	}
+}
+
 func TestLogTagMismatchIsLoggableStaticImportedLevel(t *testing.T) {
 	src := `package test
 import android.util.Log

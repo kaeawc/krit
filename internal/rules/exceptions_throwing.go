@@ -263,7 +263,7 @@ func objectSuperNameIsProjectClass(ctx *api.Context, obj uint32, name string) bo
 		switch file.FlatType(n) {
 		case "class_declaration", "object_declaration", "type_alias":
 			if id, ok := file.FlatFindChild(n, "type_identifier"); ok && file.FlatNodeTextEquals(id, name) &&
-				objectDeclarationVisibleFrom(file, n, obj) {
+				typeDeclarationVisibleAt(file, n, obj) {
 				found = true
 			}
 		case "import_header":
@@ -285,20 +285,6 @@ func objectSuperNameIsProjectClass(ctx *api.Context, obj uint32, name string) bo
 		return false
 	}
 	return strings.TrimSuffix(info.FQN, "."+name) == sourcePackageName(file)
-}
-
-// objectDeclarationVisibleFrom reports a declaration whose enclosing scope (the file, or a class body or block)
-// contains obj, so obj can name it without a qualifier. A class nested in an unrelated class is not visible.
-func objectDeclarationVisibleFrom(file *scanner.File, decl, obj uint32) bool {
-	container, ok := file.FlatParent(decl)
-	for ok && file.FlatType(container) != "class_body" && file.FlatType(container) != "source_file" &&
-		file.FlatType(container) != "statements" && file.FlatType(container) != "function_body" {
-		container, ok = file.FlatParent(container)
-	}
-	if !ok || file.FlatType(container) == "source_file" {
-		return true
-	}
-	return file.FlatStartByte(container) <= file.FlatStartByte(obj) && file.FlatEndByte(obj) <= file.FlatEndByte(container)
 }
 
 func walkThrowExpressionsFlat(file *scanner.File, idx uint32, fn func(throwNode uint32)) {

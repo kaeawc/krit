@@ -798,8 +798,43 @@ func handlerArgumentsPassLooper(ctx *api.Context, args uint32) bool {
 		if expr == 0 {
 			continue
 		}
-		if handlerExprIsLooperAccessor(file, expr) || handlerExprIsLooper(ctx, expr) {
+		if handlerExprIsLooperArgument(ctx, expr) {
 			return true
+		}
+	}
+	return false
+}
+
+func handlerExprIsLooperArgument(ctx *api.Context, expr uint32) bool {
+	file := ctx.File
+	expr = flatUnwrapParenExpr(file, expr)
+	if handlerExprIsLooperAccessor(file, expr) || handlerExprIsLooper(ctx, expr) {
+		return true
+	}
+	switch file.FlatType(expr) {
+	case "elvis_expression":
+		for child := file.FlatFirstChild(expr); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) && handlerExprIsLooperArgument(ctx, child) {
+				return true
+			}
+		}
+	case "ternary_expression":
+		for branch := 1; branch < file.FlatNamedChildCount(expr); branch++ {
+			if handlerExprIsLooperArgument(ctx, file.FlatNamedChild(expr, branch)) {
+				return true
+			}
+		}
+	case "call_expression", "method_invocation":
+		if file.FlatType(expr) == "call_expression" && flatCallExpressionName(file, expr) == "" {
+			if inner := file.FlatNamedChild(expr, 0); file.FlatType(inner) == "call_expression" {
+				return handlerExprIsLooperArgument(ctx, inner)
+			}
+		}
+		if call, ok := lintCallAt(file, expr); ok &&
+			(call.Name == "checkNotNull" || call.Name == "requireNotNull" || call.Name == "requireNonNull") {
+			if value := call.Arg(0, "value"); value != 0 {
+				return handlerExprIsLooperArgument(ctx, value)
+			}
 		}
 	}
 	return false

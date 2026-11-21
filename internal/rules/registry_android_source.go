@@ -380,18 +380,67 @@ func registerAndroidSourceRules() {
 	}
 }
 
-// fileDeclaresTypeNamed reports whether the file declares a class, interface or object with the given simple name.
-func fileDeclaresTypeNamed(file *scanner.File, name string) bool {
-	if lintSameFileClass(file, name) != 0 {
-		return true
+// fileDeclaresTypeVisibleAt reports whether a same-named declaration visible at at shadows platformType.
+// Type aliases that resolve to platformType are not shadows.
+func fileDeclaresTypeVisibleAt(file *scanner.File, name, platformType string, at uint32) bool {
+	if file == nil || at == 0 {
+		return false
 	}
 	found := false
-	file.FlatWalkNodes(0, "object_declaration", func(decl uint32) {
-		if !found && extractIdentifierFlat(file, decl) == name {
+	file.FlatWalkAllNodes(0, func(decl uint32) {
+		if found {
+			return
+		}
+		switch file.FlatType(decl) {
+		case "class_declaration", "object_declaration", "companion_object", "type_alias", "interface_declaration", "enum_declaration", "record_declaration":
+			if lintDeclTypeName(file, decl) != name || !typeDeclarationVisibleAt(file, decl, at) {
+				return
+			}
+			if file.FlatType(decl) == "type_alias" && typeAliasResolvesTo(file, decl, platformType) {
+				return
+			}
 			found = true
 		}
 	})
 	return found
+}
+
+const maxSameFileTypeAliasDepth = 32
+
+func typeAliasResolvesTo(file *scanner.File, alias uint32, platformType string) bool {
+	seen := make(map[uint32]struct{})
+	for depth := 0; alias != 0 && depth < maxSameFileTypeAliasDepth; depth++ {
+		if _, ok := seen[alias]; ok {
+			return false
+		}
+		seen[alias] = struct{}{}
+
+		target := file.FlatNamedChild(alias, file.FlatNamedChildCount(alias)-1)
+		if target == 0 {
+			return false
+		}
+		targetName := lintTrimGenerics(file.FlatNodeText(target))
+		if lintTypeRefMatches(file, targetName, platformType) {
+			return true
+		}
+		if strings.Contains(targetName, ".") {
+			return false
+		}
+		if imported, ok := lintImportsOf(file).bySimple[targetName]; ok {
+			return imported == platformType
+		}
+
+		var next uint32
+		file.FlatWalkAllNodes(0, func(decl uint32) {
+			if next != 0 || file.FlatType(decl) != "type_alias" ||
+				lintDeclTypeName(file, decl) != targetName || !typeDeclarationVisibleAt(file, decl, alias) {
+				return
+			}
+			next = decl
+		})
+		alias = next
+	}
+	return false
 }
 
 // checkLogTagMismatch reports log calls in the branches of `if (Log.isLoggable(tag, level))`
@@ -404,7 +453,7 @@ func checkLogTagMismatch(ctx *api.Context, lookup oracle.Lookup) {
 		return
 	}
 	// Without an oracle, a Log class or object declared in the file is not android.util.Log.
-	if lookup == nil && fileDeclaresTypeNamed(file, "Log") {
+	if lookup == nil && fileDeclaresTypeVisibleAt(file, "Log", "android.util.Log", ifExpr) {
 		return
 	}
 	tag, level := logCallArgText(file, cond, 0), logLevelConstantName(file, logCallArgText(file, cond, 1))

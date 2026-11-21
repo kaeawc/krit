@@ -76,7 +76,7 @@ func xmlExternalEntityFactoryCall(file *scanner.File, call uint32) bool {
 	if qualifier != "" {
 		return qualifier == pkg
 	}
-	return !xxeImportsNameFromElsewhere(file, receiver, pkg+"."+receiver) && !fileDeclaresTypeNamed(file, receiver)
+	return !xxeImportsNameFromElsewhere(file, receiver, pkg+"."+receiver) && !fileDeclaresTypeVisibleAt(file, receiver, pkg+"."+receiver, call)
 }
 
 // xxeFactoryReceiverText returns the receiver of a factory creation call as written, without whitespace.

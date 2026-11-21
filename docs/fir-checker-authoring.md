@@ -218,6 +218,12 @@ When no helper covers a compiler-internal call you need, add the helper to
 `support/` first, with a unit test under `src/test/.../support/`, and call it
 from the checker. Do not add a new direct call to the checker.
 
+For nullability-insensitive FQN matching (for example,
+`AvoidReferentialEquality.forbiddenTypePatterns`), use `expandedClassType()`
+before reading the class ID. This expands type aliases and lowers flexible
+types without duplicating compiler-internal type reads in a checker. Unknown
+or error types are not evidence of a forbidden type.
+
 `FirHelperGuardTest` scans the checker sources for the patterns in the "Instead
 of" column. Existing uses are listed per file in
 `tools/krit-fir/src/test/resources/fir-helper-guard-allowlist.txt`, and the counts

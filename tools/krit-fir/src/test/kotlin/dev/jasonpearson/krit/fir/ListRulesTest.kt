@@ -12,9 +12,10 @@ class ListRulesTest {
         assertTrue("BadHostnameVerifier" in ids, "BadHostnameVerifier has a FIR checker")
         assertTrue(
             ids.containsAll(listOf(
-                "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
-                "ComposeSideEffectInComposition", "CoroutineScopeCreatedButNeverCancelled",
-                "InjectDispatcher", "MutableStateInObject", "PlainFileWriteOfSensitive",
+                "AvoidReferentialEquality", "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle",
+                "ComposeRememberWithoutKey", "ComposeSideEffectInComposition",
+                "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "MutableStateInObject",
+                "PlainFileWriteOfSensitive",
                 "TestWithoutAssertion",
             )),
             ids.toString(),

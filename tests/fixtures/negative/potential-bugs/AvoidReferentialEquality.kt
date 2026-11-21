@@ -8,6 +8,11 @@ class AvoidReferentialEquality {
     fun sentinel(d: Any): Boolean {
         return d === DISPOSED
     }
+
+    fun unchanged(unwrapped: TreeNode, current: TreeNode): Boolean {
+        return unwrapped !== current
+    }
 }
 
 object DISPOSED
+class TreeNode

@@ -10,6 +10,7 @@ var knownFIRRules = map[string]bool{
 	"BadHostnameVerifier":                     true,
 	"AssertNullableWithNotNullAssertion":      true,
 	"AssertTrueOnComparison":                  true,
+	"AvoidReferentialEquality":                true,
 	"BindsReturnTypeMatchesParam":             true,
 	"BitmapDecodeWithoutOptions":              true,
 	"BufferedReadWithoutBuffer":               true,

@@ -2,17 +2,207 @@ package rules
 
 import (
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
-// ---------------------------------------------------------------------------
-// looksLikeEnumConstantRef returns true if the text looks like a qualified
-// reference to an enum constant: `Type.CONSTANT` or `pkg.Type.CONSTANT`,
-// where the last segment is ALL_CAPS.
+func referentialEqualityKnownString(file *scanner.File, operand uint32) bool {
+	return file.FlatType(referentialEqualityUnwrapParentheses(file, operand)) == "string_literal"
+}
+
+func referentialEqualityUntrustedTopLevelBinding(resolver typeinfer.TypeResolver, file *scanner.File, operand uint32) bool {
+	operand = referentialEqualityUnwrapParentheses(file, operand)
+	if !typeinfer.IsTopLevelBindingFlat(resolver, operand, file) {
+		return false
+	}
+	for ancestor, ok := file.FlatParent(operand); ok; ancestor, ok = file.FlatParent(ancestor) {
+		switch file.FlatType(ancestor) {
+		case "class_body":
+			declaration, _ := file.FlatParent(ancestor)
+			if file.FlatHasChildOfType(declaration, "delegation_specifier") || file.FlatHasChildOfType(declaration, "delegation_specifiers") {
+				return true
+			}
+		case "enum_class_body":
+			if referentialEqualityEnumMemberShadows(file, ancestor, file.FlatNodeText(operand)) {
+				return true
+			}
+			declaration, _ := file.FlatParent(ancestor)
+			if file.FlatHasChildOfType(declaration, "delegation_specifier") || file.FlatHasChildOfType(declaration, "delegation_specifiers") {
+				return true
+			}
+		case "function_declaration":
+			if funHasReceiver(file, ancestor) {
+				return true
+			}
+		case "property_declaration":
+			for child := file.FlatFirstChild(ancestor); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "." {
+					return true
+				}
+				if file.FlatType(child) == "variable_declaration" {
+					break
+				}
+			}
+		}
+	}
+	return false
+}
+
+func referentialEqualityEnumMemberShadows(file *scanner.File, body uint32, name string) bool {
+	shadowed := false
+	file.FlatWalkNodes(body, "variable_declaration", func(declaration uint32) {
+		property, ok := file.FlatParent(declaration)
+		if !ok || file.FlatType(property) != "property_declaration" {
+			return
+		}
+		parent, ok := file.FlatParent(property)
+		if !ok || parent != body {
+			return
+		}
+		identifier, _ := file.FlatFindChild(declaration, "simple_identifier")
+		shadowed = shadowed || file.FlatNodeText(identifier) == name
+	})
+	return shadowed
+}
+
+func referentialEqualityVarargDeclaration(file *scanner.File, declaration uint32) bool {
+	if file.FlatHasModifier(declaration, "vararg") {
+		return true
+	}
+	parent, _ := file.FlatParent(declaration)
+	for child := file.FlatFirstChild(parent); child != 0 && child != declaration; child = file.FlatNextSib(child) {
+		if file.FlatType(child) == "parameter_modifiers" && file.FlatNextSib(child) == declaration {
+			found := false
+			file.FlatWalkAllNodes(child, func(modifier uint32) {
+				found = found || file.FlatType(modifier) == "vararg"
+			})
+			return found
+		}
+	}
+	return false
+}
+
+func referentialEqualityVarargOperand(file *scanner.File, operand uint32) bool {
+	operand = referentialEqualityUnwrapParentheses(file, operand)
+	if file.FlatType(operand) != "simple_identifier" {
+		return false
+	}
+	var function uint32
+	for ancestor, ok := file.FlatParent(operand); ok; ancestor, ok = file.FlatParent(ancestor) {
+		switch file.FlatType(ancestor) {
+		case "function_declaration":
+			function = ancestor
+		case "class_declaration", "object_declaration", "object_literal", "companion_object", "secondary_constructor":
+			return false
+		}
+		if function != 0 {
+			break
+		}
+	}
+	if function == 0 {
+		return false
+	}
+	parameters, _ := file.FlatFindChild(function, "function_value_parameters")
+	var parameter uint32
+	name := file.FlatNodeText(operand)
+	for child := file.FlatFirstChild(parameters); child != 0; child = file.FlatNextSib(child) {
+		identifier, _ := file.FlatFindChild(child, "simple_identifier")
+		if file.FlatType(child) == "parameter" && file.FlatNodeText(identifier) == name && referentialEqualityVarargDeclaration(file, child) {
+			parameter = child
+		}
+	}
+	if parameter == 0 {
+		return false
+	}
+	shadowed := false
+	file.FlatWalkAllNodes(function, func(node uint32) {
+		if node == parameter {
+			return
+		}
+		switch file.FlatType(node) {
+		case "variable_declaration", "parameter", "class_parameter", "catch_block", "function_declaration":
+			identifier, _ := file.FlatFindChild(node, "simple_identifier")
+			shadowed = shadowed || file.FlatNodeText(identifier) == name
+		}
+	})
+	return !shadowed
+}
+
+func referentialEqualityVarargFQN(fqn string, nullable bool) string {
+	if nullable {
+		return "kotlin.Array"
+	}
+	switch fqn {
+	case "kotlin.Boolean":
+		return "kotlin.BooleanArray"
+	case "kotlin.Byte":
+		return "kotlin.ByteArray"
+	case "kotlin.Char":
+		return "kotlin.CharArray"
+	case "kotlin.Double":
+		return "kotlin.DoubleArray"
+	case "kotlin.Float":
+		return "kotlin.FloatArray"
+	case "kotlin.Int":
+		return "kotlin.IntArray"
+	case "kotlin.Long":
+		return "kotlin.LongArray"
+	case "kotlin.Short":
+		return "kotlin.ShortArray"
+	case "kotlin.Array", "kotlin.BooleanArray", "kotlin.ByteArray", "kotlin.CharArray",
+		"kotlin.DoubleArray", "kotlin.FloatArray", "kotlin.IntArray", "kotlin.LongArray", "kotlin.ShortArray":
+		return fqn
+	default:
+		return "kotlin.Array"
+	}
+}
+
+// referentialEqualityUnwrapParentheses strips only unambiguous single-expression wrappers.
+func referentialEqualityUnwrapParentheses(file *scanner.File, node uint32) uint32 {
+	for file.FlatType(node) == "parenthesized_expression" {
+		var inner uint32
+		for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatIsNamed(child) || file.FlatType(child) == "null" {
+				if inner != 0 {
+					return node
+				}
+				inner = child
+			}
+		}
+		if inner == 0 {
+			return node
+		}
+		node = inner
+	}
+	return node
+}
+
+// referentialEqualityUnshadowedStringType rejects explicit lookalikes, not wildcard imports.
+func referentialEqualityUnshadowedStringType(file *scanner.File) bool {
+	shadowed := false
+	file.FlatWalkAllNodes(0, func(node uint32) {
+		switch file.FlatType(node) {
+		case "class_declaration", "object_declaration", "type_alias", "type_parameter":
+			identifier, _ := file.FlatFindChild(node, "type_identifier")
+			if identifier == 0 {
+				identifier, _ = file.FlatFindChild(node, "simple_identifier")
+			}
+			shadowed = shadowed || file.FlatNodeText(identifier) == "String"
+		case "import_header":
+			text := strings.TrimSpace(strings.TrimPrefix(file.FlatNodeText(node), "import"))
+			shadowed = shadowed || (text != "kotlin.String" && text != "kotlin.String as String" &&
+				(strings.HasSuffix(text, ".String") || strings.HasSuffix(text, " as String")))
+		}
+	})
+	return !shadowed
+}
+
+// looksLikeEnumConstantRef recognizes qualified references with uppercase constant names.
 func looksLikeEnumConstantRef(text string) bool {
 	if !strings.Contains(text, ".") {
 		return false
@@ -278,13 +468,26 @@ func isInsideEqualsMethodFlatType(file *scanner.File, idx uint32) bool {
 }
 
 // AvoidReferentialEqualityRule detects === or !== usage.
-// With type inference: only flags when operands are String (where referential
-// equality is almost certainly a bug). Without resolver, flags all === / !==.
-// ---------------------------------------------------------------------------
+// Resolved types must match ForbiddenTypePatterns; when neither operand resolves,
+// only a String literal or template supplies fallback evidence.
 type AvoidReferentialEqualityRule struct {
 	FlatDispatchBase
 	BaseRule
 	ForbiddenTypePatterns []string
+	patternsMutex         sync.Mutex
+	cachedPatternSource   []string
+	cachedPatterns        []*regexp.Regexp
+}
+
+// compiledPatterns compiles once per rule configuration, including an explicitly empty list.
+func (r *AvoidReferentialEqualityRule) compiledPatterns() []*regexp.Regexp {
+	r.patternsMutex.Lock()
+	defer r.patternsMutex.Unlock()
+	if !slices.Equal(r.cachedPatternSource, r.ForbiddenTypePatterns) {
+		r.cachedPatternSource = slices.Clone(r.ForbiddenTypePatterns)
+		r.cachedPatterns = referentialEqualityCompileFQNPatterns(r.ForbiddenTypePatterns)
+	}
+	return r.cachedPatterns
 }
 
 // referentialEqualityCompileFQNPatterns turns the user-configured glob
@@ -490,6 +693,5 @@ func ifExpressionIsFirstStatementInFunction(file *scanner.File, ifExpr uint32, f
 }
 
 // Confidence reports a tier-2 (medium) base confidence — flags === / !==
-// on value types; needs resolver to confirm operand types, falls back to a
-// name-based heuristic. Classified per roadmap/17.
+// on configured types, using resolved types or literal-only unresolved String evidence.
 func (r *AvoidReferentialEqualityRule) Confidence() float64 { return api.ConfidenceMedium }

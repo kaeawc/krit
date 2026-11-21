@@ -5,27 +5,20 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-// AllowAllHostnameVerifier cases a single-file golden cannot express: a
+// BadHostnameVerifier cases a single-file golden cannot express: a
 // HostnameVerifier lookalike declared in another file and package.
-class AllowAllHostnameVerifierCrossFileTest {
+class BadHostnameVerifierCrossFileTest {
 
     private fun findings(sources: Map<String, String>): List<Pair<String, Int>> {
         val result = KritFirProbe.compile(
             sources,
-            FirRuleCompileContext(enabledRuleIds = setOf("AllowAllHostnameVerifier")),
+            FirRuleCompileContext(enabledRuleIds = setOf("BadHostnameVerifier")),
         )
         assertTrue(result.clean, result.problems())
-        return result.diags.filter { it.name == "AllowAllHostnameVerifier" }.map { it.file to it.line }
+        return result.diags.filter { it.name == "BadHostnameVerifier" }.map { it.file to it.line }
     }
 
-    // Go reports LenientVerifier (line 8): the comment mentions the javax FQN,
-    // which satisfies its file gate, the header names HostnameVerifier, and
-    // its shadow check only looks for a HostnameVerifier declared in the same
-    // file. FIR is correct to drop it: the class implements
-    // other.HostnameVerifier, so its verify is not a TLS hostname check (the
-    // same reasoning as Go's own same-file exemption, pinned in
-    // AllowAllHostnameVerifierLookalike.kt). The JDK verifier in the same
-    // file is still reported.
+    // An explicit lookalike import is silent; the JDK FQN remains reportable.
     @Test fun importedLookalikeFromAnotherPackageIsNotAVerifier() {
         val sources = mapOf(
             "Lookalike.kt" to """
@@ -54,5 +47,26 @@ class AllowAllHostnameVerifierCrossFileTest {
             """.trimIndent(),
         )
         assertEquals(listOf("CrossFileLookalike.kt" to 12), findings(sources))
+    }
+
+    @Test fun crossFileVerifierBaseOverrideIsReported() {
+        val sources = mapOf(
+            "Base.kt" to """
+                package base
+
+                abstract class VerifierBase : javax.net.ssl.HostnameVerifier
+            """.trimIndent(),
+            "Derived.kt" to """
+                package demo
+
+                import base.VerifierBase
+                import javax.net.ssl.SSLSession
+
+                class Derived : VerifierBase() {
+                    override fun verify(host: String, session: SSLSession) = true
+                }
+            """.trimIndent(),
+        )
+        assertEquals(listOf("Derived.kt" to 7), findings(sources))
     }
 }

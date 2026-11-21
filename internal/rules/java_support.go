@@ -65,7 +65,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 	},
 	Rules: map[string]api.LanguageSupport{
 		"AddJavascriptInterface":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"cmd/krit/java_support_fixture_test.go"}},
-		"AllowAllHostnameVerifier":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
+		"AllowAllHostnameVerifier":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/hostname_verifier_test.go"}},
 		"BroadcastReceiverExportedFlagMissing":    {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_security_test.go"}},
 		"BufferedReadWithoutBuffer":               {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/resource_cost_test.go"}},
 		"CheckResult":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_correctness_test.go"}},

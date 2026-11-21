@@ -1757,7 +1757,7 @@ class V17 : HostnameVerifier {
   override fun verify(h: String, s: SSLSession): Boolean { return (true) }
 }
 `))
-	if want := "94:16,99:16,105:16,132:16,139:16,147:16,151:16"; got != want {
+	if want := "94:16,99:16,105:16,129:10,132:16,135:16,139:16,147:16,151:16"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }
@@ -2643,7 +2643,7 @@ fun fn(): HostnameVerifier = object : HostnameVerifier {
   override fun verify(h: String, s: SSLSession) = true
 }
 `))
-	if want := "11:16,20:16,25:16,30:16,33:16,39:16,59:16"; got != want {
+	if want := "8:16,11:16,15:16,20:16,25:16,30:16,33:16,39:16,55:16,57:11,59:16"; got != want {
 		t.Fatalf("positions = %s, want %s", got, want)
 	}
 }

@@ -76,26 +76,59 @@ var hostnameVerifierTypes = []string{"javax.net.ssl.HostnameVerifier"}
 
 func (r *BadHostnameVerifierRule) check(ctx *api.Context) {
 	file := ctx.File
+	if file.FlatType(ctx.Idx) == "call_expression" {
+		if badHostnameVerifierSamLambda(file, ctx.Idx) {
+			ctx.EmitAt(file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1, badHostnameVerifierMessage)
+		}
+		return
+	}
 	if !lintHasSupertype(file, ctx.Idx, hostnameVerifierTypes, true, 0) {
 		return
 	}
 	body, _ := file.FlatFindChild(ctx.Idx, "class_body")
 	if body == 0 {
+		body, _ = file.FlatFindChild(ctx.Idx, "enum_class_body")
+	}
+	if body == 0 {
 		return
 	}
+	badHostnameVerifierMembers(ctx, ctx.Idx, body)
+}
+
+func badHostnameVerifierMembers(ctx *api.Context, owner, body uint32) {
+	file := ctx.File
+	bodyParent, _ := file.FlatParent(body)
+	enumMembers := file.FlatType(body) == "enum_class_body" || file.FlatType(bodyParent) == "enum_entry"
 	for member := file.FlatFirstChild(body); member != 0; member = file.FlatNextSib(member) {
+		if file.FlatType(member) == "enum_entry" {
+			entryBody, _ := file.FlatFindChild(member, "class_body")
+			if entryBody != 0 {
+				badHostnameVerifierMembers(ctx, owner, entryBody)
+			}
+			continue
+		}
 		name := verifyMethodName(file, member)
 		if name == 0 || !methodHasBody(file, member) {
 			continue
 		}
-		if !verifierAlwaysTrue(file, ctx.Idx) {
-			return
+		alwaysTrue := verifierAlwaysTrue(file, owner)
+		if enumMembers {
+			alwaysTrue = badHostnameVerifierAdditionalMethod(file, owner, member)
+		}
+		if !alwaysTrue {
+			if badHostnameVerifierAdditionalMethod(file, owner, member) {
+				ctx.Emit(lintFindingAtNode(ctx, name, "", badHostnameVerifierMessage))
+				return
+			}
+			continue
 		}
 		ctx.Emit(lintFindingAtNode(ctx, name, "",
 			"`verify` always returns `true`, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames"))
 		return
 	}
 }
+
+const badHostnameVerifierMessage = "`verify` always returns `true`, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames"
 
 // verifyMethodName returns the name node of a `verify(String, SSLSession)` method declaration, or 0.
 func verifyMethodName(file *scanner.File, member uint32) uint32 {
@@ -119,10 +152,29 @@ func verifyMethodName(file *scanner.File, member uint32) uint32 {
 			types = append(types, lintChildTypeText(file, p))
 		}
 	}
-	if len(types) != 2 || !javaLangTypeRef(file, types[0], "String") || !lintTypeRefMatches(file, types[1], "javax.net.ssl.SSLSession") {
+	if len(types) != 2 || !isStringParamType(file, types[0]) || !badHostnameVerifierSessionType(file, types[1], 0) {
 		return 0
 	}
 	return name
+}
+
+func isStringParamType(file *scanner.File, text string) bool {
+	return javaLangTypeRef(file, text, "String") || file.Language == scanner.LangKotlin && text == "kotlin.String"
+}
+
+func badHostnameVerifierSessionType(file *scanner.File, text string, depth int) bool {
+	if lintTypeRefMatches(file, text, "javax.net.ssl.SSLSession") {
+		return true
+	}
+	if file.Language != scanner.LangKotlin || depth >= 8 {
+		return false
+	}
+	facts := hostnameVerifierFileFacts(file)
+	alias := facts.aliases[text]
+	if alias == 0 || facts.shadows[text] != 1 {
+		return false
+	}
+	return badHostnameVerifierSessionType(file, lintSameFileTypeAlias(file, text), depth+1)
 }
 
 // methodHasBody reports whether a Kotlin or Java method declaration has an implementation, so abstract and interface

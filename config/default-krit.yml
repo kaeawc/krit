@@ -31,6 +31,8 @@ fir:
 
 android-lint:
   active: true
+  BadHostnameVerifier:
+    active: true
   NegativeMarginResource:
     active: false
     # Project-approved negative margin patterns:
@@ -41,6 +43,11 @@ android-lint:
     #   - 'TextView:android:layout_marginTop=-8dp'
     #   - 'TextView:*=-8dp'
     allowedNegativeMargins: []
+
+security:
+  active: true
+  AllowAllHostnameVerifier:
+    active: true
 
 comments:
   active: true

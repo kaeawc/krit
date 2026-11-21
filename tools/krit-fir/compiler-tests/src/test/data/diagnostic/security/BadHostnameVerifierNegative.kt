@@ -1,7 +1,7 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: none
-// Negative: verifiers whose verify does not always return true, and verify
-// functions that are not a HostnameVerifier's.
+// go-lines: 21, 30, 40, 47, 55, 64, 105
+// Non-verifiers and nonliteral returns remain silent in FIR. Go retains
+// Lint's last-return-wins reports where every FIR return path is not true.
 package test
 
 import javax.net.ssl.HostnameVerifier
@@ -17,16 +17,52 @@ class RejectAll : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean = false
 }
 
+class ExtensionHelper : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession) = hostname == session.peerHost
+    fun Any.verify(hostname: String, session: SSLSession) = true
+    fun <Value> verify(hostname: Value, session: SSLSession) = true
+    fun verify(hostname: String, vararg session: SSLSession) = true
+}
+
+// Both engines retain main's Go/Lint finding despite preceding logging.
+
 class LogsFirst : HostnameVerifier {
-    override fun verify(hostname: String, session: SSLSession): Boolean {
+    <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
         println(hostname)
         return true
     }
 }
 
+// Declarations before a true return retain coverage. A throwing path rejects
+// the verifier and is silent in FIR, though Go's Lint visitor reports it.
+
+class DeclaresFirst : HostnameVerifier {
+    <!BadHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean {
+        val values = listOf(1)
+        return true
+    }
+}
+
+class ThrowsFirst : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
+        if (hostname.isEmpty()) throw IllegalArgumentException()
+        return true
+    }
+}
+
+// Go reports the final true; FIR sees the direct false path.
 class Conditional : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean {
         if (hostname.isEmpty()) return false
+        return true
+    }
+}
+
+// The inline nonlocal false return also rejects a host; Go retains the
+// last-return finding while strict FIR stays silent.
+class NonlocalReturn : HostnameVerifier {
+    override fun verify(hostname: String, session: SSLSession): Boolean {
+        run { if (hostname.isEmpty()) return false }
         return true
     }
 }
@@ -64,7 +100,7 @@ fun verify(hostname: String, session: SSLSession): Boolean = true
 val validatingLambda = HostnameVerifier { host, _ -> host == "example.com" }
 
 // The anonymous object's verify is not HostnameVerifier.verify, because the
-// object is not a verifier; both Go and FIR skip it.
+// object is not a verifier; FIR skips it, while Go's class-wide visitor reports the outer member.
 class AnonymousHelper : HostnameVerifier {
     override fun verify(hostname: String, session: SSLSession): Boolean = hostname == session.peerHost
 

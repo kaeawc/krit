@@ -1369,9 +1369,9 @@ class Pins {
 	})
 }
 
-func TestAllowAllHostnameVerifier(t *testing.T) {
+func TestBadHostnameVerifier(t *testing.T) {
 	t.Run("Kotlin flags expression and return true verifiers", func(t *testing.T) {
-		findings := runRuleByName(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByName(t, "BadHostnameVerifier", `
 package test
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLSession
@@ -1391,7 +1391,7 @@ class AllowAllBlock : HostnameVerifier {
 		}
 	})
 	t.Run("Kotlin skips validating, delegated, and local lookalike verifiers", func(t *testing.T) {
-		findings := runRuleByName(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByName(t, "BadHostnameVerifier", `
 package test
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLSession
@@ -1406,7 +1406,7 @@ class DelegatingVerifier(delegate: HostnameVerifier) : HostnameVerifier by deleg
 			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
 		}
 
-		lookalike := runRuleByName(t, "AllowAllHostnameVerifier", `
+		lookalike := runRuleByName(t, "BadHostnameVerifier", `
 package test
 interface HostnameVerifier
 class LocalVerifier : HostnameVerifier {
@@ -1418,7 +1418,7 @@ class LocalVerifier : HostnameVerifier {
 		}
 	})
 	t.Run("Java flags return true verifier", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByNameOnJava(t, "BadHostnameVerifier", `
 package test;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;
@@ -1434,7 +1434,7 @@ class AllowAll implements HostnameVerifier {
 		}
 	})
 	t.Run("Java skips validating and local lookalike verifiers", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByNameOnJava(t, "BadHostnameVerifier", `
 package test;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;
@@ -1449,7 +1449,7 @@ class ValidatingVerifier implements HostnameVerifier {
 			t.Fatalf("expected 0 Java findings, got %d: %v", len(findings), findings)
 		}
 
-		lookalike := runRuleByNameOnJava(t, "AllowAllHostnameVerifier", `
+		lookalike := runRuleByNameOnJava(t, "BadHostnameVerifier", `
 package test;
 interface HostnameVerifier {}
 class LocalVerifier implements HostnameVerifier {
@@ -1464,9 +1464,9 @@ class LocalVerifier implements HostnameVerifier {
 	})
 }
 
-func TestAllowAllHostnameVerifierAnonymousForms(t *testing.T) {
+func TestBadHostnameVerifierAnonymousForms(t *testing.T) {
 	t.Run("Kotlin flags object literals and SAM lambdas", func(t *testing.T) {
-		findings := runRuleByName(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByName(t, "BadHostnameVerifier", `
 package test
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.SSLSession
@@ -1485,7 +1485,7 @@ val ok2 = HostnameVerifier { host, _ -> host == "x" }
 		}
 	})
 	t.Run("Java flags anonymous classes", func(t *testing.T) {
-		findings := runRuleByNameOnJava(t, "AllowAllHostnameVerifier", `
+		findings := runRuleByNameOnJava(t, "BadHostnameVerifier", `
 package test;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLSession;

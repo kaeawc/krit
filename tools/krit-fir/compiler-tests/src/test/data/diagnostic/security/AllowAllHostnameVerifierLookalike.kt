@@ -1,27 +1,17 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// A local HostnameVerifier lookalike: its verify accepting everything is not
-// a TLS hostname check, so neither Go nor FIR reports it. This comment
-// mentions javax.net.ssl.HostnameVerifier, which is enough for Go's file gate.
-// Go only looks for a lookalike declared in the same file, so it still reports
-// a class implementing a HostnameVerifier imported from another file or
-// package. FIR reports nothing there, for the same reason as here (pinned in
-// AllowAllHostnameVerifierCrossFileTest).
 package test
 
-import javax.net.ssl.SSLSession
-
-interface HostnameVerifier {
-    fun verify(hostname: String, session: SSLSession): Boolean
+class AllowAllHostnameVerifier
+object SSLSocketFactory {
+    val ALLOW_ALL_HOSTNAME_VERIFIER = Any()
 }
 
-class LocalVerifier : HostnameVerifier {
-    override fun verify(hostname: String, session: SSLSession): Boolean = true
-}
+val constructed = AllowAllHostnameVerifier()
+val constant = SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
+val text = "org.apache.http.conn.ssl.AllowAllHostnameVerifier()"
+/*
+import org.apache.http.conn.ssl.AllowAllHostnameVerifier
+*/
 
-// Deliberate improvement: the qualified JDK interface is still a verifier. Go
-// misses it because the file declares its own HostnameVerifier, which makes
-// Go skip every class in the file.
-class JdkVerifier : javax.net.ssl.HostnameVerifier {
-    <!AllowAllHostnameVerifier!>override<!> fun verify(hostname: String, session: SSLSession): Boolean = true
-}
+fun local(SSLSocketFactory: Any) = SSLSocketFactory.toString()

@@ -96,27 +96,74 @@ func (r *DisableCertificatePinningRule) check(ctx *api.Context) {
 }
 
 func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
-	file := ctx.File
-	if file.FlatType(ctx.Idx) == "call_expression" {
-		if allowAllHostnameVerifierSamLambda(file, ctx.Idx) {
-			f := r.Finding(file, file.FlatRow(ctx.Idx)+1, file.FlatCol(ctx.Idx)+1,
-				"HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host.")
-			f.Confidence = r.Confidence()
-			ctx.Emit(f)
+	file, idx := ctx.File, ctx.Idx
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		if file.FlatType(parent) == "import_header" || file.FlatType(parent) == "import_declaration" {
+			return
 		}
+	}
+	text := strings.TrimSpace(file.FlatNodeText(idx))
+	target := ""
+	switch file.FlatType(idx) {
+	case "constructor_invocation":
+		parent, ok := file.FlatParent(idx)
+		if !ok || file.FlatType(parent) != "delegation_specifier" {
+			return
+		}
+		name, _ := file.FlatFindChild(idx, "user_type")
+		if name == 0 || !hostnameVerifierSourceMatches(file, idx, file.FlatNodeText(name), "org.apache.http.conn.ssl.AllowAllHostnameVerifier") {
+			return
+		}
+		target = "AllowAllHostnameVerifier"
+	case "callable_reference", "method_reference":
+		constructor := strings.TrimPrefix(text, "::")
+		if file.Language == scanner.LangJava {
+			if !strings.HasSuffix(constructor, "::new") {
+				return
+			}
+			constructor = strings.TrimSuffix(constructor, "::new")
+		}
+		if hostnameVerifierSourceMatches(file, idx, constructor, "org.apache.http.conn.ssl.AllowAllHostnameVerifier") {
+			target = "AllowAllHostnameVerifier"
+		} else if hostnameVerifierSourceMatches(file, idx, strings.ReplaceAll(text, "::", "."), "org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER") {
+			target = "ALLOW_ALL_HOSTNAME_VERIFIER"
+		} else {
+			return
+		}
+	case "call_expression", "object_creation_expression":
+		call, ok := lintCallAt(file, idx)
+		if !ok || !hostnameVerifierSourceMatches(file, idx, call.TypeText, "org.apache.http.conn.ssl.AllowAllHostnameVerifier") {
+			return
+		}
+		target = "AllowAllHostnameVerifier"
+	case "navigation_expression", "field_access", "simple_identifier", "identifier":
+		if !hostnameVerifierSourceMatches(file, idx, strings.ReplaceAll(text, "::", "."), "org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER") {
+			return
+		}
+		if parent, ok := file.FlatParent(idx); ok {
+			switch file.FlatType(parent) {
+			case "navigation_expression", "field_access":
+				if file.FlatFirstChild(parent) != idx || hostnameVerifierSourceMatches(file, parent, strings.ReplaceAll(file.FlatNodeText(parent), "::", "."), "org.apache.http.conn.ssl.SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER") {
+					return
+				}
+			case "navigation_suffix", "import_header", "import_declaration", "identifier", "callable_reference", "method_reference":
+				return
+			case "enum_constant", "element_value_pair":
+				if file.FlatFirstChild(parent) == idx {
+					return
+				}
+			case "value_argument":
+				if _, named := file.FlatFindChild(parent, "="); named && file.FlatFirstChild(parent) == idx {
+					return
+				}
+			}
+		}
+		target = "ALLOW_ALL_HOSTNAME_VERIFIER"
+	default:
 		return
 	}
-	if !allowAllHostnameVerifierClass(file, ctx.Idx) {
-		return
-	}
-	method := allowAllHostnameVerifierVerifyMethod(file, ctx.Idx)
-	if method == 0 {
-		return
-	}
-	f := r.Finding(file, file.FlatRow(method)+1, file.FlatCol(method)+1,
-		"HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host.")
-	f.Confidence = r.Confidence()
-	ctx.Emit(f)
+	ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		"Using the `"+target+"` HostnameVerifier is unsafe because it always returns true, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames")
 }
 
 func (r *InsecureTrustManagerRule) check(ctx *api.Context) {

@@ -336,7 +336,7 @@ func registerLintSecurityChecks() {
 	registerLintRule(load.AndroidRule, load, load.Confidence(), load.check, lintCallNodeTypes[:2], 0, nil)
 	verifier := &BadHostnameVerifierRule{AndroidRule: lintAndroidRule("BadHostnameVerifier",
 		"Insecure HostnameVerifier", ALCSecurity, ALSWarning, 6)}
-	registerLintRule(verifier.AndroidRule, verifier, verifier.Confidence(), verifier.check, trustManagerClassNodes, 0, nil)
+	registerLintRule(verifier.AndroidRule, verifier, verifier.Confidence(), verifier.check, append(append([]string{}, trustManagerClassNodes...), "call_expression"), 0, nil)
 	ids := &HardwareIDsRule{AndroidRule: lintAndroidRule("HardwareIds", "Hardware Id Usage", ALCSecurity, ALSWarning, 6)}
 	registerLintRule(ids.AndroidRule, ids, ids.Confidence(), ids.check,
 		[]string{"call_expression", "method_invocation", "navigation_expression", "field_access"}, 0, nil)

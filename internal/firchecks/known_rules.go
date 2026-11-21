@@ -7,6 +7,7 @@ package firchecks
 // A zero-rule response is suspicious only when the request includes one of these.
 var knownFIRRules = map[string]bool{
 	"AllowAllHostnameVerifier":                true,
+	"BadHostnameVerifier":                     true,
 	"AssertNullableWithNotNullAssertion":      true,
 	"AssertTrueOnComparison":                  true,
 	"BindsReturnTypeMatchesParam":             true,

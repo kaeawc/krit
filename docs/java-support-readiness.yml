@@ -146,7 +146,7 @@ rules:
   AllowAllHostnameVerifier:
     status: supported
     fixtures:
-      - internal/rules/android_security_test.go
+      - internal/rules/hostname_verifier_test.go
   ApplySharedPref:
     status: supported
     fixtures:

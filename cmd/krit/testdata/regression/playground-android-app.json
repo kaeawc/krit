@@ -435,12 +435,12 @@
       "message": "`checkServerTrusted` is empty, which could cause insecure network traffic due to trusting arbitrary TLS/SSL certificates presented by peers"
     },
     {
-      "rule": "AllowAllHostnameVerifier",
-      "ruleSet": "security",
+      "rule": "BadHostnameVerifier",
+      "ruleSet": "android-lint",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 35,
       "col": 0,
-      "message": "HostnameVerifier.verify always returns true. Validate the SSLSession hostname instead of accepting every host."
+      "message": "`verify` always returns `true`, which could cause insecure network traffic due to trusting TLS/SSL server certificates for wrong hostnames"
     },
     {
       "rule": "FunctionOnlyReturningConstant",

@@ -247,49 +247,6 @@ func TestOkHTTPDisableSslValidationUnsafeTrustManager(t *testing.T) {
 	}
 }
 
-func TestAllowAllHostnameVerifierParamCount(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		text string
-		want int
-	}{
-		{"public boolean verify(String host, SSLSession session) { return true; }", 2},
-		{"boolean verify() { return true; }", 0},
-		{"verify(a, b, c)", 3},
-		{"verify(Map<String, Integer> m, SSLSession s)", 2}, // generic comma must not count
-		{"no verify here", -1},
-	}
-	for _, c := range cases {
-		if got := allowAllHostnameVerifierParamCount(c.text); got != c.want {
-			t.Errorf("allowAllHostnameVerifierParamCount(%q) = %d, want %d", c.text, got, c.want)
-		}
-	}
-}
-
-func TestAllowAllHostnameVerifierMethodReturnsTrue(t *testing.T) {
-	t.Parallel()
-	positives := []string{
-		"verify(String h, SSLSession s) { return true; }",
-		"verify(String h, SSLSession s) { return true }",
-		"verify(...) = true",
-	}
-	for _, in := range positives {
-		if !allowAllHostnameVerifierMethodReturnsTrue(in) {
-			t.Errorf("allowAllHostnameVerifierMethodReturnsTrue(%q) = false, want true", in)
-		}
-	}
-	negatives := []string{
-		"verify(String h, SSLSession s) { return s.isValid(); }",
-		"verify(...) = s.isValid()",
-		"",
-	}
-	for _, in := range negatives {
-		if allowAllHostnameVerifierMethodReturnsTrue(in) {
-			t.Errorf("allowAllHostnameVerifierMethodReturnsTrue(%q) = true, want false", in)
-		}
-	}
-}
-
 func TestMatchingParenIndex(t *testing.T) {
 	t.Parallel()
 	if got := matchingParenIndex("foo(bar(baz))end", 3); got != 12 {

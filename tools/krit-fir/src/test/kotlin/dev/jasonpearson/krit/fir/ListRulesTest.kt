@@ -9,9 +9,10 @@ class ListRulesTest {
         val ids = listRulesOutput().lines().filter { it.isNotEmpty() }
         assertEquals(FirRuleDiscovery.rules.map { it.ruleId }, ids)
         assertEquals(ids.sorted(), ids)
+        assertTrue("BadHostnameVerifier" in ids, "BadHostnameVerifier has a FIR checker")
         assertTrue(
             ids.containsAll(listOf(
-                "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
+                "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "PlainFileWriteOfSensitive",
             )),
             ids.toString(),

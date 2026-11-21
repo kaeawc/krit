@@ -14,6 +14,7 @@ import dev.jasonpearson.krit.fir.support.selectorCallExpression
 import dev.jasonpearson.krit.fir.support.significantChildren
 import dev.jasonpearson.krit.fir.support.unwrapSmartCasts
 import org.jetbrains.kotlin.KtRealSourceElementKind
+import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.diagnostics.DiagnosticReporter
@@ -29,6 +30,7 @@ import org.jetbrains.kotlin.fir.declarations.FirAnonymousInitializer
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirValueParameter
 import org.jetbrains.kotlin.fir.declarations.toAnnotationClassIdSafe
 import org.jetbrains.kotlin.fir.declarations.utils.isAbstract
 import org.jetbrains.kotlin.fir.declarations.utils.isLateInit
@@ -147,77 +149,171 @@ internal object SingletonOnMutableClass :
     @OptIn(DirectDeclarationsAccess::class, SymbolInternals::class)
     context(context: CheckerContext, reporter: DiagnosticReporter)
     override fun check(declaration: FirRegularClass) {
-        if (declaration.source?.kind !is KtRealSourceElementKind ||
-            declaration.classKind == ClassKind.INTERFACE || declaration.classKind == ClassKind.OBJECT
-        ) return
-        val scopes = declaration.annotations.mapNotNull { scopeName(it, context.session) }
-        val scope = listOf("Singleton", "ApplicationScoped").firstOrNull { it in scopes } ?: return
-        if (hasAnnotation(declaration.annotations, threadAnnotations, context.session)) return
-        var primary: FirConstructor? = null
-        val members = mutableListOf<FirProperty>()
-        declaration.declarations.filter { it.source?.kind is KtRealSourceElementKind }.forEach { member ->
-            when (member) {
-                is FirConstructor -> if (member.isPrimary) primary = member
-                is FirProperty -> if (!member.isAbstract) {
-                    members += member
-                }
-                else -> Unit
-            }
-        }
-        if (primary?.valueParameters?.any {
-                matchesType(it.returnTypeRef.coneType, confinementTypes) ||
-                    it.name.asString() in confinementNames
-            } == true
-        ) return
-        members.sortBy { it.source?.startOffset }
+        val scopeAnalysis = ScopeAnalysis(this)
+        val scope = scopeAnalysis.applicableScope(declaration) ?: return
+        val members = scopeAnalysis.collectMembers(declaration)
+        if (scopeAnalysis.hasConfinementParameter(members.primary)) return
+        members.properties.sortBy { it.source?.startOffset }
         val scan = StateScan(context.session)
         declaration.accept(scan)
-        val findings = members.mapNotNull { member ->
-            val source = member.source ?: return@mapNotNull null
+        val findings = FindingAnalysis(this).collectFindings(members.properties, scan)
+        if (findings.isEmpty()) return
+        reportFinding(declaration, scope, findings)
+    }
+
+    private class ScopeAnalysis(private val checker: SingletonOnMutableClass) {
+        context(context: CheckerContext)
+        fun applicableScope(declaration: FirRegularClass): String? {
+            if (declaration.source?.kind !is KtRealSourceElementKind || isNonClassDeclaration(declaration)) return null
+            val scopes = declaration.annotations.mapNotNull { checker.scopeName(it, context.session) }
+            val scope = listOf("Singleton", "ApplicationScoped").firstOrNull { it in scopes } ?: return null
+            return scope.takeUnless {
+                checker.hasAnnotation(declaration.annotations, threadAnnotations, context.session)
+            }
+        }
+
+        private fun isNonClassDeclaration(declaration: FirRegularClass): Boolean =
+            declaration.classKind == ClassKind.INTERFACE || declaration.classKind == ClassKind.OBJECT
+
+        @OptIn(DirectDeclarationsAccess::class)
+        fun collectMembers(declaration: FirRegularClass): ClassMembers {
+            var primary: FirConstructor? = null
+            val members = mutableListOf<FirProperty>()
+            declaration.declarations.filter { it.source?.kind is KtRealSourceElementKind }.forEach { member ->
+                when (member) {
+                    is FirConstructor -> if (member.isPrimary) primary = member
+                    is FirProperty -> if (!member.isAbstract) {
+                        members += member
+                    }
+                    else -> Unit
+                }
+            }
+            return ClassMembers(primary, members)
+        }
+
+        context(context: CheckerContext)
+        fun hasConfinementParameter(primary: FirConstructor?): Boolean =
+            primary?.valueParameters?.any { isConfinementParameter(it) } == true
+
+        context(context: CheckerContext)
+        private fun isConfinementParameter(parameter: FirValueParameter): Boolean =
+            checker.matchesType(parameter.returnTypeRef.coneType, confinementTypes) ||
+                parameter.name.asString() in confinementNames
+    }
+
+    private class FindingAnalysis(private val checker: SingletonOnMutableClass) {
+        private val stateReasonAnalysis = StateReasonAnalysis(checker)
+
+        context(context: CheckerContext)
+        @OptIn(SymbolInternals::class)
+        fun collectFindings(members: List<FirProperty>, scan: StateScan): List<Finding> =
+            members.mapNotNull { findUnprotectedMember(it, scan) }
+
+        context(context: CheckerContext)
+        @OptIn(SymbolInternals::class)
+        private fun findUnprotectedMember(member: FirProperty, scan: StateScan): Finding? {
+            val source = member.source ?: return null
+            if (shouldIgnoreMember(member, scan)) return null
+            val reason = stateReasonAnalysis.mutableStateReason(member, scan) ?: return null
+            val name = identifierText(source) ?: member.name.asString()
+            return Finding(source, "'$name' ($reason)")
+        }
+
+        context(context: CheckerContext)
+        private fun shouldIgnoreMember(member: FirProperty, scan: StateScan): Boolean {
+            if (isProtectedMember(member, scan)) return true
+            val references = scan.references[member.symbol].orEmpty()
+            return hasOnlyThreadAnnotatedReferences(references) ||
+                hasOnlySynchronizedReads(member, references, scan) || hasOnlySynchronizedWrites(member, scan)
+        }
+
+        context(context: CheckerContext)
+        private fun isProtectedMember(member: FirProperty, scan: StateScan): Boolean =
+            hasExplicitProtection(member) || hasProtectedValue(member, scan) || hasProtectedDelegate(member)
+
+        context(context: CheckerContext)
+        private fun hasExplicitProtection(member: FirProperty): Boolean {
             val annotations = member.annotations + member.backingField?.annotations.orEmpty() +
                 member.getter?.annotations.orEmpty() + member.setter?.annotations.orEmpty()
-            if (hasAnnotation(annotations, protectionAnnotations, context.session) ||
-                annotations.any { it.toAnnotationClassIdSafe(context.session)?.shortClassName?.asString() == "GuardedBy" } ||
-                (member.symbol !in scan.assigned && (
-                    matchesType(member.returnTypeRef.coneType, protectedTypes + atomicLockTypes) ||
-                    isThreadSafeCollection(member.returnTypeRef.coneType, member.initializer as? FirFunctionCall) ||
-                    member.initializer?.let { matchesType(it.resolvedType, protectedTypes) } == true
-                )) ||
-                member.delegate?.let { matchesType(it.resolvedType, protectedTypes + atomicLockTypes) } == true
-            ) return@mapNotNull null
-            val references = scan.references[member.symbol].orEmpty()
-            if (references.isNotEmpty() && references.all { it.threadAnnotated }) return@mapNotNull null
-            if ((!member.isVar || member.visibility == Visibilities.Private || member.setter?.visibility == Visibilities.Private) &&
-                references.isNotEmpty() && references.all { scan.isSynchronized(it) }
-            ) return@mapNotNull null
-            if (member.visibility != Visibilities.Private && member.setter?.visibility == Visibilities.Private &&
-                scan.writes[member.symbol].orEmpty().all { scan.isSynchronized(it) }
-            ) return@mapNotNull null
-            val reason = if (member.isVar) {
-                if (member.symbol !in scan.assigned &&
-                    (member.visibility == Visibilities.Private || member.setter?.visibility == Visibilities.Private || member.isLateInit)
-                ) return@mapNotNull null
-                "var property"
-            } else {
-                val initializer = member.initializer ?: return@mapNotNull null
-                val call = initializer as? FirFunctionCall ?: return@mapNotNull null
-                if (!isKnownMutableCollection(call)) return@mapNotNull null
-                val callSource = call.source ?: return@mapNotNull null
-                val callNode = selectorCallExpression(callSource) ?: return@mapNotNull null
-                val callee = significantChildren(callSource, callNode).firstOrNull() ?: return@mapNotNull null
-                "val initialised by ${lightText(callSource, callee)}()"
-            }
-            source to "'${identifierText(source) ?: member.name.asString()}' ($reason)"
+            return checker.hasAnnotation(annotations, protectionAnnotations, context.session) ||
+                annotations.any {
+                    it.toAnnotationClassIdSafe(context.session)?.shortClassName?.asString() == "GuardedBy"
+                }
         }
-        if (findings.isEmpty()) return
+
+        context(context: CheckerContext)
+        private fun hasProtectedValue(member: FirProperty, scan: StateScan): Boolean {
+            if (member.symbol in scan.assigned) return false
+            return checker.matchesType(member.returnTypeRef.coneType, protectedTypes + atomicLockTypes) ||
+                checker.isThreadSafeCollection(member.returnTypeRef.coneType, member.initializer as? FirFunctionCall) ||
+                member.initializer?.let { checker.matchesType(it.resolvedType, protectedTypes) } == true
+        }
+
+        context(context: CheckerContext)
+        private fun hasProtectedDelegate(member: FirProperty): Boolean =
+            member.delegate?.let { checker.matchesType(it.resolvedType, protectedTypes + atomicLockTypes) } == true
+
+        private fun hasOnlyThreadAnnotatedReferences(references: List<Reference>): Boolean =
+            references.isNotEmpty() && references.all { it.threadAnnotated }
+
+        private fun hasOnlySynchronizedReads(
+            member: FirProperty,
+            references: List<Reference>,
+            scan: StateScan,
+        ): Boolean =
+            stateReasonAnalysis.isReadOnlyOrPrivatelySet(member) && references.isNotEmpty() &&
+                references.all { scan.isSynchronized(it) }
+
+        private fun hasOnlySynchronizedWrites(member: FirProperty, scan: StateScan): Boolean =
+            member.visibility != Visibilities.Private && member.setter?.visibility == Visibilities.Private &&
+                scan.writes[member.symbol].orEmpty().all { scan.isSynchronized(it) }
+    }
+
+    private class StateReasonAnalysis(private val checker: SingletonOnMutableClass) {
+        context(context: CheckerContext)
+        fun mutableStateReason(member: FirProperty, scan: StateScan): String? {
+            if (member.isVar) return mutableVarReason(member, scan)
+            return mutableCollectionReason(member)
+        }
+
+        private fun mutableVarReason(member: FirProperty, scan: StateScan): String? {
+            val isUnwrittenPrivateState = member.symbol !in scan.assigned && isPrivateOrLateinit(member)
+            return if (isUnwrittenPrivateState) null else "var property"
+        }
+
+        fun isReadOnlyOrPrivatelySet(member: FirProperty): Boolean =
+            !member.isVar || member.visibility == Visibilities.Private ||
+                member.setter?.visibility == Visibilities.Private
+
+        private fun isPrivateOrLateinit(member: FirProperty): Boolean =
+            member.visibility == Visibilities.Private || member.setter?.visibility == Visibilities.Private ||
+                member.isLateInit
+
+        context(context: CheckerContext)
+        private fun mutableCollectionReason(member: FirProperty): String? {
+            val call = member.initializer as? FirFunctionCall ?: return null
+            if (!checker.isKnownMutableCollection(call)) return null
+            val callSource = call.source ?: return null
+            val callNode = selectorCallExpression(callSource) ?: return null
+            val callee = significantChildren(callSource, callNode).firstOrNull() ?: return null
+            return "val initialised by ${lightText(callSource, callee)}()"
+        }
+    }
+
+    context(context: CheckerContext, reporter: DiagnosticReporter)
+    private fun reportFinding(declaration: FirRegularClass, scope: String, findings: List<Finding>) {
         val name = declaration.source?.let(::identifierText) ?: declaration.name.asString()
-        val source = findings.first().first
+        val source = findings.first().source
         report(
             firstLineAnchor(source, KtTokens.VAR_KEYWORD, KtTokens.VAL_KEYWORD) ?: source,
-            "@$scope class '$name' holds unprotected mutable state in ${findings.joinToString(", ") { it.second }}; " +
+            "@$scope class '$name' holds unprotected mutable state in ${findings.joinToString(", ") { it.message }}; " +
                 "singleton-scoped state should be thread-safe.",
         )
     }
+
+    private data class ClassMembers(val primary: FirConstructor?, val properties: MutableList<FirProperty>)
+
+    private data class Finding(val source: KtSourceElement, val message: String)
 
     context(context: CheckerContext)
     private fun isKnownMutableCollection(call: FirFunctionCall): Boolean {
@@ -240,8 +336,11 @@ internal object SingletonOnMutableClass :
         ) return true
         val callableId = call?.calleeReference?.toResolvedCallableSymbol()?.callableId ?: return false
         return callableId.classId == classIdOf("java.util", "Collections") &&
-            (callableId.callableName.asString().startsWith("synchronized") || callableId.callableName.asString().startsWith("unmodifiable"))
+            isStandardCollectionWrapper(callableId.callableName.asString())
     }
+
+    private fun isStandardCollectionWrapper(name: String): Boolean =
+        name.startsWith("synchronized") || name.startsWith("unmodifiable")
 
     private fun isThreadSafeCollectionClass(classId: ClassId): Boolean =
         (classId.packageFqName.asString() == "java.util.concurrent" && classId.shortClassName.asString() in setOf(
@@ -259,11 +358,15 @@ internal object SingletonOnMutableClass :
         if (classId in singletonScopes) return "Singleton"
         if (classId in applicationScopes) return "ApplicationScoped"
         val name = classId.shortClassName.asString()
-        return name.takeIf { it in setOf("Singleton", "ApplicationScoped") && hasMetaAnnotation(annotation, scopeMetaAnnotations, session) }
+        return name.takeIf {
+            it in setOf("Singleton", "ApplicationScoped") &&
+                hasMetaAnnotation(annotation, scopeMetaAnnotations, session)
+        }
     }
 
     private fun hasMetaAnnotation(annotation: FirAnnotation, targets: Set<ClassId>, session: FirSession): Boolean {
-        val type = annotation.annotationTypeRef.coneType.fullyExpandedType(session) as? ConeClassLikeType ?: return false
+        val type = annotation.annotationTypeRef.coneType
+            .fullyExpandedType(session) as? ConeClassLikeType ?: return false
         val symbol = type.lookupTag.toClassSymbol(session) ?: return false
         return symbol.resolvedAnnotationsWithClassIds.any { it.toAnnotationClassIdSafe(session) in targets }
     }
@@ -326,10 +429,7 @@ internal object SingletonOnMutableClass :
                 if (callableId?.classId == null) {
                     val pkg = callableId?.packageName?.asString()
                     val name = callableId?.callableName?.asString()
-                    if ((name == "synchronized" && pkg in setOf("kotlin", "kotlinx.atomicfu.locks")) ||
-                        (name == "withLock" && pkg in setOf("kotlin.concurrent", "kotlinx.coroutines.sync", "kotlinx.atomicfu.locks")) ||
-                        (name in setOf("read", "write") && pkg == "kotlin.concurrent")
-                    ) locked = true
+                    if (isLockingCall(name, pkg)) locked = true
                 }
             }
             if (element is FirQualifiedAccessExpression) {
@@ -350,6 +450,21 @@ internal object SingletonOnMutableClass :
             locked,
             enclosingFunction?.let { hasAnnotation(it.annotations, threadAnnotations, session) } == true,
         )
+
+        private fun isLockingCall(name: String?, packageName: String?): Boolean =
+            isSynchronizedCall(name, packageName) || isWithLockCall(name, packageName) ||
+                isReadWriteLockCall(name, packageName)
+
+        private fun isSynchronizedCall(name: String?, packageName: String?): Boolean =
+            name == "synchronized" && packageName in setOf("kotlin", "kotlinx.atomicfu.locks")
+
+        private fun isWithLockCall(name: String?, packageName: String?): Boolean =
+            name == "withLock" && packageName in setOf(
+                "kotlin.concurrent", "kotlinx.coroutines.sync", "kotlinx.atomicfu.locks",
+            )
+
+        private fun isReadWriteLockCall(name: String?, packageName: String?): Boolean =
+            name in setOf("read", "write") && packageName == "kotlin.concurrent"
 
         fun isSynchronized(reference: Reference, visiting: Set<FirCallableSymbol<*>> = emptySet()): Boolean {
             if (reference.locked) return true

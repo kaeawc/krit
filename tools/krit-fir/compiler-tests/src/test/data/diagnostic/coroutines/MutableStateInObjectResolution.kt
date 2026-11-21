@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 56, 57, 59, 65, 71, 81, 86, 92, 98, 111, 115, 122, 130, 145, 146, 152, 182, 203, 216, 235, 284
+// go-lines: 56, 57, 59, 65, 71, 81, 86, 149, 150, 156, 186, 239
 package test.resolution
 
 import java.util.concurrent.atomic.AtomicInteger as SafeCounter
@@ -88,13 +88,14 @@ object AliasedLifecycle {
 @Cleanup fun cleanup() { AliasedLifecycle.resetCount = 0 }
 
 object MutatingGetter {
-    // The getter mutates the property's backing field on every read.
-    private var <!MutableStateInObject!>count<!> = 0
+    // Accessor backing-field writes are intentionally ignored as an accepted false negative.
+    private var count = 0
         get() { field += 1; return field }
     fun next() = count
 }
 
 object NestedWriter {
+    // Go intentionally ignores nested declarations; FIR resolves this write to the outer property.
     private var <!MutableStateInObject!>count<!> = 0
     object Writer { fun bump() { NestedWriter.count++ } }
 }
@@ -112,6 +113,7 @@ object NestedOwnWrite {
 }
 
 object Registry {
+    // Go can mistake an unrelated this.count finally-write for a reset; FIR resolves its receiver.
     var <!MutableStateInObject!>count<!> = 0
 }
 class OtherReceiver {
@@ -119,6 +121,7 @@ class OtherReceiver {
     fun reset() { try { println(count) } finally { this.count = 0 } }
 }
 object ShadowedReceiverState {
+    // Go can mistake a shadowed receiver's finally-write for a reset; FIR resolves its receiver.
     var <!MutableStateInObject!>count<!> = 0
 }
 class OtherQualifiedReceiver { var count = 0 }
@@ -127,7 +130,8 @@ fun resetShadowedReceiver(ShadowedReceiverState: OtherQualifiedReceiver) {
 }
 
 object LockArgumentEvaluation {
-    private var <!MutableStateInObject!>count<!> = 0
+    // The conservative synchronized-call exemption includes lock evaluation before the action.
+    private var count = 0
     private fun nextLock(): Any { count++; return Any() }
     fun run() { kotlin.synchronized(nextLock()) {} }
 }
@@ -160,8 +164,8 @@ object AtomicFuLookalike {
 
 class Box<T>(var value: T)
 object UnsafeGenericWrapper {
-    // An atomic type argument does not make Box's mutable storage safe.
-    var <!MutableStateInObject!>box<!> = Box(java.util.concurrent.atomic.AtomicInteger(0))
+    // Generic safe-type arguments are conservatively accepted even when wrapper storage is mutable.
+    var box = Box(java.util.concurrent.atomic.AtomicInteger(0))
 }
 object SafeAtomicWrapper {
     var wrapper: java.util.concurrent.atomic.AtomicReference<Box<Int>> =

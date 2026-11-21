@@ -36,6 +36,10 @@ type functionDeclRef struct {
 	FunctionDecl
 }
 
+func (r *defaultResolver) HasFunction(fqn string) bool {
+	return len(r.functionDecls[fqn]) != 0 || r.functions[fqn] != nil
+}
+
 // indexFunctionFlat keeps declaration indexing on the flat path while the
 // remaining declarations work lands in its owner track.
 func (r *defaultResolver) indexFunctionFlat(funcIdx uint32, file *scanner.File, it *ImportTable, pkg string) {

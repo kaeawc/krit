@@ -139,13 +139,14 @@ func registerPotentialbugsTypesRules() {
 		})
 	}
 	{
-		r := &DoubleMutabilityForCollectionRule{BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
+		r := &DoubleMutabilityForCollectionRule{OnlyValCandidates: true, BaseRule: BaseRule{RuleName: "DoubleMutabilityForCollection", RuleSetName: "potential-bugs", Sev: "warning", Desc: "Detects var declarations with mutable collection types, creating double mutability."}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 			NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Fix: api.FixSemantic, Implementation: r,
+			OptionalResolver: true, TypeInfo: api.TypeInfoHint{PreferBackend: api.PreferResolver, Required: true},
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if scanner.IsTestFile(file.Path) {
+				if r.OnlyValCandidates && scanner.IsTestFile(file.Path) {
 					return
 				}
 				if !propertyDeclarationIsVar(file, idx) {
@@ -156,10 +157,16 @@ func registerPotentialbugsTypesRules() {
 				if varDecl == 0 {
 					return
 				}
-				if !doubleMutabilityVarIsCandidate(file, idx, varDecl) {
+				isCandidate := !scanner.IsTestFile(file.Path) && doubleMutabilityVarIsCandidate(file, idx, varDecl)
+				useCandidates := r.OnlyValCandidates || ctx.Resolver == nil
+				if useCandidates && !isCandidate {
 					return
 				}
-				if !doubleMutabilityHasExplicitMutableType(file, varDecl, mutableTypes) {
+				if !r.OnlyValCandidates {
+					if !r.hasConfiguredResolvedType(ctx, idx, varDecl) {
+						return
+					}
+				} else if !doubleMutabilityHasExplicitMutableType(file, varDecl, mutableTypes) {
 					if !doubleMutabilityInitializerLooksLikeMutableFactory(file, idx) {
 						return
 					}
@@ -172,7 +179,7 @@ func registerPotentialbugsTypesRules() {
 						varKeyword = ch
 					}
 				})
-				if varKeyword != 0 {
+				if varKeyword != 0 && isCandidate {
 					f.Fix = &scanner.Fix{
 						ByteMode:    true,
 						StartByte:   int(file.FlatStartByte(varKeyword)),

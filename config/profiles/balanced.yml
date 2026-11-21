@@ -476,6 +476,7 @@ potential-bugs:
       - 'kotlin.String'
   DoubleMutabilityForCollection:
     active: true
+    onlyValCandidates: true
     mutableTypes:
       - 'kotlin.collections.MutableList'
       - 'kotlin.collections.MutableMap'

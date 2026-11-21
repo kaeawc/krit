@@ -6,6 +6,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // --- EqualsAlwaysReturnsTrueOrFalse ---
@@ -98,14 +99,15 @@ class Foo(val id: Int) {
 
 func TestDontDowncastCollectionTypes_FollowsDetekt(t *testing.T) {
 	flagged := map[string]string{
-		"as MutableList":    "fun f(l: List<String>) { val m = l as MutableList<String> }",
-		"is MutableList":    "fun f(l: List<String>) { val m = l is MutableList<*> }",
-		"not is ArrayList":  "fun f(l: List<String>) { val m = l !is ArrayList<String> }",
-		"safe cast":         "fun f(l: Set<String>) { val m = l as? HashSet<String> }",
-		"nullable source":   "fun f(l: List<String>?) { val m = l as MutableList<String> }",
-		"map to hash map":   "fun f(l: Map<String, Int>) { val m = l as HashMap<String, Int> }",
-		"qualified array":   "fun f(l: List<String>) { val m = l as java.util.ArrayList<String> }",
-		"parenthesized lhs": "fun f(l: List<String>) { val m = (l) as MutableList<String> }",
+		"same-package alias with wildcard": "import kotlinx.coroutines.*\ntypealias Names = List<String>\nfun f(names: Names) = names as MutableList<String>",
+		"as MutableList":                   "fun f(l: List<String>) { val m = l as MutableList<String> }",
+		"is MutableList":                   "fun f(l: List<String>) { val m = l is MutableList<*> }",
+		"not is ArrayList":                 "fun f(l: List<String>) { val m = l !is ArrayList<String> }",
+		"safe cast":                        "fun f(l: Set<String>) { val m = l as? HashSet<String> }",
+		"nullable source":                  "fun f(l: List<String>?) { val m = l as MutableList<String> }",
+		"map to hash map":                  "fun f(l: Map<String, Int>) { val m = l as HashMap<String, Int> }",
+		"qualified array":                  "fun f(l: List<String>) { val m = l as java.util.ArrayList<String> }",
+		"parenthesized lhs":                "fun f(l: List<String>) { val m = (l) as MutableList<String> }",
 	}
 	for name, src := range flagged {
 		if got := runRuleByNameWithResolver(t, "DontDowncastCollectionTypes", "package test\n"+src+"\n"); len(got) != 1 {
@@ -1272,6 +1274,271 @@ class Cache {
 	if len(findings) != 1 {
 		t.Errorf("expected 1 finding, got %v", findings)
 	}
+}
+
+func TestDoubleMutabilityForCollection_OnlyValCandidates(t *testing.T) {
+	for _, entry := range api.Registry {
+		if entry.ID != "DoubleMutabilityForCollection" {
+			continue
+		}
+		rule := entry.Implementation.(*rules.DoubleMutabilityForCollectionRule)
+		if !rule.OnlyValCandidates {
+			t.Fatal("onlyValCandidates must default to true")
+		}
+		originalTypes := rule.MutableTypes
+		t.Cleanup(func() { rule.OnlyValCandidates = true; rule.MutableTypes = originalTypes })
+		rule.MutableTypes = []string{
+			"kotlin.collections.MutableList", "kotlin.collections.MutableMap", "kotlin.collections.MutableSet",
+			"java.util.ArrayList", "java.util.LinkedHashSet", "java.util.HashSet", "java.util.LinkedHashMap", "java.util.HashMap",
+		}
+		for _, test := range []struct {
+			name, source string
+			isTest       bool
+			defaultCount int
+			compatCount  int
+			compatFixes  int
+		}{
+			{"visibility", `class Cache {
+    var publicItems: MutableList<String> = mutableListOf()
+    internal var shared: MutableSet<String> = mutableSetOf()
+    protected var inherited: MutableMap<String, Int> = mutableMapOf()
+    private var candidate: MutableList<String> = mutableListOf()
+}`, false, 1, 4, 1},
+			{"nullable", `private var items: MutableList<String>? = null`, false, 0, 1, 0},
+			{"reassigned", `class Cache {
+    private var items = mutableListOf<String>()
+    fun reset() { items = mutableListOf() }
+    fun run() {
+        var local: MutableList<String> = mutableListOf()
+        local = mutableListOf()
+    }
+}`, false, 0, 2, 0},
+			{"tests", `private var items: MutableList<String> = mutableListOf()`, true, 0, 1, 0},
+			{"constructor", `class Cache(private var items: MutableList<String>)`, false, 0, 0, 0},
+			{"declaredReadOnly", `private var items: List<String> = mutableListOf()`, false, 1, 0, 0},
+			{"unlistedMutableCollection", `private var items: MutableCollection<String> = mutableListOf()`, false, 1, 0, 0},
+			{"factoryLookalike", `fun mutableListOf(): Int = 0
+private var count = mutableListOf()`, false, 1, 0, 0},
+			{"receiverLookalike", `class Builder { fun mutableListOf(): Int = 0 }
+private var count = Builder().mutableListOf()`, false, 1, 0, 0},
+			{"typeLookalike", `class MutableList<T>
+private var items: MutableList<String> = MutableList()`, false, 0, 0, 0},
+			{"factories", `private var items = mutableListOf<String>()
+private var map = hashMapOf<String, Int>()
+private var qualified = kotlin.collections.mutableSetOf<String>()`, false, 3, 3, 3},
+			{"importAlias", `import java.util.ArrayList as Items
+var items: Items<String> = Items()`, false, 0, 1, 0},
+			{"qualifiedTypes", `private var list: kotlin.collections.MutableList<String> = mutableListOf()
+private var javaList: java.util.ArrayList<String> = java.util.ArrayList()
+private var nullable: java.util.HashMap<String, Int>? = null`, false, 2, 3, 2},
+			{"qualifiedFactoryWithLookalike", `class ArrayList
+private var items = java.util.ArrayList<String>()`, false, 1, 1, 1},
+			{"factoryImport", `import kotlin.collections.mutableListOf
+private var items = mutableListOf<String>()`, false, 1, 1, 1},
+			// Paired with FIR compatibilitySourceAnalysisDivergences: Go reads
+			// qualified aliases as written and cannot infer toMutableList().
+			{"compatibilitySourceAnalysisDivergences", `package use
+typealias Items = MutableList<String>
+var qualified: use.Items = mutableListOf()
+var converted = listOf("item").toMutableList()
+var factory = mutableListOf<String>()
+var readOnly: List<String> = mutableListOf()`, false, 0, 1, 0},
+			{"extensionReceiver", `var MutableMap<String, String>.contentType: String?
+    get() = this["Content-Type"]
+    set(value) { if (value != null) this["Content-Type"] = value }`, false, 0, 0, 0},
+			{"extensionDeclaredMutableType", `var String.items: MutableList<String>
+    get() = mutableListOf()
+    set(value) {}`, false, 0, 1, 0},
+			{"unrelatedWildcard", `import kotlinx.coroutines.*
+class Repo { var items: MutableList<String> = mutableListOf() }`, false, 0, 1, 0},
+			{"unrelatedWildcardFactory", `import kotlinx.coroutines.*
+class Repo { var items = mutableListOf<String>() }`, false, 0, 0, 0},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				file := parseInline(t, test.source)
+				if test.isTest {
+					file.Path = "/project/src/test/kotlin/CacheTest.kt"
+				}
+				resolver := typeinfer.NewResolver()
+				resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+				for _, onlyCandidates := range []bool{true, false} {
+					rule.OnlyValCandidates = onlyCandidates
+					columns := rules.NewDispatcher([]*api.Rule{entry}, resolver).Run(file)
+					findings := columns.Findings()
+					want := test.compatCount
+					if onlyCandidates {
+						want = test.defaultCount
+					}
+					if len(findings) != want {
+						t.Fatalf("onlyValCandidates=%v: got %v, want %d findings", onlyCandidates, findings, want)
+					}
+					if !onlyCandidates && test.name == "compatibilitySourceAnalysisDivergences" && findings[0].Line != 5 {
+						t.Fatalf("Go must report only the factory on line 5, got %v", findings)
+					}
+					if !onlyCandidates {
+						fixes := 0
+						for _, finding := range findings {
+							if finding.Fix != nil {
+								fixes++
+							}
+						}
+						if fixes != test.compatFixes {
+							t.Fatalf("got %d fixes, want %d", fixes, test.compatFixes)
+						}
+					}
+				}
+			})
+		}
+		t.Run("configuredResolvedTypeNames", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			for _, test := range []struct {
+				name, source, mutableType string
+				want                      int
+			}{
+				{"qualified built-in", `private var items = mutableListOf<String>()`, "kotlin.collections.MutableList", 1},
+				{"simple entry is not a resolved FQN", `private var items = mutableListOf<String>()`, "MutableList", 0},
+				{"different qualifier", `private var items = mutableListOf<String>()`, "other.MutableList", 0},
+				{"configured collection", `private var items: MutableCollection<String> = mutableListOf()`, "kotlin.collections.MutableCollection", 1},
+				{"expanded alias", `typealias Items = MutableList<String>
+private var items: Items = mutableListOf()`, "kotlin.collections.MutableList", 1},
+				{"qualified custom", `package com.example
+class Bag
+private var items: com.example.Bag = Bag()`, "com.example.Bag", 1},
+				{"other custom", `package other
+class Bag
+private var items: other.Bag = Bag()`, "com.example.Bag", 0},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					rule.MutableTypes = []string{test.mutableType}
+					if got := runRuleByNameWithResolver(t, entry.ID, test.source); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		t.Run("withoutResolverConservativeFallback", func(t *testing.T) {
+			file := parseInline(t, `class Cache {
+    var publicItems: MutableList<String> = mutableListOf()
+    private var candidate = mutableListOf<String>()
+    private var readOnly: List<String> = mutableListOf()
+    private var nullable: MutableList<String>? = null
+}`)
+			rule.MutableTypes = originalTypes
+			rule.OnlyValCandidates = true
+			defaultColumns := rules.NewDispatcher([]*api.Rule{entry}, nil).Run(file)
+			defaultFindings := defaultColumns.Findings()
+			rule.OnlyValCandidates = false
+			dispatcher := rules.NewDispatcher([]*api.Rule{entry}, nil)
+			compatColumns := dispatcher.Run(file)
+			compatFindings := compatColumns.Findings()
+			if len(defaultFindings) != 2 || len(compatFindings) != 1 || compatFindings[0].Line != 3 {
+				t.Fatalf("default=%v compat=%v; want only the proven factory in compatibility mode", defaultFindings, compatFindings)
+			}
+			if ids := dispatcher.SingleFileRuleIDs(); len(ids) != 1 || ids[0] != entry.ID {
+				t.Fatalf("rule must be evaluated without a resolver: %v", ids)
+			}
+		})
+		t.Run("withoutResolverEvidence", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			for _, test := range []struct {
+				name, source string
+				want         int
+			}{
+				{"explicitMutable", "private var items: MutableList<String> = mutableListOf()", 1},
+				{"qualifiedFactory", "private var items = kotlin.collections.mutableListOf<String>()", 1},
+				{"qualifiedReadOnly", "private var items: kotlin.collections.List<String> = mutableListOf()", 0},
+				{"shadowedFactory", "fun mutableListOf(): Int = 0\nprivate var count = mutableListOf()", 0},
+				{"receiverLookalike", "class Builder { fun mutableListOf(): Int = 0 }\nprivate var count = Builder().mutableListOf()", 0},
+				{"typeLookalike", "class MutableList<T>\nprivate var items: MutableList<String> = MutableList()", 0},
+				{"importLookalike", "import other.mutableListOf\nprivate var count = mutableListOf()", 0},
+				{"wildcardWithoutEvidence", "import other.*\nprivate var count = mutableListOf()", 0},
+				{"wildcardWithStdlibImport", "import other.*\nimport kotlin.collections.mutableListOf\nprivate var count = mutableListOf<String>()", 0},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					file := parseInline(t, test.source)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, nil).Run(file)
+					if got := columns.Findings(); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		t.Run("indexedFactoryShadows", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			rule.MutableTypes = originalTypes
+			for _, test := range []struct {
+				name, source, extra string
+				want                int
+			}{
+				{"wildcardFactory", "package app\nimport other.*\nprivate var count = mutableListOf()", "package other\nfun mutableListOf(): Int = 0", 0},
+				{"wildcardFactoryExplicitImport", "package app\nimport other.*\nimport kotlin.collections.mutableListOf\nprivate var count = mutableListOf()", "package other\nfun mutableListOf(): Int = 0", 0},
+				{"samePackageFactory", "package app\nprivate var count = mutableListOf()", "package app\nfun mutableListOf(): Int = 0", 0},
+				{"samePackageUnknownReturn", "package app\nprivate var count = mutableListOf()", "package app\nfun mutableListOf() = unknown()", 0},
+				{"defaultPackageFactory", "private var count = mutableListOf()", "fun mutableListOf(): Int = 0", 0},
+				{"unimportedFactory", "package app\nprivate var items = mutableListOf<String>()", "package other\nfun mutableListOf(): Int = 0", 1},
+				{"qualifiedFactory", "package app\nimport other.*\nprivate var items = kotlin.collections.mutableListOf<String>()", "package app\nfun mutableListOf(): Int = 0", 1},
+				{"wildcardConstructorFunction", "package app\nimport other.*\nprivate var count = ArrayList()", "package other\nfun ArrayList(): Int = 0", 0},
+				{"stdlibWildcardFactory", "package app\nimport kotlin.collections.*\nprivate var count = mutableListOf()", "package kotlin.collections\nfun mutableListOf(): Int = 0", 0},
+				{"stdlibWildcardUnrelatedFunction", "package app\nimport kotlin.collections.*\nprivate var items = mutableListOf<String>()", "package other\nfun mutableListOf(): Int = 0", 1},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					use := parseInline(t, test.source)
+					use.Path = "/project/src/main/kotlin/Use.kt"
+					extra := parseInline(t, test.extra)
+					extra.Path = "/project/src/main/kotlin/Other.kt"
+					resolver := typeinfer.NewResolver()
+					resolver.IndexFilesParallel([]*scanner.File{use, extra}, 1)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, resolver).Run(use)
+					if got := columns.Findings(); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		t.Run("scopedAliases", func(t *testing.T) {
+			rule.OnlyValCandidates = false
+			rule.MutableTypes = []string{"kotlin.collections.MutableMap", "kotlin.collections.MutableList"}
+			for _, test := range []struct {
+				name, source, extra string
+				want                int
+			}{
+				{"samePackage", "package a\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"samePackageWildcard", "package a\nimport kotlinx.coroutines.*\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"wildcardAlias", "package b\nimport a.*\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"explicitAliasImport", "package b\nimport a.Registry\nvar registry: Registry = mutableMapOf()", "", 1},
+				{"aliasedImport", "package b\nimport a.Registry as Items\nvar registry: Items = mutableMapOf()", "", 1},
+				{"unimported", "package b\nvar registry: Registry = Registry()", "", 0},
+				{"defaultPackageUnimported", "var registry: Registry = Registry()", "", 0},
+				{"importShadow", "package b\nimport com.lib.Registry\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
+				{"wildcardShadow", "package b\nimport com.lib.*\nvar registry: Registry = Registry()", "package com.lib\nclass Registry", 0},
+				{"wildcardMutableList", "package b\nimport com.lib.*\nvar items: MutableList<String> = MutableList()", "package com.lib\nclass MutableList<T>", 0},
+				{"unindexedBinaryWildcardGap", "package b\nimport com.lib.*\nvar items: MutableList<String> = MutableList()", "", 1},
+				{"sameFileClass", "package b\nclass Registry\nvar registry: Registry = Registry()", "", 0},
+				{"samePackageClass", "package b\nvar registry: Registry = Registry()", "package b\nclass Registry", 0},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					aliases := parseInline(t, "package a\ntypealias Registry = MutableMap<String, Int>")
+					aliases.Path = "/project/src/main/kotlin/a/Aliases.kt"
+					use := parseInline(t, test.source)
+					use.Path = "/project/src/main/kotlin/Use.kt"
+					files := []*scanner.File{aliases, use}
+					if test.extra != "" {
+						extra := parseInline(t, test.extra)
+						extra.Path = "/project/src/main/kotlin/Other.kt"
+						files = append(files, extra)
+					}
+					resolver := typeinfer.NewResolver()
+					resolver.IndexFilesParallel(files, 1)
+					columns := rules.NewDispatcher([]*api.Rule{entry}, resolver).Run(use)
+					if got := columns.Findings(); len(got) != test.want {
+						t.Fatalf("got %v, want %d findings", got, test.want)
+					}
+				})
+			}
+		})
+		return
+	}
+	t.Fatal("rule not registered")
 }
 
 func TestEqualsWithHashCodeExist_Objects(t *testing.T) {

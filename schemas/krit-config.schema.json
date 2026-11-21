@@ -22767,7 +22767,7 @@
           }
         },
         "DoubleMutabilityForCollection": {
-          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -22803,6 +22803,11 @@
               "items": {
                 "type": "string"
               }
+            },
+            "onlyValCandidates": {
+              "description": "Report only private or local, non-nullable vars that are never reassigned, outside test sources. Disable for detekt-compatible property findings.",
+              "type": "boolean",
+              "default": true
             }
           }
         },

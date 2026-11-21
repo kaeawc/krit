@@ -4,6 +4,24 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
+  preserving private/local, non-nullable, never-reassigned, non-test narrowing).
+  Imported detekt configurations default it to `false` in both Go and FIR,
+  reporting properties whose resolved type is in `mutableTypes`, including
+  public, nullable, reassigned and test-source vars, but not constructor
+  parameters. With source resolution, compatibility mode does not guess mutable
+  types from shadowed factory names or report read-only declared types. Without a
+  resolver, Go checks only default-mode candidates with unshadowed explicit mutable
+  types or proven factories without an explicit read-only type. This conservative
+  daemon/IDE, MCP and precommit fallback can miss compatibility-mode findings.
+  The CLI builds the source resolver whenever this rule is active.
+  Go reads qualified written types as written; FIR expands
+  aliases and resolves calls such as `toMutableList()` that Go skips. Both engines
+  miss detekt's Java platform-type findings (`System.getenv()` and Java `List`
+  getters); this gap is documented, not implemented. The `var` → `val` fix remains
+  available only for val candidates.
+
 ### Added
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.

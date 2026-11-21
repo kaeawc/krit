@@ -571,6 +571,7 @@ func (c *compositeStub) ResolveByNameFlat(string, uint32, *scanner.File) *typein
 	return nil
 }
 func (c *compositeStub) ResolveImport(string, *scanner.File) string { return "" }
+func (c *compositeStub) HasFunction(string) bool                    { return false }
 func (c *compositeStub) IsNullableFlat(uint32, *scanner.File) *bool { return nil }
 func (c *compositeStub) ClassHierarchy(string) *typeinfer.ClassInfo { return nil }
 func (c *compositeStub) SealedVariants(string) []string             { return nil }
@@ -791,6 +792,7 @@ func (*capsStubResolver) ResolveByNameFlat(string, uint32, *scanner.File) *typei
 	return nil
 }
 func (*capsStubResolver) ResolveImport(string, *scanner.File) string { return "" }
+func (*capsStubResolver) HasFunction(string) bool                    { return false }
 func (*capsStubResolver) IsNullableFlat(uint32, *scanner.File) *bool { return nil }
 func (*capsStubResolver) ClassHierarchy(string) *typeinfer.ClassInfo { return nil }
 func (*capsStubResolver) SealedVariants(string) []string             { return nil }

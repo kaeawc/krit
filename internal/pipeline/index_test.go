@@ -69,6 +69,28 @@ func TestIndexPhase_Run_BuildsResolver_WhenRuleNeedsIt(t *testing.T) {
 	}
 }
 
+func TestIndexPhase_Run_BuildsOptionalResolver(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Use.kt")
+	writeKt(t, path, "private var items = mutableListOf<String>()")
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := IndexInput{ParseResult: ParseResult{
+		Paths:       []string{dir},
+		KotlinFiles: []*scanner.File{file},
+		ActiveRules: []*api.Rule{{ID: "Optional", OptionalResolver: true, Check: func(*api.Context) {}}},
+	}}
+	out, err := (IndexPhase{SkipAndroid: true, SkipModules: true}).Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Resolver == nil {
+		t.Fatal("optional resolver must be built even without any required resolver rule")
+	}
+}
+
 func TestIndexPhase_Run_SkipResolverIndexDoesNotBuildResolver(t *testing.T) {
 	tracker := perf.New(true)
 	in := IndexInput{

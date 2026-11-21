@@ -17,6 +17,8 @@ type TypeResolver interface {
 	// Returns "" if not imported.
 	ResolveImport(simpleName string, file *scanner.File) string
 
+	HasFunction(fqn string) bool
+
 	IsNullableFlat(idx uint32, file *scanner.File) *bool
 
 	// ClassHierarchy returns the known class hierarchy for a type.

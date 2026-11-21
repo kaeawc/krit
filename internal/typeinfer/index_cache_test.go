@@ -104,6 +104,19 @@ func TestTypeIndexCacheRejectsPreAnnotationOffsetVersion(t *testing.T) {
 	}
 }
 
+func TestTypeIndexCacheRejectsUnscopedAliasVersion(t *testing.T) {
+	old := packedFileTypeInfo{
+		Version: 10,
+		Path:    "a/Aliases.kt",
+		TypeAliases: map[string]*ResolvedType{
+			"Registry": {Name: "MutableMap", FQN: "kotlin.collections.MutableMap", Resolved: true},
+		},
+	}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted version 10 type index with a package alias under a bare-name key")
+	}
+}
+
 func TestTypeIndexCacheMissesAcrossBuilds(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := TypeIndexCacheDir(dir)

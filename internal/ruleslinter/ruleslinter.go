@@ -491,12 +491,13 @@ func isAPIRegisterCall(call *ast.CallExpr) bool {
 // registration holds the parts of a api.Register(&api.Rule{...}) call that
 // the linter cares about.
 type registration struct {
-	Lit          *ast.CompositeLit
-	ID           string
-	NeedsNames   map[string]bool // set of capability constant names found in Needs
-	CheckExpr    ast.Expr
-	HasOracleCfg bool
-	FixLevel     string // name of api.Fix* constant, e.g. "FixNone" / "FixSemantic"
+	Lit              *ast.CompositeLit
+	ID               string
+	NeedsNames       map[string]bool // set of capability constant names found in Needs
+	CheckExpr        ast.Expr
+	HasOracleCfg     bool
+	OptionalResolver bool
+	FixLevel         string // name of api.Fix* constant, e.g. "FixNone" / "FixSemantic"
 }
 
 func parseRegistration(lit *ast.CompositeLit) registration {
@@ -515,6 +516,9 @@ func parseRegistration(lit *ast.CompositeLit) registration {
 			reg.ID = identOrLiteralString(kv.Value)
 		case "Needs":
 			collectCapabilityNames(kv.Value, reg.NeedsNames)
+		case "OptionalResolver":
+			value, ok := kv.Value.(*ast.Ident)
+			reg.OptionalResolver = ok && value.Name == "true"
 		case "Check":
 			reg.CheckExpr = kv.Value
 		case "Oracle":
@@ -540,7 +544,7 @@ func fixLevelName(expr ast.Expr) string {
 }
 
 func capabilityViolations(reg registration, usage bodyUsage, pos token.Position) []Violation {
-	satisfiesResolver := reg.NeedsNames["NeedsResolver"] || reg.NeedsNames["NeedsTypeInfo"]
+	satisfiesResolver := reg.NeedsNames["NeedsResolver"] || reg.NeedsNames["NeedsTypeInfo"] || reg.OptionalResolver
 	satisfiesOracle := reg.NeedsNames["NeedsOracle"] || declaresNarrowOracleNeed(reg.NeedsNames)
 	declaresConcurrent := reg.NeedsNames["NeedsConcurrent"]
 
@@ -549,7 +553,7 @@ func capabilityViolations(reg registration, usage bodyUsage, pos token.Position)
 		out = append(out, Violation{
 			RuleID:   reg.ID,
 			Position: pos,
-			Message:  "calls ctx.Resolver but does not declare NeedsResolver or NeedsTypeInfo in Meta()",
+			Message:  "calls ctx.Resolver but does not declare NeedsResolver, NeedsTypeInfo or OptionalResolver: true",
 		})
 	}
 	if usage.oracle && !satisfiesOracle {

@@ -262,6 +262,9 @@ func unionNeeds(rules []*api.Rule) api.Capabilities {
 			continue
 		}
 		caps |= r.Needs
+		if r.OptionalResolver {
+			caps |= api.NeedsResolver
+		}
 	}
 	return caps
 }

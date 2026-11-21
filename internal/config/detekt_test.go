@@ -498,6 +498,36 @@ func TestDetektDefaultsNotAppliedWithoutDetektConfig(t *testing.T) {
 	}
 }
 
+func TestDoubleMutabilityForCollectionDetektDefaults(t *testing.T) {
+	installFakeView(t)
+	view := registryView.(fakeView)
+	view.rules["DoubleMutabilityForCollection"] = "potential-bugs"
+	view.options["DoubleMutabilityForCollection"] = map[string]string{"onlyValCandidates": "onlyValCandidates", "mutableTypes": "mutableTypes"}
+	for _, test := range []struct {
+		name, filename, contents string
+		want                     bool
+	}{
+		{"krit defaults", "krit.yml", "potential-bugs:\n  DoubleMutabilityForCollection:\n    active: true\n", true},
+		{"detekt defaults", "detekt.yml", "potential-bugs:\n  DoubleMutabilityForCollection:\n    active: true\n", false},
+		{"explicit override", "detekt.yml", "potential-bugs:\n  DoubleMutabilityForCollection:\n    onlyValCandidates: true\n", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := newProject(t)
+			writeFile(t, filepath.Join(root, test.filename), test.contents)
+			base := NewConfigFromData(map[string]interface{}{
+				"potential-bugs": map[string]interface{}{"DoubleMutabilityForCollection": map[string]interface{}{"onlyValCandidates": true}},
+			})
+			cfg, err := mergeUserConfig(base, "", []string{root}, LoadOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.GetBool("potential-bugs", "DoubleMutabilityForCollection", "onlyValCandidates", !test.want); got != test.want {
+				t.Fatalf("onlyValCandidates=%v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestDetektDiscoveredInvalidYAMLIsSkippedWithWarning(t *testing.T) {
 	installFakeView(t)
 	root := newProject(t)

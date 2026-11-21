@@ -672,6 +672,29 @@ func init() {
 	}
 }
 
+func TestAnalyzeSource_OptionalResolverCapability(t *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		t.Run(value, func(t *testing.T) {
+			source := `package rules
+import api "github.com/kaeawc/krit/internal/rules/api"
+func init() {
+ api.Register(&api.Rule{
+  ID: "OptionalResolver", OptionalResolver: ` + value + `,
+  Check: func(ctx *api.Context) { _ = ctx.Resolver },
+ })
+}`
+			violations := analyzeSource(t, "optionalresolver.go", source)
+			want := 1
+			if value == "true" {
+				want = 0
+			}
+			if len(violations) != want {
+				t.Fatalf("want %d violations, got %v", want, violations)
+			}
+		})
+	}
+}
+
 func TestAnalyzeSource_ResolvesMethodReference(t *testing.T) {
 	src := `package rules
 

@@ -24,6 +24,37 @@ func parseTestFile(t *testing.T, src string) *scanner.File {
 	return f
 }
 
+func TestHasFunction(t *testing.T) {
+	for _, test := range []struct {
+		name, source, fqn string
+		want              bool
+	}{
+		{"qualified", "package other\nfun mutableListOf(): Int = 0", "other.mutableListOf", true},
+		{"inferredReturn", "package other\nfun mutableListOf() = 0", "other.mutableListOf", true},
+		{"unknownReturn", "package other\nfun mutableListOf() = unknown()", "other.mutableListOf", true},
+		{"wrongPackage", "package other\nfun mutableListOf(): Int = 0", "app.mutableListOf", false},
+		{"missingName", "package other\nfun mutableListOf(): Int = 0", "other.mutableSetOf", false},
+		{"defaultPackage", "fun mutableListOf(): Int = 0", "mutableListOf", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, test.source)
+			resolver := NewResolver()
+			resolver.IndexFilesParallel([]*scanner.File{file}, 1)
+			if got := resolver.HasFunction(test.fqn); got != test.want {
+				t.Fatalf("HasFunction(%q) = %v, want %v", test.fqn, got, test.want)
+			}
+		})
+	}
+}
+
+func TestFakeResolver_HasFunction(t *testing.T) {
+	resolver := NewFakeResolver()
+	resolver.Functions["other.mutableListOf"] = true
+	if !resolver.HasFunction("other.mutableListOf") || resolver.HasFunction("app.mutableListOf") {
+		t.Fatal("function lookup must use the qualified name")
+	}
+}
+
 // --- FakeResolver basic behavior ---
 
 func TestFakeResolver_ResolveImport(t *testing.T) {

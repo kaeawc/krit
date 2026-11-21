@@ -132,10 +132,13 @@ func TestComposeIconButtonMissingContentDescriptionStaysLocalASTOnly(t *testing.
 	}
 }
 
-func TestDoubleMutabilityForCollectionStaysLocalASTOnly(t *testing.T) {
+func TestDoubleMutabilityForCollectionUsesSourceResolverOnly(t *testing.T) {
 	rule := findRegisteredRule(t, "DoubleMutabilityForCollection")
 	if rule.Needs != 0 {
-		t.Fatalf("DoubleMutabilityForCollection should not require resolver, type info, parsed files, or project indexes; got Needs=%b", rule.Needs)
+		t.Fatalf("DoubleMutabilityForCollection must remain available without source resolution; got Needs=%b", rule.Needs)
+	}
+	if !rule.OptionalResolver || rule.TypeInfo.PreferBackend != api.PreferResolver || !rule.TypeInfo.Required {
+		t.Fatalf("DoubleMutabilityForCollection must use optional source resolution with a no-resolver fallback")
 	}
 	if RuleNeedsKotlinOracle(rule) {
 		t.Fatalf("DoubleMutabilityForCollection should not contribute to KAA, got Oracle=%+v",

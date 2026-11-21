@@ -71,6 +71,27 @@ func TestCheckOmitsRuleConfigsWhenNoneConfigured(t *testing.T) {
 	}
 }
 
+func TestCheckSendsDoubleMutabilityOnlyValCandidates(t *testing.T) {
+	for _, onlyCandidates := range []bool{true, false} {
+		cfg := config.NewConfig()
+		cfg.Set("potential-bugs", "DoubleMutabilityForCollection", "onlyValCandidates", onlyCandidates)
+		configs := RuleConfigs{"DoubleMutabilityForCollection": cfg.RuleOptions("potential-bugs", "DoubleMutabilityForCollection")}
+		daemon, requests := fakeFirDaemon(t, `{"id":1,"succeeded":1,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
+		if _, err := daemon.Check([]fileRef{{Path: "/src/Cache.kt"}}, nil, nil, []string{"DoubleMutabilityForCollection"}, configs, FileFacts{}); err != nil {
+			t.Fatal(err)
+		}
+		var sent struct {
+			RuleConfigs map[string]map[string]any `json:"ruleConfigs"`
+		}
+		if err := json.Unmarshal(<-requests, &sent); err != nil {
+			t.Fatal(err)
+		}
+		if got := sent.RuleConfigs["DoubleMutabilityForCollection"]["onlyValCandidates"]; got != onlyCandidates {
+			t.Fatalf("onlyValCandidates=%v, want %v", got, onlyCandidates)
+		}
+	}
+}
+
 // The daemon reply is one line; control characters in a message arrive
 // escaped (as krit-fir's escJson now writes them) and decode intact.
 func TestCheckDecodesEscapedControlCharactersInMessages(t *testing.T) {

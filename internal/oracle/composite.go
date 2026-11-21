@@ -157,6 +157,10 @@ func (c *CompositeResolver) Oracle() Lookup { return c.oracle }
 // the oracle IPC for every lookup.
 func (c *CompositeResolver) Fallback() typeinfer.TypeResolver { return c.fallback }
 
+func (c *CompositeResolver) HasFunction(fqn string) bool {
+	return c.fallback.HasFunction(fqn)
+}
+
 func (c *CompositeResolver) IsNullableFlat(idx uint32, file *scanner.File) *bool {
 	return c.fallback.IsNullableFlat(idx, file)
 }

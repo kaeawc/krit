@@ -16,7 +16,166 @@ import (
 type DoubleMutabilityForCollectionRule struct {
 	FlatDispatchBase
 	BaseRule
-	MutableTypes []string
+	MutableTypes      []string
+	OnlyValCandidates bool
+}
+
+func (r *DoubleMutabilityForCollectionRule) hasConfiguredResolvedType(ctx *api.Context, prop, varDecl uint32) bool {
+	file := ctx.File
+	typeNode, _ := file.FlatFindChild(varDecl, "user_type")
+	if typeNode == 0 {
+		typeNode, _ = file.FlatFindChild(varDecl, "nullable_type")
+	}
+	var resolvedName string
+	if typeNode == 0 {
+		resolvedName = doubleMutabilityInferredFactoryType(ctx, prop)
+	} else {
+		resolvedName = doubleMutabilityDeclaredTypeName(ctx, typeNode)
+	}
+	if resolvedName == "" {
+		return false
+	}
+	types := r.MutableTypes
+	if len(types) == 0 {
+		for _, entry := range defaultDoubleMutableTypes {
+			types = append(types, doubleMutabilityCanonicalType(entry))
+		}
+	}
+	for _, entry := range types {
+		if entry == doubleMutabilityCanonicalType(resolvedName) {
+			return true
+		}
+	}
+	return false
+}
+
+func doubleMutabilityDeclaredTypeName(ctx *api.Context, typeNode uint32) string {
+	file := ctx.File
+	writtenType := strings.TrimSpace(strings.TrimSuffix(strings.SplitN(file.FlatNodeText(typeNode), "<", 2)[0], "?"))
+	if strings.Contains(writtenType, ".") {
+		return writtenType
+	}
+	if ctx.Resolver == nil {
+		if knownDefaultMutableCollectionName(writtenType) && !doubleMutabilitySimpleTypeShadowed(file, writtenType) {
+			return doubleMutabilityCanonicalType(writtenType)
+		}
+		return ""
+	}
+	if class := ctx.Resolver.ClassHierarchy(writtenType); class != nil && class.FQN != doubleMutabilityCanonicalType(writtenType) {
+		return ""
+	}
+	if doubleMutabilityWildcardTypeShadowed(ctx, writtenType) {
+		return ""
+	}
+	typ := ctx.Resolver.ResolveFlatNode(typeNode, file)
+	if typ == nil {
+		return ""
+	}
+	if class := ctx.Resolver.ClassHierarchy(typ.Name); class != nil && class.FQN != typ.FQN {
+		return ""
+	}
+	if typ.IsResolved() {
+		return typ.FQN
+	}
+	if knownDefaultMutableCollectionName(typ.Name) && !doubleMutabilitySimpleTypeShadowed(file, typ.Name) {
+		return doubleMutabilityCanonicalType(typ.Name)
+	}
+	return ""
+}
+
+func doubleMutabilityWildcardTypeShadowed(ctx *api.Context, name string) bool {
+	for _, pkg := range doubleMutabilityShadows(ctx.File).wildcardPackages {
+		fqn := pkg + "." + name
+		if knownMutableCollectionFQN(fqn) {
+			continue
+		}
+		if class := ctx.Resolver.ClassHierarchy(fqn); class != nil && class.FQN == fqn {
+			return true
+		}
+	}
+	return false
+}
+
+func doubleMutabilityInferredFactoryType(ctx *api.Context, prop uint32) string {
+	file := ctx.File
+	initializer := propertyInitializerExpression(file, prop)
+	if initializer == 0 || file.FlatType(initializer) != "call_expression" {
+		return ""
+	}
+	name := flatCallExpressionName(file, initializer)
+	if !mutableCollectionFactories[name] {
+		return ""
+	}
+	callee := file.FlatChild(initializer, 0)
+	if file.FlatType(callee) == "navigation_expression" {
+		text := file.FlatNodeText(callee)
+		if text != "kotlin.collections."+name && text != "java.util."+name {
+			return ""
+		}
+	} else {
+		imported := ""
+		if ctx.Resolver != nil {
+			imported = ctx.Resolver.ResolveImport(name, file)
+		}
+		knownImport := imported == "kotlin.collections."+name || doubleMutabilityCanonicalType(imported) == doubleMutabilityCanonicalType(name)
+		set := doubleMutabilityShadows(file)
+		if _, factory := doubleMutabilityFactoryReturnTypes[name]; factory && set.wildcardShadow && !knownImport {
+			return ""
+		}
+		shadowed := doubleMutabilitySimpleTypeShadowed(file, name)
+		if ctx.Resolver != nil {
+			_, declared := set.declared[name]
+			_, importedShadow := set.importedShadow[name]
+			shadowed = declared || importedShadow || doubleMutabilityWildcardTypeShadowed(ctx, name)
+		}
+		if shadowed && !knownImport {
+			return ""
+		}
+		if ctx.Resolver != nil {
+			if ctx.Resolver.HasFunction(qualifySourceName(sourcePackageName(file), name)) {
+				return ""
+			}
+			for _, pkg := range set.wildcardPackages {
+				if ctx.Resolver.HasFunction(pkg + "." + name) {
+					return ""
+				}
+			}
+			if class := ctx.Resolver.ClassHierarchy(name); class != nil && doubleMutabilityCanonicalType(class.FQN) != doubleMutabilityCanonicalType(name) {
+				return ""
+			}
+		}
+		if _, shadowed := doubleMutabilityShadows(file).functions[name]; shadowed {
+			return ""
+		}
+	}
+	if result, ok := doubleMutabilityFactoryReturnTypes[name]; ok {
+		return result
+	}
+	return doubleMutabilityCanonicalType(name)
+}
+
+var doubleMutabilityFactoryReturnTypes = map[string]string{
+	"mutableListOf": "kotlin.collections.MutableList",
+	"mutableSetOf":  "kotlin.collections.MutableSet",
+	"mutableMapOf":  "kotlin.collections.MutableMap",
+	"arrayListOf":   "java.util.ArrayList",
+	"hashMapOf":     "java.util.HashMap",
+	"hashSetOf":     "java.util.HashSet",
+	"linkedMapOf":   "java.util.LinkedHashMap",
+	"linkedSetOf":   "java.util.LinkedHashSet",
+}
+
+func doubleMutabilityCanonicalType(name string) string {
+	switch name {
+	case "MutableList", "MutableSet", "MutableMap", "MutableCollection":
+		return "kotlin.collections." + name
+	case "ArrayList", "HashMap", "HashSet", "LinkedHashMap", "LinkedHashSet":
+		return "java.util." + name
+	case "kotlin.collections.ArrayList", "kotlin.collections.HashMap", "kotlin.collections.HashSet", "kotlin.collections.LinkedHashMap", "kotlin.collections.LinkedHashSet":
+		return "java.util." + simpleTypeName(name)
+	default:
+		return name
+	}
 }
 
 // Confidence reports a tier-2 (medium) base confidence. The rule uses a fixed
@@ -138,17 +297,25 @@ func knownMutableCollectionFQN(fqn string) bool {
 // plus a sentinel indicating an unrelated wildcard import (which makes
 // every name potentially shadowed).
 type doubleMutabilityShadowSet struct {
-	declared       map[string]struct{}
-	importedShadow map[string]struct{}
-	wildcardShadow bool
+	declared         map[string]struct{}
+	functions        map[string]struct{}
+	importedShadow   map[string]struct{}
+	wildcardShadow   bool
+	wildcardPackages []string
 }
 
 func doubleMutabilityShadows(file *scanner.File) *doubleMutabilityShadowSet {
 	return filefacts.FileFact(fileFactsCache(), file, slotDoubleMutabilityShadows, func() *doubleMutabilityShadowSet {
 		set := &doubleMutabilityShadowSet{
 			declared:       map[string]struct{}{},
+			functions:      map[string]struct{}{},
 			importedShadow: map[string]struct{}{},
 		}
+		file.FlatWalkNodes(0, "function_declaration", func(node uint32) {
+			if name := extractIdentifierFlat(file, node); name != "" {
+				set.functions[name] = struct{}{}
+			}
+		})
 		for _, nodeType := range []string{"class_declaration", "object_declaration", "interface_declaration", "type_alias"} {
 			file.FlatWalkNodes(0, nodeType, func(node uint32) {
 				if name := extractIdentifierFlat(file, node); name != "" {
@@ -168,6 +335,7 @@ func doubleMutabilityShadows(file *scanner.File) *doubleMutabilityShadowSet {
 			}
 			if strings.HasSuffix(text, ".*") {
 				pkg := strings.TrimSuffix(text, ".*")
+				set.wildcardPackages = append(set.wildcardPackages, pkg)
 				if pkg != "kotlin.collections" && pkg != "java.util" {
 					set.wildcardShadow = true
 				}

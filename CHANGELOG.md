@@ -32,6 +32,7 @@ All notable changes to Krit will be documented in this file.
   without disabling incremental slices;
   non-compiling files and scans without a classpath keep the Go fallback.
 - FIR-backed `ComposeSideEffectInComposition` resolves composable bodies, state receivers and Compose APIs; Go remains the fallback without a classpath or when compilation fails.
+- FIR checker for `MutableStateInObject`, with resolved synchronization and thread-safe type exemptions; Go remains the fallback without a classpath or for non-compiling files.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,
@@ -78,6 +79,10 @@ All notable changes to Krit will be documented in this file.
   Unresolved names and lookalikes are silent.
 
 ### Fixed
+- The `MutableStateInObject` Go fallback ignores nested class writes and same-named writes through unrelated
+  receivers, except bare, `this.`-qualified, and shadowed-receiver finally writes, which it accepts as conservative resets.
+  It also recognizes implicit-receiver and object-qualified lifecycle/finally resets, JUnit 5 `@BeforeAll` /
+  `@AfterAll` hooks, and exempts never-written private state and additional Java concurrent collection types.
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit
   compiles a project's scanned source sets together (#972). When that compile gates a file on
   `Redeclaration` or `Conflicting overloads`, its project is rechecked with each scanned source set

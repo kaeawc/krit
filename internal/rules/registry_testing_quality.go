@@ -668,8 +668,8 @@ func registerTestingQualitySharedMutableStateInObject() {
 						}
 						if propertyDeclarationIsVar(file, member) {
 							name := extractIdentifierFlat(file, member)
-							if mutableObjectVarResetByLifecycle(file, idx, member, name) ||
-								(file.FlatHasModifier(member, "private") && mutableObjectVarOnlyWrittenByTestHooks(file, idx, member, name)) {
+							if sharedMutableStateVarResetByLifecycle(file, member, name) ||
+								(file.FlatHasModifier(member, "private") && sharedMutableStateVarOnlyWrittenByTestHooks(file, idx, member, name)) {
 								continue
 							}
 							ctx.EmitAtNode(declAnchor(file, member), "Mutable state '"+name+"' in companion/object is shared across tests.")

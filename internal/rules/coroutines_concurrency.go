@@ -464,6 +464,12 @@ var threadSafeTypes = map[string]bool{
 	"AtomicReference": true, "ConcurrentHashMap": true, "CopyOnWriteArrayList": true,
 	// kotlin.concurrent.atomics (Kotlin 2.1+)
 	"AtomicInt": true, "AtomicIntArray": true, "AtomicLongArray": true, "AtomicArray": true,
+	"ConcurrentLinkedQueue": true, "ConcurrentLinkedDeque": true, "CopyOnWriteArraySet": true,
+	"ConcurrentSkipListMap": true, "ConcurrentSkipListSet": true, "BlockingQueue": true, "BlockingDeque": true,
+	"SynchronousQueue": true, "LinkedTransferQueue": true, "DelayQueue": true,
+	"AtomicMarkableReference": true, "AtomicStampedReference": true,
+	"LongAdder": true, "DoubleAdder": true, "LongAccumulator": true, "DoubleAccumulator": true,
+	"java.util.concurrent.atomic.": true,
 }
 
 func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint32, propText, propName string) bool {
@@ -477,6 +483,9 @@ func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint3
 		return true
 	}
 	if mutableObjectPropertyHasNoBackingField(file, propIdx) {
+		return true
+	}
+	if mutableObjectPropertyHasPrivateWriter(file, propIdx) && len(mutableVarWrites(file, objectIdx, propIdx, propName)) == 0 {
 		return true
 	}
 	if mutableObjectVarResetByLifecycle(file, objectIdx, propIdx, propName) {
@@ -495,6 +504,24 @@ func mutableStateInObjectShouldSkip(file *scanner.File, objectIdx, propIdx uint3
 	}
 	if strings.Contains(propText, "private") && mutableObjectPropertyReferencesAreSynchronized(file, objectIdx, propIdx, propName) {
 		return true
+	}
+	return false
+}
+
+func mutableObjectPropertyHasPrivateWriter(file *scanner.File, propIdx uint32) bool {
+	if file.FlatHasModifier(propIdx, "private") {
+		return true
+	}
+	for accessor := file.FlatNextSib(propIdx); accessor != 0; accessor = file.FlatNextSib(accessor) {
+		switch file.FlatType(accessor) {
+		case "setter":
+			return file.FlatHasModifier(accessor, "private")
+		case "getter", "line_comment", "multiline_comment":
+		default:
+			if file.FlatIsNamed(accessor) {
+				return false
+			}
+		}
 	}
 	return false
 }
@@ -690,6 +717,12 @@ func mutableVarWrites(file *scanner.File, root, propIdx uint32, propName string)
 		if flatNodeHasAncestor(file, n, propIdx) {
 			return
 		}
+		for parent, ok := file.FlatParent(n); root != 0 && ok && parent != root; parent, ok = file.FlatParent(parent) {
+			switch file.FlatType(parent) {
+			case "class_declaration", "object_declaration":
+				return
+			}
+		}
 		switch file.FlatType(n) {
 		case "assignment":
 			if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); ok && targetMatches(file.FlatNodeText(target)) {
@@ -708,12 +741,63 @@ func mutableVarWrites(file *scanner.File, root, propIdx uint32, propName string)
 	return writes
 }
 
-var mutableVarLifecycleAnnotations = []string{"After", "Before", "AfterTest", "BeforeTest", "AfterEach", "BeforeEach", "AfterClass", "BeforeClass"}
+var sharedMutableStateLifecycleAnnotations = []string{"After", "Before", "AfterTest", "BeforeTest", "AfterEach", "BeforeEach", "AfterClass", "BeforeClass"}
+
+func sharedMutableStateVarWrites(file *scanner.File, root, propIdx uint32, propName string) []uint32 {
+	var writes []uint32
+	targetMatches := func(text string) bool {
+		text = strings.TrimSpace(text)
+		return text == propName || strings.HasSuffix(text, "."+propName)
+	}
+	file.FlatWalkAllNodes(root, func(n uint32) {
+		if flatNodeHasAncestor(file, n, propIdx) {
+			return
+		}
+		switch file.FlatType(n) {
+		case "assignment":
+			if target, ok := file.FlatFindChild(n, "directly_assignable_expression"); ok && targetMatches(file.FlatNodeText(target)) {
+				writes = append(writes, n)
+			}
+		case "postfix_expression", "prefix_expression":
+			text := file.FlatNodeText(n)
+			if strings.Contains(text, "++") || strings.Contains(text, "--") {
+				trimmed := strings.Trim(strings.TrimSpace(text), "+-")
+				if targetMatches(trimmed) {
+					writes = append(writes, n)
+				}
+			}
+		}
+	})
+	return writes
+}
+
+func sharedMutableStateVarResetByLifecycle(file *scanner.File, propIdx uint32, propName string) bool {
+	for _, w := range sharedMutableStateVarWrites(file, 0, propIdx, propName) {
+		if _, inFinally := flatEnclosingAncestor(file, w, "finally_block"); inFinally {
+			return true
+		}
+		fn, ok := flatEnclosingFunction(file, w)
+		if !ok {
+			continue
+		}
+		for _, ann := range sharedMutableStateLifecycleAnnotations {
+			if flatHasAnnotationNamed(file, fn, ann) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var mutableVarLifecycleAnnotations = []string{"After", "Before", "AfterTest", "BeforeTest", "AfterEach", "BeforeEach", "AfterAll", "BeforeAll", "AfterClass", "BeforeClass"}
 
 // mutableObjectVarResetByLifecycle reports whether a test lifecycle function or a finally block writes the var.
-func mutableObjectVarResetByLifecycle(file *scanner.File, _, propIdx uint32, propName string) bool {
+func mutableObjectVarResetByLifecycle(file *scanner.File, objectIdx, propIdx uint32, propName string) bool {
 	// Reset functions often live outside the object, so scan the whole file.
 	for _, w := range mutableVarWrites(file, 0, propIdx, propName) {
+		if !flatNodeHasAncestor(file, w, objectIdx) && !mutableVarWriteTargetsObject(file, w, objectIdx, propName) {
+			continue
+		}
 		if _, inFinally := flatEnclosingAncestor(file, w, "finally_block"); inFinally {
 			return true
 		}
@@ -730,9 +814,41 @@ func mutableObjectVarResetByLifecycle(file *scanner.File, _, propIdx uint32, pro
 	return false
 }
 
+func mutableVarWriteTargetsObject(file *scanner.File, write, objectIdx uint32, propName string) bool {
+	objectName := extractIdentifierFlat(file, objectIdx)
+	if objectName == "" {
+		return false
+	}
+	var target string
+	switch file.FlatType(write) {
+	case "assignment":
+		if targetIdx, ok := file.FlatFindChild(write, "directly_assignable_expression"); ok {
+			target = file.FlatNodeText(targetIdx)
+		}
+	case "postfix_expression", "prefix_expression":
+		target = strings.Trim(strings.TrimSpace(file.FlatNodeText(write)), "+-")
+	}
+	target = strings.TrimSpace(target)
+	return target == propName || target == "this."+propName || target == objectName+"."+propName || strings.HasSuffix(target, "."+objectName+"."+propName)
+}
+
 // mutableObjectVarOnlyWrittenByTestHooks reports whether every write to the var is in a test-only hook.
 func mutableObjectVarOnlyWrittenByTestHooks(file *scanner.File, objectIdx, propIdx uint32, propName string) bool {
 	writes := mutableVarWrites(file, objectIdx, propIdx, propName)
+	if len(writes) == 0 {
+		return false
+	}
+	for _, w := range writes {
+		fn, ok := flatEnclosingFunction(file, w)
+		if !ok || !functionIsTestHook(file, fn) {
+			return false
+		}
+	}
+	return true
+}
+
+func sharedMutableStateVarOnlyWrittenByTestHooks(file *scanner.File, objectIdx, propIdx uint32, propName string) bool {
+	writes := sharedMutableStateVarWrites(file, objectIdx, propIdx, propName)
 	if len(writes) == 0 {
 		return false
 	}

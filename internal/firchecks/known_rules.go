@@ -57,6 +57,7 @@ var knownFIRRules = map[string]bool{
 	"LogOfSharedPreferenceRead":               true,
 	"LongLogTag":                              true,
 	"MapGetWithNotNullAssertionOperator":      true,
+	"MutableStateInObject":                    true,
 	"MayBeConstant":                           true,
 	"NonBooleanPropertyPrefixedWithIs":        true,
 	"NonInternationalizedSms":                 true,

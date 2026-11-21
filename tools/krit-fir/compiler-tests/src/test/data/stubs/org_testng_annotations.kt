@@ -8,3 +8,7 @@ annotation class BeforeMethod
 annotation class AfterClass
 @Target(AnnotationTarget.FUNCTION)
 annotation class BeforeClass
+@Target(AnnotationTarget.FUNCTION)
+annotation class AfterTest
+@Target(AnnotationTarget.FUNCTION)
+annotation class BeforeTest

@@ -10,6 +10,7 @@ import dev.jasonpearson.krit.fir.support.expandedClassType
 import dev.jasonpearson.krit.fir.support.identifierAnchor
 import dev.jasonpearson.krit.fir.support.inheritsFromAny
 import dev.jasonpearson.krit.fir.support.nestedClassIdOf
+import dev.jasonpearson.krit.fir.support.runsInPlace
 import dev.jasonpearson.krit.fir.support.walkCheckedFileWithParents
 import dev.jasonpearson.krit.fir.support.walkWithParents
 import org.jetbrains.kotlin.KtNodeTypes
@@ -23,7 +24,9 @@ import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.DeclarationCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.declaration.FirRegularClassChecker
 import org.jetbrains.kotlin.fir.declarations.DirectDeclarationsAccess
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
 import org.jetbrains.kotlin.fir.declarations.FirDeclaration
+import org.jetbrains.kotlin.fir.declarations.FirFunction
 import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
 import org.jetbrains.kotlin.fir.declarations.FirProperty
 import org.jetbrains.kotlin.fir.declarations.FirPropertyAccessor
@@ -76,6 +79,9 @@ internal object MutableStateInObject : FirRegularClassChecker(MppCheckerKind.Com
             add(classIdOf("org.junit.jupiter.api", name))
         }
         for (name in listOf("AfterMethod", "AfterClass", "BeforeMethod", "BeforeClass")) {
+            add(classIdOf("org.testng.annotations", name))
+        }
+        for (name in listOf("AfterTest", "BeforeTest")) {
             add(classIdOf("org.testng.annotations", name))
         }
     }
@@ -204,9 +210,18 @@ internal object MutableStateInObject : FirRegularClassChecker(MppCheckerKind.Com
     private data class Site(val parents: List<FirElement>) {
         fun function(): FirNamedFunction? = parents.filterIsInstance<FirNamedFunction>().lastOrNull()
 
-        fun inFinally(): Boolean = parents.filterIsInstance<FirTryExpression>().any { tryExpression ->
-            val finallyBlock = tryExpression.finallyBlock
-            finallyBlock != null && parents.any { it === finallyBlock }
+        fun inFinally(): Boolean = parents.indices.any { index ->
+            val tryExpression = parents[index] as? FirTryExpression ?: return@any false
+            val finallyBlock = tryExpression.finallyBlock ?: return@any false
+            val finallyIndex = parents.indexOfFirst { it === finallyBlock }
+            if (finallyIndex < 0) return@any false
+            parents.drop(finallyIndex + 1).withIndex().all { (offset, element) ->
+                when (element) {
+                    is FirAnonymousFunction -> runsInPlace(parents, finallyIndex + 1 + offset, element)
+                    is FirFunction -> false
+                    else -> true
+                }
+            }
         }
 
         context(context: CheckerContext)

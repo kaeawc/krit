@@ -61,6 +61,8 @@ class FirRuleWholeCompilationGateTest {
     )
 
     private val allowedReads = listOf(
+        AllowedRead("CoroutineScopeCreatedButNeverCancelled", "val file = context.containingFileSymbol?.fir ?: return true", Why.LOCAL,
+            "walks only the file under check, which is source in both full and incremental compiles"),
         AllowedRead("SerialVersionUIDInSerializableClass", "property.source ?: source,", Why.LOCAL,
             "a property of the companion object of the class under check, in the same file"),
         AllowedRead("InsecureTrustManager", "val body = symbol.fir.body", Why.LOCAL,

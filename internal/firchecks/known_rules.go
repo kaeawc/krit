@@ -22,6 +22,7 @@ var knownFIRRules = map[string]bool{
 	"ComposeRawTextLiteral":                   true,
 	"ComposeRememberWithoutKey":               true,
 	"ComposeSemanticsMissingRole":             true,
+	"CoroutineScopeCreatedButNeverCancelled":  true,
 	"DefaultLocale":                           true,
 	"DeferredAwaitInFinally":                  true,
 	"DoubleMutabilityForCollection":           true,

@@ -19,10 +19,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.supervisorScope
@@ -69,4 +72,14 @@ fun fireAndForget() {
 fun blocking(): Int? = runBlocking {
     withTimeout(100) { delay(1) }
     withTimeoutOrNull(100L) { 42 }
+}
+
+suspend fun cancellation(scope: CoroutineScope, context: CoroutineContext, job: Job) {
+    scope.cancel()
+    context.cancel()
+    context.cancelChildren()
+    context.job.cancelChildren()
+    context[Job]?.cancel()
+    job.cancelChildren()
+    job.cancelAndJoin()
 }

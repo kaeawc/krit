@@ -10,7 +10,10 @@ class ListRulesTest {
         assertEquals(FirRuleDiscovery.rules.map { it.ruleId }, ids)
         assertEquals(ids.sorted(), ids)
         assertTrue(
-            ids.containsAll(listOf("CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey", "InjectDispatcher")),
+            ids.containsAll(listOf(
+                "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
+                "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher",
+            )),
             ids.toString(),
         )
         assertTrue(listRulesOutput().endsWith("\n"))

@@ -95,9 +95,14 @@ func registerPotentialbugsTypesRules() {
 					return
 				}
 				leftFQN, rightFQN := "", ""
+				leftNullable, rightNullable := false, false
 				if ctx.Resolver != nil {
-					leftFQN = referentialEqualityResolvedFQN(ctx.Resolver.ResolveFlatNode(left, file))
-					rightFQN = referentialEqualityResolvedFQN(ctx.Resolver.ResolveFlatNode(right, file))
+					leftType := ctx.Resolver.ResolveFlatNode(left, file)
+					rightType := ctx.Resolver.ResolveFlatNode(right, file)
+					leftFQN = referentialEqualityResolvedFQN(leftType)
+					rightFQN = referentialEqualityResolvedFQN(rightType)
+					leftNullable = leftType != nil && leftType.IsNullable()
+					rightNullable = rightType != nil && rightType.IsNullable()
 					if referentialEqualityUntrustedTopLevelBinding(ctx.Resolver, file, left) {
 						leftFQN = ""
 					}
@@ -105,9 +110,9 @@ func registerPotentialbugsTypesRules() {
 						rightFQN = ""
 					}
 				}
-				matches := func(operand uint32, fqn string) bool {
+				matches := func(operand uint32, fqn string, nullable bool) bool {
 					if referentialEqualityVarargOperand(file, operand) {
-						fqn = referentialEqualityVarargFQN(fqn)
+						fqn = referentialEqualityVarargFQN(fqn, nullable)
 					}
 					if fqn == "kotlin.String" && !referentialEqualityKnownString(file, operand) && !referentialEqualityUnshadowedStringType(file) {
 						return false
@@ -115,7 +120,7 @@ func registerPotentialbugsTypesRules() {
 					return referentialEqualityFQNMatchesAny(fqn, compiled)
 				}
 				if leftFQN != "" || rightFQN != "" {
-					if !matches(left, leftFQN) && !matches(right, rightFQN) {
+					if !matches(left, leftFQN, leftNullable) && !matches(right, rightFQN, rightNullable) {
 						return
 					}
 				} else if (!referentialEqualityKnownString(file, left) && !referentialEqualityKnownString(file, right)) || !referentialEqualityFQNMatchesAny("kotlin.String", compiled) {

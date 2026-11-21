@@ -145,6 +145,6 @@ fun siblingShadow(vararg tags: String, candidate: Any): Boolean {
     return tags === candidate
 }
 
-// With forbiddenTypePatterns: [kotlin.IntArray], Go reports this nullable vararg as IntArray;
-// FIR sees Array<out Int?>. The golden uses default options, so neither engine reports it here.
+// FIR sees Array<out Int?>; Go maps nullable primitive varargs to kotlin.Array.
+// The golden uses default options, so neither engine reports it here.
 fun nullablePrimitiveVararg(vararg values: Int?, other: Any) = values === other

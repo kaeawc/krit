@@ -133,7 +133,10 @@ func referentialEqualityVarargOperand(file *scanner.File, operand uint32) bool {
 	return !shadowed
 }
 
-func referentialEqualityVarargFQN(fqn string) string {
+func referentialEqualityVarargFQN(fqn string, nullable bool) string {
+	if nullable {
+		return "kotlin.Array"
+	}
 	switch fqn {
 	case "kotlin.Boolean":
 		return "kotlin.BooleanArray"

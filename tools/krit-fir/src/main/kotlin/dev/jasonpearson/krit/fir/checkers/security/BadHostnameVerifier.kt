@@ -73,19 +73,28 @@ internal object BadHostnameVerifier :
     override fun check(declaration: FirNamedFunction) {
         if (declaration.name != verify) return
         val source = declaration.source ?: return
-        if (source.kind !is KtRealSourceElementKind) return
-        if (declaration.receiverParameter != null || declaration.contextParameters.isNotEmpty()) return
-        val params = declaration.valueParameters
-        if (params.size != 2) return
+        if (source.kind !is KtRealSourceElementKind || !hasVerifierSignature(declaration, context)) return
         val session = context.session
-        if (!hasType(params[0], StandardClassIds.String, session) || !hasType(params[1], sslSession, session)) return
-        if (declaration.body == null) return
         // The declaring class must be the nearest container: a local function
         // named verify, even inside a verifier, is not the verifier's verify.
-        val owner = context.containingDeclarations.lastOrNull { it != declaration.symbol } as? FirClassSymbol<*> ?: return
-        if (!isHostnameVerifier(owner, session)) return
-        if (!alwaysReturnsTrue(declaration)) return
-        report(firstLine(source), MESSAGE)
+        val owner = context.containingDeclarations.lastOrNull { it != declaration.symbol }
+            as? FirClassSymbol<*>
+        if (owner != null && isHostnameVerifier(owner, session) && alwaysReturnsTrue(declaration)) {
+            report(firstLine(source), MESSAGE)
+        }
+    }
+
+    private fun hasVerifierSignature(
+        declaration: FirNamedFunction,
+        checkerContext: CheckerContext,
+    ): Boolean {
+        val params = declaration.valueParameters
+        val hasSupportedShape = declaration.receiverParameter == null &&
+            declaration.contextParameters.isEmpty() && params.size == 2
+        val hasExpectedParameters = hasSupportedShape &&
+            hasType(params[0], StandardClassIds.String, checkerContext.session) &&
+            hasType(params[1], sslSession, checkerContext.session)
+        return hasExpectedParameters && declaration.body != null
     }
 
     /** `HostnameVerifier { _, _ -> true }`: a SAM constructor call whose lambda always returns true. */
@@ -95,28 +104,43 @@ internal object BadHostnameVerifier :
             val source = expression.source ?: return
             if (source.kind !is KtRealSourceElementKind) return
             reportSamConversions(expression)
-            val created = expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible()
-            if (created.classId != hostnameVerifier) return
-            if (expression.calleeReference.toResolvedCallableSymbol()?.origin != FirDeclarationOrigin.SamConstructor) return
+            reportSamConstructor(expression, source)
+        }
+
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        private fun reportSamConstructor(expression: FirFunctionCall, source: KtSourceElement) {
+            val isHostnameVerifierConstructor =
+                expression.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId == hostnameVerifier
+            val isSamConstructor = isHostnameVerifierConstructor &&
+                expression.calleeReference.toResolvedCallableSymbol()?.origin == FirDeclarationOrigin.SamConstructor
+            if (!isHostnameVerifierConstructor || !isSamConstructor) return
             val lambda = (expression.argumentList.arguments.singleOrNull() as? FirAnonymousFunctionExpression)
                 ?.anonymousFunction ?: return
-            if (lambda.body == null) return
-            if (!alwaysReturnsTrue(lambda)) return
-            report(source, MESSAGE)
+            if (lambda.body != null && alwaysReturnsTrue(lambda)) report(source, MESSAGE)
         }
 
         // `setDefaultHostnameVerifier { _, _ -> true }`: a lambda argument the compiler converts to a HostnameVerifier.
         context(context: CheckerContext, reporter: DiagnosticReporter)
         private fun reportSamConversions(call: FirFunctionCall) {
-            for (argument in call.argumentList.arguments) {
-                val conversion = unwrapArgument(argument) as? FirFunctionTypeConversionExpression ?: continue
-                if (conversion.kind !is FirFunctionConversionKind.Sam) continue
-                if (conversion.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId != hostnameVerifier) continue
-                val lambda = (conversion.expression as? FirAnonymousFunctionExpression)?.anonymousFunction ?: continue
-                if (lambda.body == null) continue
-                if (!alwaysReturnsTrue(lambda)) continue
-                report(lambda.source ?: continue, MESSAGE)
-            }
+            call.argumentList.arguments.forEach { reportSamConversion(it) }
+        }
+
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        private fun reportSamConversion(argument: FirExpression) {
+            val lambda = convertedHostnameVerifierLambda(argument) ?: return
+            val source = lambda.source ?: return
+            report(source, MESSAGE)
+        }
+
+        context(context: CheckerContext, reporter: DiagnosticReporter)
+        private fun convertedHostnameVerifierLambda(argument: FirExpression): FirFunction? {
+            val conversion = unwrapArgument(argument) as? FirFunctionTypeConversionExpression ?: return null
+            val isSamConversion = conversion.kind is FirFunctionConversionKind.Sam
+            val targetsHostnameVerifier = isSamConversion &&
+                conversion.resolvedType.fullyExpandedType().lowerBoundIfFlexible().classId == hostnameVerifier
+            if (!targetsHostnameVerifier) return null
+            return (conversion.expression as? FirAnonymousFunctionExpression)?.anonymousFunction
+                ?.takeIf { it.body != null && alwaysReturnsTrue(it) }
         }
     }
 
@@ -136,11 +160,7 @@ internal object BadHostnameVerifier :
         function.body?.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
                 if (element is FirClass) return
-                if (element is FirThrowExpression || element is FirFunctionCall &&
-                    (declaredReturnTypeIsNothing(element) || isRejectingGuard(element))
-                ) {
-                    hasRejectingPath = true
-                }
+                if (isRejectingExpression(element)) hasRejectingPath = true
                 element.acceptChildren(this)
                 if (element is FirReturnExpression && element.target.labeledElement === function) {
                     sawReturn = true
@@ -150,6 +170,10 @@ internal object BadHostnameVerifier :
         })
         return sawReturn && returnsAreTrue && !hasRejectingPath
     }
+
+    private fun isRejectingExpression(element: FirElement): Boolean =
+        element is FirThrowExpression || element is FirFunctionCall &&
+            (declaredReturnTypeIsNothing(element) || isRejectingGuard(element))
 
     private fun declaredReturnTypeIsNothing(call: FirFunctionCall): Boolean =
         (call.calleeReference.toResolvedCallableSymbol() as? FirNamedFunctionSymbol)

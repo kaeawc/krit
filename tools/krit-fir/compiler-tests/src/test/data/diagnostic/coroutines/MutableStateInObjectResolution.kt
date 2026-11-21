@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 56, 57, 59, 65, 71, 81, 86, 149, 150, 156, 186, 239
+// go-lines: 56, 57, 59, 65, 71, 81, 86, 112, 117, 140, 149, 150, 156, 186, 207, 220, 239, 288
 package test.resolution
 
 import java.util.concurrent.atomic.AtomicInteger as SafeCounter
@@ -113,12 +113,12 @@ object NestedOwnWrite {
 }
 
 object Registry {
-    // Go can mistake an unrelated this.count finally-write for a reset; FIR resolves its receiver.
-    var <!MutableStateInObject!>count<!> = 0
+    // A distinct name prevents OtherReceiver's finally write from resetting this property.
+    var <!MutableStateInObject!>registryCount<!> = 0
 }
 class OtherReceiver {
-    var count = 0
-    fun reset() { try { println(count) } finally { this.count = 0 } }
+    var otherCount = 0
+    fun reset() { try { println(otherCount) } finally { this.otherCount = 0 } }
 }
 object ShadowedReceiverState {
     // Go can mistake a shadowed receiver's finally-write for a reset; FIR resolves its receiver.

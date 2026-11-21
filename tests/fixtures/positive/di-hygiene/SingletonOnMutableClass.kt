@@ -1,6 +1,6 @@
 package dihygiene
 
-annotation class Singleton
+import javax.inject.Singleton
 annotation class Inject
 
 class User

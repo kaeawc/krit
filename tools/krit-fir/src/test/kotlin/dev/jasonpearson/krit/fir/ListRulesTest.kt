@@ -13,6 +13,7 @@ class ListRulesTest {
             ids.containsAll(listOf(
                 "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher",
+                "SingletonOnMutableClass",
             )),
             ids.toString(),
         )

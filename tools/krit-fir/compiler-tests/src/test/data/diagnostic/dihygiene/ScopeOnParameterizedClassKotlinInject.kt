@@ -1,11 +1,8 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
 // kotlin-inject scopes are not reported: keyed by full type.
-// The declarations live here because the stubs have no framework layer.
+// The shared kotlin-inject stub declares Scope; the scopes below are local.
 package me.tatarka.inject.annotations
-
-@Target(AnnotationTarget.ANNOTATION_CLASS)
-annotation class Scope
 
 @Scope
 annotation class Singleton

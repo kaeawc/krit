@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 56, 57, 59, 65, 71, 81, 86, 112, 117, 141, 150, 151, 157, 187, 208, 221, 240, 289
+// go-lines: 56, 57, 59, 65, 71, 81, 86, 112, 117, 141, 150, 151, 187, 208, 221, 240, 289
 package test.resolution
 
 import java.util.concurrent.atomic.AtomicInteger as SafeCounter
@@ -154,7 +154,7 @@ object AtomicFuScalars {
 object AtomicFuArrays {
     // The Go name-only rule is intentionally conservative for these resolved external types.
     var booleanArray = kotlinx.atomicfu.AtomicBooleanArray(4)
-    var refArray = kotlinx.atomicfu.AtomicRefArray(4, "value")
+    var refArray = kotlinx.atomicfu.AtomicArray<String>(4)
 }
 
 class AtomicInt

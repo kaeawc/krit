@@ -263,7 +263,7 @@ private object MutableStateInObjectCandidates {
         }
         val atomicFuTypes = listOf(
             "AtomicInt", "AtomicLong", "AtomicBoolean", "AtomicRef", "AtomicIntArray", "AtomicLongArray",
-            "AtomicBooleanArray", "AtomicRefArray",
+            "AtomicBooleanArray", "AtomicArray",
         )
         for (name in atomicFuTypes) {
             add(classIdOf("kotlinx.atomicfu", name))

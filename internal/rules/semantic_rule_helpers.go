@@ -25,21 +25,6 @@ func semanticTargetOwnerMatches(target string, owners ...string) bool {
 	return false
 }
 
-func semanticResolvedTargetMatches(ctx *api.Context, call uint32, fqns ...string) bool {
-	target, ok := semantics.ResolveCallTarget(ctx, call)
-	if !ok || !target.Resolved {
-		return false
-	}
-	got := strings.TrimSpace(strings.ReplaceAll(target.QualifiedName, "#", "."))
-	for _, want := range fqns {
-		want = strings.TrimSpace(strings.ReplaceAll(want, "#", "."))
-		if got == want || strings.HasSuffix(got, "."+want) {
-			return true
-		}
-	}
-	return false
-}
-
 func semanticCallReceiverTypeMatches(ctx *api.Context, call uint32, types ...string) bool {
 	if javaSemanticCallReceiverTypeMatches(ctx, call, types...) {
 		return true

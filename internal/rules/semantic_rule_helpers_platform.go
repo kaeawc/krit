@@ -19,6 +19,9 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 	receiver := flatReceiverNameFromCall(ctx.File, call)
 	switch receiver {
 	case "Log":
+		if logReceiverShadowedFlat(ctx.File, call, receiver) {
+			return false
+		}
 		// Require an import of `android.util.Log` so Timber.Log,
 		// slf4j Logger aliases, kotlin-logging KLogger, and same-file
 		// `class Log` lookalikes are not misclassified as
@@ -36,6 +39,25 @@ func logCallIsAndroidLog(ctx *api.Context, call uint32) bool {
 	default:
 		return false
 	}
+}
+
+func logReceiverShadowedFlat(file *scanner.File, call uint32, name string) bool {
+	shadowed := false
+	for _, kind := range []string{"variable_declaration", "parameter"} {
+		file.FlatWalkNodes(0, kind, func(declaration uint32) {
+			if shadowed || semantics.DeclarationName(file, declaration) != name {
+				return
+			}
+			for scope, ok := file.FlatParent(declaration); ok; scope, ok = file.FlatParent(scope) {
+				switch file.FlatType(scope) {
+				case "statements", "lambda_literal", "function_declaration", "anonymous_function", "class_body", "source_file":
+					shadowed = file.FlatStartByte(scope) <= file.FlatStartByte(call) && file.FlatEndByte(call) <= file.FlatEndByte(scope)
+					return
+				}
+			}
+		})
+	}
+	return shadowed
 }
 
 // logReceiverImportsAndroidLog reports whether the `Log` receiver of a call
@@ -85,90 +107,142 @@ func fileDeclaresSimpleTypeNameLocal(file *scanner.File, name string) bool {
 	return false
 }
 
-// hasAndroidLogGuardFlat reports whether `call` is wrapped in a debug-only
-// guard recognized by AOSP Android lint: either
-//   - `if (Log.isLoggable(...))`, or
-//   - `if (BuildConfig.DEBUG)`
-//
-// The walk stops at the nearest scope boundary (function/class/lambda) so an
-// `isLoggable` guard inside a sibling block does not satisfy this call.
-func hasAndroidLogGuardFlat(ctx *api.Context, call uint32) bool {
-	file := ctx.File
-	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
-		switch file.FlatType(p) {
+func logCallIsConditionalFlat(file *scanner.File, call uint32) bool {
+	for parent, ok := file.FlatParent(call); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
 		case "if_expression":
-			condition, _ := ifConditionAndThenBodyFlat(file, p)
-			if condition != 0 && conditionIsBuildConfigDebugFlat(file, condition) {
-				return true
+			condition, _ := ifConditionAndThenBodyFlat(file, parent)
+			return file.FlatNodeText(flatUnwrapParenExpr(file, condition)) != "true"
+		case "when_entry":
+			for child := file.FlatFirstChild(parent); child != 0; child = file.FlatNextSib(child) {
+				if file.FlatType(child) == "when_condition" && file.FlatNodeText(flatUnwrapParenExpr(file, file.FlatNamedChild(child, 0))) != "true" {
+					return true
+				}
 			}
-			found := false
-			file.FlatWalkNodes(p, "call_expression", func(c uint32) {
-				if found || c == call || flatCallExpressionName(file, c) != "isLoggable" {
-					return
-				}
-				if semanticResolvedTargetMatches(ctx, c, "android.util.Log.isLoggable") {
-					found = true
-					return
-				}
-				if flatReceiverNameFromCall(file, c) != "Log" {
-					return
-				}
-				if ctx.Resolver != nil {
-					if ctx.Resolver.ResolveImport("Log", file) == "android.util.Log" {
-						found = true
-					}
-					return
-				}
-				// Resolver missing: accept the guard only when the
-				// file actually imports android.util.Log and does
-				// not declare a same-file `Log` lookalike.
-				if fileImportsFQN(file, "android.util.Log") &&
-					!fileDeclaresSimpleTypeNameLocal(file, "Log") {
-					found = true
-				}
-			})
-			if found {
-				return true
+			return false
+		case "function_declaration":
+			if !logDeclarationIsLocalFlat(file, parent) {
+				return false
 			}
-		case "function_declaration", "method_declaration",
-			"class_declaration", "object_declaration",
-			"lambda_literal", "anonymous_function",
-			"source_file":
+		case "property_declaration":
+			if !logDeclarationIsLocalFlat(file, parent) {
+				return false
+			}
+		case "call_expression":
+			callee, _ := flatCallExpressionParts(file, parent)
+			if callee == 0 || file.FlatStartByte(callee) > file.FlatStartByte(call) || file.FlatEndByte(call) > file.FlatEndByte(callee) {
+				return false
+			}
+		case "class_declaration", "object_declaration", "object_literal",
+			"primary_constructor", "secondary_constructor", "getter", "setter", "anonymous_initializer", "source_file":
 			return false
 		}
 	}
 	return false
 }
 
-// conditionIsBuildConfigDebugFlat reports whether `cond` is a non-negated
-// BuildConfig.DEBUG reference (optionally parenthesized). The release-
-// engineering BuildConfigDebugInverted rule handles the negated form
-// separately; here we only treat the positive guard as a no-fire signal.
-func conditionIsBuildConfigDebugFlat(file *scanner.File, cond uint32) bool {
-	if file == nil || cond == 0 {
+func logDeclarationIsLocalFlat(file *scanner.File, declaration uint32) bool {
+	for parent, ok := file.FlatParent(declaration); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "function_body", "lambda_literal", "anonymous_function", "anonymous_initializer", "secondary_constructor":
+			return true
+		case "class_body", "source_file":
+			return false
+		}
+	}
+	return false
+}
+
+func logMessageDoesWorkFlat(ctx *api.Context, call uint32) bool {
+	_, arguments := flatCallExpressionParts(ctx.File, call)
+	position := 1
+	if flatCallExpressionName(ctx.File, call) == "println" {
+		position = 2
+	}
+	for argument := ctx.File.FlatFirstChild(arguments); argument != 0; argument = ctx.File.FlatNextSib(argument) {
+		if ctx.File.FlatType(argument) != "value_argument" {
+			continue
+		}
+		if position == 0 {
+			return logExpressionDoesWorkFlat(ctx, flatValueArgumentExpression(ctx.File, argument))
+		}
+		position--
+	}
+	return false
+}
+
+func logExpressionDoesWorkFlat(ctx *api.Context, expression uint32) bool {
+	expression = flatUnwrapParenExpr(ctx.File, expression)
+	if expression == 0 {
 		return false
 	}
-	// `BuildConfig.DEBUG && other` still only runs when DEBUG is true.
-	if inner := flatUnwrapParenExpr(file, cond); file.FlatType(inner) == "conjunction_expression" {
-		for c := file.FlatFirstChild(inner); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatIsNamed(c) && conditionIsBuildConfigDebugFlat(file, c) {
+	switch ctx.File.FlatType(expression) {
+	case "call_expression":
+		return true
+	case "string_literal":
+		for entry := ctx.File.FlatFirstChild(expression); entry != 0; entry = ctx.File.FlatNextSib(entry) {
+			if ctx.File.FlatType(entry) != "interpolated_expression" {
+				continue
+			}
+			for value := ctx.File.FlatFirstChild(entry); value != 0; value = ctx.File.FlatNextSib(value) {
+				if ctx.File.FlatIsNamed(value) && ctx.File.FlatType(flatUnwrapParenExpr(ctx.File, value)) == "call_expression" {
+					return true
+				}
+			}
+		}
+	case "additive_expression", "binary_expression":
+		var operator string
+		var operands []uint32
+		for child := ctx.File.FlatFirstChild(expression); child != 0; child = ctx.File.FlatNextSib(child) {
+			if ctx.File.FlatIsNamed(child) {
+				operands = append(operands, child)
+			} else if operator == "" {
+				operator = ctx.File.FlatNodeText(child)
+			}
+		}
+		if operator != "+" {
+			return false
+		}
+		for _, operand := range operands {
+			if logExpressionDoesWorkFlat(ctx, operand) {
 				return true
 			}
 		}
-		return false
+	case "elvis_expression":
+		left := flatUnwrapParenExpr(ctx.File, ctx.File.FlatNamedChild(expression, 0))
+		return logElvisLeftIsCall(ctx.File, left)
 	}
-	text := strings.TrimSpace(file.FlatNodeText(cond))
-	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
-		inner := strings.TrimSpace(text[1 : len(text)-1])
-		if inner == text {
-			break
+	return false
+}
+
+func logElvisLeftIsCall(file *scanner.File, expression uint32) bool {
+	switch file.FlatType(expression) {
+	case "call_expression":
+		return true
+	case "navigation_expression":
+		selector := flatLastChildOfType(file, expression, "navigation_suffix")
+		if selector == 0 {
+			return false
 		}
-		text = inner
-	}
-	if strings.HasPrefix(text, "!") {
+		var containsCall bool
+		var walk func(uint32)
+		walk = func(node uint32) {
+			if containsCall || node == 0 {
+				return
+			}
+			if file.FlatType(node) == "call_expression" || file.FlatType(node) == "call_suffix" {
+				containsCall = true
+				return
+			}
+			for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+				walk(child)
+			}
+		}
+		walk(selector)
+		return containsCall
+	default:
 		return false
 	}
-	return text == "BuildConfig.DEBUG" || strings.HasSuffix(text, ".BuildConfig.DEBUG")
 }
 
 func wakeLockAcquireCall(ctx *api.Context, call uint32) bool {

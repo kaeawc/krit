@@ -4,6 +4,14 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- The opt-in `LogConditional` rule follows Android Lint 32.4.1 fully in FIR. Go reports `Log.v`, `Log.d`,
+  `Log.i`, and `Log.println` only when the message is a call or directly contains one in a string template or
+  `+` concatenation, or is an Elvis expression with a direct call on its left. `Log.w`/`Log.e`/`Log.wtf` do
+  not report. The nearest `if` or `when` branch decides
+  guarding (literal `true` and `when`'s `else` do not guard), with enclosing calls and declaration boundaries
+  stopping the search. Diagnostics use Lint's method-specific message; the rule remains off by default.
+
 ### Added
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.

@@ -1,9 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16, 23, 30
-// A DEBUG member of a class named BuildConfig read through an instance, an
-// implicit `with` receiver, or `this` inside the class is not the app's
-// static BuildConfig.DEBUG flag. Go matches only the condition text
-// `BuildConfig.DEBUG`, so it reports each call below, and FIR matches.
+// go-lines: none
+// Any non-literal-true if condition guards message work in both engines.
 package test.logconditional.instance
 
 import android.util.Log
@@ -13,21 +10,23 @@ class BuildConfig {
 
     fun member() {
         if (DEBUG) {
-            <!LogConditional!>Log.d("Tag", "DEBUG through this")<!>
+            Log.d("Tag", compute())
         }
     }
 }
 
 fun instanceReceiver(cfg: BuildConfig) {
     if (cfg.DEBUG) {
-        <!LogConditional!>Log.d("Tag", "DEBUG through an instance")<!>
+        Log.d("Tag", compute())
     }
 }
 
 fun implicitReceiver(cfg: BuildConfig) {
     with(cfg) {
         if (DEBUG) {
-            <!LogConditional!>Log.d("Tag", "DEBUG through an implicit receiver")<!>
+            Log.d("Tag", compute())
         }
     }
 }
+
+private fun compute(): String = "computed"

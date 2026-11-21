@@ -2,6 +2,7 @@
 package stubs
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.SigningInfo
@@ -14,8 +15,9 @@ fun hasCamera(context: Context): Boolean {
     } catch (e: PackageManager.NameNotFoundException) {
         null
     }
+    val appInfo: ApplicationInfo = pm.getApplicationInfo(context.packageName, 0)
     <!PrintlnInProduction!>println<!>(info?.versionName)
-    return pm.hasSystemFeature(PackageManager.FEATURE_CAMERA) &&
+    return appInfo.packageName == context.packageName && pm.hasSystemFeature(PackageManager.FEATURE_CAMERA) &&
         context.checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 }
 

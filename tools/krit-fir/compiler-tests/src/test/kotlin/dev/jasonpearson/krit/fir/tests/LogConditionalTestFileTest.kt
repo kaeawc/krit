@@ -16,7 +16,7 @@ class LogConditionalTestFileTest {
         import android.util.Log
 
         fun work() {
-            Log.d("Tag", "unguarded")
+            Log.d("Tag", "x" + System.nanoTime())
         }
     """.trimIndent()
 

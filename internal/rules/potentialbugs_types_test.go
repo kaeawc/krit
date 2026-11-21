@@ -380,6 +380,20 @@ fun update(text: String, original: String): Boolean {
 	}
 }
 
+func TestAvoidReferentialEquality_CallbackArgumentDoesNotSuppressFinding(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
+package test
+fun fresh(block: () -> Unit): String = "replacement"
+fun ignoredCallback(text: String) = fresh { println(text) } === text
+`)
+	for _, finding := range findings {
+		if finding.Rule == "AvoidReferentialEquality" {
+			return
+		}
+	}
+	t.Fatal("expected finding when the compared String is only referenced inside a callback")
+}
+
 func TestAvoidReferentialEquality_NegativeNullCheck(t *testing.T) {
 	findings := runRuleByName(t, "AvoidReferentialEquality", `
 package test

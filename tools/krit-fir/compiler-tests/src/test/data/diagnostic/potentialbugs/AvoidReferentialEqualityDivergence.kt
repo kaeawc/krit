@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 7, 49, 74, 78, 81, 83, 95, 99, 112, 113, 116, 117, 126, 127, 130
+// go-lines: 7, 49, 74, 78, 81, 83, 94, 103, 108, 112, 125, 126, 129, 130, 139, 140, 143
 package test
 
 typealias Text = String
@@ -88,6 +88,19 @@ class ElseComparator : Comparator<String> {
         if (a === b) return 1 else return 0
     }
 }
+
+class NestedReturnComparator : Comparator<String> {
+    override fun compare(a: String, b: String): Int {
+        if (a === b) { run { return@run 0 }; return 1 }
+        return 2
+    }
+}
+
+fun fresh(block: () -> Unit): String {
+    block()
+    return "replacement"
+}
+fun ignoredCallback(text: String) = <!AvoidReferentialEquality!>fresh { println(text) } === text<!>
 
 // A sibling or nested helper's vararg does not shadow the nearest plain parameter.
 class Matcher {

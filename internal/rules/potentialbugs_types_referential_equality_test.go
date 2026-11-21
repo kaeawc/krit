@@ -53,6 +53,53 @@ class Holder : Base() {
 	}
 }
 
+func TestAvoidReferentialEquality_VarargArrayTypes(t *testing.T) {
+	testCases := []struct {
+		name, parameterType, resolvedFQN, pattern string
+		want                                      int
+	}{
+		{"primitive element maps to primitive array", "Int", "kotlin.Int", "kotlin.IntArray", 1},
+		{"primitive element does not map to generic array", "Int", "kotlin.Int", "kotlin.Array", 0},
+		{"resolved primitive array is preserved", "Int", "kotlin.IntArray", "kotlin.IntArray", 1},
+		{"String element maps to generic array", "String", "kotlin.String", "kotlin.Array", 1},
+		{"String vararg does not match String", "String", "kotlin.String", "kotlin.String", 0},
+	}
+	var rule *rules.AvoidReferentialEqualityRule
+	for _, candidate := range api.Registry {
+		if candidate.ID == "AvoidReferentialEquality" {
+			rule, _ = candidate.Implementation.(*rules.AvoidReferentialEqualityRule)
+			break
+		}
+	}
+	if rule == nil {
+		t.Fatal("AvoidReferentialEquality rule not registered")
+	}
+	originalPatterns := rule.ForbiddenTypePatterns
+	defer func() { rule.ForbiddenTypePatterns = originalPatterns }()
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rule.ForbiddenTypePatterns = []string{testCase.pattern}
+			file := parseInline(t, fmt.Sprintf("fun same(vararg values: %s, other: Any) = values === other", testCase.parameterType))
+			varargOperand := uint32(0)
+			file.FlatWalkNodes(0, "equality_expression", func(expression uint32) {
+				varargOperand = file.FlatFirstChild(expression)
+			})
+			if varargOperand == 0 {
+				t.Fatal("equality expression has no left operand")
+			}
+			fake := oracle.NewFakeOracle()
+			fake.Expressions[file.Path] = map[string]*typeinfer.ResolvedType{}
+			key := fmt.Sprintf("%d:%d", file.FlatRow(varargOperand)+1, file.FlatCol(varargOperand)+1)
+			fake.Expressions[file.Path][key] = &typeinfer.ResolvedType{FQN: testCase.resolvedFQN, Kind: typeinfer.TypeClass, Resolved: true}
+			findings := runRuleOnFileWithFakeOracle(t, "AvoidReferentialEquality", file, fake)
+			if len(findings) != testCase.want {
+				t.Fatalf("got %d findings, want %d: %v", len(findings), testCase.want, findings)
+			}
+		})
+	}
+}
+
 func TestAvoidReferentialEquality_ResolverlessLiteralsOnly(t *testing.T) {
 	testCases := []struct {
 		name string

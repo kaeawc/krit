@@ -17,6 +17,10 @@ import org.jetbrains.kotlin.fir.analysis.checkers.MppCheckerKind
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.ExpressionCheckers
 import org.jetbrains.kotlin.fir.analysis.checkers.expression.FirEqualityOperatorCallChecker
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousFunction
+import org.jetbrains.kotlin.fir.declarations.FirAnonymousObject
+import org.jetbrains.kotlin.fir.declarations.FirNamedFunction
+import org.jetbrains.kotlin.fir.declarations.FirRegularClass
 import org.jetbrains.kotlin.fir.expressions.FirBooleanOperatorExpression
 import org.jetbrains.kotlin.fir.expressions.FirEqualityOperatorCall
 import org.jetbrains.kotlin.fir.expressions.FirExpression
@@ -145,6 +149,14 @@ private object ReferentialEqualitySyntax {
                 if (hasMatchingArgument) found = true
                 else visitElement(functionCall)
             }
+
+            override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction) {}
+
+            override fun visitNamedFunction(namedFunction: FirNamedFunction) {}
+
+            override fun visitRegularClass(regularClass: FirRegularClass) {}
+
+            override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {}
         })
         return found
     }
@@ -217,15 +229,16 @@ private object ReferentialEqualitySyntax {
 private object ReferentialEqualityExemptions {
     context(context: CheckerContext)
     fun comparatorFastPath(expression: FirEqualityOperatorCall, path: List<FirElement>): Boolean {
-        val first = context.containingDeclarations
+        val comparator = context.containingDeclarations
             .filterIsInstance<FirNamedFunctionSymbol>()
             .lastOrNull()
             ?.takeIf { it.name.asString() in setOf("compare", "compareTo") }
-            ?.bodyInCheckedFile()
+            ?: return false
+        val first = comparator.bodyInCheckedFile()
             ?.statements
             ?.firstOrNull() as? FirWhenExpression ?: return false
         if (first !in path || !firstBranchContains(first, expression)) return false
-        return containsZeroReturn(first)
+        return containsZeroReturn(first, comparator)
     }
 
     private fun firstBranchContains(expression: FirWhenExpression, target: FirElement): Boolean {
@@ -233,7 +246,7 @@ private object ReferentialEqualityExemptions {
         return ReferentialEqualitySyntax.containsElement(branch.condition, target)
     }
 
-    private fun containsZeroReturn(expression: FirWhenExpression): Boolean {
+    private fun containsZeroReturn(expression: FirWhenExpression, comparator: FirNamedFunctionSymbol): Boolean {
         var returnsZero = false
         expression.accept(object : FirVisitorVoid() {
             override fun visitElement(element: FirElement) {
@@ -242,7 +255,8 @@ private object ReferentialEqualityExemptions {
 
             override fun visitReturnExpression(returnExpression: FirReturnExpression) {
                 val value = (returnExpression.result as? FirLiteralExpression)?.value as? Number
-                if (value?.toLong() == 0L) returnsZero = true
+                val target = returnExpression.target.labeledElement as? FirNamedFunction
+                if (target?.symbol == comparator && value?.toLong() == 0L) returnsZero = true
                 else visitElement(returnExpression)
             }
         })

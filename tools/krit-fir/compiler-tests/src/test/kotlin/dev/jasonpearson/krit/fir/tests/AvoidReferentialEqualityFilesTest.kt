@@ -42,7 +42,17 @@ class AvoidReferentialEqualityFilesTest {
         assertEquals(0, findings(sources, listOf("Value")))
         assertEquals(0, findings(sources, emptyList<String>()))
         assertEquals(0, findings(sources, listOf(" ")))
-        assertEquals(0, findings(sources, listOf("sample.[Value]")))
+        assertEquals(0, findings(sources, listOf("sample.[V]alue")))
+    }
+
+    @Test fun primitiveVarargsUsePrimitiveArrayTypes() {
+        val intVararg = mapOf("Use.kt" to "package sample; fun same(vararg values: Int, other: Any) = values === other")
+        assertEquals(1, findings(intVararg, listOf("kotlin.IntArray")))
+        assertEquals(0, findings(intVararg, listOf("kotlin.Array")))
+
+        val stringVararg = mapOf("Use.kt" to "package sample; fun same(vararg values: String, other: Any) = values === other")
+        assertEquals(1, findings(stringVararg, listOf("kotlin.Array")))
+        assertEquals(0, findings(stringVararg, listOf("kotlin.String")))
     }
 
     @Test fun scalarAndReasonedPatternsMatchGoOptions() {

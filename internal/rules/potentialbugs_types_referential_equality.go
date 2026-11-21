@@ -133,6 +133,32 @@ func referentialEqualityVarargOperand(file *scanner.File, operand uint32) bool {
 	return !shadowed
 }
 
+func referentialEqualityVarargFQN(fqn string) string {
+	switch fqn {
+	case "kotlin.Boolean":
+		return "kotlin.BooleanArray"
+	case "kotlin.Byte":
+		return "kotlin.ByteArray"
+	case "kotlin.Char":
+		return "kotlin.CharArray"
+	case "kotlin.Double":
+		return "kotlin.DoubleArray"
+	case "kotlin.Float":
+		return "kotlin.FloatArray"
+	case "kotlin.Int":
+		return "kotlin.IntArray"
+	case "kotlin.Long":
+		return "kotlin.LongArray"
+	case "kotlin.Short":
+		return "kotlin.ShortArray"
+	case "kotlin.Array", "kotlin.BooleanArray", "kotlin.ByteArray", "kotlin.CharArray",
+		"kotlin.DoubleArray", "kotlin.FloatArray", "kotlin.IntArray", "kotlin.LongArray", "kotlin.ShortArray":
+		return fqn
+	default:
+		return "kotlin.Array"
+	}
+}
+
 // referentialEqualityUnwrapParentheses strips only unambiguous single-expression wrappers.
 func referentialEqualityUnwrapParentheses(file *scanner.File, node uint32) uint32 {
 	for file.FlatType(node) == "parenthesized_expression" {

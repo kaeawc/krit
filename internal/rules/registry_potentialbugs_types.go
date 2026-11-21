@@ -107,7 +107,7 @@ func registerPotentialbugsTypesRules() {
 				}
 				matches := func(operand uint32, fqn string) bool {
 					if referentialEqualityVarargOperand(file, operand) {
-						return referentialEqualityFQNMatchesAny("kotlin.Array", compiled)
+						fqn = referentialEqualityVarargFQN(fqn)
 					}
 					if fqn == "kotlin.String" && !referentialEqualityKnownString(file, operand) && !referentialEqualityUnshadowedStringType(file) {
 						return false

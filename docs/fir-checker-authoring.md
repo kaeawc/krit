@@ -4,6 +4,24 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
 `tools/krit-fir`. One checker per change. Background on which rules qualify is in
 [fir-checker-candidates.md](fir-checker-candidates.md).
 
+### Confirm-only verdicts
+
+`internal/firchecks/verdict.go` defines the `firConfirmOnlyRules` policy set,
+currently containing `TestWithoutAssertion`. For these rules FIR is a strict
+filter: it may confirm a Go finding at the same `(file, rule, line)` or remove
+an unconfirmed Go finding, but it cannot add a finding. Overlapping byte ranges
+on different lines do not confirm each other. Unmatched FIR findings are
+counted as `confirm-only-dropped`, not additions or suppressions. This is
+enforced by the shared `ApplyVerdict` merge used by CLI scans and the daemon,
+not by mirroring Go's exemptions in Kotlin. LSP/MCP per-file analysis runs Go
+dispatch without a separate FIR verdict merge; any future FIR verdict consumer
+must use `ApplyVerdict` too.
+Compiler-error, crash, and per-rule-error fallbacks still keep Go findings.
+Rules outside the set retain the normal authoritative merge, including
+FIR-only additions after suppression. Keep confirm-only golden markers a
+subset of their regenerated `go-lines` and pin Go-only abstentions even
+though the merge structurally prevents new false positives.
+
 ## 1. Prerequisites
 
 - The rule is registered in Go (`api.Registry`) and has an entry in

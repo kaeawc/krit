@@ -63,6 +63,16 @@ class FirRuleWholeCompilationGateTest {
     private val allowedReads = listOf(
         AllowedRead("CoroutineScopeCreatedButNeverCancelled", "val file = context.containingFileSymbol?.fir ?: return true", Why.LOCAL,
             "walks only the file under check, which is source in both full and incremental compiles"),
+        AllowedRead("TestWithoutAssertionTestBody", "val source = function.source", Why.LOCAL,
+            "function is a test declaration met while walking the file under check"),
+        AllowedRead("TestWithoutAssertionGoExemptions", "val functionText = TestWithoutAssertionGoSupport.sourceText(function.source)", Why.LOCAL,
+            "function is a test declaration met while walking the file under check; Go's text exemptions inspect its source"),
+        AllowedRead("TestWithoutAssertionTestBody", "function.source,", Why.LOCAL,
+            "function is the same test declaration of the file under check"),
+        AllowedRead("TestWithoutAssertionEvidence", "val function = symbol.fir", Why.LOCAL,
+            "bodyIn(file.symbol, session) returned a body, proving the helper is declared in the file under check"),
+        AllowedRead("TestWithoutAssertionEvidence", "function.source?.kind is KtRealSourceElementKind && !TestWithoutAssertionGoSupport.isTest(function)", Why.LOCAL,
+            "the same helper, guarded by bodyIn(file.symbol, session)"),
         AllowedRead("SerialVersionUIDInSerializableClass", "property.source ?: source,", Why.LOCAL,
             "a property of the companion object of the class under check, in the same file"),
         AllowedRead("InsecureTrustManager", "val body = symbol.fir.body", Why.LOCAL,
@@ -315,7 +325,8 @@ class FirRuleWholeCompilationGateTest {
         assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "InjectDispatcher" }.requiresWholeCompilation)
         assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "SerialVersionUIDInSerializableClass" }.requiresWholeCompilation)
         assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "LongLogTag" }.requiresWholeCompilation)
-        // The test-only probe is the one rule with an override, and only while armed.
+        assertFalse(FirRuleDiscovery.rules.first { it.ruleId == "TestWithoutAssertion" }.requiresWholeCompilation)
+        // The test-only probe adds another tiered rule only while armed.
         val probe = FirRuleDiscovery.rules.first { it.ruleId == TieredProbe.ruleId }
         assertFalse(probe.requiresWholeCompilation)
         TieredProbe.armed {

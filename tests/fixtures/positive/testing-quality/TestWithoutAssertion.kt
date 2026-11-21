@@ -1,3 +1,4 @@
+// fir-parity: skip illustrative parse call is undeclared; compiling positives are covered by FIR goldens.
 package test
 
 import org.junit.Test

@@ -48,3 +48,63 @@ fun goFullMatchRegex(pattern: String): Regex? {
     }
     return runCatching { Regex(anchored) }.getOrNull()
 }
+
+fun goNameGlobMatches(pattern: String, name: String): Boolean {
+    if (pattern.isEmpty() || name.isEmpty()) return false
+    val regex = GoNameGlobParser(pattern).toRegex() ?: return false
+    return runCatching { regex.matches(name) }.getOrDefault(false)
+}
+
+private class GoNameGlobParser(private val pattern: String) {
+    private val regex = StringBuilder("^")
+    private var index = 0
+
+    fun toRegex(): Regex? {
+        while (index < pattern.length) {
+            if (!appendToken()) return null
+        }
+        return runCatching { Regex(regex.append('$').toString()) }.getOrNull()
+    }
+
+    private fun appendToken(): Boolean {
+        when (val token = pattern[index++]) {
+            '*' -> regex.append(".*")
+            '?' -> regex.append('.')
+            '\\' -> {
+                if (index == pattern.length) return false
+                regex.append(Regex.escape(pattern[index++].toString()))
+            }
+            '[' -> return appendCharacterClass()
+            else -> regex.append(Regex.escape(token.toString()))
+        }
+        return true
+    }
+
+    private fun appendCharacterClass(): Boolean {
+        regex.append('[')
+        if (index < pattern.length && pattern[index] == '^') {
+            regex.append('^')
+            index++
+        }
+        val firstCharacter = index
+        while (index < pattern.length && pattern[index] != ']') {
+            if (!appendClassCharacter()) return false
+        }
+        if (index == pattern.length || index == firstCharacter) return false
+        regex.append(']')
+        index++
+        return true
+    }
+
+    private fun appendClassCharacter(): Boolean {
+        val character = pattern[index++]
+        if (character == '\\') {
+            if (index == pattern.length) return false
+            regex.append(Regex.escape(pattern[index++].toString()))
+            return true
+        }
+        if (character == '[' || character == '&' || character == '^') regex.append('\\')
+        regex.append(character)
+        return true
+    }
+}

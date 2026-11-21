@@ -6,10 +6,27 @@ import java.io.File
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import org.jetbrains.kotlin.fir.diagnostics.ConeSimpleDiagnostic
+import org.jetbrains.kotlin.fir.diagnostics.DiagnosticKind
+import org.jetbrains.kotlin.fir.expressions.builder.buildLiteralExpression
+import org.jetbrains.kotlin.fir.types.ConeErrorType
+import org.jetbrains.kotlin.types.ConstantValueKind
 import org.junit.jupiter.api.io.TempDir
 
 /** Runs the expanded-type helpers through a real K2 compile via the test-only ExpandedTypeProbe rule. */
 class FirTypesTest {
+    @Test
+    fun errorTypeReadToleratesExpressionsWithoutAType() {
+        val expression = buildLiteralExpression(source = null, kind = ConstantValueKind.Int, value = 1, setType = false)
+        assertFalse(expression.hasErrorType())
+        expression.replaceConeTypeOrNull(classIdOf("kotlin", "Int").classType())
+        assertFalse(expression.hasErrorType())
+        expression.replaceConeTypeOrNull(ConeErrorType(ConeSimpleDiagnostic("missing", DiagnosticKind.InferenceError)))
+        assertTrue(expression.hasErrorType())
+    }
+
     @TempDir lateinit var tmp: Path
 
     private fun probe(source: String): Map<String, String> {

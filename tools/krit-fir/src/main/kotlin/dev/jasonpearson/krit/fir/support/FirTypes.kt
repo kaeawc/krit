@@ -1,9 +1,14 @@
 package dev.jasonpearson.krit.fir.support
 
 import org.jetbrains.kotlin.fir.analysis.checkers.context.CheckerContext
+import org.jetbrains.kotlin.fir.expressions.FirExpression
+import org.jetbrains.kotlin.fir.expressions.UnresolvedExpressionTypeAccess
 import org.jetbrains.kotlin.fir.resolve.fullyExpandedType
 import org.jetbrains.kotlin.fir.types.ConeClassLikeType
+import org.jetbrains.kotlin.fir.types.ConeErrorType
+import org.jetbrains.kotlin.fir.types.ConeFlexibleType
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
+import org.jetbrains.kotlin.fir.types.ConeKotlinTypeProjection
 import org.jetbrains.kotlin.fir.types.lowerBoundIfFlexible
 
 /** This type with every type alias expanded and a platform type reduced to its lower bound. */
@@ -17,3 +22,12 @@ fun ConeKotlinType.expandedBound(): ConeKotlinType = fullyExpandedType().lowerBo
  */
 context(context: CheckerContext)
 fun ConeKotlinType.expandedClassType(): ConeClassLikeType? = expandedBound() as? ConeClassLikeType
+
+@OptIn(UnresolvedExpressionTypeAccess::class)
+fun FirExpression.hasErrorType(): Boolean = coneTypeOrNull?.containsErrorType() == true
+
+private fun ConeKotlinType.containsErrorType(): Boolean = when (this) {
+    is ConeErrorType -> true
+    is ConeFlexibleType -> lowerBound.containsErrorType() || upperBound.containsErrorType()
+    else -> typeArguments.any { (it as? ConeKotlinTypeProjection)?.type?.containsErrorType() == true }
+}

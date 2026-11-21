@@ -3,6 +3,9 @@ package parity_test
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,10 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 const (
@@ -55,7 +56,9 @@ var (
 // must not carry the header. The Go rule runs alone, in-process,
 // with source inference, no oracle, and the shipped rule options
 // (config/default-krit.yml, applied by TestMain), like TestFirFixtureParity's
-// Go side, on a production (non-test) path. With -v, each golden logs its
+// Go side, on a production (non-test) path. Index-backed and parsed-file
+// rules run through the pipeline's cross-file phase on a one-file project.
+// With -v, each golden logs its
 // divergences as rows for a PR's Divergences table.
 //
 // Regenerate the headers with
@@ -100,9 +103,6 @@ func TestFirGoldenGoLines(t *testing.T) {
 				}
 				return
 			}
-			if rule.Needs.HasAny(projectScopeNeeds) {
-				t.Fatalf("Go rule %q needs project context (Needs=%v); a single golden file cannot run it", rule.ID, rule.Needs)
-			}
 			// A malformed value is rewritten by the generator; a misplaced or
 			// duplicated header needs a hand edit.
 			if herr != nil && (!update || headerIdx < 0) {
@@ -124,6 +124,9 @@ func TestFirGoldenGoLines(t *testing.T) {
 					rel, rule.ID, headerIdx+1, formatGoLines(header), formatGoLines(actual), updateGoLinesEnv)
 			}
 			logDivergences(t, rel, rule.ID, lines, header)
+			if rule.ID == "TestWithoutAssertion" {
+				checkTestWithoutAssertionFilter(t, lines, header)
+			}
 		})
 		if rule != nil {
 			checked++
@@ -131,6 +134,95 @@ func TestFirGoldenGoLines(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatalf("no golden under %s maps to a ported Go rule; the FIR checker scan or the golden layout changed", firGoldenDataRel)
+	}
+}
+
+func checkTestWithoutAssertionFilter(t *testing.T, lines []string, goLines map[int]int) {
+	t.Helper()
+	firLines := make(map[int]bool)
+	for index, line := range lines {
+		for _, marker := range goldenMarkerRe.FindAllStringSubmatch(line, -1) {
+			if marker[1] != "TestWithoutAssertion" {
+				continue
+			}
+			firLines[index+1] = true
+			if goLines[index+1] == 0 {
+				t.Errorf("line %d: FIR finding is not in go-lines; TestWithoutAssertion must only filter Go", index+1)
+			}
+		}
+	}
+	for line := range goLines {
+		if !firLines[line] && !strings.Contains(lines[line-1], "// FIR abstains:") {
+			t.Errorf("line %d: Go-only finding needs a same-line '// FIR abstains:' explanation", line)
+		}
+	}
+}
+
+func TestFirGoldenGoLinesTestWithoutAssertionNameTables(t *testing.T) {
+	root := repoRoot(t)
+	kotlin, err := os.ReadFile(filepath.Join(root, "tools/krit-fir/src/main/kotlin/dev/jasonpearson/krit/fir/support/GoTestAssertionNames.kt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := []struct {
+		file, goName, kotlinName string
+	}{
+		{"testing_quality_assertions.go", "assertionCallNames", "assertionCallNames"},
+		{"testing_quality_assertions.go", "verifyCallNames", "verifyCallNames"},
+		{"testing_quality_assertion_evidence.go", "testingQualityTurbineAssertionCalls", "turbineAssertionCalls"},
+		{"testing_quality_assertions.go", "testingQualityWaitHelpersNeedingEvidence", "waitHelpersNeedingEvidence"},
+		{"testing_quality.go", "testingQualityRunnerCalls", "runnerCalls"},
+		{"testing_quality.go", "testingQualityThrowingCheckCalls", "throwingCheckCalls"},
+		{"testing_quality.go", "composeSmokeCommentWords", "composeSmokeCommentWords"},
+	}
+	for _, table := range tables {
+		t.Run(table.goName, func(t *testing.T) {
+			source, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "internal/rules", table.file), nil, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := make(map[string]bool)
+			ast.Inspect(source, func(node ast.Node) bool {
+				value, ok := node.(*ast.ValueSpec)
+				if !ok || len(value.Names) != 1 || value.Names[0].Name != table.goName {
+					return true
+				}
+				literal := value.Values[0].(*ast.CompositeLit)
+				for _, element := range literal.Elts {
+					if pair, ok := element.(*ast.KeyValueExpr); ok {
+						element = pair.Key
+					}
+					name, err := strconv.Unquote(element.(*ast.BasicLit).Value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want[name] = true
+				}
+				return false
+			})
+			declaration := regexp.MustCompile(`(?s)val ` + table.kotlinName + ` = (?:setOf|listOf)\(([^)]*)\)`).FindSubmatch(kotlin)
+			if len(want) == 0 || len(declaration) != 2 {
+				t.Fatal("missing Go or Kotlin exemption table")
+			}
+			got := make(map[string]bool)
+			for _, quoted := range regexp.MustCompile(`"[^"]*"`).FindAllString(string(declaration[1]), -1) {
+				name, err := strconv.Unquote(quoted)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got[name] = true
+			}
+			for name := range want {
+				if !got[name] {
+					t.Errorf("Kotlin table omits Go exemption %q", name)
+				}
+			}
+			for name := range got {
+				if !want[name] {
+					t.Errorf("Kotlin table adds name %q to the verbatim Go table", name)
+				}
+			}
+		})
 	}
 }
 
@@ -282,19 +374,61 @@ func goLineCountsOnGolden(t *testing.T, category, name string, rule *api.Rule, l
 	if scanner.IsTestFile(file.Path) {
 		t.Fatalf("golden scan path %s classifies as a test file", file.Path)
 	}
-	var resolver typeinfer.TypeResolver
-	if rule.Needs.Has(api.NeedsResolver) {
-		r := typeinfer.NewResolver()
-		r.IndexFilesParallel([]*scanner.File{file}, 1)
-		resolver = r
+	return findingLineCounts(runGoRuleOnFile(t, rule, file), rule.ID)
+}
+
+func TestFirGoldenGoLinesSingleFileProject(t *testing.T) {
+	rule := findGoRule("TestWithoutAssertion")
+	if rule == nil {
+		t.Fatal("TestWithoutAssertion not registered")
 	}
-	cols, stats := rules.NewDispatcher([]*api.Rule{rule}, resolver).RunWithStats(file)
-	if len(stats.Errors) > 0 {
-		// An erroring rule emits nothing, which would read as "Go reports
-		// no line" and pass a `none` header vacuously.
-		t.Fatalf("Go rule %q errored on golden %s: %v", rule.ID, name, stats.Errors)
+	for _, test := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{"missing", "import org.junit.Test\n@Test\nfun loads() { println(42) }", "3"},
+		{"helper", "import org.junit.Test\n@Test\nfun loads() { consumeReady() }\nfun consumeReady() { check(true) }", "none"},
+		{"suppressed", "import org.junit.Test\n@Suppress(\"TestWithoutAssertion\")\n@Test\nfun loads() { println(42) }", "none"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lines := strings.Split(test.source, "\n")
+			if got := formatGoLines(goLineCountsOnGolden(t, "testingquality", "Example", rule, lines)); got != test.want {
+				t.Fatalf("go-lines = %s; want %s", got, test.want)
+			}
+			path := filepath.Join(t.TempDir(), "Example.kt")
+			updateGoLinesHeader(t, path, "Example.kt", "testingquality", rule, lines, -1)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			updatedLines := strings.Split(string(data), "\n")
+			_, header, err := findGoLinesHeader(updatedLines)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual := goLineCountsOnGolden(t, "testingquality", "Example", rule, updatedLines)
+			if !sameCounts(header, actual) {
+				t.Fatalf("updated header = %s; want %s", formatGoLines(header), formatGoLines(actual))
+			}
+		})
 	}
-	return findingLineCounts(cols.Findings(), rule.ID)
+}
+
+func TestFirGoldenGoLinesFixtureProject(t *testing.T) {
+	root := repoRoot(t)
+	for _, kind := range []string{"positive", "negative"} {
+		t.Run(kind, func(t *testing.T) {
+			fixture := filepath.Join("tests", "fixtures", kind, "testing-quality", "TestWithoutAssertion.kt")
+			findings := runGoRule(t, root, "TestWithoutAssertion", fixture)
+			if kind == "positive" && len(findings) == 0 {
+				t.Fatal("positive cross-file fixture produced no findings")
+			}
+			if kind == "negative" && len(findings) != 0 {
+				t.Fatalf("negative cross-file fixture produced findings: %v", findings)
+			}
+		})
+	}
 }
 
 // updateGoLinesHeader writes the go-lines header from the Go rule's output.

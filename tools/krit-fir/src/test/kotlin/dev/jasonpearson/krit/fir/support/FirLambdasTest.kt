@@ -65,6 +65,13 @@ class FirLambdasTest {
     }
 
     @Test
+    fun lambdaArgumentIncludesNonTrailingAndSamConvertedLambdas() {
+        val lambda = lambda(trailing = false)
+        assertSame(lambda, lambdaArgumentOf(lambda))
+        assertSame(lambda, lambdaArgumentOf(converted(lambda)))
+    }
+
+    @Test
     fun samConversionIsLookedThrough() {
         val lambda = lambda(trailing = true)
         assertSame(lambda, trailingLambdaOf(converted(lambda)))

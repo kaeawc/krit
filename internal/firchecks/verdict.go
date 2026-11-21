@@ -5,7 +5,11 @@ package firchecks
 // For every requested file the compiler analyzed cleanly (not crashed, not in
 // ErrorFiles) and every rule the jar has a checker for (Result.Rules), FIR's
 // findings are the verdict: Go findings for that (file, rule) are kept only
-// where FIR confirms them, and FIR findings Go missed are added. Everywhere
+// where FIR confirms them, and FIR findings Go missed are added, except for
+// firConfirmOnlyRules. Those rules (currently TestWithoutAssertion) may only
+// confirm Go findings on the same (file, rule, line) or remove them; unmatched
+// FIR findings are dropped even when byte ranges overlap another line. This
+// policy lives in the shared merge, so all callers enforce it. Everywhere
 // else Go's findings stand and FIR's are discarded. That includes the
 // (file, rule) pairs in Result.RuleErrors, where the rule's checker threw:
 // krit-fir isolates the exception to that rule and file, so only that pair
@@ -51,6 +55,8 @@ type RuleVerdict struct {
 	GoDropped int
 	// FirAdded: FIR findings with no Go counterpart, added.
 	FirAdded int
+	// ConfirmOnlyDropped: FIR-only findings rejected by the rule's policy.
+	ConfirmOnlyDropped int
 	// Suppressed: FIR-only findings dropped by suppression or excludes.
 	Suppressed int
 	// RuleErrorFiles: authoritative files where this rule's checker threw;
@@ -82,6 +88,10 @@ type VerdictStats struct {
 
 type fileRule struct{ file, rule string }
 
+var firConfirmOnlyRules = map[string]bool{
+	"TestWithoutAssertion": true,
+}
+
 // ApplyVerdict returns the merged findings: Go findings outside the
 // authoritative (file, rule) pairs in their original order, followed by the
 // verdict for the authoritative pairs sorted by file, position, and rule.
@@ -92,8 +102,10 @@ type fileRule struct{ file, rule string }
 // compiler often anchors on a callee or argument token while the tree-sitter
 // rule anchors on the enclosing expression). A matched pair is emitted as the
 // Go finding unchanged, so its message, range, confidence, and autofix
-// survive; an unmatched FIR finding is emitted in its own form after the
-// suppression check; an unmatched Go finding is dropped.
+// survive. Confirm-only rules require the same line even for overlapping
+// ranges. An unmatched FIR finding is dropped for confirm-only rules and
+// otherwise emitted in its own form after the suppression check; an
+// unmatched Go finding is dropped.
 func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 	stats := VerdictStats{
 		Rules:         map[string]*RuleVerdict{},
@@ -130,7 +142,7 @@ func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 	}
 	var verdict []scanner.Finding
 	for _, k := range keys {
-		verdict = append(verdict, decide(goByKey[k], firByKey[k], in, stats.Rules[k.rule])...)
+		verdict = append(verdict, decide(goByKey[k], firByKey[k], in, stats.Rules[k.rule], firConfirmOnlyRules[k.rule])...)
 	}
 	sortByPosition(verdict)
 	return append(out, verdict...), stats
@@ -232,10 +244,10 @@ func groupFIRFindings(findings []scanner.Finding, owned func(file, rule string) 
 }
 
 // decide applies the verdict to one owned (file, rule) pair.
-func decide(goFindings, firFindings []scanner.Finding, in VerdictInput, rs *RuleVerdict) []scanner.Finding {
+func decide(goFindings, firFindings []scanner.Finding, in VerdictInput, rs *RuleVerdict, confirmOnly bool) []scanner.Finding {
 	sortByPosition(goFindings)
 	sortByPosition(firFindings)
-	goForFIR := matchFindings(goFindings, firFindings)
+	goForFIR := matchFindings(goFindings, firFindings, confirmOnly)
 	matchedGo := make([]bool, len(goFindings))
 	var out []scanner.Finding
 	for i, f := range firFindings {
@@ -247,6 +259,10 @@ func decide(goFindings, firFindings []scanner.Finding, in VerdictInput, rs *Rule
 			if g.Fix != nil || g.BinaryFix != nil {
 				rs.EnrichedWithFix++
 			}
+			continue
+		}
+		if confirmOnly {
+			rs.ConfirmOnlyDropped++
 			continue
 		}
 		if display, ok := in.DisplayPath[f.File]; ok {
@@ -270,7 +286,7 @@ func decide(goFindings, firFindings []scanner.Finding, in VerdictInput, rs *Rule
 // matchFindings pairs each FIR finding with at most one Go finding and
 // returns, per FIR finding, the Go index or -1. Byte-range overlaps are
 // claimed first across all FIR findings, then same-line pairs.
-func matchFindings(goFindings, firFindings []scanner.Finding) []int {
+func matchFindings(goFindings, firFindings []scanner.Finding, confirmOnly bool) []int {
 	goForFIR := make([]int, len(firFindings))
 	for i := range goForFIR {
 		goForFIR[i] = -1
@@ -290,7 +306,9 @@ func matchFindings(goFindings, firFindings []scanner.Finding) []int {
 			}
 		}
 	}
-	claim(func(f, g scanner.Finding) bool { return hasRange(f) && hasRange(g) && rangesOverlap(f, g) })
+	claim(func(f, g scanner.Finding) bool {
+		return (!confirmOnly || f.Line == g.Line) && hasRange(f) && hasRange(g) && rangesOverlap(f, g)
+	})
 	claim(func(f, g scanner.Finding) bool { return f.Line == g.Line })
 	return goForFIR
 }

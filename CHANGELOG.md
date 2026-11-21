@@ -26,6 +26,11 @@ All notable changes to Krit will be documented in this file.
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
 - FIR checker for `PlainFileWriteOfSensitive` resolves plain-file writes and sensitive filename literals, retaining the Go fallback and its diagnostic text.
+- FIR checking for `TestWithoutAssertion` preserves Go's name/text exemptions and only narrows its findings.
+  It resolves known assertions and same-file helpers and inspects nested lambdas. Unknown calls,
+  cross-file/source-set/module helpers, and library calls outside an explicit non-asserting allowlist abstain
+  without disabling incremental slices;
+  non-compiling files and scans without a classpath keep the Go fallback.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,

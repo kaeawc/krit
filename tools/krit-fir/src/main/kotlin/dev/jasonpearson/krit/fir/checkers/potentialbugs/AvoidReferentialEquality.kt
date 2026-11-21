@@ -150,13 +150,13 @@ private object ReferentialEqualitySyntax {
                 else visitElement(functionCall)
             }
 
-            override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction) {}
+            override fun visitAnonymousFunction(anonymousFunction: FirAnonymousFunction) = Unit
 
-            override fun visitNamedFunction(namedFunction: FirNamedFunction) {}
+            override fun visitNamedFunction(namedFunction: FirNamedFunction) = Unit
 
-            override fun visitRegularClass(regularClass: FirRegularClass) {}
+            override fun visitRegularClass(regularClass: FirRegularClass) = Unit
 
-            override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) {}
+            override fun visitAnonymousObject(anonymousObject: FirAnonymousObject) = Unit
         })
         return found
     }

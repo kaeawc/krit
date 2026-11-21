@@ -9,6 +9,19 @@ import kotlin.test.assertTrue
 
 class GoTextTest {
     @Test
+    fun nameGlobsUseGoWildcardsAndNegatedClasses() {
+        assertTrue(goNameGlobMatches("ensure*", "ensureReady"))
+        assertTrue(goNameGlobMatches("check?", "checkX"))
+        assertTrue(goNameGlobMatches("check[A-Z]", "checkX"))
+        assertTrue(goNameGlobMatches("check[^a-z]", "checkX"))
+        assertFalse(goNameGlobMatches("check[^a-z]", "checkx"))
+        assertFalse(goNameGlobMatches("check[", "check"))
+        assertFalse(goNameGlobMatches("check\\", "check"))
+        assertFalse(goNameGlobMatches("check", "unchecked"))
+        assertFalse(goNameGlobMatches("", "check"))
+    }
+
+    @Test
     fun trimsGoSpaceButNotKotlinOnlySeparators() {
         assertEquals("a", trimGoSpace("\u0085  a　 \n"))
         assertEquals("\u001Ca\u001F", trimGoSpace(" \u001Ca\u001F "))

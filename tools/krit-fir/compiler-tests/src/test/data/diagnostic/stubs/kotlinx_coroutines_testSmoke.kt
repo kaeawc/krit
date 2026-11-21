@@ -24,7 +24,7 @@ class CoroutineTestSmoke {
     private val dispatcher: TestDispatcher = StandardTestDispatcher()
 
     @Test
-    fun virtualTime(): TestResult = runTest {
+    fun virtualTimeSmoke(): TestResult = runTest {
         Dispatchers.setMain(dispatcher)
         launch { delay(1_000) }
         advanceTimeBy(500)
@@ -36,7 +36,7 @@ class CoroutineTestSmoke {
     }
 
     @Test
-    fun scoped() = TestScope(UnconfinedTestDispatcher()).runTest {
+    fun scopedSmoke() = TestScope(UnconfinedTestDispatcher()).runTest {
         val scope: TestScope = this
         <!PrintlnInProduction!>println<!>(scope)
     }

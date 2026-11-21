@@ -363,11 +363,11 @@ func writeVerdictSummary(w io.Writer, stats VerdictStats, buildLogicExcluded ...
 	sort.Strings(ruleIDs)
 	for _, id := range ruleIDs {
 		r := stats.Rules[id]
-		if r.Confirmed == 0 && r.GoDropped == 0 && r.FirAdded == 0 && r.EnrichedWithFix == 0 && r.Suppressed == 0 && r.RuleErrorFiles == 0 {
+		if r.Confirmed == 0 && r.GoDropped == 0 && r.FirAdded == 0 && r.ConfirmOnlyDropped == 0 && r.EnrichedWithFix == 0 && r.Suppressed == 0 && r.RuleErrorFiles == 0 {
 			continue // a rule with no verdicts only adds the shared gated-file count
 		}
-		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d rule-errors=%d\n",
-			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.RuleErrorFiles)
+		fmt.Fprintf(w, "verbose: FIR verdict %s: confirmed=%d go-dropped=%d fir-added=%d enriched-with-fix=%d suppressed=%d files-gated=%d confirm-only-dropped=%d rule-errors=%d\n",
+			id, r.Confirmed, r.GoDropped, r.FirAdded, r.EnrichedWithFix, r.Suppressed, len(stats.GatedFiles), r.ConfirmOnlyDropped, r.RuleErrorFiles)
 	}
 }
 

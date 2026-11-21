@@ -94,6 +94,7 @@ var knownFIRRules = map[string]bool{
 	"SwallowedException":                      true,
 	"SynchronizedOnBoxedPrimitive":            true,
 	"SynchronizedOnNonFinal":                  true,
+	"TestWithoutAssertion":                    true,
 	"TooGenericExceptionThrown":               true,
 	"UnicodeNormalizationMissing":             true,
 	"UnnecessaryFilter":                       true,

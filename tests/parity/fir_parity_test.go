@@ -17,6 +17,7 @@ import (
 
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/pipeline"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -34,6 +35,8 @@ var firOnlyRules = map[string]string{
 // provide, so the Go side of per-file parity would be vacuous.
 const projectScopeNeeds = api.NeedsModuleIndex | api.NeedsCrossFile | api.NeedsParsedFiles |
 	api.NeedsManifest | api.NeedsResources | api.NeedsGradle
+
+const externalProjectNeeds = projectScopeNeeds &^ (api.NeedsCrossFile | api.NeedsParsedFiles)
 
 var firParitySkipRe = regexp.MustCompile(`(?m)^\s*//\s*fir-parity:\s*skip\b(.*)$`)
 
@@ -54,7 +57,8 @@ type firFixture struct {
 // is compiled against the compiler-tests stub library, and the FIR findings
 // for that rule must equal the Go rule's findings line for line (the count
 // per line; the Go rule runs in-process on the original fixture, with source
-// inference and no oracle). api.Registry decides whether a Go rule exists.
+// inference and no oracle, using a one-file project for cross-file rules).
+// api.Registry decides whether a Go rule exists.
 // The CrossRule subtest holds every FIR rule to the same line-for-line
 // equality on every other rule's fixtures too, since the batch runs every
 // FIR rule on every fixture.
@@ -102,8 +106,8 @@ func TestFirFixtureParity(t *testing.T) {
 			if rule == nil {
 				t.Fatalf("FIR rule %q has no Go rule in api.Registry; krit only sends krit-fir the IDs of active Go rules, so it never runs", id)
 			}
-			if rule.Needs.HasAny(projectScopeNeeds) {
-				t.Fatalf("Go rule %q needs project context (Needs=%v); per-file fixture parity cannot run it", id, rule.Needs)
+			if rule.Needs.HasAny(externalProjectNeeds) {
+				t.Fatalf("Go rule %q needs module/build/Android inputs (Needs=%v); a Kotlin-only fixture project cannot provide them", id, rule.Needs)
 			}
 			kinds := map[string]bool{}
 			for _, f := range fixtures {
@@ -253,7 +257,7 @@ func checkCrossRuleParity(t *testing.T, root string, rules []string, fixtures []
 	var ids []string
 	for _, id := range rules {
 		// A FIR rule with no usable Go rule already fails its own subtest.
-		if rule := findGoRule(id); rule != nil && !rule.Needs.HasAny(projectScopeNeeds) {
+		if rule := findGoRule(id); rule != nil && !rule.Needs.HasAny(externalProjectNeeds) {
 			ids = append(ids, id)
 		}
 	}
@@ -567,7 +571,8 @@ func findKotlinStdlib() string {
 }
 
 // runGoRule runs one Go rule in-process on a repo fixture: single-file
-// dispatch, source inference when the rule needs a resolver, no oracle, and
+// dispatch and the cross-file pipeline phase on a one-file project, source
+// inference when the rule needs a resolver, no oracle, and
 // the rule options from config/default-krit.yml (TestMain applies them).
 func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 	t.Helper()
@@ -579,6 +584,14 @@ func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 	if rule == nil {
 		t.Fatalf("rule %q not found", ruleName)
 	}
+	return runGoRuleOnFile(t, rule, file)
+}
+
+func runGoRuleOnFile(t *testing.T, rule *api.Rule, file *scanner.File) []scanner.Finding {
+	t.Helper()
+	if rule.Needs.HasAny(externalProjectNeeds) {
+		t.Fatalf("Go rule %q needs module/build/Android inputs (Needs=%v); a Kotlin-only project cannot provide them", rule.ID, rule.Needs)
+	}
 	var resolver typeinfer.TypeResolver
 	if rule.Needs.Has(api.NeedsResolver) {
 		r := typeinfer.NewResolver()
@@ -586,10 +599,27 @@ func runGoRule(t *testing.T, root, ruleName, fixture string) []scanner.Finding {
 		resolver = r
 	}
 	cols, stats := rules.NewDispatcher([]*api.Rule{rule}, resolver).RunWithStats(file)
+	if rule.Needs.HasAny(api.NeedsCrossFile | api.NeedsParsedFiles) {
+		result, err := (pipeline.CrossFilePhase{Workers: 1}).Run(context.Background(), pipeline.DispatchResult{
+			IndexResult: pipeline.IndexResult{
+				ParseResult: pipeline.ParseResult{
+					ActiveRules: []*api.Rule{rule},
+					KotlinFiles: []*scanner.File{file},
+				},
+				Resolver: resolver,
+			},
+			Findings: cols,
+			Stats:    stats,
+		})
+		if err != nil {
+			t.Fatalf("Go project rule %q on %s: %v", rule.ID, file.Path, err)
+		}
+		cols, stats = result.Findings, result.Stats
+	}
 	if len(stats.Errors) > 0 {
 		// An erroring rule emits nothing, which would read as "Go says no
 		// finding" and pass a negative vacuously.
-		t.Fatalf("Go rule %q errored on %s: %v", ruleName, fixture, stats.Errors)
+		t.Fatalf("Go rule %q errored on %s: %v", rule.ID, file.Path, stats.Errors)
 	}
 	return cols.Findings()
 }

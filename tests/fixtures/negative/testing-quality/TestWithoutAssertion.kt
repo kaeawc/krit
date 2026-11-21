@@ -1,3 +1,4 @@
+// fir-parity: skip illustrative harnesses, UI receivers and parse call are undeclared; compiling negatives are covered by FIR goldens.
 package test
 
 import com.autonomousapps.kit.GradleBuilder.build

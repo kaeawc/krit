@@ -14,6 +14,7 @@ class ListRulesTest {
             ids.containsAll(listOf(
                 "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle", "ComposeRememberWithoutKey",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "PlainFileWriteOfSensitive",
+                "TestWithoutAssertion",
             )),
             ids.toString(),
         )

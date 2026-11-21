@@ -80,7 +80,7 @@ All notable changes to Krit will be documented in this file.
 
 ### Fixed
 - The `MutableStateInObject` Go fallback ignores nested class writes and same-named writes through unrelated
-  receivers, except `this.`-qualified and shadowed-receiver finally writes, which it accepts as conservative resets.
+  receivers, except bare, `this.`-qualified, and shadowed-receiver finally writes, which it accepts as conservative resets.
   It also recognizes implicit-receiver and object-qualified lifecycle/finally resets, JUnit 5 `@BeforeAll` /
   `@AfterAll` hooks, and exempts never-written private state and additional Java concurrent collection types.
 - `--fir` no longer gates test and androidTest files on a redeclaration that only exists because Krit

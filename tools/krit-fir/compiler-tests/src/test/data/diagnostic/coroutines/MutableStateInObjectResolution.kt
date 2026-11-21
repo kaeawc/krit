@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 56, 57, 59, 65, 71, 81, 86, 112, 117, 140, 149, 150, 156, 186, 207, 220, 239, 288
+// go-lines: 56, 57, 59, 65, 71, 81, 86, 112, 117, 141, 150, 151, 157, 187, 208, 221, 240, 289
 package test.resolution
 
 import java.util.concurrent.atomic.AtomicInteger as SafeCounter
@@ -137,6 +137,7 @@ object LockArgumentEvaluation {
 }
 
 object LockActionHelper {
+    // Go misses the trailing-lambda synchronized call around this helper; FIR resolves the action.
     private var count = 0
     private fun bump() { count++ }
     fun run() { kotlin.synchronized(this) { bump() } }

@@ -1,12 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 31, 37, 43, 51
-// Divergence (precision): each call below is wrapped in Log.isLoggable() or
-// BuildConfig.DEBUG (spelled through a static import, an import alias, or a
-// typealias), so the message ("Unconditional logging call. Wrap in
-// Log.isLoggable() or BuildConfig.DEBUG") is false of it and FIR does not
-// report it. Go recognizes a guard by its spelling only: `Log.isLoggable`
-// with the receiver spelled `Log`, and the condition text `BuildConfig.DEBUG`,
-// so it reports these calls.
+// go-lines: none
+// Any non-literal-true if condition guards message work in both engines.
 package test.logconditional.divergence
 
 import android.util.Log
@@ -15,32 +9,31 @@ import android.util.Log as AndroidLog
 import test.logconditional.divergence.BuildConfig.DEBUG
 import test.logconditional.divergence.BuildConfig as Config
 
-// The app's generated BuildConfig; the golden declares its own.
 object BuildConfig {
     val DEBUG: Boolean = true
 }
 
 fun staticallyImportedIsLoggable() {
     if (isLoggable("Tag", Log.DEBUG)) {
-        Log.d("Tag", "guarded by a statically imported isLoggable")
+        Log.d("Tag", compute())
     }
 }
 
 fun aliasedIsLoggable() {
     if (AndroidLog.isLoggable("Tag", Log.DEBUG)) {
-        Log.d("Tag", "guarded by an aliased isLoggable")
+        Log.d("Tag", compute())
     }
 }
 
 fun staticallyImportedDebug() {
     if (DEBUG) {
-        Log.d("Tag", "guarded by a statically imported BuildConfig.DEBUG")
+        Log.d("Tag", compute())
     }
 }
 
 fun aliasedBuildConfig() {
     if (Config.DEBUG) {
-        Log.d("Tag", "guarded by an aliased BuildConfig")
+        Log.d("Tag", compute())
     }
 }
 
@@ -48,6 +41,8 @@ typealias GeneratedConfig = test.logconditional.divergence.BuildConfig
 
 fun typeAliasedBuildConfig() {
     if (GeneratedConfig.DEBUG) {
-        Log.d("Tag", "guarded by a typealias of BuildConfig")
+        Log.d("Tag", compute())
     }
 }
+
+private fun compute(): String = "computed"

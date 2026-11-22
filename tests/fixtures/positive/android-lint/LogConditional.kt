@@ -4,6 +4,6 @@ import android.util.Log
 
 class MyService {
     fun doWork() {
-        Log.d("MyService", "starting work")
+        Log.d("MyService", "starting work " + System.nanoTime())
     }
 }

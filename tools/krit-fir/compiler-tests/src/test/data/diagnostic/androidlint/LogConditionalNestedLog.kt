@@ -1,10 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Divergence (recall): the top-level call resolves to android.util.Log through
-// the explicit import and is unguarded, so FIR reports it. Go misses it: it
-// lets a class named `Log` declared anywhere in the same file (here the
-// nested Holder.Log) shadow the import, so it drops every `Log.d` in the
-// file. Holder.Log().d is a lookalike that neither reports.
+// Go conservatively skips the top-level receiver because a nested Log class is declared in this file; FIR resolves it.
 package test.logconditional.nestedlog
 
 import android.util.Log
@@ -15,10 +11,13 @@ class Holder {
     }
 
     fun nested() {
-        Log().d("Tag", "nested lookalike")
+        Log().d("Tag", compute())
     }
 }
 
 fun topLevel() {
-    <!LogConditional!>Log.d("Tag", "android.util.Log")<!>
+    // This FIR finding is intentionally silent in Go under the file-wide shadow policy.
+    <!LogConditional!>Log.d("Tag", compute())<!>
 }
+
+private fun compute(): String = "computed"

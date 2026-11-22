@@ -150,10 +150,16 @@ func TestLogConditional_Positive(t *testing.T) {
 package test
 import android.util.Log
 fun doWork() {
-    Log.d("TAG", "doing work")
+    Log.d("TAG", "doing work " + System.nanoTime())
 }`)
 	if len(findings) == 0 {
 		t.Error("expected LogConditional finding for unconditional Log call")
+	}
+	for _, finding := range findings {
+		want := "The log call Log.d(...) should be conditional: surround with `if (Log.isLoggable(...))` or `if (BuildConfig.DEBUG) { ... }`"
+		if finding.Message != want {
+			t.Errorf("expected Lint message %q, got %q", want, finding.Message)
+		}
 	}
 }
 
@@ -163,7 +169,7 @@ package test
 import android.util.Log
 fun doWork() {
     if (Log.isLoggable("TAG", Log.DEBUG)) {
-        Log.d("TAG", "doing work")
+        Log.d("TAG", "doing work " + System.nanoTime())
     }
 }`)
 	if len(findings) != 0 {
@@ -177,7 +183,7 @@ package test
 import android.util.Log
 fun doWork() {
     if (BuildConfig.DEBUG) {
-        Log.d("TAG", "doing work")
+        Log.d("TAG", "doing work " + System.nanoTime())
     }
 }`)
 	if len(findings) != 0 {
@@ -253,7 +259,7 @@ func TestLogConditional_NegativeTestSource(t *testing.T) {
 import android.util.Log
 class MyTest {
     fun runs() {
-        Log.d("TAG", "from test")
+        Log.d("TAG", "from test " + System.nanoTime())
     }
 }`
 	if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
@@ -266,6 +272,276 @@ class MyTest {
 	findings := runRuleByNameOnFile(t, "LogConditional", file)
 	if len(findings) != 0 {
 		t.Errorf("expected no findings in test source path, got %d", len(findings))
+	}
+}
+
+func TestLogConditionalFileWideReceiverShadowing(t *testing.T) {
+	base := `package example
+`
+	declarations := `class FakeLog { fun d(tag: String, message: String) {} }
+fun compute(): String = "computed"
+`
+	cases := []struct {
+		name    string
+		imports string
+		body    string
+	}{
+		{"property", "import android.util.Log\n", `private val Log = FakeLog(); fun invoke() { Log.d("T", compute()) }`},
+		{"local val after call", "import android.util.Log\n", `fun invoke() { Log.d("T", compute()); val Log = FakeLog() }`},
+		{"local var", "import android.util.Log\n", `fun invoke() { var Log = FakeLog(); Log.d("T", compute()) }`},
+		{"parameter", "import android.util.Log\n", `fun invoke(Log: FakeLog) { Log.d("T", compute()) }`},
+		{"class", "import android.util.Log\n", `class Log { fun d(tag: String, message: String) {} }; fun invoke() { Log.d("T", compute()) }`},
+		{"object", "import android.util.Log\n", `object Log { fun d(tag: String, message: String) {} }; fun invoke() { Log.d("T", compute()) }`},
+		{"interface", "import android.util.Log\n", `interface Log { fun d(tag: String, message: String) }; fun invoke() { Log.d("T", compute()) }`},
+		{"typealias", "import android.util.Log\n", `typealias Log = FakeLog; fun invoke() { Log.d("T", compute()) }`},
+		{"function", "import android.util.Log\n", `fun Log() = FakeLog(); fun invoke() { Log.d("T", compute()) }`},
+		{"non-Android import alias", "import android.util.Log\nimport elsewhere.Log as Log\n", `fun invoke() { Log.d("T", compute()) }`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			source := base + test.imports + declarations + test.body
+			if findings := runRuleByName(t, "LogConditional", source); len(findings) != 0 {
+				t.Errorf("without resolver: expected file-wide Log shadowing to suppress findings, got %v", findings)
+			}
+			if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
+				t.Errorf("with resolver: expected file-wide Log shadowing to suppress findings, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestLogConditionalFileWideNonReceiverLogReferences(t *testing.T) {
+	base := `package example
+import android.util.Log
+fun compute(): String = "computed"
+class FakeLog { fun d(tag: String, message: String) {} }
+`
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"catch parameter", `class LogFailure : Exception() { fun d(tag: String, message: String) {} }; fun f() { try { compute() } catch (Log: LogFailure) { Log.d("T", compute()) } }`},
+		{"setter parameter", `class Screen { var logger: FakeLog = FakeLog(); set(Log) { Log.d("T", compute()); field = Log } }`},
+		{"named companion object", `class Screen { companion object Log { fun d(tag: String, message: String) {} }; fun show() { Log.d("T", compute()) } }`},
+		{"enum entry", `enum class Sink { Log; fun d(tag: String, message: String) {}; fun flush() { Log.d("T", compute()) } }`},
+		{"qualified receivers", `class Holder { val Log = FakeLog() }; fun f(h: Holder) { h.Log.d("T", compute()) }; fun g() { com.example.logging.Log.d("T", compute()) }`},
+		{"backticked local receiver", "fun invoke() { val `Log` = FakeLog(); Log.d(\"T\", compute()) }"},
+		{"interpolation declaration", `fun invoke() { val text = "${run { val Log = FakeLog(); Log.d("T", compute()) }}" }`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			source := base + test.body
+			if findings := runRuleByName(t, "LogConditional", source); len(findings) != 0 {
+				t.Errorf("without resolver: expected file-wide lexical Log check to suppress findings, got %v", findings)
+			}
+			if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
+				t.Errorf("with resolver: expected file-wide lexical Log check to suppress findings, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestLogConditionalImplicitReceiverMembersAcrossFilesRemainLexical(t *testing.T) {
+	source := `package example
+import android.util.Log
+fun compute(): String = "computed"
+class Screen : BaseScreen() { fun show() { Log.d("T", compute()) } }
+fun withHolder(holder: Holder) { holder.apply { Log.d("T", compute()) } }
+`
+	if findings := runRuleByName(t, "LogConditional", source); len(findings) != 2 {
+		t.Errorf("without cross-file implicit-receiver facts, expected both calls to remain lexical reports, got %v", findings)
+	}
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 2 {
+		t.Errorf("without cross-file implicit-receiver facts, expected both calls to remain lexical reports with resolver, got %v", findings)
+	}
+}
+
+func TestLogConditionalStringTemplateIdentifiersCountAsReferences(t *testing.T) {
+	base := `package example
+import android.util.Log
+fun compute(): String = "computed"
+`
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{"expression interpolation", `fun invoke() { val text = "${run { val Log = FakeLog(); Log.d("T", compute()) }}" }`},
+		{"identifier interpolation", `fun invoke() { val text = "$Log"; Log.d("T", compute()) }`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if findings := runRuleByName(t, "LogConditional", base+`class FakeLog { fun d(tag: String, message: String) {} }`+"\n"+test.body); len(findings) != 0 {
+				t.Errorf("expected interpolated Log token to suppress the lexical report, got %v", findings)
+			}
+		})
+	}
+}
+
+func TestLogConditionalLiteralStringAndCommentDoNotShadow(t *testing.T) {
+	source := `package example
+import android.util.Log
+fun compute(): String = "computed"
+// Log in a comment is not a binding.
+fun invoke() { val text = "Log"; Log.d("T", compute()) }
+`
+	if findings := runRuleByName(t, "LogConditional", source); len(findings) != 1 {
+		t.Errorf("expected comment and literal string content to be ignored, got %v", findings)
+	}
+}
+
+func TestLogConditionalAndroidLogAliasIsSilent(t *testing.T) {
+	source := `package example
+import android.util.Log as Log
+fun compute(): String = "computed"
+fun invoke() { Log.d("T", compute()) }
+`
+	if findings := runRuleByName(t, "LogConditional", source); len(findings) != 0 {
+		t.Fatalf("expected alias token outside the canonical import path to suppress findings, got %v", findings)
+	}
+}
+
+func TestLogConditionalPlainAndroidLogStillReports(t *testing.T) {
+	source := `package example
+import android.util.Log
+fun compute(): String = "computed"
+fun invoke() {
+    Log.d("T", compute())
+    android.util.Log.i("T", compute())
+}
+`
+	if findings := runRuleByName(t, "LogConditional", source); len(findings) != 2 {
+		t.Errorf("without resolver: expected both simple and qualified Android Log calls to report, got %v", findings)
+	}
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 2 {
+		t.Errorf("with resolver: expected both simple and qualified Android Log calls to report, got %v", findings)
+	}
+}
+
+func TestLogConditionalCallWorkAndGuards(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"literal", `Log.d("T", "literal")`, 0},
+		{"reference", `Log.d("T", value)`, 0},
+		{"call", `Log.d("T", compute())`, 1},
+		{"concat reference", `Log.d("T", "x" + value)`, 0},
+		{"template reference", `Log.d("T", "x$value")`, 0},
+		{"concat call right", `Log.d("T", "x" + compute())`, 1},
+		{"concat call left", `Log.d("T", compute() + "x")`, 1},
+		{"template call", `Log.d("T", "x${compute()}")`, 1},
+		{"raw template call", `Log.d("T", """x${value.toString()}""")`, 1},
+		{"nested concat call", `Log.d("T", "x" + (value + compute()))`, 1},
+		{"receiver call property", `Log.d("T", compute().length)`, 0},
+		{"constant concat", `Log.d("T", "a" + "b")`, 0},
+		{"constant template", `Log.d("T", "x$CONSTANT")`, 0},
+		{"constant interpolation", `Log.d("T", "${1}")`, 0},
+		{"constant arithmetic interpolation", `Log.d("T", "${2 * 3}")`, 0},
+		{"constant comparison interpolation", `Log.d("T", "${1 > 0}")`, 0},
+		{"constant path", `Log.d("T", "x${Constants.NAME}")`, 0},
+		{"local literal concat", `val local = "literal"; Log.d("T", local + "x")`, 0},
+		{"local literal template", `val local = "literal"; Log.d("T", "x$local")`, 0},
+		{"local computed reference", `val local = compute(); Log.d("T", "x$local")`, 0},
+		{"top val template", `Log.d("T", "x$topValue")`, 0},
+		{"qualified property", `Log.d("T", value.length)`, 0},
+		{"Java field", `Log.d("T", java.io.File.separator)`, 0},
+		{"Java field import", `Log.d("T", File.separator)`, 0},
+		{"imported constant template", `Log.d("T", "x${Integer.MAX_VALUE}")`, 0},
+		{"parenthesized reference", `Log.d("T", (value))`, 0},
+		{"parenthesized call", `Log.d("T", (compute()))`, 1},
+		{"elvis reference", `Log.d("T", value ?: "fallback")`, 0},
+		{"elvis left call", `Log.d("T", compute() ?: "fallback")`, 1},
+		{"elvis parenthesized left call", `Log.d("T", ((compute())) ?: "fallback")`, 1},
+		{"parenthesized elvis left call", `Log.d("T", ((compute() ?: "fallback")))`, 1},
+		{"elvis left navigation call", `Log.d("T", value?.toString() ?: "fallback")`, 1},
+		{"elvis call", `Log.d("T", value ?: compute())`, 0},
+		{"elvis left property after call", `Log.d("T", packageManager.getPackageInfo(packageName, 0).versionName ?: "fallback")`, 0},
+		{"not null reference", `Log.d("T", value!!)`, 0},
+		{"not null call", `Log.d("T", compute()!!)`, 0},
+		{"if message references", `Log.d("T", if (flag) value else "fallback")`, 0},
+		{"if message call", `Log.d("T", if (flag) value else compute())`, 0},
+		{"property after call receiver", `Log.d("T", packageManager.getPackageInfo(packageName, 0).versionName)`, 0},
+		{"property after chained call receiver", `Log.d("T", context.packageManager.getApplicationInfo(pkg, 0).packageName)`, 0},
+		{"template property after call receiver", `Log.d("T", "${packageManager.getPackageInfo(packageName, 0).versionName}")`, 0},
+		{"tag call only", `Log.d(compute(), value)`, 0},
+		{"throwable call only", `Log.d("T", value, error())`, 0},
+		{"call text literal", `Log.d("T", "compute()")`, 0},
+		{"named arguments", `Log.d(tag = "T", msg = compute())`, 1},
+		{"missing message", `Log.d("T")`, 0},
+		{"verbose", `Log.v("T", compute())`, 1},
+		{"info", `Log.i("T", compute())`, 1},
+		{"warn", `Log.w("T", compute())`, 0},
+		{"error", `Log.e("T", compute())`, 0},
+		{"wtf", `Log.wtf("T", compute())`, 0},
+		{"println", `Log.println(Log.INFO, "T", compute())`, 1},
+		{"println tag work", `Log.println(Log.INFO, compute(), "literal")`, 0},
+		{"any if", `if (flag) Log.d("T", compute())`, 0},
+		{"false if", `if (false) Log.d("T", compute())`, 0},
+		{"true if", `if (true) Log.d("T", compute())`, 1},
+		{"nearest true if", `if (flag) { if (true) Log.d("T", compute()) }`, 1},
+		{"else if", `if (true) {} else if (flag) {} else { Log.d("T", compute()) }`, 0},
+		{"when case", `when (number) { 1 -> Log.d("T", compute()) }`, 0},
+		{"when else", `when (number) { else -> Log.d("T", compute()) }`, 1},
+		{"when true", `when { true -> Log.d("T", compute()) }`, 1},
+		{"when parenthesized true", `when { (true) -> Log.d("T", compute()) }`, 1},
+		{"when false", `when { false -> Log.d("T", compute()) }`, 0},
+		{"when multiple", `when (flag) { true, false -> Log.d("T", compute()) }`, 0},
+		{"when subject", `when (Log.d("T", compute())) { else -> 0 }`, 1},
+		{"when condition", `when { Log.d("T", compute()) > 0 -> 0; else -> 0 }`, 0},
+		{"call lambda", `if (flag) { run { Log.d("T", compute()) } }`, 1},
+		{"call argument", `if (flag) { println(Log.d("T", compute())) }`, 1},
+		{"guarded receiver", `if (flag) Log.d("T", compute()).also { println(it) }`, 0},
+		{"unguarded receiver", `Log.d("T", compute()).also { println(it) }`, 1},
+		{"receiver in argument", `if (flag) println(Log.d("T", compute()).also { println(it) })`, 1},
+		{"unknown camelCase constant", `Log.d("T", "x${Config.timeoutMs}"); Log.d("T", "x" + timeoutMs)`, 0},
+		{"guard in lambda", `run { if (flag) Log.d("T", compute()) }`, 0},
+		{"standalone lambda", `if (flag) { val callback = { Log.d("T", compute()) } }`, 0},
+		{"standalone anonymous function", `if (flag) { val callback = fun() { Log.d("T", compute()) } }`, 0},
+		{"local function", `if (flag) { fun local() { Log.d("T", compute()) } }`, 0},
+		{"local class", `if (flag) { class Local { val field = Log.d("T", compute()) } }`, 1},
+		{"anonymous object", `if (flag) { val holder = object { val field = Log.d("T", compute()) } }`, 1},
+		{"while", `while (flag) { Log.d("T", compute()) }`, 1},
+		{"try", `try { Log.d("T", compute()) } catch (error: Exception) { Log.d("T", compute()) }`, 2},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			source := `package example
+import android.util.Log
+import java.io.File
+const val CONSTANT = "constant"
+val topValue = "value"
+object Constants { const val NAME = "name" }
+fun compute(): String = "computed"
+fun work(value: String, flag: Boolean, number: Int) {
+` + test.body + "\n}"
+			if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != test.want {
+				t.Errorf("expected %d findings, got %d: %v", test.want, len(findings), findings)
+			}
+		})
+	}
+}
+
+func TestLogConditionalInitializerAndConstructorLocals(t *testing.T) {
+	source := `import android.util.Log
+fun compute(): String = "computed"
+class Screen(flag: Boolean) {
+    init {
+        if (flag) {
+            val result = Log.d("T", compute())
+            val callback = { Log.d("T", compute()) }
+            fun trace() { Log.d("T", compute()) }
+        }
+    }
+    constructor(number: Int) : this(true) {
+        if (number > 0) {
+            val result = Log.d("T", compute())
+            val callback = { Log.d("T", compute()) }
+            fun trace() { Log.d("T", compute()) }
+        }
+    }
+}`
+	if findings := runRuleByNameWithResolver(t, "LogConditional", source); len(findings) != 0 {
+		t.Fatalf("expected guarded locals to be silent, got %v", findings)
 	}
 }
 

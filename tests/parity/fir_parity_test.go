@@ -211,14 +211,13 @@ func TestFirHostnameFixtureParity(t *testing.T) {
 // minimal: an entry must name the golden case, and an entry whose pair
 // agrees fails as stale.
 var firCrossRuleAllowlist = map[string]string{
-	"UnnecessarySafeCall|tests/fixtures/negative/style/UnnecessaryApply.kt":              "apply receiver this?.reset() resolves to the non-null Settings lambda receiver; Go's name resolver does not resolve lambda-receiver this (UnnecessarySafeCallResolution.kt lambdaReceiverApply)",
-	"CastNullableToNonNullableType|tests/fixtures/negative/potential-bugs/UnsafeCast.kt": "line 126 is a Go false positive: local Context.getSystemService returns non-null Any, but Go applies the Android platform-type heuristic (CastNullableToNonNullableTypeLocalContextDivergence.kt service)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/FragmentConstructor.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/FragmentConstructor.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/WorldReadableFiles.kt":         "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/WorldReadableFiles.kt":         "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/WorldWriteableFiles.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/WorldWriteableFiles.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"UnnecessarySafeCall|tests/fixtures/negative/style/UnnecessaryApply.kt":       "apply receiver this?.reset() resolves to the non-null Settings lambda receiver; Go's name resolver does not resolve lambda-receiver this (UnnecessarySafeCallResolution.kt lambdaReceiverApply)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/WorldReadableFiles.kt":  "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/WorldReadableFiles.kt":  "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/WorldWriteableFiles.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/WorldWriteableFiles.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
 	// await() is a suspend call that won't complete normally if the coroutine
 	// is cancelled, so the message is true; Go only matches call text that
 	// starts with a listed name and misses receiver-qualified calls.

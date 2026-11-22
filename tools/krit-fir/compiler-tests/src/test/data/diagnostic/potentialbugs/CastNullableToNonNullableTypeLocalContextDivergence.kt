@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 16
+// go-lines: none
 package test
 
 class NotificationManager
@@ -10,8 +10,7 @@ class Context {
 const val NOTIFICATION_SERVICE = "notification"
 
 // UnsafeCast.kt line 126: this is a local lookalike, not android.content.Context.
-// Go applies its Context.getSystemService platform-type heuristic and reports a false positive.
-// FIR resolves the declared non-null Any return type, so there must be no finding here.
+// Go treats the same-file Context as a project lookalike and FIR resolves its non-null Any return, so neither reports.
 fun service(context: Context) {
     val notificationManager = context.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
     println(notificationManager)

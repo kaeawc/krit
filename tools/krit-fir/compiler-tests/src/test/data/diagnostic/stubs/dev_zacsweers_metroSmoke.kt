@@ -9,9 +9,13 @@ import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.Scope
 import dev.zacsweers.metro.createGraph
 
 interface MetroRepo
+
+@Scope
+annotation class MetroScope
 
 @Inject
 @SingleIn(AppScope::class)

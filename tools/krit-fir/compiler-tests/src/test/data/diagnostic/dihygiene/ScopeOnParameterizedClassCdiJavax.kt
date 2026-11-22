@@ -2,7 +2,7 @@
 // go-lines: none
 // The javax flavor of CDI's pseudo-scope `@Dependent`, meta-annotated with
 // javax.inject.Scope but creating a new instance for every injection point.
-// The stubs declare only `NormalScope`; this pseudo-scope is declared here.
+// `NormalScope` is declared in the shared stub; the pseudo-scope is local.
 package javax.enterprise.context
 
 @javax.inject.Scope

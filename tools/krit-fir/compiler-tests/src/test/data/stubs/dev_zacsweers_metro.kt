@@ -3,6 +3,10 @@ package dev.zacsweers.metro
 
 import kotlin.reflect.KClass
 
+@Target(AnnotationTarget.ANNOTATION_CLASS)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Scope
+
 @Target(AnnotationTarget.CLASS)
 annotation class DependencyGraph(
     val scope: KClass<*> = Nothing::class,

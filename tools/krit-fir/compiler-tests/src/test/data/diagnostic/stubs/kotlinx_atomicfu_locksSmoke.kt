@@ -1,10 +1,11 @@
-// Smoke: atomicfu lock construction and lock helpers.
 package stubs
 
-import kotlinx.atomicfu.locks.ReentrantLock
-import kotlinx.atomicfu.locks.reentrantLock
-import kotlinx.atomicfu.locks.synchronized
-import kotlinx.atomicfu.locks.withLock
+import kotlinx.atomicfu.locks.*
 
-fun atomicfuLocksSmoke(lock: ReentrantLock = reentrantLock()): Int =
-    synchronized(lock) { lock.withLock { 1 } }
+class AtomicLocksSmoke : SynchronizedObject() {
+    private val lock = reentrantLock()
+
+    fun exercise(): Int = synchronized(this) {
+        lock.withLock { 1 }
+    }
+}

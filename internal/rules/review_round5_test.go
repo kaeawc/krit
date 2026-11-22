@@ -50,16 +50,16 @@ fun f() {
 
 func TestUnnecessaryNotNullOperator_NonNullMutableProjectionMatchesGoPolicy(t *testing.T) {
 	cases := []struct {
-		name      string
-		source    string
-		nodeText  string
-		wantMatch bool
+		name         string
+		source       string
+		nodeText     string
+		wantFindings int
 	}{
 		{
-			name:      "local var",
-			source:    "package test\nfun f() { var text: String = \"x\"; println(text!!) }\n",
-			nodeText:  "text!!",
-			wantMatch: true,
+			name:         "local var",
+			source:       "package test\nfun f() { var text: String = \"x\"; println(text!!) }\n",
+			nodeText:     "text!!",
+			wantFindings: 1,
 		},
 		{
 			name: "member var",
@@ -67,8 +67,8 @@ func TestUnnecessaryNotNullOperator_NonNullMutableProjectionMatchesGoPolicy(t *t
 class Holder { var text: String = "x" }
 fun f(holder: Holder) { println(holder.text!!) }
 `,
-			nodeText:  "holder.text!!",
-			wantMatch: true,
+			nodeText:     "holder.text!!",
+			wantFindings: 1,
 		},
 		{
 			name: "lateinit var",
@@ -76,8 +76,8 @@ fun f(holder: Holder) { println(holder.text!!) }
 class Holder { lateinit var text: String }
 fun f(holder: Holder) { println(holder.text!!) }
 `,
-			nodeText:  "holder.text!!",
-			wantMatch: true,
+			nodeText:     "holder.text!!",
+			wantFindings: 1,
 		},
 		{
 			name: "top-level var",
@@ -85,8 +85,8 @@ fun f(holder: Holder) { println(holder.text!!) }
 var text: String = "x"
 fun f() { println(text!!) }
 `,
-			nodeText:  "text!!",
-			wantMatch: true,
+			nodeText:     "text!!",
+			wantFindings: 1,
 		},
 		{
 			name: "captured local assigned in lambda",
@@ -98,7 +98,8 @@ fun f() {
     println(text!!)
 }
 `,
-			nodeText: "text!!",
+			nodeText:     "text!!",
+			wantFindings: 0,
 		},
 	}
 
@@ -106,8 +107,8 @@ fun f() {
 		t.Run(testCase.name, func(t *testing.T) {
 			findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessaryNotNullOperator", testCase.source,
 				"postfix_expression", testCase.nodeText, "UNNECESSARY_NOT_NULL_ASSERTION")
-			if got := len(findings) == 1; got != testCase.wantMatch {
-				t.Fatalf("compiler projection matched = %v, want %v; findings: %v", got, testCase.wantMatch, findings)
+			if got := len(findings); got != testCase.wantFindings {
+				t.Fatalf("compiler projection findings = %d, want %d; findings: %v", got, testCase.wantFindings, findings)
 			}
 		})
 	}

@@ -9,6 +9,12 @@ All notable changes to Krit will be documented in this file.
   resolved receivers, excluding platform types and unstable or cross-module
   smart casts. Stable same-module smart casts are followed. Go remains the
   fallback for files that do not compile and scans without a classpath.
+- `ClickableViewAccessibility` skips custom-view override checks in abstract classes
+  in Go and in abstract or sealed Kotlin classes in FIR; Go also skips sealed Kotlin
+  classes. Go skips overrides owned by Kotlin object literals and companion objects or
+  Java anonymous classes, nested interfaces, enums and records rather than attributing
+  their methods to enclosing Views. FIR keeps anonymous Kotlin Views conservatively
+  silent. Listener checks remain active.
 - `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
   preserving private/local, non-nullable, never-reassigned, non-test narrowing).
   Imported detekt configurations default it to `false` in both Go and FIR,
@@ -36,6 +42,9 @@ All notable changes to Krit will be documented in this file.
 - FIR-backed `UselessElvisOnNonNull` reports provably non-null Elvis operands,
   preserving Java platform-type fallbacks and the Go fallback for scans without
   a classpath or files with compiler errors.
+- FIR-backed `ClickableViewAccessibility` resolves Android View touch handlers,
+  listener registrations and `performClick` overrides, preserving Go exemptions
+  and retaining Go fallback without a classpath or for files with compiler errors.
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
 - FIR checker for `PlainFileWriteOfSensitive` resolves plain-file writes and sensitive filename literals, retaining the Go fallback and its diagnostic text.

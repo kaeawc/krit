@@ -55,8 +55,8 @@ func (r *ClickableViewAccessibilitySourceRule) checkKotlinTouchEvent(ctx *api.Co
 	if flatFunctionName(file, fn) != "onTouchEvent" || !file.FlatHasModifier(fn, "override") {
 		return
 	}
-	classIdx, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration")
-	if !ok || !androidEnclosingClassExtendsView(file, fn, ctx.Resolver) {
+	classIdx, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration", "object_literal", "companion_object")
+	if !ok || clickableViewOverrideOwnerSkipped(file, classIdx) || file.FlatHasModifier(classIdx, "sealed") || !androidEnclosingClassExtendsView(file, fn, ctx.Resolver) {
 		return
 	}
 	var hasPerformClick bool
@@ -92,8 +92,8 @@ func (r *ClickableViewAccessibilitySourceRule) checkKotlinPerformClickSuper(ctx 
 	if flatFunctionName(file, fn) != "performClick" || !file.FlatHasModifier(fn, "override") {
 		return
 	}
-	classIdx, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration")
-	if !ok || !androidEnclosingClassExtendsView(file, fn, ctx.Resolver) {
+	classIdx, ok := flatEnclosingAncestor(file, fn, "class_declaration", "object_declaration", "object_literal", "companion_object")
+	if !ok || clickableViewOverrideOwnerSkipped(file, classIdx) || file.FlatHasModifier(classIdx, "sealed") || !androidEnclosingClassExtendsView(file, fn, ctx.Resolver) {
 		return
 	}
 	if callsSuperPerformClick.MatchString(file.FlatNodeText(fn)) {
@@ -116,11 +116,20 @@ func (r *ClickableViewAccessibilitySourceRule) checkJavaPerformClickSuper(ctx *a
 	if !ok || file.FlatNodeText(name) != "performClick" {
 		return
 	}
-	classIdx, ok := flatEnclosingAncestor(file, m, "class_declaration")
-	if !ok || !javaViewSuperclass(file, classIdx, 0) || callsSuperPerformClick.MatchString(file.FlatNodeText(m)) {
+	classIdx, ok := flatEnclosingAncestor(file, m, "class_declaration", "record_declaration", "object_creation_expression", "interface_declaration", "enum_declaration")
+	if !ok || clickableViewOverrideOwnerSkipped(file, classIdx) || !javaViewSuperclass(file, classIdx, 0) || callsSuperPerformClick.MatchString(file.FlatNodeText(m)) {
 		return
 	}
 	ctx.EmitAt(file.FlatRow(name)+1, file.FlatCol(name)+1, fmt.Sprintf("`%s#performClick` should call `super#performClick`", extractIdentifierFlat(file, classIdx)))
+}
+
+func clickableViewOverrideOwnerSkipped(file *scanner.File, classIdx uint32) bool {
+	switch file.FlatType(classIdx) {
+	case "object_literal", "companion_object", "object_creation_expression", "interface_declaration", "enum_declaration", "record_declaration":
+		return true
+	default:
+		return file.FlatHasModifier(classIdx, "abstract")
+	}
 }
 
 func kotlinBodyCalls(file *scanner.File, root uint32, method string) bool {
@@ -210,8 +219,8 @@ func (r *ClickableViewAccessibilitySourceRule) checkJavaTouchEvent(ctx *api.Cont
 	if !ok || file.FlatNodeText(name) != "onTouchEvent" {
 		return
 	}
-	classIdx, ok := flatEnclosingAncestor(file, m, "class_declaration")
-	if !ok || !javaViewSuperclass(file, classIdx, 0) {
+	classIdx, ok := flatEnclosingAncestor(file, m, "class_declaration", "record_declaration", "object_creation_expression", "interface_declaration", "enum_declaration")
+	if !ok || clickableViewOverrideOwnerSkipped(file, classIdx) || !javaViewSuperclass(file, classIdx, 0) {
 		return
 	}
 	var hasPerformClick bool

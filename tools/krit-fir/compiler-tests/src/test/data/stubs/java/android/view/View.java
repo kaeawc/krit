@@ -108,6 +108,10 @@ public class View {
         throw new RuntimeException("Stub!");
     }
 
+    public void setOnTouchListener(OnTouchListener l) {
+        throw new RuntimeException("Stub!");
+    }
+
     public boolean performClick() {
         throw new RuntimeException("Stub!");
     }
@@ -170,5 +174,9 @@ public class View {
 
     public static interface OnLongClickListener {
         boolean onLongClick(View v);
+    }
+
+    public static interface OnTouchListener {
+        boolean onTouch(View v, MotionEvent event);
     }
 }

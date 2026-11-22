@@ -216,6 +216,19 @@ class Screen {
     fun service(context: Context) = context.getSystemService("service")
     class Context { fun getSystemService(name: String): Any = Any() }
 }`, true},
+		{"constructor member Context after use", `class Screen(private val context: Context) {
+    fun service(): String = context.getSystemService("service") as String
+    class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
+		{"imported constructor member Context after use", `import android.content.Context
+class Screen(private val context: Context) {
+    fun service(): String = context.getSystemService("service") as String
+    class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
+		{"data class member Context after use", `data class Screen(val context: Context) {
+    fun service(): String = context.getSystemService("service") as String
+    class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
 		{"property annotation", `class Map { fun get(key: String): Any = Any() }
 val items: Map = TODO()
 fun read() = items.get("key")`, true},

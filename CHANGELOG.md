@@ -9,10 +9,12 @@ All notable changes to Krit will be documented in this file.
   source-written receiver type annotation or constructor uses a bare simple name
   resolving to a visible same-file project class, object, or interface rather
   than an explicit import, such as a local `Context`. Explicit imports take
-  precedence over top-level package declarations, while nested and local
-  declarations take precedence over imports. Qualified names do not trigger
-  this suppression. Stdlib factories, their inferred locals, and library call
-  chains retain library signatures even when a project lookalike is visible;
+  precedence over top-level package declarations, while nested declarations
+  take precedence throughout their containing class, object, or interface,
+  including its header; local declarations take precedence within their lexical
+  scope. Qualified names do not trigger this suppression. Stdlib factories,
+  their inferred locals, and library call chains retain library signatures even
+  when a project lookalike is visible;
   library mappings and subtype behavior remain unchanged.
 
 ### Changed

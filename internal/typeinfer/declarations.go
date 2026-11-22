@@ -311,11 +311,7 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
 	if hasParent && parentIdx != 0 {
-		info.NameScopeStart = file.FlatStartByte(parentIdx)
-		info.NameScopeEnd = file.FlatEndByte(parentIdx)
-		if file.FlatType(parentIdx) == "statements" {
-			info.NameScopeStart = file.FlatStartByte(flatIdx)
-		}
+		info.NameScopeStart, info.NameScopeEnd = flatClassNameScope(file, flatIdx, parentIdx)
 	} else if mods.visibility == "private" {
 		info.NameScopeEnd = file.FlatEndByte(0)
 	}
@@ -349,6 +345,20 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 			}
 		}
 	}
+}
+
+func flatClassNameScope(file *scanner.File, flatIdx, parentIdx uint32) (uint32, uint32) {
+	start, end := file.FlatStartByte(parentIdx), file.FlatEndByte(parentIdx)
+	if file.FlatType(parentIdx) == "statements" {
+		return file.FlatStartByte(flatIdx), end
+	}
+	if owner, ok := file.FlatParent(parentIdx); ok && owner != 0 {
+		switch file.FlatType(owner) {
+		case "class_declaration", "object_declaration":
+			return file.FlatStartByte(owner), file.FlatEndByte(owner)
+		}
+	}
+	return start, end
 }
 
 func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it *ImportTable, pkg string) {

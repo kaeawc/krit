@@ -48,6 +48,72 @@ fun f() {
 	}
 }
 
+func TestUnnecessaryNotNullOperator_NonNullMutableProjectionMatchesGoPolicy(t *testing.T) {
+	cases := []struct {
+		name         string
+		source       string
+		nodeText     string
+		wantFindings int
+	}{
+		{
+			name:         "local var",
+			source:       "package test\nfun f() { var text: String = \"x\"; println(text!!) }\n",
+			nodeText:     "text!!",
+			wantFindings: 1,
+		},
+		{
+			name: "member var",
+			source: `package test
+class Holder { var text: String = "x" }
+fun f(holder: Holder) { println(holder.text!!) }
+`,
+			nodeText:     "holder.text!!",
+			wantFindings: 1,
+		},
+		{
+			name: "lateinit var",
+			source: `package test
+class Holder { lateinit var text: String }
+fun f(holder: Holder) { println(holder.text!!) }
+`,
+			nodeText:     "holder.text!!",
+			wantFindings: 1,
+		},
+		{
+			name: "top-level var",
+			source: `package test
+var text: String = "x"
+fun f() { println(text!!) }
+`,
+			nodeText:     "text!!",
+			wantFindings: 1,
+		},
+		{
+			name: "captured local assigned in lambda",
+			source: `package test
+fun register(block: () -> Unit) {}
+fun f() {
+    var text: String = "x"
+    register { text = "y" }
+    println(text!!)
+}
+`,
+			nodeText:     "text!!",
+			wantFindings: 0,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessaryNotNullOperator", testCase.source,
+				"postfix_expression", testCase.nodeText, "UNNECESSARY_NOT_NULL_ASSERTION")
+			if got := len(findings); got != testCase.wantFindings {
+				t.Fatalf("compiler projection findings = %d, want %d; findings: %v", got, testCase.wantFindings, findings)
+			}
+		})
+	}
+}
+
 func TestUnnecessarySafeCall_LambdaAssignedLocalIsNotStable(t *testing.T) {
 	findings := runRuleByNameWithOracleDiagnosticForNode(t, "UnnecessarySafeCall", `
 package test

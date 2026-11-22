@@ -107,6 +107,7 @@ var knownFIRRules = map[string]bool{
 	"UnnecessaryFilter":                       true,
 	"UnnecessaryApply":                        true,
 	"UnnecessaryLet":                          true,
+	"UnnecessaryNotNullOperator":              true,
 	"UnnecessarySafeCall":                     true,
 	"UnnecessaryTemporaryInstantiation":       true,
 	"UnreachableCatchBlock":                   true,

@@ -15,6 +15,13 @@ import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 class FirDeclarationExposureTest {
     @TempDir lateinit var tmp: Path
 
+    private data class PackageFamilyCase(
+        val markerPackage: String,
+        val apiPackage: String,
+        val markerName: String,
+        val shouldReport: Boolean,
+    )
+
     private fun findings(
         source: String,
         testFile: Boolean = false,
@@ -169,22 +176,16 @@ class FirDeclarationExposureTest {
 
     @Test
     fun checksAdditionalMarkersBySimpleNameWithResolvedMetadata() {
-        val librarySource = tmp.resolve("library/Markers.kt").toFile().apply {
-            parentFile.mkdirs()
-            writeText("""
+        val library = compileMarkerLibrary(
+            "library/Markers.kt",
+            "markers.jar",
+            """
                 package vendor
                 @kotlin.RequiresOptIn
                 annotation class ProjectApi
                 annotation class ExperimentalTime
-            """.trimIndent())
-        }
-        val stdlib = File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
-        val library = tmp.resolve("markers.jar").toString()
-        assertEquals(ExitCode.OK, K2JVMCompiler().exec(
-            System.err, "-no-stdlib", "-no-reflect", "-classpath", stdlib,
-            "-d", library, librarySource.absolutePath,
-        ))
-        librarySource.delete()
+            """.trimIndent(),
+        )
         val source = """
             package sample.app
             import vendor.ProjectApi
@@ -194,63 +195,88 @@ class FirDeclarationExposureTest {
             fun ordinaryAnnotation() = Unit
         """.trimIndent()
         assertEquals(emptyList(), findings(source, classpath = listOf(library)))
-        for (configured in listOf("ProjectApi", "vendor.ProjectApi", "other.ProjectApi")) {
-            assertEquals(listOf(3), findings(
-                source,
-                ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf(configured))),
-                classpath = listOf(library),
-            ))
+        assertConfiguredAdditionalMarkerNames(source, library)
+        assertConfiguredSourceMarker()
+        assertConfiguredAlias(source, library)
+        assertUnrelatedConfiguredMarker(source, library)
+        assertConfiguredMarkerInDifferentPackage(source, library)
+        assertNonOptInAdditionalMarker(source, library)
+        assertAdditionalMarkerFromOtherLibrary()
+    }
+
+    private fun compileMarkerLibrary(sourcePath: String, libraryPath: String, source: String): String {
+        val librarySource = tmp.resolve(sourcePath).toFile().apply {
+            parentFile.mkdirs()
+            writeText(source)
         }
+        val stdlib = File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
+        val library = tmp.resolve(libraryPath).toString()
+        assertEquals(ExitCode.OK, K2JVMCompiler().exec(
+            System.err, "-no-stdlib", "-no-reflect", "-classpath", stdlib,
+            "-d", library, librarySource.absolutePath,
+        ))
+        librarySource.delete()
+        return library
+    }
+
+    private fun configuredFindings(source: String, marker: String, classpath: List<String> = emptyList()): List<Int> =
+        findings(
+            source,
+            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf(marker))),
+            classpath = classpath,
+        )
+
+    private fun assertConfiguredAdditionalMarkerNames(source: String, library: String) {
+        for (configured in listOf("ProjectApi", "vendor.ProjectApi", "other.ProjectApi")) {
+            assertEquals(listOf(3), configuredFindings(source, configured, listOf(library)))
+        }
+    }
+
+    private fun assertConfiguredSourceMarker() {
         val configuredSourceMarker = """
             package test
             @RequiresOptIn annotation class InternalMyApi
             @InternalMyApi fun exposed() {}
         """.trimIndent()
-        assertEquals(listOf(3), findings(
-            configuredSourceMarker,
-            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("InternalMyApi"))),
-        ))
-        assertEquals(listOf(3), findings(
-            source.replace("import vendor.ProjectApi", "import vendor.ProjectApi as Alias").replace("@ProjectApi", "@Alias"),
-            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("ProjectApi"))),
-            classpath = listOf(library),
-        ))
-        assertEquals(emptyList(), findings(
-            source,
-            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("UnrelatedApi"))),
-            classpath = listOf(library),
-        ))
-        assertEquals(listOf(3), findings(
-            source.replace("package sample.app", "package vendor.extras"),
-            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("ProjectApi"))),
-            classpath = listOf(library),
-        ))
-        assertEquals(emptyList(), findings(
-            source,
-            ruleConfigs = mapOf("OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("ExperimentalTime"))),
-            classpath = listOf(library),
-        ))
-        val bobLibrarySource = tmp.resolve("bob/Markers.kt").toFile().apply {
-            parentFile.mkdirs()
-            writeText("""
+        assertEquals(listOf(3), configuredFindings(configuredSourceMarker, "InternalMyApi"))
+    }
+
+    private fun assertConfiguredAlias(source: String, library: String) {
+        val aliasSource = source.replace("import vendor.ProjectApi", "import vendor.ProjectApi as Alias")
+            .replace("@ProjectApi", "@Alias")
+        assertEquals(listOf(3), configuredFindings(aliasSource, "ProjectApi", listOf(library)))
+    }
+
+    private fun assertUnrelatedConfiguredMarker(source: String, library: String) {
+        assertEquals(emptyList(), configuredFindings(source, "UnrelatedApi", listOf(library)))
+    }
+
+    private fun assertConfiguredMarkerInDifferentPackage(source: String, library: String) {
+        assertEquals(
+            listOf(3),
+            configuredFindings(source.replace("package sample.app", "package vendor.extras"), "ProjectApi", listOf(library)),
+        )
+    }
+
+    private fun assertNonOptInAdditionalMarker(source: String, library: String) {
+        assertEquals(emptyList(), configuredFindings(source, "ExperimentalTime", listOf(library)))
+    }
+
+    private fun assertAdditionalMarkerFromOtherLibrary() {
+        val bobLibrary = compileMarkerLibrary(
+            "bob/Markers.kt",
+            "bob-markers.jar",
+            """
                 package io.github.bob.lib
                 @kotlin.RequiresOptIn
                 annotation class ExperimentalBobApi
-            """.trimIndent())
-        }
-        val bobLibrary = tmp.resolve("bob-markers.jar").toString()
-        assertEquals(ExitCode.OK, K2JVMCompiler().exec(
-            System.err, "-no-stdlib", "-no-reflect", "-classpath", stdlib,
-            "-d", bobLibrary, bobLibrarySource.absolutePath,
-        ))
-        bobLibrarySource.delete()
-        assertEquals(listOf(3), findings("""
+            """.trimIndent(),
+        )
+        assertEquals(listOf(3), configuredFindings("""
             package io.github.alice.app
             import io.github.bob.lib.ExperimentalBobApi
             @ExperimentalBobApi fun exposed() = Unit
-        """.trimIndent(), ruleConfigs = mapOf(
-            "OptInMarkerExposedPublicly" to mapOf("additionalMarkers" to listOf("ExperimentalBobApi")),
-        ), classpath = listOf(bobLibrary)))
+        """.trimIndent(), "ExperimentalBobApi", listOf(bobLibrary)))
     }
 
     @Test
@@ -258,24 +284,25 @@ class FirDeclarationExposureTest {
         assertEquals(true, isInOptInMarkerPackageFamily("kotlin.native", "kotlin.experimental"))
         assertEquals(false, isInOptInMarkerPackageFamily("coil3.request", "coil.annotation"))
         assertEquals(false, isInOptInMarkerPackageFamily("com.google.accompanistx", "com.google.accompanist.permissions"))
-        for ((markerPackage, apiPackage, markerName, expected) in listOf(
-            listOf("coil.annotation", "coil.compose", "ExperimentalCoilApi", "silent"),
-            listOf("coil3.annotation", "coil3.request", "ExperimentalCoilApi", "silent"),
-            listOf("com.google.accompanist.permissions", "com.google.samples.apps.myapp", "ExperimentalPermissionsApi", "report"),
-            listOf("com.google.android.horologist.annotations", "com.google.samples.apps.myapp", "ExperimentalHorologistApi", "report"),
-        )) {
-            val marker = tmp.resolve("Marker.kt").toFile().apply {
-                writeText("package $markerPackage\n@kotlin.RequiresOptIn\nannotation class $markerName")
+        for ((index, case) in listOf(
+            PackageFamilyCase("coil.annotation", "coil.compose", "ExperimentalCoilApi", shouldReport = false),
+            PackageFamilyCase("coil3.annotation", "coil3.request", "ExperimentalCoilApi", shouldReport = false),
+            PackageFamilyCase("com.google.accompanist.permissions", "com.google.samples.apps.myapp", "ExperimentalPermissionsApi", shouldReport = true),
+            PackageFamilyCase("com.google.android.horologist.annotations", "com.google.samples.apps.myapp", "ExperimentalHorologistApi", shouldReport = true),
+        ).withIndex()) {
+            val marker = tmp.resolve("package-family-$index/Marker.kt").toFile().apply {
+                parentFile.mkdirs()
+                writeText("package ${case.markerPackage}\n@kotlin.RequiresOptIn\nannotation class ${case.markerName}")
             }
             val source = """
-                package $apiPackage
-                @$markerPackage.$markerName
+                package ${case.apiPackage}
+                @${case.markerPackage}.${case.markerName}
                 fun exposed() = Unit
             """.trimIndent()
-            val expectedLines = if (expected == "report") listOf(2) else emptyList()
+            val expectedLines = if (case.shouldReport) listOf(2) else emptyList()
             assertEquals(expectedLines, findings(source))
             val stdlib = File(kotlin.Unit::class.java.protectionDomain.codeSource.location.toURI()).absolutePath
-            val library = tmp.resolve("marker.jar").toString()
+            val library = tmp.resolve("package-family-$index/marker.jar").toString()
             assertEquals(ExitCode.OK, K2JVMCompiler().exec(
                 System.err, "-no-stdlib", "-no-reflect", "-classpath", stdlib,
                 "-d", library, marker.absolutePath,

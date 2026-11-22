@@ -23,8 +23,9 @@ All notable changes to Krit will be documented in this file.
   `do_while_statement`, and `try_expression`. A `lambda_literal` is traversed
   when reached directly, but call/lambda wrappers such as `call_expression`,
   `call_suffix`, `annotated_lambda`, and `parenthesized_expression` can hide
-  it. Anonymous-function bodies (`anonymous_function`) and declarations behind
-  expression-wrapped property initializers or function bodies are likewise
+  it. Anonymous-function bodies (`anonymous_function`), declarations anywhere
+  inside property declarations (initializers, delegates, accessors), and
+  declarations behind expression-wrapped function bodies are likewise
   unindexed. These classifiers retain library signatures as before. Direct
   declarations in init blocks are traversed through `anonymous_initializer`
   and `statements`. Named companion objects themselves are not indexed as

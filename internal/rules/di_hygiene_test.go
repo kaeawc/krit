@@ -94,6 +94,32 @@ class FooImpl : Foo
 	}
 }
 
+func TestBindsInsteadOfProvides_LocalFunctionsAreQuiet(t *testing.T) {
+	const declarations = `
+package test
+annotation class Module
+annotation class Provides
+interface Service
+class Implementation : Service
+`
+	for name, body := range map[string]string{
+		"function":           `fun host() { @Provides fun local(impl: Implementation): Service = impl }`,
+		"lambda":             `val host = { @Provides fun local(impl: Implementation): Service = impl }`,
+		"initializer":        `val host = run { @Provides fun local(impl: Implementation): Service = impl; 0 }`,
+		"anonymous function": `val host = fun() { @Provides fun local(impl: Implementation): Service = impl }`,
+		"getter":             `val host: Int get() { @Provides fun local(impl: Implementation): Service = impl; return 0 }`,
+		"constructor":        `constructor() { @Provides fun local(impl: Implementation): Service = impl }`,
+		"init block":         `init { @Provides fun local(impl: Implementation): Service = impl }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			findings := runRuleByName(t, "BindsInsteadOfProvides", declarations+"@Module abstract class M { "+body+" }")
+			if len(findings) != 0 {
+				t.Fatalf("expected no local-function findings, got %v", findings)
+			}
+		})
+	}
+}
+
 func TestBindsReturnTypeMatchesParam(t *testing.T) {
 	rule := buildRuleIndex()["BindsReturnTypeMatchesParam"]
 	if rule == nil {

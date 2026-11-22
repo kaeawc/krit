@@ -7,8 +7,8 @@ import kotlin.test.assertTrue
 
 // IntoSetOnNonSetReturn on the other DI frameworks whose @IntoSet collects a
 // set by the provider's return type: Metro and kotlin-inject. Go matches the
-// annotation text, so it reports both. The stubs have no Metro `IntoSet` and
-// no kotlin-inject package, so this test declares those annotations (with the
+// annotation text, so it reports both. The stubs have no Metro or kotlin-inject
+// `IntoSet`, so this test declares those annotations (with the
 // real packages, names, and targets) in a source of its own.
 class IntoSetOnNonSetReturnFrameworksTest {
 
@@ -30,9 +30,6 @@ class IntoSetOnNonSetReturnFrameworksTest {
 
     private val kotlinInject = "KotlinInject.kt" to """
         package me.tatarka.inject.annotations
-
-        @Target(AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY_GETTER)
-        annotation class Provides
 
         @Target(AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY_GETTER)
         annotation class IntoSet

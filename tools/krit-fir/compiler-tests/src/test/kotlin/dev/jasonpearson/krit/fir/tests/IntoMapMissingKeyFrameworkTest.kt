@@ -75,8 +75,6 @@ class IntoMapMissingKeyFrameworkTest {
             "KotlinInject.kt" to """
                 package me.tatarka.inject.annotations
 
-                annotation class Provides
-
                 annotation class IntoMap
             """.trimIndent(),
             "Component.kt" to """

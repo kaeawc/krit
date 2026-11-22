@@ -15,6 +15,7 @@ All notable changes to Krit will be documented in this file.
   Java anonymous classes, nested interfaces, enums and records rather than attributing
   their methods to enclosing Views. FIR keeps anonymous Kotlin Views conservatively
   silent. Listener checks remain active.
+- `BindsInsteadOfProvides` no longer reports local functions, or members of anonymous objects, declared inside functions, lambdas, property initializers or accessors, constructors or `init` blocks, in either engine. FIR also preserves the kotlin-inject wildcard-import exemption.
 - `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
   preserving private/local, non-nullable, never-reassigned, non-test narrowing).
   Imported detekt configurations default it to `false` in both Go and FIR,
@@ -45,6 +46,7 @@ All notable changes to Krit will be documented in this file.
 - FIR-backed `ClickableViewAccessibility` resolves Android View touch handlers,
   listener registrations and `performClick` overrides, preserving Go exemptions
   and retaining Go fallback without a classpath or for files with compiler errors.
+- FIR checker for `BindsInsteadOfProvides` proves Dagger module annotations and unchanged parameter returns, retaining the Go fallback for non-compiling files and scans without a classpath.
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
 - FIR checker for `PlainFileWriteOfSensitive` resolves plain-file writes and sensitive filename literals, retaining the Go fallback and its diagnostic text.

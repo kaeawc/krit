@@ -105,7 +105,7 @@ runs:
     - name: Restore krit binary cache
       if: inputs.cache == 'true'
       id: cache-binary
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.tool_cache }}/krit/${{ steps.resolve-version.outputs.version }}
         key: krit-${{ steps.resolve-version.outputs.os }}-${{ steps.resolve-version.outputs.arch }}-${{ steps.resolve-version.outputs.version }}
@@ -130,7 +130,7 @@ runs:
 
     - name: Restore analysis cache
       if: inputs.cache-analysis == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: .krit/cache
         key: krit-analysis-${{ hashFiles('**/*.kt', '**/*.kts') }}
@@ -159,7 +159,7 @@ runs:
 
     - name: Upload SARIF to Code Scanning
       if: inputs.sarif-upload == 'true' && (inputs.reporter == 'sarif' || inputs.reporter == 'github-annotations') && always()
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3
       with:
         sarif_file: ${{ steps.run-krit.outputs.sarif-file }}
         category: krit

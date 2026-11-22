@@ -89,8 +89,9 @@ type VerdictStats struct {
 type fileRule struct{ file, rule string }
 
 var firConfirmOnlyRules = map[string]bool{
-	"TestWithoutAssertion":       true,
 	"OptInMarkerExposedPublicly": true,
+	"RunBlockingInTest":          true,
+	"TestWithoutAssertion":       true,
 }
 
 // ApplyVerdict returns the merged findings: Go findings outside the

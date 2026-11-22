@@ -54,6 +54,7 @@ All notable changes to Krit will be documented in this file.
   and retaining Go fallback without a classpath or for files with compiler errors.
 - FIR checker for `BindsInsteadOfProvides` proves Dagger module annotations and unchanged parameter returns, retaining the Go fallback for non-compiling files and scans without a classpath.
 - `UnsafeCast` uses resolved compatibility proofs in FIR requiring both sides to be final non-generic classes (enums and objects included), abstains on expect/actual classes, and keeps the Go fallback for scans without a classpath and files that do not compile.
+- FIR checker for `RunBlockingInTest` resolves coroutine calls and JUnit/kotlin.test/TestNG annotations, preserves test intent and bridge exemptions, and uses a confirm-only verdict so FIR may confirm or remove Go findings but never add findings; Go remains the fallback without a classpath or for non-compiling files.
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
 - FIR checker for `PlainFileWriteOfSensitive` resolves plain-file writes and sensitive filename literals, retaining the Go fallback and its diagnostic text.

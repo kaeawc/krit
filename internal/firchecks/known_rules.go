@@ -81,6 +81,7 @@ var knownFIRRules = map[string]bool{
 	"RecyclerAdapterWithoutDiffUtil":          true,
 	"SecureRandom":                            true,
 	"SerialVersionUIDInSerializableClass":     true,
+	"RunBlockingInTest":                       true,
 	"ServiceCast":                             true,
 	"SetJavaScriptEnabled":                    true,
 	"SetTextI18n":                             true,

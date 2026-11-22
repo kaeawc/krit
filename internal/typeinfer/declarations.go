@@ -313,7 +313,7 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	if hasParent && parentIdx != 0 {
 		info.NameScopeStart = file.FlatStartByte(parentIdx)
 		info.NameScopeEnd = file.FlatEndByte(parentIdx)
-		if file.FlatType(parentIdx) != "class_member_declarations" {
+		if file.FlatType(parentIdx) == "statements" {
 			info.NameScopeStart = file.FlatStartByte(flatIdx)
 		}
 	} else if mods.visibility == "private" {

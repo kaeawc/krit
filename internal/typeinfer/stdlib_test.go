@@ -207,6 +207,15 @@ fun read(items: Map) = items.get("key")`, true},
 		{"nested before import", `import kotlin.collections.Map
 class Screen { class Map { fun get(key: String): Any = Any() }
 fun read(items: Map) = items.get("key") }`, true},
+		{"member Context after use", `class Screen {
+    fun service(context: Context) = context.getSystemService("service")
+    class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
+		{"imported member Context after use", `import android.content.Context
+class Screen {
+    fun service(context: Context) = context.getSystemService("service")
+    class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
 		{"property annotation", `class Map { fun get(key: String): Any = Any() }
 val items: Map = TODO()
 fun read() = items.get("key")`, true},
@@ -235,7 +244,7 @@ class B {
 			call := `items.get("key")`
 			if test.name == "return annotation" {
 				call = `items().get("key")`
-			} else if test.name == "visible member among same-name members" {
+			} else if test.name == "visible member among same-name members" || strings.Contains(test.name, "member Context after use") {
 				call = `context.getSystemService("service")`
 			}
 			idx := flatFirstOfTypeWithText(file, "call_expression", call)

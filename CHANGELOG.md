@@ -11,14 +11,26 @@ All notable changes to Krit will be documented in this file.
   than an explicit import, such as a local `Context`. Explicit imports take
   precedence over top-level package declarations, while nested classifiers
   (including interfaces, enums, and annotation classes) and ordinary object
-  declarations declared directly in class, object, or interface bodies take
-  precedence throughout their containing declaration, including its header.
-  Classifiers inside companion objects or enum class bodies are not indexed and
-  retain library signatures; named companion objects themselves are not
-  indexed as lookalikes. Local declarations take precedence within their
-  lexical scope. Qualified names do not trigger this suppression. Stdlib
+  declarations directly in class, object, or interface bodies take precedence
+  throughout their containing declaration, including its header. The
+  declaration index records top-level and member/directly nested classifiers,
+  plus local classifiers reachable through its indexed syntax-node kinds.
+  Local lookalikes take precedence only where that index records them. It does
+  not traverse companion objects (`companion_object`), enum class bodies
+  (`enum_class_body`), anonymous object bodies (`object_literal`), accessor
+  bodies (`getter`, `setter`), or control-flow wrappers such as `if_expression`,
+  `when_expression`/`when_entry`, `for_statement`, `while_statement`,
+  `do_while_statement`, and `try_expression`. A `lambda_literal` is traversed
+  when reached directly, but call/lambda wrappers such as `call_expression`,
+  `call_suffix`, `annotated_lambda`, and `parenthesized_expression` can hide
+  it. Anonymous-function bodies (`anonymous_function`) and declarations behind
+  expression-wrapped property initializers or function bodies are likewise
+  unindexed. These classifiers retain library signatures as before. Direct
+  declarations in init blocks are traversed through `anonymous_initializer`
+  and `statements`. Named companion objects themselves are not indexed as
+  lookalikes. Qualified names do not trigger this suppression. Stdlib
   factories, their inferred locals, and library call chains retain library
-  signatures even when a project lookalike is visible;
+  signatures even when an indexed project lookalike is visible;
   library mappings and subtype behavior remain unchanged.
 
 ### Changed

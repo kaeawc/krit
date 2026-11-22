@@ -10,9 +10,10 @@ All notable changes to Krit will be documented in this file.
   resolving to a visible same-file project class, object, or interface rather
   than an explicit import, such as a local `Context`. Explicit imports take
   precedence over top-level package declarations, while nested classes
-  (including interfaces, enums, and annotation classes) and objects take
-  precedence throughout their containing class, object, or interface, including
-  its header; local declarations take precedence within their lexical scope.
+  (including interfaces, enums, and annotation classes) and ordinary object
+  declarations take precedence throughout their containing class, object, or
+  interface, including its header; named companion objects are not indexed as
+  lookalikes. Local declarations take precedence within their lexical scope.
   Qualified names do not trigger this suppression. Stdlib factories,
   their inferred locals, and library call chains retain library signatures even
   when a project lookalike is visible;

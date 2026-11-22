@@ -1,3 +1,4 @@
+// fir-parity: skip references undeclared TestHarness and ExternalThing; Go owns the unresolved fixture and compiling FIR negatives are covered by compiler-tests data
 package fixtures.negative.potentialbugs
 
 class UnnecessaryNotNullOperator {

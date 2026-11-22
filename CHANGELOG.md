@@ -20,6 +20,8 @@ All notable changes to Krit will be documented in this file.
   class-name interpolation and Go's platform-type heuristic on a local `Context` lookalike.
 - FIR `UnsafeCast` now normalizes `customPreviewPrefixes` like Go, accepting scalar
   strings and `{value, reason}` entries while trimming whitespace and dropping blanks.
+- `UnnecessaryNotNullOperator` gains a conservative FIR checker for definitely non-null operands;
+  Go remains the fallback without a classpath or when a file fails compilation.
 - `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
   preserving private/local, non-nullable, never-reassigned, non-test narrowing).
   Imported detekt configurations default it to `false` in both Go and FIR,

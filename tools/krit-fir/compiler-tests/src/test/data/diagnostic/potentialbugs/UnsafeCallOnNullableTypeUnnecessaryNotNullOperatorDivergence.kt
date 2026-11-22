@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 9, 14
+// go-lines: none
 package test
 
 class KnownThing

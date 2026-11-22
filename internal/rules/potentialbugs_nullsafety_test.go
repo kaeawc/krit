@@ -1729,6 +1729,12 @@ fun parent(file: File) = file.getParent() as String`, 1},
 		{"private top-level Map with stdlib import", `import kotlin.collections.Map
 private class Map
 fun get(items: Map<String, Any>) = items.get("k") as String`, 1},
+		{"stdlib map before local class", `import kotlin.collections.Map
+fun get(items: Map<String, Any>): String {
+    val result = items.get("k") as String
+    class Map
+    return result
+}`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1759,8 +1765,8 @@ package example
 class File { fun getName(): String? = null }
 fun name(file: File) {
     val value = file.getName()
-    println(value!!)
     println(value?.length)
+    println(value!!)
 }
 `)
 			if len(findings) != 0 {

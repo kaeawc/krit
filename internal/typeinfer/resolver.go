@@ -62,6 +62,13 @@ type ClassInfo struct {
 	NameScopeEnd     uint32
 }
 
+func (r *defaultResolver) recordClassScope(fqn string, info *ClassInfo) {
+	if r.classFQNScopes == nil {
+		r.classFQNScopes = make(map[string][]*ClassInfo)
+	}
+	r.classFQNScopes[fqn] = append(r.classFQNScopes[fqn], info)
+}
+
 // MemberInfo holds information about a class member.
 type MemberInfo struct {
 	Name       string

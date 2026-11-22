@@ -28,8 +28,9 @@ type defaultResolver struct {
 	// Per-file scope tables (top-level declarations)
 	scopes map[string]*ScopeTable // file path -> root scope
 	// Class info by simple name and FQN
-	classes  map[string]*ClassInfo // simple name -> info
-	classFQN map[string]*ClassInfo // FQN -> info
+	classes        map[string]*ClassInfo   // simple name -> info
+	classFQN       map[string]*ClassInfo   // FQN -> info
+	classFQNScopes map[string][]*ClassInfo // FQN -> declarations with distinct visibility scopes
 	// Sealed class variants
 	sealedVariants map[string][]string // sealed type name -> variant names
 	// Enum entries
@@ -144,6 +145,7 @@ func NewResolver() *defaultResolver { //nolint:revive // tests access unexported
 		scopes:         make(map[string]*ScopeTable),
 		classes:        make(map[string]*ClassInfo),
 		classFQN:       make(map[string]*ClassInfo),
+		classFQNScopes: make(map[string][]*ClassInfo),
 		sealedVariants: make(map[string][]string),
 		enumEntries:    make(map[string][]string),
 		typeAliases:    make(map[string]*ResolvedType),

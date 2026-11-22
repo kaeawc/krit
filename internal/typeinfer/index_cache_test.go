@@ -45,6 +45,46 @@ func TestIndexFilesParallelCachedWithTrackerReusesUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestIndexFilesParallelCachedRetainsDistinctClassScopes(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := TypeIndexCacheDir(dir)
+	path := filepath.Join(dir, "Scopes.kt")
+	source := []byte(`package example
+class A {
+    class Context
+    fun service(context: Context) = context.getSystemService("service")
+}
+class B {
+    class Context
+}
+`)
+	if err := os.WriteFile(path, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := NewResolver()
+	first.IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+	second := NewResolver()
+	hits, misses := second.IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+	if hits != 1 || misses != 0 {
+		t.Fatalf("cached scope summary = hits %d misses %d, want 1/0", hits, misses)
+	}
+	if got := second.classFQNScopes["example.Context"]; len(got) != 2 {
+		t.Fatalf("cached declarations for example.Context = %d, want both scoped declarations", len(got))
+	}
+	call := flatFirstOfTypeWithText(file, "call_expression", `context.getSystemService("service")`)
+	if call == 0 {
+		t.Fatal("missing Context receiver call")
+	}
+	if got := second.ResolveFlatNode(call, file); got.Kind != TypeUnknown {
+		t.Fatalf("visible A.Context call = %+v, want unknown local method result", got)
+	}
+}
+
 func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := TypeIndexCacheDir(dir)

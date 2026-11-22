@@ -313,9 +313,13 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 	if hasParent && parentIdx != 0 {
 		info.NameScopeStart = file.FlatStartByte(parentIdx)
 		info.NameScopeEnd = file.FlatEndByte(parentIdx)
+		if file.FlatType(parentIdx) != "class_member_declarations" {
+			info.NameScopeStart = file.FlatStartByte(flatIdx)
+		}
 	} else if mods.visibility == "private" {
 		info.NameScopeEnd = file.FlatEndByte(0)
 	}
+	r.recordClassScope(fqn, info)
 
 	if mods.enum {
 		entries := flatExtractEnumEntries(file, flatIdx)
@@ -397,6 +401,7 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 	} else if mods.visibility == "private" {
 		info.NameScopeEnd = file.FlatEndByte(0)
 	}
+	r.recordClassScope(fqn, info)
 
 	// An object can be a permitted subtype of a sealed parent, so it is one of that parent's variants.
 	for _, st := range supertypes {

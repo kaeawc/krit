@@ -20,6 +20,7 @@ type FileTypeInfo struct {
 	ImportTable *ImportTable
 	RootScope   *ScopeTable
 	Classes     []*ClassInfo
+	ClassScopes []*ClassInfo             // every class declaration, including duplicate FQNs with distinct scopes
 	SealedSubs  map[string][]string      // supertype name → subclass names
 	EnumEntries map[string][]string      // enum class name → entry names
 	TypeAliases map[string]*ResolvedType // alias name or FQN → target type
@@ -56,6 +57,7 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		scopes:         make(map[string]*ScopeTable),
 		classes:        make(map[string]*ClassInfo),
 		classFQN:       make(map[string]*ClassInfo),
+		classFQNScopes: make(map[string][]*ClassInfo),
 		sealedVariants: make(map[string][]string),
 		enumEntries:    make(map[string][]string),
 		typeAliases:    make(map[string]*ResolvedType),
@@ -88,12 +90,18 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		classes = append(classes, ci)
 	}
 	sortClassInfos(classes)
+	classScopes := make([]*ClassInfo, 0)
+	for _, declarations := range tmp.classFQNScopes {
+		classScopes = append(classScopes, declarations...)
+	}
+	sortClassInfos(classScopes)
 
 	return &FileTypeInfo{
 		Path:        file.Path,
 		ImportTable: it,
 		RootScope:   rootScope,
 		Classes:     classes,
+		ClassScopes: classScopes,
 		SealedSubs:  tmp.sealedVariants,
 		EnumEntries: tmp.enumEntries,
 		TypeAliases: tmp.typeAliases,
@@ -265,6 +273,14 @@ func (r *defaultResolver) mergeFileResults(results []*FileTypeInfo) {
 			r.classes[ci.Name] = ci
 			if ci.FQN != "" {
 				r.classFQN[ci.FQN] = ci
+			}
+		}
+		for _, ci := range orderedClassInfos(fi.ClassScopes) {
+			if ci.FQN != "" {
+				if r.classFQNScopes == nil {
+					r.classFQNScopes = make(map[string][]*ClassInfo)
+				}
+				r.classFQNScopes[ci.FQN] = append(r.classFQNScopes[ci.FQN], ci)
 			}
 		}
 

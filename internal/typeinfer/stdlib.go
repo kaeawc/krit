@@ -331,11 +331,17 @@ func (r *defaultResolver) markWrittenProjectType(result *ResolvedType, name stri
 	if pkg := extractPackageFlat(file); pkg != "" {
 		localFQN = pkg + "." + name
 	}
-	source := r.classFQN[localFQN]
-	if source == nil || source.File != file.Path {
-		return
+	var source *ClassInfo
+	for _, candidate := range r.classFQNScopes[localFQN] {
+		if candidate.File != file.Path || (candidate.NameScopeEnd != 0 && (offset < candidate.NameScopeStart || offset >= candidate.NameScopeEnd)) {
+			continue
+		}
+		if source == nil || candidate.NameScopeStart > source.NameScopeStart ||
+			(candidate.NameScopeStart == source.NameScopeStart && candidate.NameScopeEnd != 0 && (source.NameScopeEnd == 0 || candidate.NameScopeEnd < source.NameScopeEnd)) {
+			source = candidate
+		}
 	}
-	if source.NameScopeEnd != 0 && (offset < source.NameScopeStart || offset >= source.NameScopeEnd) {
+	if source == nil {
 		return
 	}
 	if r.writtenProjectTypeHasConflictingImport(source, name, file) {

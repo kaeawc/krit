@@ -215,6 +215,19 @@ fun items(): Map = TODO()
 fun read() = items().get("key")`, true},
 		{"invisible local", `fun unrelated() { class Map }
 fun read(items: Map<String, Any>) = items.get("key")`, false},
+		{"earlier use before local", `import kotlin.collections.Map
+fun read(items: Map<String, Any>) {
+    items.get("key")
+    class Map
+}`, false},
+		{"visible member among same-name members", `import android.content.Context
+class A {
+    class Context
+    fun service(context: Context) = context.getSystemService("service")
+}
+class B {
+    class Context
+}`, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			file := parseTestFile(t, "package example\n"+test.source+"\n")
@@ -222,6 +235,8 @@ fun read(items: Map<String, Any>) = items.get("key")`, false},
 			call := `items.get("key")`
 			if test.name == "return annotation" {
 				call = `items().get("key")`
+			} else if test.name == "visible member among same-name members" {
+				call = `context.getSystemService("service")`
 			}
 			idx := flatFirstOfTypeWithText(file, "call_expression", call)
 			if idx == 0 {

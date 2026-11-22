@@ -41,6 +41,8 @@ type ResolvedType struct {
 	Resolved   bool           // Was this type established from real type evidence? Zero means unresolved.
 	TypeArgs   []ResolvedType // Generic type arguments
 	Supertypes []string       // Known supertypes from source (FQN)
+
+	ProjectLookalike bool
 }
 
 // IsResolved returns whether this type was established from real type evidence.

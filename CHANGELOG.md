@@ -4,6 +4,17 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Source inference treats simple-name library method matches as unknown when the
+  source-written receiver type annotation or constructor uses a bare simple name
+  resolving to a visible same-file project class, object, or interface rather
+  than an explicit import, such as a local `Context`. Explicit imports take
+  precedence over top-level package declarations, while nested and local
+  declarations take precedence over imports. Qualified names do not trigger
+  this suppression. Stdlib factories, their inferred locals, and library call
+  chains retain library signatures even when a project lookalike is visible;
+  library mappings and subtype behavior remain unchanged.
+
 ### Changed
 - Go's `UnsafeCallOnNullableType` no longer reports `!!` on a simple identifier whose local parameter or `val`/`var` declaration has an explicitly written, syntactically proven non-null type. Untyped declarations remain reportable because Go does not infer their initializer types.
 - `UnnecessarySafeCall` gains a FIR checker that reports only definitely non-null

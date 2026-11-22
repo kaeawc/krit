@@ -54,9 +54,12 @@ type ClassInfo struct {
 	IsInner          bool
 	IsAbstract       bool
 	IsOpen           bool
+	IsNested         bool
 	Members          []MemberInfo
 	File             string // Source file path
 	Line             int
+	NameScopeStart   uint32
+	NameScopeEnd     uint32
 }
 
 // MemberInfo holds information about a class member.

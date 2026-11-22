@@ -296,9 +296,12 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 		IsInner:          mods.inner,
 		IsAbstract:       mods.abstract,
 		IsOpen:           mods.open,
+		IsNested:         false,
 		File:             file.Path,
 		Line:             declarationLine(file, flatIdx),
 	}
+	parentIdx, hasParent := file.FlatParent(flatIdx)
+	info.IsNested = hasParent && parentIdx != 0
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
@@ -307,6 +310,12 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
+	if hasParent && parentIdx != 0 {
+		info.NameScopeStart = file.FlatStartByte(parentIdx)
+		info.NameScopeEnd = file.FlatEndByte(parentIdx)
+	} else if mods.visibility == "private" {
+		info.NameScopeEnd = file.FlatEndByte(0)
+	}
 
 	if mods.enum {
 		entries := flatExtractEnumEntries(file, flatIdx)
@@ -369,9 +378,12 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 		IsInner:          mods.inner,
 		IsAbstract:       mods.abstract,
 		IsOpen:           mods.open,
+		IsNested:         false,
 		File:             file.Path,
 		Line:             declarationLine(file, flatIdx),
 	}
+	parentIdx, hasParent := file.FlatParent(flatIdx)
+	info.IsNested = hasParent && parentIdx != 0
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
@@ -379,6 +391,12 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
+	if hasParent && parentIdx != 0 {
+		info.NameScopeStart = file.FlatStartByte(parentIdx)
+		info.NameScopeEnd = file.FlatEndByte(parentIdx)
+	} else if mods.visibility == "private" {
+		info.NameScopeEnd = file.FlatEndByte(0)
+	}
 
 	// An object can be a permitted subtype of a sealed parent, so it is one of that parent's variants.
 	for _, st := range supertypes {

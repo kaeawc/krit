@@ -67,6 +67,7 @@ func (r *defaultResolver) applyStdlibReturnType(m *StdlibMethod, receiverType *R
 		result.FQN = arg.FQN
 		result.Kind = arg.Kind
 		result.Resolved = arg.Resolved
+		result.ProjectLookalike = arg.ProjectLookalike
 		if m.Nullable {
 			result.Nullable = true
 		}

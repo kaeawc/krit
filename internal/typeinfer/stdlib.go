@@ -3,6 +3,7 @@ package typeinfer
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/strutil"
 )
 
@@ -76,6 +77,8 @@ func stdlibSpecs(pairs string) map[string]*StdlibMethod {
 // The receiver type uses simple names (String, List, Map, etc.).
 // For collection types, List/Collection/Iterable/MutableList share entries.
 var StdlibMethods map[string]*StdlibMethod
+
+var stdlibReceiverNames map[string]bool
 
 func init() {
 	StdlibMethods = make(map[string]*StdlibMethod)
@@ -280,6 +283,18 @@ func init() {
 	StdlibMethods["_.TODO"] = nothing
 	StdlibMethods["_.error"] = nothing
 	StdlibMethods["_.exitProcess"] = nothing
+	stdlibReceiverNames = receiverNamesOf(StdlibMethods)
+}
+
+func receiverNamesOf(methods map[string]*StdlibMethod) map[string]bool {
+	names := make(map[string]bool)
+	for key := range methods {
+		name, _, _ := strings.Cut(key, ".")
+		if name != "_" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 // LookupStdlibMethod looks up a stdlib method by receiver type name and method name.
@@ -295,6 +310,76 @@ func LookupStdlibMethod(receiverType, methodName string) *StdlibMethod {
 		return m
 	}
 	return nil
+}
+
+func (r *defaultResolver) lookupReceiverStdlibMethod(receiver *ResolvedType, methodName string) *StdlibMethod {
+	method := LookupStdlibMethod(receiver.Name, methodName)
+	if method == nil || StdlibMethods[receiver.Name+"."+methodName] == nil {
+		return method
+	}
+	if receiver.ProjectLookalike {
+		return sm("?")
+	}
+	return method
+}
+
+func (r *defaultResolver) markWrittenProjectType(result *ResolvedType, name string, file *scanner.File, offset uint32) {
+	if !stdlibReceiverNames[name] {
+		return
+	}
+	localFQN := name
+	if pkg := extractPackageFlat(file); pkg != "" {
+		localFQN = pkg + "." + name
+	}
+	source := r.classFQN[localFQN]
+	if source == nil || source.File != file.Path {
+		return
+	}
+	if source.NameScopeEnd != 0 && (offset < source.NameScopeStart || offset >= source.NameScopeEnd) {
+		return
+	}
+	if r.writtenProjectTypeHasConflictingImport(source, name, file) {
+		return
+	}
+	if !stdlibReceiverMatches(source.FQN, name) {
+		result.FQN = source.FQN
+		result.ProjectLookalike = true
+	}
+}
+
+func (r *defaultResolver) writtenProjectTypeHasConflictingImport(source *ClassInfo, name string, file *scanner.File) bool {
+	if source.IsNested {
+		return false
+	}
+	imports := r.imports[file.Path]
+	if imports == nil {
+		imports = buildImportTableFlat(file)
+	}
+	imported := imports.Explicit[name]
+	if imported == "" {
+		imported = imports.Aliases[name]
+	}
+	return imported != "" && imported != source.FQN
+}
+
+func stdlibReceiverMatches(fqn, name string) bool {
+	if fqn == "android.content.Context" || fqn == "java.io.File" {
+		return true
+	}
+	if kotlin := MapJavaToKotlin(fqn); kotlin != "" {
+		fqn = kotlin
+		name = simpleNameOf(kotlin)
+	}
+	if fqn == PrimitiveTypes[name] || fqn == KotlinStdlibTypes[name] {
+		return true
+	}
+	switch name {
+	case "CoroutineScope":
+		return fqn == "kotlinx.coroutines.CoroutineScope"
+	case "ArrayList", "HashSet", "LinkedHashSet", "HashMap", "LinkedHashMap":
+		return fqn == "java.util."+name || fqn == "kotlin.collections."+name
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------

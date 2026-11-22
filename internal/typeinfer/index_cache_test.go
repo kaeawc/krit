@@ -117,6 +117,27 @@ func TestTypeIndexCacheRejectsUnscopedAliasVersion(t *testing.T) {
 	}
 }
 
+func TestTypeIndexCacheRejectsUnscopedClassNames(t *testing.T) {
+	old := packedFileTypeInfo{Version: 11, Path: "Screen.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted class names without declaration scope offsets")
+	}
+}
+
+func TestTypeIndexCacheRejectsTypesWithoutProjectLookalike(t *testing.T) {
+	old := packedFileTypeInfo{Version: 12, Path: "Screen.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted types without same-file project lookalike provenance")
+	}
+}
+
+func TestTypeIndexCacheRejectsTypesWithPrematureImportResolution(t *testing.T) {
+	old := packedFileTypeInfo{Version: 13, Path: "Analytics.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted types resolved with imports exposed during declaration indexing")
+	}
+}
+
 func TestTypeIndexCacheMissesAcrossBuilds(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := TypeIndexCacheDir(dir)

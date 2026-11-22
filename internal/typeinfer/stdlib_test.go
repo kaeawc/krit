@@ -1,6 +1,318 @@
 package typeinfer
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+func TestWrittenProjectLookalikeDoesNotPromoteUnresolvedType(t *testing.T) {
+	file := parseTestFile(t, "package example\nclass Map\n")
+	resolver := buildTestResolver(t, file)
+	result := &ResolvedType{Name: "Map", FQN: "Map", Kind: TypeClass}
+	resolver.markWrittenProjectType(result, "Map", file, 0)
+	if !result.ProjectLookalike || result.IsResolved() {
+		t.Fatalf("lookalike provenance must not promote an unresolved type: %+v", result)
+	}
+}
+
+func TestStdlibMethodsProjectNameVisibility(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		declaration string
+		use         string
+		unknown     bool
+	}{
+		{"same package", "package example\nclass Map", "package example", false},
+		{"private other file", "package example\nprivate class Map", "package example", false},
+		{"other package", "package other\nclass Map", "package example", false},
+		{"explicit project import", "package other\nclass Map", "package example\nimport other.Map", false},
+		{"explicit library import", "package example\nclass Map", "package example\nimport kotlin.collections.Map", false},
+		{"nested same package", "package example\nclass Screen { class Map }", "package example", false},
+		{"other package list", "package other\nclass List", "package example", false},
+		{"same package context", "package example\nclass Context", "package example", false},
+		{"explicit context import", "package other\nclass Context", "package example\nimport other.Context", false},
+		{"unimported context", "package other\nclass Context", "package example", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			name, methodName := "Map", "get"
+			typeArgs, arguments := "<String, Any>", `"key"`
+			if test.name == "other package list" {
+				name, methodName = "List", "firstOrNull"
+				typeArgs, arguments = "<Any>", ""
+			}
+			if strings.Contains(test.name, "context") {
+				name, methodName = "Context", "getSystemService"
+				typeArgs = ""
+			}
+			declaration := parseTestFile(t, test.declaration+"\n")
+			call := "items." + methodName + "(" + arguments + ")"
+			file := parseTestFile(t, test.use+"\nfun read(items: "+name+typeArgs+") = "+call+"\n")
+			resolver := NewResolver()
+			resolver.IndexFilesParallel([]*scanner.File{declaration, file}, 1)
+			idx := flatFirstOfTypeWithText(file, "call_expression", call)
+			if idx == 0 {
+				t.Fatal("missing receiver call")
+			}
+			got := resolver.ResolveFlatNode(idx, file)
+			if (got.Kind == TypeUnknown) != test.unknown {
+				t.Fatalf("type = %+v, want unknown = %v", got, test.unknown)
+			}
+			if !test.unknown && !got.IsNullable() {
+				t.Fatalf("library receiver lost nullable signature: %+v", got)
+			}
+		})
+	}
+}
+
+func TestStdlibMethodsExplicitImportBeatsPrivateTopLevelLookalike(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		call string
+	}{
+		{
+			name: "android context",
+			src: `import android.content.Context
+private class Context
+fun service(context: Context) = context.getSystemService("service")`,
+			call: `context.getSystemService("service")`,
+		},
+		{
+			name: "kotlin map",
+			src: `import kotlin.collections.Map
+private class Map
+fun lookup(items: Map<String, Any>) = items.get("k")`,
+			call: `items.get("k")`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := parseTestFile(t, "package example\n"+tc.src+"\n")
+			resolver := buildTestResolver(t, file)
+			idx := flatFirstOfTypeWithText(file, "call_expression", tc.call)
+			if idx == 0 {
+				t.Fatal("missing receiver call")
+			}
+			got := resolver.ResolveFlatNode(idx, file)
+			if got.Kind == TypeUnknown || !got.IsNullable() {
+				t.Fatalf("explicit library import did not retain its stdlib signature: %+v", got)
+			}
+		})
+	}
+}
+
+func TestStdlibMethodsCachedSameFileTypes(t *testing.T) {
+	declaration := parseTestFile(t, "package example\nclass Map\n")
+	file := parseTestFile(t, `package example
+class Context
+fun written(items: Map<String, Any>) = items.get("key")
+fun inferred() = mapOf("key" to "value").get("key")
+fun local(context: Context) = context.getSystemService("service")
+`)
+	files := []*scanner.File{declaration, file}
+	cacheDir := t.TempDir()
+	for scan := 0; scan < 2; scan++ {
+		resolver := NewResolver()
+		hits, misses := resolver.IndexFilesParallelCachedWithTracker(files, 1, cacheDir, nil)
+		if scan == 0 && (hits != 0 || misses != 2) || scan == 1 && (hits != 2 || misses != 0) {
+			t.Fatalf("scan %d: hits %d, misses %d", scan, hits, misses)
+		}
+		for _, test := range []struct {
+			call    string
+			unknown bool
+		}{
+			{`items.get("key")`, false},
+			{`mapOf("key" to "value").get("key")`, false},
+			{`context.getSystemService("service")`, true},
+		} {
+			idx := flatFirstOfTypeWithText(file, "call_expression", test.call)
+			if idx == 0 {
+				t.Fatalf("missing call %s", test.call)
+			}
+			got := resolver.ResolveFlatNode(idx, file)
+			if (got.Kind == TypeUnknown) != test.unknown || !test.unknown && !got.IsNullable() {
+				t.Fatalf("scan %d, %s: unexpected type %+v", scan, test.call, got)
+			}
+		}
+	}
+}
+
+func TestStdlibMethodsRejectLocalLookalikes(t *testing.T) {
+	for key := range StdlibMethods {
+		if strings.HasPrefix(key, "_.") {
+			continue
+		}
+		receiver, methodName, _ := strings.Cut(key, ".")
+		t.Run(key, func(t *testing.T) {
+			file := parseTestFile(t, "package example\nclass "+receiver+"\nfun read(items: "+receiver+") = items\n")
+			resolver := buildTestResolver(t, file)
+			idx := flatFirstOfTypeWithText(file, "user_type", receiver)
+			if idx == 0 {
+				t.Fatal("missing written receiver type")
+			}
+			typ := resolver.ResolveFlatNode(idx, file)
+			if !typ.ProjectLookalike || typ.FQN != "example."+receiver {
+				t.Fatalf("missing project type provenance: %+v", typ)
+			}
+			if got := resolver.lookupReceiverStdlibMethod(typ, methodName); got == nil || got.ReturnType.Kind != TypeUnknown {
+				t.Fatalf("local lookalike matched stdlib signature: %+v", got)
+			}
+		})
+	}
+}
+
+func TestStdlibMethodsWrittenTypeSegments(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{"Map", true},
+		{"Map<String, Any>", true},
+		{"Map.Entry", false},
+		{"kotlin.collections.Map<String, Any>", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, "package example\nclass Map\nfun read(items: "+test.name+") = items\n")
+			resolver := buildTestResolver(t, file)
+			idx := flatFirstOfTypeWithText(file, "user_type", test.name)
+			if idx == 0 {
+				t.Fatal("missing written type")
+			}
+			if typ := resolver.ResolveFlatNode(idx, file); typ.ProjectLookalike != test.want {
+				t.Fatalf("type = %+v, want project lookalike = %v", typ, test.want)
+			}
+		})
+	}
+}
+
+func TestStdlibMethodsLocalNameScopes(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		source  string
+		unknown bool
+	}{
+		{"visible nested", `class Screen { class Map { fun get(key: String): Any = Any() }
+fun read(items: Map) = items.get("key") }`, true},
+		{"visible local", `fun read() { class Map { fun get(key: String): Any = Any() }
+val items = Map()
+items.get("key") }`, true},
+		{"bare generic constructor", `class Map<Key, Value> { fun get(key: Key): Value = TODO() }
+fun read() { val items = Map<String, Any>(); items.get("key") }`, true},
+		{"visible object", `object Map { fun get(key: String): Any = Any() }
+fun read(items: Map) = items.get("key")`, true},
+		{"visible interface", `interface Map { fun get(key: String): Any }
+fun read(items: Map) = items.get("key")`, true},
+		{"nested before import", `import kotlin.collections.Map
+class Screen { class Map { fun get(key: String): Any = Any() }
+fun read(items: Map) = items.get("key") }`, true},
+		{"property annotation", `class Map { fun get(key: String): Any = Any() }
+val items: Map = TODO()
+fun read() = items.get("key")`, true},
+		{"return annotation", `class Map { fun get(key: String): Any = Any() }
+fun items(): Map = TODO()
+fun read() = items().get("key")`, true},
+		{"invisible local", `fun unrelated() { class Map }
+fun read(items: Map<String, Any>) = items.get("key")`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseTestFile(t, "package example\n"+test.source+"\n")
+			resolver := buildTestResolver(t, file)
+			call := `items.get("key")`
+			if test.name == "return annotation" {
+				call = `items().get("key")`
+			}
+			idx := flatFirstOfTypeWithText(file, "call_expression", call)
+			if idx == 0 {
+				t.Fatal("missing receiver call")
+			}
+			got := resolver.ResolveFlatNode(idx, file)
+			if (got.Kind == TypeUnknown) != test.unknown {
+				t.Fatalf("type = %+v, want unknown = %v", got, test.unknown)
+			}
+		})
+	}
+}
+
+func TestStdlibMethodsResolveLibraryReceivers(t *testing.T) {
+	file := parseTestFile(t, "package example\n")
+	resolver := buildTestResolver(t, file)
+	for key, method := range StdlibMethods {
+		if strings.HasPrefix(key, "_.") {
+			continue
+		}
+		name, methodName, _ := strings.Cut(key, ".")
+		t.Run(key, func(t *testing.T) {
+			fqn := KotlinStdlibTypes[name]
+			if primitive := PrimitiveTypes[name]; primitive != "" {
+				fqn = primitive
+			}
+			switch name {
+			case "Context":
+				fqn = "android.content.Context"
+			case "File":
+				fqn = "java.io.File"
+			case "CoroutineScope":
+				fqn = "kotlinx.coroutines.CoroutineScope"
+			case "ArrayList", "HashSet", "LinkedHashSet", "HashMap", "LinkedHashMap":
+				fqn = "kotlin.collections." + name
+			}
+			if fqn == "" {
+				t.Fatalf("missing library identity for %s", name)
+			}
+			receiver := &ResolvedType{Name: name, FQN: fqn, Kind: TypeClass, Resolved: true}
+			if got := resolver.lookupReceiverStdlibMethod(receiver, methodName); got != method {
+				t.Fatalf("library receiver lost stdlib signature: got %+v, want %+v", got, method)
+			}
+		})
+	}
+}
+
+func TestContextGetSystemServiceReceiverIdentity(t *testing.T) {
+	cases := []struct {
+		name    string
+		source  string
+		matched bool
+	}{
+		{"local", "class Context { fun getSystemService(name: String): Any = Any() }", false},
+		{"unresolved", "", true},
+		{"unrelated import", "import example.other.Context", true},
+		{"android import", "import android.content.Context", true},
+		{"android alias", "import android.content.Context as AndroidContext", false},
+		{"android qualified", "", false},
+		{"activity", "import android.app.Activity", false},
+		{"local activity", "class Activity", false},
+		{"source subtype", "import android.content.Context\nclass CustomContext : Context()", false},
+		{"android wildcard", "import android.content.*", true},
+		{"local subtype", "class Context\nclass CustomContext : Context()", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			typeName := "Context"
+			switch tc.name {
+			case "android alias":
+				typeName = "AndroidContext"
+			case "android qualified":
+				typeName = "android.content.Context"
+			case "activity", "local activity":
+				typeName = "Activity"
+			case "source subtype", "local subtype":
+				typeName = "CustomContext"
+			}
+			file := parseTestFile(t, "package example\n"+tc.source+"\nfun service(context: "+typeName+") = context.getSystemService(\"service\")\n")
+			resolver := buildTestResolver(t, file)
+			idx := flatFirstOfTypeWithText(file, "call_expression", `context.getSystemService("service")`)
+			if idx == 0 {
+				t.Fatal("missing service call")
+			}
+			got := resolver.ResolveFlatNode(idx, file)
+			if got.IsNullable() != tc.matched {
+				t.Fatalf("nullable = %v, want %v: %+v", got.IsNullable(), tc.matched, got)
+			}
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // TestStdlibStringMethods

@@ -157,7 +157,7 @@ fun mutableIntStateOf(value: Int): MutableIntState = TODO()
 
 fun mutableFloatStateOf(value: Float): MutableFloatState = TODO()
 
-fun <T> mutableStateListOf(vararg elements: T): MutableList<T> = TODO()
+fun <T> mutableStateListOf(vararg elements: T): androidx.compose.runtime.snapshots.SnapshotStateList<T> = TODO()
 
 fun <T> derivedStateOf(calculation: () -> T): State<T> = TODO()
 

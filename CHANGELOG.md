@@ -38,6 +38,7 @@ All notable changes to Krit will be documented in this file.
   same-instance probes, including receiver chains and safe-call receivers, but
   drops broad identity-name heuristics when a forbidden operand type is resolved. In both engines,
   `forbiddenTypePatterns: []` turns the rule off.
+- FIR-backed `SingletonOnMutableClass` resolves singleton scopes, mutable collection types and state-protection references; Go remains the fallback without a classpath or for files with compiler errors.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,

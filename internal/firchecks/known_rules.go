@@ -88,6 +88,7 @@ var knownFIRRules = map[string]bool{
 	"ShortAlarm":                              true,
 	"ShowToast":                               true,
 	"SimpleDateFormat":                        true,
+	"SingletonOnMutableClass":                 true,
 	"SleepInsteadOfDelay":                     true,
 	"SqliteCursorWithoutClose":                true,
 	"StateFlowMutableLeak":                    true,

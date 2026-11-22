@@ -213,6 +213,7 @@ that changes an API needs a fix in one helper, not in every checker.
 | Find what an assignment writes | `assignedAccess`, `isCompoundAssignment` | `FirDesugaredAssignmentValueReferenceExpression` |
 | Read the light tree | `lightChildren`, `significantChildren`, `lightText`, `lightSourceOf`, `identifierAnchor` and the other `LightSource.kt` anchors | `treeStructure.getChildren`, `treeStructure.toString`, `toKtLightSourceElement` |
 | Other shared reads | `pathTo`, `isNullableOperand`, `hasSuspendFunctionType`, `simpleName`, `firstArgumentNode`, `expandedClassType`, `isNonNothingSubtypeOf` | a private copy in the checker |
+| Prove an operand non-null | `isDefinitelyNonNullOperand` | negating `isNullableOperand` (platform types are not proof) |
 
 When no helper covers a compiler-internal call you need, add the helper to
 `support/` first, with a unit test under `src/test/.../support/`, and call it

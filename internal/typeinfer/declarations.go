@@ -296,9 +296,12 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 		IsInner:          mods.inner,
 		IsAbstract:       mods.abstract,
 		IsOpen:           mods.open,
+		IsNested:         false,
 		File:             file.Path,
 		Line:             declarationLine(file, flatIdx),
 	}
+	parentIdx, hasParent := file.FlatParent(flatIdx)
+	info.IsNested = hasParent && parentIdx != 0
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
@@ -307,6 +310,12 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
+	if hasParent && parentIdx != 0 {
+		info.NameScopeStart, info.NameScopeEnd = flatClassNameScope(file, flatIdx, parentIdx)
+	} else if mods.visibility == "private" {
+		info.NameScopeEnd = file.FlatEndByte(0)
+	}
+	r.recordClassScope(fqn, info)
 
 	if mods.enum {
 		entries := flatExtractEnumEntries(file, flatIdx)
@@ -336,6 +345,20 @@ func (r *defaultResolver) indexClassFlat(flatIdx uint32, file *scanner.File, it 
 			}
 		}
 	}
+}
+
+func flatClassNameScope(file *scanner.File, flatIdx, parentIdx uint32) (uint32, uint32) {
+	start, end := file.FlatStartByte(parentIdx), file.FlatEndByte(parentIdx)
+	if file.FlatType(parentIdx) == "statements" {
+		return file.FlatStartByte(flatIdx), end
+	}
+	if owner, ok := file.FlatParent(parentIdx); ok && owner != 0 {
+		switch file.FlatType(owner) {
+		case "class_declaration", "object_declaration":
+			return file.FlatStartByte(owner), file.FlatEndByte(owner)
+		}
+	}
+	return start, end
 }
 
 func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it *ImportTable, pkg string) {
@@ -369,9 +392,12 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 		IsInner:          mods.inner,
 		IsAbstract:       mods.abstract,
 		IsOpen:           mods.open,
+		IsNested:         false,
 		File:             file.Path,
 		Line:             declarationLine(file, flatIdx),
 	}
+	parentIdx, hasParent := file.FlatParent(flatIdx)
+	info.IsNested = hasParent && parentIdx != 0
 
 	if bodyIdx := flatFindNamedChildOfType(file, flatIdx, "class_body"); bodyIdx != 0 {
 		info.Members = r.extractMembersFlat(bodyIdx, file, it)
@@ -379,6 +405,12 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 
 	r.classes[name] = info
 	r.classFQN[fqn] = info
+	if hasParent && parentIdx != 0 {
+		info.NameScopeStart, info.NameScopeEnd = flatClassNameScope(file, flatIdx, parentIdx)
+	} else if mods.visibility == "private" {
+		info.NameScopeEnd = file.FlatEndByte(0)
+	}
+	r.recordClassScope(fqn, info)
 
 	// An object can be a permitted subtype of a sealed parent, so it is one of that parent's variants.
 	for _, st := range supertypes {

@@ -28,8 +28,9 @@ type defaultResolver struct {
 	// Per-file scope tables (top-level declarations)
 	scopes map[string]*ScopeTable // file path -> root scope
 	// Class info by simple name and FQN
-	classes  map[string]*ClassInfo // simple name -> info
-	classFQN map[string]*ClassInfo // FQN -> info
+	classes        map[string]*ClassInfo   // simple name -> info
+	classFQN       map[string]*ClassInfo   // FQN -> info
+	classFQNScopes map[string][]*ClassInfo // FQN -> declarations with distinct visibility scopes
 	// Sealed class variants
 	sealedVariants map[string][]string // sealed type name -> variant names
 	// Enum entries
@@ -144,6 +145,7 @@ func NewResolver() *defaultResolver { //nolint:revive // tests access unexported
 		scopes:         make(map[string]*ScopeTable),
 		classes:        make(map[string]*ClassInfo),
 		classFQN:       make(map[string]*ClassInfo),
+		classFQNScopes: make(map[string][]*ClassInfo),
 		sealedVariants: make(map[string][]string),
 		enumEntries:    make(map[string][]string),
 		typeAliases:    make(map[string]*ResolvedType),
@@ -423,6 +425,7 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 
 	if fqn, ok := PrimitiveTypes[simpleName]; ok {
 		result := &ResolvedType{Name: simpleName, FQN: fqn, Kind: TypePrimitive, Resolved: true}
+		r.markWrittenProjectType(result, writtenSimpleTypeNameFlat(file, idx), file, file.FlatStartByte(idx))
 		if hasTypeArgs {
 			r.attachFlatTypeArgs(result, idx, file, it)
 		}
@@ -430,6 +433,7 @@ func (r *defaultResolver) resolveTypeNodeFlat(idx uint32, file *scanner.File, it
 	}
 
 	result := r.makeResolvedType(simpleName, it, false)
+	r.markWrittenProjectType(result, writtenSimpleTypeNameFlat(file, idx), file, file.FlatStartByte(idx))
 	if hasTypeArgs {
 		r.attachFlatTypeArgs(result, idx, file, it)
 	}
@@ -784,7 +788,11 @@ func (r *defaultResolver) inferCallExpressionTypeFlat(idx uint32, file *scanner.
 		return result
 	}
 	if funcName != "" && funcName[0] >= 'A' && funcName[0] <= 'Z' {
-		return r.makeResolvedType(funcName, it, false)
+		result := r.makeResolvedType(funcName, it, false)
+		if file.FlatType(firstChild) == "simple_identifier" {
+			r.markWrittenProjectType(result, funcName, file, file.FlatStartByte(idx))
+		}
+		return result
 	}
 	switch funcName {
 	case "lazy":
@@ -812,7 +820,7 @@ func (r *defaultResolver) inferCallOnNavigationExprFlat(_ uint32, navIdx uint32,
 	}
 	receiverType := r.ResolveFlatNode(receiverIdx, file)
 	if receiverType != nil && receiverType.Kind != TypeUnknown {
-		if m := LookupStdlibMethod(receiverType.Name, funcName); m != nil {
+		if m := r.lookupReceiverStdlibMethod(receiverType, funcName); m != nil {
 			return r.applyStdlibReturnType(m, receiverType)
 		}
 		if retType, ok := r.lookupExtension(receiverType.Name, funcName, file, file.FlatStartByte(navIdx)); ok {
@@ -883,7 +891,7 @@ func (r *defaultResolver) inferNavigationExpressionTypeFlat(idx uint32, file *sc
 		}
 		receiverType := r.ResolveFlatNode(receiverIdx, file)
 		if receiverType != nil && receiverType.Kind != TypeUnknown {
-			if m := LookupStdlibMethod(receiverType.Name, memberName); m != nil {
+			if m := r.lookupReceiverStdlibMethod(receiverType, memberName); m != nil {
 				return r.applyStdlibReturnType(m, receiverType)
 			}
 			if retType, ok := r.lookupExtension(receiverType.Name, memberName, file, file.FlatStartByte(idx)); ok {
@@ -920,6 +928,27 @@ func flatFirstResolvableTypeChild(file *scanner.File, idx uint32) uint32 {
 		}
 	}
 	return 0
+}
+
+func writtenSimpleTypeNameFlat(file *scanner.File, idx uint32) string {
+	if file.FlatType(idx) != "user_type" {
+		return ""
+	}
+	var name string
+	for index := 0; index < file.FlatNamedChildCount(idx); index++ {
+		child := file.FlatNamedChild(idx, index)
+		switch file.FlatType(child) {
+		case "type_identifier", "simple_identifier":
+			if name != "" {
+				return ""
+			}
+			name = file.FlatNodeText(child)
+		case "type_arguments":
+		default:
+			return ""
+		}
+	}
+	return name
 }
 
 func resolvedTypeSimpleNameFlat(file *scanner.File, idx uint32) (name string, hasTypeArgs bool) {

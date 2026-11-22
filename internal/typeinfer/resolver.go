@@ -54,9 +54,19 @@ type ClassInfo struct {
 	IsInner          bool
 	IsAbstract       bool
 	IsOpen           bool
+	IsNested         bool
 	Members          []MemberInfo
 	File             string // Source file path
 	Line             int
+	NameScopeStart   uint32
+	NameScopeEnd     uint32
+}
+
+func (r *defaultResolver) recordClassScope(fqn string, info *ClassInfo) {
+	if r.classFQNScopes == nil {
+		r.classFQNScopes = make(map[string][]*ClassInfo)
+	}
+	r.classFQNScopes[fqn] = append(r.classFQNScopes[fqn], info)
 }
 
 // MemberInfo holds information about a class member.

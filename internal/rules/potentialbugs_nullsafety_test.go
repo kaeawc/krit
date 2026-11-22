@@ -1666,6 +1666,179 @@ fun lookup(other: Other, key: String) {
 
 // --- CastNullableToNonNullableType ---
 
+func TestCastNullableToNonNullableType_StdlibReceiverIdentity(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   int
+	}{
+		{"local context", `class Context { fun getSystemService(name: String): Any = Any() }
+fun service(context: Context) = context.getSystemService("service") as String`, 0},
+		{"local context constructor", `class Context { fun getSystemService(name: String): Any = Any() }
+fun service() = Context().getSystemService("service") as String`, 0},
+		{"unresolved context", `fun service(context: Context) = context.getSystemService("service") as String`, 1},
+		{"android context", `import android.content.Context
+fun service(context: Context) = context.getSystemService("service") as String`, 1},
+		{"private top-level context with android import", `import android.content.Context
+private class Context
+fun service(context: Context) = context.getSystemService("service") as String`, 1},
+		{"qualified android context", `fun service(context: android.content.Context) = context.getSystemService("service") as String`, 0},
+		{"aliased android context", `import android.content.Context as AndroidContext
+fun service(context: AndroidContext) = context.getSystemService("service") as String`, 0},
+		{"source android subtype", `import android.content.Context
+class CustomContext : Context()
+fun service(context: CustomContext) = context.getSystemService("service") as String`, 0},
+		{"android activity", `import android.app.Activity
+fun service(context: Activity) = context.getSystemService("service") as String`, 0},
+		{"local file", `class File { fun getParent(): String = "parent" }
+fun parent(file: File) = file.getParent() as String`, 0},
+		{"java file", `import java.io.File
+fun parent(file: File) = file.getParent() as String`, 1},
+		{"local list", `class List { fun firstOrNull(): Any = Any() }
+fun first(items: List) = items.firstOrNull() as String`, 0},
+		{"stdlib list", `fun first(items: List<Any>) = items.firstOrNull() as String`, 1},
+		{"stdlib array list", `fun first() = arrayListOf("item").firstOrNull() as String`, 1},
+		{"stdlib hash map", `fun get(items: HashMap<String, Any>) = items.get("key") as String`, 1},
+		{"local flow", `class Flow { fun firstOrNull(): Any = Any() }
+fun first(items: Flow) = items.firstOrNull() as String`, 0},
+		{"library flow", `import kotlinx.coroutines.flow.Flow
+suspend fun first(items: Flow<Any>) = items.firstOrNull() as String`, 1},
+		{"other map import", `import example.Map
+fun get(items: Map) = items.get("key") as String`, 1},
+		{"nested map", `sealed class Screen { object Map : Screen() }
+fun read(items: Map<String, Any>) = items.get("key") as String`, 1},
+		{"nested list", `class Tab { class List }
+fun read(items: List<Any>) = items.firstOrNull() as String`, 1},
+		{"local list supertype", `open class List { fun firstOrNull(): Any = Any() }
+class Items : List()
+fun first(items: Items) = items.firstOrNull() as String`, 0},
+		{"local map supertype", `open class Map { fun get(key: String): Int = 0 }
+class Registry : Map()
+fun read(items: Registry) = items.get("key") as Int`, 0},
+		{"map delegation override", `class Defaults(private val m: Map<String, Int>) : Map<String, Int> by m {
+    override fun get(key: String): Int = m[key] ?: 0
+}
+fun read(items: Defaults) = items.get("key") as Int`, 0},
+		{"context chain", `import android.content.Context
+fun service(context: Context) = context.getApplicationContext().getSystemService("service") as String`, 1},
+		{"context wildcard", `import android.content.*
+fun service(context: Context) = context.getSystemService("service") as String`, 1},
+		{"file wildcard", `import java.io.*
+fun parent(file: File) = file.getParent() as String`, 1},
+		{"stdlib map", `fun get(items: Map<String, Any>) = items.get("key") as String`, 1},
+		{"private top-level Map with stdlib import", `import kotlin.collections.Map
+private class Map
+fun get(items: Map<String, Any>) = items.get("k") as String`, 1},
+		{"stdlib map before local class", `import kotlin.collections.Map
+fun get(items: Map<String, Any>): String {
+    val result = items.get("k") as String
+    class Map
+    return result
+}`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", "package example\n"+tc.source+"\n")
+			if len(findings) != tc.want {
+				t.Fatalf("got %d findings, want %d: %+v", len(findings), tc.want, findings)
+			}
+		})
+	}
+}
+
+func TestCastNullableToNonNullableType_UnsafeCastNegativeFixture(t *testing.T) {
+	source, err := os.ReadFile("../../tests/fixtures/negative/potential-bugs/UnsafeCast.kt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", string(source))
+	if len(findings) != 0 {
+		t.Fatalf("expected no nullable-source casts in UnsafeCast negative fixture: %+v", findings)
+	}
+}
+
+func TestUnnecessaryNullOperators_LocalStdlibLookalikes(t *testing.T) {
+	for _, ruleName := range []string{"UnnecessaryNotNullOperator", "UnnecessarySafeCall"} {
+		t.Run(ruleName, func(t *testing.T) {
+			findings := runRuleByNameWithResolver(t, ruleName, `
+package example
+class File { fun getName(): String? = null }
+fun name(file: File) {
+    val value = file.getName()
+    println(value?.length)
+    println(value!!)
+}
+`)
+			if len(findings) != 0 {
+				t.Fatalf("expected nullable local method result to retain null operators: %+v", findings)
+			}
+		})
+	}
+}
+
+func TestNullSafety_StdlibExpressionReceiversWithProjectLookalikes(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		rule        string
+		declaration string
+		source      string
+	}{
+		{"nested object map factory", "CastNullableToNonNullableType", "", `sealed class Screen {
+    object Map : Screen()
+    fun first(): String = mapOf("k" to "v").get("k") as String
+}`},
+		{"same package list factory", "CastNullableToNonNullableType", "class List", `fun f(): String = listOf("a").firstOrNull() as String`},
+		{"cross file written list", "CastNullableToNonNullableType", "class List", `fun f(items: List<String>): String = items.firstOrNull() as String`},
+		{"qualified array list constructor", "CastNullableToNonNullableType", "", `class ArrayList
+fun f(): String = kotlin.collections.ArrayList<String>().firstOrNull() as String`},
+		{"qualified hash map constructor", "CastNullableToNonNullableType", "", `class HashMap
+fun f(): String = kotlin.collections.HashMap<String, String>().get("k") as String`},
+		{"nested qualified array list constructor", "CastNullableToNonNullableType", "", `class Screen { class ArrayList
+fun f(): String = kotlin.collections.ArrayList<String>().firstOrNull() as String }`},
+		{"nested qualified hash map constructor", "CastNullableToNonNullableType", "", `class Screen { class HashMap
+fun f(): String = kotlin.collections.HashMap<String, String>().get("k") as String }`},
+		{"inferred map local", "CastNullableToNonNullableType", "", `sealed class Screen {
+    object Map : Screen()
+    fun first(): String { val items = mapOf("k" to "v"); return items.get("k") as String }
+}`},
+		{"inferred list local", "CastNullableToNonNullableType", "class List", `fun f(): String { val items = listOf("a"); return items.firstOrNull() as String }`},
+		{"nested list not null", "UnnecessaryNotNullOperator", "", `class Screen { class List
+    fun first() { val value = listOf(1).first(); println(value!!) }
+}`},
+		{"same package list not null", "UnnecessaryNotNullOperator", "class List", `fun first() { val value = listOf(1).first(); println(value!!) }`},
+		{"nested list safe call", "UnnecessarySafeCall", "", `class Screen { class List
+    fun first() { val value = listOf(1).first(); println(value?.toString()) }
+}`},
+		{"same package list safe call", "UnnecessarySafeCall", "class List", `fun first() { val value = listOf(1).first(); println(value?.toString()) }`},
+		{"context library chain", "CastNullableToNonNullableType", "", `import android.content.Context
+class Screen { class Context
+    fun service() = androidContext().getApplicationContext().getSystemService("service") as String
+}
+fun androidContext(): Context = TODO()`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			file := parseInline(t, "package example\n"+test.source+"\n")
+			files := []*scanner.File{file}
+			if test.declaration != "" {
+				files = append(files, parseInline(t, "package example\n"+test.declaration+"\n"))
+			}
+			resolver := typeinfer.NewResolver()
+			resolver.IndexFilesParallel(files, 1)
+			for _, rule := range api.Registry {
+				if rule.ID == test.rule {
+					columns := rules.NewDispatcher([]*api.Rule{rule}, resolver).Run(file)
+					findings := columns.Findings()
+					if len(findings) != 1 {
+						t.Fatalf("got %d findings, want 1: %+v", len(findings), findings)
+					}
+					return
+				}
+			}
+			t.Fatalf("rule %q not found", test.rule)
+		})
+	}
+}
+
 func TestCastNullableToNonNullableType_Positive(t *testing.T) {
 	findings := runRuleByNameWithResolver(t, "CastNullableToNonNullableType", `
 package test

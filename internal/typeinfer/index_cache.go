@@ -26,7 +26,8 @@ const (
 	// Bumped to 8 when companion object, object literal and enum bodies gained their own scopes.
 	// Bumped to 9 when smart casts stopped leaking onto the root scope from files with several top-level declarations.
 	// Bumped to 10 when file info gained FunctionDecls and extensions gained visibility scopes.
-	typeIndexCacheVersion = 11
+	// Bumped to 15 when file info began preserving declarations with duplicate FQNs and distinct scopes.
+	typeIndexCacheVersion = 15
 )
 
 var (
@@ -80,6 +81,7 @@ type packedFileTypeInfo struct {
 	ImportTable *ImportTable
 	RootScope   packedScope
 	Classes     []*ClassInfo
+	ClassScopes []*ClassInfo
 	SealedSubs  map[string][]string
 	EnumEntries map[string][]string
 	TypeAliases map[string]*ResolvedType
@@ -112,6 +114,7 @@ func packFileTypeInfo(info *FileTypeInfo) packedFileTypeInfo {
 		ImportTable: info.ImportTable,
 		RootScope:   packScope(info.RootScope),
 		Classes:     info.Classes,
+		ClassScopes: info.ClassScopes,
 		SealedSubs:  info.SealedSubs,
 		EnumEntries: info.EnumEntries,
 		TypeAliases: info.TypeAliases,
@@ -153,6 +156,7 @@ func unpackFileTypeInfo(p packedFileTypeInfo) (*FileTypeInfo, bool) {
 		ImportTable: p.ImportTable,
 		RootScope:   unpackScope(p.RootScope, nil),
 		Classes:     p.Classes,
+		ClassScopes: p.ClassScopes,
 		SealedSubs:  p.SealedSubs,
 		EnumEntries: p.EnumEntries,
 		TypeAliases: p.TypeAliases,

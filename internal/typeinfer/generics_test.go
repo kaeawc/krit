@@ -266,6 +266,9 @@ func buildTestResolver(t *testing.T, file *scanner.File) *defaultResolver {
 			resolver.classFQN[ci.FQN] = ci
 		}
 	}
+	for _, ci := range fi.ClassScopes {
+		resolver.classFQNScopes[ci.FQN] = append(resolver.classFQNScopes[ci.FQN], ci)
+	}
 	for name, retType := range fi.Functions {
 		resolver.functions[name] = retType
 	}

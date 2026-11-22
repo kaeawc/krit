@@ -45,6 +45,46 @@ func TestIndexFilesParallelCachedWithTrackerReusesUnchangedFiles(t *testing.T) {
 	}
 }
 
+func TestIndexFilesParallelCachedRetainsDistinctClassScopes(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := TypeIndexCacheDir(dir)
+	path := filepath.Join(dir, "Scopes.kt")
+	source := []byte(`package example
+class A {
+    class Context
+    fun service(context: Context) = context.getSystemService("service")
+}
+class B {
+    class Context
+}
+`)
+	if err := os.WriteFile(path, source, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := NewResolver()
+	first.IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+	second := NewResolver()
+	hits, misses := second.IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+	if hits != 1 || misses != 0 {
+		t.Fatalf("cached scope summary = hits %d misses %d, want 1/0", hits, misses)
+	}
+	if got := second.classFQNScopes["example.Context"]; len(got) != 2 {
+		t.Fatalf("cached declarations for example.Context = %d, want both scoped declarations", len(got))
+	}
+	call := flatFirstOfTypeWithText(file, "call_expression", `context.getSystemService("service")`)
+	if call == 0 {
+		t.Fatal("missing Context receiver call")
+	}
+	if got := second.ResolveFlatNode(call, file); got.Kind != TypeUnknown {
+		t.Fatalf("visible A.Context call = %+v, want unknown local method result", got)
+	}
+}
+
 func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 	dir := t.TempDir()
 	cacheDir := TypeIndexCacheDir(dir)
@@ -114,6 +154,27 @@ func TestTypeIndexCacheRejectsUnscopedAliasVersion(t *testing.T) {
 	}
 	if _, ok := unpackFileTypeInfo(old); ok {
 		t.Fatal("accepted version 10 type index with a package alias under a bare-name key")
+	}
+}
+
+func TestTypeIndexCacheRejectsUnscopedClassNames(t *testing.T) {
+	old := packedFileTypeInfo{Version: 11, Path: "Screen.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted class names without declaration scope offsets")
+	}
+}
+
+func TestTypeIndexCacheRejectsTypesWithoutProjectLookalike(t *testing.T) {
+	old := packedFileTypeInfo{Version: 12, Path: "Screen.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted types without same-file project lookalike provenance")
+	}
+}
+
+func TestTypeIndexCacheRejectsTypesWithPrematureImportResolution(t *testing.T) {
+	old := packedFileTypeInfo{Version: 13, Path: "Analytics.kt"}
+	if _, ok := unpackFileTypeInfo(old); ok {
+		t.Fatal("accepted types resolved with imports exposed during declaration indexing")
 	}
 }
 

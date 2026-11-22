@@ -5911,7 +5911,7 @@
           }
         },
         "LogConditional": {
-          "description": "Unconditional logging calls [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Unconditional logging calls that perform message work [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

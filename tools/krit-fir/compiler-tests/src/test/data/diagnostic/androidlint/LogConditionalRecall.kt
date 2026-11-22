@@ -1,11 +1,6 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
 // go-lines: none
-// Divergence (recall): each call below is an unguarded android.util.Log level
-// call, and FIR reports it. Go misses them: it needs the receiver spelled
-// `Log` and an explicit `import android.util.Log`, so a fully qualified call
-// without that import, an import alias, a typealias, and a statically
-// imported level function are other spellings (a star import is in
-// LogConditionalStarImport).
+// Pinned recall differences: FIR resolves import/type aliases and static imports; Go uses receiver/import evidence.
 package test.logconditional.recall
 
 import android.util.Log as AndroidLog
@@ -14,24 +9,26 @@ import android.util.Log.d
 typealias Logger = android.util.Log
 
 fun qualified() {
-    <!LogConditional!>android.util.Log.d("Tag", "m")<!>
+    <!LogConditional!>android.util.Log.d("Tag", compute())<!>
 }
 
 fun importAlias() {
-    <!LogConditional!>AndroidLog.e("Tag", "m")<!>
+    <!LogConditional!>AndroidLog.d("Tag", compute())<!>
 }
 
 fun typeAlias() {
-    <!LogConditional!>Logger.w("Tag", "m")<!>
+    <!LogConditional!>Logger.i("Tag", compute())<!>
 }
 
 fun staticImport() {
-    <!LogConditional!>d("Tag", "m")<!>
+    <!LogConditional!>d("Tag", compute())<!>
 }
 
 fun guardedSpellings() {
     if (AndroidLog.isLoggable("Tag", AndroidLog.DEBUG)) {
-        AndroidLog.d("Tag", "guarded")
-        d("Tag", "guarded")
+        AndroidLog.d("Tag", compute())
+        d("Tag", compute())
     }
 }
+
+private fun compute(): String = "computed"

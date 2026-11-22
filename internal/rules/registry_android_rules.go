@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"fmt"
+
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -96,7 +98,7 @@ func registerAndroidRules() {
 	{
 		r := &LogDetectorRule{AndroidRule: AndroidRule{
 			BaseRule: BaseRule{RuleName: "LogConditional", RuleSetName: androidRuleSet, Sev: "warning"},
-			IssueID:  "LogConditional", Brief: "Unconditional logging calls",
+			IssueID:  "LogConditional", Brief: "Unconditional logging calls that perform message work",
 			Category: ALCPerformance, ALSeverity: ALSWarning, Priority: 5,
 			Origin: "AOSP Android Lint",
 		}}
@@ -116,11 +118,11 @@ func registerAndroidRules() {
 				if !logCallIsAndroidLog(ctx, idx) {
 					return
 				}
-				if hasAndroidLogGuardFlat(ctx, idx) {
+				if !logMessageDoesWorkFlat(ctx, idx) || logCallIsConditionalFlat(file, idx) {
 					return
 				}
 				ctx.EmitAt(calleeLine(file, idx), calleeCol(file, idx),
-					"Unconditional logging call. Wrap in Log.isLoggable() or BuildConfig.DEBUG for performance.")
+					fmt.Sprintf("The log call Log.%s(...) should be conditional: surround with `if (Log.isLoggable(...))` or `if (BuildConfig.DEBUG) { ... }`", flatCallExpressionName(file, idx)))
 			},
 		})
 	}

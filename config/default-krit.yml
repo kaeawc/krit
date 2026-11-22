@@ -33,6 +33,8 @@ android-lint:
   active: true
   BadHostnameVerifier:
     active: true
+  LogConditional:
+    active: false
   NegativeMarginResource:
     active: false
     # Project-approved negative margin patterns:

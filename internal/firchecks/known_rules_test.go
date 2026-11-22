@@ -24,6 +24,12 @@ func TestKnownUnnecessarySafeCall(t *testing.T) {
 	}
 }
 
+func TestUnsafeCastKnownFIRRule(t *testing.T) {
+	if !IsKnownFIRRule("UnsafeCast") {
+		t.Fatal("UnsafeCast must participate in FIR and degraded-mode fallback")
+	}
+}
+
 func TestKnownFIRRulesMatchJar(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

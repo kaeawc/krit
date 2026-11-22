@@ -292,7 +292,9 @@ the same lines.
 - `ExplicitGarbageCollectionCall` also reports the fully qualified `java.lang.System.gc()`.
 - `EmptyKotlinFile` also reports a file that holds only a package line and imports.
 - `UnusedPrivateMember` leaves `@Preview` functions alone.
-- `UnsafeCast` and `Deprecation` follow the Kotlin compiler krit runs (K2), so the few shapes the K1 compiler
+- `UnsafeCast` uses resolved type compatibility in FIR and retains Go's compiler-diagnostic/fallback behavior
+  for scans without a classpath and files that do not compile; unresolved, open, generic, and expect/actual
+  shapes stay conservative. `Deprecation` follows the Kotlin compiler krit runs (K2), so the few shapes the K1 compiler
   behind detekt judges differently, and deprecations of the JDK in use, differ.
 - `DuplicateCaseInWhenExpression` is covered by the opt-in `DuplicateLabel` for repeated literal constants
   only (not enum entries, `is` tests, ranges or subject-less conditions); `MissingWhenCase` by `NoElseInWhenSealed` and `NonExhaustiveWhen`; `RedundantElseInWhen` by

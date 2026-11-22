@@ -16,7 +16,7 @@ class ListRulesTest {
                 "ComposeRememberWithoutKey", "ComposeSideEffectInComposition",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "MutableStateInObject",
                 "OptInMarkerExposedPublicly", "PlainFileWriteOfSensitive", "SingletonOnMutableClass",
-                "TestWithoutAssertion", "UnnecessarySafeCall", "UselessElvisOnNonNull",
+                "TestWithoutAssertion", "UnnecessarySafeCall", "UnsafeCast", "UselessElvisOnNonNull",
             )),
             ids.toString(),
         )

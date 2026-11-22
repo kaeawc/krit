@@ -112,6 +112,7 @@ var knownFIRRules = map[string]bool{
 	"UnreachableCatchBlock":                   true,
 	"UselessCallOnNotNull":                    true,
 	"UnsafeCallOnNullableType":                true,
+	"UnsafeCast":                              true,
 	"UnsafeCastWhenNullable":                  true,
 	"UselessElvisOnNonNull":                   true,
 	"UnusedParameter":                         true,

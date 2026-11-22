@@ -11,8 +11,8 @@ class ListRulesTest {
         assertEquals(ids.sorted(), ids)
         assertTrue(
             ids.containsAll(listOf(
-                "AvoidReferentialEquality", "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle",
-                "ClickableViewAccessibility",
+                "AvoidReferentialEquality", "BadHostnameVerifier", "BindsInsteadOfProvides",
+                "ClickableViewAccessibility", "CollectInOnCreateWithoutLifecycle",
                 "ComposeRememberWithoutKey", "ComposeSideEffectInComposition",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "MutableStateInObject",
                 "OptInMarkerExposedPublicly", "PlainFileWriteOfSensitive", "SingletonOnMutableClass",

@@ -1,8 +1,7 @@
 package dihygiene
 
-annotation class Module
-annotation class Provides
-annotation class Binds
+import dagger.Module
+import dagger.Binds
 
 interface Foo
 

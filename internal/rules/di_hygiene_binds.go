@@ -11,6 +11,9 @@ import (
 func bindsInsteadOfProvidesHostIsConcrete(file *scanner.File, fn uint32) bool {
 	for cur, ok := file.FlatParent(fn); ok; cur, ok = file.FlatParent(cur) {
 		switch file.FlatType(cur) {
+		case "function_declaration", "anonymous_function", "lambda_literal", "property_declaration",
+			"secondary_constructor", "anonymous_initializer":
+			return true
 		case "object_declaration":
 			// A companion object can sit beside @Binds in its abstract or interface outer module.
 			if !file.FlatHasModifier(cur, "companion") {

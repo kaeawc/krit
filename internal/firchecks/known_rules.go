@@ -11,6 +11,7 @@ var knownFIRRules = map[string]bool{
 	"AssertNullableWithNotNullAssertion":      true,
 	"AssertTrueOnComparison":                  true,
 	"AvoidReferentialEquality":                true,
+	"BindsInsteadOfProvides":                  true,
 	"BindsReturnTypeMatchesParam":             true,
 	"BitmapDecodeWithoutOptions":              true,
 	"BufferedReadWithoutBuffer":               true,

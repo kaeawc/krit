@@ -16,6 +16,7 @@ var knownFIRRules = map[string]bool{
 	"BufferedReadWithoutBuffer":               true,
 	"CastNullableToNonNullableType":           true,
 	"CharArrayToStringCall":                   true,
+	"ClickableViewAccessibility":              true,
 	"CollectInOnCreateWithoutLifecycle":       true,
 	"CollectionsSynchronizedListIteration":    true,
 	"CommitPrefEdits":                         true,

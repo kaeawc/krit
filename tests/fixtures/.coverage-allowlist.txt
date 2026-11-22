@@ -38,7 +38,6 @@ negative ButtonStyleResource
 negative CheckResult
 negative ChildInNonViewGroupResource
 negative CleartextTraffic
-negative ClickableViewAccessibility
 negative ClickableViewAccessibilityResource
 negative CoarseFineLocation
 negative CompileSdkMismatchAcrossModules
@@ -318,7 +317,6 @@ positive ButtonStyleResource
 positive CheckResult
 positive ChildInNonViewGroupResource
 positive CleartextTraffic
-positive ClickableViewAccessibility
 positive ClickableViewAccessibilityResource
 positive CoarseFineLocation
 positive CompileSdkMismatchAcrossModules

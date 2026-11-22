@@ -220,10 +220,19 @@ class Screen {
     fun service(): String = context.getSystemService("service") as String
     class Context { fun getSystemService(name: String): Any = Any() }
 }`, true},
+		{"constructor member object Context after use", `class Screen(private val context: Context) {
+    fun service(): String = context.getSystemService("service") as String
+    object Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
 		{"imported constructor member Context after use", `import android.content.Context
 class Screen(private val context: Context) {
     fun service(): String = context.getSystemService("service") as String
     class Context { fun getSystemService(name: String): Any = Any() }
+}`, true},
+		{"imported constructor member object Context after use", `import android.content.Context
+class Screen(private val context: Context) {
+    fun service(): String = context.getSystemService("service") as String
+    object Context { fun getSystemService(name: String): Any = Any() }
 }`, true},
 		{"data class member Context after use", `data class Screen(val context: Context) {
     fun service(): String = context.getSystemService("service") as String
@@ -257,7 +266,7 @@ class B {
 			call := `items.get("key")`
 			if test.name == "return annotation" {
 				call = `items().get("key")`
-			} else if test.name == "visible member among same-name members" || strings.Contains(test.name, "member Context after use") {
+			} else if test.name == "visible member among same-name members" || strings.Contains(test.name, "Context after use") {
 				call = `context.getSystemService("service")`
 			}
 			idx := flatFirstOfTypeWithText(file, "call_expression", call)

@@ -406,8 +406,7 @@ func (r *defaultResolver) indexObjectFlat(flatIdx uint32, file *scanner.File, it
 	r.classes[name] = info
 	r.classFQN[fqn] = info
 	if hasParent && parentIdx != 0 {
-		info.NameScopeStart = file.FlatStartByte(parentIdx)
-		info.NameScopeEnd = file.FlatEndByte(parentIdx)
+		info.NameScopeStart, info.NameScopeEnd = flatClassNameScope(file, flatIdx, parentIdx)
 	} else if mods.visibility == "private" {
 		info.NameScopeEnd = file.FlatEndByte(0)
 	}

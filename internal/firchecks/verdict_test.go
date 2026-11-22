@@ -45,7 +45,7 @@ func testApplyVerdictConfirmOnly(t *testing.T, rule string) {
 		t.Run(test.name, func(t *testing.T) {
 			result := &Result{Rules: []string{rule}}
 			if test.firLine != 0 {
-				result.Findings = []scanner.Finding{{File: file, Line: test.firLine, Rule: rule, Message: "FIR"}}
+				result.Findings = []scanner.Finding{{File: file, Line: test.firLine, StartByte: 20, EndByte: 30, Rule: rule, Message: "FIR"}}
 			}
 			got, stats := ApplyVerdict(VerdictInput{Go: test.goFindings, FIR: result, Requested: []string{file}})
 			if !reflect.DeepEqual(describe(got), describe(test.want)) || *stats.Rules[rule] != test.wantStats {

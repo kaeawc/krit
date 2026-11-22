@@ -44,6 +44,7 @@ abstract class AbstractDiagnosticTest {
             KritFirProbe.diagnose(mapOf(file.name to cleanSource), ruleContextFor(file, expected))
         }
             .filter { it.file == file.name }
+            .filterNot { droppedByConfirmOnly(it, raw.lines()) }
             .map { it.line to it.name }
             .toSet()
         val expectedSet = expected.map { it.line to it.name }.toSet()
@@ -91,6 +92,17 @@ abstract class AbstractDiagnosticTest {
         )
         assertTrue(result.clean, result.problems())
         return result.diags
+    }
+
+    private fun droppedByConfirmOnly(diag: KritFirProbe.Diag, lines: List<String>): Boolean {
+        if (diag.name != "UnspecifiedImmutableFlag") return false
+        val header = lines.single { it.startsWith("// go-lines:") }.substringAfter(":").trim()
+        val goLines = header.split(",").mapNotNull { it.trim().toIntOrNull() }.toSet()
+        if (diag.line in goLines) return false
+        check(lines.getOrNull(diag.line - 2)?.contains("dropped-by-confirm-only") == true) {
+            "Unpinned confirm-only addition at ${diag.file}:${diag.line}"
+        }
+        return true
     }
 
     // The rules a golden file is about; null (every rule) when it names none.

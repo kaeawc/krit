@@ -92,6 +92,7 @@ var firConfirmOnlyRules = map[string]bool{
 	"OptInMarkerExposedPublicly": true,
 	"RunBlockingInTest":          true,
 	"TestWithoutAssertion":       true,
+	"UnspecifiedImmutableFlag":   true,
 }
 
 // ApplyVerdict returns the merged findings: Go findings outside the
@@ -103,7 +104,7 @@ var firConfirmOnlyRules = map[string]bool{
 // left over then claims an unclaimed Go finding on the same line (the
 // compiler often anchors on a callee or argument token while the tree-sitter
 // rule anchors on the enclosing expression). A matched pair is emitted as the
-// Go finding unchanged, so its message, range, confidence, and autofix
+// Go finding unchanged, so its severity, message, range, confidence, and autofix
 // survive. Confirm-only rules require the same line even for overlapping
 // ranges. An unmatched FIR finding is dropped for confirm-only rules and
 // otherwise emitted in its own form after the suppression check; an

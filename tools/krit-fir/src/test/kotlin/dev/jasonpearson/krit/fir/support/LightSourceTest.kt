@@ -104,6 +104,13 @@ class LightSourceTest {
     }
 
     @Test
+    fun kDocTextReadsTheAttachedDocNotCommentsInTheBody() {
+        val source = declarationOf("/** API warning */\n@Deprecated(\"x\")\nfun f() { /** body */ }\n")
+        assertEquals("/** API warning */", kDocText(source))
+        assertEquals(null, kDocText(declarationOf("// warning\nfun f() { /** body */ }\n")))
+    }
+
+    @Test
     fun identifierAnchorIsNullWithoutAName() {
         val source = declarationOf("fun () {}\n")
         assertEquals(null, identifierAnchor(source))

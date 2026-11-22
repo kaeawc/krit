@@ -67,6 +67,7 @@ var knownFIRRules = map[string]bool{
 	"ObjectExtendsThrowable":                  true,
 	"OkHttpCallExecuteSync":                   true,
 	"PlainFileWriteOfSensitive":               true,
+	"OptInMarkerExposedPublicly":              true,
 	"PreferToOverPairSyntax":                  true,
 	"ExplicitBackingFieldCandidate":           true,
 	"PrintStackTrace":                         true,

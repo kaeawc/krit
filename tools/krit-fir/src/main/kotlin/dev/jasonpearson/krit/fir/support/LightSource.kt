@@ -6,6 +6,7 @@ import com.intellij.psi.tree.IElementType
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.KtSourceElement
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
 import org.jetbrains.kotlin.toKtLightSourceElement
 
 // Light-tree helpers for anchoring a finding on a sub-node of a FIR element's
@@ -95,6 +96,10 @@ fun lightSourceOf(node: LighterASTNode, anchor: KtSourceElement): KtSourceElemen
         endOffset = node.endOffset + shift,
     )
 }
+
+fun kDocText(source: KtSourceElement): String? =
+    lightChildren(source, source.lighterASTNode)
+        .firstOrNull { it.tokenType == KDocTokens.KDOC }?.let { lightText(source, it) }
 
 /**
  * The text of [source]'s first direct IDENTIFIER child as written (backticks

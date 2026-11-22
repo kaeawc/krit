@@ -61,6 +61,7 @@ All notable changes to Krit will be documented in this file.
   drops broad identity-name heuristics when a forbidden operand type is resolved. In both engines,
   `forbiddenTypePatterns: []` turns the rule off.
 - FIR-backed `SingletonOnMutableClass` resolves singleton scopes, mutable collection types and state-protection references; Go remains the fallback without a classpath or for files with compiler errors.
+- FIR-backed `OptInMarkerExposedPublicly` is confirm-only: resolved markers can confirm or remove Go findings, never add findings on Go-silent lines. It supports the shared well-known table and configured `additionalMarkers` by simple name, requires `kotlin.RequiresOptIn` metadata, and skips protected APIs. The package-family skip applies only to well-known markers; configured `additionalMarkers` bypass it, including for library stubs. Go remains the fallback without a classpath or for compiler errors.
 - `IntentReset` and `IntentWithNullActionLaunch`, ported from Android Lint 32.4.1 and checked against the Lint CLI
   on synthetic Kotlin and Java fixtures. Both follow an `Intent` from its constructor through local variables,
   aliases and builder-style calls inside one method. `IntentReset` reports `setType` after `setData` (or the reverse,

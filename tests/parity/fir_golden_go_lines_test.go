@@ -124,8 +124,8 @@ func TestFirGoldenGoLines(t *testing.T) {
 					rel, rule.ID, headerIdx+1, formatGoLines(header), formatGoLines(actual), updateGoLinesEnv)
 			}
 			logDivergences(t, rel, rule.ID, lines, header)
-			if rule.ID == "TestWithoutAssertion" {
-				checkTestWithoutAssertionFilter(t, lines, header)
+			if rule.ID == "TestWithoutAssertion" || rule.ID == "OptInMarkerExposedPublicly" {
+				checkConfirmOnlyFilter(t, rule.ID, lines, header)
 			}
 		})
 		if rule != nil {
@@ -137,17 +137,17 @@ func TestFirGoldenGoLines(t *testing.T) {
 	}
 }
 
-func checkTestWithoutAssertionFilter(t *testing.T, lines []string, goLines map[int]int) {
+func checkConfirmOnlyFilter(t *testing.T, rule string, lines []string, goLines map[int]int) {
 	t.Helper()
 	firLines := make(map[int]bool)
 	for index, line := range lines {
 		for _, marker := range goldenMarkerRe.FindAllStringSubmatch(line, -1) {
-			if marker[1] != "TestWithoutAssertion" {
+			if marker[1] != rule {
 				continue
 			}
 			firLines[index+1] = true
 			if goLines[index+1] == 0 {
-				t.Errorf("line %d: FIR finding is not in go-lines; TestWithoutAssertion must only filter Go", index+1)
+				t.Errorf("line %d: FIR finding is not in go-lines; %s must only filter Go", index+1, rule)
 			}
 		}
 	}

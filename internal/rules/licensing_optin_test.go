@@ -44,9 +44,20 @@ func TestOptInMarkerExposedPublicly_AdditionalMarkers(t *testing.T) {
 		t.Fatalf("baseline: an unconfigured project marker should not be flagged; got %d", n)
 	}
 
-	rules.ApplyConfig(loadTempConfig(t, "libraries:\n  OptInMarkerExposedPublicly:\n    additionalMarkers:\n      - InternalMyApi\n"))
-	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", src)); n == 0 {
-		t.Fatal("with additionalMarkers configured, exposing the project marker on a public declaration should be flagged; got 0")
+	for _, marker := range []string{"InternalMyApi", "test.InternalMyApi", "other.InternalMyApi"} {
+		rules.ApplyConfig(loadTempConfig(t, "libraries:\n  OptInMarkerExposedPublicly:\n    additionalMarkers:\n      - "+marker+"\n"))
+		if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", src)); n != 1 {
+			t.Fatalf("configured source marker %s: expected Go finding; got %d findings", marker, n)
+		}
+	}
+	rule.AdditionalMarkers = []string{"ProjectApi"}
+	binaryUsage := "package vendor.extras\nimport vendor.ProjectApi\n@ProjectApi\nfun exposed() = Unit\n"
+	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", binaryUsage)); n != 1 {
+		t.Fatalf("configured binary marker: expected Go finding; got %d findings", n)
+	}
+	aliasedUsage := strings.ReplaceAll(strings.ReplaceAll(binaryUsage, "import vendor.ProjectApi", "import vendor.ProjectApi as Alias"), "@ProjectApi", "@Alias")
+	if n := countRule(runRuleByName(t, "OptInMarkerExposedPublicly", aliasedUsage)); n != 0 {
+		t.Fatalf("configured binary marker alias: Go is silent and confirm-only FIR cannot add it; got %d Go findings", n)
 	}
 }
 

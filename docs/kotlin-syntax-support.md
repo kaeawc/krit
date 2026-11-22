@@ -72,7 +72,7 @@ holds the oracle to the K2 compiler on smart casts the structural view cannot fo
 | Non-local `break`/`continue` | `UnconditionalJumpStatementInLoop`, `LoopWithTooManyJumpStatements` | a jump inside a lambda is not a direct statement of the loop body; `LoopWithTooManyJumpStatements` counts it |
 | `$$"…"` strings | `UnusedPrivateProperty`, `UnusedImport`, `StringShouldBeRawString` | only `$$` interpolates, so `$name` is text and `$${name}` is a use |
 | Name-based destructuring `(val a, val b) = x` | `NoNameShadowing`, `LambdaParameterNaming`, `DestructuringDeclarationWithTooManyEntries` | positional entries in declarations and loops can shadow; name-based and lambda entries are not reported; destructured lambda parameters are naming-checked |
-| K2 smart casts | `UnnecessarySafeCall`, `UnnecessaryNotNullOperator`, `NullableToStringCall`, `CastNullableToNonNullableType` | the verdict is the compiler's (oracle diagnostics and smart-cast facts), so boolean flags, `||` exits, contracts and stable properties are followed |
+| K2 smart casts | `UnnecessarySafeCall`, `UnnecessaryNotNullOperator`, `NullableToStringCall`, `CastNullableToNonNullableType` | compiler verdicts and smart-cast facts are used where supported; `UnnecessarySafeCall` follows stable same-module smart casts, but declines unstable and cross-module smart casts |
 | `kotlin.concurrent.atomics` | `MutableStateInObject` | `AtomicInt`, `AtomicReference` and the atomic arrays count as thread-safe like their `java.util.concurrent.atomic` counterparts |
 | Enum `entries` | `ElseCaseInsteadOfExhaustiveWhen`, `EnumNaming` | same results as `values()` |
 

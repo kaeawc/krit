@@ -18,6 +18,12 @@ func TestKnownBadHostnameVerifier(t *testing.T) {
 	}
 }
 
+func TestKnownUnnecessarySafeCall(t *testing.T) {
+	if !IsKnownFIRRule("UnnecessarySafeCall") {
+		t.Fatal("UnnecessarySafeCall must participate in FIR and degraded-mode fallback")
+	}
+}
+
 func TestKnownFIRRulesMatchJar(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

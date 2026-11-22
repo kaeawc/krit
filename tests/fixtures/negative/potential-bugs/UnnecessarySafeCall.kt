@@ -1,3 +1,5 @@
+// fir-parity: skip this fixture references undeclared Content, Wrapper and ExternalThing types, so it never compiles cleanly against the FIR stubs; Go remains authoritative for these cases and compiling FIR coverage is in compiler-tests data
+
 package fixtures.negative.potentialbugs
 
 class UnnecessarySafeCall {

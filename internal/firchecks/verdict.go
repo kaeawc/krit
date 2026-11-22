@@ -6,7 +6,7 @@ package firchecks
 // ErrorFiles) and every rule the jar has a checker for (Result.Rules), FIR's
 // findings are the verdict: Go findings for that (file, rule) are kept only
 // where FIR confirms them, and FIR findings Go missed are added, except for
-// firConfirmOnlyRules. Those rules (currently TestWithoutAssertion) may only
+// firConfirmOnlyRules. Those rules may only
 // confirm Go findings on the same (file, rule, line) or remove them; unmatched
 // FIR findings are dropped even when byte ranges overlap another line. This
 // policy lives in the shared merge, so all callers enforce it. Everywhere
@@ -89,7 +89,8 @@ type VerdictStats struct {
 type fileRule struct{ file, rule string }
 
 var firConfirmOnlyRules = map[string]bool{
-	"TestWithoutAssertion": true,
+	"TestWithoutAssertion":       true,
+	"OptInMarkerExposedPublicly": true,
 }
 
 // ApplyVerdict returns the merged findings: Go findings outside the

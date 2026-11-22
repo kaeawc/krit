@@ -27,9 +27,14 @@ class AnalysisSessionModulesTest {
     private fun module(id: String, depends: List<String> = emptyList(), friends: List<String> = emptyList()) =
         ModuleSpec(id, sourceRoots = listOf(tmp.resolve(id).toString()), dependsOn = depends, friends = friends)
 
-    private fun run(modules: List<ModuleSpec>, files: List<String>, block: (BatchResult) -> Unit) {
+    private fun run(
+        modules: List<ModuleSpec>,
+        files: List<String>,
+        rules: Set<String> = setOf("PrintlnInProduction"),
+        block: (BatchResult) -> Unit,
+    ) {
         val session = AnalysisSession(emptyList(), emptyList())
-        try { block(session.analyzeModules(1, modules, files, setOf("PrintlnInProduction"))) }
+        try { block(session.analyzeModules(1, modules, files, rules)) }
         finally { session.dispose() }
     }
 

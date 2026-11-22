@@ -7,8 +7,9 @@ Checklist for porting one existing krit rule to a K2 FIR checker in
 ### Confirm-only verdicts
 
 `internal/firchecks/verdict.go` defines the `firConfirmOnlyRules` policy set,
-currently containing `TestWithoutAssertion`. For these rules FIR is a strict
-filter: it may confirm a Go finding at the same `(file, rule, line)` or remove
+currently containing `TestWithoutAssertion` and `OptInMarkerExposedPublicly`.
+For these rules FIR is a strict filter: it may confirm a Go finding at the
+same `(file, rule, line)` or remove
 an unconfirmed Go finding, but it cannot add a finding. Overlapping byte ranges
 on different lines do not confirm each other. Unmatched FIR findings are
 counted as `confirm-only-dropped`, not additions or suppressions. This is

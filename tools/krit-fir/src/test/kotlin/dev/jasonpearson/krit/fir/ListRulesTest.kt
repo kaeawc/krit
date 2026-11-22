@@ -14,8 +14,8 @@ class ListRulesTest {
                 "AvoidReferentialEquality", "BadHostnameVerifier", "CollectInOnCreateWithoutLifecycle",
                 "ComposeRememberWithoutKey", "ComposeSideEffectInComposition",
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "MutableStateInObject",
-                "PlainFileWriteOfSensitive", "SingletonOnMutableClass", "TestWithoutAssertion",
-                "UnnecessarySafeCall", "UselessElvisOnNonNull",
+                "OptInMarkerExposedPublicly", "PlainFileWriteOfSensitive", "SingletonOnMutableClass",
+                "TestWithoutAssertion", "UnnecessarySafeCall", "UselessElvisOnNonNull",
             )),
             ids.toString(),
         )

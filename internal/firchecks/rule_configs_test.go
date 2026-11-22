@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
+	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // fakeFirDaemon wires a FirDaemon to an in-process peer that captures the
@@ -89,6 +90,26 @@ func TestCheckSendsDoubleMutabilityOnlyValCandidates(t *testing.T) {
 		if got := sent.RuleConfigs["DoubleMutabilityForCollection"]["onlyValCandidates"]; got != onlyCandidates {
 			t.Fatalf("onlyValCandidates=%v, want %v", got, onlyCandidates)
 		}
+	}
+}
+
+func TestRuleConfigOptInMarkerAdditionalMarkersReachFIR(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("libraries", "OptInMarkerExposedPublicly", "additionalMarkers", []any{"ProjectApi", "vendor.BinaryApi"})
+	configs := firRuleConfigs(cfg, []*api.Rule{{ID: "OptInMarkerExposedPublicly", Category: "libraries"}})
+	daemon, requests := fakeFirDaemon(t, `{"id":1,"succeeded":1,"skipped":0,"findings":[],"rules":[],"crashed":{}}`)
+	if _, err := daemon.Check(nil, nil, nil, []string{"OptInMarkerExposedPublicly"}, configs, FileFacts{}); err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		RuleConfigs map[string]map[string]any `json:"ruleConfigs"`
+	}
+	if err := json.Unmarshal(<-requests, &sent); err != nil {
+		t.Fatal(err)
+	}
+	markers, _ := sent.RuleConfigs["OptInMarkerExposedPublicly"]["additionalMarkers"].([]any)
+	if len(markers) != 2 || markers[0] != "ProjectApi" || markers[1] != "vendor.BinaryApi" {
+		t.Fatalf("additionalMarkers = %#v", markers)
 	}
 }
 

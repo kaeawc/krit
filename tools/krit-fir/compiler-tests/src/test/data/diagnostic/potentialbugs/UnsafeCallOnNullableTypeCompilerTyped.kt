@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 28, 33, 37, 39, 42
+// go-lines: 28, 33, 39, 42
 // Operand types the compiler knows and Go's source inference does not. Go judges the operand by its own
 // inference and by name-based guards; the checker takes the type from the compiler.
 package test.unsafecall.compiler

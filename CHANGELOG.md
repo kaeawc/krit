@@ -5,6 +5,7 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- Go's `UnsafeCallOnNullableType` no longer reports `!!` on a simple identifier whose local parameter or `val`/`var` declaration has an explicitly written, syntactically proven non-null type. Untyped declarations remain reportable because Go does not infer their initializer types.
 - `UnnecessarySafeCall` gains a FIR checker that reports only definitely non-null
   resolved receivers, excluding platform types and unstable or cross-module
   smart casts. Stable same-module smart casts are followed. Go remains the

@@ -89,16 +89,7 @@ type UnsafeCallOnNullableTypeRule struct {
 func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	idx, file := ctx.Idx, ctx.File
 
-	// The operand of the `!!`: the first named child of a postfix_expression, or the leading identifier of an
-	// assignment target such as `view!!.visibility = GONE`, which tree-sitter flattens into one node.
-	var receiverIdx uint32
-	if file.FlatType(idx) == "directly_assignable_expression" {
-		receiverIdx = assignmentTargetBangBangReceiver(file, idx)
-	} else if flatPostfixHasBangBang(file, idx) {
-		// Gate on the !! operator child — avoids false positives from string
-		// literals like "use !! to force" that contain the text but aren't the operator.
-		receiverIdx = flatFirstNamedChild(file, idx)
-	}
+	receiverIdx := bangBangReceiver(file, idx)
 	if receiverIdx == 0 {
 		return
 	}
@@ -117,70 +108,7 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 	}
 
 	receiverText := file.FlatNodeText(receiverIdx)
-	if isNamedKClassSimpleNameLiteralReceiver(receiverText) {
-		return
-	}
-	// detekt reports only an operand typed NULLABLE: a platform type or a smart-cast operand is not.
-	// A type parameter with a nullable bound is marked non-null yet still nullable, so it stays reported.
-	known, nullable := oracleNullability(ctx, receiverIdx)
-	if known && !nullable &&
-		(file.FlatType(receiverIdx) != "simple_identifier" || !hasNullableGenericParamBoundFlat(file, idx, receiverText)) {
-		return
-	}
-	// The flow guards below approximate the compiler's smart casts. When the compiler recorded a nullable type
-	// the operand was not smart-cast (an unstable var), so the `!!` is required and they must not hide it.
-	compilerSaysNullable := known && nullable
-
-	// detekt reports every operand whose compiler type is nullable, so the name-based idiom skips only apply
-	// when the compiler gave no verdict.
-	if !compilerSaysNullable && bangBangIdiomaticReceiverSkipped(file, receiverIdx, receiverText) {
-		return
-	}
-	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! is the sibling rule's concern. An element of an
-	// Array<T?> or a List<T?> is not a map lookup, so it is reported here.
-	if strings.HasSuffix(receiverText, "]") && !bangBangOperandIsElementRead(ctx, receiverIdx) {
-		return
-	}
-
-	// Flow-sensitive guard: if the receiver expression (or its leading
-	// safe-call chain) is proven non-null by an enclosing `if (x != null)`
-	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
-	// rather than an unsafe assertion.
-	if !compilerSaysNullable && nullflow.IsGuardedNonNull(file, idx, receiverIdx) {
-		return
-	}
-	// Early-return guard: `if (x == null) return` earlier in the same block
-	// proves non-null for any subsequent `x!!` in the same statements scope.
-	if !compilerSaysNullable && nullflow.IsEarlyReturnGuarded(file, idx, receiverIdx, bodyAlwaysExitsFlat) {
-		return
-	}
-	// Precondition guard: `x ?: return`, `check(x != null)` or `requireNotNull(x)` earlier in a
-	// block proves non-null for properties the compiler cannot smart-cast.
-	if nullflow.IsPreconditionGuarded(file, idx, receiverIdx) {
-		return
-	}
-	// Same-expression short-circuit guard: `x != null && x!!.y` proves the
-	// right-hand `!!` safe without relying on Kotlin smart casts.
-	if !compilerSaysNullable && nullflow.IsShortCircuitGuardedNonNull(file, idx, receiverIdx) {
-		return
-	}
-	// Same-block assignment guard: `if (x == null) x = create(); x!!.y` and
-	// `x = create(); x!!.y` prove simple mutable fields/locals non-null in
-	// the current statement sequence.
-	if !compilerSaysNullable && nullflow.IsSameBlockAssignedNonNullBeforeUse(file, idx, receiverIdx, nil) {
-		return
-	}
-	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
-	// if an enclosing lambda is inside a `.map` / `.forEach` / `.let` call
-	// whose chain has a preceding `.filter { it.<field> != null }`, the
-	// subsequent `!!` on that field is safe.
-	if nullflow.IsPostFilterSmartCast(file, idx, receiverText) {
-		return
-	}
-	// `fun requireXxx(): T = field!!` — the function name explicitly
-	// documents the precondition ("the caller must have verified this").
-	// The `!!` is the idiomatic implementation.
-	if isRequireFunctionBangBodyFlat(file, idx) {
+	if bangBangShouldSkip(ctx, idx, receiverIdx, receiverText) {
 		return
 	}
 
@@ -190,6 +118,94 @@ func (r *UnsafeCallOnNullableTypeRule) check(ctx *api.Context) {
 		message = bangBangDetektMessage + " A mapper cannot return null, so consider requireNotNull() or checkNotNull() with a message instead."
 	}
 	ctx.Emit(r.Finding(file, file.FlatRow(bangBangNode(file, idx))+1, file.FlatCol(bangBangNode(file, idx))+1, message))
+}
+
+func bangBangReceiver(file *scanner.File, idx uint32) uint32 {
+	// The operand of the `!!`: the first named child of a postfix_expression, or the leading identifier of an
+	// assignment target such as `view!!.visibility = GONE`, which tree-sitter flattens into one node.
+	var receiverIdx uint32
+	if file.FlatType(idx) == "directly_assignable_expression" {
+		receiverIdx = assignmentTargetBangBangReceiver(file, idx)
+	} else if flatPostfixHasBangBang(file, idx) {
+		// Gate on the !! operator child — avoids false positives from string
+		// literals like "use !! to force" that contain the text but aren't the operator.
+		receiverIdx = flatFirstNamedChild(file, idx)
+	}
+	return receiverIdx
+}
+
+func bangBangShouldSkip(ctx *api.Context, idx, receiverIdx uint32, receiverText string) bool {
+	file := ctx.File
+	if isNamedKClassSimpleNameLiteralReceiver(receiverText) {
+		return true
+	}
+	// detekt reports only an operand typed NULLABLE: a platform type or a smart-cast operand is not.
+	// A type parameter with a nullable bound is marked non-null yet still nullable, so it stays reported.
+	known, nullable := oracleNullability(ctx, receiverIdx)
+	if known && !nullable &&
+		(file.FlatType(receiverIdx) != "simple_identifier" || !hasNullableGenericParamBoundFlat(file, idx, receiverText)) {
+		return true
+	}
+	// The flow guards below approximate the compiler's smart casts. When the compiler recorded a nullable type
+	// the operand was not smart-cast (an unstable var), so the `!!` is required and they must not hide it.
+	compilerSaysNullable := known && nullable
+	if !compilerSaysNullable && bangBangSourceOperandNonNull(file, receiverIdx) {
+		return true
+	}
+
+	// detekt reports every operand whose compiler type is nullable, so the name-based idiom skips only apply
+	// when the compiler gave no verdict.
+	if !compilerSaysNullable && bangBangIdiomaticReceiverSkipped(file, receiverIdx, receiverText) {
+		return true
+	}
+	// De-dup with MapGetWithNotNullAssertionOperator: map[key]!! is the sibling rule's concern. An element of an
+	// Array<T?> or a List<T?> is not a map lookup, so it is reported here.
+	if strings.HasSuffix(receiverText, "]") && !bangBangOperandIsElementRead(ctx, receiverIdx) {
+		return true
+	}
+
+	// Flow-sensitive guard: if the receiver expression (or its leading
+	// safe-call chain) is proven non-null by an enclosing `if (x != null)`
+	// or `if (x?.y != null)` branch, the `!!` is a smart-cast workaround
+	// rather than an unsafe assertion.
+	if !compilerSaysNullable && nullflow.IsGuardedNonNull(file, idx, receiverIdx) {
+		return true
+	}
+	// Early-return guard: `if (x == null) return` earlier in the same block
+	// proves non-null for any subsequent `x!!` in the same statements scope.
+	if !compilerSaysNullable && nullflow.IsEarlyReturnGuarded(file, idx, receiverIdx, bodyAlwaysExitsFlat) {
+		return true
+	}
+	// Precondition guard: `x ?: return`, `check(x != null)` or `requireNotNull(x)` earlier in a
+	// block proves non-null for properties the compiler cannot smart-cast.
+	if nullflow.IsPreconditionGuarded(file, idx, receiverIdx) {
+		return true
+	}
+	// Same-expression short-circuit guard: `x != null && x!!.y` proves the
+	// right-hand `!!` safe without relying on Kotlin smart casts.
+	if !compilerSaysNullable && nullflow.IsShortCircuitGuardedNonNull(file, idx, receiverIdx) {
+		return true
+	}
+	// Same-block assignment guard: `if (x == null) x = create(); x!!.y` and
+	// `x = create(); x!!.y` prove simple mutable fields/locals non-null in
+	// the current statement sequence.
+	if !compilerSaysNullable && nullflow.IsSameBlockAssignedNonNullBeforeUse(file, idx, receiverIdx, nil) {
+		return true
+	}
+	// Post-filter smart cast: `.filter { it.x != null }.map { it.x!! }` —
+	// if an enclosing lambda is inside a `.map` / `.forEach` / `.let` call
+	// whose chain has a preceding `.filter { it.<field> != null }`, the
+	// subsequent `!!` on that field is safe.
+	if nullflow.IsPostFilterSmartCast(file, idx, receiverText) {
+		return true
+	}
+	// `fun requireXxx(): T = field!!` — the function name explicitly
+	// documents the precondition ("the caller must have verified this").
+	// The `!!` is the idiomatic implementation.
+	if isRequireFunctionBangBodyFlat(file, idx) {
+		return true
+	}
+	return false
 }
 
 // assignmentTargetBangBangReceiver returns the identifier `x` of an assignment target that starts with `x!!`

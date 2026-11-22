@@ -38,8 +38,14 @@ internal class RunBlockingInTestSyntax private constructor(
     }
 
     fun goTestAnnotationSpelling(): Boolean = descendants(enclosing).any { node ->
-        node.tokenType == KtNodeTypes.ANNOTATION_ENTRY &&
-            text(node).substringAfter('@').substringBefore('(').substringAfterLast('.').trim('`') == "Test"
+        if (node.tokenType != KtNodeTypes.ANNOTATION_ENTRY) return@any false
+        var annotationType = node
+        for (type in annotationTypePath) {
+            annotationType = lightChildren(source, annotationType).firstOrNull { it.tokenType == type }
+                ?: return@any false
+        }
+        descendants(annotationType).lastOrNull { it.tokenType == KtTokens.IDENTIFIER }
+            ?.let(::text)?.trim('`') == "Test"
     }
 
     fun wholeBody(): Boolean {
@@ -77,6 +83,12 @@ internal class RunBlockingInTestSyntax private constructor(
     }
 
     companion object {
+        private val annotationTypePath = listOf(
+            KtNodeTypes.CONSTRUCTOR_CALLEE,
+            KtNodeTypes.TYPE_REFERENCE,
+            KtNodeTypes.USER_TYPE,
+        )
+
         fun create(source: KtSourceElement): RunBlockingInTestSyntax? {
             val call = selectorCallExpression(source) ?: return null
             val enclosing = generateSequence(source.treeStructure.getParent(call)) {

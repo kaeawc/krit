@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 11, 14, 17, 21, 26, 33, 38, 43, 46, 50, 54, 59
+// go-lines: 11, 14, 17, 21, 26, 33, 38, 43, 46, 49, 53, 57, 62
 package test.runblocking.positive
 
 import kotlinx.coroutines.runBlocking
@@ -44,6 +44,9 @@ class BlockingPositiveTests {
 
     @org.junit.jupiter.api.Test
     fun junitFive() = <!RunBlockingInTest!>runBlocking<!> { assert(true) }
+
+    @org.junit.Test ()
+    fun spacedAnnotationArguments() = <!RunBlockingInTest!>runBlocking<!> { assert(true) }
 }
 
 @Test

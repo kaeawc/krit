@@ -4,6 +4,8 @@ import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import dev.jasonpearson.krit.fir.FirRuleDiscovery
 import java.io.File
 import kotlin.test.fail
+import kotlin.test.assertTrue
+import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 
 // Base class for golden-value FIR diagnostic tests.
 //
@@ -36,7 +38,11 @@ abstract class AbstractDiagnosticTest {
 
         // Compare (line, diagnostic-name) pairs, not just lines, so a marker that
         // expects rule A on a line where the checker actually emits rule B fails.
-        val actual = KritFirProbe.diagnose(mapOf(file.name to cleanSource), ruleContextFor(file, expected))
+        val actual = if (file.name == "UnsafeCastExpect.kt") {
+            diagnoseExpectActualGolden(file.name, cleanSource, ruleContextFor(file, expected))
+        } else {
+            KritFirProbe.diagnose(mapOf(file.name to cleanSource), ruleContextFor(file, expected))
+        }
             .filter { it.file == file.name }
             .map { it.line to it.name }
             .toSet()
@@ -57,6 +63,34 @@ abstract class AbstractDiagnosticTest {
                 }
             })
         }
+    }
+
+    private fun diagnoseExpectActualGolden(
+        fileName: String,
+        commonSource: String,
+        ruleContext: FirRuleCompileContext?,
+    ): List<KritFirProbe.Diag> {
+        val actualSource = """
+            package unsafecastexpect
+
+            open class JvmBase() : PlatformMarker
+            actual typealias PlatformBase = JvmBase
+            actual typealias PlatformText = String
+        """.trimIndent()
+        val result = KritFirProbe.compile(
+            mapOf(fileName to commonSource, "UnsafeCastExpectActual.kt" to actualSource),
+            ruleContext,
+            configure = { args: K2JVMCompilerArguments ->
+                val sourceDirectory = File(args.freeArgs.single())
+                val commonPath = File(sourceDirectory, fileName).absolutePath
+                val actualPath = File(sourceDirectory, "UnsafeCastExpectActual.kt").absolutePath
+                args.multiPlatform = true
+                args.freeArgs = listOf(commonPath, actualPath)
+                args.commonSources = arrayOf(commonPath)
+            },
+        )
+        assertTrue(result.clean, result.problems())
+        return result.diags
     }
 
     // The rules a golden file is about; null (every rule) when it names none.

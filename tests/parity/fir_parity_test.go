@@ -211,13 +211,14 @@ func TestFirHostnameFixtureParity(t *testing.T) {
 // minimal: an entry must name the golden case, and an entry whose pair
 // agrees fails as stale.
 var firCrossRuleAllowlist = map[string]string{
-	"UnnecessarySafeCall|tests/fixtures/negative/style/UnnecessaryApply.kt":       "apply receiver this?.reset() resolves to the non-null Settings lambda receiver; Go's name resolver does not resolve lambda-receiver this (UnnecessarySafeCallResolution.kt lambdaReceiverApply)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/WorldReadableFiles.kt":  "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/WorldReadableFiles.kt":  "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/positive/android-lint/WorldWriteableFiles.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
-	"HasPlatformType|tests/fixtures/negative/android-lint/WorldWriteableFiles.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"UnnecessarySafeCall|tests/fixtures/negative/style/UnnecessaryApply.kt":              "apply receiver this?.reset() resolves to the non-null Settings lambda receiver; Go's name resolver does not resolve lambda-receiver this (UnnecessarySafeCallResolution.kt lambdaReceiverApply)",
+	"CastNullableToNonNullableType|tests/fixtures/negative/potential-bugs/UnsafeCast.kt": "line 126 is a Go false positive: local Context.getSystemService returns non-null Any, but Go applies the Android platform-type heuristic (CastNullableToNonNullableTypeLocalContextDivergence.kt service)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/FragmentConstructor.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/FragmentConstructor.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/WorldReadableFiles.kt":         "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/WorldReadableFiles.kt":         "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/positive/android-lint/WorldWriteableFiles.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
+	"HasPlatformType|tests/fixtures/negative/android-lint/WorldWriteableFiles.kt":        "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
 	// await() is a suspend call that won't complete normally if the coroutine
 	// is cancelled, so the message is true; Go only matches call text that
 	// starts with a listed name and misses receiver-qualified calls.
@@ -225,6 +226,7 @@ var firCrossRuleAllowlist = map[string]string{
 	"NullableToStringCall|tests/fixtures/negative/exceptions/InstanceOfCheckForException.kt":      "toString() on a local initialised by a safe cast, a nullable type; Go does not type it (NullableToStringCallDivergence.kt safeCastLocal)",
 	"NullableToStringCall|tests/fixtures/negative/exceptions/PrintStackTrace.kt":                  "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
 	"NullableToStringCall|tests/fixtures/negative/exceptions/SwallowedException.kt":               "template over a caught exception message, a String?; Go does not type the property (NullableToStringCallDivergence.kt caughtMessage)",
+	"NullableToStringCall|tests/fixtures/negative/potential-bugs/UnsafeCast.kt":                   "lines 19, 29, 41, 71, 84 interpolate KClass.simpleName, a String? that is null for anonymous Base subclasses; Go does not type it (NullableToStringCallReflectiveNameDivergence.kt)",
 	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/InjectDispatcher.kt":             "launch lambda runs in its own coroutine, so the suspend caller never suspends; Go keeps the modifier for the launch call",
 	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SuspendFunWithFlowReturnType.kt": "flow builder lambda runs when the flow is collected, so the suspend function never suspends; Go counts the lambda (RedundantSuspendModifierDivergence.kt buildsFlow)",
 	"RedundantSuspendModifier|tests/fixtures/positive/coroutines/SleepInsteadOfDelay.kt":          "Thread.sleep blocks and println does not suspend; Go cannot resolve the Java member call and keeps the modifier",

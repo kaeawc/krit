@@ -124,7 +124,7 @@ func TestFirGoldenGoLines(t *testing.T) {
 					rel, rule.ID, headerIdx+1, formatGoLines(header), formatGoLines(actual), updateGoLinesEnv)
 			}
 			logDivergences(t, rel, rule.ID, lines, header)
-			if rule.ID == "TestWithoutAssertion" || rule.ID == "OptInMarkerExposedPublicly" {
+			if rule.ID == "TestWithoutAssertion" || rule.ID == "OptInMarkerExposedPublicly" || rule.ID == "RunBlockingInTest" {
 				checkConfirmOnlyFilter(t, rule.ID, lines, header)
 			}
 		})
@@ -153,7 +153,7 @@ func checkConfirmOnlyFilter(t *testing.T, rule string, lines []string, goLines m
 	}
 	for line := range goLines {
 		if !firLines[line] && !strings.Contains(lines[line-1], "// FIR abstains:") {
-			t.Errorf("line %d: Go-only finding needs a same-line '// FIR abstains:' explanation", line)
+			t.Errorf("line %d: Go-only %s finding needs a same-line '// FIR abstains:' explanation", line, rule)
 		}
 	}
 }

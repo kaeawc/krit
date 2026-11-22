@@ -65,6 +65,8 @@ class FirRuleWholeCompilationGateTest {
             "walks only the file under check, which is source in both full and incremental compiles"),
         AllowedRead("TestWithoutAssertionTestBody", "val source = function.source", Why.LOCAL,
             "function is a test declaration met while walking the file under check"),
+        AllowedRead("RunBlockingInTestExemptions", "val text = owner.source?.text?.toString() ?: return false", Why.LOCAL,
+            "owner is the lexical containing class of the checked test function in the current source file"),
         AllowedRead("TestWithoutAssertionGoExemptions", "val functionText = TestWithoutAssertionGoSupport.sourceText(function.source)", Why.LOCAL,
             "function is a test declaration met while walking the file under check; Go's text exemptions inspect its source"),
         AllowedRead("TestWithoutAssertionTestBody", "function.source,", Why.LOCAL,

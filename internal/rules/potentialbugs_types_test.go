@@ -322,7 +322,7 @@ class Foo : Runnable {
 // --- AvoidReferentialEquality ---
 
 func TestAvoidReferentialEquality_Positive(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 fun bar() {
     val a = "hello"
@@ -335,7 +335,7 @@ fun bar() {
 }
 
 func TestAvoidReferentialEquality_NotEquals(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 fun bar() {
     val a = "hello"
@@ -378,6 +378,20 @@ fun update(text: String, original: String): Boolean {
 			t.Errorf("should not flag same-instance short circuits: %v", f)
 		}
 	}
+}
+
+func TestAvoidReferentialEquality_CallbackArgumentDoesNotSuppressFinding(t *testing.T) {
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
+package test
+fun fresh(block: () -> Unit): String = "replacement"
+fun ignoredCallback(text: String) = fresh { println(text) } === text
+`)
+	for _, finding := range findings {
+		if finding.Rule == "AvoidReferentialEquality" {
+			return
+		}
+	}
+	t.Fatal("expected finding when the compared String is only referenced inside a callback")
 }
 
 func TestAvoidReferentialEquality_NegativeNullCheck(t *testing.T) {
@@ -483,7 +497,7 @@ fun check(candidate: Any, holder: Holder): Boolean {
 }
 
 func TestAvoidReferentialEquality_PositivePreviewNameLookalike(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 
 fun check(preview: String, other: String): Boolean {
@@ -607,7 +621,7 @@ fun isClosed(state: DrawerState): Boolean {
 }
 
 func TestAvoidReferentialEquality_PositiveQualifiedLowercasePropertyLookalike(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 
 class Holder(val hidden: String)
@@ -622,7 +636,7 @@ fun isHidden(state: String, holder: Holder): Boolean {
 }
 
 func TestAvoidReferentialEquality_PositiveLocalSentinelAliasLookalike(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 
 fun same(current: String, other: String): Boolean {
@@ -652,7 +666,7 @@ class Row : Comparable<Row> {
 }
 
 func TestAvoidReferentialEquality_PositiveNonLeadingCompareToIdentityCheck(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 
 class Row(val label: String) : Comparable<Row> {
@@ -673,7 +687,7 @@ class Row(val label: String) : Comparable<Row> {
 // expression whose operand contained "!==" inside a string literal would
 // get the string corrupted instead of the operator replaced.
 func TestAvoidReferentialEquality_FixPinsToOperatorOnly(t *testing.T) {
-	findings := runRuleByName(t, "AvoidReferentialEquality", `
+	findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", `
 package test
 fun bar(): Boolean {
     val a = "hello!==world"
@@ -767,6 +781,22 @@ fun bar(a: Foo, b: Foo): Boolean {
 	rule.ForbiddenTypePatterns = []string{"?oo"}
 	if findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", customCmp); len(findings) == 0 {
 		t.Fatal("expected finding under wildcard pattern '?oo'")
+	}
+
+	rule.ForbiddenTypePatterns = []string{"kotlin.Str?ng"}
+	if findings := runRuleByName(t, "AvoidReferentialEquality", `fun check(x: Any) = x === "a"`); len(findings) != 1 {
+		t.Fatal("expected syntactic String evidence to honor glob patterns")
+	}
+	rule.ForbiddenTypePatterns = []string{"kotlin.Int"}
+	if findings := runRuleByName(t, "AvoidReferentialEquality", `fun check(x: Any) = x === "a"`); len(findings) != 0 {
+		t.Fatal("String evidence must not report for unrelated forbidden types")
+	}
+	rule.ForbiddenTypePatterns = nil
+	if findings := runRuleByName(t, "AvoidReferentialEquality", stringCmp); len(findings) != 0 {
+		t.Fatal("an empty forbidden type list must not report without a resolver")
+	}
+	if findings := runRuleByNameWithResolver(t, "AvoidReferentialEquality", stringCmp); len(findings) != 0 {
+		t.Fatal("an empty forbidden type list must not report with a resolver")
 	}
 }
 

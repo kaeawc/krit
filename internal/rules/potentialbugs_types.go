@@ -357,11 +357,25 @@ func looksLikeSameInstanceShortCircuit(file *scanner.File, left, right uint32) b
 			return false
 		}
 		found := false
-		file.FlatWalkNodes(call, "value_argument", func(arg uint32) {
-			if strings.TrimSpace(file.FlatNodeText(arg)) == otherText {
-				found = true
+		var walk func(uint32)
+		walk = func(node uint32) {
+			if found {
+				return
 			}
-		})
+			switch file.FlatType(node) {
+			case "lambda_literal", "function_declaration", "class_declaration", "object_declaration", "object_literal":
+				return
+			case "value_argument":
+				if strings.TrimSpace(file.FlatNodeText(node)) == otherText {
+					found = true
+					return
+				}
+			}
+			for child := file.FlatFirstChild(node); child != 0; child = file.FlatNextSib(child) {
+				walk(child)
+			}
+		}
+		walk(call)
 		return found
 	}
 	for _, side := range []uint32{left, right} {

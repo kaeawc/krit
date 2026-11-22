@@ -6,7 +6,6 @@ import (
 
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
-	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 func registerPotentialbugsTypesRules() {
@@ -35,7 +34,7 @@ func registerPotentialbugsTypesRules() {
 					return
 				}
 				// Skip null checks (referential against null is intentional).
-				if file.FlatType(left) == "null" || file.FlatType(right) == "null" {
+				if file.FlatType(referentialEqualityUnwrapParentheses(file, left)) == "null" || file.FlatType(referentialEqualityUnwrapParentheses(file, right)) == "null" {
 					return
 				}
 				// `this === other` inside equals() is idiomatic identity shortcut.
@@ -91,36 +90,41 @@ func registerPotentialbugsTypesRules() {
 					looksLikeResourceCleanupIdentityGuard(file, idx, opType) {
 					return
 				}
+				compiled := r.compiledPatterns()
+				if len(compiled) == 0 {
+					return
+				}
+				leftFQN, rightFQN := "", ""
+				leftNullable, rightNullable := false, false
 				if ctx.Resolver != nil {
 					leftType := ctx.Resolver.ResolveFlatNode(left, file)
 					rightType := ctx.Resolver.ResolveFlatNode(right, file)
-					// When ForbiddenTypePatterns is configured (default
-					// `kotlin.String`), gate firing on whether either
-					// operand's resolved FQN matches one of the patterns.
-					// This is more precise than the IsKnownValueType
-					// heuristic.
-					if compiled := referentialEqualityCompileFQNPatterns(r.ForbiddenTypePatterns); len(compiled) > 0 {
-						leftFQN := referentialEqualityResolvedFQN(leftType)
-						rightFQN := referentialEqualityResolvedFQN(rightType)
-						leftMatch := referentialEqualityFQNMatchesAny(leftFQN, compiled)
-						rightMatch := referentialEqualityFQNMatchesAny(rightFQN, compiled)
-						if !leftMatch && !rightMatch {
-							// Only suppress when the resolver actually
-							// produced an FQN — otherwise fall through
-							// to the existing heuristic so users on
-							// resolverless or partial-info builds keep
-							// catching common cases.
-							if leftFQN != "" || rightFQN != "" {
-								return
-							}
-						}
-					} else {
-						leftKnown := leftType != nil && leftType.Kind != typeinfer.TypeUnknown
-						rightKnown := rightType != nil && rightType.Kind != typeinfer.TypeUnknown
-						if (leftKnown || rightKnown) && !typeinfer.IsKnownValueType(leftType) && !typeinfer.IsKnownValueType(rightType) {
-							return
-						}
+					leftFQN = referentialEqualityResolvedFQN(leftType)
+					rightFQN = referentialEqualityResolvedFQN(rightType)
+					leftNullable = leftType != nil && leftType.IsNullable()
+					rightNullable = rightType != nil && rightType.IsNullable()
+					if referentialEqualityUntrustedTopLevelBinding(ctx.Resolver, file, left) {
+						leftFQN = ""
 					}
+					if referentialEqualityUntrustedTopLevelBinding(ctx.Resolver, file, right) {
+						rightFQN = ""
+					}
+				}
+				matches := func(operand uint32, fqn string, nullable bool) bool {
+					if referentialEqualityVarargOperand(file, operand) {
+						fqn = referentialEqualityVarargFQN(fqn, nullable)
+					}
+					if fqn == "kotlin.String" && !referentialEqualityKnownString(file, operand) && !referentialEqualityUnshadowedStringType(file) {
+						return false
+					}
+					return referentialEqualityFQNMatchesAny(fqn, compiled)
+				}
+				if leftFQN != "" || rightFQN != "" {
+					if !matches(left, leftFQN, leftNullable) && !matches(right, rightFQN, rightNullable) {
+						return
+					}
+				} else if (!referentialEqualityKnownString(file, left) && !referentialEqualityKnownString(file, right)) || !referentialEqualityFQNMatchesAny("kotlin.String", compiled) {
+					return
 				}
 				f := r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
 					"Referential equality (===, !==) should be avoided. Use structural equality (==, !=) instead.")

@@ -29,6 +29,9 @@ All notable changes to Krit will be documented in this file.
   stopping the search. Diagnostics use Lint's method-specific message; the rule remains off by default.
 
 ### Added
+- FIR-backed `UselessElvisOnNonNull` reports provably non-null Elvis operands,
+  preserving Java platform-type fallbacks and the Go fallback for scans without
+  a classpath or files with compiler errors.
 - `CoroutineScopeCreatedButNeverCancelled` has a resolved-symbol FIR checker for scope factories and cancellation/ownership,
   with the unchanged Go fallback for scans without a classpath and files that do not compile.
 - FIR checker for `PlainFileWriteOfSensitive` resolves plain-file writes and sensitive filename literals, retaining the Go fallback and its diagnostic text.

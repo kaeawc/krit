@@ -1,3 +1,4 @@
+// fir-parity: skip Intentional unresolved external types and missing members; Go remains authoritative on this error file.
 package fixtures.negative.potentialbugs
 
 class UselessElvisOnNonNull {

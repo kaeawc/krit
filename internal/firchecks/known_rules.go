@@ -109,6 +109,7 @@ var knownFIRRules = map[string]bool{
 	"UselessCallOnNotNull":                    true,
 	"UnsafeCallOnNullableType":                true,
 	"UnsafeCastWhenNullable":                  true,
+	"UselessElvisOnNonNull":                   true,
 	"UnusedParameter":                         true,
 	"UnusedPrivateClass":                      true,
 	"UnusedPrivateFunction":                   true,

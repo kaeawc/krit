@@ -17,7 +17,7 @@ class ListRulesTest {
                 "CoroutineScopeCreatedButNeverCancelled", "InjectDispatcher", "MutableStateInObject",
                 "OptInMarkerExposedPublicly", "PlainFileWriteOfSensitive", "RunBlockingInTest",
                 "SingletonOnMutableClass", "TestWithoutAssertion", "UnnecessaryNotNullOperator",
-                "UnnecessarySafeCall", "UnsafeCast",
+                "UnnecessarySafeCall", "UnspecifiedImmutableFlag", "UnsafeCast",
                 "UselessElvisOnNonNull",
             )),
             ids.toString(),

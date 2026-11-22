@@ -47,6 +47,10 @@ All notable changes to Krit will be documented in this file.
   stopping the search. Diagnostics use Lint's method-specific message; the rule remains off by default.
 
 ### Added
+- FIR-backed `UnspecifiedImmutableFlag` resolves Android PendingIntent factories and constant flags,
+  only confirming or removing Go findings on the same line. Go retains SDK gating and severity;
+  stable same-file vals are followed, and unmatched FIR findings are dropped. Scans without a
+  classpath or with compiler errors retain the Go fallback.
 - FIR-backed `UselessElvisOnNonNull` reports provably non-null Elvis operands,
   preserving Java platform-type fallbacks and the Go fallback for scans without
   a classpath or files with compiler errors.

@@ -11,35 +11,45 @@ import (
 )
 
 func TestApplyVerdictConfirmOnly(t *testing.T) {
-	const file = "/src/Test.kt"
-	for _, rule := range []string{"TestWithoutAssertion", "OptInMarkerExposedPublicly"} {
+	for _, rule := range []string{
+		"OptInMarkerExposedPublicly",
+		"RunBlockingInTest",
+		"TestWithoutAssertion",
+		"UnspecifiedImmutableFlag",
+	} {
 		t.Run(rule, func(t *testing.T) {
-			goFinding := scanner.Finding{File: file, Line: 3, StartByte: 10, EndByte: 50, Rule: rule, Message: "Go"}
-			goWithoutRange := goFinding
-			goWithoutRange.StartByte, goWithoutRange.EndByte = 0, 0
-			for _, test := range []struct {
-				name       string
-				goFindings []scanner.Finding
-				firLine    int
-				want       []scanner.Finding
-				stats      RuleVerdict
-			}{
-				{"FIR-only dropped", nil, 3, nil, RuleVerdict{ConfirmOnlyDropped: 1}},
-				{"same line confirmed", []scanner.Finding{goFinding}, 3, []scanner.Finding{goFinding}, RuleVerdict{Confirmed: 1}},
-				{"same line without range confirmed", []scanner.Finding{goWithoutRange}, 3, []scanner.Finding{goWithoutRange}, RuleVerdict{Confirmed: 1}},
-				{"unconfirmed Go dropped", []scanner.Finding{goFinding}, 0, nil, RuleVerdict{GoDropped: 1}},
-				{"overlap on different line dropped", []scanner.Finding{goFinding}, 4, nil, RuleVerdict{GoDropped: 1, ConfirmOnlyDropped: 1}},
-			} {
-				t.Run(test.name, func(t *testing.T) {
-					result := &Result{Rules: []string{rule}}
-					if test.firLine != 0 {
-						result.Findings = []scanner.Finding{{File: file, Line: test.firLine, StartByte: 20, EndByte: 30, Rule: rule, Message: "FIR"}}
-					}
-					got, stats := ApplyVerdict(VerdictInput{Go: test.goFindings, FIR: result, Requested: []string{file}})
-					if !reflect.DeepEqual(describe(got), describe(test.want)) || *stats.Rules[rule] != test.stats {
-						t.Fatalf("findings = %v, stats = %+v; want %v, %+v", got, *stats.Rules[rule], test.want, test.stats)
-					}
-				})
+			testApplyVerdictConfirmOnly(t, rule)
+		})
+	}
+}
+
+func testApplyVerdictConfirmOnly(t *testing.T, rule string) {
+	t.Helper()
+	const file = "/src/Test.kt"
+	goFinding := scanner.Finding{File: file, Line: 3, StartByte: 10, EndByte: 50, Rule: rule, Message: "Go"}
+	goWithoutRange := goFinding
+	goWithoutRange.StartByte, goWithoutRange.EndByte = 0, 0
+	for _, test := range []struct {
+		name       string
+		goFindings []scanner.Finding
+		firLine    int
+		want       []scanner.Finding
+		wantStats  RuleVerdict
+	}{
+		{"FIR-only dropped", nil, 3, nil, RuleVerdict{ConfirmOnlyDropped: 1}},
+		{"same-line Go finding confirmed", []scanner.Finding{goFinding}, 3, []scanner.Finding{goFinding}, RuleVerdict{Confirmed: 1}},
+		{"same-line Go finding without range confirmed", []scanner.Finding{goWithoutRange}, 3, []scanner.Finding{goWithoutRange}, RuleVerdict{Confirmed: 1}},
+		{"unconfirmed Go finding dropped", []scanner.Finding{goFinding}, 0, nil, RuleVerdict{GoDropped: 1}},
+		{"overlap on different line dropped", []scanner.Finding{goFinding}, 4, nil, RuleVerdict{GoDropped: 1, ConfirmOnlyDropped: 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := &Result{Rules: []string{rule}}
+			if test.firLine != 0 {
+				result.Findings = []scanner.Finding{{File: file, Line: test.firLine, Rule: rule, Message: "FIR"}}
+			}
+			got, stats := ApplyVerdict(VerdictInput{Go: test.goFindings, FIR: result, Requested: []string{file}})
+			if !reflect.DeepEqual(describe(got), describe(test.want)) || *stats.Rules[rule] != test.wantStats {
+				t.Fatalf("findings = %v, stats = %+v; want %v, %+v", got, *stats.Rules[rule], test.want, test.wantStats)
 			}
 		})
 	}
@@ -73,9 +83,31 @@ func TestRunBlockingInTestConfirmOnly(t *testing.T) {
 	}
 }
 
+func TestUnspecifiedImmutableFlagConfirmOnlyKeepsGoSeverity(t *testing.T) {
+	const rule = "UnspecifiedImmutableFlag"
+	for _, severity := range []string{"warning", "error"} {
+		t.Run(severity, func(t *testing.T) {
+			goFinding := scanner.Finding{File: "kotlin/A.kt", Line: 3, Rule: rule, Severity: severity, Message: "Go"}
+			absolute, err := filepath.Abs(goFinding.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			firFinding := scanner.Finding{File: absolute, Line: 3, Rule: rule, Severity: "error", Message: "FIR"}
+			got, stats := ApplyVerdict(VerdictInput{
+				Go:        []scanner.Finding{goFinding},
+				FIR:       &Result{Rules: []string{rule}, Findings: []scanner.Finding{firFinding}},
+				Requested: []string{firFinding.File}, DisplayPath: map[string]string{firFinding.File: goFinding.File},
+			})
+			if !reflect.DeepEqual(got, []scanner.Finding{goFinding}) || stats.Rules[rule].Confirmed != 1 {
+				t.Fatalf("got %v, stats %+v; want unchanged Go finding %v", got, stats, goFinding)
+			}
+		})
+	}
+}
+
 func TestApplyVerdictConfirmOnlyFallbacksKeepGo(t *testing.T) {
 	const file = "/src/Test.kt"
-	for _, rule := range []string{"TestWithoutAssertion", "OptInMarkerExposedPublicly"} {
+	for _, rule := range []string{"TestWithoutAssertion", "OptInMarkerExposedPublicly", "RunBlockingInTest", "UnspecifiedImmutableFlag"} {
 		t.Run(rule, func(t *testing.T) {
 			goFindings := []scanner.Finding{{File: file, Line: 3, Rule: rule}}
 			for _, test := range []struct {

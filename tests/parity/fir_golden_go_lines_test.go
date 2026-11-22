@@ -127,6 +127,15 @@ func TestFirGoldenGoLines(t *testing.T) {
 			if rule.ID == "TestWithoutAssertion" || rule.ID == "OptInMarkerExposedPublicly" || rule.ID == "RunBlockingInTest" {
 				checkConfirmOnlyFilter(t, rule.ID, lines, header)
 			}
+			if rule.ID == "UnspecifiedImmutableFlag" {
+				for index, line := range lines {
+					for _, marker := range goldenMarkerRe.FindAllStringSubmatch(line, -1) {
+						if marker[1] == rule.ID && header[index+1] == 0 {
+							t.Errorf("line %d: %s is confirm-only; FIR markers must be a subset of go-lines", index+1, rule.ID)
+						}
+					}
+				}
+			}
 		})
 		if rule != nil {
 			checked++

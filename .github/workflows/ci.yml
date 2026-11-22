@@ -46,7 +46,7 @@ jobs:
       # without touching the mirror; a cache miss downloads and saves them.
       - name: Cache mingw-w64 packages
         id: cache-mingw
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/mingw-debs
           key: mingw-w64-debs-${{ runner.os }}-${{ runner.arch }}-noble-v1
@@ -99,12 +99,12 @@ jobs:
       - name: Check JUnit report exists
         id: junit-exists
         if: always()
-        uses: andstor/file-existence-action@v3
+        uses: andstor/file-existence-action@558493d6c74bf472d87c84eab196434afc2fa029 # v3
         with:
           files: junit-report.xml
       - name: Publish test report
         if: always() && steps.junit-exists.outputs.files_exists == 'true'
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6
         with:
           report_paths: junit-report.xml
 
@@ -212,7 +212,7 @@ jobs:
       # workflow-level dedup is not possible).
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tools/krit-fir/build/libs
           key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
@@ -248,7 +248,7 @@ jobs:
       # Cache key matches the `external-rule-example` job above.
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tools/krit-fir/build/libs
           key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
@@ -360,12 +360,12 @@ jobs:
       - name: Check gosec report exists
         id: gosec-exists
         if: always()
-        uses: andstor/file-existence-action@v3
+        uses: andstor/file-existence-action@558493d6c74bf472d87c84eab196434afc2fa029 # v3
         with:
           files: gosec-report.xml
       - name: Publish security report
         if: always() && steps.gosec-exists.outputs.files_exists == 'true'
-        uses: mikepenz/action-junit-report@v6
+        uses: mikepenz/action-junit-report@a16be3a69023e9bd7e748ede768b3282ea7b30ce # v6
         with:
           report_paths: gosec-report.xml
 
@@ -445,7 +445,7 @@ jobs:
         run: ./gradlew --no-daemon testClasses
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tools/krit-fir/build/libs
           key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
@@ -550,7 +550,7 @@ jobs:
           validate-wrappers: true
       - name: Cache krit-fir shadow jar
         id: cache-krit-fir
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: tools/krit-fir/build/libs
           key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}

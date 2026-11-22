@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- `UnnecessarySafeCall` gains a FIR checker that reports only definitely non-null
+  resolved receivers, excluding platform types and unstable or cross-module
+  smart casts. Stable same-module smart casts are followed. Go remains the
+  fallback for files that do not compile and scans without a classpath.
 - `DoubleMutabilityForCollection` adds `onlyValCandidates` (default `true`,
   preserving private/local, non-nullable, never-reassigned, non-test narrowing).
   Imported detekt configurations default it to `false` in both Go and FIR,

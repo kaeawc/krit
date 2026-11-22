@@ -20,11 +20,14 @@ import org.jetbrains.kotlin.fir.unwrapFakeOverrides
 context(context: CheckerContext)
 fun FirExpression.isNullableOperand(): Boolean {
     var expression = this
-    while (expression is FirSmartCastExpression && (!expression.isStable || reliesOnOtherModule(expression))) {
+    while (expression is FirSmartCastExpression && !expression.isStableInCurrentModule()) {
         expression = expression.originalExpression
     }
     return expression.resolvedType.lowerBoundIfFlexible().canBeNull(context.session)
 }
+
+context(context: CheckerContext)
+fun FirSmartCastExpression.isStableInCurrentModule(): Boolean = isStable && !reliesOnOtherModule(this)
 
 // A stable smart cast on a property of another Gradle module is rejected by that module's own build. The check
 // compile reads a dependency without build output from source, where the property looks stable, so the module

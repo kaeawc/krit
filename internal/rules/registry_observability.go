@@ -316,11 +316,13 @@ func registerObservabilityRules() {
 				if !receiverIsKnownLoggerFlat(file, idx, receiver) {
 					return
 				}
-				if loggerIsCompilerDiagnosticSink(file, idx, receiver) {
-					return
-				}
 				message := loggerStringConcatMessageArgFlat(file, idx)
 				if message == 0 {
+					return
+				}
+				// The sink check compiles three regexes and scans the whole
+				// file, so it runs only for calls that would be reported.
+				if loggerIsCompilerDiagnosticSink(file, idx, receiver) {
 					return
 				}
 				ctx.EmitAt(file.FlatRow(message)+1, file.FlatCol(message)+1,

@@ -37,7 +37,14 @@ func registerPotentialbugsLifecycleRules() {
 			NodeTypes: []string{"call_expression", "method_invocation"}, Languages: []scanner.Language{scanner.LangKotlin}, Confidence: api.ConfidenceMedium, Fix: api.FixIdiomatic, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				text := strings.TrimPrefix(strings.Join(strings.Fields(file.FlatNodeText(idx)), ""), "java.lang.")
+				raw := file.FlatNodeText(idx)
+				// Every accepted text ends in gc() or runFinalization(); check
+				// that before compacting the text, which copies every call,
+				// lambda bodies included.
+				if !compactTextHasSuffix(raw, "gc()") && !compactTextHasSuffix(raw, "runFinalization()") {
+					return
+				}
+				text := strings.TrimPrefix(strings.Join(strings.Fields(raw), ""), "java.lang.")
 				switch text {
 				case "System.gc()", "Runtime.getRuntime().gc()", "System.runFinalization()", "Runtime.getRuntime().runFinalization()":
 				default:

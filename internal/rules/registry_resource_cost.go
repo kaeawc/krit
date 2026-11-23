@@ -100,10 +100,15 @@ func registerResourceCostRules() {
 			NodeTypes: []string{"call_expression", "method_invocation", "object_creation_expression"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava}, Confidence: api.ConfidenceMedium, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				name := databaseCallName(file, idx)
+				// For calls, both the source check and the semantic check
+				// below need one of these two names; reject the rest first.
+				if !okHTTPClientConstructionCallName(file, idx, name) {
+					return
+				}
 				if scanner.IsTestFile(file.Path) || okHTTPClientToolingPath(file.Path) {
 					return
 				}
-				name := databaseCallName(file, idx)
 				nodeText := file.FlatNodeText(idx)
 				receiver := semanticsReceiverNode(ctx, idx)
 				if receiver == 0 {

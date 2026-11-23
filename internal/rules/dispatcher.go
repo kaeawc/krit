@@ -97,6 +97,8 @@ type Dispatcher struct {
 	// full list here so ensureFlatTypeIndex can re-index them once the
 	// table has grown after some files have been parsed.
 	nodeDispatchRules []*api.Rule
+	// fileGatedRules are the per-file node and line rules with a FileGate.
+	fileGatedRules []*api.Rule
 
 	typeResolver      typeinfer.TypeResolver
 	libraryFacts      *librarymodel.Facts
@@ -184,6 +186,14 @@ func NewDispatcher(rules []*api.Rule, resolver typeinfer.TypeResolver) *Dispatch
 		case api.ScopePerFileAllNodes:
 			// nil NodeTypes + no scope flag → receive every node.
 			d.allNodeRules = append(d.allNodeRules, r)
+		}
+	}
+
+	for _, group := range [][]*api.Rule{d.nodeDispatchRules, d.allNodeRules, d.lineRules} {
+		for _, r := range group {
+			if r.FileGate != nil {
+				d.fileGatedRules = append(d.fileGatedRules, r)
+			}
 		}
 	}
 
@@ -452,6 +462,11 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	excludedRules := d.buildExcludedSet(file.Path)
 	for id := range d.excludedForFile(file) {
 		excludedRules[id] = true
+	}
+	for _, r := range d.fileGatedRules {
+		if !excludedRules[r.ID] && !r.FileGate(file) {
+			excludedRules[r.ID] = true
+		}
 	}
 
 	collector := scanner.NewFindingCollector(0)

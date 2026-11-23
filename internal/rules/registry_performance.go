@@ -24,12 +24,15 @@ func registerPerformanceRules() {
 			Needs: api.NeedsResolver,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
-				if arrayPrimitiveInParameterizedContext(file, idx) {
-					return
-				}
+				// arrayPrimitiveInParameterizedContext walks every ancestor, so
+				// it runs only once the node is an arrayOf/emptyArray call or an
+				// Array<...> type.
 				if file.FlatType(idx) == "call_expression" {
 					name := flatCallExpressionName(file, idx)
 					if name != "arrayOf" && name != "emptyArray" {
+						return
+					}
+					if arrayPrimitiveInParameterizedContext(file, idx) {
 						return
 					}
 					typeArgs := callExpressionTypeArgumentsFlat(file, idx)
@@ -51,6 +54,9 @@ func registerPerformanceRules() {
 					return
 				}
 				if !file.FlatNodeTextEquals(ident, "Array") {
+					return
+				}
+				if arrayPrimitiveInParameterizedContext(file, idx) {
 					return
 				}
 				text := file.FlatNodeText(typeArgs)

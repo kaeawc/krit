@@ -363,8 +363,12 @@ func registerAndroidSecurityRules() {
 		}}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Description(), Sev: api.Severity(r.Sev),
-			NodeTypes:  []string{"call_expression", "object_creation_expression", "constructor_invocation", "callable_reference", "method_reference", "navigation_expression", "field_access", "simple_identifier", "identifier"},
-			Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			NodeTypes: []string{"call_expression", "object_creation_expression", "constructor_invocation", "callable_reference", "method_reference", "navigation_expression", "field_access", "simple_identifier", "identifier"},
+			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+			// Every finding resolves a name to one of the two fully-qualified
+			// names below, either spelled in place or through an import.
+			// Both ways spell the last segment in the file.
+			FileGate:   allowAllHostnameVerifierFileGate,
 			Confidence: r.Confidence(), Implementation: r, Check: r.check,
 		})
 	}

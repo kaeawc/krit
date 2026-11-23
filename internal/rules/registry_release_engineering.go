@@ -148,10 +148,15 @@ func registerReleaseEngineeringRules() {
 			NodeTypes: []string{"call_expression"}, Confidence: api.ConfidenceHigh, Implementation: r,
 			Check: func(ctx *api.Context) {
 				idx, file := ctx.Idx, ctx.File
+				name := flatCallExpressionName(file, idx)
+				// isProductionPrintCallFlat requires one of these names; test it
+				// before the path checks, which allocate per call.
+				if !printlnNames[name] {
+					return
+				}
 				if printlnNonProductionPath(file.Path) {
 					return
 				}
-				name := flatCallExpressionName(file, idx)
 				receiver := flatReceiverNameFromCall(file, idx)
 				if !isProductionPrintCallFlat(file, idx, name, receiver) {
 					return

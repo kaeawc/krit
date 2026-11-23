@@ -59,10 +59,12 @@ func (r *BroadcastReceiverExportedFlagMissingRule) check(ctx *api.Context) {
 
 func (r *ImplicitPendingIntentRule) check(ctx *api.Context) {
 	file := ctx.File
-	if scanner.IsTestFile(file.Path) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) {
+	// The call check rejects almost every node by name; the path checks
+	// split and lower-case the path, so they run second.
+	if !implicitPendingIntentCall(file, ctx.Idx) {
 		return
 	}
-	if !implicitPendingIntentCall(file, ctx.Idx) {
+	if scanner.IsTestFile(file.Path) || isTestFixturePath(file.Path) || isTestFixtureModulePath(file.Path) {
 		return
 	}
 	sdk := addJavascriptInterfaceSDKContextForFile(file)

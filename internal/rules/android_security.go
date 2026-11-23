@@ -95,6 +95,16 @@ func (r *DisableCertificatePinningRule) check(ctx *api.Context) {
 	ctx.Emit(f)
 }
 
+// allowAllHostnameVerifierFileGate skips files that cannot name
+// org.apache.http.conn.ssl.AllowAllHostnameVerifier or
+// SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER. hostnameVerifierSourceMatches
+// accepts a name only when it equals the fully-qualified name or an import
+// maps its first segment to a prefix of it; the split is at a dot, so the
+// last segment is spelled whole in the node text or in the import.
+func allowAllHostnameVerifierFileGate(file *scanner.File) bool {
+	return sourceMayNameAny(file, "AllowAllHostnameVerifier", "ALLOW_ALL_HOSTNAME_VERIFIER")
+}
+
 func (r *AllowAllHostnameVerifierRule) check(ctx *api.Context) {
 	file, idx := ctx.File, ctx.Idx
 	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {

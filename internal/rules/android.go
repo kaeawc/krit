@@ -36,6 +36,7 @@ const (
 	ALCPerformance   AndroidLintCategory = "performance"
 	ALCUsability     AndroidLintCategory = "usability"
 	ALCAccessibility AndroidLintCategory = "accessibility"
+	ALCCompliance    AndroidLintCategory = "compliance"
 	ALCI18N          AndroidLintCategory = "i18n"
 	ALCIcons         AndroidLintCategory = "icons"
 	ALCMessages      AndroidLintCategory = "messages"

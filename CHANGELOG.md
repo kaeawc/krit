@@ -14,6 +14,18 @@ All notable changes to Krit will be documented in this file.
   import-on-demand packages are exempt from `WildcardImport`, and
   `max_line_length` sets `MaxLineLength`'s limit;
   `ktlintEditorConfig: {enabled: false}` opts out (#1077).
+- `ForegroundServicePermission` and `QueryAllPackagesPermission`, ported from Android Lint 32.4.1 and checked against
+  the Lint CLI on synthetic and fuzzed manifests. `ForegroundServicePermission` reports each `foregroundServiceType`
+  value of a `<service>` whose permissions are missing from the same manifest, once the manifest declares
+  `FOREGROUND_SERVICE` and targets API 34 or later. `QueryAllPackagesPermission` reports `QUERY_ALL_PACKAGES` when the app
+  targets API 30 or later. Both skip library modules, because Lint judges a library by the target SDK of the app
+  that includes it. `QueryAllPackagesPermission` is opt-in, matching Lint's disabled-by-default issue.
+  A single literal Gradle target SDK declaration takes precedence over manifest values; when a module Gradle file
+  exists but its target SDK cannot be proven, the checks abstain instead of falling back to the manifest. Ambiguous
+  SDK overrides (including expressions, repeated declarations, block comments or multiline strings), unrecognized
+  module types, test-source-set manifests, and nonstandard Android namespace bindings conservatively abstain.
+  `ForegroundServiceType`
+  (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
 - A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as

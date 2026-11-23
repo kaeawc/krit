@@ -45,6 +45,7 @@ func registerAndroidLintPortRules() {
 	registerManifestPermissionNameChecks()
 	registerManifestOrientationChecks()
 	registerManifestAppLinkChecks()
+	registerManifestForegroundServiceChecks()
 	registerIntentLintChecks()
 }
 
@@ -501,4 +502,13 @@ func registerIntentLintChecks() {
 		"Unsafe intent launched with no action set", ALCSecurity, ALSWarning, 9)}
 	registerLintRule(nullAction.AndroidRule, nullAction, nullAction.Confidence(), nullAction.check,
 		[]string{"call_expression", "object_creation_expression"}, 0, nil)
+}
+
+func registerManifestForegroundServiceChecks() {
+	permission := &ForegroundServicePermissionRule{AndroidRule: lintAndroidRule("ForegroundServicePermission",
+		"Missing permissions required by foregroundServiceType", ALCCorrectness, ALSError, 5)}
+	registerLintManifestRule(permission.AndroidRule, permission, permission.Confidence(), permission.check)
+	queryAll := &QueryAllPackagesPermissionRule{AndroidRule: lintAndroidRule("QueryAllPackagesPermission",
+		"Using the QUERY_ALL_PACKAGES permission", ALCCompliance, ALSError, 8)}
+	registerLintManifestRule(queryAll.AndroidRule, queryAll, queryAll.Confidence(), queryAll.check)
 }

@@ -454,6 +454,14 @@ jobs:
   # keeps its name from when it compared the two oracle backends; krit-fir is
   # now the only one.)
   oracle-backend-parity:
+    # The parity tests run one at a time and keep the runner's four vCPUs busy
+    # in krit-fir JVMs (two concurrent processes on one runner took as long
+    # as one), so two runners split them.
+    name: oracle-backend-parity (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -492,6 +500,7 @@ jobs:
         working-directory: tools/krit-fir
         run: ./gradlew --no-daemon shadowJar
       - name: CLI default FIR scan
+        if: matrix.shard == 1
         run: |
           go build -o krit ./cmd/krit/
           project="$(mktemp -d)"
@@ -552,9 +561,25 @@ jobs:
       # projects never share a daemon and that the daemon's facts come back
       # (and are cached) under the caller's relative spelling.
       - name: Run oracle backend parity
+        # The shards split one -run list: shard 1 runs SPLIT, shard 2 runs the
+        # full list with -skip SPLIT, so together they run exactly the tests
+        # the full list selects.
+        env:
+          TESTS: TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative
+          SPLIT: TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestUnsafeCastWhenNullable_|TestOracleKotlin24
+          SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -timeout 30m -run 'TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestOracleKotlin24|TestFirKotlin24Parity|TestFirOracleFactContract|TestFirFixtureParity|TestFirProperty|FuzzFirCheckers|TestComposeRememberWithoutKey_|TestCollectInOnCreateWithoutLifecycle_|TestInjectDispatcher_|TestUnsafeCastWhenNullable_|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative' -v | tee parity.log
+          if [ "$SHARD" = 1 ]; then
+            select=(-run "$SPLIT")
+          else
+            select=(-run "$TESTS" -skip "$SPLIT")
+          fi
+          go test ./tests/parity/ -count=1 -timeout 30m "${select[@]}" -v | tee parity.log
+          if grep -q 'no tests to run' parity.log; then
+            echo "::error::shard $SHARD selected no tests"
+            exit 1
+          fi
           # Top-level tests only: an exempt rule's subtest may skip. The
           # daemon relative-path tests' per-backend subtests must all run.
           if grep -qE -- '--- SKIP: (TestFirOracleDeclarationContract|TestOracleAcceptsClasspathFlag|TestKMPSourceSetParity|TestFirOracleFactContract|TestOracleKotlin24[A-Za-z]+|TestFirKotlin24Parity|TestFirFixtureParity|TestFirProperty_[A-Za-z]+|FuzzFirCheckers|Test(ComposeRememberWithoutKey|CollectInOnCreateWithoutLifecycle|InjectDispatcher|UnsafeCastWhenNullable)_[A-Za-z]+|TestFirCheckerExceptionIsIsolatedToRuleAndFileEndToEnd|TestFirCheckDaemonRelativeScansOfTwoProjectsStaySeparate|TestOracleDaemonRelative[A-Za-z]+(/fir(-symlink)?)?) \(' parity.log; then
@@ -571,7 +596,18 @@ jobs:
   # needs the same helper jars. KRIT_WARM_CLEAN_MATRIX=1 opts the tests in (a
   # plain `make test` skips them), and a top-level skip fails the job, so a
   # missing jar cannot silently pass.
+  #
+  # Two runners split the matrix: shard 1 runs the FIR rows with absolute
+  # paths (one-shot and daemon, which share clean baselines), shard 2 the
+  # full selection with -skip of those rows, so together they run exactly the
+  # rows a single `-run TestWarmCleanMutation` selects. (The rows keep a
+  # runner's vCPUs busy, so two processes on one runner gain nothing.)
   warm-clean-matrix:
+    name: warm-clean-matrix (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -629,9 +665,20 @@ jobs:
         env:
           KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
           KRIT_WARM_CLEAN_MATRIX: "1"
+          FIR_ABS_ROWS: TestWarmCleanMutationFIR//^abs$
+          SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          go test ./tests/parity/ -count=1 -timeout 45m -run 'TestWarmCleanMutation' -v | tee matrix.log
+          if [ "$SHARD" = 1 ]; then
+            select=(-run "$FIR_ABS_ROWS")
+          else
+            select=(-run 'TestWarmCleanMutation' -skip "$FIR_ABS_ROWS")
+          fi
+          go test ./tests/parity/ -count=1 -timeout 45m "${select[@]}" -v | tee matrix.log
+          if ! grep -qE -- '--- (PASS|SKIP): TestWarmCleanMutation[A-Za-z]*/' matrix.log; then
+            echo "::error::shard $SHARD ran no warm-versus-clean rows"
+            exit 1
+          fi
           # Top-level tests only: a row may skip itself (a known stale-cache
           # bug listed in wcKnownStale, or the compiler-setting row waiting on
           # #784), but a whole matrix must not.
@@ -643,7 +690,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         with:
-          name: warm-clean-matrix-log
+          name: warm-clean-matrix-log-${{ matrix.shard }}
           path: matrix.log
 
   krit-lint-sarif:

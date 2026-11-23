@@ -142,6 +142,11 @@ func registerLicensingRules() {
 				if scanner.IsTestFile(file.Path) {
 					return
 				}
+				// The library that defines a well-known marker applies it to
+				// its own public API on purpose.
+				if !r.markerInAdditional(name) && optInMarkerOwnedByFile(file, name) {
+					return
+				}
 				decl, ok := optInAnnotationTarget(file, idx)
 				if !ok {
 					return

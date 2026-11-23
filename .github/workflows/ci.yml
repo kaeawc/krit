@@ -158,9 +158,14 @@ jobs:
           java-version: "21"
       - name: Set Gradle User Home
         run: echo "GRADLE_USER_HOME=$HOME/.gradle/intellij-plugin" >> "$GITHUB_ENV"
+      # Never cache this job's Gradle home. The IntelliJ platform SDK and its
+      # transforms come to about 9 GB, nearly the repository's 10 GB Actions
+      # cache limit, so each save evicted every other entry, including
+      # krit-fir's cached test results. Without those, krit-fir reran about an
+      # hour of compiler tests on every run instead of taking seconds.
       - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
-          cache-cleanup: on-success
+          cache-disabled: true
           validate-wrappers: true
       - name: Validate IntelliJ plugin
         working-directory: editors/intellij-plugin

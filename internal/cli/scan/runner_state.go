@@ -188,6 +188,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
+	paths = absoluteScanPaths(paths)
 
 	applyExperimentFlags(*f.Experiment, *f.ExperimentOff, os.Stderr)
 
@@ -812,9 +813,31 @@ func (r *runner) firCheckAndCollect() {
 
 		r.basePath = *r.f.BasePath
 		if r.basePath == "" && len(r.paths) > 0 {
-			r.basePath, _ = filepath.Abs(r.paths[0]) // best-effort: error means relative path used
+			r.basePath = r.paths[0]
+		}
+		// File paths are absolute (absoluteScanPaths), so a relative
+		// --base-path must be too, or baseline IDs and report paths
+		// would fall back to bare file names.
+		if abs, err := filepath.Abs(r.basePath); err == nil && r.basePath != "" {
+			r.basePath = abs
 		}
 	})
+}
+
+// absoluteScanPaths makes scan paths absolute so every file path a rule
+// sees is absolute. Rules test path segments such as "/test-utils/" or
+// "/src/test/"; with `krit .` a top-level directory had no leading slash,
+// so `krit .` and `krit $PWD` (and the daemon, which always resolves
+// paths) reported different findings.
+func absoluteScanPaths(paths []string) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		out[i] = p
+	}
+	return out
 }
 
 func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {

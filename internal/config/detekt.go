@@ -34,6 +34,8 @@ type LoadOptions struct {
 	// NoAndroidLintConfig skips reading the project's lint.xml and Gradle
 	// lint { disable } blocks.
 	NoAndroidLintConfig bool
+	// NoKtlintEditorConfig skips the ktlint settings in .editorconfig.
+	NoKtlintEditorConfig bool
 }
 
 // DetektImport describes what the detekt layer contributed to a Config.

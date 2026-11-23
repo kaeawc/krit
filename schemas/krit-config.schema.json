@@ -13290,6 +13290,18 @@
         }
       }
     },
+    "ktlintEditorConfig": {
+      "description": "Import of the project's ktlint and line-length .editorconfig settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_<rule> = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
     "architecture": {
       "description": "Configuration for the architecture ruleset.",
       "type": "object",

@@ -72,7 +72,19 @@ func LoadEditorConfig(startPath string) *EditorConfig {
 
 // parseEditorConfig reads a .editorconfig file and returns properties
 // matching [*.{kt,kts}] or [*] sections. Returns (nil, false) if file doesn't exist.
+// Only standard properties are kept: ktlint_*, ktfmt_* and most ij_* keys are
+// skipped; ij_kotlin_indent_size is allowed through as a fallback for the
+// standard indent_size key.
 func parseEditorConfig(path string) (props map[string]string, isRoot bool) {
+	return parseEditorConfigKeys(path, func(key string) bool {
+		return !strings.HasPrefix(key, "ktlint_") &&
+			!strings.HasPrefix(key, "ktfmt_") &&
+			(!strings.HasPrefix(key, "ij_") || key == "ij_kotlin_indent_size")
+	})
+}
+
+// parseEditorConfigKeys is parseEditorConfig keeping the keys keep accepts.
+func parseEditorConfigKeys(path string, keep func(key string) bool) (props map[string]string, isRoot bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, false
@@ -115,12 +127,7 @@ func parseEditorConfig(path string) (props map[string]string, isRoot bool) {
 			if len(parts) == 2 {
 				key := strings.TrimSpace(strings.ToLower(parts[0]))
 				value := strings.TrimSpace(parts[1])
-				// Only read standard properties — skip ktlint_*, ktfmt_*, and
-				// most ij_* keys. ij_kotlin_indent_size is allowed through as
-				// a fallback for the standard indent_size key.
-				if !strings.HasPrefix(key, "ktlint_") &&
-					!strings.HasPrefix(key, "ktfmt_") &&
-					(!strings.HasPrefix(key, "ij_") || key == "ij_kotlin_indent_size") {
+				if keep(key) {
 					props[key] = value
 				}
 			}

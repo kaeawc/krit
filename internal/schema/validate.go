@@ -30,6 +30,9 @@ var sectionValidators = map[string]func(interface{}) []ValidationError{
 	"androidLintConfig": func(raw interface{}) []ValidationError {
 		return validateBoolSection("androidLintConfig", raw, "enabled")
 	},
+	"ktlintEditorConfig": func(raw interface{}) []ValidationError {
+		return validateBoolSection("ktlintEditorConfig", raw, "enabled")
+	},
 }
 
 // ValidateConfig checks a Config for unknown rulesets, unknown rules,

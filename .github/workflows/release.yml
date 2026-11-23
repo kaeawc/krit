@@ -2,6 +2,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Nightly tags are pushed with GITHUB_TOKEN, which cannot trigger the
+  # push event above; nightly.yml dispatches this workflow on the tag.
+  workflow_dispatch:
 permissions:
   contents: write
   id-token: write
@@ -13,6 +16,8 @@ jobs:
   # We --skip=publish here; the funnel job handles GitHub release create,
   # the brew cask, and the scoop manifest.
   build:
+    # A dispatch must name a tag ref; a branch is not a release.
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -125,6 +130,7 @@ jobs:
   # their version, verified against checksums.txt; see
   # internal/oracle.EnsureBackendJar.
   build-jvm-jars:
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:

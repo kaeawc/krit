@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  # Dispatch release.yml for the new tag (see "Start the release").
+  actions: write
 
 jobs:
   tag:
@@ -21,9 +23,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          # Default GITHUB_TOKEN won't trigger downstream workflows on tag
-          # push — use a PAT with workflow scope so release.yml fires.
-          token: ${{ secrets.KRIT_NIGHTLY_TAG_TOKEN }}
 
       - name: Compute next nightly tag
         id: compute
@@ -86,4 +85,15 @@ jobs:
           git config user.email "krit-nightly@users.noreply.github.com"
           git tag -a "$TAG" -m "Nightly $TAG"
           git push origin "$TAG"
-          echo "Pushed $TAG — release.yml will pick it up."
+          echo "Pushed $TAG"
+
+      # A tag pushed with GITHUB_TOKEN does not trigger release.yml's
+      # `push: tags` (GitHub suppresses workflow runs for events caused by
+      # GITHUB_TOKEN, except workflow_dispatch), so start it explicitly on
+      # the tag. github.ref_name is the tag in that run, as on a push.
+      - name: Start the release
+        if: steps.compute.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.compute.outputs.tag }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"

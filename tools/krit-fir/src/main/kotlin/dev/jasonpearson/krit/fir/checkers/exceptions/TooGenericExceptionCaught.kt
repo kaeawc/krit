@@ -102,27 +102,14 @@ internal object TooGenericExceptionCaught :
         }
     }
 
+    // A plain pattern means the same in Go's RE2 and Java: no escapes, flags, nested or POSIX classes, bounded or
+    // stacked quantifiers, and no anchors (Go searches an already-anchored pattern while FIR full-matches it).
+    private val unplainParts = listOf("\\", "(?", "[[", "[:", "&&", "{")
+    private val plainClass = Regex("""\[\^?]?[\p{L}\p{N}_.|()\-*+?]*]""")
+    private val stackedQuantifier = Regex("[*+?]{2}")
+
     private fun isPlainPattern(pattern: String): Boolean {
-        if (pattern.any { it == '\\' } || listOf("(?", "[[", "[:", "&&", "{").any { it in pattern }) return false
-        var classStart = -1
-        var previousWasQuantifier = false
-        for ((index, character) in pattern.withIndex()) {
-            val quantifier = character in "*+?"
-            // Go's MatchString searches an already-anchored pattern while FIR full-matches it, so anchors abstain.
-            val negatedClass = character == '^' && index > 0 && pattern[index - 1] == '[' && classStart == index - 1
-            val allowedCharacter = character.isLetterOrDigit() || character in "_.|()[]-*+?" || negatedClass
-            if (!allowedCharacter) return false
-            if (quantifier && previousWasQuantifier) return false
-            previousWasQuantifier = quantifier
-            when (character) {
-                '[' -> {
-                    if (classStart >= 0) return false
-                    classStart = index
-                }
-                ']' -> if (classStart >= 0 && index > classStart + 1 &&
-                    !(index == classStart + 2 && pattern[classStart + 1] == '^')) classStart = -1
-            }
-        }
-        return true
+        if (unplainParts.any { it in pattern } || stackedQuantifier.containsMatchIn(pattern)) return false
+        return plainClass.replace(pattern, "C").all { it.isLetterOrDigit() || it in "_.|()-*+?" }
     }
 }

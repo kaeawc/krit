@@ -148,10 +148,10 @@ func waitClosed(s *Server) <-chan struct{} {
 }
 
 // TestIdleTimeoutStopsWithAnOpenIdleConnection pins the shutdown path for
-// clients that keep one connection open across requests (the IntelliJ
-// plugin does). Stop waits for every connection goroutine, so a goroutine
-// still blocked reading an idle connection must be released when the
-// server stops, or the daemon never exits and keeps its repo lock.
+// clients that keep one connection open across requests. Stop waits for
+// every connection goroutine, so a goroutine still blocked reading an idle
+// connection must be released when the server stops, or the daemon never
+// exits and keeps its repo lock.
 func TestIdleTimeoutStopsWithAnOpenIdleConnection(t *testing.T) {
 	socket := filepath.Join(shortTempDir(t), "d.sock")
 	srv := NewServer(socket)

@@ -14,7 +14,7 @@ can opt into JVM-backed FIR helper facts (`tools/krit-fir/`,
 ## Key Rules
 
 - Keep analyzer and rule work in Go. Edit Kotlin/Gradle only for
-  `krit-gradle-plugin/`, `tools/krit-*/`, or `editors/intellij-plugin/`.
+  `krit-gradle-plugin/` or `tools/krit-*/`.
 - After implementation changes, run all four:
   `go build -o krit ./cmd/krit/ && go vet ./... && golangci-lint run ./... && make test`.
 - **`golangci-lint run ./...` is required** — `go vet` does not catch

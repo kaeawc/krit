@@ -319,10 +319,10 @@ func (s *Server) acceptLoop(ctx context.Context) {
 
 func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	// Clients may keep a connection open across requests (the IntelliJ
-	// plugin does). Stop waits for this goroutine, so when the server stops,
-	// expire the read deadline to release a ReadBytes blocked on an idle
-	// connection. A request already being handled still gets its reply.
+	// Clients may keep a connection open across requests. Stop waits for
+	// this goroutine, so when the server stops, expire the read deadline to
+	// release a ReadBytes blocked on an idle connection. A request already
+	// being handled still gets its reply.
 	stopWatch := context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
 	defer stopWatch()
 	reader := bufio.NewReader(conn)

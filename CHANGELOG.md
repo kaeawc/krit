@@ -83,6 +83,11 @@ All notable changes to Krit will be documented in this file.
   Currency checks retain Go's nearest enclosing class scope: named, companion and anonymous objects do not
   independently widen the money-related-name heuristic (#1086).
 
+### Removed
+- The native IntelliJ IDEA / Android Studio plugin (`editors/intellij-plugin/`)
+  and its CI and JetBrains Marketplace publish workflows. IntelliJ users can
+  keep using krit through the LSP server (`editors/intellij/`).
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

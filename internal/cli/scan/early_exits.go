@@ -344,9 +344,9 @@ func listRulesFormat(f *scanFlags, fs *flag.FlagSet) string {
 	return ""
 }
 
-// ListedRule is one entry of `krit --list-rules --format json`. Editor
-// integrations (the IntelliJ plugin's per-rule inspections) read it, so keep
-// field names stable; add fields rather than renaming them.
+// ListedRule is one entry of `krit --list-rules --format json`. Editor and
+// tooling integrations read it, so keep field names stable; add fields rather
+// than renaming them.
 type ListedRule struct {
 	ID            string `json:"id"`
 	Category      string `json:"category"`

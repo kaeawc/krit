@@ -50,7 +50,6 @@ contract end-to-end:
 - `internal/rules/api/fixmode_test.go::TestRegister_PreservesSuggestedFixOrdering`
 - `internal/output/suggested_fixes_test.go::TestSuggestedFixes_JSONShape`
 - `internal/output/suggested_fixes_test.go::TestSuggestedFixes_DeterministicSerialization`
-- `editors/intellij-plugin/.../KritJsonParserTest.kt::parse suggested fixes preserves rule-defined order`
 
 Integrations must surface suggestions in the order they appear in the
 finding's `suggestedFixes` array. Do not sort by id, title, or safety

@@ -140,16 +140,14 @@ to write.
 
 Integrations should render each `suggestedFixes[]` entry as its own
 native quick-fix / code-action, **in the order the rule emitted them**
-— do not sort by id, title, or safety level. The IntelliJ plugin
-follows this contract:
+— do not sort by id, title, or safety level:
 
-- `KritInspection` registers one `KritApplySuggestionQuickFix` per
-  machine-applicable suggestion (those with non-empty `edits`).
-- When suggestions are present, the generic "apply autofix" entry is
-  suppressed so the user is never offered both choices at once.
-- Informational suggestions (no `edits`) are surfaced as intentions
-  that route through the integration's help/`applicationToken`
-  handling.
+- Register one quick-fix per machine-applicable suggestion (those with
+  non-empty `edits`).
+- When suggestions are present, suppress the generic "apply autofix"
+  entry so the user is never offered both choices at once.
+- Surface informational suggestions (no `edits`) as intentions that
+  route through the integration's help/`applicationToken` handling.
 
 For LSP wrappers, expose each suggestion as a distinct `CodeAction`
 with a stable `title` (the rule-provided `Title`) and a `data` blob

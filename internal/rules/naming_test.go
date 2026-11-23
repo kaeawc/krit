@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -2477,5 +2478,40 @@ func TestNaming_FunctionNameLength_SkipsOperatorsAndLocalFunctions(t *testing.T)
 		if got := runRuleByName(t, tc.rule, tc.src); len(got) != tc.want {
 			t.Errorf("%s: got %d findings, want %d for\n%s", tc.rule, len(got), tc.want, tc.src)
 		}
+	}
+}
+
+// Package segments may carry digits and underscores after their first
+// letter: okhttp's `okhttp3` (549 corpus findings), coil3, ktor3. The shipped
+// config and the rule default agree; detekt-compat keeps detekt's pattern.
+func TestPackageNaming_AllowsDigitsAndUnderscores(t *testing.T) {
+	for _, tc := range []struct {
+		pkg  string
+		want int
+	}{
+		{"okhttp3.internal.ws", 0},
+		{"coil3.request", 0},
+		{"com.example.my_feature", 0},
+		{"com.Example", 1}, // uppercase is flagged separately
+		{"Com.example", 1},
+		{"com.3d.render", 1},
+	} {
+		if got := len(runRuleByName(t, "PackageNaming", "package "+tc.pkg+"\n\nclass A\n")); got != tc.want {
+			t.Errorf("package %s: findings = %d, want %d", tc.pkg, got, tc.want)
+		}
+	}
+	cfg, err := config.LoadAndMerge("", filepath.Join("..", "..", "config", "default-krit.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compat, err := config.LoadAndMerge(filepath.Join("..", "..", "config", "profiles", "detekt-compat.yml"), filepath.Join("..", "..", "config", "default-krit.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.GetString("naming", "PackageNaming", "packagePattern", ""); got != `[a-z][a-z0-9_]*(\.[a-z][A-Za-z0-9_]*)*` {
+		t.Errorf("shipped packagePattern = %q", got)
+	}
+	if got := compat.GetString("naming", "PackageNaming", "packagePattern", ""); got != `[a-z]+(\.[a-z][A-Za-z0-9]*)*` {
+		t.Errorf("detekt-compat packagePattern = %q", got)
 	}
 }

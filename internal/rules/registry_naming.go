@@ -131,9 +131,11 @@ func registerNamingPackageNaming() {
 	// package segments. Stricter package patterns disallow digits in the
 	// first segment, which false-flags real-world packages that carry a
 	// version suffix (`coil3`, `androidx.core2`, `ktor3.client`). The JVM
-	// language spec allows digits and underscores in any package segment.
-	// as long as it starts with a letter.
-	r := &PackageNamingRule{BaseRule: BaseRule{RuleName: "PackageNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects package names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z]+(\.[a-z][A-Za-z0-9]*)*$`)}
+	// language spec allows digits and underscores in any package segment
+	// as long as it starts with a letter; okhttp's `okhttp3` drew 549
+	// findings from the stricter pattern. The detekt-compat profile keeps
+	// detekt's.
+	r := &PackageNamingRule{BaseRule: BaseRule{RuleName: "PackageNaming", RuleSetName: "naming", Sev: "warning", Desc: "Detects package names that do not match the expected naming pattern."}, Pattern: regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][A-Za-z0-9_]*)*$`)}
 	api.Register(&api.Rule{
 		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
 		NodeTypes: []string{"package_header"}, Confidence: api.ConfidenceVeryHigh, Implementation: r,

@@ -1,0 +1,22 @@
+{
+  "_comment": "Pinned public Kotlin/Android corpus for internal/devtools/corpusbench. Clones live outside the repo (default ~/.krit/corpus). Bump a commit deliberately and record before/after numbers in the PR.",
+  "repos": [
+    {"name": "okhttp", "url": "https://github.com/square/okhttp", "commit": "ee0a7ea1b14d2ea924055d291a22c2a3a7ac97cc", "build": "gradle-kts", "shape": ["library", "multi-module", "version-catalog", "kmp"]},
+    {"name": "moshi", "url": "https://github.com/square/moshi", "commit": "889013ec2edb8d8034902662a1dc8c4f3b3f8111", "build": "gradle-kts", "shape": ["library", "multi-module", "version-catalog"]},
+    {"name": "kotlinx.coroutines", "url": "https://github.com/Kotlin/kotlinx.coroutines", "commit": "7f4d6cf2414937b50291df6169a69afbaf9c5a20", "build": "gradle-kts", "shape": ["library", "kmp", "multi-module"]},
+    {"name": "ktor", "url": "https://github.com/ktorio/ktor", "commit": "170870cf9452f5f79f8327716609fa427c132641", "build": "gradle-kts", "shape": ["library", "kmp", "large-multi-module", "version-catalog"]},
+    {"name": "kotlinx.serialization", "url": "https://github.com/Kotlin/kotlinx.serialization", "commit": "99172ab9ff063e16466226bbeb9a5d00703bbf41", "build": "gradle-kts", "shape": ["library", "kmp", "multi-module", "version-catalog"]},
+    {"name": "nowinandroid", "url": "https://github.com/android/nowinandroid", "commit": "2982e63cb691ad49cd009aab43dc206fee6699c2", "build": "gradle-kts", "shape": ["android-app", "compose", "multi-module", "version-catalog", "convention-plugins"]},
+    {"name": "architecture-samples", "url": "https://github.com/android/architecture-samples", "commit": "ee66e1526b84c026615df032c705842b7d2a521f", "build": "gradle-kts", "shape": ["android-app", "compose", "version-catalog"]},
+    {"name": "iosched", "url": "https://github.com/google/iosched", "commit": "738e1e008096fad5f36612325275e80c33dbe436", "build": "gradle-kts", "shape": ["android-app", "multi-module", "views"]},
+    {"name": "compose-samples", "url": "https://github.com/android/compose-samples", "commit": "09aae2013b3e5897f9679e2b7539f505f4f6f7f6", "build": "gradle-kts", "shape": ["android-app", "compose", "multiple-builds", "version-catalog"]},
+    {"name": "KaMPKit", "url": "https://github.com/touchlab/KaMPKit", "commit": "4af02006be4be589e6848f097a92d97539300821", "build": "gradle-kts", "shape": ["kmp", "android-app", "version-catalog"]},
+    {"name": "leakcanary", "url": "https://github.com/square/leakcanary", "commit": "eb60b0be53732aa016c79b7774b497770ad1e4f3", "build": "gradle-groovy", "shape": ["android-library", "multi-module", "version-catalog"]},
+    {"name": "picasso", "url": "https://github.com/square/picasso", "commit": "e94d6116e3fff99b3932103e0ab22ff5b44a1273", "build": "gradle-groovy", "shape": ["android-library", "multi-module", "version-catalog"]},
+    {"name": "element-x-android", "url": "https://github.com/element-hq/element-x-android", "commit": "0b7af9b663b8b3742c378899cf0e70e16b7474b8", "build": "gradle-kts", "shape": ["android-app", "compose", "large-multi-module", "version-catalog"]},
+    {"name": "detekt", "url": "https://github.com/detekt/detekt", "commit": "ae6d92d948976a6bdf16c382c35a3e88379c514e", "build": "gradle-kts", "shape": ["jvm", "large-multi-module", "version-catalog"]},
+    {"name": "rules_kotlin", "url": "https://github.com/bazel-contrib/rules_kotlin", "commit": "7573ab16e672d179069bf8cc5be347d452a00c09", "build": "bazel", "shape": ["bazel", "rules_kotlin", "examples"]},
+    {"name": "bazel-examples", "url": "https://github.com/bazelbuild/examples", "commit": "efab5bd4660ebfe720bd52efaeeccefaf00ee4ad", "build": "bazel", "shape": ["bazel", "android", "multiple-workspaces"]},
+    {"name": "rules_android", "url": "https://github.com/bazelbuild/rules_android", "commit": "5c6247ecf68a87c9e0bfc927d4973f7f0b648a52", "build": "bazel", "shape": ["bazel", "rules_android", "examples"]}
+  ]
+}

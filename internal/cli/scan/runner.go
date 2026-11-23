@@ -69,6 +69,7 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		if repoDir := oracle.FindRepoDir(r.paths); repoDir != "" {
 			host.FindingsBundleStore = scanner.DiskFindingsBundleStore{}
 			host.FindingsBundleCacheRoot = repoDir
+			host.PreparseBundleShortcut = r.preparseBundleShortcutEligible()
 		}
 	}
 	if *r.f.Fir && !*r.f.NoFir {
@@ -102,6 +103,17 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 		},
 		Host: host,
 	}
+}
+
+// preparseBundleShortcutEligible reports whether this run may be served from
+// the findings bundle before parsing. Everything after the analysis that
+// reads parsed sources rather than findings opts out: fixes, the FIR pass,
+// and SLOs (which index the parsed files per module).
+func (r *runner) preparseBundleShortcutEligible() bool {
+	if *r.f.Fix || *r.f.DryRun || *r.f.FixBinary || (*r.f.Fir && !*r.f.NoFir) {
+		return false
+	}
+	return r.cfg == nil || len(r.cfg.SLOs()) == 0
 }
 
 func parseCustomRuleJars(raw string) []string {

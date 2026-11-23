@@ -1,0 +1,82 @@
+name: "Restore Go caches"
+description: >-
+  Restore the Go module cache and one Go build-cache family. Run it after
+  actions/setup-go with `cache: false`, and pair it with go-cache-save at the
+  end of the job that writes the family. (setup-go's own cache uses one key
+  for every job, so whichever job finished first, usually actionlint, saved
+  a few megabytes and every other job compiled from scratch.) Restored build-cache entries are aged two days so that
+  go-cache-save can drop every entry the job did not use (the go command
+  refreshes an entry's mtime when it reads it), which keeps each saved
+  cache at the job's working set instead of growing with every commit.
+
+inputs:
+  family:
+    description: >-
+      Build-cache family. Jobs that compile the same packages restore the same
+      family; one job per family saves it.
+    required: true
+  extra-paths:
+    description: >-
+      Further cache directories (newline-separated) that follow the go
+      command's mtime-on-use convention, such as golangci-lint's cache.
+    required: false
+    default: ""
+  writer:
+    description: >-
+      "true" when this job saves the family with go-cache-save. Only writers
+      age the restored entries, and only on pushes to main, where they save.
+    required: false
+    default: "false"
+
+outputs:
+  modules-hit:
+    description: "Whether the module cache was restored for the current go.sum"
+    value: ${{ steps.modules.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Locate Go caches
+      id: dirs
+      shell: bash
+      run: |
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+    - name: Restore Go module cache
+      id: modules
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.dirs.outputs.gomodcache }}
+        key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+    - name: Restore Go build cache (${{ inputs.family }})
+      id: build
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: |
+          ${{ steps.dirs.outputs.gocache }}
+          ${{ inputs.extra-paths }}
+        key: go-build-${{ inputs.family }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+        restore-keys: |
+          go-build-${{ inputs.family }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}-
+          go-build-${{ inputs.family }}-${{ runner.os }}-${{ runner.arch }}-
+    # The list of restored files lets go-cache-save tell how much this job
+    # compiled that the restored cache lacked.
+    - name: Age restored build cache entries
+      if: >-
+        inputs.writer == 'true' && steps.build.outputs.cache-matched-key != ''
+        && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      shell: bash
+      env:
+        GO_CACHE_DIRS: |
+          ${{ steps.dirs.outputs.gocache }}
+          ${{ inputs.extra-paths }}
+        RESTORED_LIST: ${{ runner.temp }}/go-cache-${{ inputs.family }}-restored.txt
+      run: |
+        : > "$RESTORED_LIST"
+        while IFS= read -r dir; do
+          dir="${dir/#\~/$HOME}"
+          [ -n "$dir" ] && [ -d "$dir" ] || continue
+          find "$dir" -type f -exec touch -m -d '2 days ago' {} +
+          find "$dir" -type f >> "$RESTORED_LIST"
+        done <<< "$GO_CACHE_DIRS"
+        sort -o "$RESTORED_LIST" "$RESTORED_LIST"

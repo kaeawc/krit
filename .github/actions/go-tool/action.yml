@@ -1,0 +1,71 @@
+name: "Install a Go tool"
+description: >-
+  Install the latest release of a Go command-line tool and put it on PATH.
+  The binary is built from source with `go install` exactly as before, but
+  only once per (tool version, Go version): the build is cached under a key
+  that names the resolved version, so a new upstream release still gets
+  picked up on the next run. Builds use a scratch module and build cache so
+  tool sources never land in the project's Go caches.
+
+inputs:
+  module:
+    description: "Module path, e.g. github.com/golangci/golangci-lint/v2"
+    required: true
+  package:
+    description: "Package path of the command, e.g. github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
+    required: true
+
+outputs:
+  version:
+    description: "The resolved module version"
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve ${{ inputs.package }}@latest
+      id: resolve
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        PACKAGE: ${{ inputs.package }}
+        # GOTOOLCHAIN=auto lets `go install` fetch the Go toolchain a tool
+        # requires when it is newer than the pinned go.mod version (setup-go
+        # sets GOTOOLCHAIN=local, which otherwise fails the build).
+        GOTOOLCHAIN: auto
+      run: |
+        version="$(GOMODCACHE="$RUNNER_TEMP/go-tools-mod" go list -m -f '{{.Version}}' "$MODULE@latest")"
+        name="${PACKAGE##*/}"
+        bindir="$RUNNER_TEMP/go-tools/$name"
+        mkdir -p "$bindir"
+        echo "$bindir" >> "$GITHUB_PATH"
+        {
+          echo "version=$version"
+          echo "name=$name"
+          echo "bindir=$bindir"
+          echo "goversion=$(go env GOVERSION)"
+        } >> "$GITHUB_OUTPUT"
+        echo "$PACKAGE@$version"
+    - name: Restore ${{ steps.resolve.outputs.name }} binary
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.resolve.outputs.bindir }}
+        key: go-tool-${{ steps.resolve.outputs.name }}-${{ steps.resolve.outputs.version }}-${{ steps.resolve.outputs.goversion }}-${{ runner.os }}-${{ runner.arch }}
+    - name: Build ${{ steps.resolve.outputs.name }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        VERSION: ${{ steps.resolve.outputs.version }}
+        GOBIN: ${{ steps.resolve.outputs.bindir }}
+        GOTOOLCHAIN: auto
+      run: |
+        GOMODCACHE="$RUNNER_TEMP/go-tools-mod" GOCACHE="$RUNNER_TEMP/go-tools-build" \
+          go install "$PACKAGE@$VERSION"
+    - name: Save ${{ steps.resolve.outputs.name }} binary
+      if: steps.cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.resolve.outputs.bindir }}
+        key: ${{ steps.cache.outputs.cache-primary-key }}

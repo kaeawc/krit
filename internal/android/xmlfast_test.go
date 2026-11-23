@@ -124,6 +124,7 @@ var xmlFastDeclined = []string{
 	"<a><![CDATA[]]>text<![CDATA[x]]>tail</a>",
 	"<a><![CDATA[<b>x</b>]]]></a>",
 	"<a><![CDATA[]x]]></a>",
+	"<a><![CDATA[<x>]]]]>>tail</a>",
 	"<resources>\n  <string name=\"empty\"><![CDATA[]]></string>\n  <string name=\"loading\">Loading...</string>\n</resources>\n",
 }
 

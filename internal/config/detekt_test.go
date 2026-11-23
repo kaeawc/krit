@@ -49,9 +49,11 @@ func installFakeView(t *testing.T) {
 			"FunctionNaming":          "naming",
 			"TopLevelPropertyNaming":  "naming",
 			"DestructuringDeclarationWithTooManyEntries": "style",
+			"ForbiddenImport": "style",
 		},
 		options: map[string]map[string]string{
 			"LongMethod":              {"allowedLines": "allowedLines", "threshold": "allowedLines"},
+			"ForbiddenImport":         {"imports": "imports", "forbiddenImports": "forbiddenImports"},
 			"NestedBlockDepth":        {"allowedDepth": "allowedDepth", "threshold": "allowedDepth"},
 			"TooManyFunctions":        {"allowedFunctionsPerFile": "allowedFunctionsPerFile", "ignoreDeprecated": "ignoreDeprecated"},
 			"CyclomaticComplexMethod": {"allowedComplexity": "allowedComplexity", "threshold": "allowedComplexity"},
@@ -558,5 +560,32 @@ func TestDetektExplicitInvalidYAMLIsError(t *testing.T) {
 	writeFile(t, filepath.Join(root, "krit.yml"), "detekt:\n  configFile: lint.yml\n")
 	if _, err := mergeUserConfig(NewConfig(), "", []string{root}, LoadOptions{}); err == nil {
 		t.Error("detekt.configFile pointing at invalid YAML must fail")
+	}
+}
+
+// detekt 2's ForbiddenImport `forbiddenImports` holds whole-path globs (the
+// detekt repository forbids `org.assertj.core.api.Assertions` so that
+// `...Assertions.assertThat` is imported instead). krit's own
+// `forbiddenImports` matches package prefixes, so the detekt list goes to
+// krit's glob option `imports`.
+func TestDetektForbiddenImportsBecomeGlobImports(t *testing.T) {
+	installFakeView(t)
+	cfg, notes := translate(t, `
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - value: 'org.assertj.core.api.Assertions'
+        reason: 'Import Assertions.assertThat instead.'
+      - value: 'org.junit.jupiter.api.Assertions*'
+`)
+	if len(notes) != 0 {
+		t.Fatalf("unexpected notes: %v", notes)
+	}
+	if got := cfg.GetStringList("style", "ForbiddenImport", "imports"); len(got) != 2 || got[0] != "org.assertj.core.api.Assertions" {
+		t.Errorf("imports = %v", got)
+	}
+	if cfg.Has("style", "ForbiddenImport", "forbiddenImports") {
+		t.Error("detekt forbiddenImports kept krit's package-prefix option")
 	}
 }

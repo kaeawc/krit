@@ -481,6 +481,21 @@ func (f *File) FlatNamedChild(parent uint32, childIdx int) uint32 {
 	return 0
 }
 
+// FlatForEachNamedChild calls fn for each named child of parent in order.
+// Prefer it over an index loop on FlatNamedChild, which rescans the
+// sibling list on every call and is quadratic in the child count.
+func (f *File) FlatForEachNamedChild(parent uint32, fn func(uint32)) {
+	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) || fn == nil {
+		return
+	}
+	t := f.FlatTree
+	for child := t.FirstChildren[parent]; child != 0; child = t.NextSibs[child] {
+		if t.Flags[child]&flatNodeFlagNamed != 0 {
+			fn(child)
+		}
+	}
+}
+
 func (f *File) FlatForEachChild(parent uint32, fn func(uint32)) {
 	if f == nil || f.FlatTree == nil || int(parent) >= len(f.FlatTree.Types) || fn == nil {
 		return

@@ -12,39 +12,51 @@ type fileHeaders struct {
 	it  *ImportTable
 }
 
-func scanFileHeadersFlat(rootIdx uint32, file *scanner.File) fileHeaders {
+// scanFileHeadersFlat reads the package and import headers of a file.
+func scanFileHeadersFlat(file *scanner.File) fileHeaders {
 	headers := fileHeaders{
 		it: &ImportTable{
 			Explicit: make(map[string]string),
 			Aliases:  make(map[string]string),
 		},
 	}
-	if file == nil || file.FlatTree == nil || int(rootIdx) >= file.FlatTree.Len() {
+	if file == nil || file.FlatTree == nil || file.FlatTree.Len() == 0 {
 		return headers
 	}
-	visitChild := func(child uint32) {
+	// Package and import headers precede every top-level declaration, so
+	// stop at the first one. Callers resolve the package once per type
+	// reference; scanning a file with thousands of top-level declarations
+	// each time made indexing superlinear.
+	t := file.FlatTree
+	for child := t.FirstChildren[0]; child != 0; child = t.NextSibs[child] {
+		if !t.Node(child).IsNamed() {
+			continue
+		}
 		switch file.FlatType(child) {
 		case "package_header":
 			headers.pkg = sourceheader.FirstHeaderLine(file.FlatNodeText(child), "package")
 		case "import_header", "import_list":
 			extractImportsFlat(child, file, headers.it)
-		}
-	}
-	if rootIdx == 0 {
-		for i := 0; i < file.FlatNamedChildCount(0); i++ {
-			child := file.FlatNamedChild(0, i)
-			if child != 0 {
-				visitChild(child)
+		default:
+			if isTopLevelDeclarationType(file.FlatType(child)) {
+				return headers
 			}
 		}
-		return headers
 	}
-	forEachFlatNamedChild(file, rootIdx, visitChild)
 	return headers
 }
 
+func isTopLevelDeclarationType(t string) bool {
+	switch t {
+	case "class_declaration", "object_declaration", "function_declaration",
+		"property_declaration", "type_alias":
+		return true
+	}
+	return false
+}
+
 func buildImportTableFlat(file *scanner.File) *ImportTable {
-	return scanFileHeadersFlat(0, file).it
+	return scanFileHeadersFlat(file).it
 }
 
 func extractImportsFlat(nodeIdx uint32, file *scanner.File, it *ImportTable) {
@@ -81,5 +93,5 @@ func extractImportsFlat(nodeIdx uint32, file *scanner.File, it *ImportTable) {
 }
 
 func extractPackageFlat(file *scanner.File) string {
-	return scanFileHeadersFlat(0, file).pkg
+	return scanFileHeadersFlat(file).pkg
 }

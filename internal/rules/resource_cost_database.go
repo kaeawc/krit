@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -417,19 +418,22 @@ func databaseFunctionHasRoomAnnotationEvidence(file *scanner.File, idx uint32, n
 	return databaseHasRoomSourceEvidence(file, idx, names)
 }
 
+var roomPackageMarker = []byte("androidx.room")
+
 func databaseHasRoomSourceEvidence(file *scanner.File, idx uint32, annotationNames []string) bool {
 	if file == nil || idx == 0 {
 		return false
 	}
-	text := string(file.Content)
-	if !strings.Contains(text, "androidx.room") {
-		return false
-	}
 	nodeText := file.FlatNodeText(idx)
+	annotated := false
 	for _, name := range annotationNames {
 		if strings.Contains(nodeText, "@"+name) {
-			return true
+			annotated = true
+			break
 		}
 	}
-	return false
+	// Check the node-local annotation first: the file-wide search runs
+	// once per candidate class or function and is quadratic on files
+	// with many declarations when done unconditionally.
+	return annotated && bytes.Contains(file.Content, roomPackageMarker)
 }

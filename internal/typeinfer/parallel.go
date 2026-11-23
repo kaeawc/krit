@@ -64,7 +64,7 @@ func IndexFileParallel(file *scanner.File) *FileTypeInfo {
 		functions:      make(map[string]*ResolvedType),
 	}
 
-	headers := scanFileHeadersFlat(0, file)
+	headers := scanFileHeadersFlat(file)
 	it := headers.it
 	rootScope := &ScopeTable{
 		Entries:         make(map[string]*ResolvedType),

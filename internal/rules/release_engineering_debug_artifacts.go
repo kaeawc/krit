@@ -517,33 +517,39 @@ func (r *TestOnlyImportInProductionRule) check(ctx *api.Context) {
 	if !strings.HasSuffix(file.Path, ".kt") && !strings.HasSuffix(file.Path, ".kts") {
 		return
 	}
-	if scanner.IsTestFile(file.Path) {
-		return
-	}
-	if isAndroidTestSupportArtifactSource(file.Path) {
-		return
-	}
 	idx := ctx.Idx
 	ident, ok := file.FlatFindChild(idx, "identifier")
 	if !ok {
 		return
 	}
 	fqn := file.FlatNodeText(ident)
-	// Idling resources ship in production builds so UI tests can wait on them.
-	if strings.HasPrefix(fqn, "androidx.test.espresso.idling.") ||
-		fqn == "androidx.test.espresso.IdlingResource" || fqn == "androidx.test.espresso.IdlingRegistry" {
+	// Check the import before the path: most imports are not test-only, and
+	// the path checks split and lower-case the path on every call.
+	if !testOnlyImportFQN(fqn) {
 		return
 	}
-	if isTestFixtureModulePath(file.Path) || isTestFrameworkModulePath(file.Path) {
+	if scanner.IsTestFile(file.Path) || isAndroidTestSupportArtifactSource(file.Path) ||
+		isTestFixtureModulePath(file.Path) || isTestFrameworkModulePath(file.Path) {
 		return
+	}
+	ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
+		fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", fqn)))
+}
+
+// testOnlyImportFQN reports whether an imported name is under a test
+// framework package. Idling resources ship in production builds so UI tests
+// can wait on them, so they are not test-only.
+func testOnlyImportFQN(fqn string) bool {
+	if strings.HasPrefix(fqn, "androidx.test.espresso.idling.") ||
+		fqn == "androidx.test.espresso.IdlingResource" || fqn == "androidx.test.espresso.IdlingRegistry" {
+		return false
 	}
 	for _, prefix := range testOnlyImportPrefixes {
 		if strings.HasPrefix(fqn, prefix) {
-			ctx.Emit(r.Finding(file, file.FlatRow(idx)+1, file.FlatCol(idx)+1,
-				fmt.Sprintf("Test-only import %q in non-test file; move this code to a test source set.", fqn)))
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // NonASCIIIdentifierRule flags class/function/property names containing

@@ -799,6 +799,14 @@ type Rule struct {
 	// lexical and AST-only.
 	LexicalCalleeNames []string
 
+	// FileGate, when set, is evaluated once per file before the
+	// dispatcher's node walk; when it returns false the rule is skipped
+	// for that file. It is a pure speed optimization, so it must return
+	// false only when the rule provably cannot report on the file — for
+	// example when an identifier every finding needs does not occur in
+	// the source. Only per-file node and line rules honor it.
+	FileGate func(file *scanner.File) bool
+
 	// Languages declares which source languages this rule applies to.
 	// When nil the effective default is computed from Needs:
 	//   NeedsManifest   → [LangXML]

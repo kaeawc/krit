@@ -236,6 +236,18 @@ func sourceImportsOrMentions(file *scanner.File, fqn string) bool {
 	return fileFactsCache().Mentions(file, fqn)
 }
 
+// okHTTPClientConstructionCallName reports whether a call or Java method
+// invocation named name can be an OkHttpClient construction: the
+// constructor itself or Builder.build(). Object creation expressions are
+// matched by their text, so they always pass.
+func okHTTPClientConstructionCallName(file *scanner.File, idx uint32, name string) bool {
+	switch file.FlatType(idx) {
+	case "call_expression", "method_invocation":
+		return name == "OkHttpClient" || name == "build"
+	}
+	return true
+}
+
 func okHTTPClientConstructionLooksReal(file *scanner.File, idx uint32, name, nodeText string) bool {
 	if !sourceImportsOrMentions(file, "okhttp3.OkHttpClient") {
 		return false

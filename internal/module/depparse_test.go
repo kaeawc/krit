@@ -17,7 +17,7 @@ dependencies {
 }
 `
 	graph := NewModuleGraph("/tmp")
-	deps := parseDeps(content, graph)
+	deps := parseDeps(content, graph, "")
 	if len(deps) != 4 {
 		t.Fatalf("expected 4 deps, got %d: %v", len(deps), deps)
 	}
@@ -48,7 +48,7 @@ dependencies {
 }
 `
 	graph := NewModuleGraph("/tmp")
-	deps := parseDeps(content, graph)
+	deps := parseDeps(content, graph, "")
 	if len(deps) != 3 {
 		t.Fatalf("expected 3 deps, got %d: %v", len(deps), deps)
 	}
@@ -85,7 +85,7 @@ dependencies {
 	graph.Modules[":backstack"] = &Module{Path: ":backstack"}
 	graph.Modules[":internal-test-utils"] = &Module{Path: ":internal-test-utils"}
 
-	deps := parseDeps(content, graph)
+	deps := parseDeps(content, graph, "")
 	if len(deps) != 3 {
 		t.Fatalf("expected 3 deps, got %d: %v", len(deps), deps)
 	}
@@ -110,7 +110,7 @@ dependencies {
 	graph := NewModuleGraph("/tmp")
 	graph.Modules[":samples:star:benchmark"] = &Module{Path: ":samples:star:benchmark"}
 
-	deps := parseDeps(content, graph)
+	deps := parseDeps(content, graph, "")
 	if len(deps) != 1 {
 		t.Fatalf("expected 1 dep, got %d: %v", len(deps), deps)
 	}
@@ -126,7 +126,7 @@ dependencies {
 }
 `
 	graph := NewModuleGraph("/tmp")
-	deps := parseDeps(content, graph)
+	deps := parseDeps(content, graph, "")
 	if len(deps) != 1 {
 		t.Fatalf("expected 1 dep, got %d: %v", len(deps), deps)
 	}
@@ -236,5 +236,70 @@ func TestParseAllDependencies_UnreadableBuildFileDoesNotStopOthers(t *testing.T)
 	}
 	if got := graph.Consumers[":b"]; len(got) != 2 || got[0] != ":a" || got[1] != ":c" {
 		t.Fatalf("consumers of :b = %v, want [:a :c]", got)
+	}
+}
+
+// Dependencies of test configurations and of test source-set blocks are
+// marked Test, so a module that tests against a consumer of itself is not
+// reported as a cycle (ktor's engines and their shared client tests,
+// element-x's :test fixture modules).
+func TestParseDepsMarksTestScope(t *testing.T) {
+	content := `
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            api(projects.ktorClientCore)
+        }
+        commonTest.dependencies {
+            implementation(projects.ktorClientTests)
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(project(":ktor-test-base"))
+            }
+        }
+    }
+}
+dependencies {
+    implementation(project(":lib"))
+    testImplementation(project(":fixtures"))
+    androidTestImplementation(project(":android-fixtures"))
+    if (latest) {
+        implementation(project(":latest-only"))
+    }
+}
+tasks.withType<Test> {
+}
+`
+	got := map[string]bool{}
+	for _, d := range parseDeps(content, NewModuleGraph("/r"), "") {
+		got[d.ModulePath] = d.Test
+	}
+	want := map[string]bool{
+		":ktor-client-core":  false,
+		":ktor-client-tests": true,
+		":ktor-test-base":    true,
+		":lib":               false,
+		":fixtures":          true,
+		":android-fixtures":  true,
+		":latest-only":       false,
+	}
+	for path, test := range want {
+		if g, ok := got[path]; !ok || g != test {
+			t.Errorf("%s: Test = %v (found %v), want %v", path, g, ok, test)
+		}
+	}
+}
+
+func TestFindCyclesIgnoresTestDependencies(t *testing.T) {
+	g := NewModuleGraph("/r")
+	g.Modules[":a"] = &Module{Path: ":a", Dependencies: []Dependency{{ModulePath: ":b", Configuration: "testImplementation", Test: true}}}
+	g.Modules[":b"] = &Module{Path: ":b", Dependencies: []Dependency{{ModulePath: ":a", Configuration: "implementation"}}}
+	if cycles := g.FindCycles(); len(cycles) != 0 {
+		t.Errorf("cycles = %v, want none through a test dependency", cycles)
+	}
+	g.Modules[":a"].Dependencies[0].Test = false
+	if cycles := g.FindCycles(); len(cycles) != 1 {
+		t.Errorf("cycles = %v, want the :a/:b cycle", cycles)
 	}
 }

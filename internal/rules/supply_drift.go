@@ -35,6 +35,12 @@ func (r *KotlinVersionMismatchAcrossModulesRule) check(ctx *api.Context) {
 	if len(modules) < 2 {
 		return
 	}
+	// When most modules inherit their target from a convention plugin or
+	// the root build, the few explicit targets are the exceptions, not a
+	// sample of the project: ktor sets a toolchain in 7 of 139 modules.
+	if 2*len(modules) < countModulesWithBuildFile(ctx.ModuleIndex.Graph) {
+		return
+	}
 	majority, strict := majorityKotlinJvmTarget(modules)
 	if majority == 0 {
 		return
@@ -44,8 +50,19 @@ func (r *KotlinVersionMismatchAcrossModulesRule) check(ctx *api.Context) {
 		baseline = "no target has a majority, so the highest target is"
 	}
 	summary := formatModuleKotlinJvmTargets(modules)
+	targets := make(map[string]int, len(modules))
+	for _, mod := range modules {
+		targets[mod.modulePath] = mod.value
+	}
 	for _, mod := range modules {
 		if mod.value == majority {
+			continue
+		}
+		// A module that raises its target for a newer JDK API (java.net.http
+		// at 11, java.util.concurrent.Flow at 9) breaks the build only for
+		// project modules that depend on it at a lower target. Consumers
+		// without an explicit target are assumed to use the majority.
+		if mod.value > majority && !hasLowerJvmTargetConsumer(ctx.ModuleIndex.Graph, mod, targets, majority) {
 			continue
 		}
 		ctx.Emit(scanner.Finding{
@@ -59,6 +76,29 @@ func (r *KotlinVersionMismatchAcrossModulesRule) check(ctx *api.Context) {
 			Confidence: r.Confidence(),
 		})
 	}
+}
+
+func countModulesWithBuildFile(graph *module.Graph) int {
+	n := 0
+	for _, mod := range graph.Modules {
+		if gradleBuildFileForModule(mod.Dir) != "" {
+			n++
+		}
+	}
+	return n
+}
+
+func hasLowerJvmTargetConsumer(graph *module.Graph, mod moduleKotlinJvmTarget, targets map[string]int, majority int) bool {
+	for _, consumer := range graph.Consumers[mod.modulePath] {
+		target, ok := targets[consumer]
+		if !ok {
+			target = majority
+		}
+		if target < mod.value {
+			return true
+		}
+	}
+	return false
 }
 
 // JvmTargetMismatchRule flags Kotlin and Java JVM target settings that disagree.

@@ -27,7 +27,7 @@ func ParseDependencies(graph *Graph, module *Module) error {
 	}
 
 	module.IsPublished = detectMavenPublish(content)
-	module.Dependencies = parseDeps(content, graph)
+	module.Dependencies = parseDeps(content, graph, module.BuildPath)
 
 	// Update the consumers reverse-index.
 	for _, dep := range module.Dependencies {
@@ -90,16 +90,20 @@ var typesafeDepRe = regexp.MustCompile(`(\w+)\s*\(\s*projects\.([a-zA-Z][\w.]*\w
 var mavenPublishRe = regexp.MustCompile(`(?:id\s*\(\s*["']maven-publish["']\s*\)|alias\s*\(\s*libs\.plugins\.mavenPublish\s*\)|apply\s+plugin:\s*["']maven-publish["'])`)
 
 // parseDeps extracts all project dependencies from build file content.
-func parseDeps(content string, graph *Graph) []Dependency {
+// buildPath is the owning build's path prefix (see Module.BuildPath).
+func parseDeps(content string, graph *Graph, buildPath string) []Dependency {
 	seen := make(map[string]bool)
 	var deps []Dependency
+	testBlocks := testSourceSetBlocks(content)
 
-	add := func(config, modPath string) {
+	add := func(config, modPath string, offset int) {
 		modPath = strings.TrimSpace(modPath)
 		if !strings.HasPrefix(modPath, ":") {
 			modPath = ":" + modPath
 		}
-		key := config + "|" + modPath
+		modPath = graph.resolveModulePath(modPath, buildPath)
+		test := isTestConfiguration(config) || inBlocks(testBlocks, offset)
+		key := fmt.Sprintf("%s|%s|%t", config, modPath, test)
 		if seen[key] {
 			return
 		}
@@ -107,34 +111,86 @@ func parseDeps(content string, graph *Graph) []Dependency {
 		deps = append(deps, Dependency{
 			ModulePath:    modPath,
 			Configuration: config,
+			Test:          test,
 		})
 	}
 
 	// Standard project() deps.
-	for _, match := range projectDepRe.FindAllStringSubmatch(content, -1) {
-		add(match[1], match[2])
+	for _, m := range projectDepRe.FindAllStringSubmatchIndex(content, -1) {
+		add(content[m[2]:m[3]], content[m[4]:m[5]], m[0])
 	}
 
 	// Flavor-qualified deps.
-	for _, match := range flavorDepRe.FindAllStringSubmatch(content, -1) {
-		add(match[1], match[2])
+	for _, m := range flavorDepRe.FindAllStringSubmatchIndex(content, -1) {
+		add(content[m[2]:m[3]], content[m[4]:m[5]], m[0])
 	}
 
 	// Typesafe accessor deps.
-	for _, match := range typesafeDepRe.FindAllStringSubmatch(content, -1) {
-		config := match[1]
-		accessor := match[2]
-		modPath := typesafeAccessorToPath(accessor, graph)
-		add(config, modPath)
+	for _, m := range typesafeDepRe.FindAllStringSubmatchIndex(content, -1) {
+		add(content[m[2]:m[3]], typesafeAccessorToPath(content[m[4]:m[5]]), m[0])
 	}
 
 	return deps
 }
 
-// typesafeAccessorToPath converts a dotted typesafe accessor to a Gradle path.
-// It first tries to match against known modules in the graph, then falls back
-// to camelCase splitting.
-func typesafeAccessorToPath(accessor string, graph *Graph) string {
+// isTestConfiguration reports a Gradle configuration that only test code
+// compiles or runs against: testImplementation, androidTestApi,
+// testFixturesImplementation, kspTest, commonTestImplementation.
+func isTestConfiguration(config string) bool {
+	return strings.Contains(strings.ToLower(config), "test")
+}
+
+// testBlockHeaderRe matches a block header that names a test source set:
+// `commonTest.dependencies {`, `val jvmTest by getting {`,
+// `getByName("androidUnitTest") {`, `sourceSets.test {`.
+var testBlockHeaderRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(?:tests?|testFixtures|[a-z][A-Za-z0-9]*Tests?(?:Fixtures)?)(?:[^A-Za-z0-9_]|$)`)
+
+type byteRange struct{ start, end int }
+
+// testSourceSetBlocks returns the brace-delimited blocks of a build script
+// whose header names a test source set. Braces inside strings and comments
+// are not distinguished; a mismatched brace only drops the classification.
+func testSourceSetBlocks(content string) []byteRange {
+	var blocks []byteRange
+	var stack []int
+	headerStart := 0
+	for i := 0; i < len(content); i++ {
+		switch content[i] {
+		case '\n', ';':
+			headerStart = i + 1
+		case '{':
+			header := content[headerStart:i]
+			if testBlockHeaderRe.MatchString(header) && !strings.Contains(header, "withType") {
+				stack = append(stack, i)
+			} else {
+				stack = append(stack, -1)
+			}
+			headerStart = i + 1
+		case '}':
+			if n := len(stack); n > 0 {
+				if open := stack[n-1]; open >= 0 {
+					blocks = append(blocks, byteRange{open, i})
+				}
+				stack = stack[:n-1]
+			}
+			headerStart = i + 1
+		}
+	}
+	return blocks
+}
+
+func inBlocks(blocks []byteRange, offset int) bool {
+	for _, b := range blocks {
+		if offset > b.start && offset < b.end {
+			return true
+		}
+	}
+	return false
+}
+
+// typesafeAccessorToPath converts a dotted typesafe accessor to a Gradle
+// path by camelCase splitting; parseDeps resolves it against the graph.
+func typesafeAccessorToPath(accessor string) string {
 	// Split on dots for nested accessors like "samples.star.benchmark".
 	parts := strings.Split(accessor, ".")
 	var segments []string
@@ -144,13 +200,7 @@ func typesafeAccessorToPath(accessor string, graph *Graph) string {
 		// Strip the leading ":"
 		segments = append(segments, strings.TrimPrefix(converted, ":"))
 	}
-	candidate := ":" + strings.Join(segments, ":")
-	if graph != nil {
-		if _, ok := graph.Modules[candidate]; ok {
-			return candidate
-		}
-	}
-	return candidate
+	return ":" + strings.Join(segments, ":")
 }
 
 // detectMavenPublish returns true if the build file contains a maven-publish plugin.

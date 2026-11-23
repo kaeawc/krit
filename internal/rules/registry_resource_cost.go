@@ -70,7 +70,7 @@ func registerResourceCostRules() {
 					if foundNode != 0 {
 						return
 					}
-					if name := flatCallExpressionName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, loopLocals) {
+					if name := flatCallExpressionName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, body, loopLocals) {
 						foundNode, foundName = callIdx, name
 					}
 				})
@@ -78,7 +78,7 @@ func registerResourceCostRules() {
 					if foundNode != 0 {
 						return
 					}
-					if name := databaseCallName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, loopLocals) {
+					if name := databaseCallName(file, callIdx); (name == "getColumnIndex" || name == "getColumnIndexOrThrow") && cursorColumnArgIsLoopInvariant(file, callIdx, body, loopLocals) {
 						foundNode, foundName = callIdx, name
 					}
 				})

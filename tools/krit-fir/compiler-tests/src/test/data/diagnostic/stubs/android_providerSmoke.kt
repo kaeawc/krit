@@ -4,6 +4,7 @@ package stubs
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.provider.ContactsContract
 
 fun deviceSettings(context: Context): String? {
     val resolver = context.contentResolver
@@ -12,3 +13,9 @@ fun deviceSettings(context: Context): String? {
     context.startActivity(Intent(Settings.ACTION_SETTINGS))
     return Settings.Global.getString(resolver, "name") ?: "$airplane${id.orEmpty()}"
 }
+
+fun contactColumns(): List<String> = listOf(
+    ContactsContract.Contacts.CONTENT_URI.toString(),
+    ContactsContract.Contacts.LOOKUP_KEY,
+    ContactsContract.CommonDataKinds.Contactables.CONTACT_ID,
+)

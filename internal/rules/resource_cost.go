@@ -707,41 +707,38 @@ func cursorCallReceiverNode(file *scanner.File, call uint32) uint32 {
 // cursorLoopLocalNames returns names declared inside a cursor loop: locals, lambda parameters and for variables.
 func cursorLoopLocalNames(file *scanner.File, body uint32) map[string]bool {
 	names := map[string]bool{}
-	file.FlatWalkNodes(body, "property_declaration", func(prop uint32) {
-		if n := composePropertyNameFlat(file, prop); n != "" {
-			names[n] = true
-		}
-	})
-	file.FlatWalkNodes(body, "for_statement", func(forStmt uint32) {
-		if decl, ok := file.FlatFindChild(forStmt, "variable_declaration"); ok {
-			if ident, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
-				names[file.FlatNodeText(ident)] = true
-			}
-		}
-	})
+	file.FlatWalkAllNodes(body, func(decl uint32) { cursorBindingNames(file, decl, names) })
 	file.FlatWalkNodes(body, "lambda_literal", func(lambda uint32) {
-		params := composeLambdaParameterNamesFlat(file, lambda)
-		if len(params) == 0 {
+		params, explicit := file.FlatFindChild(lambda, "lambda_parameters")
+		if !explicit || file.FlatNamedChildCount(params) == 0 {
 			names["it"] = true
-		}
-		for _, p := range params {
-			names[p] = true
 		}
 	})
 	return names
 }
 
-// cursorColumnArgIsLoopInvariant reports whether the column-name argument of a getColumnIndex call does not
-// depend on a value declared inside the loop, so the lookup can be hoisted.
-func cursorColumnArgIsLoopInvariant(file *scanner.File, call uint32, loopLocals map[string]bool) bool {
+// cursorColumnArgIsLoopInvariant reports whether a getColumnIndex call can be hoisted with its receiver and argument.
+func cursorColumnArgIsLoopInvariant(file *scanner.File, call, body uint32, loopLocals map[string]bool) bool {
+	receiver := cursorCallReceiverNode(file, call)
+	if !cursorReceiverInvariant(file, receiver, call, body, loopLocals) {
+		return false
+	}
 	args := flatCallKeyArguments(file, call)
 	if args == 0 {
 		args, _ = file.FlatFindChild(call, "argument_list")
 	}
-	if args == 0 {
+	return cursorColumnArgumentInvariant(file, call, body, args, loopLocals)
+}
+
+func cursorLookupUsesLocal(file *scanner.File, root uint32, locals map[string]bool) bool {
+	if resourceCostSubtreeUsesName(file, root, locals) {
 		return true
 	}
-	return !resourceCostSubtreeUsesName(file, args, loopLocals)
+	found := false
+	file.FlatWalkNodes(root, "identifier", func(ident uint32) {
+		found = found || locals[file.FlatNodeText(ident)]
+	})
+	return found
 }
 
 // bufferedReadFillsLargeBuffer reports whether a FileInputStream.read call fills a buffer known to hold 8 KiB

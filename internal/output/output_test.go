@@ -918,13 +918,13 @@ func TestFormatSARIF_EmptyFindings(t *testing.T) {
 	if len(sarif.Runs) != 1 {
 		t.Fatalf("expected 1 run, got %d", len(sarif.Runs))
 	}
-	if sarif.Runs[0].Results != nil {
-		t.Errorf("expected nil results for empty findings, got %d results", len(sarif.Runs[0].Results))
+	if sarif.Runs[0].Results == nil || len(sarif.Runs[0].Results) != 0 {
+		t.Errorf("expected an empty results array for empty findings, got %#v", sarif.Runs[0].Results)
 	}
-	// Re-marshal to verify the output is valid JSON with null results
+	// SARIF requires an array, not null (#1061).
 	raw := buf.String()
-	if !strings.Contains(raw, `"results"`) {
-		t.Error("expected results key in JSON output")
+	if !strings.Contains(raw, `"results":[]`) {
+		t.Errorf("expected \"results\":[] in JSON output, got %s", raw)
 	}
 }
 
@@ -1282,5 +1282,26 @@ func TestSARIFRegionOmitsZeroPositionsAndCarriesByteSpan(t *testing.T) {
 	}
 	if strings.Contains(out, `"startLine":0`) || strings.Contains(out, `"startColumn":0`) {
 		t.Errorf("SARIF regions must not contain zero positions: %s", out)
+	}
+}
+
+// Regression for #1061: GitHub code scanning rejects SARIF whose results or
+// rules are null, which is what a clean (or fully baselined) scan produced.
+func TestFormatSARIF_EmptyScanUsesArrays(t *testing.T) {
+	var buf bytes.Buffer
+	if err := FormatSARIF(&buf, nil, "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	var log map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &log); err != nil {
+		t.Fatal(err)
+	}
+	run := log["runs"].([]any)[0].(map[string]any)
+	if results, ok := run["results"].([]any); !ok || len(results) != 0 {
+		t.Errorf("runs[0].results = %#v, want []", run["results"])
+	}
+	driver := run["tool"].(map[string]any)["driver"].(map[string]any)
+	if rules, ok := driver["rules"].([]any); !ok || len(rules) != 0 {
+		t.Errorf("runs[0].tool.driver.rules = %#v, want []", driver["rules"])
 	}
 }

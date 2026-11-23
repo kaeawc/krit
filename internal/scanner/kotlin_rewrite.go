@@ -30,6 +30,8 @@ type kotlinRewriter struct {
 	parenFixes []parenFix
 	// semis are the offsets of ';' bytes that replaced whitespace.
 	semis []uint32
+	// platformMods are the offsets of `actual` modifiers parsed as `inline`.
+	platformMods []uint32
 	// signCtx is built when a line starts with `+` or `-`.
 	signCtx *signLineContext
 }
@@ -98,6 +100,8 @@ func (r *kotlinRewriter) run() {
 	}
 	r.rewriteCommasAndRefs()
 	r.rewriteModifierIdentifiers()
+	r.rewriteReturnEIdentifiers()
+	r.rewriteActualAfterModifier()
 	r.rewriteGenericCallableRefs()
 	r.rewriteFunctionTypeReceivers()
 	r.rewriteLines()
@@ -123,6 +127,12 @@ func (r *kotlinRewriter) set(i int, b byte) {
 		copy(r.out, r.orig)
 	}
 	r.out[i] = b
+}
+
+// buf returns the working copy's bytes [i, i+n) for writing.
+func (r *kotlinRewriter) buf(i, n int) []byte {
+	r.set(i, r.orig[i])
+	return r.out[i : i+n]
 }
 
 // blank replaces [from, to) with spaces, keeping line breaks.

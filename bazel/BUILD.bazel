@@ -1,0 +1,20 @@
+# `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
+alias(
+    name = "krit",
+    actual = "@krit_bin//:krit",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "krit-lsp",
+    actual = "@krit_bin//:krit-lsp",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "krit-mcp",
+    actual = "@krit_bin//:krit-mcp",
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["extensions.bzl"])

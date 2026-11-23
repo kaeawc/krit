@@ -21240,7 +21240,7 @@
               "description": "Regex pattern for package names.",
               "type": "string",
               "format": "regex",
-              "default": "[a-z]+(\\.[a-z][A-Za-z0-9]*)*"
+              "default": "[a-z][a-z0-9_]*(\\.[a-z][A-Za-z0-9_]*)*"
             }
           }
         },

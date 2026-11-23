@@ -331,7 +331,7 @@ func (r *PackageNamingRule) Meta() api.RuleDescriptor {
 		Options: []api.ConfigOption{
 			api.RegexOption(api.RegexOptionSpec[PackageNamingRule]{
 				Name:        "packagePattern",
-				Default:     "[a-z]+(\\.[a-z][A-Za-z0-9]*)*",
+				Default:     "[a-z][a-z0-9_]*(\\.[a-z][A-Za-z0-9_]*)*",
 				Description: "Regex pattern for package names.",
 				Apply:       func(r *PackageNamingRule, v *regexp.Regexp) { r.Pattern = v },
 			}),

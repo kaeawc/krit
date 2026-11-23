@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -110,6 +112,127 @@ func TestRuleConfigOptInMarkerAdditionalMarkersReachFIR(t *testing.T) {
 	markers, _ := sent.RuleConfigs["OptInMarkerExposedPublicly"]["additionalMarkers"].([]any)
 	if len(markers) != 2 || markers[0] != "ProjectApi" || markers[1] != "vendor.BinaryApi" {
 		t.Fatalf("additionalMarkers = %#v", markers)
+	}
+}
+
+func TestFirRuleConfigsNormalizeTooGenericExceptionCaughtOption(t *testing.T) {
+	patterns := []struct {
+		value any
+		keep  bool
+	}{
+		{"", false},
+		{"(ignore", false},
+		{"(?=t)tmp.*", false},
+		{false, false},
+		{" ", true},
+		{"ignored", true},
+		{"tmp.*|ignored", true},
+		{"\\101.*", true},
+		{"[[:alpha:]]+", true},
+	}
+	for _, pattern := range patterns {
+		cfg := config.NewConfig()
+		cfg.Set("exceptions", "TooGenericExceptionCaught", "allowedExceptionNameRegex", pattern.value)
+		cfg.Set("exceptions", "TooGenericExceptionCaught", "nonRegex", "(?=untouched)")
+		configs := firRuleConfigs(cfg, []*api.Rule{{ID: "TooGenericExceptionCaught", Category: "exceptions"}})
+		got, exists := configs["TooGenericExceptionCaught"]["allowedExceptionNameRegex"]
+		if exists != pattern.keep || (exists && got != pattern.value) {
+			t.Errorf("pattern %#v: got %v, present=%v; want present=%v", pattern.value, got, exists, pattern.keep)
+		}
+		if configs["TooGenericExceptionCaught"]["nonRegex"] != "(?=untouched)" {
+			t.Fatal("non-regex option changed")
+		}
+		if cfg.RuleOptions("exceptions", "TooGenericExceptionCaught")["allowedExceptionNameRegex"] != pattern.value {
+			t.Fatal("normalization mutated the config")
+		}
+	}
+}
+
+func TestFirRuleConfigsPassOtherRuleOptionsThroughUnchanged(t *testing.T) {
+	ruleOptions := []struct {
+		id, category, option string
+	}{
+		{"SwallowedException", "exceptions", "allowedExceptionNameRegex"},
+		{"UnusedVariable", "style", "allowedNames"},
+		{"UnusedParameter", "style", "allowedNames"},
+		{"UnusedPrivateProperty", "style", "allowedNames"},
+		{"UnusedPrivateFunction", "style", "allowedNames"},
+	}
+	for _, rule := range ruleOptions {
+		t.Run(rule.id, func(t *testing.T) {
+			cfg := config.NewConfig()
+			cfg.Set(rule.category, rule.id, rule.option, "(?=t)tmp.*")
+			cfg.Set(rule.category, rule.id, "empty", "")
+			want := map[string]any{rule.option: "(?=t)tmp.*", "empty": ""}
+			got := firRuleConfigs(cfg, []*api.Rule{{ID: rule.id, Category: rule.category}})
+			if !reflect.DeepEqual(got[rule.id], want) {
+				t.Fatalf("options = %#v; want unchanged options %#v", got[rule.id], want)
+			}
+		})
+	}
+}
+
+func TestFirRuleConfigsRegexMetadata(t *testing.T) {
+	rule := &api.Rule{
+		ID: "Synthetic", Category: "test",
+		Options: []api.ConfigOption{
+			{Name: "pattern", Aliases: []string{"alias"}, Type: api.OptRegex},
+			{Name: "search", Type: api.OptRegex, Unanchored: true},
+			{Name: "namedRegex", Type: api.OptString},
+		},
+	}
+	cfg := config.NewConfig()
+	cfg.Set("test", "Synthetic", "pattern", "(?=t)tmp.*")
+	cfg.Set("test", "Synthetic", "alias", "ignored")
+	cfg.Set("test", "Synthetic", "search", "(?m)")
+	cfg.Set("test", "Synthetic", "namedRegex", "")
+	got := firRuleConfigs(cfg, []*api.Rule{nil, rule})
+	want := RuleConfigs{"Synthetic": {"pattern": "(?=t)tmp.*", "alias": "ignored", "search": "(?m)", "namedRegex": ""}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("configs = %#v; want %#v", got, want)
+	}
+	cfg.Set("test", "Synthetic", "search", "(?=t)")
+	want["Synthetic"]["search"] = "(?=t)"
+	if got := firRuleConfigs(cfg, []*api.Rule{rule}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("configs = %#v; want regex metadata options passed through unchanged %#v", got, want)
+	}
+}
+
+func TestFirRuleConfigsOmitIgnoredRegexOnlyRule(t *testing.T) {
+	cfg := config.NewConfig()
+	cfg.Set("exceptions", "TooGenericExceptionCaught", "allowedExceptionNameRegex", "")
+	if got := firRuleConfigs(cfg, []*api.Rule{{ID: "TooGenericExceptionCaught", Category: "exceptions"}}); len(got) != 0 {
+		t.Fatalf("configs = %#v; want no options", got)
+	}
+}
+
+func TestFirRuleConfigsNormalizedOptionsFixtures(t *testing.T) {
+	paths, err := filepath.Glob("../../tools/krit-fir/compiler-tests/src/test/data/options/TooGenericExceptionCaught/*.json")
+	if err != nil || len(paths) != 3 {
+		t.Fatalf("normalized fixture paths: %v, %v", paths, err)
+	}
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fixture struct {
+				Input       map[string]any `json:"input"`
+				RuleConfigs RuleConfigs    `json:"ruleConfigs"`
+			}
+			if err := json.Unmarshal(data, &fixture); err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.NewConfig()
+			for key, value := range fixture.Input {
+				cfg.Set("exceptions", "TooGenericExceptionCaught", key, value)
+			}
+			got := firRuleConfigs(cfg, []*api.Rule{{ID: "TooGenericExceptionCaught", Category: "exceptions"}})
+			if !reflect.DeepEqual(got, fixture.RuleConfigs) {
+				t.Fatalf("configs = %#v; fixture wants %#v", got, fixture.RuleConfigs)
+			}
+		})
 	}
 }
 

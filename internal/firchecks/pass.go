@@ -628,6 +628,18 @@ func firRuleConfigs(cfg *config.Config, active []*api.Rule) RuleConfigs {
 		if len(opts) == 0 {
 			continue
 		}
+		if r.ID == "TooGenericExceptionCaught" {
+			const key = "allowedExceptionNameRegex"
+			if value, exists := opts[key]; exists {
+				pattern, _ := value.(string)
+				if pattern == "" || api.ValidateAnchoredPattern(pattern) != nil {
+					delete(opts, key)
+				}
+			}
+		}
+		if len(opts) == 0 {
+			continue
+		}
 		if out == nil {
 			out = RuleConfigs{}
 		}

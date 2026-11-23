@@ -17,9 +17,9 @@ class ListRulesTest {
                 "CoroutineScopeCreatedButNeverCancelled", "CursorLoopWithColumnIndexInLoop",
                 "ExplicitGarbageCollectionCall", "InjectDispatcher", "LocaleDefaultForCurrency",
                 "MutableStateInObject", "OptInMarkerExposedPublicly", "PlainFileWriteOfSensitive",
-                "RunBlockingInTest", "SingletonOnMutableClass", "TestWithoutAssertion",
-                "UnnecessaryNotNullOperator", "UnnecessarySafeCall", "UnsafeCast", "UnspecifiedImmutableFlag",
-                "UselessElvisOnNonNull",
+                "ReturnFromFinally", "RunBlockingInTest", "SingletonOnMutableClass", "TestWithoutAssertion",
+                "ThrowingExceptionFromFinally", "TooGenericExceptionCaught", "UnnecessaryNotNullOperator",
+                "UnnecessarySafeCall", "UnsafeCast", "UnspecifiedImmutableFlag", "UselessElvisOnNonNull",
             )),
             ids.toString(),
         )

@@ -1,0 +1,4 @@
+{
+  "input": {"allowedExceptionNameRegex": "(ignore", "exceptionNames": ["Exception"]},
+  "ruleConfigs": {"TooGenericExceptionCaught": {"exceptionNames": ["Exception"]}}
+}

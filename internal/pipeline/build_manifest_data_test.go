@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -50,7 +51,7 @@ func TestBuildManifestData_CarriesForwardCachedPaths(t *testing.T) {
 	}
 	parseResult := ParseResult{KotlinFiles: []*scanner.File{parsedFile}}
 
-	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	m := buildManifestData(args, host, parseResult, time.Time{}, true)
 	if !m.enabled {
 		t.Fatalf("manifest disabled: %+v", m)
 	}
@@ -96,7 +97,7 @@ func TestBuildManifestData_DropsDirtyUnparsedPaths(t *testing.T) {
 	}
 	parseResult := ParseResult{}
 
-	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	m := buildManifestData(args, host, parseResult, time.Time{}, true)
 	if _, ok := m.contentHashes[deleted]; ok {
 		t.Errorf("deleted dirty path should be dropped, but contentHashes contains it: %v", m.contentHashes)
 	}
@@ -146,7 +147,7 @@ func TestBuildManifestData_CarryForwardReusesPriorFileStats(t *testing.T) {
 	}
 	parseResult := ParseResult{} // nothing parsed; everything carries forward
 
-	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	m := buildManifestData(args, host, parseResult, time.Time{}, true)
 	if !m.enabled {
 		t.Fatalf("manifest disabled: %+v", m)
 	}
@@ -180,7 +181,7 @@ func TestBuildManifestData_CarryForwardFallsBackToStatWhenPriorMissing(t *testin
 	}
 	parseResult := ParseResult{}
 
-	m := buildManifestData(args, host, parseResult, scanner.RunFingerprint{}, true)
+	m := buildManifestData(args, host, parseResult, time.Time{}, true)
 	got, ok := m.fileStats[carried]
 	if !ok {
 		t.Fatalf("nil PriorFileStats must still populate fileStats via statForPath; got missing entry")
@@ -197,4 +198,46 @@ func writeManifestTestFile(t *testing.T, dir, name, content string) string {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	return path
+}
+
+// A file whose mtime is not safely before the run's first read is recorded
+// racily clean: its stat must not match the file on disk, so neither the
+// pre-parse bundle check nor the stat-drift check can vouch for the content
+// this run analyzed. An older file keeps its real stat.
+func TestBuildManifestData_RacilyCleanStat(t *testing.T) {
+	tmp := t.TempDir()
+	old := writeManifestTestFile(t, tmp, "Old.kt", "package demo\nclass Old\n")
+	racy := writeManifestTestFile(t, tmp, "Racy.kt", "package demo\nclass Racy\n")
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	readBound := time.Now()
+	// Saved during the run: same size, new content, mtime after readBound.
+	if err := os.WriteFile(racy, []byte("package demo\nclass Ycar\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later := readBound.Add(10 * time.Millisecond)
+	if err := os.Chtimes(racy, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	parseResult := ParseResult{KotlinFiles: []*scanner.File{
+		{Path: old, Language: scanner.LangKotlin, Content: []byte("package demo\nclass Old\n")},
+		{Path: racy, Language: scanner.LangKotlin, Content: []byte("package demo\nclass Racy\n")},
+	}}
+	m := buildManifestData(ProjectArgs{Paths: []string{tmp}}, ProjectHostState{FindingsBundleCacheRoot: tmp}, parseResult, readBound, true)
+
+	if !fileStatsMatch([]string{old}, map[string]scanner.FileStat{old: m.fileStats[old]}) {
+		t.Errorf("file older than the read bound must keep its real stat, got %+v", m.fileStats[old])
+	}
+	if fileStatsMatch([]string{racy}, map[string]scanner.FileStat{racy: m.fileStats[racy]}) {
+		t.Errorf("file written during the run must not keep a matching stat, got %+v", m.fileStats[racy])
+	}
+	host := ProjectHostState{PriorFileStats: m.fileStats, SourceSetDirty: []string{}}
+	dirty := augmentDirtyWithStatDrift(host, parseResult)
+	if len(dirty) != 1 || dirty[0] != racy {
+		t.Errorf("stat drift on the next run = %v, want only %s", dirty, racy)
+	}
 }

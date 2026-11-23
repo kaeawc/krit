@@ -2,20 +2,9 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 )
-
-// maxRSSMB converts rusage Maxrss to megabytes: Linux reports KiB,
-// macOS reports bytes.
-func maxRSSMB(ru *syscall.Rusage) float64 {
-	if runtime.GOOS == "darwin" {
-		return float64(ru.Maxrss) / (1 << 20)
-	}
-	return float64(ru.Maxrss) / (1 << 10)
-}
 
 // Totals aggregates the per-repo results into the headline metrics that
 // are tracked across iterations.

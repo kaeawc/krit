@@ -25,7 +25,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
@@ -269,9 +268,7 @@ func measure(dir string, r repo, kritBin string, kritArgs []string, timeout time
 	stderrFile.Close()
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
-		if ru, ok := cmd.ProcessState.SysUsage().(*syscall.Rusage); ok {
-			res.MaxRSSMB = maxRSSMB(ru)
-		}
+		res.MaxRSSMB = maxRSSMB(cmd.ProcessState)
 	}
 	_ = os.RemoveAll(filepath.Join(dir, ".krit"))
 

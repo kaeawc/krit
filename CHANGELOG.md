@@ -36,6 +36,43 @@ All notable changes to Krit will be documented in this file.
 
 ### Changed
 - Go's `UnsafeCallOnNullableType` no longer reports `!!` on a simple identifier whose local parameter or `val`/`var` declaration has an explicitly written, syntactically proven non-null type. Untyped declarations remain reportable because Go does not infer their initializer types.
+- `CursorLoopWithColumnIndexInLoop` gains a FIR checker requiring a resolved
+  Android Cursor receiver, preserving while-loop first-match semantics.
+  Both engines require an explicit bare simple-name receiver
+  bound by a parameter of the directly enclosing function (including an anonymous
+  function)/method, an explicit value parameter of a call's trailing lambda
+  (including labeled and annotated expressions) or sole lambda argument whose body
+  directly contains the loop, or a preceding
+  non-delegated local in the loop's directly enclosing callable, with no
+  intervening shadowing or writes. Calls inside nested lambdas, local functions,
+  or anonymous classes/objects stay silent, as do
+  properties/fields, top-level values, implicit receivers, explicit `this`, and
+  compound expressions. Constructor, implicit `it`, and non-direct enclosing lambda parameters are also
+  conservatively missed; these limitations are pinned in tests and goldens.
+  Go column arguments must be non-interpolated string literals, bare immutable/effectively-final
+  parameters or preceding locals of the enclosing function, or qualified platform constants:
+  the root must be explicitly imported from `android.*`, `java.*`, or `javax.*`, or the
+  reference must be fully qualified in one of those packages; the field must be
+  `UPPER_SNAKE_CASE`, no root name may be declared anywhere in the file, and no
+  reference segment may be bound in function scope. Conflicting root imports
+  (including static imports and aliases) are rejected. Kotlin rejects
+  non-platform wildcards; Java rejects static wildcards for explicitly imported
+  roots and non-platform wildcards for fully qualified references. Extension functions
+  are rejected;
+  every lambda enclosing the lookup must be passed
+  to a call named `use`, `let`, `also`, `forEach`, `forEachIndexed`, `onEach`,
+  `map`, `mapNotNull`, `filter`, `takeIf`, `takeUnless`, or `repeat` (allowlisted
+  by name; a project member function with these names and a receiver lambda is a
+  pinned Go gap); any other lambda scope is rejected. Inherited members from
+  other project files remain a pinned Go gap when their name exactly matches
+  the SDK root (FIR resolves the member and stays silent).
+  This includes nested SDK classes inside safe-call `?.use` lambdas and lookups
+  nested in another call's arguments in a local initializer. FIR accepts bare or class-qualified constants
+  only by resolved symbol: `const val` properties or Java `static final String` fields with
+  compile-time constant initializers and no custom getter. Mutable names, calls, indexing, interpolated
+  templates and other computed arguments stay silent, with conservative misses pinned.
+  FIR uses the same call pre-order as Go. Go remains
+  the fallback without a classpath or when files do not compile.
 - `UnnecessarySafeCall` gains a FIR checker that reports only definitely non-null
   resolved receivers, excluding platform types and unstable or cross-module
   smart casts. Stable same-module smart casts are followed. Go remains the

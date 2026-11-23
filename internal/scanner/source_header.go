@@ -14,17 +14,19 @@ type HeaderImport struct {
 	Alias string
 	// Wildcard marks `import pkg.*`; Path is then the package.
 	Wildcard bool
+	// Static marks a Java `import static` directive.
+	Static bool
 }
 
-// SourceHeader is the package declaration and import list of a Kotlin file.
+// SourceHeader is the package declaration and import list of a source file.
 type SourceHeader struct {
 	Package string
 	Imports []HeaderImport
 }
 
 // ParseSourceHeader reads the package declaration and imports from the start
-// of Kotlin source. It scans only the header prefix: whitespace, line, block
-// and KDoc comments, file annotations (`@file:...`), `package`, and `import`
+// of Kotlin or Java source. It scans only the header prefix: whitespace, line,
+// block and KDoc comments, file annotations (`@file:...`), `package`, and `import`
 // directives, and it stops at the first token that is none of those, so the
 // cost does not grow with the file body. Comments are skipped lexically, so a
 // `package` inside a block comment is not a declaration, and backticked
@@ -54,11 +56,17 @@ func ParseSourceHeader(content []byte) SourceHeader {
 			h.Package = path
 			i = next
 		case hasKeyword(content, i, "import"):
-			path, wildcard, next := readDottedName(content, i+len("import"))
+			start := skipHeaderTrivia(content, i+len("import"))
+			static := false
+			if hasKeyword(content, start, "static") && skipHeaderTrivia(content, start+len("static")) > start+len("static") {
+				static = true
+				start = skipHeaderTrivia(content, start+len("static"))
+			}
+			path, wildcard, next := readDottedName(content, start)
 			if path == "" {
 				return h
 			}
-			imp := HeaderImport{Path: path, Wildcard: wildcard}
+			imp := HeaderImport{Path: path, Wildcard: wildcard, Static: static}
 			j := skipSpaces(content, next)
 			if hasKeyword(content, j, "as") {
 				if alias, _, after := readDottedName(content, j+len("as")); alias != "" {

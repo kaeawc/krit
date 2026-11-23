@@ -188,4 +188,26 @@ func TestParseSourceHeader(t *testing.T) {
 	if h := ParseSourceHeader([]byte("fun f() {}\npackage late\n")); h.Package != "" {
 		t.Fatalf("package after a declaration = %q, want empty", h.Package)
 	}
+	staticPackage := ParseSourceHeader([]byte("import static.Columns\nimport other.Columns as Other\n"))
+	if !reflect.DeepEqual(staticPackage.Imports, []HeaderImport{{Path: "static.Columns"}, {Path: "other.Columns", Alias: "Other"}}) {
+		t.Fatalf("Kotlin static package header = %+v", staticPackage)
+	}
+}
+
+func TestParseSourceHeaderJavaStaticImports(t *testing.T) {
+	header := ParseSourceHeader([]byte(`package example;
+import android.provider.ContactsContract.Contacts;
+import static com.example.Columns.Contacts;
+import static com.example.OtherColumns.*;
+import java.util.List;
+class Reader {}`))
+	want := []HeaderImport{
+		{Path: "android.provider.ContactsContract.Contacts"},
+		{Path: "com.example.Columns.Contacts", Static: true},
+		{Path: "com.example.OtherColumns", Wildcard: true, Static: true},
+		{Path: "java.util.List"},
+	}
+	if header.Package != "example" || !reflect.DeepEqual(header.Imports, want) {
+		t.Fatalf("static import header = %+v, want package example and imports %+v", header, want)
+	}
 }

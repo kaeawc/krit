@@ -28,6 +28,7 @@ var knownFIRRules = map[string]bool{
 	"ComposeSemanticsMissingRole":             true,
 	"ComposeSideEffectInComposition":          true,
 	"CoroutineScopeCreatedButNeverCancelled":  true,
+	"CursorLoopWithColumnIndexInLoop":         true,
 	"DefaultLocale":                           true,
 	"DeferredAwaitInFinally":                  true,
 	"DoubleMutabilityForCollection":           true,

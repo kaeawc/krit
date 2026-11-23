@@ -1,8 +1,10 @@
 package scanner
 
 import (
+	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/bits-and-blooms/bloom/v3"
 
@@ -82,16 +84,42 @@ func sortByFileRuns[T any](items []T, fileOf func(*T) string, within func(a, b *
 		return
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].file < runs[j].file })
-	out := make([]T, 0, len(items))
-	for _, r := range runs {
+	// Runs are disjoint sub-slices, so they can be sorted in place
+	// concurrently; the ordered copy below is what fixes the final order.
+	sortRun := func(r fileRun) {
 		run := items[r.start:r.end]
 		if !sort.SliceIsSorted(run, func(i, j int) bool { return within(&run[i], &run[j]) }) {
 			sort.SliceStable(run, func(i, j int) bool { return within(&run[i], &run[j]) })
 		}
-		out = append(out, run...)
+	}
+	if workers := min(runtime.GOMAXPROCS(0), len(runs)/sortRunsPerWorker); workers > 1 {
+		var next atomic.Int64
+		var wg sync.WaitGroup
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := int(next.Add(1) - 1); i < len(runs); i = int(next.Add(1) - 1) {
+					sortRun(runs[i])
+				}
+			}()
+		}
+		wg.Wait()
+	} else {
+		for _, r := range runs {
+			sortRun(r)
+		}
+	}
+	out := make([]T, 0, len(items))
+	for _, r := range runs {
+		out = append(out, items[r.start:r.end]...)
 	}
 	copy(items, out)
 }
+
+// sortRunsPerWorker is the minimum number of file runs per goroutine before
+// sortByFileRuns sorts runs concurrently; small indexes stay serial.
+const sortRunsPerWorker = 64
 
 // shardJob is one file's contribution task, uniform across Kotlin,
 // Java, and XML phases. fresh runs the fresh-index work when the

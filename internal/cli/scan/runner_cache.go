@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/perf"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // close flushes parse / xml / resource caches and the oracle cache
@@ -25,6 +26,9 @@ func (r *runner) close() {
 }
 
 func (r *runner) flushCaches() {
+	// The cross-file cache write may still be running in the background;
+	// finish it before output and before the process can exit.
+	scanner.WaitCrossFileCacheSaves()
 	if r.cachesClosed {
 		return
 	}

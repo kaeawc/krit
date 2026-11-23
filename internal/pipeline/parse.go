@@ -109,9 +109,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 	// fields here and fall through to the dispatcher's lazy build.
 	ruleExcludes := rules.GetAllRuleExcludes()
 	ruleAliases := rules.AllSuppressionAliases()
-	for _, f := range kotlinFiles {
-		installSourceSuppression(f, ruleExcludes, ruleAliases)
-	}
+	installSourceSuppressionAll(kotlinFiles, workers, ruleExcludes, ruleAliases)
 
 	caps := unionNeeds(in.ActiveRules)
 
@@ -137,9 +135,7 @@ func (p ParsePhase) Run(ctx context.Context, in ParseInput) (ParseResult, error)
 			if !in.IncludeGenerated {
 				javaFiles, _ = filterGeneratedSourceFilesWithAllowlist(javaFiles, in.IncludeGeneratedAllowlist, in.GeneratedSourceDirs...)
 			}
-			for _, f := range javaFiles {
-				installSourceSuppression(f, ruleExcludes, ruleAliases)
-			}
+			installSourceSuppressionAll(javaFiles, workers, ruleExcludes, ruleAliases)
 		}
 	}
 
@@ -234,6 +230,15 @@ func pathMatchesAnySubstring(path string, substrings []string) bool {
 		}
 	}
 	return false
+}
+
+// installSourceSuppressionAll runs installSourceSuppression for every file.
+// Each file's filter depends only on that file (annotation walk, exclude
+// globs, inline-ignore scan), so the files are processed in parallel.
+func installSourceSuppressionAll(files []*scanner.File, workers int, ruleExcludes map[string][]string, ruleAliases map[string][]string) {
+	forEachParallel(len(files), workers, func(i int) {
+		installSourceSuppression(files[i], ruleExcludes, ruleAliases)
+	})
 }
 
 func installSourceSuppression(f *scanner.File, ruleExcludes map[string][]string, ruleAliases map[string][]string) {

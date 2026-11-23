@@ -133,10 +133,21 @@ func (i *CachedIndex) Files(root string) ([]string, bool) {
 	}
 	i.mu.Unlock()
 
+	// Both listings are separate git processes that each walk the
+	// worktree; run the untracked one alongside the tracked one instead
+	// of after it. Its result is only used when the tracked listing works.
+	var untracked chan []string
+	if i.untracked != nil {
+		untracked = make(chan []string, 1)
+		go func() { untracked <- i.untracked(root) }()
+	}
 	files, ok := i.runner.List(root)
 	files = append([]string(nil), files...)
-	if ok && i.untracked != nil {
-		files = appendMissing(files, i.untracked(root))
+	if untracked != nil {
+		extra := <-untracked
+		if ok {
+			files = appendMissing(files, extra)
+		}
 	}
 	entry := cachedEntry{files: files, ok: ok}
 

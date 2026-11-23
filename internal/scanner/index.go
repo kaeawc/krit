@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/bits-and-blooms/bloom/v3"
 
@@ -263,11 +264,42 @@ func BuildIndexCachedWithLoaders(cacheDir string, files []*File, workers int, pr
 		Entries:     entries,
 	}
 	// Best-effort persistence; any error just means the next run rebuilds.
-	_ = SaveCrossFileCacheIndex(cacheDir, fingerprint, meta, idx)
+	saveCrossFileCacheIndexMaybeAsync(cacheDir, fingerprint, meta, idx)
 	if saver != nil {
 		saver(idx, snapshotMeta())
 	}
 	return idx, false
+}
+
+var (
+	asyncCrossFileSave  atomic.Bool
+	pendingCrossFileIOs sync.WaitGroup
+)
+
+// SetAsyncCrossFileCacheSave lets a cold cross-file index build return
+// before its cache payload is packed, compressed, and written. Packing and
+// encoding a large index takes most of a second and nothing in the scan
+// reads the file back, so the write can overlap rule dispatch instead of
+// delaying it. Only enable this when no caller mutates the returned
+// *CodeIndex afterwards (the one-shot CLI): the daemon's incremental
+// overlay updates the index in place. Callers that enable it must call
+// WaitCrossFileCacheSaves before exiting.
+func SetAsyncCrossFileCacheSave(enabled bool) { asyncCrossFileSave.Store(enabled) }
+
+// WaitCrossFileCacheSaves blocks until every background cross-file cache
+// write started by SetAsyncCrossFileCacheSave has finished.
+func WaitCrossFileCacheSaves() { pendingCrossFileIOs.Wait() }
+
+func saveCrossFileCacheIndexMaybeAsync(cacheDir, fingerprint string, meta CrossFileCacheMeta, idx *CodeIndex) {
+	if !asyncCrossFileSave.Load() {
+		_ = SaveCrossFileCacheIndex(cacheDir, fingerprint, meta, idx)
+		return
+	}
+	pendingCrossFileIOs.Add(1)
+	go func() {
+		defer pendingCrossFileIOs.Done()
+		_ = SaveCrossFileCacheIndex(cacheDir, fingerprint, meta, idx)
+	}()
 }
 
 // BuildIndexWithTracker constructs a cross-file index and records sub-phase timings when tracker is enabled.
@@ -391,10 +423,18 @@ func buildCodeIndexWithBloom(symbols []Symbol, refs []Reference, prebuilt *bloom
 		idx.refBloom = bloom.NewWithEstimates(estimatedRefs, 0.01) // 1% false positive
 	}
 
-	for _, sym := range idx.Symbols {
-		idx.addSymbolToLookups(sym)
-	}
+	// The symbol maps (symbolsByName, symbolsByFQN, declsByFile) and the
+	// reference maps plus bloom are disjoint, so build them concurrently.
+	var symbolsDone sync.WaitGroup
+	symbolsDone.Add(1)
+	go func() {
+		defer symbolsDone.Done()
+		for _, sym := range idx.Symbols {
+			idx.addSymbolToLookups(sym)
+		}
+	}()
 	idx.buildReferenceLookups(prebuilt == nil)
+	symbolsDone.Wait()
 
 	return idx
 }

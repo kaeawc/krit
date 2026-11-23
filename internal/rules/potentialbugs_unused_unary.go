@@ -28,7 +28,8 @@ var unaryUnitLambdaCalls = map[string]bool{
 // expression under the prefix, so the operand's left spine is walked to find what the prefix binds to.
 //
 // detekt reports only operators that resolve to the stdlib. Without types this also reports an unused
-// user-defined `unaryMinus` or `unaryPlus`, whose discarded result is still a bug.
+// user-defined `unaryMinus` or `unaryPlus`, whose discarded result is still a bug, except on a string
+// or lambda operand: no built-in applies there, and such operators are DSL calls run for their effect.
 func checkUnusedUnaryOperator(ctx *api.Context, r *UnusedUnaryOperatorRule) {
 	idx, file := ctx.Idx, ctx.File
 	op := file.FlatFirstChild(idx)
@@ -60,6 +61,12 @@ func checkUnusedUnaryOperator(ctx *api.Context, r *UnusedUnaryOperatorRule) {
 	}
 	switch file.FlatType(leaf) {
 	case "callable_reference":
+		return
+	case "string_literal", "line_string_literal", "multi_line_string_literal", "lambda_literal", "annotated_lambda":
+		// No built-in unary operator applies to a string or a lambda, so
+		// `+"ktor-server-core"` in a settings DSL or `+"text"` in
+		// kotlinx.html calls a user-defined unaryPlus for its side effect.
+		// detekt reports only operators that resolve to built-ins.
 		return
 	}
 

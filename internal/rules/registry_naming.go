@@ -76,9 +76,12 @@ func registerNamingFunctionNaming() {
 			if file.FlatHasModifier(idx, "override") || containingClassExcluded(file, idx, r.ExcludeClassPattern) {
 				return
 			}
-			if HasIgnoredAnnotation(file.FlatNodeText(idx), r.IgnoreAnnotated) ||
+			// Only the function's own annotations count: a parameter typed
+			// `@Composable () -> Unit` does not make the function a composable.
+			annotations := declarationAnnotationTextFlat(file, idx)
+			if HasIgnoredAnnotation(annotations, r.IgnoreAnnotated) || annotationTextListHasAnyName(annotations, r.IgnoreAnnotated) ||
 				(r.CustomPreviewWildcard || len(r.CustomPreviewPrefixes) > 0) &&
-					textHasCustomPreviewAnnotation(file.FlatNodeText(idx), customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
+					textHasCustomPreviewAnnotation(annotations, customPreviewConfigFromFields(r.CustomPreviewWildcard, r.CustomPreviewPrefixes)) {
 				return
 			}
 			name := extractIdentifierFlat(file, idx)
@@ -410,9 +413,13 @@ func registerNamingInvalidPackageDeclaration() {
 			dir := filepath.Dir(file.Path)
 			dirNorm := filepath.ToSlash(dir)
 			expectedNorm := filepath.ToSlash(expectedSuffix)
-			if !strings.HasSuffix(dirNorm, expectedNorm) {
-				ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "The package declaration does not match the actual file location.")
+			if strings.HasSuffix(dirNorm, expectedNorm) {
+				return
 			}
+			if r.RootPackage == "" && packageOmitsCommonRoot(dirNorm, pkg) {
+				return
+			}
+			ctx.EmitAt(file.FlatRow(idx)+1, file.FlatCol(idx)+1, "The package declaration does not match the actual file location.")
 		},
 	})
 }

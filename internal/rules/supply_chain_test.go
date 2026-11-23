@@ -1511,3 +1511,18 @@ func TestModuleDependencyCycleAnchorsGroovyBuildFile(t *testing.T) {
 		t.Fatalf("findings = %+v, want one anchored at a/build.gradle", findings)
 	}
 }
+
+// Grouping Bazel targets by package can join an acyclic target graph into a
+// package cycle, and Bazel rejects real target cycles itself.
+func TestModuleDependencyCycleSkipsBazelGraphs(t *testing.T) {
+	r := buildRuleIndex()["ModuleDependencyCycle"]
+	graph := module.NewModuleGraph(t.TempDir())
+	graph.BuildSystem = module.BuildSystemBazel
+	graph.Modules["//a"] = &module.Module{Path: "//a", Dependencies: []module.Dependency{{ModulePath: "//b"}}}
+	graph.Modules["//b"] = &module.Module{Path: "//b", Dependencies: []module.Dependency{{ModulePath: "//a"}}}
+	ctx := &api.Context{ModuleIndex: &module.PerModuleIndex{Graph: graph}, Collector: scanner.NewFindingCollector(0)}
+	r.Check(ctx)
+	if findings := api.ContextFindings(ctx); len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none for a Bazel package graph", findings)
+	}
+}

@@ -2,10 +2,13 @@ package module
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/bazel"
 )
 
 // settingsFiles lists the settings file names in priority order.
@@ -29,9 +32,42 @@ func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
 		return nil, err
 	}
 	if !found {
-		return nil, nil
+		return discoverBazelModules(rootDir), nil
 	}
 	return graph, nil
+}
+
+// discoverBazelModules builds a graph with one module per Bazel package
+// that holds JVM or Android targets ("//app/src/main"), with edges from the
+// packages its targets depend on. Returns nil without such targets.
+func discoverBazelModules(rootDir string) *Graph {
+	ws := bazel.Discover(rootDir)
+	if len(ws.Targets) == 0 {
+		return nil
+	}
+	graph := NewModuleGraph(rootDir)
+	graph.BuildSystem = BuildSystemBazel
+	seen := map[string]bool{}
+	for _, t := range ws.Targets {
+		path := "//" + t.Package
+		m := graph.Modules[path]
+		if m == nil {
+			dir := filepath.Join(rootDir, filepath.FromSlash(t.Package))
+			m = &Module{Path: path, Dir: dir, SourceRoots: []string{dir}}
+			graph.Modules[path] = m
+		}
+		for _, dep := range t.Deps {
+			depPath := "//" + dep
+			key := fmt.Sprintf("%s|%s|%t", path, depPath, t.Test)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			m.Dependencies = append(m.Dependencies, Dependency{ModulePath: depPath, Configuration: t.Kind, Test: t.Test})
+			graph.Consumers[depPath] = append(graph.Consumers[depPath], path)
+		}
+	}
+	return graph
 }
 
 // discoverBuild adds the modules of the Gradle build at buildDir to graph,

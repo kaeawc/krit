@@ -662,9 +662,9 @@ func (p IndexPhase) detectAndroidProject(in IndexInput, result *IndexResult) {
 		result.AndroidProject = build()
 	}
 	if result.LibraryFacts == nil && result.AndroidProject != nil {
-		gradle := result.AndroidProject.GradlePaths
+		gradle := result.AndroidProject.LibraryInputPaths()
 		build := func() *librarymodel.Facts {
-			return librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(gradle))
+			return librarymodel.FactsForProfile(librarymodel.ProfileFromPaths(gradle))
 		}
 		if in.LibraryFactsCache != nil && len(gradle) > 0 {
 			result.LibraryFacts = in.LibraryFactsCache(libraryFactsFingerprint(gradle), build)

@@ -450,7 +450,7 @@ func projectModel(dir string, res *Result) {
 	proj := android.DetectProject([]string{dir})
 	if proj != nil {
 		res.AndroidManifests = len(proj.ManifestPaths)
-		profile := librarymodel.ProfileFromGradlePaths(proj.GradlePaths)
+		profile := librarymodel.ProfileFromProject(proj)
 		res.CatalogSources = len(profile.CatalogSources)
 		res.Dependencies = len(profile.Dependencies)
 		res.DepExtraction = profile.DependencyExtractionComplete

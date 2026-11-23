@@ -120,3 +120,37 @@ To keep a build-system action cacheable:
   instead of producing a Go-only result the build system would cache.
 - Treat exit codes 0 (no findings) and 1 (findings) as success and 2 or more as
   failure.
+
+## Bazel workspaces
+
+krit needs no build to analyze a Bazel workspace (rules_kotlin,
+rules_android, rules_jvm_external). Its project model reads the workspace
+files directly, so module-aware, Android resource and library-aware rules work
+as they do for Gradle:
+
+- **Modules.** Each Bazel package with JVM or Android targets becomes a module
+  named by its label (`//app/src/main`). That covers `kt_jvm_*`,
+  `kt_android_*`, `android_*` and `java_*` rules, plus any macro whose `srcs`
+  name Kotlin or Java files. `deps`, `exports`, `runtime_deps`, `associates`
+  and `plugins` labels in the main repository become module dependencies.
+  Labels resolve against the nearest `MODULE.bazel` or `WORKSPACE`, so a
+  repository holding several workspaces works too. Test rules and `testonly`
+  targets mark their dependencies as test-only. `ModuleDependencyCycle` does
+  not run on Bazel graphs: Bazel rejects target cycles itself, and grouping
+  targets by package can make an acyclic target graph look cyclic.
+- **Android resources.** `resource_files = glob(["res/**"])` (or any glob)
+  marks the directory it covers as a resource directory, wherever the BUILD
+  file keeps it. Manifests are found by name as usual.
+- **Libraries.** Maven coordinates from `maven.install(artifacts = [...])` and
+  `maven.artifact(...)` in `MODULE.bazel`, `maven_install(artifacts = [...])`
+  in `WORKSPACE`, and rules_jvm_external lock files (`maven_install.json`,
+  `<name>_install.json`) give library-aware rules the same presence facts a
+  Gradle dependency block does. They never prove a library absent, so rules
+  that need absence stay conservative.
+
+BUILD files are read with a small Starlark parser, not evaluated: string and
+list literals, `+`, top-level list variables, `glob(include)` and the branches
+of `select()` are understood, and anything else (macros' bodies, `.bzl`
+functions, comprehensions) is skipped. Bazel's `bazel-*` output symlinks are
+never scanned. A tree that has both Gradle settings and BUILD files is modeled
+from Gradle.

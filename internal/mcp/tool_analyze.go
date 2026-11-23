@@ -311,7 +311,7 @@ func (s *Server) analyzeAndroid(args analyzeArgs) ToolResult {
 
 	collector := scanner.NewFindingCollector(len(proj.ManifestPaths)*4 + len(proj.ResDirs)*8 + len(proj.GradlePaths)*4)
 
-	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(proj.GradlePaths))
+	libraryFacts := librarymodel.FactsForProfile(librarymodel.ProfileFromProject(proj))
 	dispatcher := rules.NewDispatcher(api.Registry, nil)
 	dispatcher.SetLibraryFacts(libraryFacts)
 

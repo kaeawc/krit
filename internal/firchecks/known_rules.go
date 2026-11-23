@@ -78,6 +78,7 @@ var knownFIRRules = map[string]bool{
 	"PrintlnInProduction":                     true,
 	"PrngFromSystemTime":                      true,
 	"RedundantSuspendModifier":                true,
+	"ReturnFromFinally":                       true,
 	"RsaNoPadding":                            true,
 	"RuntimeExecUnsafeShape":                  true,
 	"ScopeOnParameterizedClass":               true,
@@ -107,6 +108,7 @@ var knownFIRRules = map[string]bool{
 	"SynchronizedOnNonFinal":                  true,
 	"TestWithoutAssertion":                    true,
 	"TooGenericExceptionThrown":               true,
+	"TooGenericExceptionCaught":               true,
 	"UnicodeNormalizationMissing":             true,
 	"UnnecessaryFilter":                       true,
 	"UnnecessaryApply":                        true,
@@ -147,6 +149,7 @@ var knownFIRRules = map[string]bool{
 	"WrongCall":                               true,
 	"XmlExternalEntity":                       true,
 	"ThrowingExceptionsWithoutMessageOrCause": true,
+	"ThrowingExceptionFromFinally":            true,
 	"ThrowingNewInstanceOfSameException":      true,
 }
 

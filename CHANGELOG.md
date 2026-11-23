@@ -33,6 +33,17 @@ All notable changes to Krit will be documented in this file.
 - `PackageNaming` allows digits and underscores after a segment's first
   letter (`okhttp3`, `coil3`); the detekt-compat profile keeps detekt's
   pattern (#1078).
+- FIR `TooGenericExceptionCaught` honors Go-accepted plain configured patterns
+  made from letters, digits, `_`, `.`, `|`, parentheses, brackets (including a
+  leading `^` negation), `-`, and single `*`, `+`, or `?` quantifiers. It
+  abstains for patterns containing backslashes, `(?`, `[[`, `[:`, `&&`,
+  consecutive quantifiers, `{` (bounded repetition) or `^`/`$` anchors, and for
+  Go-accepted patterns Java cannot compile.
+  These conservative misses are pinned; this is not full RE2/Java regex parity.
+- Go normalizes only `TooGenericExceptionCaught.allowedExceptionNameRegex`
+  before sending it to FIR, dropping empty strings and patterns Go rejects so
+  the Go struct default applies in both engines. Other rules' options pass
+  through unchanged.
 
 ### Changed
 - `OptInMarkerExposedPublicly` does not report a library's own markers in
@@ -82,6 +93,14 @@ All notable changes to Krit will be documented in this file.
   variable is found and a project class named `System`, `Runtime`, `Currency` or `Locale` is not reported.
   Currency checks retain Go's nearest enclosing class scope: named, companion and anonymous objects do not
   independently widen the money-related-name heuristic (#1086).
+- `TooGenericExceptionCaught`, `ReturnFromFinally` and `ThrowingExceptionFromFinally` now have FIR checkers, with
+  the Go rules kept as the fallback. On files the compiler analyzes, `TooGenericExceptionCaught` compares the resolved
+  caught class, so a type alias or import alias of a generic exception is reported and a project class that only
+  shares the simple name is not (a written qualifier such as `java.lang.Exception` is still not matched). The two
+  `finally` rules follow the jump itself: a `return` is reported when the function it returns from lies outside the
+  block, so a custom lambda label no longer hides or triggers it by name, and a `throw` inside a lambda that is not run
+  in place (`thread { throw ... }`, `lazy { ... }`) is not reported. A jump in a `finally` nested in another `finally`
+  is reported once.
 
 ## [0.3.0] - 2026-11-23
 

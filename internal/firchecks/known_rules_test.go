@@ -24,6 +24,16 @@ func TestKnownUnnecessarySafeCall(t *testing.T) {
 	}
 }
 
+func TestKnownFinallyExceptionRules(t *testing.T) {
+	for _, ruleID := range []string{"TooGenericExceptionCaught", "ReturnFromFinally", "ThrowingExceptionFromFinally"} {
+		t.Run(ruleID, func(t *testing.T) {
+			if !IsKnownFIRRule(ruleID) {
+				t.Fatal("rule must participate in FIR and degraded-mode fallback")
+			}
+		})
+	}
+}
+
 func TestUnsafeCastKnownFIRRule(t *testing.T) {
 	if !IsKnownFIRRule("UnsafeCast") {
 		t.Fatal("UnsafeCast must participate in FIR and degraded-mode fallback")

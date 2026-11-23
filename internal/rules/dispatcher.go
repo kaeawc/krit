@@ -520,8 +520,18 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 		}
 	}
 	for _, r := range d.fileGatedRules {
-		if !excludedRules[r.ID] && !r.FileGate(file) {
-			excludedRules[r.ID] = true
+		slots := d.slotsByID[r.ID]
+		running := false
+		for _, slot := range slots {
+			if !excluded[slot] {
+				running = true
+				break
+			}
+		}
+		if running && !r.FileGate(file) {
+			for _, slot := range slots {
+				excluded[slot] = true
+			}
 		}
 	}
 

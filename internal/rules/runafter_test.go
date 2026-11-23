@@ -1,7 +1,10 @@
 package rules
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -139,4 +142,91 @@ func posOf(ss []string, s string) int {
 		}
 	}
 	return -1
+}
+
+func BenchmarkSortByRunAfterRegistry(b *testing.B) {
+	rules := append([]*api.Rule(nil), api.Registry...)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		SortByRunAfter(rules)
+	}
+}
+
+// referenceSortByRunAfter is the original re-sort-per-pop implementation,
+// kept as an oracle for the heap-based SortByRunAfter.
+func referenceSortByRunAfter(rules []*api.Rule) []string {
+	pos := map[string]int{}
+	byID := map[string]*api.Rule{}
+	var order []*api.Rule
+	for i, r := range rules {
+		if _, dup := byID[r.ID]; dup {
+			continue
+		}
+		byID[r.ID], pos[r.ID] = r, i
+		order = append(order, r)
+	}
+	indeg := map[string]int{}
+	dependents := map[string][]string{}
+	for _, r := range order {
+		for _, dep := range r.RunAfter {
+			if _, ok := byID[dep]; !ok || dep == r.ID {
+				continue
+			}
+			indeg[r.ID]++
+			dependents[dep] = append(dependents[dep], r.ID)
+		}
+	}
+	var ready, out []string
+	for _, r := range order {
+		if indeg[r.ID] == 0 {
+			ready = append(ready, r.ID)
+		}
+	}
+	for len(ready) > 0 {
+		id := ready[0]
+		ready = ready[1:]
+		out = append(out, id)
+		for _, dep := range dependents[id] {
+			indeg[dep]--
+			if indeg[dep] == 0 {
+				ready = append(ready, dep)
+			}
+		}
+		sort.SliceStable(ready, func(i, j int) bool { return pos[ready[i]] < pos[ready[j]] })
+	}
+	return out
+}
+
+func TestSortByRunAfter_MatchesReferenceOnRandomDAGs(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+	for trial := 0; trial < 200; trial++ {
+		n := 1 + rng.IntN(40)
+		// Edges only point from a higher rank to a lower one, so the graph is acyclic;
+		// the input order is a random permutation of the ranks.
+		perm := rng.Perm(n)
+		rules := make([]*api.Rule, n)
+		for i, rank := range perm {
+			r := &api.Rule{ID: fmt.Sprintf("R%02d", rank)}
+			for dep := 0; dep < rank; dep++ {
+				if rng.IntN(6) == 0 {
+					r.RunAfter = append(r.RunAfter, fmt.Sprintf("R%02d", dep))
+				}
+			}
+			if rng.IntN(10) == 0 {
+				r.RunAfter = append(r.RunAfter, "Missing", r.ID)
+			}
+			rules[i] = r
+		}
+		if rng.IntN(5) == 0 && n > 1 {
+			rules = append(rules, &api.Rule{ID: rules[0].ID}) // duplicate ID: first one wins
+		}
+		want := referenceSortByRunAfter(rules)
+		var got []string
+		for _, r := range SortByRunAfter(rules) {
+			got = append(got, r.ID)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("trial %d:\n got %v\nwant %v", trial, got, want)
+		}
+	}
 }

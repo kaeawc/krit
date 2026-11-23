@@ -50,6 +50,9 @@ func TestUnusedUnaryOperator_MatchesDetekt(t *testing.T) {
 		{"string template", "fun f(x: Int): String {\n    return \"${x\n        - 1}\"\n}", nil},
 		{"prefix operators other than plus and minus", "fun f(b: Boolean, x: Int) {\n    var i = x\n    !b\n    ++i\n    --i\n}", nil},
 		{"after a keyword that needs a value", "fun f(b: Boolean, x: Int): Int {\n    val a = if (b) 1 else\n        -1\n    return a\n}", nil},
+		// ktor's settings.gradle.kts and kotlinx.html: operators on a string or lambda are user-defined
+		// DSL calls; detekt, which reports only built-in operators, is silent.
+		{"string and lambda DSL operands", "class B {\n    operator fun String.unaryPlus() {}\n    operator fun (() -> Unit).unaryPlus() {}\n    infix fun String.including(b: () -> Unit) {}\n}\nfun B.f() {\n    +\"ktor-server-core\"\n    +\"ktor-server-jetty\" including {\n        +\"nested\"\n    }\n    +\"\"\"raw\"\"\"\n    +{ println() }\n}", nil},
 		{"suppressed", "@Suppress(\"UnusedUnaryOperator\")\nfun f(x: Int) {\n    val a = x\n    -x\n}", nil},
 	}
 	for _, tc := range cases {

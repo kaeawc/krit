@@ -242,6 +242,43 @@ func invalidPackageDeclarationIgnoredPath(path string) bool {
 	return false
 }
 
+// packageOmitsCommonRoot reports whether dir (slash-separated) is a source
+// root followed by the directories of a trailing part of pkg. Kotlin's coding
+// conventions recommend omitting the common root package from the directory
+// structure, so kotlinx.coroutines keeps `package kotlinx.coroutines.flow` in
+// `common/src/flow/` and ktor keeps `package io.ktor.client.plugin.tracing`
+// directly in `common/src/`. A file whose directories match no trailing part
+// of its package, or match one below something other than a source root, is
+// still misplaced.
+func packageOmitsCommonRoot(dir, pkg string) bool {
+	segments := strings.Split(pkg, ".")
+	for drop := 1; drop <= len(segments); drop++ {
+		rest := dir
+		if suffix := strings.Join(segments[drop:], "/"); suffix != "" {
+			if !strings.HasSuffix(rest, "/"+suffix) {
+				continue
+			}
+			rest = strings.TrimSuffix(rest, "/"+suffix)
+		}
+		if isSourceRootDirName(rest[strings.LastIndex(rest, "/")+1:]) {
+			return true
+		}
+	}
+	return false
+}
+
+// kmpSourceSetDirRe matches Kotlin Multiplatform source-set directory names
+// such as commonMain, jvmTest and iosArm64Main.
+var kmpSourceSetDirRe = regexp.MustCompile(`^[a-z][A-Za-z0-9]*(Main|Test)$`)
+
+func isSourceRootDirName(name string) bool {
+	switch name {
+	case "kotlin", "java", "src", "test", "tests", "main", "testFixtures":
+		return true
+	}
+	return kmpSourceSetDirRe.MatchString(name)
+}
+
 // LambdaParameterNamingRule checks lambda parameter names.
 type LambdaParameterNamingRule struct {
 	FlatDispatchBase

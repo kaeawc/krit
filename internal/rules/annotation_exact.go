@@ -119,3 +119,44 @@ func skipQuotedLiteral(text string, start int) int {
 	}
 	return len(text) - 1
 }
+
+// declarationAnnotationTextFlat returns the source of the declaration's own
+// modifier list and of the annotation run directly before it, without the
+// declaration's parameters or body. Matching ignoreAnnotated against the
+// whole declaration text would also match annotations on parameter types
+// and in the body.
+func declarationAnnotationTextFlat(file *scanner.File, idx uint32) string {
+	if file == nil || idx == 0 {
+		return ""
+	}
+	var parts []string
+	for prev, ok := file.FlatPrevSibling(idx); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "modifiers", "annotation":
+			parts = append(parts, file.FlatNodeText(prev))
+			continue
+		case "line_comment", "multiline_comment", "block_comment":
+			continue
+		}
+		break
+	}
+	if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
+		parts = append(parts, file.FlatNodeText(mods))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// annotationTextListHasAnyName reports whether text, the source of an
+// annotation list, carries one of names, compared by simple name so a
+// package-qualified use (`@androidx.compose.runtime.Composable`) matches.
+func annotationTextListHasAnyName(text string, names []string) bool {
+	for _, name := range names {
+		if i := strings.LastIndex(name, "."); i >= 0 {
+			name = name[i+1:]
+		}
+		if annotationTextListHasName(text, name) {
+			return true
+		}
+	}
+	return false
+}

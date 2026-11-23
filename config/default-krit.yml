@@ -400,6 +400,9 @@ naming:
       - '**/iosTest/**'
     functionPattern: '[a-z][a-zA-Z0-9]*'
     excludeClassPattern: '$^'
+    # Compose names composables like types (PascalCase). detekt 1.23's own
+    # default flags them; the detekt-compat profile keeps that behavior.
+    ignoreAnnotated: ['Composable']
   FunctionParameterNaming:
     active: true
     parameterPattern: '[a-z][A-Za-z0-9]*'

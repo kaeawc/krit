@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -180,6 +181,10 @@ type File struct {
 	// (LSP/MCP ParseSingle) builds files without running Parse; the
 	// dispatcher handles the nil case by lazily building a filter.
 	Suppression *SuppressionFilter
+
+	// callNames is the call-expression name memo published by the rule
+	// dispatcher while it runs this file. See CallNameMemo.
+	callNames atomic.Pointer[CallNameMemo]
 }
 
 // LineOffsets returns the byte offset of each line start, computed lazily

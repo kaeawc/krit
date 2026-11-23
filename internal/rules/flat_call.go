@@ -28,7 +28,21 @@ func flatCallExpressionParts(file *scanner.File, idx uint32) (navExpr uint32, ar
 	return navExpr, args
 }
 
+// flatCallExpressionName returns the callee name of the call_expression at
+// idx ("" when idx is not a call or has no simple callee). While the
+// dispatcher runs a file it serves names from the file's CallNameMemo.
 func flatCallExpressionName(file *scanner.File, idx uint32) string {
+	if file == nil {
+		return ""
+	}
+	if name, ok := file.CallNameMemo().Lookup(idx); ok {
+		return name
+	}
+	return computeFlatCallExpressionName(file, idx)
+}
+
+// computeFlatCallExpressionName is flatCallExpressionName without the memo.
+func computeFlatCallExpressionName(file *scanner.File, idx uint32) string {
 	if file == nil || file.FlatType(idx) != "call_expression" {
 		return ""
 	}
@@ -557,4 +571,28 @@ func functionHasReceiverCallAfter(file *scanner.File, fn, target uint32, receive
 		found = true
 	})
 	return found
+}
+
+// buildCallNameMemo computes the callee name of every call_expression in file.
+// It returns nil when the file has no call expressions or no posting list.
+func buildCallNameMemo(file *scanner.File) *scanner.CallNameMemo {
+	if file == nil || file.FlatTree == nil {
+		return nil
+	}
+	typeID, ok := scanner.LookupFlatNodeType("call_expression")
+	if !ok {
+		return nil
+	}
+	nodes := file.FlatTree.NodesOfType(typeID)
+	if len(nodes) == 0 {
+		return nil
+	}
+	names := make([]string, len(nodes))
+	for i, n := range nodes {
+		if i > 0 && nodes[i-1] >= n {
+			return nil // Lookup needs ascending indices.
+		}
+		names[i] = computeFlatCallExpressionName(file, n)
+	}
+	return &scanner.CallNameMemo{Nodes: nodes, Names: names}
 }

@@ -478,6 +478,13 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	// per-node loop body entirely.
 	start = time.Now()
 	if tree := file.FlatTree; tree != nil && tree.Len() > 0 {
+		// About a hundred rules ask for the callee name of each call_expression;
+		// compute every name once for this pass. Cleared on return so files
+		// held for later phases do not keep the memo alive.
+		if memo := buildCallNameMemo(file); memo != nil {
+			file.SetCallNameMemo(memo)
+			defer file.SetCallNameMemo(nil)
+		}
 		if len(d.allNodeRules) == 0 {
 			// Posting-list path.
 			//

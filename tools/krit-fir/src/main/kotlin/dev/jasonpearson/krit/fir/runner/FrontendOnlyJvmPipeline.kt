@@ -18,9 +18,10 @@ import org.jetbrains.kotlin.util.PerformanceManagerImpl
  * K2 frontend, where FIR resolution, every FIR checker and diagnostic
  * reporting happen. The frontend phase's error check still turns compile
  * errors into [org.jetbrains.kotlin.cli.common.ExitCode.COMPILATION_ERROR].
- * fir2ir, the JVM backend and output writing are never run.
+ * fir2ir, the JVM backend and output writing are never run. Public for the
+ * compiler-tests probe, which compiles its snippets the way a check does.
  */
-internal class FrontendOnlyJvmPipeline : AbstractCliPipeline<K2JVMCompilerArguments>() {
+class FrontendOnlyJvmPipeline : AbstractCliPipeline<K2JVMCompilerArguments>() {
     override val defaultPerformanceManager: PerformanceManager =
         PerformanceManagerImpl(JvmPlatforms.defaultJvmPlatform, "Kotlin to JVM Compiler (frontend only)")
 

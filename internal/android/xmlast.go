@@ -112,7 +112,25 @@ func ParseXMLAST(ctx context.Context, data []byte) (*XMLNode, error) {
 	if cached, ok := pc.Load(data); ok {
 		return cached, nil
 	}
+	// Most resource and manifest files are plain well-formed XML; build
+	// those without tree-sitter. Anything else takes the tree-sitter path.
+	if ctx.Err() == nil {
+		if built, ok := parseXMLFast(data); ok {
+			_ = pc.SaveAsync(data, built)
+			return built, nil
+		}
+	}
 
+	built, err := parseXMLTreeSitter(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	_ = pc.SaveAsync(data, built)
+	return built, nil
+}
+
+// parseXMLTreeSitter builds the XMLNode tree of data from a tree-sitter parse.
+func parseXMLTreeSitter(ctx context.Context, data []byte) (*XMLNode, error) {
 	parser := xmlParserPool.Get().(*sitter.Parser)
 	tree, reusable, err := scanner.ParseCtxPooled(ctx, parser, newXMLParser, data)
 	if reusable != nil {
@@ -132,12 +150,7 @@ func ParseXMLAST(ctx context.Context, data []byte) (*XMLNode, error) {
 		if child == nil || child.Type() != "element" {
 			continue
 		}
-		built, err := buildXMLNode(child, data)
-		if err != nil {
-			return nil, err
-		}
-		_ = pc.SaveAsync(data, built)
-		return built, nil
+		return buildXMLNode(child, data)
 	}
 
 	return nil, fmt.Errorf("no root xml element found")

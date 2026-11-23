@@ -13278,6 +13278,18 @@
         }
       }
     },
+    "androidLintConfig": {
+      "description": "Import of the project's Android Lint configuration.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set false to stop krit reading lint.xml and Gradle lint { disable } blocks. When enabled, krit's ports of Android Lint issues the project ignores stay off unless a rule's active is set here.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
     "architecture": {
       "description": "Configuration for the architecture ruleset.",
       "type": "object",

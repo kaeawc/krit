@@ -267,6 +267,23 @@ See [Migrating from detekt](detekt-migration.md) for the full mapping table,
 threshold semantics, `excludes`/`includes`/`ignoreAnnotated`, and baseline
 import.
 
+## Android Lint configuration
+
+krit's Android rules port Android Lint issues, and a project that already
+turned an issue off for Lint does not get krit's port of it either. krit
+reads every `lint.xml` (`<issue id="MissingTranslation" severity="ignore"/>`)
+and the `disable` lists of Gradle `lint { }` and `lintOptions { }` blocks
+(`disable += listOf("MissingTranslation")`, Groovy `disable 'X', 'Y'`) found
+up to five directories below the scan root, outside source sets and build
+outputs. An issue ignored only for some paths (`<ignore path="..."/>`) is not
+turned off. Lint applies a module's config to that module; krit applies every
+config it finds to the whole scan.
+
+The match uses the rule's Lint issue IDs, the same IDs `@SuppressLint` and
+`tools:ignore` accept. Setting a rule's `active` in `krit.yml` wins over the
+Lint config. `--verbose` lists the files and issues that were read. Set
+`androidLintConfig: {enabled: false}` to opt out.
+
 ## Gradle model
 
 `./gradlew kritExportModel` writes `.krit/gradle-model/` with each Gradle

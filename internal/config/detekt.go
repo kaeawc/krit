@@ -31,6 +31,9 @@ type LoadOptions struct {
 	DetektConfigFile string
 	// NoDetekt skips detekt import entirely, including auto-discovery.
 	NoDetekt bool
+	// NoAndroidLintConfig skips reading the project's lint.xml and Gradle
+	// lint { disable } blocks.
+	NoAndroidLintConfig bool
 }
 
 // DetektImport describes what the detekt layer contributed to a Config.

@@ -456,7 +456,7 @@ func TestDispatcher_Stats(t *testing.T) {
 	// are only counted after buildFlatTypeIndex matches their types).
 	_ = writeKotlinFile(t, sampleKotlin, "Stats.kt")
 	// Force the index to rebuild against the populated NodeTypeTable.
-	_ = d.ensureFlatTypeIndex(d.collectAllRules())
+	_, _ = d.ensureFlatTypeIndex()
 
 	dispatched, lineRules, crossFile, moduleAware := d.Stats()
 	if lineRules != 1 {

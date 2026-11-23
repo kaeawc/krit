@@ -55,4 +55,5 @@ const (
 	slotUnnecessaryFQNImports       = "unnecessaryFQNImports"
 	slotFunctionNames               = "functionNames"
 	slotDeclaredFunctionNames       = "declaredFunctionNames"
+	slotCallExpressionsByName       = "callExpressionsByName"
 )

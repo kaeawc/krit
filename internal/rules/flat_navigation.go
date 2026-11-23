@@ -8,23 +8,34 @@ func flatNavigationExpressionLastIdentifier(file *scanner.File, idx uint32) stri
 	if file == nil || idx == 0 {
 		return ""
 	}
-	last := ""
-	var walk func(uint32)
-	walk = func(n uint32) {
-		switch file.FlatType(n) {
-		case "simple_identifier":
-			last = file.FlatNodeString(n, nil)
-			return
-		case "value_arguments", "value_argument", "call_suffix", "lambda_literal", "string_literal":
-			return
-		}
-		for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatIsNamed(child) {
-				walk(child)
+	// Find the node first and read its text once: interning every
+	// identifier of a long receiver chain only to keep the last one
+	// dominated this helper's cost.
+	last := flatNavigationLastIdentifierNode(file, idx)
+	if last == 0 {
+		return ""
+	}
+	return file.FlatNodeString(last, nil)
+}
+
+// flatNavigationLastIdentifierNode returns the last simple_identifier a
+// pre-order walk of n reaches, skipping argument, lambda, and string
+// subtrees, or 0 when there is none.
+func flatNavigationLastIdentifierNode(file *scanner.File, n uint32) uint32 {
+	switch file.FlatType(n) {
+	case "simple_identifier":
+		return n
+	case "value_arguments", "value_argument", "call_suffix", "lambda_literal", "string_literal":
+		return 0
+	}
+	var last uint32
+	for child := file.FlatFirstChild(n); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatIsNamed(child) {
+			if found := flatNavigationLastIdentifierNode(file, child); found != 0 {
+				last = found
 			}
 		}
 	}
-	walk(idx)
 	return last
 }
 

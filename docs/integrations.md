@@ -9,6 +9,37 @@ binaries (`krit-lsp`, `krit-mcp`) installed alongside `krit`. For
 configuring `krit-mcp` with Claude Code, Claude Desktop, Codex, or
 any MCP-compatible client see [MCP setup](mcp.md).
 
+## Bazel
+
+The `krit` Bazel module (`bazel/` in this repository) downloads the
+prebuilt release for the host platform, so krit's version is an ordinary
+`bazel_dep` that Dependabot or Renovate can bump:
+
+```starlark
+# MODULE.bazel
+bazel_dep(name = "krit", version = "x.y.z")
+```
+
+```bash
+bazel run @krit//:krit -- --base-path "$PWD" "$PWD"
+```
+
+`@krit//:krit-lsp` and `@krit//:krit-mcp` are available too. The archive
+is verified against the release's `checksums.txt`. To pin the checksums
+yourself, or to run a different release than the module's version:
+
+```starlark
+krit = use_extension("@krit//:extensions.bzl", "krit")
+krit.toolchain(
+    version = "0.3.0",
+    sha256 = {"krit_0.3.0_linux_amd64.tar.gz": "<sha256>"},
+)
+```
+
+Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64) are
+supported. krit itself needs no Bazel build to analyze a Bazel workspace;
+see [Bazel workspaces](hermetic-builds.md#bazel-workspaces).
+
 ## Pre-commit
 
 ```yaml

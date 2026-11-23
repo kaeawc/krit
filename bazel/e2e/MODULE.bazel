@@ -1,0 +1,18 @@
+"""End-to-end check of the krit module.
+
+In the Bazel Central Registry presubmit this tests the module version under
+review. Locally the overridden module is unreleased (0.0.0), so name a
+published release to download:
+
+    KRIT_BAZEL_RELEASE=0.2.0 bazel test //...
+"""
+
+module(name = "krit_e2e")
+
+bazel_dep(name = "krit")
+local_path_override(
+    module_name = "krit",
+    path = "..",
+)
+
+bazel_dep(name = "rules_shell", version = "0.4.1")

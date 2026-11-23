@@ -90,3 +90,7 @@ roadmap/clusters/.loop/
 /scratch/
 docs/rules/
 /corpus-out/
+
+# Bazel module (bazel/) local runs
+bazel/**/bazel-*
+bazel/**/MODULE.bazel.lock

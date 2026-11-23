@@ -1,0 +1,9 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Runs the downloaded binary with --version.
+sh_test(
+    name = "krit_version_test",
+    srcs = ["krit_version_test.sh"],
+    args = ["$(rootpath @krit//:krit)"],
+    data = ["@krit//:krit"],
+)

@@ -4,6 +4,73 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- krit reads the project's Android Lint configuration (`lint.xml` issues set
+  to `severity="ignore"`, Gradle `lint { disable ... }`) and keeps its ports of
+  ignored issues off unless `krit.yml` sets them active;
+  `androidLintConfig: {enabled: false}` opts out (#1071).
+- krit reads ktlint settings and `max_line_length` from `.editorconfig`: a
+  disabled ktlint rule turns off krit's equivalent, IntelliJ's
+  import-on-demand packages are exempt from `WildcardImport`, and
+  `max_line_length` sets `MaxLineLength`'s limit;
+  `ktlintEditorConfig: {enabled: false}` opts out (#1077).
+
+### Fixed
+- A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
+  whole-path globs (#1072).
+- `PackageNaming` allows digits and underscores after a segment's first
+  letter (`okhttp3`, `coil3`); the detekt-compat profile keeps detekt's
+  pattern (#1078).
+
+### Changed
+- `OptInMarkerExposedPublicly` does not report a library's own markers in
+  its own packages (#1073).
+- `TestOnlyImportInProduction` skips test-support, test-framework
+  integration and benchmark modules and Gradle test source sets (#1074).
+
+## [0.3.0] - 2026-11-23
+
+### Added
+- Bazel workspaces get a project model: one module per Bazel package with
+  JVM or Android targets (`//app/src/main`) and dependency edges from their
+  `deps`/`exports`/`runtime_deps`/`associates`/`plugins` labels, Android
+  resource directories from `resource_files` globs, and Maven artifacts from
+  `MODULE.bazel` `maven.install`/`maven.artifact`, `WORKSPACE`
+  `maven_install` and rules_jvm_external lock files as library facts (#1067).
+- A `krit` Bazel module (`bazel/`) that downloads the prebuilt release for
+  the host and verifies it against `checksums.txt`:
+  `bazel_dep(name = "krit")`, then `bazel run @krit//:krit` (#1069).
+- `make corpus-bench` / `internal/devtools/corpusbench`: a pinned public
+  corpus (Gradle Kotlin DSL and Groovy, KMP, Android/Compose, Bazel) with
+  completion, wall time, memory, syntax-error, project-model and findings
+  metrics (#1056).
+
+### Fixed
+- Indexing a file with thousands of top-level declarations no longer hangs
+  (rules_kotlin: timeout -> 3 s) (#1055).
+- Empty SARIF output writes `"results": []` and `"rules": []`, which GitHub
+  code scanning accepts (#1062).
+- New files that are not `git add`-ed yet are analyzed (#1063).
+- `krit .` and `krit $PWD` report the same findings (#1066).
+- Gradle modules declared through custom settings DSLs, directory-walking
+  helpers, `module(path)` helpers and repositories of separate builds are
+  discovered; `ModuleDependencyCycle` ignores test-scope edges and
+  `KotlinVersionMismatchAcrossModules` ignores intentional higher targets
+  and minority baselines (#1065).
+- Seven Kotlin constructs that recovered with ERROR nodes now parse: KMP
+  `public actual val` constructor properties, `suspend { }`, `open(...)`
+  calls, `return e...` in `when` branches, char ranges after a char-literal
+  line, line-leading `in1`/`by`, and `getOrPut(k) { } += v` (#1070).
+- Nightly releases tag with `GITHUB_TOKEN` and dispatch the release
+  workflow (#1064).
+
+### Changed
+- `FunctionNaming` ignores `@Composable` functions in the shipped config;
+  `InvalidPackageDeclaration` accepts a directory layout that omits the
+  common root package; `UnusedUnaryOperator` skips string and lambda
+  operands (#1068).
+
+
 ### Fixed
 - Source inference treats simple-name library method matches as unknown when the
   source-written receiver type annotation or constructor uses a bare simple name

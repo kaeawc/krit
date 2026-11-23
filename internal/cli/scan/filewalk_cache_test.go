@@ -346,6 +346,8 @@ func TestCollectFilesCached_GitFastPath(t *testing.T) {
 	writeFile(t, filepath.Join(root, "Tracked.kt"), "")
 	writeFile(t, filepath.Join(root, "module", "Inner.java"), "")
 	writeFile(t, filepath.Join(root, "Untracked.kt"), "")
+	writeFile(t, filepath.Join(root, ".gitignore"), "build/\n")
+	writeFile(t, filepath.Join(root, "build", "Generated.kt"), "")
 
 	gitInit(t, root)
 	gitAdd(t, root, "Tracked.kt", filepath.Join("module", "Inner.java"))
@@ -355,13 +357,17 @@ func TestCollectFilesCached_GitFastPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
+	// Untracked files that .gitignore does not exclude are listed, so a new
+	// file is analyzed before it is `git add`-ed (#1059); ignored build
+	// outputs are not.
 	got := sortedFiles(files)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 tracked files, got %d: %v", len(got), got)
+	want := []string{"Tracked.kt", "Untracked.kt", "Inner.java"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %d: %v", want, len(got), got)
 	}
 	for _, p := range got {
-		if filepath.Base(p) == "Untracked.kt" {
-			t.Errorf("git fast path returned untracked file %q", p)
+		if filepath.Base(p) == "Generated.kt" {
+			t.Errorf("git fast path returned ignored file %q", p)
 		}
 	}
 

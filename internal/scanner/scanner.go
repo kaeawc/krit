@@ -444,8 +444,8 @@ func gitLsKotlinJava(ctx context.Context, dir string) ([]string, bool) {
 	return GitLsFilesByExt(ctx, dir, []string{".kt", ".kts", ".java"})
 }
 
-// GitLsFilesByExt returns paths tracked by the git repo rooted at dir
-// whose names end in any of the given extensions. Paths are
+// GitLsFilesByExt returns paths in the git repo rooted at dir, tracked or
+// untracked but not ignored, whose names end in any of the given extensions. Paths are
 // repository-relative; the caller joins with dir to form absolute paths.
 //
 // Returns ok=false when dir is not the top of a git work tree, when git
@@ -463,7 +463,9 @@ func GitLsFilesByExt(ctx context.Context, dir string, extensions []string) ([]st
 	if err != nil {
 		return nil, false
 	}
-	args := []string{"-C", dir, "ls-files", "-z", "--"}
+	// --others --exclude-standard adds files that are not `git add`-ed yet
+	// but not ignored, so a new source file is analyzed (#1059).
+	args := []string{"-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--"}
 	for _, ext := range extensions {
 		args = append(args, "*"+ext)
 	}

@@ -1,0 +1,92 @@
+name: "Save Go caches"
+description: >-
+  Save the Go build-cache family restored by the go-cache action, keeping
+  only the entries this job used, and save the Go module cache when it was
+  missing. Saves happen only on pushes to main; pull requests restore the
+  newest main entry and never write, so they cannot evict main's caches.
+
+inputs:
+  family:
+    description: "Build-cache family; must match the go-cache restore"
+    required: true
+  extra-paths:
+    description: "Further cache directories; must match the go-cache restore"
+    required: false
+    default: ""
+  modules-hit:
+    description: "The go-cache action's modules-hit output"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Locate Go caches
+      id: dirs
+      shell: bash
+      run: |
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+          echo "save=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        fi
+    # go-cache aged every restored entry by two days and the go command
+    # refreshes the mtime of each entry it reads, so anything still older
+    # than a day went unused by this job. Main gets a push every hour or so,
+    # so the save is skipped unless this job compiled at least a tenth of
+    # the cache anew (or restored nothing); a docs-only or leaf-package
+    # change does not churn another few hundred megabytes through the
+    # repository's cache quota.
+    - name: Drop build cache entries this job did not use
+      id: prune
+      if: steps.dirs.outputs.save == 'true'
+      shell: bash
+      env:
+        GO_CACHE_DIRS: |
+          ${{ steps.dirs.outputs.gocache }}
+          ${{ inputs.extra-paths }}
+        RESTORED_LIST: ${{ runner.temp }}/go-cache-${{ inputs.family }}-restored.txt
+        FAMILY: ${{ inputs.family }}
+      run: |
+        current="$RUNNER_TEMP/go-cache-$FAMILY-current.txt"
+        : > "$current"
+        while IFS= read -r dir; do
+          dir="${dir/#\~/$HOME}"
+          [ -n "$dir" ] && [ -d "$dir" ] || continue
+          find "$dir" -type f -mtime +0 -delete
+          find "$dir" -type f >> "$current"
+        done <<< "$GO_CACHE_DIRS"
+        sort -o "$current" "$current"
+        total=$(tr '\n' '\0' < "$current" | du -cb --files0-from=- | tail -1 | cut -f1)
+        if [ ! -s "$RESTORED_LIST" ]; then
+          echo "Nothing restored; saving $((total / 1048576)) MB"
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        new=$(comm -13 "$RESTORED_LIST" "$current" | tr '\n' '\0' | du -cb --files0-from=- | tail -1 | cut -f1)
+        echo "Kept $((total / 1048576)) MB, of which $((new / 1048576)) MB is new"
+        if [ $((new * 10)) -ge "$total" ]; then
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "needed=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Save Go build cache (${{ inputs.family }})
+      if: steps.prune.outputs.needed == 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: |
+          ${{ steps.dirs.outputs.gocache }}
+          ${{ inputs.extra-paths }}
+        key: go-build-${{ inputs.family }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+    - name: Download every module go.sum lists
+      if: steps.dirs.outputs.save == 'true' && inputs.modules-hit != 'true'
+      shell: bash
+      run: go mod download
+    - name: Save Go module cache
+      if: steps.dirs.outputs.save == 'true' && inputs.modules-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.dirs.outputs.gomodcache }}
+        key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}

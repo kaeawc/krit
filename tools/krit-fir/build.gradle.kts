@@ -220,6 +220,19 @@ tasks.shadowJar {
     }
 }
 
+// Test JVMs per test task (-Pkrit.fir.test.forks=N; default: half the logical CPUs, about one per core). The suites
+// are CPU-bound compiles and fork-safe: each compile uses its own temp dirs, and the shared krit.fir.cache.dir is
+// built for concurrent processes (per-process, locked snapshot roots). Each fork JIT-compiles the Kotlin compiler
+// anew, so forks beyond the physical cores (a CI runner's 4 vCPUs are 2 cores) cost more than they gain. Gradle also
+// bounds all forks together by --max-workers. Classes are dealt to forks round-robin: a class is the unit of
+// parallelism.
+val testForks = (findProperty("krit.fir.test.forks") as String?)?.toInt()
+    ?: (Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1)
+extra["testForks"] = testForks
+tasks.withType<Test>().configureEach {
+    maxParallelForks = testForks
+}
+
 val differentialTag = "incremental-differential"
 val plannerTag = "incremental-planner"
 val benchTag = "incremental-bench"
@@ -264,6 +277,15 @@ tasks.register<Test>("incrementalDifferentialTest") {
     useJUnitPlatform { includeTags(differentialTag) }
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
+    // CI runs the two variants in separate jobs: -Pkrit.fir.differential.leftOut=only runs just the left-out-file
+    // variant, =skip everything else. Unset runs both.
+    val leftOutVariant = "dev.jasonpearson.krit.fir.incremental.FirIncrementalSplitDifferentialLeftOutTest"
+    when (val leftOut = findProperty("krit.fir.differential.leftOut") as String?) {
+        null, "" -> {}
+        "only" -> filter.includeTestsMatching(leftOutVariant)
+        "skip" -> filter.excludeTestsMatching(leftOutVariant)
+        else -> throw GradleException("krit.fir.differential.leftOut must be 'only' or 'skip', not '$leftOut'")
+    }
     dependsOn("jar")
     val pluginJar = tasks.named("jar", Jar::class.java).flatMap { it.archiveFile }
     inputs.file(pluginJar)

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.DynamicContainer
 import org.junit.jupiter.api.DynamicNode
 import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
 import org.junit.jupiter.api.assertThrows
@@ -37,6 +38,12 @@ import kotlin.test.fail
 // both .kt fixtures, fails. The exact per-line comparison against the Go rule
 // is the second tier, TestFirFixtureParity in tests/parity. The authoring
 // checklist lives in docs/fir-checker-authoring.md.
+//
+// It reads the Go fixtures and schema outside this build, so it is tagged
+// [GO_FIXTURES_TAG] and runs in its own Gradle task (`fixtureParityTest`),
+// whose inputs include them; `test` excludes the tag and stays cacheable
+// when only Go files change.
+@Tag(FixtureParityTest.GO_FIXTURES_TAG)
 class FixtureParityTest {
 
     @TestFactory
@@ -268,6 +275,9 @@ class FixtureParityTest {
     }
 
     companion object {
+        /** Tests that read files outside tools/krit-fir (Go fixtures, schema); see compiler-tests/build.gradle.kts. */
+        const val GO_FIXTURES_TAG = "go-fixtures"
+
         private val summary = java.util.concurrent.ConcurrentLinkedQueue<Pair<String, String>>()
 
         @JvmStatic

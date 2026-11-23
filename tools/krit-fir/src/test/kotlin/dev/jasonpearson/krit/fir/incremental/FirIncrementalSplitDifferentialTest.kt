@@ -50,12 +50,13 @@ import kotlin.test.assertTrue
  * any more (#873 narrowed the rules that read other files' bodies, #876 serves SerialVersionUIDInSerializableClass
  * from recorded facts and, like detekt, reads only declared supertypes), so every piece difference must be 0.
  *
- * Runtime: a few minutes, so it is tagged [TAG] and runs in its own Gradle task (`incrementalDifferentialTest`),
- * not in `test`. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
+ * Runtime: several minutes per variant, so it is tagged [TAG] and runs in its own Gradle task
+ * (`incrementalDifferentialTest`), not in `test`. The two variants ([FirIncrementalSplitDifferentialFullTest] and
+ * [FirIncrementalSplitDifferentialLeftOutTest]) are separate classes so that task can run them in parallel forks. `-Pkrit.fir.differential.sample=N` keeps every Nth scenario (deterministic, sorted by path);
  * `-Pkrit.fir.differential.only=Name` keeps scenarios whose file name contains `Name`.
  */
 @Tag(FirIncrementalSplitDifferentialTest.TAG)
-class FirIncrementalSplitDifferentialTest {
+abstract class FirIncrementalSplitDifferentialTest {
     companion object {
         /** The spike saw 77 rules with findings; far fewer means the plugin or the corpus did not load. */
         private const val MIN_EXERCISED_RULES = 60
@@ -66,18 +67,7 @@ class FirIncrementalSplitDifferentialTest {
         private const val LEFT_OUT_TEXT = "package krit.leftout\n\nclass LeftOut { fun n(): Int = 1 }\nfun leftOut() { missingOnPurpose() }\n"
     }
 
-    @Test
-    fun onlyTieredRulesDifferBetweenFullAndSliceCompile() = differential(leftOut = false)
-
-    /**
-     * The same differential with one more file in every module, [LEFT_OUT_NAME], which has a compiler error (#971):
-     * the snapshot then leaves that file out and is built from body-stripped IR. Every rule must still give each
-     * piece the full check's verdict, and every module whose only error is that file must get a snapshot.
-     */
-    @Test
-    fun aSnapshotThatLeavesAFileWithAnErrorOutGivesTheSameVerdicts() = differential(leftOut = true)
-
-    private fun differential(leftOut: Boolean) {
+    protected fun differential(leftOut: Boolean) {
         assertTrue(DATA.isDirectory, "run from tools/krit-fir; missing ${DATA.absolutePath}")
         val sample = System.getProperty("krit.fir.differential.sample")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val only = System.getProperty("krit.fir.differential.only")?.takeIf { it.isNotBlank() }
@@ -316,4 +306,20 @@ class FirIncrementalSplitDifferentialTest {
             session.dispose()
         }
     }
+}
+
+/** The split differential over the corpus and the cross-file scenarios. */
+class FirIncrementalSplitDifferentialFullTest : FirIncrementalSplitDifferentialTest() {
+    @Test
+    fun onlyTieredRulesDifferBetweenFullAndSliceCompile() = differential(leftOut = false)
+}
+
+/**
+ * The same differential with one more file in every module, `ZzLeftOut.kt`, which has a compiler error (#971):
+ * the snapshot then leaves that file out and is built from body-stripped IR. Every rule must still give each
+ * piece the full check's verdict, and every module whose only error is that file must get a snapshot.
+ */
+class FirIncrementalSplitDifferentialLeftOutTest : FirIncrementalSplitDifferentialTest() {
+    @Test
+    fun aSnapshotThatLeavesAFileWithAnErrorOutGivesTheSameVerdicts() = differential(leftOut = true)
 }

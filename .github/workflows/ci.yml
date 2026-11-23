@@ -403,8 +403,47 @@ jobs:
           extra-paths: ~/.cache/golangci-lint
           modules-hit: ${{ steps.go-cache.outputs.modules-hit }}
 
+  # The krit-fir tests split into parallel jobs (shards) of about the same
+  # length. A runner's 4 vCPUs are 2 cores: each shard is a Gradle run with
+  # two workers and runs about two test JVMs at once (four ran each test at
+  # a fraction of the speed). A Go-only change only reruns
+  # fixtureParityTest (in `compiler-tests`): every other task comes from
+  # main's build cache.
+  # - goldens: the :compiler-tests classes generated from
+  #   src/test/data/diagnostic (the golden diagnostics).
+  # - differential, differential-left-out: the split differential
+  #   (FirIncrementalSplitDifferential*Test) compiles every compiler-test
+  #   scenario in pieces against a binary snapshot and asserts that only
+  #   whole-compilation-tiered rules differ from a full compile; the second
+  #   shard repeats it with a file that has a compile error in every module.
+  # - compiler-tests: the other :compiler-tests classes, and
+  #   `:compiler-tests:fixtureParityTest` (FixtureParityTest against the Go
+  #   fixtures in tests/fixtures and the config schema, the only task with
+  #   inputs outside tools/krit-fir), which finalizes `test`.
+  # - planner: every other project's tests, and the planner differential,
+  #   which runs about 600 synthetic files through 40 mixed edits and
+  #   asserts that every planned check equals a fresh full check.
   krit-fir:
+    name: krit-fir (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: goldens
+            tasks: ":compiler-tests:test -Pkrit.fir.goldens=only -x :compiler-tests:fixtureParityTest"
+          - shard: differential
+            tasks: incrementalDifferentialTest -Pkrit.fir.differential.leftOut=skip
+          - shard: differential-left-out
+            tasks: incrementalDifferentialTest -Pkrit.fir.differential.leftOut=only
+          - shard: compiler-tests
+            tasks: ":compiler-tests:test -Pkrit.fir.goldens=skip"
+          # One fork per task: :test and incrementalPlannerTest run side by
+          # side.
+          - shard: planner
+            tasks: >-
+              test incrementalPlannerTest -Pkrit.fir.test.forks=1
+              -x :compiler-tests:test -x :compiler-tests:fixtureParityTest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
@@ -415,38 +454,26 @@ jobs:
         with:
           cache-cleanup: on-success
           validate-wrappers: true
-      # `test` runs every project's tests, including :compiler-tests (golden
-      # diagnostics, stub guards, and FixtureParityTest against the Go
-      # fixtures in tests/fixtures).
-      - name: Validate krit-fir
+      # --continue reports the failures of every task, not just the first.
+      - name: Validate krit-fir (${{ matrix.shard }})
         working-directory: tools/krit-fir
-        run: ./gradlew --no-daemon test --stacktrace
-      # The split differential (FirIncrementalSplitDifferentialTest) compiles
-      # every compiler-test scenario in pieces against a binary snapshot and
-      # asserts that only whole-compilation-tiered rules differ from a full
-      # compile. It takes about 5 minutes, so `test` excludes it and it runs
-      # as its own step.
-      - name: Split differential (incremental FIR tiering)
-        working-directory: tools/krit-fir
-        run: ./gradlew --no-daemon incrementalDifferentialTest --stacktrace
-      # The planner differential (IncrementalPlannerDifferentialTest) runs about
-      # 600 synthetic files through 40 mixed edits and asserts that every
-      # planned check equals a fresh full check, with the planner engaged.
-      # It takes about 2 minutes, so `test` excludes it and it runs as its
-      # own step.
-      - name: Planner differential (incremental FIR checks)
-        working-directory: tools/krit-fir
-        run: ./gradlew --no-daemon incrementalPlannerTest --stacktrace
+        env:
+          TASKS: ${{ matrix.tasks }}
+        run: |
+          # TASKS is a list of Gradle arguments: split it on purpose.
+          # shellcheck disable=SC2086
+          ./gradlew --no-daemon --continue --stacktrace --max-workers=2 $TASKS
       - name: Upload krit-fir test reports
         if: failure()
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         with:
-          name: krit-fir-test-reports
+          name: krit-fir-test-reports-${{ matrix.shard }}
           path: |
             tools/krit-fir/build/reports/tests/test/
             tools/krit-fir/build/reports/tests/incrementalDifferentialTest/
             tools/krit-fir/build/reports/tests/incrementalPlannerTest/
             tools/krit-fir/compiler-tests/build/reports/tests/test/
+            tools/krit-fir/compiler-tests/build/reports/tests/fixtureParityTest/
 
   # oracle-backend-parity runs the krit-fir oracle and checker gates: the
   # oracle fact contract, fixture parity, Kotlin 2.4 fixtures, property and

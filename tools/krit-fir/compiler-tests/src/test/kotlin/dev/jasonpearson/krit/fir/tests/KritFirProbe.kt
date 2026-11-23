@@ -3,12 +3,12 @@ package dev.jasonpearson.krit.fir.tests
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import dev.jasonpearson.krit.fir.SdkLevels
 import dev.jasonpearson.krit.fir.FirRuleContext
+import dev.jasonpearson.krit.fir.runner.FrontendOnlyJvmPipeline
 import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
-import org.jetbrains.kotlin.cli.jvm.K2JVMCompiler
 import org.jetbrains.kotlin.config.Services
 import java.io.File
 
@@ -164,23 +164,23 @@ object KritFirProbe {
                 )
             }
             val exitCode = try {
-                K2JVMCompiler().exec(
-                    collector,
-                    Services.EMPTY,
-                    K2JVMCompilerArguments().apply {
-                        freeArgs = listOf(ktDir.absolutePath)
-                        // K2 resolves Java sources directly (no javac), giving the
-                        // Android platform stubs real Java symbol shapes: statics,
-                        // synthetic properties, and platform types.
-                        javaSourceRoots = arrayOf(javaDir.absolutePath)
-                        destination = outDir.absolutePath
-                        noStdlib = true
-                        noReflect = true
-                        if (stdlibJar != null) classpath = stdlibJar.absolutePath
-                        pluginClasspaths = arrayOf(pluginJar.absolutePath)
-                        configure(this)
-                    },
-                )
+                val arguments = K2JVMCompilerArguments().apply {
+                    freeArgs = listOf(ktDir.absolutePath)
+                    // K2 resolves Java sources directly (no javac), giving the
+                    // Android platform stubs real Java symbol shapes: statics,
+                    // synthetic properties, and platform types.
+                    javaSourceRoots = arrayOf(javaDir.absolutePath)
+                    destination = outDir.absolutePath
+                    noStdlib = true
+                    noReflect = true
+                    if (stdlibJar != null) classpath = stdlibJar.absolutePath
+                    pluginClasspaths = arrayOf(pluginJar.absolutePath)
+                    configure(this)
+                }
+                // The pipeline of a production check request: configuration and the K2 frontend, where FIR
+                // resolution, every checker and all diagnostics run (compile errors still fail the exit code).
+                // Skipping fir2ir and the JVM backend halves the cost of each compile of the stubs.
+                FrontendOnlyJvmPipeline().execute(arguments, Services.EMPTY, collector)
             } finally {
                 if (ruleContext != null) FirRuleContext.end()
             }

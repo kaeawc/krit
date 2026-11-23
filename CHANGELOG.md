@@ -76,6 +76,12 @@ All notable changes to Krit will be documented in this file.
   templates and other computed arguments stay silent, with conservative misses pinned.
   FIR uses the same call pre-order as Go. Go remains
   the fallback without a classpath or when files do not compile (#1076).
+- `ExplicitGarbageCollectionCall` and `LocaleDefaultForCurrency` now have FIR checkers, with the Go rules kept as the
+  fallback. On files the compiler analyzes, the call is the resolved `System`/`Runtime` `gc` or `runFinalization`, or
+  the resolved `Currency.getInstance(Locale.getDefault())`, so an import alias, a type alias or a `Runtime` held in a
+  variable is found and a project class named `System`, `Runtime`, `Currency` or `Locale` is not reported.
+  Currency checks retain Go's nearest enclosing class scope: named, companion and anonymous objects do not
+  independently widen the money-related-name heuristic (#1086).
 
 ## [0.3.0] - 2026-11-23
 

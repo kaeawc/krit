@@ -3002,7 +3002,7 @@ func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (strin
 	if host.PrebuiltLibraryFacts != nil {
 		androidFP := ""
 		if project != nil {
-			androidFP = libraryFactsFingerprint(project.GradlePaths)
+			androidFP = libraryFactsFingerprint(project.LibraryInputPaths())
 		}
 		return androidFP, host.PrebuiltLibraryFacts.Fingerprint()
 	}
@@ -3012,9 +3012,9 @@ func preparseProjectFingerprints(args ProjectArgs, host ProjectHostState) (strin
 	if project == nil {
 		return "", ""
 	}
-	gradle := project.GradlePaths
+	gradle := project.LibraryInputPaths()
 	build := func() *librarymodel.Facts {
-		return librarymodel.FactsForProfile(librarymodel.ProfileFromGradlePaths(gradle))
+		return librarymodel.FactsForProfile(librarymodel.ProfileFromPaths(gradle))
 	}
 	if host.LibraryFactsCache != nil && len(gradle) > 0 {
 		androidFP := libraryFactsFingerprint(gradle)
@@ -3748,7 +3748,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 	fp.CrossFile = crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty)
 	fp.OracleFacts = oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, indexResult.OracleBlobHash)
 	if indexResult.AndroidProject != nil {
-		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.GradlePaths)
+		fp.Android = libraryFactsFingerprint(indexResult.AndroidProject.LibraryInputPaths())
 	}
 	if indexResult.LibraryFacts != nil {
 		fp.LibraryFacts = indexResult.LibraryFacts.Fingerprint()

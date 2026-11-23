@@ -459,10 +459,10 @@ func (r *runner) ensureProjectModel() {
 			if r.f != nil && r.f.NoCache != nil && !*r.f.NoCache {
 				cacheDir = librarymodel.ProjectProfileCacheDir(oracle.FindRepoDir(r.paths))
 			}
-			profile, ok := librarymodel.LoadProjectProfileCache(cacheDir, r.sess.AndroidProject.GradlePaths)
+			profile, ok := librarymodel.LoadProjectProfileCache(cacheDir, r.sess.AndroidProject.LibraryInputPaths())
 			if !ok {
-				profile = librarymodel.ProfileFromGradlePaths(r.sess.AndroidProject.GradlePaths)
-				if err := librarymodel.SaveProjectProfileCache(cacheDir, r.sess.AndroidProject.GradlePaths, profile); err != nil &&
+				profile = librarymodel.ProfileFromProject(r.sess.AndroidProject)
+				if err := librarymodel.SaveProjectProfileCache(cacheDir, r.sess.AndroidProject.LibraryInputPaths(), profile); err != nil &&
 					r.f != nil && r.f.Verbose != nil && *r.f.Verbose {
 					fmt.Fprintf(os.Stderr, "verbose: library model cache save failed: %v\n", err)
 				}

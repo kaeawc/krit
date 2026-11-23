@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/module"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -32,6 +33,11 @@ func (r *ModuleDependencyCycleRule) check(ctx *api.Context) {
 		return
 	}
 
+	// Bazel rejects target cycles itself, and grouping targets by
+	// package can join an acyclic target graph into a package cycle.
+	if pmi.Graph.BuildSystem == module.BuildSystemBazel {
+		return
+	}
 	cycles := pmi.Graph.FindCycles()
 	for _, cycle := range cycles {
 		sort.Strings(cycle)

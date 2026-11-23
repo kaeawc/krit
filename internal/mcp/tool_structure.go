@@ -154,7 +154,7 @@ func (s *Server) structureProfile(args structureArgs) ToolResult {
 		return errorResult("no Gradle build files found under " + args.ProjectRoot)
 	}
 
-	profile := librarymodel.ProfileFromGradlePaths(proj.GradlePaths)
+	profile := librarymodel.ProfileFromProject(proj)
 
 	return jsonResult(profile)
 }

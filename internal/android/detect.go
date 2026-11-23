@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/bazel"
 	"github.com/kaeawc/krit/internal/trackedfiles"
 )
 
@@ -13,11 +14,29 @@ type Project struct {
 	ManifestPaths []string // paths to AndroidManifest.xml files
 	ResDirs       []string // paths to res/ directories
 	GradlePaths   []string // paths to build.gradle or build.gradle.kts files
+	// BazelPaths are Bazel BUILD files, workspace files (MODULE.bazel,
+	// WORKSPACE) and rules_jvm_external lock files.
+	BazelPaths []string
+}
+
+// LibraryInputPaths returns the files the library profile is built from:
+// Gradle build and settings files plus Bazel workspace and lock files.
+func (p *Project) LibraryInputPaths() []string {
+	if p == nil {
+		return nil
+	}
+	paths := append([]string(nil), p.GradlePaths...)
+	for _, path := range p.BazelPaths {
+		if base := filepath.Base(path); bazel.IsWorkspaceFile(base) || bazel.IsLockFile(base) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }
 
 // IsEmpty returns true if no Android project files were found.
 func (p *Project) IsEmpty() bool {
-	return len(p.ManifestPaths) == 0 && len(p.ResDirs) == 0 && len(p.GradlePaths) == 0
+	return len(p.ManifestPaths) == 0 && len(p.ResDirs) == 0 && len(p.GradlePaths) == 0 && len(p.BazelPaths) == 0
 }
 
 // DetectProject walks the given scan paths looking for Android project
@@ -62,8 +81,26 @@ func DetectProjectWithIndex(scanPaths []string, index trackedfiles.Index) *Proje
 			return detectWalkEntry(path, d, err, proj, seen)
 		})
 	}
+	addBazelResourceDirs(proj, seen)
 
 	return proj
+}
+
+// addBazelResourceDirs adds the directories that BUILD files name in
+// resource_files globs. Bazel Android targets keep res/ wherever their
+// BUILD file says (java/com/app/res, module/res), not at src/main/res.
+func addBazelResourceDirs(proj *Project, seen map[string]bool) {
+	for _, path := range proj.BazelPaths {
+		if !bazel.IsBuildFile(filepath.Base(path)) {
+			continue
+		}
+		for _, dir := range bazel.ResourceDirsFromBuildFile(path) {
+			if !seen[dir] {
+				seen[dir] = true
+				proj.ResDirs = append(proj.ResDirs, dir)
+			}
+		}
+	}
 }
 
 func detectProjectWithIndex(root string, index trackedfiles.Index, proj *Project, seen map[string]bool) bool {
@@ -100,7 +137,12 @@ func isAndroidProjectRelPath(path string) bool {
 		base == "settings.gradle.kts" ||
 		base == "init.gradle" ||
 		base == "init.gradle.kts" ||
+		isBazelProjectFile(base) ||
 		srcMainResDir(path) != ""
+}
+
+func isBazelProjectFile(base string) bool {
+	return bazel.IsBuildFile(base) || bazel.IsWorkspaceFile(base) || bazel.IsLockFile(base)
 }
 
 func srcMainResDir(path string) string {
@@ -125,6 +167,11 @@ func detectSingleFile(path string, proj *Project, seen map[string]bool) {
 		if !seen[path] {
 			seen[path] = true
 			proj.GradlePaths = append(proj.GradlePaths, path)
+		}
+	default:
+		if isBazelProjectFile(base) && !seen[path] {
+			seen[path] = true
+			proj.BazelPaths = append(proj.BazelPaths, path)
 		}
 	}
 }
@@ -178,6 +225,17 @@ func detectWalkFile(path string, d os.DirEntry, proj *Project, seen map[string]b
 		if !seen[abs] {
 			seen[abs] = true
 			proj.GradlePaths = append(proj.GradlePaths, abs)
+		}
+	default:
+		if isBazelProjectFile(base) {
+			abs, err := filepath.Abs(path)
+			if err != nil {
+				abs = path
+			}
+			if !seen[abs] {
+				seen[abs] = true
+				proj.BazelPaths = append(proj.BazelPaths, abs)
+			}
 		}
 	}
 }

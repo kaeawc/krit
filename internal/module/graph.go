@@ -28,11 +28,17 @@ type Dependency struct {
 	Test bool
 }
 
+// BuildSystemBazel marks a Graph built from Bazel BUILD files.
+const BuildSystemBazel = "bazel"
+
 // Graph holds all discovered modules and their relationships.
 type Graph struct {
 	Modules   map[string]*Module  // path -> module
 	Consumers map[string][]string // module path -> list of modules that depend on it
 	RootDir   string
+	// BuildSystem is "" for Gradle and BuildSystemBazel for a graph of
+	// Bazel packages, whose module paths are labels ("//app/src/main").
+	BuildSystem string
 }
 
 // NewModuleGraph creates an empty Graph rooted at the given directory.

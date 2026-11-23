@@ -1,6 +1,7 @@
 package module
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -226,5 +227,62 @@ func TestFindSourceRootsFlatMultiplatformLayout(t *testing.T) {
 	}
 	if roots := findSourceRoots(standard); len(roots) != 1 || !strings.HasSuffix(filepath.ToSlash(roots[0]), "src/main/kotlin") {
 		t.Errorf("standard layout roots = %v, want only src/main/kotlin", roots)
+	}
+}
+
+// A Bazel workspace without Gradle files gets one module per package with
+// JVM or Android targets; dependency labels become edges and consumers.
+func TestDiscoverModulesBazelPackages(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "MODULE.bazel"), `bazel_dep(name = "rules_kotlin", version = "2.1.0")`)
+	writeFile(t, filepath.Join(dir, "app", "BUILD.bazel"), `
+android_binary(name = "app", manifest = "AndroidManifest.xml", deps = ["//lib", "@maven//:x"])
+kt_jvm_test(name = "app_test", srcs = ["AppTest.kt"], deps = ["//testing:fakes"])
+`)
+	writeFile(t, filepath.Join(dir, "lib", "BUILD"), `kt_android_library(name = "lib", srcs = glob(["*.kt"]))`)
+	writeFile(t, filepath.Join(dir, "testing", "BUILD"), `kt_jvm_library(name = "fakes", srcs = ["Fakes.kt"], testonly = True)`)
+	writeFile(t, filepath.Join(dir, "docs", "BUILD"), `filegroup(name = "docs", srcs = ["a.md"])`)
+
+	graph, err := DiscoverModules(t.Context(), dir)
+	if err != nil || graph == nil {
+		t.Fatalf("DiscoverModules = %v, %v", graph, err)
+	}
+	if graph.BuildSystem != BuildSystemBazel {
+		t.Errorf("BuildSystem = %q", graph.BuildSystem)
+	}
+	if got, want := modulePaths(graph), []string{"//app", "//lib", "//testing"}; !slices.Equal(got, want) {
+		t.Fatalf("modules = %v, want %v", got, want)
+	}
+	app := graph.Modules["//app"]
+	if app.Dir != filepath.Join(dir, "app") {
+		t.Errorf("app dir = %q", app.Dir)
+	}
+	var deps []string
+	for _, d := range app.Dependencies {
+		deps = append(deps, fmt.Sprintf("%s test=%t", d.ModulePath, d.Test))
+	}
+	if want := []string{"//lib test=false", "//testing test=true"}; !slices.Equal(deps, want) {
+		t.Errorf("app deps = %v, want %v", deps, want)
+	}
+	if got := graph.Consumers["//lib"]; !slices.Equal(got, []string{"//app"}) {
+		t.Errorf("consumers of //lib = %v", got)
+	}
+	if got := graph.FileToModule(filepath.Join(dir, "lib", "Lib.kt")); got != "//lib" {
+		t.Errorf("FileToModule = %q", got)
+	}
+}
+
+// A Gradle build that also carries BUILD files is modeled from Gradle.
+func TestDiscoverModulesPrefersGradleOverBazel(t *testing.T) {
+	dir := t.TempDir()
+	writeSettings(t, dir, `include(":app")`)
+	makeModule(t, dir, "app")
+	writeFile(t, filepath.Join(dir, "app", "BUILD"), `kt_jvm_library(name = "app", srcs = ["A.kt"])`)
+	graph, err := DiscoverModules(t.Context(), dir)
+	if err != nil || graph == nil {
+		t.Fatalf("DiscoverModules = %v, %v", graph, err)
+	}
+	if graph.BuildSystem != "" || !slices.Equal(modulePaths(graph), []string{":app"}) {
+		t.Errorf("graph = %q %v, want the Gradle :app", graph.BuildSystem, modulePaths(graph))
 	}
 }

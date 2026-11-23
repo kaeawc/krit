@@ -91,6 +91,56 @@ var wellKnownOptInMarkers = map[string]bool{
 	"ExperimentalWindowCoreApi":       true,
 }
 
+// optInMarkerOwners maps well-known markers to the package namespaces of the
+// library that defines them. Inside that library, applying its own marker to
+// public API is the marker's purpose (kotlinx.serialization marks its
+// experimental API @ExperimentalSerializationApi), not a leak.
+var optInMarkerOwners = map[string][]string{
+	"ExperimentalCoroutinesApi":               {"kotlinx.coroutines"},
+	"DelicateCoroutinesApi":                   {"kotlinx.coroutines"},
+	"InternalCoroutinesApi":                   {"kotlinx.coroutines"},
+	"FlowPreview":                             {"kotlinx.coroutines"},
+	"ObsoleteCoroutinesApi":                   {"kotlinx.coroutines"},
+	"ExperimentalForInheritanceCoroutinesApi": {"kotlinx.coroutines"},
+	"ExperimentalSerializationApi":            {"kotlinx.serialization"},
+	"InternalSerializationApi":                {"kotlinx.serialization"},
+	"ExperimentalAtomicfuApi":                 {"kotlinx.atomicfu"},
+	"InternalAtomicfuApi":                     {"kotlinx.atomicfu"},
+	"ExperimentalIoApi":                       {"kotlinx.io"},
+	"FormatStringsInDatetimeFormats":          {"kotlinx.datetime"},
+	"ExperimentalCoilApi":                     {"coil", "coil3"},
+	"ExperimentalGlideComposeApi":             {"com.bumptech.glide"},
+	"ExperimentalCircuitApi":                  {"com.slack.circuit"},
+	"ExperimentalHorologistApi":               {"com.google.android.horologist"},
+	"ExperimentalPermissionsApi":              {"com.google.accompanist"},
+	"ExperimentalPagerApi":                    {"com.google.accompanist"},
+}
+
+// optInMarkerOwnedByFile reports whether file belongs to the library that
+// defines marker: kotlin.* for the stdlib's markers, androidx.* for
+// AndroidX's, and optInMarkerOwners for the rest.
+func optInMarkerOwnedByFile(file *scanner.File, marker string) bool {
+	pkg := filePackageName(file)
+	if pkg == "" {
+		return false
+	}
+	owners := optInMarkerOwners[marker]
+	if owners == nil {
+		switch {
+		case strings.HasPrefix(marker, "Experimental") && (pkg == "kotlin" || strings.HasPrefix(pkg, "kotlin.")):
+			return true
+		case strings.HasPrefix(pkg, "androidx."):
+			owners = []string{"androidx"}
+		}
+	}
+	for _, owner := range owners {
+		if pkg == owner || strings.HasPrefix(pkg, owner+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // optInMarkerName extracts the marker class simple name from the expression
 // inside `@OptIn(...)`. tree-sitter parses `Foo::class` as either a
 // class_literal or a callable_reference, and `pkg.Foo::class` as a

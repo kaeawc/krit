@@ -284,3 +284,37 @@ class Visible {
 		t.Errorf("expected only the member of the public class, got %v", findings)
 	}
 }
+
+// The library that defines a well-known marker applies it to its own public
+// API on purpose: kotlinx.serialization marks experimental API
+// @ExperimentalSerializationApi and kotlinx.coroutines marks internals
+// @InternalCoroutinesApi (244 findings across the two before). Code outside
+// the owning library is still reported.
+func TestOptInMarkerExposedPublicly_SkipsMarkerOwnerLibrary(t *testing.T) {
+	count := func(code string) int {
+		n := 0
+		for _, f := range runRuleByName(t, "OptInMarkerExposedPublicly", code) {
+			if f.Rule == "OptInMarkerExposedPublicly" {
+				n++
+			}
+		}
+		return n
+	}
+	for _, tc := range []struct {
+		name, code string
+		want       int
+	}{
+		{"serialization in its own package", "package kotlinx.serialization.cbor\n\n@ExperimentalSerializationApi\npublic class CborArray\n", 0},
+		{"coroutines in its own root package", "package kotlinx.coroutines\n\n@InternalCoroutinesApi\npublic fun handleCoroutineException() {}\n", 0},
+		{"stdlib in kotlin", "package kotlin.uuid\n\n@ExperimentalUuidApi\npublic class Uuid\n", 0},
+		{"androidx compose library", "package androidx.compose.material3\n\n@ExperimentalMaterial3Api\nclass SheetState\n", 0},
+		{"app code using the marker", "package com.example.app\n\n@ExperimentalSerializationApi\nclass Api\n", 1},
+		{"package that only shares a prefix", "package kotlinx.serializationextras\n\n@ExperimentalSerializationApi\nclass Api\n", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := count(tc.code); got != tc.want {
+				t.Errorf("findings = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

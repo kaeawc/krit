@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/sysres"
 )
 
 // Dependency is a normalized external library coordinate discovered from a
@@ -77,10 +80,19 @@ type UnresolvedCatalogAlias struct {
 // profile. Unreadable or unparsable files are ignored so library models remain
 // best-effort and never block analysis.
 func ProfileFromGradlePaths(paths []string) ProjectProfile {
-	var profile ProjectProfile
+	// Reading files and resolving catalogs share caches, so they stay
+	// serial; parsing each build file is independent and dominates on
+	// projects with hundreds of modules, so it runs in parallel. Profiles
+	// are merged in path order, exactly as the serial loop did.
+	type gradleInput struct {
+		content string
+		catalog VersionCatalog
+		ok      bool
+	}
+	inputs := make([]gradleInput, len(paths))
 	catalogs := make(map[string]VersionCatalog)
 	discovery := newCatalogDiscoveryCache()
-	for _, path := range paths {
+	for i, path := range paths {
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -94,10 +106,46 @@ func ProfileFromGradlePaths(paths []string) ProjectProfile {
 				catalogs[catalogKey] = catalog
 			}
 		}
-		profile.Merge(ProfileFromGradleContentWithCatalog(path, string(content), catalog))
+		inputs[i] = gradleInput{content: string(content), catalog: catalog, ok: true}
+	}
+	profiles := make([]ProjectProfile, len(paths))
+	forEachIndex(len(paths), func(i int) {
+		if in := inputs[i]; in.ok {
+			profiles[i] = ProfileFromGradleContentWithCatalog(paths[i], in.content, in.catalog)
+		}
+	})
+	var profile ProjectProfile
+	for i := range paths {
+		if inputs[i].ok {
+			profile.Merge(profiles[i])
+		}
 	}
 	applyFoundrySdkProperties(&profile, paths)
 	return profile
+}
+
+// forEachIndex calls fn(i) for every i in [0, n) on up to sysres.CPUs()
+// goroutines and returns when all calls have finished.
+func forEachIndex(n int, fn func(i int)) {
+	workers := min(sysres.CPUs(), n)
+	if workers <= 1 {
+		for i := 0; i < n; i++ {
+			fn(i)
+		}
+		return
+	}
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := int(next.Add(1) - 1); i < n; i = int(next.Add(1) - 1) {
+				fn(i)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // applyFoundrySdkProperties fills SDK levels that no build file declared from the Foundry Gradle plugin's

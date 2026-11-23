@@ -267,6 +267,10 @@ func Run() int {
 	}
 	defer sess.Close()
 
+	// One-shot scans never touch the code index after building it, so its
+	// cold-path cache write can run in the background; close() waits for it.
+	scanner.SetAsyncCrossFileCacheSave(true)
+	defer scanner.SetAsyncCrossFileCacheSave(false)
 	r, code, ok := newRunner(f, sess)
 	if !ok {
 		return code

@@ -105,11 +105,12 @@ internal object TooGenericExceptionCaught :
     // A plain pattern means the same in Go's RE2 and Java: no escapes, flags, nested or POSIX classes, bounded or
     // stacked quantifiers, and no anchors (Go searches an already-anchored pattern while FIR full-matches it).
     private val unplainParts = listOf("\\", "(?", "[[", "[:", "&&", "{")
-    private val plainClass = Regex("""\[\^?]?[\p{L}\p{N}_.|()\-*+?]*]""")
+    private val plainClass = Regex("""\[\^?(?:][\p{L}\p{Nd}_.|()\-*+?]*|[\p{L}\p{Nd}_.|()\-*+?]+)]""")
     private val stackedQuantifier = Regex("[*+?]{2}")
 
     private fun isPlainPattern(pattern: String): Boolean {
-        if (unplainParts.any { it in pattern } || stackedQuantifier.containsMatchIn(pattern)) return false
+        val unplain = unplainParts.any { it in pattern } || pattern.any { it.isSurrogate() }
+        if (unplain || stackedQuantifier.containsMatchIn(pattern)) return false
         return plainClass.replace(pattern, "C").all { it.isLetterOrDigit() || it in "_.|()-*+?" }
     }
 }

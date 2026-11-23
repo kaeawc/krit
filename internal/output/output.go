@@ -252,13 +252,15 @@ func FormatSARIFColumnsDegraded(w io.Writer, columns *scanner.FindingColumns, ve
 	}
 
 	rulesSeen := make(map[string]bool)
-	var sarifRules []sarifRule
+	// SARIF 2.1.0 requires arrays for rules and results; a nil slice
+	// encodes as null, which GitHub code scanning rejects on a clean run.
+	sarifRules := []sarifRule{}
 	cweIDs := newOrderedTaxa()
 	owaspIDs := newOrderedTaxa()
 	certIDs := newOrderedTaxa()
 	mitreIDs := newOrderedTaxa()
 
-	var results []sarifResult
+	results := []sarifResult{}
 	cols.VisitSortedByFileLine(func(row int) {
 		ruleID := cols.RuleSetAt(row) + "/" + cols.RuleAt(row)
 		if !rulesSeen[ruleID] {

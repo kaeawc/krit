@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"container/heap"
 	"sort"
 	"strings"
 
@@ -31,9 +32,8 @@ func SortByRunAfter(rules []*api.Rule) []*api.Rule {
 	}
 
 	byID := make(map[string]*api.Rule, n)
-	pos := make(map[string]int, n)
 	order := make([]*api.Rule, 0, n)
-	for i, r := range rules {
+	for _, r := range rules {
 		if r == nil {
 			continue
 		}
@@ -44,70 +44,65 @@ func SortByRunAfter(rules []*api.Rule) []*api.Rule {
 			continue
 		}
 		byID[r.ID] = r
-		pos[r.ID] = i
 		order = append(order, r)
 	}
 
-	indeg := make(map[string]int, len(order))
-	dependents := make(map[string][]string, len(order))
-	for _, r := range order {
+	// Work on input indices so the queue is a cheap int min-heap rather
+	// than a string slice re-sorted after every pop.
+	idx := make(map[string]int, len(order))
+	for i, r := range order {
+		idx[r.ID] = i
+	}
+	indeg := make([]int, len(order))
+	dependents := make([][]int, len(order))
+	edges := 0
+	for i, r := range order {
 		for _, dep := range r.RunAfter {
-			if _, ok := byID[dep]; !ok {
-				continue
+			j, ok := idx[dep]
+			if !ok || j == i {
+				continue // unknown deps and self-edges are a no-op
 			}
-			if dep == r.ID {
-				continue // self-edges are a no-op
-			}
-			indeg[r.ID]++
-			dependents[dep] = append(dependents[dep], r.ID)
+			indeg[i]++
+			dependents[j] = append(dependents[j], i)
+			edges++
 		}
 	}
+	if edges == 0 {
+		return order
+	}
 
-	// Kahn's algorithm with a stable tiebreaker: ready entries are
-	// processed in original-input order so unrelated rules keep their
-	// registry sequence.
-	ready := make([]string, 0, len(order))
-	for _, r := range order {
-		if indeg[r.ID] == 0 {
-			ready = append(ready, r.ID)
+	// Kahn's algorithm with a stable tiebreaker: the ready entry with the
+	// lowest original-input position is always processed next, so
+	// unrelated rules keep their registry sequence. order is already in
+	// input order, so its index doubles as the position key.
+	ready := &intMinHeap{}
+	for i := range order {
+		if indeg[i] == 0 {
+			heap.Push(ready, i)
 		}
 	}
 
 	out := make([]*api.Rule, 0, len(order))
-	processed := make(map[string]bool, len(order))
-	for len(ready) > 0 {
-		id := ready[0]
-		ready = ready[1:]
-		if processed[id] {
+	processed := make([]bool, len(order))
+	for ready.Len() > 0 {
+		i := heap.Pop(ready).(int)
+		if processed[i] {
 			continue
 		}
-		processed[id] = true
-		out = append(out, byID[id])
-
-		deps := dependents[id]
-		sort.SliceStable(deps, func(i, j int) bool {
-			return pos[deps[i]] < pos[deps[j]]
-		})
-		newReady := make([]string, 0, len(deps))
-		for _, dep := range deps {
+		processed[i] = true
+		out = append(out, order[i])
+		for _, dep := range dependents[i] {
 			indeg[dep]--
 			if indeg[dep] == 0 {
-				newReady = append(newReady, dep)
+				heap.Push(ready, dep)
 			}
 		}
-		// Insert new-ready entries at the head in original-input order
-		// so they queue before any already-pending entries with later
-		// positions. This matches the stable ordering guarantee.
-		ready = append(newReady, ready...)
-		sort.SliceStable(ready, func(i, j int) bool {
-			return pos[ready[i]] < pos[ready[j]]
-		})
 	}
 
 	if len(out) != len(order) {
 		var cycle []string
-		for _, r := range order {
-			if !processed[r.ID] {
+		for i, r := range order {
+			if !processed[i] {
 				cycle = append(cycle, r.ID)
 			}
 		}
@@ -115,4 +110,17 @@ func SortByRunAfter(rules []*api.Rule) []*api.Rule {
 		panic("rules: RunAfter cycle detected among: " + strings.Join(cycle, ", "))
 	}
 	return out
+}
+
+type intMinHeap []int
+
+func (h intMinHeap) Len() int           { return len(h) }
+func (h intMinHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h intMinHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *intMinHeap) Push(x any)        { *h = append(*h, x.(int)) }
+func (h *intMinHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
 }

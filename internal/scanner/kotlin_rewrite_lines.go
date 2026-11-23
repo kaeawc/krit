@@ -59,9 +59,11 @@ func (r *kotlinRewriter) rewriteLeadingToken(ls, p, le int) {
 			r.joinWithPrevious(ls, p)
 		}
 	case 'i':
-		if bytes.HasPrefix(line, []byte("in ")) && bytes.Contains(line, []byte("->")) {
+		if startsInWhenBranch(line) || startsInPrefixedName(line) {
 			r.terminatePrevious(ls)
 		}
+	case 'b':
+		r.joinLeadingDelegate(ls, p, line)
 	case '!':
 		if startsNegatedWhenBranch(line) {
 			r.terminatePrevious(ls)
@@ -104,7 +106,7 @@ func (r *kotlinRewriter) rewriteLineShapes(p, le int) {
 	if bytes.Contains(line, []byte("{ [")) {
 		r.rewriteBracketLambda(p, le)
 	}
-	if (hasCallSuffix(line) || startsChainContinuation(line)) && hasAssignOp(line) {
+	if (hasCallSuffix(line) || startsChainContinuation(line) || hasLambdaAugmentedTarget(line)) && hasAssignOp(line) {
 		r.rewriteCallChainAssignment(p, le)
 	}
 }
@@ -112,6 +114,46 @@ func (r *kotlinRewriter) rewriteLineShapes(p, le int) {
 // startsCastContinuation reports a line starting with `as T` or `as? T`.
 func startsCastContinuation(line []byte) bool {
 	return len(line) > 2 && line[1] == 's' && (line[2] == ' ' || line[2] == '\t' || line[2] == '?')
+}
+
+// startsInWhenBranch reports a when branch such as `in 1..2 -> x`.
+func startsInWhenBranch(line []byte) bool {
+	return bytes.HasPrefix(line, []byte("in ")) && bytes.Contains(line, []byte("->"))
+}
+
+// startsInPrefixedName reports a line starting with a name such as `in1` or
+// `in_`: the grammar's newline handling reads the `in` as the operator when
+// a digit or underscore follows, and continues the line above.
+func startsInPrefixedName(line []byte) bool {
+	return len(line) > 2 && line[0] == 'i' && line[1] == 'n' && (line[2] >= '0' && line[2] <= '9' || line[2] == '_')
+}
+
+// joinLeadingDelegate joins a line-leading `by` to the property header above.
+func (r *kotlinRewriter) joinLeadingDelegate(ls, p int, line []byte) {
+	if bytes.HasPrefix(line, []byte("by ")) && r.continuesPropertyHeader(ls) {
+		r.joinWithPrevious(ls, p)
+	}
+}
+
+// continuesPropertyHeader reports whether the line above the one starting at
+// ls ends a property header (`val x: Int`), so a line-leading `by` is its
+// delegate.
+func (r *kotlinRewriter) continuesPropertyHeader(ls int) bool {
+	prev := r.lastCodeBefore(ls)
+	if prev < 0 {
+		return false
+	}
+	c := r.orig[prev]
+	if !isIdentByte(c) && c != '>' && c != '?' && c != ')' {
+		return false
+	}
+	header := bytes.TrimSpace(r.orig[lineStartOf(r.orig, prev) : prev+1])
+	for _, kw := range []string{"val ", "var "} {
+		if bytes.HasPrefix(header, []byte(kw)) || bytes.Contains(header, []byte(" "+kw)) {
+			return true
+		}
+	}
+	return false
 }
 
 // startsNegatedWhenBranch reports a when branch that starts with a negation, as in `!in x ->`.
@@ -142,6 +184,17 @@ func startsChainContinuation(line []byte) bool {
 func hasCallSuffix(line []byte) bool {
 	for _, s := range []string{").", ")[", ")?.", ")!!", "}["} {
 		if bytes.Contains(line, []byte(s)) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasLambdaAugmentedTarget reports an augmented assignment whose target
+// ends in a trailing lambda: `map.getOrPut(k) { mutableListOf() } += v`.
+func hasLambdaAugmentedTarget(line []byte) bool {
+	for _, op := range []string{"} +=", "} -=", "} *=", "} /=", "} %="} {
+		if bytes.Contains(line, []byte(op)) {
 			return true
 		}
 	}
@@ -336,7 +389,7 @@ func (r *kotlinRewriter) rewriteCallChainAssignment(p, le int) {
 		if opStart < 2 || (o[opStart-1] != ' ' && o[opStart-1] != '\t') {
 			continue
 		}
-		start, ok := r.chainStart(opStart - 2)
+		start, ok := r.chainStart(opStart-2, opStart != i)
 		if !ok || start < 1 || (o[start-1] != ' ' && o[start-1] != '\t') || !r.statementBoundary(start) {
 			continue
 		}
@@ -382,14 +435,18 @@ type chainScan struct {
 	pos               int
 	groupBeforeSuffix bool
 	first             bool
+	// trailingLambda allows the chain to end in a lambda, which only an
+	// augmented assignment (`f(k) { ... } += v`, through plusAssign) can
+	// target.
+	trailingLambda bool
 }
 
 // chainStart scans backward from the last byte at end over a chain of names,
 // calls and index suffixes. It reports the chain start and whether the chain
 // has a call or index group followed by another suffix.
-func (r *kotlinRewriter) chainStart(end int) (int, bool) {
+func (r *kotlinRewriter) chainStart(end int, augmented bool) (int, bool) {
 	o := r.orig
-	st := chainScan{pos: end, first: true}
+	st := chainScan{pos: end, first: true, trailingLambda: augmented}
 	for st.pos >= 0 {
 		c := o[st.pos]
 		var start int
@@ -417,7 +474,7 @@ func (r *kotlinRewriter) chainStart(end int) (int, bool) {
 // It reports false when the lambda cannot be part of the chain.
 func (r *kotlinRewriter) chainLambdaStep(st *chainScan) bool {
 	o := r.orig
-	if st.first {
+	if st.first && !st.trailingLambda {
 		return false
 	}
 	st.groupBeforeSuffix = true
@@ -690,6 +747,9 @@ func (r *kotlinRewriter) modifierUsedAsName(at, end int) bool {
 	for k < len(o) && (o[k] == ' ' || o[k] == '\t') {
 		k++
 	}
+	if called, ok := r.modifierCalled(at, end, k); ok {
+		return called
+	}
 	if k+1 < len(o) && o[k] == '-' && o[k+1] == '>' {
 		// A lambda parameter such as `{ annotation -> ... }`.
 		p := r.prevNonSpace(at)
@@ -700,6 +760,93 @@ func (r *kotlinRewriter) modifierUsedAsName(at, end int) bool {
 		return false
 	}
 	return startsCallOrAssignment(o, k, end)
+}
+
+// rewriteActualAfterModifier handles `actual` after another modifier or an
+// annotation on a constructor property (`public actual val x: Int`,
+// `@JvmField actual val x`), which the grammar reads as the parameter name.
+// The parse buffer gets `inline`, a modifier the grammar accepts there, and
+// repairTree re-types the node as the platform_modifier `actual`.
+func (r *kotlinRewriter) rewriteActualAfterModifier() {
+	o := r.orig
+	for pos := 0; pos < len(o); {
+		k := bytes.Index(o[pos:], []byte("actual"))
+		if k < 0 {
+			return
+		}
+		at := pos + k
+		pos = at + len("actual")
+		next := r.skipWS(pos)
+		if next+4 > len(o) || !bytes.HasPrefix(o[next:], []byte("val ")) && !bytes.HasPrefix(o[next:], []byte("var ")) {
+			continue
+		}
+		prev := r.prevNonSpace(at)
+		if prev < 0 || !isIdentByte(o[prev]) && o[prev] != ')' {
+			continue
+		}
+		if !r.wordAt(at, "actual") || !r.isCode(next) {
+			continue
+		}
+		copy(r.buf(at, len("inline")), "inline")
+		r.platformMods = append(r.platformMods, uint32(at))
+	}
+}
+
+// rewriteReturnEIdentifiers upper-cases the first letter of a name starting
+// with 'e' after `return` (`return emptyList()`). Inside a when branch the
+// grammar's scanner takes the 'e' for the start of `else` and fails on the
+// rest of the name. The tree still reads the original text.
+func (r *kotlinRewriter) rewriteReturnEIdentifiers() {
+	o := r.orig
+	for pos := 0; pos < len(o); {
+		k := bytes.Index(o[pos:], []byte("return"))
+		if k < 0 {
+			return
+		}
+		at := pos + k
+		pos = at + len("return")
+		j := pos
+		for j < len(o) && (o[j] == ' ' || o[j] == '\t') {
+			j++
+		}
+		// Byte checks first: wordAt and isCode build the lexer, which most
+		// files never need.
+		if j == pos || j >= len(o) || o[j] != 'e' || bytes.HasPrefix(o[j:], []byte("else")) && (j+4 == len(o) || !isIdentByte(o[j+4])) {
+			continue
+		}
+		if !r.wordAt(at, "return") || !r.isCode(j) {
+			continue
+		}
+		r.set(j, 'E')
+	}
+}
+
+// modifierCalled decides a modifier word at [at, end) that is called:
+// directly followed by '(' (`open(file)`; `suspend() -> Unit` is a function
+// type) or, for suspend, by a trailing lambda (`suspend { ... }` calls
+// kotlin.suspend). k is the first non-blank byte after the word. ok is false
+// when neither shape applies.
+func (r *kotlinRewriter) modifierCalled(at, end, k int) (called, ok bool) {
+	o := r.orig
+	suspend := string(o[at:end]) == "suspend"
+	switch {
+	case o[end] == '(':
+		return !suspend || !r.parenFollowedByArrow(end), true
+	case suspend && k < len(o) && o[k] == '{':
+		return true, true
+	}
+	return false, false
+}
+
+// parenFollowedByArrow reports whether the parenthesized group opening at
+// open is followed by `->`.
+func (r *kotlinRewriter) parenFollowedByArrow(open int) bool {
+	end := r.skipBalanced(open, '(', ')')
+	if end < 0 {
+		return false
+	}
+	k := r.skipWS(end)
+	return k+1 < len(r.orig) && r.orig[k] == '-' && r.orig[k+1] == '>'
 }
 
 // startsCallOrAssignment reports whether o[k] starts a call directly after a name ending at end, or an assignment.

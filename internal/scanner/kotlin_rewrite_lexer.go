@@ -3,8 +3,8 @@ package scanner
 import "bytes"
 
 // kotlinLexer classifies each source byte as code or not. Comments, string
-// contents, character literals and backtick names are not code. Quote marks
-// of strings count as code so the end of a line can be told from the end of a
+// contents, character literal contents and backtick names are not code. Quote
+// marks of strings and character literals count as code so the end of a line can be told from the end of a
 // comment. Code inside `${...}` templates is code.
 type kotlinLexer struct {
 	src  []byte
@@ -51,6 +51,11 @@ func (lx *kotlinLexer) code(i int, inTemplate bool) int {
 			continue
 		case '\'':
 			if j := lx.charLiteral(i); j > i {
+				// Like string quotes, the quote marks of a character
+				// literal are code, so a line ending in 'A' is known to
+				// end in code.
+				lx.mask[i] = true
+				lx.mask[j-1] = true
 				i = j
 				continue
 			}

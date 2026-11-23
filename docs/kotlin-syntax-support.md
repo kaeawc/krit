@@ -47,14 +47,18 @@ Where a rewrite hides tokens, `repairTree` restores nodes afterwards.
 | `(val a, val b) = x`, `[val a, val b]`, `val [a, b]`, `[a, b] ->` | rewritten to `val (a, b)` / `(a, b)` | a `multi_variable_declaration` |
 | `: Iface by expr { body }` on classes and objects | `by expr` is blanked, then rebuilt as `explicit_delegation` | none |
 | `: @Ann Base` supertypes | annotation blanked | annotation has no nodes |
-| `f(x).y = v`, `a()[i] = v`, `(x as T).p = v` | target wrapped in parentheses, removed again | none |
+| `f(x).y = v`, `a()[i] = v`, `(x as T).p = v`, `m.getOrPut(k) { … } += v` | target wrapped in parentheses, removed again | none |
 | line-leading `as`, `where` | line break replaced by a space | none |
 | line-leading `+` or `-` outside parentheses and brackets | `;` ends the previous line, as Kotlin does (`a` / `+ b` is two statements) | none; not applied after `return`, `break`, `continue`, an `if`/`while`/`for` head or a line ending in an operator keyword |
-| line-leading `in`, `!in`, `else ->`, `.5f`, `!x ->` | `;` ends the previous line | none; node ends are trimmed before the `;` |
+| line-leading `in`, `!in`, `else ->`, `.5f`, `!x ->` | `;` ends the previous line, including one that ends in a character literal (`c - '0'`) | none; node ends are trimmed before the `;` |
 | trailing comma in `<A, B,>`, `[i,]`, `(A, B,) -> R` | comma blanked | none |
 | `Type?::m`, `Type<A>::m`, `A.B.() -> R`, `T?.(X) -> R` | `?` / type arguments blanked, qualifier dots read as `_` | type arguments and nullability not in the tree |
 | `{ (a, b): T -> }` | type blanked | type not in the tree |
-| identifiers that spell modifiers (`open.x()`, `{ annotation -> }`) | first letter upper-cased | none |
+| identifiers that spell modifiers (`open.x()`, `open(file)`, `suspend { }`, `{ annotation -> }`) | first letter upper-cased | none |
+| `actual` after another modifier or an annotation on a constructor property (`public actual val x`) | read as `inline` | re-typed as the `platform_modifier` a leading `actual` produces |
+| `return e…` (`return emptyList()`) | first letter upper-cased; inside a `when` branch the grammar takes the `e` for `else` | none |
+| line-leading `in1`, `in_` | `;` ends the previous line; the grammar reads `in` followed by a digit or `_` as the operator | none |
+| line-leading `by` after a property header | line break replaced by a space | none |
 | non-ASCII letters in unquoted identifiers | read as `a` | none |
 
 ## Rule behavior on Kotlin 2.x constructs

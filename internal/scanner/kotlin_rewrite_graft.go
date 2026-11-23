@@ -32,7 +32,38 @@ func (r *kotlinRewriter) repairTree(ctx context.Context, parser *sitter.Parser, 
 	}
 	extendDeclPrefixes(ft, r.prefixes)
 	trimInsertedSemicolons(ft, r.semis)
+	retypePlatformModifiers(ft, r.platformMods)
 	return ft
+}
+
+// retypePlatformModifiers turns the `inline` modifiers that stood in for
+// `actual` back into the platform_modifier node the grammar produces for a
+// leading `actual`.
+func retypePlatformModifiers(ft *FlatTree, offsets []uint32) {
+	if len(offsets) == 0 {
+		return
+	}
+	at := make(map[uint32]bool, len(offsets))
+	for _, off := range offsets {
+		at[off] = true
+	}
+	changed := false
+	for i := 0; i < ft.Len(); i++ {
+		if !at[ft.StartBytes[i]] {
+			continue
+		}
+		switch nodeTypeName(ft.Types[i]) {
+		case "function_modifier":
+			ft.Types[i] = internNodeType("platform_modifier")
+			changed = true
+		case "inline":
+			ft.Types[i] = internNodeType("actual")
+			changed = true
+		}
+	}
+	if changed {
+		ft.buildNodesByType()
+	}
 }
 
 func isPrefixTarget(typ string) bool {

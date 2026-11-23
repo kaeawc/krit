@@ -70,6 +70,20 @@ type Dispatcher struct {
 	skipRuleTiming bool
 	// flatTypeRules is indexed by FlatNode.Type for O(1) flat dispatch.
 	flatTypeRules [][]*api.Rule
+	// flatTypeSlots parallels flatTypeRules with each rule's slot (see
+	// slotOf), so the walk tests a rule's per-file exclusion by index.
+	flatTypeSlots [][]int32
+	// slotOf numbers every rule the dispatcher holds; slotIDs[slot] is
+	// that rule's ID and slotsByID lists the slots of each ID. Fixed at
+	// construction.
+	slotOf    map[*api.Rule]int32
+	slotIDs   []string
+	slotsByID map[string][]int32
+	// ruleIDs is the set of slotIDs.
+	ruleIDs map[string]bool
+	// allNodeSlots and lineSlots parallel allNodeRules and lineRules.
+	allNodeSlots []int32
+	lineSlots    []int32
 	// allNodeRules is the set of node rules that declare nil NodeTypes
 	// — they receive every node during the walk.
 	allNodeRules []*api.Rule
@@ -125,6 +139,9 @@ type Dispatcher struct {
 	// construction so the map per language is computed once and reused
 	// for every file of that language.
 	languageExcluded sync.Map // languageExcludedKey -> map[string]bool
+	// languageExcludedSlots caches excludedForFile as a slot-indexed
+	// bitmap for the per-file walk.
+	languageExcludedSlots sync.Map // languageExcludedKey -> []bool
 }
 
 // NewDispatcher constructs a Dispatcher from the supplied v2 rules.
@@ -203,8 +220,36 @@ func NewDispatcher(rules []*api.Rule, resolver typeinfer.TypeResolver) *Dispatch
 		// uniformly.
 	}
 
+	d.assignRuleSlots()
 	d.buildFlatTypeIndex(rules)
 	return d
+}
+
+// assignRuleSlots numbers every rule the dispatcher holds. The rule lists
+// are final once the constructor has classified them, so the numbering
+// never changes afterwards.
+func (d *Dispatcher) assignRuleSlots() {
+	all := d.collectAllRules()
+	d.slotOf = make(map[*api.Rule]int32, len(all))
+	d.slotIDs = make([]string, len(all))
+	d.slotsByID = make(map[string][]int32, len(all))
+	d.ruleIDs = make(map[string]bool, len(all))
+	for i, r := range all {
+		d.slotOf[r] = int32(i)
+		d.slotIDs[i] = r.ID
+		d.slotsByID[r.ID] = append(d.slotsByID[r.ID], int32(i))
+		d.ruleIDs[r.ID] = true
+	}
+	d.allNodeSlots = d.slotsOf(d.allNodeRules)
+	d.lineSlots = d.slotsOf(d.lineRules)
+}
+
+func (d *Dispatcher) slotsOf(rules []*api.Rule) []int32 {
+	slots := make([]int32, len(rules))
+	for i, r := range rules {
+		slots[i] = d.slotOf[r]
+	}
+	return slots
 }
 
 // SetLibraryFacts wires project-wide library semantics into contexts created
@@ -263,6 +308,7 @@ func (d *Dispatcher) buildFlatTypeIndex(rules []*api.Rule) {
 		size = 1
 	}
 	d.flatTypeRules = make([][]*api.Rule, size)
+	d.flatTypeSlots = make([][]int32, size)
 
 	ensureSize := func(need int) {
 		if need <= len(d.flatTypeRules) {
@@ -271,6 +317,9 @@ func (d *Dispatcher) buildFlatTypeIndex(rules []*api.Rule) {
 		grown := make([][]*api.Rule, need)
 		copy(grown, d.flatTypeRules)
 		d.flatTypeRules = grown
+		grownSlots := make([][]int32, need)
+		copy(grownSlots, d.flatTypeSlots)
+		d.flatTypeSlots = grownSlots
 	}
 
 	for _, r := range rules {
@@ -287,6 +336,7 @@ func (d *Dispatcher) buildFlatTypeIndex(rules []*api.Rule) {
 			if typeID, ok := scanner.LookupFlatNodeType(t); ok {
 				ensureSize(int(typeID) + 1)
 				d.flatTypeRules[typeID] = append(d.flatTypeRules[typeID], r)
+				d.flatTypeSlots[typeID] = append(d.flatTypeSlots[typeID], d.slotOf[r])
 			}
 		}
 	}
@@ -377,11 +427,12 @@ func ruleMatchesLexicalCalleeNames(r *api.Rule, file *scanner.File, idx uint32) 
 	return false
 }
 
-// ensureFlatTypeIndex returns the flat-type rule index, rebuilding it if
-// NodeTypeTable has grown since the last build.
-func (d *Dispatcher) ensureFlatTypeIndex(rules []*api.Rule) [][]*api.Rule {
+// ensureFlatTypeIndex returns the flat-type rule index and its parallel
+// slot index, rebuilding both if NodeTypeTable has grown since the last
+// build. The full rule list is only collected for a rebuild.
+func (d *Dispatcher) ensureFlatTypeIndex() ([][]*api.Rule, [][]int32) {
 	d.mu.RLock()
-	idx := d.flatTypeRules
+	idx, slots := d.flatTypeRules, d.flatTypeSlots
 	builtSize := d.flatTypeIndexSize
 	d.mu.RUnlock()
 
@@ -390,13 +441,13 @@ func (d *Dispatcher) ensureFlatTypeIndex(rules []*api.Rule) [][]*api.Rule {
 		needSize = 1
 	}
 	if idx != nil && builtSize >= needSize {
-		return idx
+		return idx, slots
 	}
 
-	d.buildFlatTypeIndex(rules)
+	d.buildFlatTypeIndex(d.collectAllRules())
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.flatTypeRules
+	return d.flatTypeRules, d.flatTypeSlots
 }
 
 // Run executes all per-file rules and returns findings in columnar form.
@@ -430,7 +481,7 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 		return scanner.FindingColumns{}, stats
 	}
 
-	flatTypeRules := d.ensureFlatTypeIndex(d.collectAllRules())
+	flatTypeRules, flatTypeSlots := d.ensureFlatTypeIndex()
 	timeRules := !d.skipRuleTiming
 	// Reused for every call in this file so the node and context do not escape to the heap per call.
 	var ctxScratch api.Context
@@ -449,9 +500,14 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 	}
 	stats.SuppressionIndexMs += time.Since(start).Milliseconds()
 
-	excludedRules := d.buildExcludedSet(file.Path)
-	for id := range d.excludedForFile(file) {
-		excludedRules[id] = true
+	// excluded[slot] marks the rules that do not run on this file: the
+	// language/script exclusions (cached per file shape) plus the rules
+	// whose config excludes match this path.
+	excluded := d.excludedSlotsForFile(file)
+	for id := range d.buildExcludedSet(file.Path) {
+		for _, slot := range d.slotsByID[id] {
+			excluded[slot] = true
+		}
 	}
 
 	collector := scanner.NewFindingCollector(0)
@@ -502,14 +558,15 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 				if len(handlers) == 0 {
 					continue
 				}
+				slots := flatTypeSlots[typeID]
 				indices := postingIndices[offsets[typeID]:offsets[typeID+1]]
 				if len(indices) == 0 {
 					continue
 				}
 				for _, flatIdx := range indices {
 					flatNode = tree.Node(flatIdx)
-					for _, r := range handlers {
-						if excludedRules[r.ID] {
+					for h, r := range handlers {
+						if excluded[slots[h]] {
 							continue
 						}
 						if !ruleMatchesLexicalCalleeNames(r, file, flatIdx) {
@@ -543,11 +600,13 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 				flatIdx := uint32(i)
 				flatNode = tree.Node(flatIdx)
 				var handlers []*api.Rule
+				var slots []int32
 				if int(flatNode.Type) < len(flatTypeRules) {
 					handlers = flatTypeRules[flatNode.Type]
+					slots = flatTypeSlots[flatNode.Type]
 				}
-				for _, r := range handlers {
-					if excludedRules[r.ID] {
+				for h, r := range handlers {
+					if excluded[slots[h]] {
 						continue
 					}
 					if !ruleMatchesLexicalCalleeNames(r, file, flatIdx) {
@@ -571,8 +630,8 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 						stats.recordRule(r.ID, "dispatch", elapsed)
 					}
 				}
-				for _, r := range d.allNodeRules {
-					if excludedRules[r.ID] {
+				for h, r := range d.allNodeRules {
+					if excluded[d.allNodeSlots[h]] {
 						continue
 					}
 					resolver, ok := d.resolveForRule(r)
@@ -600,8 +659,8 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 
 	// Line-pass rules.
 	start = time.Now()
-	for _, r := range d.lineRules {
-		if excludedRules[r.ID] {
+	for h, r := range d.lineRules {
+		if excluded[d.lineSlots[h]] {
 			continue
 		}
 		resolver, ok := d.resolveForRule(r)
@@ -771,45 +830,12 @@ func allRuleExcludes() map[string][]string {
 // package-level exclusion map so config remains a single source of truth.
 func (d *Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 	excluded := make(map[string]bool)
-	check := func(r *api.Rule) {
-		if excludes := GetRuleExcludes(r.ID); len(excludes) > 0 && IsFileExcluded(filePath, excludes) {
-			excluded[r.ID] = true
+	// Only rules with configured excludes can be excluded, and there are
+	// usually few, so walk those and keep the ones this dispatcher holds.
+	for id, excludes := range ruleExcludes {
+		if len(excludes) > 0 && d.ruleIDs[id] && IsFileExcluded(filePath, excludes) {
+			excluded[id] = true
 		}
-	}
-	for _, bucket := range d.flatTypeRules {
-		for _, r := range bucket {
-			check(r)
-		}
-	}
-	for _, r := range d.allNodeRules {
-		check(r)
-	}
-	for _, r := range d.lineRules {
-		check(r)
-	}
-	for _, r := range d.crossFileRules {
-		check(r)
-	}
-	for _, r := range d.moduleAwareRules {
-		check(r)
-	}
-	for _, r := range d.manifestRules {
-		check(r)
-	}
-	for _, r := range d.resourceRules {
-		check(r)
-	}
-	for _, r := range d.resourceSourceRules {
-		check(r)
-	}
-	for _, r := range d.iconRules {
-		check(r)
-	}
-	for _, r := range d.gradleRules {
-		check(r)
-	}
-	for _, r := range d.aggregateRules {
-		check(r)
 	}
 	return excluded
 }
@@ -1225,6 +1251,23 @@ func (d *Dispatcher) excludedForFile(file *scanner.File) map[string]bool {
 		return actual.(map[string]bool)
 	}
 	return m
+}
+
+// excludedSlotsForFile returns a fresh slot-indexed copy of
+// excludedForFile(file), from a bitmap cached per file shape.
+func (d *Dispatcher) excludedSlotsForFile(file *scanner.File) []bool {
+	key := languageExcludedKey{lang: file.Language, kind: file.ScriptKind(), gen: scriptPolicyGen.Load()}
+	cached, ok := d.languageExcludedSlots.Load(key)
+	if !ok {
+		byID := d.excludedForFile(file)
+		bits := make([]bool, len(d.slotIDs))
+		for slot, id := range d.slotIDs {
+			bits[slot] = byID[id]
+		}
+		cached, _ = d.languageExcludedSlots.LoadOrStore(key, bits)
+	}
+	bits := cached.([]bool)
+	return append(make([]bool, 0, len(bits)), bits...)
 }
 
 // CrossFileRules returns the cross-file rules stored on this dispatcher.

@@ -17,22 +17,18 @@ func forEachFlatNamedChild(file *scanner.File, parent uint32, fn func(child uint
 	if file == nil || file.FlatTree == nil || fn == nil {
 		return
 	}
-	for i := 0; i < file.FlatNamedChildCount(parent); i++ {
-		if child := file.FlatNamedChild(parent, i); child != 0 {
+	file.FlatForEachNamedChild(parent, func(child uint32) {
+		if child != 0 {
 			fn(child)
 		}
-	}
+	})
 }
 
 func flatForEachRelevantDeclarationChild(file *scanner.File, idx uint32, fn func(child uint32)) {
 	if file == nil || file.FlatTree == nil || idx == 0 || fn == nil {
 		return
 	}
-	for i := 0; i < file.FlatNamedChildCount(idx); i++ {
-		child := file.FlatNamedChild(idx, i)
-		if child == 0 {
-			continue
-		}
+	file.FlatForEachNamedChild(idx, func(child uint32) {
 		switch file.FlatType(child) {
 		case "property_declaration", "function_declaration", "class_declaration",
 			"object_declaration", "type_alias", "class_body", "class_member_declarations",
@@ -42,7 +38,7 @@ func flatForEachRelevantDeclarationChild(file *scanner.File, idx uint32, fn func
 			"anonymous_initializer":
 			fn(child)
 		}
-	}
+	})
 }
 
 func flatVariableDeclNameAndType(file *scanner.File, idx uint32) (string, uint32) {

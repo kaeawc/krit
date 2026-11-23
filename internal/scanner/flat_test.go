@@ -335,3 +335,27 @@ func TestParseFile_PopulatesFlatTree(t *testing.T) {
 		t.Fatalf("expected flat root type source_file, got %q", nodeTypeName(file.FlatTree.Types[0]))
 	}
 }
+
+func TestFlatForEachNamedChildMatchesIndexedAccess(t *testing.T) {
+	file := parseKotlinSnippet(t, `package p
+
+import a.B
+
+class C { fun f(x: Int, y: Int) = x + y }
+fun g() = 1
+`)
+	parents := []uint32{0}
+	file.FlatWalkAllNodes(0, func(idx uint32) { parents = append(parents, idx) })
+	for _, parent := range parents {
+		var got []uint32
+		file.FlatForEachNamedChild(parent, func(child uint32) { got = append(got, child) })
+		if len(got) != file.FlatNamedChildCount(parent) {
+			t.Fatalf("node %d (%s): visited %d named children, want %d", parent, file.FlatType(parent), len(got), file.FlatNamedChildCount(parent))
+		}
+		for i, child := range got {
+			if want := file.FlatNamedChild(parent, i); child != want {
+				t.Fatalf("node %d child %d = %d, want %d", parent, i, child, want)
+			}
+		}
+	}
+}

@@ -506,6 +506,11 @@ func roomCollectLoadAllDaoOperations(files []*scanner.File, roomFacts librarymod
 		if file == nil || file.FlatTree == nil {
 			continue
 		}
+		// Without Room library facts, DAO evidence requires an
+		// androidx.room reference in the file itself.
+		if !roomFacts.Enabled && !bytes.Contains(file.Content, roomPackageMarker) {
+			continue
+		}
 		file.FlatWalkAllNodes(0, func(idx uint32) {
 			if file.FlatType(idx) != "class_declaration" || !databaseClassHasRoomDaoEvidence(file, idx, roomFacts) {
 				return

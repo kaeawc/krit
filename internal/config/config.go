@@ -18,6 +18,9 @@ type Config struct {
 	detekt *DetektImport
 	// androidLint records the Android Lint issues the project turns off.
 	androidLint *AndroidLintImport
+	// ktlint records the ktlint .editorconfig settings layered under the
+	// detekt config.
+	ktlint *KtlintImport
 	// explicitActive holds "ruleSet/rule" for every rule whose `active`
 	// krit.yml or the imported detekt config sets.
 	explicitActive map[string]bool
@@ -246,12 +249,23 @@ func mergeUserConfig(base *Config, userPath string, roots []string, opts LoadOpt
 		return nil, err
 	}
 	lint := loadAndroidLintImport(user, roots, opts)
-	if user == nil && layer == nil && info == nil && lint == nil {
+	var ktlintLayer map[string]interface{}
+	var ktlintInfo *KtlintImport
+	if !opts.NoKtlintEditorConfig && userSectionEnabled(user, "ktlintEditorConfig") {
+		ktlintLayer, ktlintInfo = loadKtlintLayer(roots)
+		unionStarImportExcludes(ktlintLayer, base.data)
+	}
+	if user == nil && layer == nil && info == nil && lint == nil && ktlintLayer == nil {
 		return base, nil
 	}
 
 	merged := base.data
 	explicit := map[string]bool{}
+	if ktlintLayer != nil {
+		// Under the detekt config and krit.yml: a project that configures
+		// a rule there keeps its setting.
+		merged = mergeMaps(merged, ktlintLayer)
+	}
 	if layer != nil {
 		canonicalizeAliases(layer)
 		merged = mergeMaps(merged, layer)
@@ -262,21 +276,61 @@ func mergeUserConfig(base *Config, userPath string, roots []string, opts LoadOpt
 		merged = mergeMaps(merged, user.data)
 		recordExplicitActive(explicit, user.data)
 	}
-	return &Config{data: merged, detekt: info, androidLint: lint, explicitActive: explicit}, nil
+	return &Config{data: merged, detekt: info, androidLint: lint, ktlint: ktlintInfo, explicitActive: explicit}, nil
+}
+
+// userSectionEnabled reports whether krit.yml leaves the top-level
+// `<section>: { enabled: ... }` switch on (the default).
+func userSectionEnabled(user *Config, section string) bool {
+	if user == nil {
+		return true
+	}
+	if v, ok := lookupValue(user.data, section, "enabled"); ok {
+		if b, ok := toBool(v); ok {
+			return b
+		}
+	}
+	return true
+}
+
+// unionStarImportExcludes keeps krit's shipped WildcardImport exclusions
+// (java.util.*, platform.**) next to the packages the project imports on
+// demand: merging the layer would otherwise replace the list.
+func unionStarImportExcludes(layer, base map[string]interface{}) {
+	for set, sv := range layer {
+		rules, _ := sv.(map[string]interface{})
+		block, _ := rules["WildcardImport"].(map[string]interface{})
+		added, ok := block["excludeImports"].([]string)
+		if !ok {
+			continue
+		}
+		var out []interface{}
+		seen := map[string]bool{}
+		if existing, ok := lookupValue(base, set, "WildcardImport", "excludeImports"); ok {
+			if list, ok := existing.([]interface{}); ok {
+				for _, v := range list {
+					if s, ok := v.(string); ok && !seen[s] {
+						seen[s] = true
+						out = append(out, s)
+					}
+				}
+			}
+		}
+		for _, s := range added {
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+		block["excludeImports"] = out
+	}
 }
 
 // loadAndroidLintImport discovers the project's Android Lint configuration
 // unless krit.yml sets `androidLintConfig: { enabled: false }`.
 func loadAndroidLintImport(user *Config, roots []string, opts LoadOptions) *AndroidLintImport {
-	if opts.NoAndroidLintConfig {
+	if opts.NoAndroidLintConfig || !userSectionEnabled(user, "androidLintConfig") {
 		return nil
-	}
-	if user != nil {
-		if v, ok := lookupValue(user.data, "androidLintConfig", "enabled"); ok {
-			if b, ok := toBool(v); ok && !b {
-				return nil
-			}
-		}
 	}
 	if len(roots) == 0 {
 		roots = []string{"."}

@@ -284,6 +284,31 @@ The match uses the rule's Lint issue IDs, the same IDs `@SuppressLint` and
 Lint config. `--verbose` lists the files and issues that were read. Set
 `androidLintConfig: {enabled: false}` to opt out.
 
+## ktlint and line-length settings in .editorconfig
+
+A project that formats with ktlint records its style choices in
+`.editorconfig`, and krit reads them from the `.editorconfig` files above the
+scan root (up to `root = true` or the repository root), in `[*]`, `[*.kt]` and
+`[*.{kt,kts}]` sections:
+
+- `ktlint_standard_<rule> = disabled` turns off krit's rule for the same
+  check: `no-wildcard-imports` (WildcardImport), `max-line-length`
+  (MaxLineLength), `filename` (MatchingDeclarationName), `function-naming`,
+  `package-name`, `class-naming`, `enum-entry-name-case`, `final-newline`
+  (NewLineAtEndOfFile), `no-trailing-spaces` (TrailingWhitespace),
+  `no-unused-imports` (UnusedImport), `modifier-order`, `no-empty-file`
+  (EmptyKotlinFile) and `no-empty-class-body` (EmptyClassBlock).
+- `ij_kotlin_packages_to_use_import_on_demand` packages join
+  WildcardImport's `excludeImports`.
+- `max_line_length` sets MaxLineLength's limit (`off` turns the rule off), so
+  krit reports the line length the project's formatter enforces.
+
+These sit under the detekt config and `krit.yml`, which win where they set
+the same rule. `--verbose` reports what was applied; set
+`ktlintEditorConfig: {enabled: false}` to opt out. `--enable-editorconfig`
+additionally applies the other standard properties (`indent_style`,
+`insert_final_newline`, ...), which override krit.yml.
+
 ## Gradle model
 
 `./gradlew kritExportModel` writes `.krit/gradle-model/` with each Gradle

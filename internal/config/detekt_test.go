@@ -49,7 +49,9 @@ func installFakeView(t *testing.T) {
 			"FunctionNaming":          "naming",
 			"TopLevelPropertyNaming":  "naming",
 			"DestructuringDeclarationWithTooManyEntries": "style",
-			"ForbiddenImport": "style",
+			"ForbiddenImport":         "style",
+			"WildcardImport":          "style",
+			"MatchingDeclarationName": "naming",
 		},
 		options: map[string]map[string]string{
 			"LongMethod":              {"allowedLines": "allowedLines", "threshold": "allowedLines"},

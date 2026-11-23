@@ -334,6 +334,10 @@ func reportDetektImport(verbose bool, cfg *config.Config, w io.Writer) {
 	for _, line := range cfg.Detekt().Summary() {
 		fmt.Fprintf(w, "verbose: detekt: %s\n", line)
 	}
+	if k := cfg.Ktlint(); k != nil {
+		fmt.Fprintf(w, "verbose: .editorconfig %s: turned off %s; star imports allowed for %s; max_line_length %d\n",
+			k.Source, strings.Join(k.Disabled, ", "), strings.Join(k.StarImportPackages, ", "), k.MaxLineLength)
+	}
 	if lint := cfg.AndroidLint(); lint != nil {
 		fmt.Fprintf(w, "verbose: android lint config: %s ignore %s; krit's ports stay off unless krit.yml sets active\n",
 			strings.Join(lint.Sources, ", "), strings.Join(lint.IDs(), ", "))

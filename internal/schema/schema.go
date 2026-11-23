@@ -218,6 +218,10 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"enabled": jsonschema.Boolean("Set false to stop krit reading lint.xml and Gradle lint { disable } blocks. When enabled, krit's ports of Android Lint issues the project ignores stay off unless a rule's active is set here.").WithDefault(true),
 	}).WithDescription("Import of the project's Android Lint configuration.").AdditionalPropertiesFalse()
 
+	props["ktlintEditorConfig"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"enabled": jsonschema.Boolean("Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_<rule> = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.").WithDefault(true),
+	}).WithDescription("Import of the project's ktlint and line-length .editorconfig settings.").AdditionalPropertiesFalse()
+
 	props["maxCost"] = jsonschema.StringEnum(
 		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
 		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
@@ -350,6 +354,7 @@ func KnownRuleSets() map[string]bool {
 		"config":                  true,
 		"detekt":                  true,
 		"androidLintConfig":       true,
+		"ktlintEditorConfig":      true,
 		"module_template":         true,
 		"slos":                    true,
 		"testSourcePaths":         true,

@@ -72,6 +72,9 @@ func ApplyConfig(cfg *config.Config) {
 		// pointer case, which does not arise here — every Registry
 		// entry carries Implementation.
 		active := api.ApplyConfig(r.Implementation, meta, adapter)
+		if active && androidLintTurnsOff(cfg, r) {
+			active = false
+		}
 		if active {
 			delete(DefaultInactive, ruleName)
 		} else {
@@ -79,6 +82,31 @@ func ApplyConfig(cfg *config.Config) {
 		}
 	}
 	scanner.SetRuleIgnoreAnnotated(ignoreAnnotated)
+}
+
+// androidLintTurnsOff reports whether the project turned the Android Lint
+// issue a rule ports off in lint.xml or a Gradle lint { disable } block,
+// and krit.yml does not turn the rule back on.
+func androidLintTurnsOff(cfg *config.Config, r *api.Rule) bool {
+	return androidLintIgnoresRule(cfg.AndroidLint(), r) && !cfg.ExplicitlySetsActive(r.Category, r.ID)
+}
+
+// androidLintIgnoresRule reports whether the project's Android Lint config
+// turns off the issue the rule ports: the rule ID when it is a known lint
+// issue ID, or one of its lint suppression aliases.
+func androidLintIgnoresRule(lint *config.AndroidLintImport, r *api.Rule) bool {
+	if lint == nil {
+		return false
+	}
+	if lint.Ignores(r.ID) && isKnownLintIssueID(r.ID) {
+		return true
+	}
+	for _, id := range LintSuppressionAliases(r) {
+		if lint.Ignores(id) {
+			return true
+		}
+	}
+	return false
 }
 
 // ruleFileGlobs returns a rule's exclude globs, with `includes` encoded as

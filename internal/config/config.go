@@ -16,6 +16,11 @@ type Config struct {
 	data map[string]interface{}
 	// detekt records the detekt layer merged under krit.yml, if any.
 	detekt *DetektImport
+	// androidLint records the Android Lint issues the project turns off.
+	androidLint *AndroidLintImport
+	// explicitActive holds "ruleSet/rule" for every rule whose `active`
+	// krit.yml or the imported detekt config sets.
+	explicitActive map[string]bool
 }
 
 // ModuleTemplateConfig describes the optional top-level module_template block.
@@ -240,20 +245,75 @@ func mergeUserConfig(base *Config, userPath string, roots []string, opts LoadOpt
 	if err != nil {
 		return nil, err
 	}
-	if user == nil && layer == nil && info == nil {
+	lint := loadAndroidLintImport(user, roots, opts)
+	if user == nil && layer == nil && info == nil && lint == nil {
 		return base, nil
 	}
 
 	merged := base.data
+	explicit := map[string]bool{}
 	if layer != nil {
 		canonicalizeAliases(layer)
 		merged = mergeMaps(merged, layer)
+		recordExplicitActive(explicit, layer)
 	}
 	if user != nil {
 		canonicalizeAliases(user.data)
 		merged = mergeMaps(merged, user.data)
+		recordExplicitActive(explicit, user.data)
 	}
-	return &Config{data: merged, detekt: info}, nil
+	return &Config{data: merged, detekt: info, androidLint: lint, explicitActive: explicit}, nil
+}
+
+// loadAndroidLintImport discovers the project's Android Lint configuration
+// unless krit.yml sets `androidLintConfig: { enabled: false }`.
+func loadAndroidLintImport(user *Config, roots []string, opts LoadOptions) *AndroidLintImport {
+	if opts.NoAndroidLintConfig {
+		return nil
+	}
+	if user != nil {
+		if v, ok := lookupValue(user.data, "androidLintConfig", "enabled"); ok {
+			if b, ok := toBool(v); ok && !b {
+				return nil
+			}
+		}
+	}
+	if len(roots) == 0 {
+		roots = []string{"."}
+	}
+	return discoverAndroidLint(roots)
+}
+
+// recordExplicitActive adds "ruleSet/rule" for every rule block in layer
+// that sets `active`.
+func recordExplicitActive(explicit map[string]bool, layer map[string]interface{}) {
+	for ruleSet, v := range layer {
+		rules, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for rule, rv := range rules {
+			if block, ok := rv.(map[string]interface{}); ok {
+				if _, set := block["active"]; set {
+					explicit[ruleSet+"/"+rule] = true
+				}
+			}
+		}
+	}
+}
+
+// AndroidLint returns the Android Lint issues the project turns off, or nil.
+func (c *Config) AndroidLint() *AndroidLintImport {
+	if c == nil {
+		return nil
+	}
+	return c.androidLint
+}
+
+// ExplicitlySetsActive reports whether krit.yml or the imported detekt
+// config sets the rule's `active`, as opposed to krit's shipped defaults.
+func (c *Config) ExplicitlySetsActive(ruleSet, rule string) bool {
+	return c != nil && c.explicitActive[ruleSet+"/"+rule]
 }
 
 func loadFile(path string) (*Config, error) {

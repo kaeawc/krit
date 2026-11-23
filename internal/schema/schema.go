@@ -214,6 +214,10 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 		"baseline":   jsonschema.String("Path to a detekt baseline.xml applied when --baseline is not given."),
 	}).WithDescription("Import of an existing detekt configuration. krit.yml values override detekt values.").AdditionalPropertiesFalse()
 
+	props["androidLintConfig"] = jsonschema.Object(map[string]*jsonschema.Schema{
+		"enabled": jsonschema.Boolean("Set false to stop krit reading lint.xml and Gradle lint { disable } blocks. When enabled, krit's ports of Android Lint issues the project ignores stay off unless a rule's active is set here.").WithDefault(true),
+	}).WithDescription("Import of the project's Android Lint configuration.").AdditionalPropertiesFalse()
+
 	props["maxCost"] = jsonschema.StringEnum(
 		[]string{"trivial", "line", "ast", "crossfile", "oracle", "fir", "fast", "balanced", "thorough"},
 		"Maximum rule weight class to run. Filters the active rule set so higher-cost rules are skipped. Presets: fast≡ast, balanced≡crossfile, thorough≡fir.",
@@ -345,6 +349,7 @@ func KnownRuleSets() map[string]bool {
 		"oracle":                  true,
 		"config":                  true,
 		"detekt":                  true,
+		"androidLintConfig":       true,
 		"module_template":         true,
 		"slos":                    true,
 		"testSourcePaths":         true,

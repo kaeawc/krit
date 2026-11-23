@@ -27,6 +27,9 @@ var sectionValidators = map[string]func(interface{}) []ValidationError{
 	"scripts":  validateScripts,
 	"oracle":   validateOracle,
 	"detekt":   validateDetekt,
+	"androidLintConfig": func(raw interface{}) []ValidationError {
+		return validateBoolSection("androidLintConfig", raw, "enabled")
+	},
 }
 
 // ValidateConfig checks a Config for unknown rulesets, unknown rules,
@@ -274,6 +277,33 @@ func validateDetekt(raw interface{}) []ValidationError {
 		if !known {
 			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in detekt", option), Level: "error"})
 		} else if typeErr := checkType(path, section[option], want); typeErr != nil {
+			errs = append(errs, *typeErr)
+		}
+	}
+	return errs
+}
+
+// validateBoolSection checks a top-level block whose keys are all booleans.
+func validateBoolSection(name string, raw interface{}, keys ...string) []ValidationError {
+	section, ok := raw.(map[string]interface{})
+	if !ok {
+		return []ValidationError{{Path: name, Message: fmt.Sprintf("expected object, got %T", raw), Level: "error"}}
+	}
+	known := map[string]bool{}
+	for _, k := range keys {
+		known[k] = true
+	}
+	options := make([]string, 0, len(section))
+	for option := range section {
+		options = append(options, option)
+	}
+	sort.Strings(options)
+	var errs []ValidationError
+	for _, option := range options {
+		path := name + "." + option
+		if !known[option] {
+			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in %s", option, name), Level: "error"})
+		} else if typeErr := checkType(path, section[option], OptionTypeBool); typeErr != nil {
 			errs = append(errs, *typeErr)
 		}
 	}

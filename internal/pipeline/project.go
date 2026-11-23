@@ -769,12 +769,34 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	}, nil
 }
 
+// testHookBeforeManifestData, when set by a test, runs between the analysis
+// reading the sources and buildManifestData stat-ing them.
+var testHookBeforeManifestData func()
+
+func runTestHookBeforeManifestData() {
+	if testHookBeforeManifestData != nil {
+		testHookBeforeManifestData()
+	}
+}
+
+// analysisReadBound returns a time no source of the run was read before: the
+// caller's start time when it is set and earlier than now, otherwise now.
+// buildManifestData's racily-clean check keys off it.
+func analysisReadBound(start time.Time) time.Time {
+	now := time.Now()
+	if !start.IsZero() && start.Before(now) {
+		return start
+	}
+	return now
+}
+
 // RunProjectAnalysis runs the shared parse/index/dispatch/cross-file/Android
 // core and returns findings before fixup and output formatting.
 func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisResult, error) {
 	if _, _, err := validateAndDefaultStreaming(ctx, in, io.Discard); err != nil {
 		return ProjectAnalysisResult{}, err
 	}
+	readBound := analysisReadBound(in.Args.StartTime)
 	in.Args.ActiveRules = api.ResolveActiveRulesAtDepth(in.Args.ActiveRules, in.Args.TargetedResolution)
 	args := in.Args
 	if in.Host.PreparseBundleShortcut {
@@ -868,7 +890,8 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	perf.AddEntry(host.Tracker, "computeRunFingerprint", time.Since(fpStart))
 
 	manifestStart := time.Now()
-	manifestData := buildManifestData(args, host, parseResult, runFP, bundleEnabled)
+	runTestHookBeforeManifestData()
+	manifestData := buildManifestData(args, host, parseResult, readBound, bundleEnabled)
 	perf.AddEntry(host.Tracker, "buildManifestData", time.Since(manifestStart))
 
 	var early *earlyAndroid
@@ -1691,7 +1714,13 @@ type deltaManifestData struct {
 // manifest's ContentHashes / StructuralFPs maps, which are stable for
 // any non-dirty cached file by construction (cached == content hash
 // unchanged).
-func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult, _ scanner.RunFingerprint, bundleEnabled bool) deltaManifestData {
+//
+// readBound is a time no later than the first source read of this run. A
+// file whose mtime is not safely before it may have been written while the
+// run was reading it, so its stat is recorded racily clean (see
+// racyCleanStat) and can never vouch for the content this run analyzed. A
+// zero readBound disables the check.
+func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult ParseResult, readBound time.Time, bundleEnabled bool) deltaManifestData {
 	if !bundleEnabled {
 		return deltaManifestData{}
 	}
@@ -1726,8 +1755,8 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 			return scanner.FileStructuralFingerprint(f)
 		})
 		recordOracleBlobHash(oracleBlobHashes, host.PriorOracleBlobHashes, dirty, path, host.OracleBlobHash)
-		if stat, ok := statForPath(path); ok {
-			fileStats[path] = stat
+		if st, ok := statForPathRacy(path, readBound); ok {
+			fileStats[path] = st
 		}
 		if f != nil && f.Language == scanner.LangKotlin {
 			abiHashes[path] = priorOrCompute(priorAbi, dirty, path, func() string {
@@ -1763,8 +1792,8 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		// either).
 		if priorStat, ok := host.PriorFileStats[path]; ok {
 			fileStats[path] = priorStat
-		} else if stat, ok := statForPath(path); ok {
-			fileStats[path] = stat
+		} else if st, ok := statForPathRacy(path, readBound); ok {
+			fileStats[path] = st
 		}
 		if priorAbi != nil {
 			if a, ok := priorAbi[path]; ok {
@@ -1781,6 +1810,37 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 		fileStats:        fileStats,
 		abiHashes:        abiHashes,
 	}
+}
+
+// racyCleanWindow is how far before the run's first source read a file's
+// mtime must lie for its stat to vouch for the content the run read. It
+// covers filesystems with one-second mtimes and kernels that stamp mtimes
+// from a coarse clock, where a write just after the read can carry an mtime
+// slightly earlier than the read.
+const racyCleanWindow = time.Second
+
+// racyCleanStat returns st, or a stat no file can have when st's mtime is
+// within racyCleanWindow of readBound or later: the file may have been
+// rewritten while the run was reading it (git's "racily clean" index entry),
+// and the stat taken after the analysis would then pair the new mtime with
+// findings for the old content. The impossible stat fails every later
+// comparison (pre-parse fileStatsMatch, augmentDirtyWithStatDrift, the oracle
+// freshness gate), so the file is re-read and the next full run records its
+// real stat.
+// statForPathRacy is statForPath with racyCleanStat applied.
+func statForPathRacy(path string, readBound time.Time) (scanner.FileStat, bool) {
+	st, ok := statForPath(path)
+	if !ok {
+		return st, false
+	}
+	return racyCleanStat(st, readBound), true
+}
+
+func racyCleanStat(st scanner.FileStat, readBound time.Time) scanner.FileStat {
+	if readBound.IsZero() || st.ModTimeUnixNano < readBound.Add(-racyCleanWindow).UnixNano() {
+		return st
+	}
+	return scanner.FileStat{Size: -1, ModTimeUnixNano: st.ModTimeUnixNano}
 }
 
 func recordOracleBlobHash(
@@ -2654,10 +2714,28 @@ type JSONSummary = output.JSONSummary
 func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, tracker perf.Tracker) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
 	return preparseBundleFingerprintWithPaths(args, host, tracker, func(prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
 		return preparseSourcePaths(args, host, prior)
-	})
+	}, priorOracleFacts)
 }
 
-func preparseBundleFingerprintWithPaths(args ProjectArgs, host ProjectHostState, tracker perf.Tracker, sourcePaths func(scanner.FindingsBundleManifest) ([]string, []string, bool)) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
+// priorOracleFacts is the daemon pre-parse check's OracleFacts component: the
+// oracle has not run yet when the daemon checks, so it can only reuse the
+// facts the prior manifest recorded.
+func priorOracleFacts(prior scanner.FindingsBundleManifest, _, _ []*scanner.File) string {
+	return fingerprintOptionalPathHashMap(prior.OracleBlobHashes)
+}
+
+// preparseBundleFingerprintWithPaths computes the pre-parse bundle
+// fingerprint. sourcePaths supplies the source set and oracleFacts the
+// OracleFacts component. Every other component is recomputed from current
+// inputs except SourceSet and CrossFile, which the prior manifest's
+// per-file hashes supply once every file's recorded (size, mtime) matches.
+func preparseBundleFingerprintWithPaths(
+	args ProjectArgs,
+	host ProjectHostState,
+	tracker perf.Tracker,
+	sourcePaths func(scanner.FindingsBundleManifest) ([]string, []string, bool),
+	oracleFacts func(prior scanner.FindingsBundleManifest, kotlinFiles, javaFiles []*scanner.File) string,
+) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
 	track := func(name string, fn func()) {
 		if tracker == nil {
 			fn()
@@ -2731,13 +2809,16 @@ func preparseBundleFingerprintWithPaths(args ProjectArgs, host ProjectHostState,
 	track("xmlInputs", func() {
 		xmlFP = xmlInputsFingerprint(host, preparseAndroidProject(args, host), kotlinPaths)
 	})
+	kotlinFiles := filesForPaths(kotlinPaths, scanner.LangKotlin)
+	javaFiles := filesForPaths(javaPaths, scanner.LangJava)
+	oracleFP := oracleFacts(prior, kotlinFiles, javaFiles)
 	fp := scanner.RunFingerprint{
 		Version:          args.Version,
 		Rules:            rulesHash,
 		Config:           rulesHash,
 		SourceSet:        fingerprintPathHashMap(prior.ContentHashes),
 		CrossFile:        fingerprintPathHashMap(prior.StructuralFPs),
-		OracleFacts:      fingerprintOptionalPathHashMap(prior.OracleBlobHashes),
+		OracleFacts:      oracleFP,
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),
@@ -2746,7 +2827,7 @@ func preparseBundleFingerprintWithPaths(args ProjectArgs, host ProjectHostState,
 	if fp != prior.Fingerprint {
 		return scanner.RunFingerprint{}, nil, nil, false
 	}
-	return fp, filesForPaths(kotlinPaths, scanner.LangKotlin), filesForPaths(javaPaths, scanner.LangJava), true
+	return fp, kotlinFiles, javaFiles, true
 }
 
 // hasDirtySourcePath reports whether dirty names a Kotlin, Kotlin script or
@@ -2818,9 +2899,18 @@ func preparseBundleAnalysis(args ProjectArgs, host ProjectHostState) (ProjectAna
 		tracker = host.Tracker.Serial("bundleHit")
 	}
 	start := time.Now()
+	// The CLI loads the oracle before the analysis starts, so the current
+	// run's facts are known here: hash them exactly as computeRunFingerprint
+	// does on the CLI path (no prior maps, no dirty set) rather than trusting
+	// the prior manifest's. A different --input-types dump, an oracle run
+	// after a no-oracle one, or the reverse then cannot replay the other
+	// run's findings.
+	currentOracleFacts := func(_ scanner.FindingsBundleManifest, kotlinFiles, javaFiles []*scanner.File) string {
+		return oracleFactsFingerprint(kotlinFiles, javaFiles, nil, nil, nil, host.OracleBlobHash)
+	}
 	fp, kotlinFiles, javaFiles, ok := preparseBundleFingerprintWithPaths(args, host, tracker, func(scanner.FindingsBundleManifest) ([]string, []string, bool) {
 		return callerSourcePaths(args)
-	})
+	}, currentOracleFacts)
 	var cached *scanner.FindingColumns
 	if ok {
 		load := func() {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cache"
 	"github.com/kaeawc/krit/internal/config"
@@ -60,9 +61,15 @@ func TestRunProject_PhaseTimings_PopulatedOnFullRun(t *testing.T) {
 // regression that observability is meant to catch.
 func TestRunProject_PhaseTimings_BundleHitSkipsDispatchAndCrossfile(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Foo.kt"),
-		[]byte("package demo\n\nclass Foo\n"), 0o644); err != nil {
+	foo := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(foo, []byte("package demo\n\nclass Foo\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
+	}
+	// Settled mtime: a file written just before the first run is racily
+	// clean and would keep the second run off the pre-parse hit.
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(foo, past, past); err != nil {
+		t.Fatal(err)
 	}
 	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
 	pc, err := scanner.NewParseCacheWithCap(root, -1)
@@ -252,9 +259,15 @@ func TestRunProject_PhaseTimings_BundleHitAtSyntheticScale(t *testing.T) {
 
 func TestRunProject_BundleHitDoesNotAwaitAnalysisCacheFuture(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Foo.kt"),
-		[]byte("package demo\n\nclass Foo\n"), 0o644); err != nil {
+	foo := filepath.Join(root, "Foo.kt")
+	if err := os.WriteFile(foo, []byte("package demo\n\nclass Foo\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
+	}
+	// Settled mtime: a file written just before the first run is racily
+	// clean and would keep the second run off the pre-parse hit.
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(foo, past, past); err != nil {
+		t.Fatal(err)
 	}
 	rule := findV2RuleForTest(t, "UnnecessaryInheritance")
 	args := ProjectArgs{

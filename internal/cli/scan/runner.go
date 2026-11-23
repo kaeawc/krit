@@ -96,10 +96,13 @@ func (r *runner) projectInput() pipeline.ProjectInput {
 			ExperimentNames:     experiment.Current().Names(),
 			JSONCompact:         *r.f.Output != "",
 			OracleEnabled:       false,
-			CustomRuleJars:      parseCustomRuleJars(*r.f.CustomRuleJars),
-			TargetedResolution:  r.depthPreset == DepthThorough,
-			ProfileDispatch:     *r.f.ProfileDispatch,
-			EmitPerFileStats:    true,
+			// Separates --no-type-oracle (and --depth fast) runs from
+			// oracle-backed ones in the findings bundle's rule hash.
+			NoTypeOracle:       *r.f.NoTypeOracle,
+			CustomRuleJars:     parseCustomRuleJars(*r.f.CustomRuleJars),
+			TargetedResolution: r.depthPreset == DepthThorough,
+			ProfileDispatch:    *r.f.ProfileDispatch,
+			EmitPerFileStats:   true,
 		},
 		Host: host,
 	}

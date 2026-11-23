@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/hashutil"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -73,6 +74,8 @@ func (p *cliPreparseProject) run(mutate func(*ProjectArgs)) ProjectAnalysisResul
 	if mutate != nil {
 		mutate(&args)
 	}
+	// Each CLI scan (and daemon request) starts with a fresh hash memo.
+	hashutil.ResetDefault()
 	res, err := RunProjectAnalysis(context.Background(), ProjectInput{
 		Args: args,
 		Host: ProjectHostState{
@@ -156,4 +159,132 @@ func TestRunProjectAnalysis_PreparseBundleShortcut(t *testing.T) {
 	if res := p.run(func(a *ProjectArgs) { a.Fix = true }); preparsed(res) {
 		t.Fatal("fix runs must not be served from the pre-parse bundle")
 	}
+}
+
+// runWithHost is run with a hook on the host as well.
+func (p *cliPreparseProject) runWithHost(mutateHost func(*ProjectHostState)) ProjectAnalysisResult {
+	p.t.Helper()
+	kotlinPaths, err := scanner.CollectKotlinFiles([]string{p.dir}, nil)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	host := ProjectHostState{
+		FindingsBundleStore:     scanner.DiskFindingsBundleStore{},
+		FindingsBundleCacheRoot: p.cacheRoot,
+		PreparseBundleShortcut:  true,
+	}
+	if mutateHost != nil {
+		mutateHost(&host)
+	}
+	// Each CLI scan (and daemon request) starts with a fresh hash memo.
+	hashutil.ResetDefault()
+	res, err := RunProjectAnalysis(context.Background(), ProjectInput{
+		Args: ProjectArgs{
+			Config:      config.NewConfig(),
+			Paths:       []string{p.dir},
+			KotlinPaths: kotlinPaths,
+			JavaPaths:   []string{},
+			ActiveRules: []*api.Rule{p.rule},
+			Format:      "json",
+			Version:     "test",
+		},
+		Host: host,
+	})
+	if err != nil {
+		p.t.Fatalf("RunProjectAnalysis: %v", err)
+	}
+	return res
+}
+
+// The CLI loads the type oracle before the analysis, and oracle facts change
+// findings without touching any source file (a different --input-types dump,
+// or the oracle on vs off). The pre-parse hit must compare the current facts,
+// not reuse the ones the prior manifest recorded.
+func TestRunProjectAnalysis_PreparseBundleShortcutChecksCurrentOracleFacts(t *testing.T) {
+	p := newCLIPreparseProject(t)
+	facts := func(blob string) func(*ProjectHostState) {
+		return func(h *ProjectHostState) {
+			h.OracleBlobHash = func(string) string { return blob }
+		}
+	}
+
+	if cold := p.runWithHost(facts("nullable")); cold.FindingsBundleHit {
+		t.Fatal("cold run must miss")
+	}
+	if warm := p.runWithHost(facts("nullable")); !preparsed(warm) {
+		t.Fatal("same oracle facts must still be served before parsing")
+	}
+	if other := p.runWithHost(facts("non-null")); preparsed(other) {
+		t.Fatal("different oracle facts must not be served from the pre-parse bundle")
+	}
+	if again := p.runWithHost(facts("non-null")); !preparsed(again) {
+		t.Fatal("rerun with the new facts must be served before parsing")
+	}
+	if noOracle := p.runWithHost(nil); preparsed(noOracle) {
+		t.Fatal("a run without oracle facts must not replay an oracle-backed bundle")
+	}
+	if !preparsed(p.runWithHost(nil)) {
+		t.Fatal("rerun without oracle facts must be served before parsing")
+	}
+	if withOracle := p.runWithHost(facts("non-null")); preparsed(withOracle) {
+		t.Fatal("an oracle-backed run must not replay a no-oracle bundle")
+	}
+}
+
+// --no-type-oracle runs and oracle-backed runs key separate bundles.
+func TestRunProjectAnalysis_PreparseBundleShortcutSeparatesNoTypeOracle(t *testing.T) {
+	p := newCLIPreparseProject(t)
+	p.run(nil)
+	if !preparsed(p.run(nil)) {
+		t.Fatal("unchanged tree must be served before parsing")
+	}
+	if res := p.run(func(a *ProjectArgs) { a.NoTypeOracle = true }); preparsed(res) {
+		t.Fatal("a --no-type-oracle run must not replay an oracle-enabled bundle")
+	}
+}
+
+// A file saved while the run is reading the sources must not have its new
+// stat recorded against findings for the old content: every later run would
+// then serve those findings before parsing. The hook rewrites B.kt after the
+// parse and before the manifest stats the files.
+func TestRunProjectAnalysis_PreparseBundleShortcutRacilyCleanFile(t *testing.T) {
+	p := newCLIPreparseProject(t)
+	b := filepath.Join(p.dir, "src/main/kotlin/B.kt")
+	const edited = "package p\nclass B\n\n" // same size; the class moves to line 2
+
+	testHookBeforeManifestData = func() {
+		if err := os.WriteFile(b, []byte(edited), 0o644); err != nil {
+			t.Error(err)
+		}
+		now := time.Now()
+		if err := os.Chtimes(b, now, now); err != nil {
+			t.Error(err)
+		}
+	}
+	cold := p.run(nil)
+	testHookBeforeManifestData = nil
+	if cold.FindingsBundleHit {
+		t.Fatal("cold run must miss")
+	}
+	if bLine(cold) != 3 {
+		t.Fatalf("cold run analyzed the pre-edit content: B at line %d, want 3", bLine(cold))
+	}
+
+	next := p.run(nil)
+	if preparsed(next) {
+		t.Fatal("a file written during the previous run must not be served from the pre-parse bundle")
+	}
+	if got := bLine(next); got != 2 {
+		t.Fatalf("B reported at line %d, want 2 (the edited content)", got)
+	}
+}
+
+func bLine(res ProjectAnalysisResult) int {
+	cols := &res.CrossFileResult.Findings
+	for i := 0; i < cols.Len(); i++ {
+		if filepath.Base(cols.FileAt(i)) == "B.kt" {
+			return cols.LineAt(i)
+		}
+	}
+	return 0
 }

@@ -1,8 +1,10 @@
 package serve
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kaeawc/krit/internal/daemon"
 )
@@ -15,6 +17,19 @@ func kotlinFixture(name string) string {
 	return "package demo\n\nclass " + name + " {\n" + body + "}\n"
 }
 
+// writeSettledKotlinFile is writeKotlinFile with the mtime moved an hour
+// back. A file written moments before a call is racily clean: the manifest
+// cannot vouch for it, so the next call parses it instead of taking the
+// pre-parse bundle shortcut these tests pin.
+func writeSettledKotlinFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	path := writeKotlinFile(t, dir, name, content)
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestAnalyzeProject_ParseCacheStatsReportPerCallDelta asserts the
 // parse-cache hit/miss counts on AnalyzeProjectStats reflect the
 // per-call work, not cumulative-since-daemon-startup. First call over
@@ -22,9 +37,9 @@ func kotlinFixture(name string) string {
 // served by the findings bundle before parse-cache decode.
 func TestAnalyzeProject_ParseCacheStatsReportPerCallDelta(t *testing.T) {
 	socket, state := startServerForTest(t)
-	writeKotlinFile(t, state.root, "A.kt", kotlinFixture("A"))
-	writeKotlinFile(t, state.root, "B.kt", kotlinFixture("B"))
-	writeKotlinFile(t, state.root, "C.kt", kotlinFixture("C"))
+	writeSettledKotlinFile(t, state.root, "A.kt", kotlinFixture("A"))
+	writeSettledKotlinFile(t, state.root, "B.kt", kotlinFixture("B"))
+	writeSettledKotlinFile(t, state.root, "C.kt", kotlinFixture("C"))
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,
@@ -62,9 +77,9 @@ func TestAnalyzeProject_PreParseBundleHitBeforeDiskSave(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 	state.workspace.EnqueueBackgroundSave(func() { <-release })
 
-	writeKotlinFile(t, state.root, "A.kt", kotlinFixture("A"))
-	writeKotlinFile(t, state.root, "B.kt", kotlinFixture("B"))
-	writeKotlinFile(t, state.root, "C.kt", kotlinFixture("C"))
+	writeSettledKotlinFile(t, state.root, "A.kt", kotlinFixture("A"))
+	writeSettledKotlinFile(t, state.root, "B.kt", kotlinFixture("B"))
+	writeSettledKotlinFile(t, state.root, "C.kt", kotlinFixture("C"))
 
 	var first daemon.AnalyzeProjectResult
 	if err := daemon.Call(socket, daemon.VerbAnalyzeProject,

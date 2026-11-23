@@ -433,6 +433,53 @@ func isTestFixtureModulePath(path string) bool {
 	return false
 }
 
+// testFrameworkModuleTokens name modules whose main source set exists to
+// ship test or benchmark code: okhttp-testing-support, mockwebserver-junit5,
+// ktor-client-tests, leakcanary-android-instrumentation, nowinandroid's
+// benchmarks, iosched's macrobenchmark.
+var testFrameworkModuleTokens = map[string]bool{
+	"test": true, "tests": true, "testing": true, "testsupport": true, "testutils": true,
+	"junit": true, "junit4": true, "junit5": true, "testng": true,
+	"benchmark": true, "benchmarks": true, "macrobenchmark": true, "microbenchmark": true,
+	"instrumentation": true, "uiautomator": true, "robolectric": true, "espresso": true,
+}
+
+// isTestFrameworkModulePath reports a source file in a module or source set
+// whose name says it integrates a test framework or holds benchmarks, where
+// test-framework imports in main code are the point: a directory before
+// src/, or the source set right after it (kotlinx-coroutines-debug's
+// src/junit/junit5), tokenized on '-', '_' and '.'.
+func isTestFrameworkModulePath(path string) bool {
+	original := strings.Split(filepath.ToSlash(path), "/")
+	segments := strings.Split(filepath.ToSlash(strings.ToLower(path)), "/")
+	src := -1
+	for i, seg := range segments {
+		if seg == "src" {
+			src = i
+		}
+	}
+	if src < 0 {
+		return false
+	}
+	check := segments[:src]
+	if src+1 < len(segments)-1 {
+		// Gradle test source sets: test, testFixtures, integrationTest,
+		// functionalTestMinSupportedGradle.
+		if set := original[src+1]; strings.HasPrefix(set, "test") || strings.Contains(set, "Test") {
+			return true
+		}
+		check = append(append([]string(nil), check...), segments[src+1])
+	}
+	for _, seg := range check {
+		for _, token := range strings.FieldsFunc(seg, func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+			if testFrameworkModuleTokens[token] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // compactSourceReference strips whitespace from a source-reference text so
 // references can be compared structurally regardless of formatting.
 func compactSourceReference(text string) string {

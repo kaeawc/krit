@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.fir.tests
 
 import dev.jasonpearson.krit.fir.FirRuleCompileContext
 import java.io.File
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -92,6 +93,8 @@ class RunBlockingInTestFilesTest {
         assertEquals(listOf("RunBlockingInTest"), result.diags.map { it.name })
     }
 
+    // Reads the Go fixtures, so it runs in `fixtureParityTest` (see FixtureParityTest).
+    @Tag(FixtureParityTest.GO_FIXTURES_TAG)
     @Test fun goFixturesKeepTheirAnchors() {
         for (kind in listOf("positive", "negative")) {
             val fixture = File("../../../tests/fixtures/$kind/testing-quality/RunBlockingInTest.kt")

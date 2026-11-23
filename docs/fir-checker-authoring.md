@@ -293,7 +293,9 @@ All tests live under `tools/krit-fir/compiler-tests/src/test/`.
 - **Fixture parity** runs against the Go fixtures in two tiers, and both must
   pass:
   1. *Fast, lane-local:* `FixtureParityTest` in `compiler-tests` runs as part
-     of `./gradlew test`. It compiles each Go fixture against the stubs with
+     of `./gradlew test`, in its own task (`:compiler-tests:fixtureParityTest`,
+     the only one that reads the Go fixtures and schema, so a Go-only change
+     does not invalidate the golden suite's build cache). It compiles each Go fixture against the stubs with
      only your rule enabled. The positive fixture must produce at least one
      finding and the negative fixture none. It also fails when the rule has no
      schema entry or lacks either `.kt` fixture.
@@ -487,6 +489,7 @@ make integration
 ```
 
 The `TestFirFixtureParity` run must show your rule as passing, not skipped.
-In CI, the `krit-fir` job runs the fast tier through `./gradlew --no-daemon test`.
+In CI, the `krit-fir` job runs the fast tier through `./gradlew --no-daemon test`,
+split into parallel shards (see the job in `.github/workflows/ci.yml`).
 The `oracle-backend-parity` job builds the shadow jar and runs the exact tier.
 It fails if that test skips.

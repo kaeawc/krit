@@ -435,3 +435,11 @@ func (r *IntentResetRule) Meta() api.RuleDescriptor {
 func (r *IntentWithNullActionLaunchRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "IntentWithNullActionLaunch", RuleSet: "android-lint", DefaultActive: true}
 }
+
+func (r *ForegroundServicePermissionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ForegroundServicePermission", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *QueryAllPackagesPermissionRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "QueryAllPackagesPermission", RuleSet: "android-lint", DefaultActive: false, OptInReason: api.OptInReasonAndroidOnly}
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.synth">
+
+    <queries>
+        <package android:name="com.example.partner" />
+    </queries>
+
+    <application android:label="Example" />
+</manifest>

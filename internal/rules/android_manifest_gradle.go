@@ -35,6 +35,8 @@ type manifestGradleInfo struct {
 	// usesSplashScreenLibrary is true when the build script mentions the SplashScreen library or declares it through
 	// a version-catalog alias.
 	usesSplashScreenLibrary bool
+
+	permissionTargetSdkProven bool
 }
 
 // lookupManifestGradleInfo walks up from the manifest path looking for a
@@ -82,6 +84,7 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 	}
 	content := string(data)
 	info := manifestGradleInfo{found: true}
+	info.permissionTargetSdkProven = lintPermissionLiteralTargetSdk(content)
 	if cfg, err := android.ParseBuildGradleContent(content); err == nil && cfg != nil {
 		info.targetSdk = cfg.TargetSdkVersion
 		info.minSdk = cfg.MinSdkVersion

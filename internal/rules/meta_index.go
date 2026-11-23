@@ -704,6 +704,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*DiscouragedAPIRule)(nil),
 		(*AppLinkURLErrorRule)(nil),
 		(*AppLinkWarningRule)(nil),
+		(*ForegroundServicePermissionRule)(nil),
+		(*QueryAllPackagesPermissionRule)(nil),
 		(*UsingHTTPRule)(nil),
 		(*ProxyPasswordRule)(nil),
 		(*SuspiciousImportRule)(nil),

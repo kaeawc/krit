@@ -19,7 +19,9 @@ import (
 	"github.com/kaeawc/krit/internal/hashutil"
 )
 
-// Index provides repository-relative tracked file paths for a root.
+// Index provides the repository-relative paths of a root's files: tracked
+// files and, for the git-backed index, untracked files that .gitignore does
+// not exclude.
 // Implementations return ok=false when callers should fall back to a
 // filesystem walk.
 type Index interface {
@@ -53,6 +55,11 @@ type Snapshot struct {
 // CachedIndex memoizes tracked file listings per root for one scan.
 type CachedIndex struct {
 	runner Runner
+	// untracked, when set, lists files git does not track yet and does not
+	// ignore. They are merged into every successful listing but never
+	// persisted: the persisted listing is keyed on .git/index and HEAD,
+	// which a new untracked file does not change.
+	untracked func(root string) []string
 
 	mu    sync.Mutex
 	cache map[string]cachedEntry
@@ -94,9 +101,13 @@ func (trackedFilesCacheRegistered) Stats() cacheutil.CacheStats {
 	}
 }
 
-// NewGitIndex returns a per-run tracked-file index backed by git ls-files.
+// NewGitIndex returns a per-run file index backed by git ls-files. A new
+// file that has not been `git add`-ed is listed too (#1059); .gitignore'd
+// files such as build outputs are not.
 func NewGitIndex() *CachedIndex {
-	return NewCachedIndex(NewPersistentRunner(GitRunner{}, FileMetadataProvider{}))
+	index := NewCachedIndex(NewPersistentRunner(GitRunner{}, FileMetadataProvider{}))
+	index.untracked = GitUntrackedFiles
+	return index
 }
 
 // NewCachedIndex returns a memoizing index around runner.
@@ -123,7 +134,11 @@ func (i *CachedIndex) Files(root string) ([]string, bool) {
 	i.mu.Unlock()
 
 	files, ok := i.runner.List(root)
-	entry := cachedEntry{files: append([]string(nil), files...), ok: ok}
+	files = append([]string(nil), files...)
+	if ok && i.untracked != nil {
+		files = appendMissing(files, i.untracked(root))
+	}
+	entry := cachedEntry{files: files, ok: ok}
 
 	i.mu.Lock()
 	i.cache[root] = entry
@@ -147,6 +162,38 @@ func (GitRunner) List(root string) ([]string, bool) {
 		return nil, false
 	}
 	return splitNULFiles(out), true
+}
+
+// GitUntrackedFiles lists the files under root that git does not track
+// and .gitignore does not exclude, relative to root.
+func GitUntrackedFiles(root string) []string {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		return nil
+	}
+	out, err := exec.CommandContext(context.Background(), gitBin, "-C", root, "ls-files", "-z", "--others", "--exclude-standard").Output()
+	if err != nil {
+		return nil
+	}
+	return splitNULFiles(out)
+}
+
+// appendMissing appends the entries of extra that files does not contain.
+func appendMissing(files, extra []string) []string {
+	if len(extra) == 0 {
+		return files
+	}
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		seen[f] = true
+	}
+	for _, f := range extra {
+		if !seen[f] {
+			seen[f] = true
+			files = append(files, f)
+		}
+	}
+	return files
 }
 
 // FileMetadataProvider reads git metadata directly from .git so warm checks do

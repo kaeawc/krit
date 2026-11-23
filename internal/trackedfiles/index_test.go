@@ -2,8 +2,10 @@ package trackedfiles
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -202,4 +204,64 @@ func TestFileMetadataProvider_SupportsGitDirFile(t *testing.T) {
 	if snapshot.Head != "ref: refs/heads/main" {
 		t.Fatalf("Head = %q", snapshot.Head)
 	}
+}
+
+// Regression for #1059: the git-backed index lists untracked files that are
+// not ignored, and keeps them out of the persisted tracked listing, whose
+// snapshot a new untracked file does not change.
+func TestGitIndex_IncludesUntrackedNotIgnored(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	write := func(rel string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("init", "-q")
+	write("Tracked.kt")
+	write(".gitignore")
+	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte("build/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", ".")
+
+	store := &memoryStore{}
+	index := NewCachedIndex(NewPersistentRunnerWithStore(GitRunner{}, FileMetadataProvider{}, store))
+	index.untracked = GitUntrackedFiles
+	write("New.kt")
+	write("build/Out.kt")
+
+	files, ok := index.Files(root)
+	if !ok {
+		t.Fatal("expected a git listing")
+	}
+	sort.Strings(files)
+	if want := []string{".gitignore", "New.kt", "Tracked.kt"}; !reflect.DeepEqual(files, want) {
+		t.Errorf("files = %v, want %v", files, want)
+	}
+	if want := []string{".gitignore", "Tracked.kt"}; !reflect.DeepEqual(store.files, want) {
+		t.Errorf("persisted = %v, want only tracked %v", store.files, want)
+	}
+}
+
+type memoryStore struct{ files []string }
+
+func (s *memoryStore) Load(string, Snapshot) ([]string, bool) { return nil, false }
+func (s *memoryStore) Save(_ string, _ Snapshot, files []string) error {
+	s.files = append([]string(nil), files...)
+	sort.Strings(s.files)
+	return nil
 }

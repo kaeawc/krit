@@ -4,9 +4,9 @@ package rules
 // Origin: https://android.googlesource.com/platform/tools/base/+/refs/heads/main/lint/libs/lint-checks/
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/sourceheader"
@@ -285,7 +285,7 @@ func (r *FieldGetterRule) NodeTypes() []string {
 func (r *FieldGetterRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // fieldGetterBodyRe matches a getter body that only returns a field, as a block or an expression body.
-var fieldGetterBodyRe = regexp.MustCompile(`^(?:\{\s*return\s+(?:this\.)?([A-Za-z_]\w*)\s*;?\s*\}|=\s*(?:this\.)?([A-Za-z_]\w*))$`)
+var fieldGetterBodyRe = lazyre.New(`^(?:\{\s*return\s+(?:this\.)?([A-Za-z_]\w*)\s*;?\s*\}|=\s*(?:this\.)?([A-Za-z_]\w*))$`)
 
 func (r *FieldGetterRule) check(ctx *api.Context) {
 	file, call := ctx.File, ctx.Idx

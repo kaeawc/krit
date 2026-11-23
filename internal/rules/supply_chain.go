@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/module"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -29,7 +29,7 @@ type moduleCompileSDK struct {
 	compileSDK int
 }
 
-var compileSDKValueRe = regexp.MustCompile(`^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
+var compileSDKValueRe = lazyre.New(`^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
 
 // Confidence reports a tier-2 (medium) base confidence. Supply-chain rule. Detection scans module metadata and dependency
 // catalogs for drift and security issues; matches are

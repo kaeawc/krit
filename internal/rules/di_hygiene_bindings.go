@@ -2,10 +2,10 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -681,7 +681,7 @@ func functionValueParameterTypeTexts(file *scanner.File, fn uint32) []string {
 	return types
 }
 
-var typeAnnotationPrefixRe = regexp.MustCompile(`^(@[A-Za-z_][\w.]*(\([^)]*\))?\s+)+`)
+var typeAnnotationPrefixRe = lazyre.New(`^(@[A-Za-z_][\w.]*(\([^)]*\))?\s+)+`)
 
 // kotlinFinalTypes are final JVM types, so Kotlin emits no wildcard when one is a covariant type argument.
 var kotlinFinalTypes = map[string]bool{

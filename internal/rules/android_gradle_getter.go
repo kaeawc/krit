@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -25,7 +25,7 @@ const gradleGetterMessage = "Bad method name: pick a unique method name which do
 
 // gradleGetterAssignRe matches `property getVersionCode()`, `property = getVersionName()` and
 // `property(getVersionCode())`.
-var gradleGetterAssignRe = regexp.MustCompile(`^\s*[A-Za-z_]\w*\s*(?:=\s*|\(\s*)?(?:getVersionCode|getVersionName)\s*(?:\(\s*\))?\s*\)?\s*;?\s*$`)
+var gradleGetterAssignRe = lazyre.New(`^\s*[A-Za-z_]\w*\s*(?:=\s*|\(\s*)?(?:getVersionCode|getVersionName)\s*(?:\(\s*\))?\s*\)?\s*;?\s*$`)
 
 func (r *GradleGetterRule) check(ctx *api.Context) {
 	var blocks []string

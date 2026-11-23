@@ -5,10 +5,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"gopkg.in/yaml.v3"
@@ -250,7 +250,7 @@ func isRootGradleProjectScript(path string) bool {
 	return false
 }
 
-var settingsIncludeRe = regexp.MustCompile(`(?m)^\s*include(?:Flat)?\b\s*\(?\s*['"]`)
+var settingsIncludeRe = lazyre.New(`(?m)^\s*include(?:Flat)?\b\s*\(?\s*['"]`)
 
 // settingsIncludesSubprojects reports whether the settings script in dir
 // includes other projects. In a single-project build the root build script is

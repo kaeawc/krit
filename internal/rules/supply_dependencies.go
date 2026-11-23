@@ -2,11 +2,11 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -94,11 +94,11 @@ func (r *DependencyWithoutGroupRule) check(ctx *api.Context) {
 	}
 }
 
-var gradleDepConfigLineRe = regexp.MustCompile(`\b(?:implementation|api|compile|testCompile|androidTestCompile|compileOnly|runtimeOnly|testImplementation|testRuntimeOnly|testCompileOnly|androidTestImplementation|androidTestCompileOnly|androidTestRuntimeOnly|debugImplementation|releaseImplementation|kapt|ksp|annotationProcessor)\b`)
+var gradleDepConfigLineRe = lazyre.New(`\b(?:implementation|api|compile|testCompile|androidTestCompile|compileOnly|runtimeOnly|testImplementation|testRuntimeOnly|testCompileOnly|androidTestImplementation|androidTestCompileOnly|androidTestRuntimeOnly|debugImplementation|releaseImplementation|kapt|ksp|annotationProcessor)\b`)
 var (
-	gradleNamedArgGroupColonRe   = regexp.MustCompile(`\bgroup\s*:\s*["']([^"']+)["']`)
-	gradleNamedArgNameColonRe    = regexp.MustCompile(`\bname\s*:\s*["']([^"']+)["']`)
-	gradleNamedArgVersionColonRe = regexp.MustCompile(`\bversion\s*:\s*["']([^"']+)["']`)
+	gradleNamedArgGroupColonRe   = lazyre.New(`\bgroup\s*:\s*["']([^"']+)["']`)
+	gradleNamedArgNameColonRe    = lazyre.New(`\bname\s*:\s*["']([^"']+)["']`)
+	gradleNamedArgVersionColonRe = lazyre.New(`\bversion\s*:\s*["']([^"']+)["']`)
 )
 
 type gradleSnapshotDependency struct {

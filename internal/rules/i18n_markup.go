@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -63,7 +64,7 @@ var htmlInlineTags = map[string]bool{
 
 var (
 	htmlMarkupTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(` + htmlInlineTagAlternation() + `)\b`)
-	markdownBoldRE  = regexp.MustCompile(`\*\*[^*\n]+\*\*|__[^_\n]+__`)
+	markdownBoldRE  = lazyre.New(`\*\*[^*\n]+\*\*|__[^_\n]+__`)
 )
 
 func htmlInlineTagAlternation() string {

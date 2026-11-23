@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -300,12 +301,12 @@ func staticIvTemplateIsLiteral(file *scanner.File, literal string) bool {
 }
 
 // staticIvDecodeCallRe matches the start of a Base64 decode call.
-var staticIvDecodeCallRe = regexp.MustCompile(`^(?:[A-Za-z_.]*\.)?Base64\.(?:(?:getDecoder|getUrlDecoder|getMimeDecoder)\(\)\.)?decode\(`)
+var staticIvDecodeCallRe = lazyre.New(`^(?:[A-Za-z_.]*\.)?Base64\.(?:(?:getDecoder|getUrlDecoder|getMimeDecoder)\(\)\.)?decode\(`)
 
 // staticIvDecodeArgRe matches a decode data argument that is one string literal
 // followed only by calls whose arguments are literals, such as
 // `"AAAA".replace(" ", "")` or `"""...""".trimIndent()`. It captures the literal.
-var staticIvDecodeArgRe = regexp.MustCompile(`^\s*("""(?s:.*?)"""|"(?:[^"\\]|\\.)*")((?:\.[A-Za-z]+\((?:\s*(?:"(?:[^"\\$]|\\.)*"|'(?:[^'\\]|\\.)'|\d+|Regex\("(?:[^"\\$]|\\.)*"\))\s*,?)*\))*)\s*(?:,|$)`)
+var staticIvDecodeArgRe = lazyre.New(`^\s*("""(?s:.*?)"""|"(?:[^"\\]|\\.)*")((?:\.[A-Za-z]+\((?:\s*(?:"(?:[^"\\$]|\\.)*"|'(?:[^'\\]|\\.)'|\d+|Regex\("(?:[^"\\$]|\\.)*"\))\s*,?)*\))*)\s*(?:,|$)`)
 
 func staticIvLiteralDecodeBytes(file *scanner.File, text string) bool {
 	if loc := staticIvDecodeCallRe.FindStringIndex(text); loc != nil {

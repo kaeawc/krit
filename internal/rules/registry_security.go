@@ -176,7 +176,7 @@ func registerSecurityRules() {
 	{
 		r := &LogPiiRule{
 			BaseRule:       BaseRule{RuleName: "LogPii", RuleSetName: "security", Sev: "info", Desc: "Detects logger calls that include sensitive variable names in interpolated or concatenated messages."},
-			PiiNamePattern: defaultLogPiiNamePattern,
+			PiiNamePattern: defaultLogPiiNamePattern.Re(),
 		}
 		api.Register(&api.Rule{
 			ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),

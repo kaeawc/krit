@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
-var localeConfigResourceRef = regexp.MustCompile(`^@(?:[\w.]+:)?xml/([A-Za-z0-9_]+)$`)
+var localeConfigResourceRef = lazyre.New(`^@(?:[\w.]+:)?xml/([A-Za-z0-9_]+)$`)
 
 // LocaleConfigMissingRule detects manifests that declare android:localeConfig
 // but do not ship the referenced XML resource alongside the main manifest.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -232,7 +232,7 @@ type GradlePathRule struct {
 func (r *GradlePathRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // gradleWindowsDriveRe matches a Windows drive path such as C:/libs or C:\\libs.
-var gradleWindowsDriveRe = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+var gradleWindowsDriveRe = lazyre.New(`^[A-Za-z]:[\\/]`)
 
 func (r *GradlePathRule) check(ctx *api.Context) {
 	if !strings.Contains(ctx.GradleContent, "files(") && !strings.Contains(ctx.GradleContent, "applicationIdSuffix") {
@@ -338,7 +338,7 @@ type ApplyPluginInKotlinDslRule struct {
 func (r *ApplyPluginInKotlinDslRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // gradleIdeApplyPluginRe matches a top-level legacy plugin application in a Kotlin DSL script.
-var gradleIdeApplyPluginRe = regexp.MustCompile(`^apply(?:\s+plugin\s*:|\s*\(\s*plugin\s*=)`)
+var gradleIdeApplyPluginRe = lazyre.New(`^apply(?:\s+plugin\s*:|\s*\(\s*plugin\s*=)`)
 
 func (r *ApplyPluginInKotlinDslRule) check(ctx *api.Context) {
 	path, content, _ := ctx.GradlePath, ctx.GradleContent, ctx.GradleConfig

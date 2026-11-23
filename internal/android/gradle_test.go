@@ -375,7 +375,7 @@ plugins {
 
 func TestFindLineNumber(t *testing.T) {
 	content := "line1\nline2\n    minSdk = 24\nline4"
-	line := findLineNumber(content, minSdkRe)
+	line := findLineNumber(content, minSdkRe.Re())
 	if line != 3 {
 		t.Errorf("findLineNumber = %d, want 3", line)
 	}

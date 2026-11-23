@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -71,11 +71,11 @@ var composeFlagConstructs = []composeConstruct{
 }
 
 var (
-	composeCompilerBlockRe = regexp.MustCompile(`\bcomposeCompiler\s*\{`)
-	composeOptionRe        = regexp.MustCompile(`\b(enableStrongSkippingMode|enableIntrinsicRemember|enableNonSkippingGroupOptimization|stabilityConfigurationFile|generateFunctionKeyMetaClasses)\b`)
-	composeQualifiedOption = regexp.MustCompile(`\bcomposeCompiler\s*\.\s*(enableStrongSkippingMode|enableIntrinsicRemember|enableNonSkippingGroupOptimization|stabilityConfigurationFile|generateFunctionKeyMetaClasses)\b`)
-	composeFlagRe          = regexp.MustCompile(`\bComposeFeatureFlag\s*\.\s*(StrongSkipping|IntrinsicRemember|OptimizeNonSkippingGroups|PausableComposition)\b`)
-	composeTrueAssignRe    = regexp.MustCompile(`^(?:composeCompiler\s*\.\s*)?\w+\s*(?:=\s*true|\.set\(\s*true\s*\))$`)
+	composeCompilerBlockRe = lazyre.New(`\bcomposeCompiler\s*\{`)
+	composeOptionRe        = lazyre.New(`\b(enableStrongSkippingMode|enableIntrinsicRemember|enableNonSkippingGroupOptimization|stabilityConfigurationFile|generateFunctionKeyMetaClasses)\b`)
+	composeQualifiedOption = lazyre.New(`\bcomposeCompiler\s*\.\s*(enableStrongSkippingMode|enableIntrinsicRemember|enableNonSkippingGroupOptimization|stabilityConfigurationFile|generateFunctionKeyMetaClasses)\b`)
+	composeFlagRe          = lazyre.New(`\bComposeFeatureFlag\s*\.\s*(StrongSkipping|IntrinsicRemember|OptimizeNonSkippingGroups|PausableComposition)\b`)
+	composeTrueAssignRe    = lazyre.New(`^(?:composeCompiler\s*\.\s*)?\w+\s*(?:=\s*true|\.set\(\s*true\s*\))$`)
 )
 
 func (r *ComposeCompilerRemovedFlagsRule) check(ctx *api.Context) {

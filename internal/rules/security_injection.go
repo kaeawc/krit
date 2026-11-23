@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/api/evidence"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -183,7 +183,7 @@ func splitSQLConcatOperands(text string) []string {
 	return out
 }
 
-var sqlInterpolationIdentifierPattern = regexp.MustCompile(`\$\{?\s*([A-Za-z_][A-Za-z0-9_.]*)`)
+var sqlInterpolationIdentifierPattern = lazyre.New(`\$\{?\s*([A-Za-z_][A-Za-z0-9_.]*)`)
 
 func sqlInterpolationUsesOnlyStaticSchemaConstants(text string) bool {
 	matches := sqlInterpolationIdentifierPattern.FindAllStringSubmatch(text, -1)

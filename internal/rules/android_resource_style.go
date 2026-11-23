@@ -4,12 +4,12 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -257,7 +257,7 @@ func (r *SpUsageResourceRule) check(ctx *api.Context) {
 	}
 }
 
-var lintDpUnitRegexp = regexp.MustCompile(`^\d+(\.\d+)?di?p$`)
+var lintDpUnitRegexp = lazyre.New(`^\d+(\.\d+)?di?p$`)
 
 // isLintDpUnit mirrors PxUsageDetector.isDpUnit: a non-negative number followed by dp or dip.
 func isLintDpUnit(val string) bool {
@@ -287,7 +287,7 @@ type SmallSpResourceRule struct {
 	AndroidRule
 }
 
-var lintSpUnitRegexp = regexp.MustCompile(`^\d+(\.\d+)?sp$`)
+var lintSpUnitRegexp = lazyre.New(`^\d+(\.\d+)?sp$`)
 
 // Confidence reports a tier-2 (medium) base confidence.
 func (r *SmallSpResourceRule) Confidence() float64 { return api.ConfidenceMedium }
@@ -347,7 +347,7 @@ func (InOrMmUsageResourceRule) AndroidDependencies() AndroidDataDependency {
 }
 
 // inOrMmValuePattern matches the whole value forms Lint's PxUsageDetector reports.
-var inOrMmValuePattern = regexp.MustCompile(`^\d+(\.\d+)?(mm|in)$`)
+var inOrMmValuePattern = lazyre.New(`^\d+(\.\d+)?(mm|in)$`)
 
 func isInOrMmValue(val string) (string, bool) {
 	val = strings.TrimSpace(val)

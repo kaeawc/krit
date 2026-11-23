@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -604,7 +604,7 @@ func funInterfaceNestedMembers(file *scanner.File, body uint32) []uint32 {
 	return members
 }
 
-var funInterfaceHeaderRe = regexp.MustCompile(`^\s*(?:[\w@()."]+\s+)*fun\s+interface\s+\w+`)
+var funInterfaceHeaderRe = lazyre.New(`^\s*(?:[\w@()."]+\s+)*fun\s+interface\s+\w+`)
 
 // checkInterfaceMembers reports redundant `abstract` on interface function and property members.
 func (r *OptionalAbstractKeywordRule) checkInterfaceMembers(ctx *api.Context, members []uint32, alignedOnly bool) {

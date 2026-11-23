@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // BuildConfig holds parsed configuration from a Gradle build file.
@@ -48,33 +50,33 @@ type GradleLint struct {
 
 // SDK version patterns: Kotlin DSL and Groovy DSL.
 var (
-	minSdkRe     = regexp.MustCompile(`(?m)^\s*minSdk(?:Version)?\s*[=(]?\s*(\d+)`)
-	targetSdkRe  = regexp.MustCompile(`(?m)^\s*targetSdk(?:Version)?\s*[=(]?\s*(\d+)`)
-	compileSdkRe = regexp.MustCompile(`(?m)^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
+	minSdkRe     = lazyre.New(`(?m)^\s*minSdk(?:Version)?\s*[=(]?\s*(\d+)`)
+	targetSdkRe  = lazyre.New(`(?m)^\s*targetSdk(?:Version)?\s*[=(]?\s*(\d+)`)
+	compileSdkRe = lazyre.New(`(?m)^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
 )
 
 // Plugin patterns.
 var (
 	// id("com.android.application") or id("com.android.library") etc.
-	pluginIDRe = regexp.MustCompile(`id\s*\(\s*["']([^"']+)["']\s*\)`)
+	pluginIDRe = lazyre.New(`id\s*\(\s*["']([^"']+)["']\s*\)`)
 	// alias(libs.plugins.androidApplication)
-	pluginAliasRe = regexp.MustCompile(`alias\s*\(\s*([^)]+)\s*\)`)
+	pluginAliasRe = lazyre.New(`alias\s*\(\s*([^)]+)\s*\)`)
 	// apply plugin: 'com.android.application'
-	applyPluginRe = regexp.MustCompile(`apply\s+plugin:\s*["']([^"']+)["']`)
+	applyPluginRe = lazyre.New(`apply\s+plugin:\s*["']([^"']+)["']`)
 )
 
 // Dependency patterns for external (Maven) dependencies.
 var (
 	// implementation("group:name:version")
-	depStringNotationRe = regexp.MustCompile(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+):([^"']+)["']\s*\)`)
+	depStringNotationRe = lazyre.New(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+):([^"']+)["']\s*\)`)
 	// implementation("group:name") — no version (managed via BOM or catalog)
-	depNoVersionRe = regexp.MustCompile(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+)["']\s*\)`)
+	depNoVersionRe = lazyre.New(`(\w+)\s*\(\s*["']([^"':]+):([^"':]+)["']\s*\)`)
 	// implementation 'group:name:version' — Groovy call without parentheses, one per statement.
-	depGroovyStringRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+):([^"'\s]+)["']`)
+	depGroovyStringRe = lazyre.New(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+):([^"'\s]+)["']`)
 	// implementation 'group:name' — Groovy call without a version.
-	depGroovyNoVersionRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+)["']`)
+	depGroovyNoVersionRe = lazyre.New(`(?m)^[ \t]*(\w+)[ \t]+["']([^"':\s]+):([^"':\s]+)["']`)
 	// implementation group: 'g', name: 'n', version: 'v'
-	depGroovyMapRe = regexp.MustCompile(`(?m)^[ \t]*(\w+)[ \t]*\(?[ \t]*group\s*[:=]\s*["']([^"']+)["']\s*,\s*name\s*[:=]\s*["']([^"']+)["'](?:\s*,\s*version\s*[:=]\s*["']([^"']*)["'])?`)
+	depGroovyMapRe = lazyre.New(`(?m)^[ \t]*(\w+)[ \t]*\(?[ \t]*group\s*[:=]\s*["']([^"']+)["']\s*,\s*name\s*[:=]\s*["']([^"']+)["'](?:\s*,\s*version\s*[:=]\s*["']([^"']*)["'])?`)
 )
 
 // stripGradleComments blanks `//` and `/* */` comments, keeping string contents and line breaks,
@@ -118,17 +120,17 @@ func stripGradleComments(content string) string {
 
 // Build features.
 var (
-	composeRe     = regexp.MustCompile(`(?m)^\s*compose\s*[=(]\s*true`)
-	viewBindingRe = regexp.MustCompile(`(?m)^\s*viewBinding\s*[=(]\s*true`)
-	dataBindingRe = regexp.MustCompile(`(?m)^\s*dataBinding\s*[=(]\s*true`)
-	buildConfigRe = regexp.MustCompile(`(?m)^\s*buildConfig\s*[=(]\s*true`)
-	aidlRe        = regexp.MustCompile(`(?m)^\s*aidl\s*[=(]\s*true`)
+	composeRe     = lazyre.New(`(?m)^\s*compose\s*[=(]\s*true`)
+	viewBindingRe = lazyre.New(`(?m)^\s*viewBinding\s*[=(]\s*true`)
+	dataBindingRe = lazyre.New(`(?m)^\s*dataBinding\s*[=(]\s*true`)
+	buildConfigRe = lazyre.New(`(?m)^\s*buildConfig\s*[=(]\s*true`)
+	aidlRe        = lazyre.New(`(?m)^\s*aidl\s*[=(]\s*true`)
 )
 
 // Lint‐specific patterns.
 var (
-	mavenLocalRe = regexp.MustCompile(`(?m)^\s*mavenLocal\s*\(\s*\)`)
-	agpVersionRe = regexp.MustCompile(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["']([^"']+)["']`)
+	mavenLocalRe = lazyre.New(`(?m)^\s*mavenLocal\s*\(\s*\)`)
+	agpVersionRe = lazyre.New(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["']([^"']+)["']`)
 )
 
 // Android plugin prefixes that mark a project as Android.
@@ -168,9 +170,9 @@ func ParseBuildGradleContent(content string) (*BuildConfig, error) {
 	cfg := &BuildConfig{}
 
 	// SDK versions.
-	cfg.MinSdkVersion = extractInt(minSdkRe, content)
-	cfg.TargetSdkVersion = extractInt(targetSdkRe, content)
-	cfg.CompileSdkVersion = extractInt(compileSdkRe, content)
+	cfg.MinSdkVersion = extractInt(minSdkRe.Re(), content)
+	cfg.TargetSdkVersion = extractInt(targetSdkRe.Re(), content)
+	cfg.CompileSdkVersion = extractInt(compileSdkRe.Re(), content)
 
 	// Plugins.
 	cfg.Plugins = parsePlugins(content)
@@ -317,7 +319,7 @@ func lintMinSdkTooLow(content string, cfg *BuildConfig, threshold int) []GradleL
 	if cfg.MinSdkVersion == 0 || cfg.MinSdkVersion >= threshold {
 		return nil
 	}
-	line := findLineNumber(content, minSdkRe)
+	line := findLineNumber(content, minSdkRe.Re())
 	return []GradleLint{{
 		Rule:    "MinSdkTooLow",
 		Message: fmt.Sprintf("minSdk %d is below the recommended minimum of %d", cfg.MinSdkVersion, threshold),
@@ -345,7 +347,7 @@ func lintMavenLocal(content string) []GradleLint {
 	if !mavenLocalRe.MatchString(content) {
 		return nil
 	}
-	line := findLineNumber(content, mavenLocalRe)
+	line := findLineNumber(content, mavenLocalRe.Re())
 	return []GradleLint{{
 		Rule:    "MavenLocal",
 		Message: "mavenLocal() can cause unreproducible builds; prefer a remote repository or includeBuild",
@@ -383,12 +385,12 @@ var agpGradleCompat = map[string]string{
 }
 
 // gradleVersionCommentRe finds a "Gradle X.Y" mention in the build script, used when no wrapper is found.
-var gradleVersionCommentRe = regexp.MustCompile(`Gradle\s+(\d+\.\d+)`)
+var gradleVersionCommentRe = lazyre.New(`Gradle\s+(\d+\.\d+)`)
 
 var (
-	gradleWrapperDistributionRe = regexp.MustCompile(`gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)\.zip`)
+	gradleWrapperDistributionRe = lazyre.New(`gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)\.zip`)
 	// classpath("com.android.tools.build:gradle:8.1.0") or classpath 'com.android.tools.build:gradle:8.1.0'
-	agpClasspathRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+\.\d+(?:\.\d+)?)`)
+	agpClasspathRe = lazyre.New(`com\.android\.tools\.build:gradle:(\d+\.\d+(?:\.\d+)?)`)
 )
 
 // GradleWrapperVersion returns the Gradle version pinned by the nearest gradle/wrapper/gradle-wrapper.properties
@@ -462,7 +464,7 @@ func lintGradleCompatibilityWith(rawContent, gradleVersion string) []GradleLint 
 		return []GradleLint{{
 			Rule:    "GradleCompatibility",
 			Message: fmt.Sprintf("AGP %s requires Gradle >= %s but found %s", agpFull, requiredGradle, gradleVersion),
-			Line:    findLineNumber(content, re),
+			Line:    findLineNumber(content, re.Re()),
 		}}
 	}
 

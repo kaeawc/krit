@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -520,7 +521,7 @@ type KDocReferencesNonPublicPropertyRule struct {
 // heuristic path. Classified per roadmap/17.
 func (r *KDocReferencesNonPublicPropertyRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-var kdocRefRe = regexp.MustCompile(`\[([A-Za-z_][A-Za-z0-9_]*)\]`)
+var kdocRefRe = lazyre.New(`\[([A-Za-z_][A-Za-z0-9_]*)\]`)
 
 // OutdatedDocumentationRule detects @param tags that don't match actual function parameters.
 type OutdatedDocumentationRule struct {

@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -27,10 +27,10 @@ const (
 )
 
 // unnecessaryApplyShadow matches a user-declared or imported `apply`, which is not kotlin.apply.
-var unnecessaryApplyShadow = regexp.MustCompile(`\bfun\s+(?:<[^>]*>\s*)?(?:[\w.<>?, ]+\.)?apply\s*[<(]`)
+var unnecessaryApplyShadow = lazyre.New(`\bfun\s+(?:<[^>]*>\s*)?(?:[\w.<>?, ]+\.)?apply\s*[<(]`)
 
 // unnecessaryApplyImport matches an import of a function named `apply`, with its package and any alias.
-var unnecessaryApplyImport = regexp.MustCompile(`(?m)^\s*import\s+([\w.]+)\.apply\b(\s+as\s+\w+)?`)
+var unnecessaryApplyImport = lazyre.New(`(?m)^\s*import\s+([\w.]+)\.apply\b(\s+as\s+\w+)?`)
 
 // unnecessaryApplyShadowed reports whether `apply` in file may be something other than kotlin.apply.
 func unnecessaryApplyShadowed(content []byte) bool {

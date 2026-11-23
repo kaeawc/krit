@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
@@ -52,8 +52,8 @@ func (r *RtlEnabledManifestRule) check(ctx *api.Context) {
 }
 
 var (
-	rtlTextAlignmentRe = regexp.MustCompile(`\bandroid:textAlignment\s*=`)
-	rtlGravityRe       = regexp.MustCompile(`\bandroid:(?:layout_)?gravity\s*=\s*"([^"]*)"`)
+	rtlTextAlignmentRe = lazyre.New(`\bandroid:textAlignment\s*=`)
+	rtlGravityRe       = lazyre.New(`\bandroid:(?:layout_)?gravity\s*=\s*"([^"]*)"`)
 )
 
 // resourcesUseRtlAttributes reports whether any XML resource under resDir (outside values) sets textAlignment or
@@ -718,7 +718,7 @@ type MissingRegisteredManifestRule struct {
 	AndroidRule
 }
 
-var manifestPlaceholderRe = regexp.MustCompile(`\$\{[^}]*\}`)
+var manifestPlaceholderRe = lazyre.New(`\$\{[^}]*\}`)
 
 func isInvalidComponentName(name string) (bool, string) {
 	if name == "" {

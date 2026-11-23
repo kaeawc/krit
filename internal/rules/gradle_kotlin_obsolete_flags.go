@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -77,12 +78,12 @@ var obsoleteProperties = []obsoleteProperty{
 }
 
 var (
-	obsoleteFlagLiteralRe    = regexp.MustCompile(`["'](-X[A-Za-z0-9-]+(?:=[A-Za-z0-9-]+)?)["']`)
-	langVersionArgRe         = regexp.MustCompile(`["']-language-version(?:=(\d+)\.(\d+))?["'](?:\s*,\s*["'](\d+)\.(\d+)["'])?`)
-	langVersionEnumRe        = regexp.MustCompile(`\blanguageVersion\s*(?:=|\.set\()\s*(?:[\w.]*\.)?KotlinVersion\.KOTLIN_(\d+)_(\d+)\b`)
-	langVersionStringRe      = regexp.MustCompile(`\blanguageVersion\s*=\s*["'](\d+)\.(\d+)["']`)
-	obsoleteEmptyFreeArgsRe  = regexp.MustCompile(`^[\w.]*freeCompilerArgs\s*(?:\.add\(\s*\)|\.addAll\(\s*(?:listOf\(\s*\))?\s*\)|\+=\s*(?:listOf\(\s*\))?)$`)
-	obsoleteBareListElementR = regexp.MustCompile(`^,?$`)
+	obsoleteFlagLiteralRe    = lazyre.New(`["'](-X[A-Za-z0-9-]+(?:=[A-Za-z0-9-]+)?)["']`)
+	langVersionArgRe         = lazyre.New(`["']-language-version(?:=(\d+)\.(\d+))?["'](?:\s*,\s*["'](\d+)\.(\d+)["'])?`)
+	langVersionEnumRe        = lazyre.New(`\blanguageVersion\s*(?:=|\.set\()\s*(?:[\w.]*\.)?KotlinVersion\.KOTLIN_(\d+)_(\d+)\b`)
+	langVersionStringRe      = lazyre.New(`\blanguageVersion\s*=\s*["'](\d+)\.(\d+)["']`)
+	obsoleteEmptyFreeArgsRe  = lazyre.New(`^[\w.]*freeCompilerArgs\s*(?:\.add\(\s*\)|\.addAll\(\s*(?:listOf\(\s*\))?\s*\)|\+=\s*(?:listOf\(\s*\))?)$`)
+	obsoleteBareListElementR = lazyre.New(`^,?$`)
 )
 
 func (r *ObsoleteKotlinVersionFlagsRule) check(ctx *api.Context) {
@@ -167,7 +168,7 @@ func findObsoleteScriptConstructs(src *gradleSource) []obsoleteCandidate {
 			out = append(out, c)
 		}
 	}
-	for _, re := range []*regexp.Regexp{langVersionEnumRe, langVersionStringRe} {
+	for _, re := range []*regexp.Regexp{langVersionEnumRe.Re(), langVersionStringRe.Re()} {
 		for _, m := range re.FindAllStringSubmatchIndex(src.text, -1) {
 			maj, mnr, ok := languageVersionGroups(src.text, m, -1)
 			if c, bad := languageVersionCandidate(m[0], m[1], maj, mnr, ok); bad {
@@ -235,7 +236,7 @@ func scriptLanguageVersion(src *gradleSource) gradleVersion {
 	for _, m := range langVersionArgRe.FindAllStringSubmatchIndex(src.text, -1) {
 		consider(languageVersionGroups(src.text, m, 6))
 	}
-	for _, re := range []*regexp.Regexp{langVersionEnumRe, langVersionStringRe} {
+	for _, re := range []*regexp.Regexp{langVersionEnumRe.Re(), langVersionStringRe.Re()} {
 		for _, m := range re.FindAllStringSubmatchIndex(src.text, -1) {
 			consider(languageVersionGroups(src.text, m, -1))
 		}

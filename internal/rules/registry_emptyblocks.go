@@ -2,9 +2,9 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -104,8 +104,8 @@ func registerEmptyblocksEmptyClassBlock() {
 }
 
 var (
-	emptyCtorKeywordRe = regexp.MustCompile(`constructor\s*\(\s*\)`)
-	emptyParenRe       = regexp.MustCompile(`^\s*\(\s*\)\s*$`)
+	emptyCtorKeywordRe = lazyre.New(`constructor\s*\(\s*\)`)
+	emptyParenRe       = lazyre.New(`^\s*\(\s*\)\s*$`)
 )
 
 func registerEmptyblocksEmptyDefaultConstructor() {

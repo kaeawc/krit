@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
@@ -77,9 +78,9 @@ var (
 		{21, regexp.MustCompile(`^\d+x\d+$`)},
 		{sdkQualVersion, regexp.MustCompile(`^v\d+$`)},
 	}
-	sdkLanguageRe = regexp.MustCompile(`^[a-z]{2,3}$`)
-	sdkRegionRe   = regexp.MustCompile(`^r[A-Z]{2}$`)
-	sdkBcp47Re    = regexp.MustCompile(`^b\+[A-Za-z0-9+]+$`)
+	sdkLanguageRe = lazyre.New(`^[a-z]{2,3}$`)
+	sdkRegionRe   = lazyre.New(`^r[A-Z]{2}$`)
+	sdkBcp47Re    = lazyre.New(`^b\+[A-Za-z0-9+]+$`)
 )
 
 // sdkQualifierCategory returns the category of a folder qualifier, and whether it is a region that must follow a language.

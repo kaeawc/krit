@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"weak"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -65,8 +65,8 @@ var serviceKeyNames = map[string]bool{
 }
 
 var (
-	translationDensityRe = regexp.MustCompile(`^(?:ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi|anydpi|nodpi|\d+dpi|v\d+)$`)
-	translationMccRe     = regexp.MustCompile(`^mnc?\d+$`)
+	translationDensityRe = lazyre.New(`^(?:ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi|anydpi|nodpi|\d+dpi|v\d+)$`)
+	translationMccRe     = lazyre.New(`^mnc?\d+$`)
 )
 
 // translationFolderInfo classifies a res subfolder: its type, whether Lint reads it, whether its qualifiers are only

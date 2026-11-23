@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -49,10 +49,10 @@ var kspProcessors = []kspProcessor{
 }
 
 var (
-	kaptDependenciesBlockRe = regexp.MustCompile(`\bdependencies\s*\{`)
-	kaptConfigurationRe     = regexp.MustCompile(`(?:^|[^\w.$"'])(kapt(?:[A-Z]\w*)?)[ \t]*[("']`)
-	kaptCoordinateRe        = regexp.MustCompile(`^\s*\(?\s*["']([^"':]+):([^"':]+)(?::[^"']*)?["']`)
-	kaptCatalogRe           = regexp.MustCompile(`^\s*\(?\s*libs\.([A-Za-z0-9_.]+)`)
+	kaptDependenciesBlockRe = lazyre.New(`\bdependencies\s*\{`)
+	kaptConfigurationRe     = lazyre.New(`(?:^|[^\w.$"'])(kapt(?:[A-Z]\w*)?)[ \t]*[("']`)
+	kaptCoordinateRe        = lazyre.New(`^\s*\(?\s*["']([^"':]+):([^"':]+)(?::[^"']*)?["']`)
+	kaptCatalogRe           = lazyre.New(`^\s*\(?\s*libs\.([A-Za-z0-9_.]+)`)
 )
 
 const kaptMigrationGuide = "https://kotlinlang.org/docs/ksp-kapt-migration.html"

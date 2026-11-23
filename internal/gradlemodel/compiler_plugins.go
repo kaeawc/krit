@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // CompilerPlugins are a compilation's Kotlin compiler plugins
@@ -47,15 +48,15 @@ func (p CompilerPlugins) Describe() string {
 }
 
 var (
-	pluginOptionRe = regexp.MustCompile(`^plugin:[^:=\s]+:[^=\s:]+=`)
+	pluginOptionRe = lazyre.New(`^plugin:[^:=\s]+:[^=\s:]+=`)
 	// kgpDefaultPluginJarRe matches what the Kotlin Gradle plugin puts on every
 	// compilation's plugin classpath besides the applied plugins: Kotlin
 	// scripting support and its runtime dependencies. krit-fir does not compile
 	// scripts, and the embeddable scripting plugin cannot load into krit-fir's
 	// compiler at all, which would take the real plugins down with it.
-	kgpDefaultPluginJarRe = regexp.MustCompile(`^(kotlin-scripting-[a-z-]+|kotlin-script-runtime|kotlin-stdlib(-[a-z0-9]+)?|kotlin-reflect|kotlinx-coroutines-core(-jvm)?|annotations)-[0-9][^/]*\.jar$`)
+	kgpDefaultPluginJarRe = lazyre.New(`^(kotlin-scripting-[a-z-]+|kotlin-script-runtime|kotlin-stdlib(-[a-z0-9]+)?|kotlin-reflect|kotlinx-coroutines-core(-jvm)?|annotations)-[0-9][^/]*\.jar$`)
 	// jarVersionRe strips a trailing -<version>.jar to name a plugin artifact.
-	jarVersionRe = regexp.MustCompile(`-[0-9][A-Za-z0-9.+_-]*\.jar$`)
+	jarVersionRe = lazyre.New(`-[0-9][A-Za-z0-9.+_-]*\.jar$`)
 )
 
 // outputPluginOptions are plugin options that make the compiler write files

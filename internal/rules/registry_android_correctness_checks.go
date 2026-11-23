@@ -3,9 +3,9 @@ package rules
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -781,7 +781,7 @@ func registerAndroidCorrectnessChecksLocalSuppress() {
 }
 
 // pluralsEqualsOneRe matches `== 1` or `== 1L` but not `== 10`, `== 1.5` or `== 1x`.
-var pluralsEqualsOneRe = regexp.MustCompile(`==\s*1[lL]?($|[^0-9.A-Za-z_])`)
+var pluralsEqualsOneRe = lazyre.New(`==\s*1[lL]?($|[^0-9.A-Za-z_])`)
 
 func registerAndroidCorrectnessChecksPluralsCandidate() {
 	r := &PluralsCandidateRule{AndroidRule: alcRule("PluralsCandidate", "Potential plurals", ALSWarning, 5)}

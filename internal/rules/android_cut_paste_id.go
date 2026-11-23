@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -30,7 +30,7 @@ type CutPasteIDRule struct {
 func (r *CutPasteIDRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // cutPasteIDArgRe matches the id argument: a qualified name whose second to last part is `id`, such as R.id.name.
-var cutPasteIDArgRe = regexp.MustCompile(`^(?:\w+\.)*id\.(\w+)$`)
+var cutPasteIDArgRe = lazyre.New(`^(?:\w+\.)*id\.(\w+)$`)
 
 type cutPasteLookup struct {
 	node     uint32 // the call

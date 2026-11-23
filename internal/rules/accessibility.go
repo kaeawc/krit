@@ -3,11 +3,11 @@ package rules
 import (
 	"bytes"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -1047,7 +1047,7 @@ func composeDebugToolingPath(path string, extraMarkers []string) bool {
 	return false
 }
 
-var composeSmallFixedSizeRe = regexp.MustCompile(`\b(?:size|width)\(\s*(\d+(?:\.\d+)?)\.dp\s*\)`)
+var composeSmallFixedSizeRe = lazyre.New(`\b(?:size|width)\(\s*(\d+(?:\.\d+)?)\.dp\s*\)`)
 
 // composeTextFieldIsDescribedGridCell reports a text field that is one cell of a repeated indexed layout
 // (such as a verification code) whose cell carries a semantics contentDescription. The description
@@ -1091,8 +1091,8 @@ walk:
 }
 
 var (
-	composeSingleCharInputRe = regexp.MustCompile(`\b(?:take|takeLast)\(\s*1\s*\)|\.length\s*(?:<=|==|<)\s*[12]\b|\.length\s*>\s*1\b|\bmaxLength\s*=\s*1\b`)
-	composeCodeBoxNameRe     = regexp.MustCompile(`(?i)otp|pin|digit|passcode|verification|codebox|codecell`)
+	composeSingleCharInputRe = lazyre.New(`\b(?:take|takeLast)\(\s*1\s*\)|\.length\s*(?:<=|==|<)\s*[12]\b|\.length\s*>\s*1\b|\bmaxLength\s*=\s*1\b`)
+	composeCodeBoxNameRe     = lazyre.New(`(?i)otp|pin|digit|passcode|verification|codebox|codecell`)
 )
 
 // composeTextFieldIsSingleCharBox reports a field that holds one character of a code (OTP or PIN box): its

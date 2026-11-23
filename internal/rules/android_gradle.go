@@ -9,12 +9,12 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -332,10 +332,10 @@ func isGradleIdentPartAt(s string, pos int, dir decodeDir) bool {
 }
 
 var (
-	ktsDepConfigCallRe   = regexp.MustCompile(`\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testRuntimeOnly|testCompileOnly|androidTestImplementation|androidTestCompileOnly|androidTestRuntimeOnly|debugImplementation|releaseImplementation|kapt|ksp|annotationProcessor)\s*\(`)
-	ktsNamedArgVersionRe = regexp.MustCompile(`\bversion\s*=\s*["']([^"']+)["']`)
-	ktsNamedArgGroupRe   = regexp.MustCompile(`\bgroup\s*=\s*["']([^"']+)["']`)
-	ktsNamedArgNameRe    = regexp.MustCompile(`\bname\s*=\s*["']([^"']+)["']`)
+	ktsDepConfigCallRe   = lazyre.New(`\b(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testRuntimeOnly|testCompileOnly|androidTestImplementation|androidTestCompileOnly|androidTestRuntimeOnly|debugImplementation|releaseImplementation|kapt|ksp|annotationProcessor)\s*\(`)
+	ktsNamedArgVersionRe = lazyre.New(`\bversion\s*=\s*["']([^"']+)["']`)
+	ktsNamedArgGroupRe   = lazyre.New(`\bgroup\s*=\s*["']([^"']+)["']`)
+	ktsNamedArgNameRe    = lazyre.New(`\bname\s*=\s*["']([^"']+)["']`)
 )
 
 func (r *AccidentalOctalRule) check(ctx *api.Context) {

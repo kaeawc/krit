@@ -3,10 +3,10 @@ package rules
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // This file is the element half of Lint's ReferenceType (DuplicateResourceDetector.TYPE_MISMATCH): a <string>, <color>,
@@ -20,7 +20,7 @@ var referenceTagTypes = map[string]string{
 }
 
 // referenceURLRe is ResourceUrl.parse for `@[+][*][package:]type/name`.
-var referenceURLRe = regexp.MustCompile(`^@(\+?)\*?(?:[A-Za-z_][\w.]*:)?([a-z]+)/([^/\s]+)$`)
+var referenceURLRe = lazyre.New(`^@(\+?)\*?(?:[A-Za-z_][\w.]*:)?([a-z]+)/([^/\s]+)$`)
 
 // resourceURLType is the type of a resource reference, or "" when the text is not a valid one.
 func resourceURLType(text string) string {

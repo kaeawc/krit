@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -105,7 +105,7 @@ func composeIsDirectStateComparisonFlat(file *scanner.File, expr uint32, delegat
 }
 
 // composeBooleanStateDeclRe matches declarations of Boolean-valued state.
-var composeBooleanStateDeclRe = regexp.MustCompile(`mutableStateOf\(\s*(true|false)\b|\bBoolean\b`)
+var composeBooleanStateDeclRe = lazyre.New(`mutableStateOf\(\s*(true|false)\b|\bBoolean\b`)
 
 // composeStateIsBooleanFlat reports whether the local state binding name holds a Boolean.
 func composeStateIsBooleanFlat(file *scanner.File, idx uint32, name string) bool {

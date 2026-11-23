@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -121,7 +121,7 @@ func lintAppTargetSdk(m *manifest.Manifest) int {
 	return m.TargetSDK
 }
 
-var lintPermissionTargetSdkLine = regexp.MustCompile(`(?m)^\s*targetSdk(?:Version)?\b\s*(?:=\s*[0-9]+|\(\s*[0-9]+\s*\)|[0-9]+)\s*;?\s*(?://[^\n]*)?$`)
+var lintPermissionTargetSdkLine = lazyre.New(`(?m)^\s*targetSdk(?:Version)?\b\s*(?:=\s*[0-9]+|\(\s*[0-9]+\s*\)|[0-9]+)\s*;?\s*(?://[^\n]*)?$`)
 
 func lintPermissionLiteralTargetSdk(content string) bool {
 	if strings.Count(content, "targetSdk") != 1 {

@@ -3,10 +3,10 @@ package rules
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -25,8 +25,8 @@ type RoomQueryMissingWhereForUpdateRule struct {
 func (r *RoomQueryMissingWhereForUpdateRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
-	roomQueryMissingWhereSQLPattern = regexp.MustCompile(`(?is)^\s*(UPDATE|DELETE)\b`)
-	roomQueryWhereClausePattern     = regexp.MustCompile(`(?i)\bWHERE\b`)
+	roomQueryMissingWhereSQLPattern = lazyre.New(`(?is)^\s*(UPDATE|DELETE)\b`)
+	roomQueryWhereClausePattern     = lazyre.New(`(?i)\bWHERE\b`)
 )
 
 func roomQueryMissingWhereSQL(sql string) (string, bool) {
@@ -89,8 +89,8 @@ type RoomSelectStarWithoutLimitRule struct {
 func (r *RoomSelectStarWithoutLimitRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
-	roomSelectStarPattern   = regexp.MustCompile(`(?is)^\s*SELECT\s+\*`)
-	roomSelectLimitPattern  = regexp.MustCompile(`(?i)\bLIMIT\b`)
+	roomSelectStarPattern   = lazyre.New(`(?is)^\s*SELECT\s+\*`)
+	roomSelectLimitPattern  = lazyre.New(`(?i)\bLIMIT\b`)
 	roomReturnTypeStreaming = map[string]struct{}{
 		"Flow":              {},
 		"SharedFlow":        {},
@@ -142,7 +142,7 @@ func roomReturnTypeAllowsUnboundedSelect(typeText string) bool {
 	return ok
 }
 
-var roomCollectionTypeWords = regexp.MustCompile(`\b(List|MutableList|ArrayList|Set|MutableSet|Collection|Iterable|Array|Map|MutableMap|ImmutableList|PersistentList)\b`)
+var roomCollectionTypeWords = lazyre.New(`\b(List|MutableList|ArrayList|Set|MutableSet|Collection|Iterable|Array|Map|MutableMap|ImmutableList|PersistentList)\b`)
 
 // roomReturnTypeLoadsCollection reports whether a @Query return type
 // materialises many rows at once: a collection, possibly inside a one-shot
@@ -170,8 +170,8 @@ type RoomQueryWithLikeMissingEscapeRule struct {
 func (r *RoomQueryWithLikeMissingEscapeRule) Confidence() float64 { return api.ConfidenceMediumLowPlus }
 
 var (
-	roomLikeBareBindPattern = regexp.MustCompile(`(?i)\bLIKE\s+:([A-Za-z_][A-Za-z0-9_]*)`)
-	roomLikeEscapePattern   = regexp.MustCompile(`(?i)\bESCAPE\b`)
+	roomLikeBareBindPattern = lazyre.New(`(?i)\bLIKE\s+:([A-Za-z_][A-Za-z0-9_]*)`)
+	roomLikeEscapePattern   = lazyre.New(`(?i)\bESCAPE\b`)
 )
 
 // roomQueryLikeBindMissingEscape returns the first bind parameter used as a

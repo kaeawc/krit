@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -496,7 +496,7 @@ func testingQualityClassUsesRealDispatchers(file *scanner.File, fn uint32, extra
 		containsAnyNonEmpty(text, extraMarkers)
 }
 
-var testingQualityRealConcurrencyPattern = regexp.MustCompile(
+var testingQualityRealConcurrencyPattern = lazyre.New(
 	`\b(CountDownLatch|CyclicBarrier|Semaphore|CompletableDeferred|Executors?|newSingleThreadContext|asCoroutineDispatcher)\b|\b\w*[Ll]atch\b|Dispatchers\.(Default|IO)\b|\b[Rr]eal\w*Dispatchers?\b|\b(thread|Thread)\s*[({]`)
 
 // testingQualityTestUsesRealConcurrency reports a test that coordinates real threads or latches. Virtual time
@@ -509,7 +509,7 @@ func testingQualityTestUsesRealConcurrency(file *scanner.File, idx uint32) bool 
 	return testingQualityRealConcurrencyPattern.MatchString(file.FlatNodeText(fn)) || testingQualityClassUsesRealDispatchers(file, fn, nil)
 }
 
-var testingQualitySharedSchedulerPattern = regexp.MustCompile(
+var testingQualitySharedSchedulerPattern = lazyre.New(
 	`\b(coroutineRule|StandardTestDispatcher|UnconfinedTestDispatcher|TestDispatcher|TestScope|backgroundScope|TestCoroutineScheduler|MainDispatcherRule)\b|\bdispatchers\s*=`)
 
 // testingQualityFileSharesTestScheduler reports a file that builds objects on test dispatchers, so a delay

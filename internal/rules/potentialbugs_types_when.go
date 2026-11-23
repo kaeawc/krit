@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -185,7 +185,7 @@ func whenUnguardedTypeTests(file *scanner.File, idx uint32) map[string]bool {
 	return covered
 }
 
-var whenGuardKeywordPattern = regexp.MustCompile(`(^|[\s)])if[\s(]`)
+var whenGuardKeywordPattern = lazyre.New(`(^|[\s)])if[\s(]`)
 
 // whenEntryIsGuarded reports an entry whose condition part has an `if` guard, which the grammar
 // parses as an error inside the condition.
@@ -301,7 +301,7 @@ func whenImportOwnerMatches(file *scanner.File, resolver typeinfer.TypeResolver,
 	return testOwner == variantOwner
 }
 
-var whenImportPattern = regexp.MustCompile(`(?m)^\s*import\s+([\w.]+)\s*$`)
+var whenImportPattern = lazyre.New(`(?m)^\s*import\s+([\w.]+)\s*$`)
 
 // whenExplicitImport returns the fully qualified name an explicit import gives a simple name, or "".
 // The file's own import lines are read because the resolver prefers a same-file declaration.

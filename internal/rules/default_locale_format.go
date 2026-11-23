@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // defaultLocaleSpecRe is the format specifier pattern Lint's StringFormatDetector uses; group 6 is the conversion.
-var defaultLocaleSpecRe = regexp.MustCompile(`%(\d+\$)?([-+#, 0(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])`)
+var defaultLocaleSpecRe = lazyre.New(`%(\d+\$)?([-+#, 0(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])`)
 
 // defaultLocaleFormatIsLocaleSpecific reports whether the format has a d, e, E, f, g, G, t or T conversion.
 func defaultLocaleFormatIsLocaleSpecific(format string) bool {

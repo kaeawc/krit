@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 const (
@@ -159,22 +161,22 @@ func (j JVMProfile) EffectiveTargetBytecode() string {
 }
 
 var (
-	kotlinPluginVersionRe = regexp.MustCompile(`(?:id\s*\(\s*["']org\.jetbrains\.kotlin\.[^"']+["']\s*\)|kotlin\s*\(\s*["'][^"']+["']\s*\))\s*version\s*["']([^"']+)["']`)
-	kotlinPluginRe        = regexp.MustCompile(`(?:id\s*\(\s*["']org\.jetbrains\.kotlin\.[^"']+["']\s*\)|kotlin\s*\(\s*["'][^"']+["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*kotlin[^)]*\))`)
-	kotlinLanguageRe      = regexp.MustCompile(`languageVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?(?:KOTLIN_)?["']?([0-9]+(?:[._][0-9]+)?)["']?`)
-	kotlinAPIRe           = regexp.MustCompile(`apiVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?(?:KOTLIN_)?["']?([0-9]+(?:[._][0-9]+)?)["']?`)
-	kotlinK2Re            = regexp.MustCompile(`(?:languageVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?KOTLIN_2|freeCompilerArgs[^\n]*(?:-Xuse-k2|-language-version\s+2\.))`)
+	kotlinPluginVersionRe = lazyre.New(`(?:id\s*\(\s*["']org\.jetbrains\.kotlin\.[^"']+["']\s*\)|kotlin\s*\(\s*["'][^"']+["']\s*\))\s*version\s*["']([^"']+)["']`)
+	kotlinPluginRe        = lazyre.New(`(?:id\s*\(\s*["']org\.jetbrains\.kotlin\.[^"']+["']\s*\)|kotlin\s*\(\s*["'][^"']+["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*kotlin[^)]*\))`)
+	kotlinLanguageRe      = lazyre.New(`languageVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?(?:KOTLIN_)?["']?([0-9]+(?:[._][0-9]+)?)["']?`)
+	kotlinAPIRe           = lazyre.New(`apiVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?(?:KOTLIN_)?["']?([0-9]+(?:[._][0-9]+)?)["']?`)
+	kotlinK2Re            = lazyre.New(`(?:languageVersion(?:\.set)?\s*(?:=|\()?\s*(?:KotlinVersion\.)?KOTLIN_2|freeCompilerArgs[^\n]*(?:-Xuse-k2|-language-version\s+2\.))`)
 
-	kspPluginVersionRe = regexp.MustCompile(`id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)\s*version\s*["']([^"']+)["']`)
-	kspPluginRe        = regexp.MustCompile(`(?:id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*ksp[^)]*\)|\bksp\s*\()`)
+	kspPluginVersionRe = lazyre.New(`id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)\s*version\s*["']([^"']+)["']`)
+	kspPluginRe        = lazyre.New(`(?:id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*ksp[^)]*\)|\bksp\s*\()`)
 
-	agpPluginVersionRe = regexp.MustCompile(`id\s*\(\s*["']com\.android\.[^"']+["']\s*\)\s*version\s*["']([^"']+)["']`)
-	androidPluginRe    = regexp.MustCompile(`(?:id\s*\(\s*["']com\.android\.[^"']+["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*android[^)]*\))`)
+	agpPluginVersionRe = lazyre.New(`id\s*\(\s*["']com\.android\.[^"']+["']\s*\)\s*version\s*["']([^"']+)["']`)
+	androidPluginRe    = lazyre.New(`(?:id\s*\(\s*["']com\.android\.[^"']+["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*android[^)]*\))`)
 
-	javaToolchainRe       = regexp.MustCompile(`(?:jvmToolchain\s*\(?\s*|JavaLanguageVersion\.of\s*\(\s*)(\d+)`)
-	sourceCompatibilityRe = regexp.MustCompile(`sourceCompatibility\s*=?\s*(?:JavaVersion\.)?(?:VERSION_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
-	targetCompatibilityRe = regexp.MustCompile(`targetCompatibility\s*=?\s*(?:JavaVersion\.)?(?:VERSION_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
-	kotlinJvmTargetRe     = regexp.MustCompile(`jvmTarget(?:\.set)?\s*(?:=|\()?\s*(?:JvmTarget\.)?(?:JVM_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
+	javaToolchainRe       = lazyre.New(`(?:jvmToolchain\s*\(?\s*|JavaLanguageVersion\.of\s*\(\s*)(\d+)`)
+	sourceCompatibilityRe = lazyre.New(`sourceCompatibility\s*=?\s*(?:JavaVersion\.)?(?:VERSION_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
+	targetCompatibilityRe = lazyre.New(`targetCompatibility\s*=?\s*(?:JavaVersion\.)?(?:VERSION_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
+	kotlinJvmTargetRe     = lazyre.New(`jvmTarget(?:\.set)?\s*(?:=|\()?\s*(?:JvmTarget\.)?(?:JVM_)?["']?([0-9]+(?:_[0-9]+)?)["']?`)
 )
 
 func extractToolingProfile(content string, cfgMinSDK, cfgTargetSDK, cfgCompileSDK int) (KotlinProfile, KSPProfile, AndroidProfile, JVMProfile) {
@@ -183,28 +185,28 @@ func extractToolingProfile(content string, cfgMinSDK, cfgTargetSDK, cfgCompileSD
 	var android AndroidProfile
 	var jvm JVMProfile
 
-	if version := firstMatch(kotlinPluginVersionRe, content); version != "" {
+	if version := firstMatch(kotlinPluginVersionRe.Re(), content); version != "" {
 		kotlin.Compiler = KnownVersion(normalizeVersion(version))
 	} else if kotlinPluginRe.MatchString(content) {
 		kotlin.Compiler = PresentAssumeLatestStable()
 	}
-	if version := firstMatch(kotlinLanguageRe, content); version != "" {
+	if version := firstMatch(kotlinLanguageRe.Re(), content); version != "" {
 		kotlin.LanguageVersion = KnownVersion(normalizeVersion(version))
 	}
-	if version := firstMatch(kotlinAPIRe, content); version != "" {
+	if version := firstMatch(kotlinAPIRe.Re(), content); version != "" {
 		kotlin.APIVersion = KnownVersion(normalizeVersion(version))
 	}
 	if kotlinK2Re.MatchString(content) {
 		kotlin.K2 = PresencePresent
 	}
 
-	if version := firstMatch(kspPluginVersionRe, content); version != "" {
+	if version := firstMatch(kspPluginVersionRe.Re(), content); version != "" {
 		ksp.Tool = KnownVersion(normalizeVersion(version))
 	} else if kspPluginRe.MatchString(content) {
 		ksp.Tool = PresentAssumeLatestStable()
 	}
 
-	if version := firstMatch(agpPluginVersionRe, content); version != "" {
+	if version := firstMatch(agpPluginVersionRe.Re(), content); version != "" {
 		android.AGP = KnownVersion(normalizeVersion(version))
 	} else if androidPluginRe.MatchString(content) {
 		android.AGP = PresentAssumeLatestStable()
@@ -223,16 +225,16 @@ func extractToolingProfile(content string, cfgMinSDK, cfgTargetSDK, cfgCompileSD
 		android.MinSDK = KnownVersion(strconv.Itoa(cfgMinSDK))
 	}
 
-	if version := firstMatch(javaToolchainRe, content); version != "" {
+	if version := firstMatch(javaToolchainRe.Re(), content); version != "" {
 		jvm.ToolchainLanguageVersion = KnownVersion(normalizeVersion(version))
 	}
-	if version := firstMatch(sourceCompatibilityRe, content); version != "" {
+	if version := firstMatch(sourceCompatibilityRe.Re(), content); version != "" {
 		jvm.SourceCompatibility = KnownVersion(normalizeVersion(version))
 	}
-	if version := firstMatch(targetCompatibilityRe, content); version != "" {
+	if version := firstMatch(targetCompatibilityRe.Re(), content); version != "" {
 		jvm.TargetCompatibility = KnownVersion(normalizeVersion(version))
 	}
-	if version := firstMatch(kotlinJvmTargetRe, content); version != "" {
+	if version := firstMatch(kotlinJvmTargetRe.Re(), content); version != "" {
 		jvm.KotlinJvmTarget = KnownVersion(normalizeVersion(version))
 	} else if kotlin.Compiler.Presence == PresencePresent {
 		jvm.KotlinJvmTarget = PresentAssumeLatestStable()

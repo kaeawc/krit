@@ -2,12 +2,12 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -518,7 +518,7 @@ func (r *StringNotSelectableRule) check(ctx *api.Context) {
 	}
 }
 
-var urlOrPhoneRe = regexp.MustCompile(`https?://|tel:|(\+?\d[\d\-\s]{6,}\d)`)
+var urlOrPhoneRe = lazyre.New(`https?://|tel:|(\+?\d[\d\-\s]{6,}\d)`)
 
 func containsURLOrPhone(s string) bool {
 	return urlOrPhoneRe.MatchString(s)
@@ -615,7 +615,7 @@ type StringSpanInContentDescriptionRule struct {
 
 func (r *StringSpanInContentDescriptionRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var htmlTagInStringRe = regexp.MustCompile(`<(b|i|u|em|strong|br|a|span|font|big|small|sup|sub|strike|tt)\b`)
+var htmlTagInStringRe = lazyre.New(`<(b|i|u|em|strong|br|a|span|font|big|small|sup|sub|strike|tt)\b`)
 
 func (r *StringSpanInContentDescriptionRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

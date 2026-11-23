@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -175,7 +176,7 @@ func composeParamTypeTexts(file *scanner.File, fn uint32) map[string]string {
 	return out
 }
 
-var composeTrackedStateTypeRe = regexp.MustCompile(`^(State<.*>|(Lazy(List|Grid|StaggeredGrid)|Scroll|Pager|TextField)State)\??$`)
+var composeTrackedStateTypeRe = lazyre.New(`^(State<.*>|(Lazy(List|Grid|StaggeredGrid)|Scroll|Pager|TextField)State)\??$`)
 
 // composeParamReadOnlyInTrackingBlock reports a function-typed or Compose state-holder parameter whose
 // every read sits inside derivedStateOf or snapshotFlow, which track the read and so never go stale.

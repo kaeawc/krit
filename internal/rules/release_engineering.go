@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/module"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -117,7 +118,7 @@ type conventionPlugin struct {
 	path string
 }
 
-var conventionPluginUsageRe = regexp.MustCompile(`id\s*\(\s*["']([^"']+)["']\s*\)`)
+var conventionPluginUsageRe = lazyre.New(`id\s*\(\s*["']([^"']+)["']\s*\)`)
 
 // CommentedOutCodeBlockRule flags runs of line comments that look like disabled
 // Kotlin statements rather than prose.
@@ -269,7 +270,7 @@ func scanAppliedConventionPluginIDs(graph *module.Graph) map[string]bool {
 // conventionPluginUsageRes match the ways a plugin id is applied: id("x"), apply(plugin = "x"),
 // apply("x"), apply plugin: 'x', and version-catalog entries `id = "x"` consumed through alias(...).
 var conventionPluginUsageRes = []*regexp.Regexp{
-	conventionPluginUsageRe,
+	conventionPluginUsageRe.Re(),
 	regexp.MustCompile(`apply\s*\(\s*plugin\s*=\s*["']([^"']+)["']`),
 	regexp.MustCompile(`apply\s*\(\s*["']([^"']+)["']`),
 	regexp.MustCompile(`apply\s+plugin\s*:\s*["']([^"']+)["']`),

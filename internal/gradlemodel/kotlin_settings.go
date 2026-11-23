@@ -3,13 +3,13 @@ package gradlemodel
 import (
 	"cmp"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // KotlinOptions are the Kotlin compiler settings krit-gradle-plugin exports for
@@ -133,11 +133,11 @@ func (s KotlinSettings) Describe() string {
 }
 
 var (
-	versionRe     = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
-	pluginMinorRe = regexp.MustCompile(`^([0-9]+)\.([0-9]+)`)
-	optInRe       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.]*$`)
-	flagValueRe   = regexp.MustCompile(`^[A-Za-z0-9_.,:+@\-]+$`)
-	languageRe    = regexp.MustCompile(`^-XXLanguage:[+-][A-Za-z][A-Za-z0-9_]*$`)
+	versionRe     = lazyre.New(`^[0-9]+\.[0-9]+$`)
+	pluginMinorRe = lazyre.New(`^([0-9]+)\.([0-9]+)`)
+	optInRe       = lazyre.New(`^[A-Za-z_][A-Za-z0-9_.]*$`)
+	flagValueRe   = lazyre.New(`^[A-Za-z0-9_.,:+@\-]+$`)
+	languageRe    = lazyre.New(`^-XXLanguage:[+-][A-Za-z][A-Za-z0-9_]*$`)
 )
 
 // MinSupportedKotlinLanguage is the oldest language (and API) level the

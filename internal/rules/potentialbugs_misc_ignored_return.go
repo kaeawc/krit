@@ -3,10 +3,10 @@ package rules
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -615,7 +615,7 @@ func ignoredReturnValueLambdaReturnsFromEnclosingFunction(file *scanner.File, id
 	return found
 }
 
-var ignoredReturnValueDetachedReturnPattern = regexp.MustCompile(`(?:^|[^\w@.])return(?:@\w+)?[ \t]+$`)
+var ignoredReturnValueDetachedReturnPattern = lazyre.New(`(?:^|[^\w@.])return(?:@\w+)?[ \t]+$`)
 
 // ignoredReturnValueFollowsDetachedReturn reports a call that is the operand of a `return` or
 // `return@label` on the same line. The parser detaches it from the jump inside `if` and `?:`.

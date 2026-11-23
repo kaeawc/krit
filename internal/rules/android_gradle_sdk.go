@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -53,7 +53,7 @@ func lintSDKPropertyInScope(st lintGradleStmt) bool {
 	return false
 }
 
-var gradleLibraryAliasRe = regexp.MustCompile(`alias\s*\(\s*[\w.]*[lL]ibrary\s*\)`)
+var gradleLibraryAliasRe = lazyre.New(`alias\s*\(\s*[\w.]*[lL]ibrary\s*\)`)
 
 // gradleBuildIsLibrary reports a build script that applies the Android library plugin and not the
 // application plugin. A library's targetSdk is not what Google Play checks.

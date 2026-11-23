@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -291,7 +291,7 @@ func (c lintCall) Arg(index int, name string) uint32 {
 	return 0
 }
 
-var lintImportRe = regexp.MustCompile(`(?m)^\s*import\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+var lintImportRe = lazyre.New(`(?m)^\s*import\s+(static\s+)?([A-Za-z_][\w.]*?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 
 // lintImports is the import set of one source file.
 type lintImports struct {
@@ -851,7 +851,7 @@ func lintFindingAtNode(ctx *api.Context, idx uint32, severity, msg string) scann
 var lintCallNodeTypes = []string{"call_expression", "method_invocation", "object_creation_expression"}
 
 // lintInterpolationRe matches a Kotlin string template entry at the start of its input.
-var lintInterpolationRe = regexp.MustCompile(`^(?:\$\{[^}]*\}|\$[A-Za-z_]\w*)`)
+var lintInterpolationRe = lazyre.New(`^(?:\$\{[^}]*\}|\$[A-Za-z_]\w*)`)
 
 // lintEvalString folds a string expression of literals, `+` concatenation, and constants declared in the file.
 // Parts that are not constant are dropped, as in Lint's ConstantEvaluator with unknowns allowed; it reports false

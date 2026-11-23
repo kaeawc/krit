@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -92,7 +92,7 @@ type outdatedDecl struct {
 	kind outdatedKind
 }
 
-var kdocSubjectTagRe = regexp.MustCompile(`^@(param|property)[ \t]+\[?([A-Za-z_][A-Za-z0-9_]*)`)
+var kdocSubjectTagRe = lazyre.New(`^@(param|property)[ \t]+\[?([A-Za-z_][A-Za-z0-9_]*)`)
 
 // outdatedDocDecls lists the @param and @property subjects of the KDoc in order.
 func outdatedDocDecls(raw string) []outdatedDecl {

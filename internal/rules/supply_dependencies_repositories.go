@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -81,7 +82,7 @@ type DependencyFromHTTPRule struct {
 	AllowedUrls   []string
 }
 
-var gradleRepoDirectCallRe = regexp.MustCompile(`\b(?:maven|ivy)\s*\(`)
+var gradleRepoDirectCallRe = lazyre.New(`\b(?:maven|ivy)\s*\(`)
 
 func (r *DependencyFromHTTPRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
@@ -273,7 +274,7 @@ var (
 			return `(^|[;{\s])` + regexp.QuoteMeta(name) + `\s*(?:\(\s*\)|\{)`
 		},
 	)
-	gradleURLSetterRe = regexp.MustCompile(`\b(?:url|setUrl)\b`)
+	gradleURLSetterRe = lazyre.New(`\b(?:url|setUrl)\b`)
 )
 
 func compileGradleNameRegexes(names []string, pattern func(string) string) map[string]*regexp.Regexp {

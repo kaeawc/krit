@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -460,7 +461,7 @@ func datePatternIsLocaleSensitive(pattern string) bool {
 	return f.names || f.weekFields
 }
 
-var machineConsumedNamePattern = regexp.MustCompile(`(?i)(file|filename|key|id|iso|stamp|serial|cache|log|slug|path|backup|export|header|token|sort|parse)`)
+var machineConsumedNamePattern = lazyre.New(`(?i)(file|filename|key|id|iso|stamp|serial|cache|log|slug|path|backup|export|header|token|sort|parse)`)
 
 // datePatternIsMachineConsumed reports a pattern whose output is stored or exchanged rather than shown: week
 // fields (their value changes with the locale), literal markers beside a timestamp zone, or a declaration named

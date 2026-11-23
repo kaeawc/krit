@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -61,7 +62,7 @@ type ForbiddenCommentRule struct {
 }
 
 var defaultForbiddenCommentMarkers = []string{"TODO:", "FIXME:", "STOPSHIP:"}
-var trackedBugTodoCommentPattern = regexp.MustCompile(`\bTODO(?:\s*\(\s*b/\d+\s*\)|:\s*b/\d+\b)`)
+var trackedBugTodoCommentPattern = lazyre.New(`\bTODO(?:\s*\(\s*b/\d+\s*\)|:\s*b/\d+\b)`)
 
 // Confidence reports a tier-2 (medium) base confidence. Style/forbidden rule. Detection flags configured forbidden
 // imports/methods/annotations via literal string/regex match; false

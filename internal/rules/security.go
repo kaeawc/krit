@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -22,9 +23,9 @@ func (r *LogPiiRule) Confidence() float64 { return api.ConfidenceMedium }
 // defaultLogPiiNamePattern matches whole snake_case words. Identifiers are
 // split into words before matching (see logPiiNameMatches) so that `pan` does
 // not match `expandedState`, `company`, or `span`.
-var defaultLogPiiNamePattern = regexp.MustCompile(`(?i)(^|_)(passwords?|passwd|tokens?|secrets?|api_?keys?|auth_?headers?|authorization|ssn|pan|cvv|jwt|session_?ids?|cookies?)(_|$)`)
+var defaultLogPiiNamePattern = lazyre.New(`(?i)(^|_)(passwords?|passwd|tokens?|secrets?|api_?keys?|auth_?headers?|authorization|ssn|pan|cvv|jwt|session_?ids?|cookies?)(_|$)`)
 
-var logPiiCamelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])|([A-Z]+)([A-Z][a-z])`)
+var logPiiCamelBoundary = lazyre.New(`([a-z0-9])([A-Z])|([A-Z]+)([A-Z][a-z])`)
 
 // logPiiNameMatches reports whether name matches pattern either as written or
 // after splitting camelCase into snake_case words.
@@ -40,7 +41,7 @@ func logPiiEffectivePattern(r *LogPiiRule) *regexp.Regexp {
 	if r != nil && r.PiiNamePattern != nil {
 		return r.PiiNamePattern
 	}
-	return defaultLogPiiNamePattern
+	return defaultLogPiiNamePattern.Re()
 }
 
 var androidLogMethods = map[string]bool{"v": true, "d": true, "i": true, "w": true, "e": true, "wtf": true}
@@ -206,10 +207,10 @@ func logPiiArgumentExpressions(file *scanner.File, call uint32) []uint32 {
 }
 
 var (
-	logPiiSimpleInterpolation = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
-	logPiiBraceInterpolation  = regexp.MustCompile(`\$\{([^}]*)\}`)
-	logPiiIdentifier          = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	logPiiPropertyChain       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(?:\??\.[A-Za-z_][A-Za-z0-9_]*)+$`)
+	logPiiSimpleInterpolation = lazyre.New(`\$([A-Za-z_][A-Za-z0-9_]*)`)
+	logPiiBraceInterpolation  = lazyre.New(`\$\{([^}]*)\}`)
+	logPiiIdentifier          = lazyre.New(`[A-Za-z_][A-Za-z0-9_]*`)
+	logPiiPropertyChain       = lazyre.New(`^[A-Za-z_][A-Za-z0-9_]*(?:\??\.[A-Za-z_][A-Za-z0-9_]*)+$`)
 )
 
 // logPiiInterpolatedNames returns every identifier read by a `$name` or

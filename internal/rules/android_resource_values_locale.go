@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -72,15 +72,15 @@ func (r *WrongRegionResourceRule) check(ctx *api.Context) {
 type folderLocale struct{ language, region string }
 
 var (
-	folderMccRe = regexp.MustCompile(`^mcc\d{3}$`)
-	folderMncRe = regexp.MustCompile(`^mnc\d{1,3}$`)
+	folderMccRe = lazyre.New(`^mcc\d{3}$`)
+	folderMncRe = lazyre.New(`^mnc\d{1,3}$`)
 	// Lint's LocaleQualifier accepts a region letter pair in either case, so values-es-rla parses as region LA.
-	folderRegionRe = regexp.MustCompile(`^r(?:[A-Za-z]{2}|\d{3})$`)
-	folderLangRe   = regexp.MustCompile(`^[a-z]{2,3}$`)
+	folderRegionRe = lazyre.New(`^r(?:[A-Za-z]{2}|\d{3})$`)
+	folderLangRe   = lazyre.New(`^[a-z]{2,3}$`)
 )
 
 // folderOtherQualifierRe matches the non-locale qualifiers FolderConfiguration accepts.
-var folderOtherQualifierRe = regexp.MustCompile(`^(?:ldrtl|ldltr|sw\d+dp|w\d+dp|h\d+dp|small|normal|large|xlarge|long|notlong|round|notround|port|land|` +
+var folderOtherQualifierRe = lazyre.New(`^(?:ldrtl|ldltr|sw\d+dp|w\d+dp|h\d+dp|small|normal|large|xlarge|long|notlong|round|notround|port|land|` +
 	`car|desk|appliance|television|tv|watch|vrheadset|night|notnight|ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi|anydpi|nodpi|\d+dpi|` +
 	`notouch|finger|stylus|keysexposed|keyshidden|keyssoft|nokeys|qwerty|12key|navexposed|navhidden|nonav|dpad|trackball|wheel|` +
 	`v\d+|widecg|nowidecg|lowdr|highdr|square)$`)

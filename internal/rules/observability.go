@@ -1,8 +1,7 @@
 package rules
 
 import (
-	"regexp"
-
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -138,9 +137,9 @@ func firstHighCardinalityString(file *scanner.File, root uint32, keys map[string
 // throwableLikeIdentifierRe matches common Kotlin/Java identifiers that
 // idiomatically refer to a Throwable. Used by logging rules and shared
 // observability helpers.
-var throwableLikeIdentifierRe = regexp.MustCompile(`\b(e|ex|exc|error|t|throwable|cause|exception)\b`)
+var throwableLikeIdentifierRe = lazyre.New(`\b(e|ex|exc|error|t|throwable|cause|exception)\b`)
 
 // interpolationIdentifierRe captures the bare identifier in a Kotlin string
 // template interpolation (e.g. `$foo` or `${foo}`). Used by logging rules and
 // shared observability helpers.
-var interpolationIdentifierRe = regexp.MustCompile(`\$\{?\s*([A-Za-z_][A-Za-z0-9_]*)`)
+var interpolationIdentifierRe = lazyre.New(`\$\{?\s*([A-Za-z_][A-Za-z0-9_]*)`)

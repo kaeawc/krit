@@ -3,13 +3,14 @@ package android
 import (
 	"bytes"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
-var drawableFolderVersionRe = regexp.MustCompile(`-v(\d+)(?:-|$)`)
+var drawableFolderVersionRe = lazyre.New(`-v(\d+)(?:-|$)`)
 
 // recordVectorDrawable keeps the root size attributes and every pathData attribute of a drawable XML file.
 func (idx *ResourceIndex) recordVectorDrawable(path string, data []byte, root *XMLNode) {

@@ -2,8 +2,9 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // viewIDBindingName camel-cases a layout id the way view binding names its property (`export_item_button` to `exportItemButton`).
@@ -25,9 +26,9 @@ func viewIDBindingName(id string) string {
 
 var (
 	// `name.contentDescription = ...` and `name.setContentDescription(...)`, with an optional safe call or assertion.
-	describedDirectPattern = regexp.MustCompile(`(\w+)\s*(?:\?|!!)?\s*\.\s*(?:contentDescription\s*=[^=]|setContentDescription\s*\()`)
+	describedDirectPattern = lazyre.New(`(\w+)\s*(?:\?|!!)?\s*\.\s*(?:contentDescription\s*=[^=]|setContentDescription\s*\()`)
 	// `name?.let {`, `name.apply {` and similar scope calls whose block may describe the receiver.
-	describedScopePattern = regexp.MustCompile(`(\w+)\s*(?:\?|!!)?\s*\.\s*(?:let|apply|run|also)\s*\{`)
+	describedScopePattern = lazyre.New(`(\w+)\s*(?:\?|!!)?\s*\.\s*(?:let|apply|run|also)\s*\{`)
 )
 
 // ComputeDescribedViewNames returns the names of views that source files give a content description at runtime:

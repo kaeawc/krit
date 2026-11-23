@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/versioncatalog"
 )
 
@@ -63,17 +64,17 @@ type CatalogLibrary struct {
 }
 
 var (
-	catalogPluginAliasRe      = regexp.MustCompile(`alias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)`)
-	catalogVersionAccessorRe  = regexp.MustCompile(`libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
-	catalogDependencyAliasRe  = regexp.MustCompile(`["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*\(\s*(?:platform\s*\(\s*)?libs\.([A-Za-z0-9_.]+)`)
-	unresolvedStructuralRefRe = regexp.MustCompile(`(?m)(?:["']?[A-Za-z_][A-Za-z0-9_]*["']?\s*\(\s*(?:platform\s*\(\s*)?(?:versions\.|deps\.|project\s*\(|projects\.)|apply\s*(?:\(|from\s*=|plugin\s*:)|id\s*\(\s*["'][^"']*(?:convention|build-logic)[^"']*["']|plugins?\s*\{[^}]*\b(?:convention|build-logic)\b)`)
-	settingsCatalogFileRe     = regexp.MustCompile(`from\s*\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)`)
-	settingsLibraryRe         = regexp.MustCompile(`library\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*(?:version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\)|withoutVersion\s*\(\s*\)))?`)
-	settingsPluginRe          = regexp.MustCompile(`plugin\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\))?`)
-	settingsPluginIDRe        = regexp.MustCompile(`id\s*\(\s*["']([A-Za-z0-9_.-]+)["']\s*\)`)
-	settingsIncludeBuildRe    = regexp.MustCompile(`includeBuild\s*\(\s*["']([^"']+)["']\s*\)`)
-	gradlePluginIDFieldRe     = regexp.MustCompile(`\bid(?:\.set)?\s*(?:=|\()\s*["']([^"']+)["']`)
-	gradlePluginImplClassRe   = regexp.MustCompile(`\bimplementationClass(?:\.set)?\s*(?:=|\()\s*["']([^"']+)["']`)
+	catalogPluginAliasRe      = lazyre.New(`alias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)`)
+	catalogVersionAccessorRe  = lazyre.New(`libs\.versions\.([A-Za-z0-9_.]+)\.get\s*\(`)
+	catalogDependencyAliasRe  = lazyre.New(`["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*\(\s*(?:platform\s*\(\s*)?libs\.([A-Za-z0-9_.]+)`)
+	unresolvedStructuralRefRe = lazyre.New(`(?m)(?:["']?[A-Za-z_][A-Za-z0-9_]*["']?\s*\(\s*(?:platform\s*\(\s*)?(?:versions\.|deps\.|project\s*\(|projects\.)|apply\s*(?:\(|from\s*=|plugin\s*:)|id\s*\(\s*["'][^"']*(?:convention|build-logic)[^"']*["']|plugins?\s*\{[^}]*\b(?:convention|build-logic)\b)`)
+	settingsCatalogFileRe     = lazyre.New(`from\s*\(\s*files\s*\(\s*["']([^"']+)["']\s*\)\s*\)`)
+	settingsLibraryRe         = lazyre.New(`library\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*(?:version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\)|withoutVersion\s*\(\s*\)))?`)
+	settingsPluginRe          = lazyre.New(`plugin\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)\s*(?:\.\s*version\s*\(\s*(?:"([^"]+)"|'([^']+)'|[A-Za-z0-9_.]+)\s*\))?`)
+	settingsPluginIDRe        = lazyre.New(`id\s*\(\s*["']([A-Za-z0-9_.-]+)["']\s*\)`)
+	settingsIncludeBuildRe    = lazyre.New(`includeBuild\s*\(\s*["']([^"']+)["']\s*\)`)
+	gradlePluginIDFieldRe     = lazyre.New(`\bid(?:\.set)?\s*(?:=|\()\s*["']([^"']+)["']`)
+	gradlePluginImplClassRe   = lazyre.New(`\bimplementationClass(?:\.set)?\s*(?:=|\()\s*["']([^"']+)["']`)
 )
 
 func ParseVersionCatalogContent(content string) VersionCatalog {

@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -47,8 +48,8 @@ type pluginApplication struct {
 }
 
 var (
-	pluginAliasRe = regexp.MustCompile(`\balias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)`)
-	applyFalseRe  = regexp.MustCompile(`^\s*\)?\s*(?:version\s*(?:\(\s*)?["'][^"']*["']\s*\)?\s*)?apply\s*\(?\s*false\b`)
+	pluginAliasRe = lazyre.New(`\balias\s*\(\s*libs\.plugins\.([A-Za-z0-9_.]+)\s*\)`)
+	applyFalseRe  = lazyre.New(`^\s*\)?\s*(?:version\s*(?:\(\s*)?["'][^"']*["']\s*\)?\s*)?apply\s*\(?\s*false\b`)
 )
 
 // findPluginApplications returns the places src applies the plugin. A declaration followed by `apply false` only puts

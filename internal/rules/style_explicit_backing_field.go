@@ -2,11 +2,11 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -315,7 +315,7 @@ func ebfLanguageSupport(facts *librarymodel.Facts) (supported, known bool) {
 	return major > 2 || (major == 2 && minor >= 4), true
 }
 
-var ebfVersionRe = regexp.MustCompile(`^(\d+)\.(\d+)`)
+var ebfVersionRe = lazyre.New(`^(\d+)\.(\d+)`)
 
 func checkExplicitBackingFieldCandidate(ctx *api.Context, r *ExplicitBackingFieldCandidateRule) {
 	idx, file := ctx.Idx, ctx.File

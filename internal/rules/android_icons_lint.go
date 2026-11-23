@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -109,7 +109,7 @@ func javaRound(x float32) int {
 	return int(math.Floor(float64(x) + 0.5))
 }
 
-var dipNameRe = regexp.MustCompile(`^.+_(\d+)dp\.[a-zA-Z]+$`)
+var dipNameRe = lazyre.New(`^.+_(\d+)dp\.[a-zA-Z]+$`)
 
 type dipEntry struct {
 	ic   *android.IconFile
@@ -249,7 +249,7 @@ func iconFinding(rule, file, message string) scanner.Finding {
 }
 
 // lintDensityFolderRe matches the folders Lint compares for missing densities. ldpi is excluded as in Lint.
-var lintDensityFolderRe = regexp.MustCompile(`^drawable-(nodpi|xxxhdpi|xxhdpi|xhdpi|hdpi|mdpi)$`)
+var lintDensityFolderRe = lazyre.New(`^drawable-(nodpi|xxxhdpi|xxhdpi|xhdpi|hdpi|mdpi)$`)
 
 type iconFolder struct {
 	path  string

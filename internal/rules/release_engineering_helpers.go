@@ -13,12 +13,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/sourceheader"
 )
 
 // commentedOutCallRe matches a single line that looks like a Kotlin call
 // expression — used to recognise commented-out code blocks.
-var commentedOutCallRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_\.]*\s*\([^)]*\)\s*[;{]?$`)
+var commentedOutCallRe = lazyre.New(`^[A-Za-z_][A-Za-z0-9_\.]*\s*\([^)]*\)\s*[;{]?$`)
 
 // commentedOutStatementRes anchor Kotlin statement shapes at the start of the comment body, so prose such
 // as "if the user cancels" or "return the cached value" is not mistaken for code.
@@ -33,10 +34,10 @@ var commentedOutStatementRes = []*regexp.Regexp{
 }
 
 // commentedOutOperatorRe matches an arithmetic operator between operands, as in `count + 1`.
-var commentedOutOperatorRe = regexp.MustCompile(`\S\s[-+*/%]\s\S`)
+var commentedOutOperatorRe = lazyre.New(`\S\s[-+*/%]\s\S`)
 
 // commentedOutAssignmentRe captures the right-hand side of a plain assignment.
-var commentedOutAssignmentRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\[\]]*\s*=\s*(.+)$`)
+var commentedOutAssignmentRe = lazyre.New(`^[A-Za-z_][A-Za-z0-9_.\[\]]*\s*=\s*(.+)$`)
 
 // isPlausibleCommentedKotlin reports whether a single line looks like
 // commented-out Kotlin source rather than prose.

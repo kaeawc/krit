@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/oracle"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
@@ -632,7 +632,7 @@ func wrongThreadReceiverMayBeView(ctx *api.Context, call uint32, method string) 
 }
 
 // sqliteStringTypeRe is SQLiteDetector's `.*\bSTRING\b.*`: a case-sensitive whole word.
-var sqliteStringTypeRe = regexp.MustCompile(`\bSTRING\b`)
+var sqliteStringTypeRe = lazyre.New(`\bSTRING\b`)
 
 const sqliteStringMessage = "Using column type STRING; did you mean to use TEXT? (STRING is a numeric type and its value can be adjusted; for example, strings that look like integers can drop leading zeroes. See issue explanation for details.)"
 

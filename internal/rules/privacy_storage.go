@@ -4,16 +4,17 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
 // The patterns match whole snake_case words. Names are split into words first
 // (see privacyWordMatch), so `pin` does not match `shipping` or `spinner`.
-var sensitiveStorageKeyPattern = regexp.MustCompile(`(?i)(^|_)(tokens?|secrets?|passwords?|passwd|pin|pins|auth|oauth|credentials?|private_?keys?|api_?keys?)(_|$)`)
+var sensitiveStorageKeyPattern = lazyre.New(`(?i)(^|_)(tokens?|secrets?|passwords?|passwd|pin|pins|auth|oauth|credentials?|private_?keys?|api_?keys?)(_|$)`)
 
-var sensitiveFileNamePattern = regexp.MustCompile(`(?i)(^|_)(credentials?|tokens?|secrets?|auth|oauth|passwords?|passwd|private_?keys?)(_|$)`)
+var sensitiveFileNamePattern = lazyre.New(`(?i)(^|_)(credentials?|tokens?|secrets?|auth|oauth|passwords?|passwd|private_?keys?)(_|$)`)
 
-var privacyNonWordChars = regexp.MustCompile(`[^A-Za-z0-9]+`)
+var privacyNonWordChars = lazyre.New(`[^A-Za-z0-9]+`)
 
 // privacyWordMatch matches pattern against name as written and against name
 // split into lowercase snake_case words at camelCase and punctuation boundaries.
@@ -37,7 +38,7 @@ var sensitiveStorageKeyBenignWords = map[string]bool{
 
 // sensitiveStorageKey reports whether a SharedPreferences key names a secret value.
 func sensitiveStorageKey(key string) bool {
-	if !privacyWordMatch(sensitiveStorageKeyPattern, key) {
+	if !privacyWordMatch(sensitiveStorageKeyPattern.Re(), key) {
 		return false
 	}
 	snake := logPiiCamelBoundary.ReplaceAllString(key, "${1}${3}_${2}${4}")
@@ -120,7 +121,7 @@ func (r *PlainFileWriteOfSensitiveRule) check(ctx *api.Context) {
 	}
 
 	receiverLiteral := sensitiveFileReceiverLiteral(ctx, idx)
-	if receiverLiteral == "" || !privacyWordMatch(sensitiveFileNamePattern, receiverLiteral) {
+	if receiverLiteral == "" || !privacyWordMatch(sensitiveFileNamePattern.Re(), receiverLiteral) {
 		return
 	}
 

@@ -1,9 +1,9 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -11,7 +11,7 @@ import (
 
 // piiKeyPattern matches whole snake_case words. Keys are split into words
 // first (see piiKeyMatches), so `smartphone` and `flat_view` do not match.
-var piiKeyPattern = regexp.MustCompile(`(?i)(^|_)(e_?mail|phone|ssn|dob|birth|birthday|birthdate|address|lat|lng|latitude|longitude|location)(_|$)`)
+var piiKeyPattern = lazyre.New(`(?i)(^|_)(e_?mail|phone|ssn|dob|birth|birthday|birthdate|address|lat|lng|latitude|longitude|location)(_|$)`)
 
 // piiKeyMatches reports whether a key names PII, splitting camelCase, dots and
 // dashes into words before matching.
@@ -185,7 +185,7 @@ func privacyLastPropertyName(text string) string {
 	return text
 }
 
-var consentTokenPattern = regexp.MustCompile(`(?i)(consent|gdpr|privacy|tracking)`)
+var consentTokenPattern = lazyre.New(`(?i)(consent|gdpr|privacy|tracking)`)
 
 func privacyCallIsInsideConsentGuard(file *scanner.File, idx uint32) bool {
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {

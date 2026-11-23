@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -269,7 +270,7 @@ func packageOmitsCommonRoot(dir, pkg string) bool {
 
 // kmpSourceSetDirRe matches Kotlin Multiplatform source-set directory names
 // such as commonMain, jvmTest and iosArm64Main.
-var kmpSourceSetDirRe = regexp.MustCompile(`^[a-z][A-Za-z0-9]*(Main|Test)$`)
+var kmpSourceSetDirRe = lazyre.New(`^[a-z][A-Za-z0-9]*(Main|Test)$`)
 
 func isSourceRootDirName(name string) bool {
 	switch name {

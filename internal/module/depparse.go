@@ -6,9 +6,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // buildFiles lists build file names in priority order.
@@ -71,12 +72,12 @@ func readBuildFile(dir string) (string, error) {
 //	implementation(project(":core-util"))
 //	api(project(":lib"))
 //	testImplementation(project(":test-utils"))
-var projectDepRe = regexp.MustCompile(`(\w+)\s*\(\s*(?:testFixtures\s*\(\s*)?project\(["']([^"']+)["']\)\s*\)?\s*\)`)
+var projectDepRe = lazyre.New(`(\w+)\s*\(\s*(?:testFixtures\s*\(\s*)?project\(["']([^"']+)["']\)\s*\)?\s*\)`)
 
 // flavorDepRe matches flavor-qualified dependencies:
 //
 //	"playImplementation"(project(":billing"))
-var flavorDepRe = regexp.MustCompile(`"(\w+)"\s*\(\s*project\(["']([^"']+)["']\)\s*\)`)
+var flavorDepRe = lazyre.New(`"(\w+)"\s*\(\s*project\(["']([^"']+)["']\)\s*\)`)
 
 // typesafeDepRe matches typesafe project accessor dependencies:
 //
@@ -84,10 +85,10 @@ var flavorDepRe = regexp.MustCompile(`"(\w+)"\s*\(\s*project\(["']([^"']+)["']\)
 //	implementation(projects.sentryAndroidCore)
 //
 // It handles dotted paths like projects.samples.star.benchmark
-var typesafeDepRe = regexp.MustCompile(`(\w+)\s*\(\s*projects\.([a-zA-Z][\w.]*\w)\s*\)`)
+var typesafeDepRe = lazyre.New(`(\w+)\s*\(\s*projects\.([a-zA-Z][\w.]*\w)\s*\)`)
 
 // mavenPublishRe detects the maven-publish plugin.
-var mavenPublishRe = regexp.MustCompile(`(?:id\s*\(\s*["']maven-publish["']\s*\)|alias\s*\(\s*libs\.plugins\.mavenPublish\s*\)|apply\s+plugin:\s*["']maven-publish["'])`)
+var mavenPublishRe = lazyre.New(`(?:id\s*\(\s*["']maven-publish["']\s*\)|alias\s*\(\s*libs\.plugins\.mavenPublish\s*\)|apply\s+plugin:\s*["']maven-publish["'])`)
 
 // parseDeps extracts all project dependencies from build file content.
 // buildPath is the owning build's path prefix (see Module.BuildPath).
@@ -143,7 +144,7 @@ func isTestConfiguration(config string) bool {
 // testBlockHeaderRe matches a block header that names a test source set:
 // `commonTest.dependencies {`, `val jvmTest by getting {`,
 // `getByName("androidUnitTest") {`, `sourceSets.test {`.
-var testBlockHeaderRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])(?:tests?|testFixtures|[a-z][A-Za-z0-9]*Tests?(?:Fixtures)?)(?:[^A-Za-z0-9_]|$)`)
+var testBlockHeaderRe = lazyre.New(`(?:^|[^A-Za-z0-9_])(?:tests?|testFixtures|[a-z][A-Za-z0-9]*Tests?(?:Fixtures)?)(?:[^A-Za-z0-9_]|$)`)
 
 type byteRange struct{ start, end int }
 

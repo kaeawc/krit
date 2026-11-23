@@ -1,19 +1,19 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 const preferenceActivityFQN = "android.preference.PreferenceActivity"
 
 var (
-	sourcePackageRe = regexp.MustCompile(`(?m)^\s*package\s+([\w.]+)`)
-	sourceImportRe  = regexp.MustCompile(`(?m)^\s*import\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+	sourcePackageRe = lazyre.New(`(?m)^\s*package\s+([\w.]+)`)
+	sourceImportRe  = lazyre.New(`(?m)^\s*import\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 	// sourceImportTailRe is sourceImportRe after its `^\s*` prefix, anchored at an `import` keyword.
-	sourceImportTailRe = regexp.MustCompile(`(?m)\Aimport\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+	sourceImportTailRe = lazyre.New(`(?m)\Aimport\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 )
 
 // findSourceImports returns the submatches sourceImportRe.FindAllStringSubmatch(content, -1)

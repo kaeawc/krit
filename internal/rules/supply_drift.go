@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/module"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -272,15 +272,15 @@ func gradleJvmTargetSummary(values, toolchain []gradleJvmTargetValue) string {
 }
 
 var (
-	gradleJvmTargetAssignRe      = regexp.MustCompile(`\bjvmTarget\b\s*(?:=|\(|\.set\()\s*["']?([^"')\s]+)`)
-	gradleJavaCompatibilityRe    = regexp.MustCompile(`\b(?:sourceCompatibility|targetCompatibility)\b(?:\s*(?:=|\()\s*|\s+)([^)\s;]+)`)
-	gradleJvmToolchainCallRe     = regexp.MustCompile(`\bjvmToolchain\s*\(\s*(\d+)\s*\)`)
-	gradleJvmToolchainLanguageRe = regexp.MustCompile(`\blanguageVersion\b\s*=\s*JavaLanguageVersion\.of\(\s*(\d+)\s*\)`)
-	gradlePluginIDCallRe         = regexp.MustCompile(`\bid\s*\(\s*["']([^"']+)["']\s*\)`)
-	gradlePluginIDGroovyRe       = regexp.MustCompile(`\bid\s+["']([^"']+)["']`)
-	gradleKotlinPluginCallRe     = regexp.MustCompile(`\bkotlin\s*\(\s*["']([^"']+)["']\s*\)`)
-	gradleApplyPluginKtsRe       = regexp.MustCompile(`\bapply\s*\(\s*plugin\s*=\s*["']([^"']+)["']\s*\)`)
-	gradleApplyPluginGroovyRe    = regexp.MustCompile(`\bapply\s+plugin\s*:\s*["']([^"']+)["']`)
+	gradleJvmTargetAssignRe      = lazyre.New(`\bjvmTarget\b\s*(?:=|\(|\.set\()\s*["']?([^"')\s]+)`)
+	gradleJavaCompatibilityRe    = lazyre.New(`\b(?:sourceCompatibility|targetCompatibility)\b(?:\s*(?:=|\()\s*|\s+)([^)\s;]+)`)
+	gradleJvmToolchainCallRe     = lazyre.New(`\bjvmToolchain\s*\(\s*(\d+)\s*\)`)
+	gradleJvmToolchainLanguageRe = lazyre.New(`\blanguageVersion\b\s*=\s*JavaLanguageVersion\.of\(\s*(\d+)\s*\)`)
+	gradlePluginIDCallRe         = lazyre.New(`\bid\s*\(\s*["']([^"']+)["']\s*\)`)
+	gradlePluginIDGroovyRe       = lazyre.New(`\bid\s+["']([^"']+)["']`)
+	gradleKotlinPluginCallRe     = lazyre.New(`\bkotlin\s*\(\s*["']([^"']+)["']\s*\)`)
+	gradleApplyPluginKtsRe       = lazyre.New(`\bapply\s*\(\s*plugin\s*=\s*["']([^"']+)["']\s*\)`)
+	gradleApplyPluginGroovyRe    = lazyre.New(`\bapply\s+plugin\s*:\s*["']([^"']+)["']`)
 )
 
 func collectGradleJvmTargets(content string) gradleJvmTargets {

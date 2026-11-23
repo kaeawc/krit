@@ -3,10 +3,10 @@ package rules
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -920,7 +920,7 @@ func registerStyleExplicitItLambdaMultipleParameters() {
 	})
 }
 
-var safeCastConditionRe = regexp.MustCompile(`^(\w+)\s+(!?)is\s+(.+)$`)
+var safeCastConditionRe = lazyre.New(`^(\w+)\s+(!?)is\s+(.+)$`)
 
 // emitIfIsSafeCast reports `if (x is T) x else null` (or the negated form) and offers `x as? T`.
 func emitIfIsSafeCast(ctx *api.Context, r *SafeCastRule) bool {

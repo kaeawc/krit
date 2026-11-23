@@ -2,17 +2,17 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-var copyrightHeaderYearRe = regexp.MustCompile(`(?i)copyright(?:\s*\(c\)|\s*©)?[^0-9\n]*((?:19|20)\d{2})(?:\s*[-,]\s*((?:19|20)\d{2}))?`)
+var copyrightHeaderYearRe = lazyre.New(`(?i)copyright(?:\s*\(c\)|\s*©)?[^0-9\n]*((?:19|20)\d{2})(?:\s*[-,]\s*((?:19|20)\d{2}))?`)
 
-var copyrightPresentRe = regexp.MustCompile(`(?i)^\s*[-\x{2013},]?\s*present\b`)
+var copyrightPresentRe = lazyre.New(`(?i)^\s*[-\x{2013},]?\s*present\b`)
 
 // CopyrightYearOutdatedRule flags stale copyright years in the leading file header.
 // This iteration intentionally limits itself to header scanning and a fixed cutoff;

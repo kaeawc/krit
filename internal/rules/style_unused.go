@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/rules/semantics"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -121,7 +122,7 @@ func kdocDocumentsDeclaration(file *scanner.File, comment uint32) bool {
 	return false
 }
 
-var identifierWordRe = regexp.MustCompile("[A-Za-z_][A-Za-z0-9_]*")
+var identifierWordRe = lazyre.New("[A-Za-z_][A-Za-z0-9_]*")
 
 func addIdentifierWords(text string, names map[string]struct{}) {
 	for _, w := range identifierWordRe.FindAllString(text, -1) {
@@ -130,8 +131,8 @@ func addIdentifierWords(text string, names map[string]struct{}) {
 }
 
 var (
-	kdocBracketRefRe = regexp.MustCompile(`\[([^\]\s]+)\]`)
-	kdocTagRefRe     = regexp.MustCompile(`(?m)^[ \t]*(?:/\*\*[ \t]*|\*[ \t]*)@(?:see|throws|exception)[ \t]+([^\s{}\[\]]+)`)
+	kdocBracketRefRe = lazyre.New(`\[([^\]\s]+)\]`)
+	kdocTagRefRe     = lazyre.New(`(?m)^[ \t]*(?:/\*\*[ \t]*|\*[ \t]*)@(?:see|throws|exception)[ \t]+([^\s{}\[\]]+)`)
 )
 
 // addKDocReferenceNames records the leading identifier of each [Name], @see,
@@ -141,7 +142,7 @@ func addKDocReferenceNames(text string, names map[string]struct{}) {
 	if !strings.HasPrefix(text, "/**") {
 		return
 	}
-	for _, re := range []*regexp.Regexp{kdocBracketRefRe, kdocTagRefRe} {
+	for _, re := range []*regexp.Regexp{kdocBracketRefRe.Re(), kdocTagRefRe.Re()} {
 		for _, m := range re.FindAllStringSubmatch(text, -1) {
 			ref := strings.Trim(m[1], "`")
 			if dot := strings.IndexByte(ref, '.'); dot >= 0 {
@@ -365,8 +366,8 @@ func privateOperatorFunctionHasSymbolUse(file *scanner.File, idx uint32, name st
 }
 
 var (
-	operatorComponentName = regexp.MustCompile(`^component\d+$`)
-	destructuringUse      = regexp.MustCompile(`\b(?:val|var)\s*\(|\bfor\s*\(\s*\(|[{,(]\s*\(\s*\w+\s*,\s*\w+[^)]*\)\s*->`)
+	operatorComponentName = lazyre.New(`^component\d+$`)
+	destructuringUse      = lazyre.New(`\b(?:val|var)\s*\(|\bfor\s*\(\s*\(|[{,(]\s*\(\s*\w+\s*,\s*\w+[^)]*\)\s*->`)
 )
 
 // kotlinOperatorSymbols returns the source tokens that call an operator function.
@@ -509,7 +510,7 @@ func propertyDeclarationHasValVar(file *scanner.File, idx uint32) bool {
 }
 
 // unusedPropertySideEffectCall matches calls that register, start or subscribe something when evaluated.
-var unusedPropertySideEffectCall = regexp.MustCompile(`^(subscribe\w*|launch\w*|async|register\w*|observe\w*|attach\w*|listen\w*|enqueue|schedule\w*|collect|connect|bindService|start|startService|add\w*(Listener|Observer|Callback))$`)
+var unusedPropertySideEffectCall = lazyre.New(`^(subscribe\w*|launch\w*|async|register\w*|observe\w*|attach\w*|listen\w*|enqueue|schedule\w*|collect|connect|bindService|start|startService|add\w*(Listener|Observer|Callback))$`)
 
 // unusedPropertyInitializerHasSideEffects reports a direct initializer that calls something with an
 // observable effect. A delegate such as `by lazy` does not run until read, so it is not checked.

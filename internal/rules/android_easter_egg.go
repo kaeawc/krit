@@ -3,10 +3,10 @@ package rules
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -29,10 +29,10 @@ func (r *EasterEggRule) Confidence() float64 { return api.ConfidenceHigh }
 const easterEggMessage = "Code might be hidden here; found unicode escape sequence which is interpreted as comment end, compiled code follows"
 
 // commentEndEscapeRe matches */ ignoring case, as Lint does.
-var commentEndEscapeRe = regexp.MustCompile(`(?i)\\u002a\\u002f`)
+var commentEndEscapeRe = lazyre.New(`(?i)\\u002a\\u002f`)
 
 // xmlCommentRe matches an XML comment, across lines.
-var xmlCommentRe = regexp.MustCompile(`(?s)<!--.*?-->`)
+var xmlCommentRe = lazyre.New(`(?s)<!--.*?-->`)
 
 func (r *EasterEggRule) check(ctx *api.Context) {
 	for _, file := range ctx.ParsedFiles {

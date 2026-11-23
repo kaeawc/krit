@@ -2,9 +2,9 @@ package rules
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -20,7 +20,7 @@ type TrailingWhitespaceRule struct {
 // known false positives.
 func (r *TrailingWhitespaceRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-var trailingWhitespaceRe = regexp.MustCompile(`[ \t]+$`)
+var trailingWhitespaceRe = lazyre.New(`[ \t]+$`)
 
 func (r *TrailingWhitespaceRule) check(ctx *api.Context) {
 	file := ctx.File
@@ -178,8 +178,8 @@ type MaxLineLengthRule struct {
 const maxLineLengthMessage = "Line detected, which is longer than the defined maximum line length in the code style."
 
 var (
-	markdownURLTailRe   = regexp.MustCompile(`\[.+\]\([^\s]+(?:\s+(?:\([^()]*\)|"[^"]*"|'[^']*'))?\s*\)$`)
-	kotlinRefTailRe     = regexp.MustCompile(`\[[\w|.]*\]$`)
+	markdownURLTailRe   = lazyre.New(`\[.+\]\([^\s]+(?:\s+(?:\([^()]*\)|"[^"]*"|'[^']*'))?\s*\)$`)
+	kotlinRefTailRe     = lazyre.New(`\[[\w|.]*\]$`)
 	urlSchemePrefixList = []string{"http://", "https://", "ftp://", "file:", "jar:", "mailto:"}
 )
 
@@ -429,7 +429,7 @@ func isDottedCallChainLine(trimmed string) bool {
 // allowed so fully-qualified forms like `android.util.Log.d(...)` and
 // `timber.log.Timber.d(...)` are treated the same as the unqualified
 // `Log.d(...)` / `Timber.d(...)`.
-var logCallLineRe = regexp.MustCompile(`^(?:[A-Za-z0-9_.]+\.)?(?:Log\.(?:d|i|w|e|v|wtf)|Timber\.(?:d|i|w|e|v))\(`)
+var logCallLineRe = lazyre.New(`^(?:[A-Za-z0-9_.]+\.)?(?:Log\.(?:d|i|w|e|v|wtf)|Timber\.(?:d|i|w|e|v))\(`)
 
 // isLogCallLine returns true if the trimmed line is a Log.<level>(...)
 // or Timber.<level>(...) call, including fully-qualified variants.

@@ -2,10 +2,10 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -223,7 +223,7 @@ type StringShouldBeRawStringRule struct {
 	MaxEscapes int
 }
 
-var escapeCountRe = regexp.MustCompile(`\\[nrt"\\]`)
+var escapeCountRe = lazyre.New(`\\[nrt"\\]`)
 
 // Confidence reports a tier-2 (medium) base confidence. Style/expression rule. Detection uses structural pattern matching on
 // expressions; the suggested rewrite's readability is a style call.

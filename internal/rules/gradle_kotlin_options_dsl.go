@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -32,15 +32,15 @@ type KotlinOptionsDslRule struct {
 func (r *KotlinOptionsDslRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
-	kotlinOptionsRe        = regexp.MustCompile(`\bkotlinOptions\b`)
-	kotlinOptionsDeclRe    = regexp.MustCompile(`(?:\bval|\bvar|\bfun|\bdef)\s+$`)
-	kotlinOptionsTaskHead  = regexp.MustCompile(`KotlinCompile|KotlinJvmCompile|\bcompile\w*Kotlin\w*\b|withType\s*<?\s*\(?\s*\w*Kotlin\w*`)
-	kotlinOptionsAndroidHd = regexp.MustCompile(`(?:^|[.\s])android$`)
+	kotlinOptionsRe        = lazyre.New(`\bkotlinOptions\b`)
+	kotlinOptionsDeclRe    = lazyre.New(`(?:\bval|\bvar|\bfun|\bdef)\s+$`)
+	kotlinOptionsTaskHead  = lazyre.New(`KotlinCompile|KotlinJvmCompile|\bcompile\w*Kotlin\w*\b|withType\s*<?\s*\(?\s*\w*Kotlin\w*`)
+	kotlinOptionsAndroidHd = lazyre.New(`(?:^|[.\s])android$`)
 
-	koJvmTargetRe = regexp.MustCompile(`^jvmTarget\s*=\s*"(\d+(?:\.\d+)?)"$`)
-	koFreeArgsRe  = regexp.MustCompile(`^freeCompilerArgs\s*\+=\s*(listOf\(.*\)|"[^"]*")$`)
-	koBooleanRe   = regexp.MustCompile(`^(allWarningsAsErrors|suppressWarnings|verbose|javaParameters)\s*=\s*(true|false)$`)
-	koKotlinVerRe = regexp.MustCompile(`^(languageVersion|apiVersion)\s*=\s*"(\d+\.\d+)"$`)
+	koJvmTargetRe = lazyre.New(`^jvmTarget\s*=\s*"(\d+(?:\.\d+)?)"$`)
+	koFreeArgsRe  = lazyre.New(`^freeCompilerArgs\s*\+=\s*(listOf\(.*\)|"[^"]*")$`)
+	koBooleanRe   = lazyre.New(`^(allWarningsAsErrors|suppressWarnings|verbose|javaParameters)\s*=\s*(true|false)$`)
+	koKotlinVerRe = lazyre.New(`^(languageVersion|apiVersion)\s*=\s*"(\d+\.\d+)"$`)
 )
 
 const (

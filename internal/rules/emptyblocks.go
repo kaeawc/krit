@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -41,8 +42,8 @@ func detectIndent(content []byte, byteOffset int) string {
 // catch_block / class_body the dispatcher visits across every Kotlin
 // and Java file — does not recompile the same patterns on each call.
 var (
-	stripCommentsBlockRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	stripCommentsLineRe  = regexp.MustCompile(`//[^\n]*`)
+	stripCommentsBlockRe = lazyre.New(`(?s)/\*.*?\*/`)
+	stripCommentsLineRe  = lazyre.New(`//[^\n]*`)
 )
 
 // stripComments removes line comments and block comments from a string.
@@ -135,7 +136,7 @@ func isWhileBodyEmpty(text string) bool {
 	return true
 }
 
-var whileConditionCallRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+var whileConditionCallRe = lazyre.New(`([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 // whileConditionHasSideEffectCall reports a call in the condition whose name is not a plain query, as
 // in `while (awaitItem() != null) {}`, where the condition does the work.
@@ -371,7 +372,7 @@ func (r *EmptyKotlinFileRule) check(ctx *api.Context) {
 	ctx.Emit(r.Finding(file, 1, 1, "Empty Kotlin file detected."))
 }
 
-var emptyFilePlaceholderCommentRe = regexp.MustCompile(`(?i)placeholder|intentionally|do not (delete|remove)|keep this file|this file (exists|is kept|is here)|deliberately`)
+var emptyFilePlaceholderCommentRe = lazyre.New(`(?i)placeholder|intentionally|do not (delete|remove)|keep this file|this file (exists|is kept|is here)|deliberately`)
 
 // isSpotlessTemplateFile reports whether the path looks like a Spotless
 // copyright/license template — these files have a .kt or .kts extension

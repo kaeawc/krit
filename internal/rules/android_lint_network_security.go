@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -72,7 +72,7 @@ type nscFinding struct {
 var (
 	nscValidConfigTags = []string{"domain", "trust-anchors", "pin-set", "domain-config"}
 	nscValidBaseTags   = []string{"domain-config", "base-config", "debug-overrides"}
-	nscBase64Alphabet  = regexp.MustCompile(`^[A-Za-z0-9+/]*={0,2}$`)
+	nscBase64Alphabet  = lazyre.New(`^[A-Za-z0-9+/]*={0,2}$`)
 )
 
 type nscAnalyzer struct {
@@ -347,7 +347,7 @@ func (a *nscAnalyzer) baseConfigElement(node *android.XMLNode) {
 	}
 }
 
-var nscResourceURL = regexp.MustCompile(`^[@?]`)
+var nscResourceURL = lazyre.New(`^[@?]`)
 
 func (a *nscAnalyzer) trustAnchors(node *android.XMLNode) {
 	for _, child := range node.Children {

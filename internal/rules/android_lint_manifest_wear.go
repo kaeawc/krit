@@ -4,11 +4,11 @@ import (
 	"encoding/xml"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -355,7 +355,7 @@ func wffRootIsWatchFace(path string) bool {
 	}
 }
 
-var wffResourceURLRe = regexp.MustCompile(`^@\+?(?:([\w.]+):)?(\w+)/([\w.]+)$`)
+var wffResourceURLRe = lazyre.New(`^@\+?(?:([\w.]+):)?(\w+)/([\w.]+)$`)
 
 // wffResourceValues returns the values every values folder of the module defines for a resource. A nil result means
 // the resource is not defined (or lives in the framework).

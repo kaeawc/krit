@@ -1,11 +1,11 @@
 package rules
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -25,7 +25,7 @@ var nonBooleanIsBooleanTypes = map[string]bool{
 
 // nonBooleanIsFunctionInterface matches the function interfaces written as
 // user types (Function1<A, R>, KFunction0<R>, KSuspendFunction1<A, R>).
-var nonBooleanIsFunctionInterface = regexp.MustCompile(`^K?(Suspend)?Function[0-9]+$`)
+var nonBooleanIsFunctionInterface = lazyre.New(`^K?(Suspend)?Function[0-9]+$`)
 
 // nonBooleanIsAliasDepth bounds type alias expansion, so alias cycles end.
 const nonBooleanIsAliasDepth = 4

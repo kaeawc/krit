@@ -2,10 +2,10 @@ package rules
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -19,7 +19,7 @@ type MissingInflatedIDRule struct {
 // Confidence reports a tier-2 (medium) base confidence: the inflated layout is found by syntax, not data flow.
 func (r *MissingInflatedIDRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var layoutResourceRefRe = regexp.MustCompile(`(?:^|[^\w.]|\.)R\.(layout|id)\.(\w+)$`)
+var layoutResourceRefRe = lazyre.New(`(?:^|[^\w.]|\.)R\.(layout|id)\.(\w+)$`)
 
 // appResourceRef returns the name in an app `R.<kind>.name` reference; framework `android.R` references do not count.
 func appResourceRef(file *scanner.File, expr uint32, kind string) (string, bool) {

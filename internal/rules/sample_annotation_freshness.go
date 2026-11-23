@@ -2,8 +2,8 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -16,7 +16,7 @@ type SampleAnnotationFreshnessRule struct {
 // Confidence reflects exact FQN lookup through the cross-file symbol index.
 func (r *SampleAnnotationFreshnessRule) Confidence() float64 { return api.ConfidenceHigher }
 
-var kdocSampleTagRe = regexp.MustCompile(`@sample\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)`)
+var kdocSampleTagRe = lazyre.New(`@sample\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)`)
 
 func (r *SampleAnnotationFreshnessRule) check(ctx *api.Context) {
 	if ctx.CodeIndex == nil || len(ctx.ParsedFiles) == 0 {

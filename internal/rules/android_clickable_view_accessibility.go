@@ -5,8 +5,8 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -84,7 +84,7 @@ func (r *ClickableViewAccessibilitySourceRule) checkKotlinTouchEvent(ctx *api.Co
 }
 
 // callsSuperPerformClick matches `super.performClick(`, `super<T>.performClick(` and `super@Label.performClick(`.
-var callsSuperPerformClick = regexp.MustCompile(`\bsuper\s*(?:<[^>]*>)?\s*(?:@\w+)?\s*\.\s*performClick\s*\(`)
+var callsSuperPerformClick = lazyre.New(`\bsuper\s*(?:<[^>]*>)?\s*(?:@\w+)?\s*\.\s*performClick\s*\(`)
 
 // checkKotlinPerformClickSuper reports a View's own performClick() that never calls super.performClick().
 func (r *ClickableViewAccessibilitySourceRule) checkKotlinPerformClickSuper(ctx *api.Context, fn uint32) {

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/bazel"
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // settingsFiles lists the settings file names in priority order.
@@ -202,16 +202,16 @@ func readSettingsFile(rootDir string) (string, string, error) {
 // includeKtsRe matches Kotlin DSL include() calls: include(":app", ":lib")
 // It captures the full argument list inside the parentheses. Used by the
 // Groovy fallback path; Kotlin DSL goes through parseSettingsKts.
-var includeKtsRe = regexp.MustCompile(`(?s)include\s*\(([^)]+)\)`)
+var includeKtsRe = lazyre.New(`(?s)include\s*\(([^)]+)\)`)
 
 // includeGroovyRe matches Groovy include calls: include ':app', ':lib'
-var includeGroovyRe = regexp.MustCompile(`(?m)^[[:blank:]]*include[[:blank:]]+((?:['":][^\n]+))`)
+var includeGroovyRe = lazyre.New(`(?m)^[[:blank:]]*include[[:blank:]]+((?:['":][^\n]+))`)
 
 // quotedStringRe extracts quoted strings.
-var quotedStringRe = regexp.MustCompile(`["']([^"']+)["']`)
+var quotedStringRe = lazyre.New(`["']([^"']+)["']`)
 
 // groovyColonRe extracts Groovy-style unquoted colon-prefixed module paths.
-var groovyColonRe = regexp.MustCompile(`:[\w\-:]+`)
+var groovyColonRe = lazyre.New(`:[\w\-:]+`)
 
 // parseIncludes extracts all module paths from include() calls. This is
 // the Groovy-DSL path; Kotlin DSL settings go through parseSettingsKts.
@@ -267,7 +267,7 @@ func parseIncludes(content string) []string {
 }
 
 // projectDirRe matches: project(":paging").projectDir = file("paging/lib")
-var projectDirRe = regexp.MustCompile(`project\(["']([^"']+)["']\)\.projectDir\s*=\s*file\(["']([^"']+)["']\)`)
+var projectDirRe = lazyre.New(`project\(["']([^"']+)["']\)\.projectDir\s*=\s*file\(["']([^"']+)["']\)`)
 
 // parseProjectDirOverrides returns a map of module path -> relative directory.
 func parseProjectDirOverrides(content string) map[string]string {

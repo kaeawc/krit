@@ -5,8 +5,7 @@ package rules
 // of the other security rule clusters and share no helpers with them.
 
 import (
-	"regexp"
-
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -21,9 +20,9 @@ import (
 type HiddenFeatureCommentRule struct{ AndroidRule }
 
 // hiddenCodeEscapeRe matches a unicode line-break escape, which makes the rest of a // comment compile as code.
-var hiddenCodeEscapeRe = regexp.MustCompile(`(?i)\\u+000[ad]`)
+var hiddenCodeEscapeRe = lazyre.New(`(?i)\\u+000[ad]`)
 
-var easterEggRe = regexp.MustCompile(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*(?:mode|menu|feature))\b`)
+var easterEggRe = lazyre.New(`(?i)\b(easter\s*egg|cheat\s*code|secret\s*(?:mode|menu|feature))\b`)
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
 // Android-lint port from AOSP; the detection relies on source-text

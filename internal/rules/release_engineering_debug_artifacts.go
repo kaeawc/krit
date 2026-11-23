@@ -3,10 +3,10 @@ package rules
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -25,7 +25,7 @@ func (r *CommentedOutImportRule) Confidence() float64 { return api.ConfidenceHig
 // commentedImportRe matches a commented-out Kotlin import body. Requires a
 // dotted-path that conforms to Kotlin import syntax — bare prose like
 // "import order matters" won't match. Optional trailing `.*` and `as` alias.
-var commentedImportRe = regexp.MustCompile(
+var commentedImportRe = lazyre.New(
 	`^import\s+[\p{L}_][\p{L}\p{N}_]*(?:\.[\p{L}_][\p{L}\p{N}_]*)*(?:\.\*)?(?:\s+as\s+[\p{L}_][\p{L}\p{N}_]*)?\s*;?\s*$`)
 
 func (r *CommentedOutImportRule) checkNode(ctx *api.Context) {
@@ -91,7 +91,7 @@ type DebugToastInProductionRule struct {
 
 func (r *DebugToastInProductionRule) Confidence() float64 { return api.ConfidenceHigh }
 
-var debugToastPrefixRe = regexp.MustCompile(`(?i)^["'](debug|test|wip)(?:[^A-Za-z0-9]|$)`)
+var debugToastPrefixRe = lazyre.New(`(?i)^["'](debug|test|wip)(?:[^A-Za-z0-9]|$)`)
 
 // MergeConflictMarkerLeftoverRule flags unresolved merge conflict markers.
 type MergeConflictMarkerLeftoverRule struct {
@@ -449,7 +449,7 @@ type HardcodedLocalhostURLRule struct {
 // gymnastics.
 func (r *HardcodedLocalhostURLRule) Confidence() float64 { return api.ConfidenceVeryHigh }
 
-var localhostURLRe = regexp.MustCompile(`^https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/.*)?$`)
+var localhostURLRe = lazyre.New(`^https?://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/.*)?$`)
 
 // check runs per string_literal. The former implementation scanned
 // file.Lines for a regex that matched the literal together with its

@@ -1,10 +1,10 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -66,7 +66,7 @@ func (r *BottomAppBarRule) check(ctx *api.Context) {
 }
 
 // resourceURLRe matches the reference forms Lint's ResourceUrl.parse accepts: @[+][pkg:]type/name and ?[pkg:][type/]name.
-var resourceURLRe = regexp.MustCompile(`^(?:@\+?(?:[A-Za-z0-9_.]+:)?([a-z]+)/[A-Za-z0-9_.$]+|\?(?:[A-Za-z0-9_.]+:)?(?:(attr)/)?[A-Za-z0-9_.$]+)$`)
+var resourceURLRe = lazyre.New(`^(?:@\+?(?:[A-Za-z0-9_.]+:)?([a-z]+)/[A-Za-z0-9_.$]+|\?(?:[A-Za-z0-9_.]+:)?(?:(attr)/)?[A-Za-z0-9_.$]+)$`)
 
 func (r *InvalidImeActionIDRule) check(ctx *api.Context) {
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {

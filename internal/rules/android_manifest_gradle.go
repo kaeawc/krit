@@ -3,13 +3,13 @@ package rules
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 )
 
@@ -124,12 +124,12 @@ func readManifestGradleInfo(dir string) manifestGradleInfo {
 }
 
 var (
-	gradleVersionCodePattern = regexp.MustCompile(`(?m)^\s*versionCode\s*=?\s*(\d+)\s*$`)
+	gradleVersionCodePattern = lazyre.New(`(?m)^\s*versionCode\s*=?\s*(\d+)\s*$`)
 	// A density bucket named in a resConfigs or resourceConfigurations declaration.
-	gradleDensityResConfigPattern = regexp.MustCompile(`(?s)(?:resConfigs?|resourceConfigurations)[^\n]*["'](?:ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi)["']`)
-	gradleVersionNamePattern      = regexp.MustCompile(`(?m)^\s*versionName\s*=?\s*"([^"]*)"\s*$`)
-	pluginAliasCallPattern        = regexp.MustCompile(`alias\(\s*([A-Za-z_][\w.]*)\s*\)`)
-	catalogPluginEntryPattern     = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.-]+)\s*=\s*\{[^}]*\bid\s*=\s*"([^"]+)"`)
+	gradleDensityResConfigPattern = lazyre.New(`(?s)(?:resConfigs?|resourceConfigurations)[^\n]*["'](?:ldpi|mdpi|hdpi|xhdpi|xxhdpi|xxxhdpi|tvdpi)["']`)
+	gradleVersionNamePattern      = lazyre.New(`(?m)^\s*versionName\s*=?\s*"([^"]*)"\s*$`)
+	pluginAliasCallPattern        = lazyre.New(`alias\(\s*([A-Za-z_][\w.]*)\s*\)`)
+	catalogPluginEntryPattern     = lazyre.New(`(?m)^\s*([A-Za-z0-9_.-]+)\s*=\s*\{[^}]*\bid\s*=\s*"([^"]+)"`)
 )
 
 // catalogDeclaresDependency reports a dependency on group:name declared through a version-catalog alias or bundle,
@@ -285,7 +285,7 @@ func manifestEffectiveMinSdk(m *Manifest) int {
 	return 1
 }
 
-var manifestMinSdkRe = regexp.MustCompile(`android:minSdkVersion\s*=\s*"(\d+)"`)
+var manifestMinSdkRe = lazyre.New(`android:minSdkVersion\s*=\s*"(\d+)"`)
 
 // resourceModuleMinSdk returns the minSdk of the module owning a res file: the build script value, then the
 // manifest's uses-sdk, then 0 when the module declares neither (a convention plugin may set it elsewhere).

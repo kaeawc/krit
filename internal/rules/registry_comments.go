@@ -3,13 +3,14 @@ package rules
 import (
 	"regexp"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // deprecatedKDocTagRe matches a `@deprecated` KDoc block tag. Like the KDoc parser it accepts the tag
 // only at the start of a content line, so a mid-sentence "@deprecated" is plain text.
-var deprecatedKDocTagRe = regexp.MustCompile(`(?m)^[ \t]*(?:/\*\*[ \t]*|\*[ \t]*)?@deprecated(?:$|[\s.:])`)
+var deprecatedKDocTagRe = lazyre.New(`(?m)^[ \t]*(?:/\*\*[ \t]*|\*[ \t]*)?@deprecated(?:$|[\s.:])`)
 
 func registerCommentsRules() {
 

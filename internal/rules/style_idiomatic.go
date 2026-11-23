@@ -2,10 +2,10 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/typeinfer"
@@ -174,7 +174,7 @@ func flatNavigationReceiver(file *scanner.File, nav uint32) uint32 {
 	return file.FlatNamedChild(nav, 0)
 }
 
-var causeArgumentRe = regexp.MustCompile(`^(cause\s*=|[\w.]*(Exception|Error|Throwable)\s*\(|[\w.]+\.(message|localizedMessage|cause)$)`)
+var causeArgumentRe = lazyre.New(`^(cause\s*=|[\w.]*(Exception|Error|Throwable)\s*\(|[\w.]+\.(message|localizedMessage|cause)$)`)
 
 // flatThrowIfFix returns the autofix that turns `if (cond) throw X("m")` into `check(!cond) { "m" }` (or require),
 // or nil when the if is not that exact shape.

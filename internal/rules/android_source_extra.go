@@ -5,11 +5,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -437,7 +437,7 @@ type ResourceNameRule struct {
 // Classified per roadmap/17.
 func (r *ResourceNameRule) Confidence() float64 { return api.ConfidenceHigher }
 
-var snakeCaseRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var snakeCaseRe = lazyre.New(`^[a-z][a-z0-9_]*$`)
 
 // ProguardRule reports a reference to the obsolete proguard.cfg file in a Gradle build script.
 type ProguardRule struct {
@@ -474,8 +474,8 @@ type ProguardSplitRule struct {
 }
 
 var (
-	proguardGenericRe  = regexp.MustCompile(`-dontobfuscate|-dontoptimize|-dontwarn|-keepattributes`)
-	proguardSpecificRe = regexp.MustCompile(`-keep\s+class\s+\w+`)
+	proguardGenericRe  = lazyre.New(`-dontobfuscate|-dontoptimize|-dontwarn|-keepattributes`)
+	proguardSpecificRe = lazyre.New(`-keep\s+class\s+\w+`)
 )
 
 // Confidence reports a tier-2 (medium) base confidence. This is an
@@ -590,7 +590,7 @@ func (r *LibraryCustomViewRule) check(ctx *api.Context) {
 // Classified per roadmap/17.
 func (r *LibraryCustomViewRule) Confidence() float64 { return api.ConfidenceMedium }
 
-var hardcodedNsRe = regexp.MustCompile(`http://schemas\.android\.com/apk/res/[a-z][a-z0-9_.]+`)
+var hardcodedNsRe = lazyre.New(`http://schemas\.android\.com/apk/res/[a-z][a-z0-9_.]+`)
 
 // UnknownIDInLayoutRule reports a relative-layout style reference such as
 // layout_below="@id/x" to an id that is declared in another layout but not in the

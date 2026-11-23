@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -334,8 +335,8 @@ type AndroidGradlePluginVersionRule struct {
 // agpClasspathVersionRe matches the classpath coordinate; agpPluginVersionRe matches a plugins-block
 // declaration such as id("com.android.application") version "4.2.0".
 var (
-	agpClasspathVersionRe = regexp.MustCompile(`com\.android\.tools\.build:gradle:(\d+)\.(\d+)(?:\.(\d+))?`)
-	agpPluginVersionRe    = regexp.MustCompile(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["'](\d+)\.(\d+)(?:\.(\d+))?`)
+	agpClasspathVersionRe = lazyre.New(`com\.android\.tools\.build:gradle:(\d+)\.(\d+)(?:\.(\d+))?`)
+	agpPluginVersionRe    = lazyre.New(`id\s*\(?\s*["']com\.android\.[a-z-]+["']\s*\)?\s*version\s*\(?\s*["'](\d+)\.(\d+)(?:\.(\d+))?`)
 )
 
 // Confidence reports a tier-2 (medium) base confidence. Android Gradle rule. Detection scans Groovy/Kotlin DSL build scripts via
@@ -350,7 +351,7 @@ func (r *AndroidGradlePluginVersionRule) check(ctx *api.Context) {
 			continue
 		}
 		code := stripGradleLineComment(line)
-		for _, re := range []*regexp.Regexp{agpClasspathVersionRe, agpPluginVersionRe} {
+		for _, re := range []*regexp.Regexp{agpClasspathVersionRe.Re(), agpPluginVersionRe.Re()} {
 			matches := re.FindStringSubmatch(code)
 			if matches == nil {
 				continue

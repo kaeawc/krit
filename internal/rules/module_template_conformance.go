@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -108,11 +109,11 @@ func moduleBuildFile(dir string) string {
 }
 
 var (
-	gradlePluginIDRe    = regexp.MustCompile(`id\s*\(\s*["']([^"']+)["']\s*\)`)
-	gradleApplyPluginRe = regexp.MustCompile(`apply\s+plugin:\s*["']([^"']+)["']`)
+	gradlePluginIDRe    = lazyre.New(`id\s*\(\s*["']([^"']+)["']\s*\)`)
+	gradleApplyPluginRe = lazyre.New(`apply\s+plugin:\s*["']([^"']+)["']`)
 )
 
-var gradleApplyPluginCallRe = regexp.MustCompile(`apply\s*\(\s*plugin\s*=\s*["']([^"']+)["']`)
+var gradleApplyPluginCallRe = lazyre.New(`apply\s*\(\s*plugin\s*=\s*["']([^"']+)["']`)
 
 func appliedGradlePluginIDs(file string) map[string]bool {
 	data, err := os.ReadFile(file)
@@ -125,7 +126,7 @@ func appliedGradlePluginIDs(file string) map[string]bool {
 		if strings.Contains(line, "apply false") {
 			continue
 		}
-		for _, re := range []*regexp.Regexp{gradlePluginIDRe, gradleApplyPluginRe, gradleApplyPluginCallRe} {
+		for _, re := range []*regexp.Regexp{gradlePluginIDRe.Re(), gradleApplyPluginRe.Re(), gradleApplyPluginCallRe.Re()} {
 			for _, match := range re.FindAllStringSubmatch(line, -1) {
 				plugins[match[1]] = true
 			}

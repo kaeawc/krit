@@ -1,11 +1,11 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 	"github.com/kaeawc/krit/internal/strutil"
@@ -731,7 +731,7 @@ func gsonFromJSONPolymorphicTypeArg(text string) bool {
 	}
 }
 
-var xmlExternalEntityExternalInputPattern = regexp.MustCompile(`\b(URL|HttpURLConnection|HttpClient|OkHttpClient|openConnection|openStream|Socket|curl)\b`)
+var xmlExternalEntityExternalInputPattern = lazyre.New(`\b(URL|HttpURLConnection|HttpClient|OkHttpClient|openConnection|openStream|Socket|curl)\b`)
 
 // xmlExternalEntityScriptFetchesExternalInput reports a script that reads from the network, so its parsed XML
 // may not be repository-local.

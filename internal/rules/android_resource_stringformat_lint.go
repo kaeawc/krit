@@ -3,12 +3,12 @@ package rules
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 )
 
 // This file mirrors the XML half of Lint's StringFormatDetector: how a <string>
@@ -17,7 +17,7 @@ import (
 // default string against each qualified variant of the same name.
 
 // lintFormatRegexp is StringFormatDetector.FORMAT.
-var lintFormatRegexp = regexp.MustCompile(`%(\d+\$)?([-+#, 0(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])`)
+var lintFormatRegexp = lazyre.New(`%(\d+\$)?([-+#, 0(<]*)?(\d+)?(\.\d+)?([tT])?([a-zA-Z%])`)
 
 type lintFormatKind int
 

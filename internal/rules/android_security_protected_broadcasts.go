@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -38,9 +39,9 @@ var protectedBroadcastQualifiers = map[string]bool{
 }
 
 var (
-	intentFilterCtorArg   = regexp.MustCompile(`IntentFilter\(\s*([^,()]+(?:\([^()]*\))?[^,()]*)`)
-	intentFilterAddAction = regexp.MustCompile(`addAction\(\s*([^,()]+)\s*\)`)
-	actionStringLiteral   = regexp.MustCompile(`^"(android\.intent\.action\.([A-Z0-9_]+))"$`)
+	intentFilterCtorArg   = lazyre.New(`IntentFilter\(\s*([^,()]+(?:\([^()]*\))?[^,()]*)`)
+	intentFilterAddAction = lazyre.New(`addAction\(\s*([^,()]+)\s*\)`)
+	actionStringLiteral   = lazyre.New(`^"(android\.intent\.action\.([A-Z0-9_]+))"$`)
 )
 
 func isProtectedBroadcastAction(expr string) bool {

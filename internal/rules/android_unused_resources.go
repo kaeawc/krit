@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -17,11 +18,11 @@ import (
 // the code or a keep list refers to is unused, and a resource referenced only by unused resources is too.
 
 var (
-	rCodeRefPattern    = regexp.MustCompile(`\bR\s*\.\s*([a-z]+)\s*\.\s*([A-Za-z0-9_]+)`)
-	rImportAliasRe     = regexp.MustCompile(`(?m)^\s*import\s+[\w.]*\bR\s+as\s+(\w+)`)
-	bindingNamePattern = regexp.MustCompile(`\b([A-Z][A-Za-z0-9]*Binding)\b`)
+	rCodeRefPattern    = lazyre.New(`\bR\s*\.\s*([a-z]+)\s*\.\s*([A-Za-z0-9_]+)`)
+	rImportAliasRe     = lazyre.New(`(?m)^\s*import\s+[\w.]*\bR\s+as\s+(\w+)`)
+	bindingNamePattern = lazyre.New(`\b([A-Z][A-Za-z0-9]*Binding)\b`)
 	// resRefPattern matches @type/name and @+type/name, with an optional package; a package of android is framework.
-	resRefPattern = regexp.MustCompile(`@\+?\*?(?:([A-Za-z_][\w.]*):)?([a-z]+)/([\w.$]+)`)
+	resRefPattern = lazyre.New(`@\+?\*?(?:([A-Za-z_][\w.]*):)?([a-z]+)/([\w.$]+)`)
 )
 
 // ComputeResourceCodeRefs returns the resources source files refer to as R.type.name and the view binding
@@ -30,7 +31,7 @@ func ComputeResourceCodeRefs(sources [][]byte) *api.ResourceCodeRefs {
 	refs := &api.ResourceCodeRefs{Refs: map[string]bool{}, Bindings: map[string]bool{}}
 	for _, src := range sources {
 		text := stripSourceComments(string(src))
-		pattern := rCodeRefPattern
+		pattern := rCodeRefPattern.Re()
 		// `import com.example.strings.R as Strings` makes Strings.string.x a reference too.
 		if aliases := rImportAliasRe.FindAllStringSubmatch(text, -1); len(aliases) > 0 {
 			names := []string{"R"}

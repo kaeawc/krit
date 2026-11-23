@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
 
@@ -66,7 +66,7 @@ type EnforceUtf8ResourceRule struct {
 // Confidence reports a tier-1 (high) base confidence: it reads the XML declaration.
 func (r *EnforceUtf8ResourceRule) Confidence() float64 { return api.ConfidenceHigh }
 
-var xmlEncodingPattern = regexp.MustCompile(`^\s*<\?xml[^>]*?\bencoding\s*=\s*["']([^"']*)["']`)
+var xmlEncodingPattern = lazyre.New(`^\s*<\?xml[^>]*?\bencoding\s*=\s*["']([^"']*)["']`)
 
 func (r *EnforceUtf8ResourceRule) check(ctx *api.Context) {
 	idx := ctx.ResourceIndex

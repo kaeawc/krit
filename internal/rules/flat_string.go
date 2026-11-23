@@ -1,14 +1,14 @@
 package rules
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
-var setTextI18nWordRun = regexp.MustCompile(`\w{2,}`)
+var setTextI18nWordRun = lazyre.New(`\w{2,}`)
 
 // stripKotlinComments removes Kotlin line and block comments from text
 // while preserving string-literal content. Triple-quoted raw strings

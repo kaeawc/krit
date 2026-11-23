@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 
 	"github.com/kaeawc/krit/internal/experiment"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -295,7 +295,7 @@ func (r *NoNameShadowingRule) reportIfShadowedFlat(ctx *shadowScanCtx, name stri
 	}
 }
 
-var nameBasedDestructuringRe = regexp.MustCompile(`^[(\[]\s*(val|var)\b`)
+var nameBasedDestructuringRe = lazyre.New(`^[(\[]\s*(val|var)\b`)
 
 // skipShadowedDestructuringEntry reports a destructuring entry that NoNameShadowing leaves alone: a lambda
 // parameter entry, or an entry of a name-based destructuring.

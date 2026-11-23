@@ -2,8 +2,8 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -26,7 +26,7 @@ type JvmDefaultFlagRule struct {
 
 func (r *JvmDefaultFlagRule) Confidence() float64 { return api.ConfidenceHigh }
 
-var jvmDefaultFlagRe = regexp.MustCompile(`["']-Xjvm-default(?:=([A-Za-z-]+))?["']`)
+var jvmDefaultFlagRe = lazyre.New(`["']-Xjvm-default(?:=([A-Za-z-]+))?["']`)
 
 // jvmDefaultModes maps the legacy -Xjvm-default values to the -jvm-default value and the JvmDefaultMode constant.
 var jvmDefaultModes = map[string][2]string{

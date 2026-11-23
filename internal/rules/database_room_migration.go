@@ -7,9 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -319,7 +319,7 @@ func defaultGitFileAtHEAD(path string) (string, error) {
 	return string(out), nil
 }
 
-var roomDatabaseVersionRe = regexp.MustCompile(`@Database\b[\s\S]*?\bversion\s*=\s*(\d+)`)
+var roomDatabaseVersionRe = lazyre.New(`@Database\b[\s\S]*?\bversion\s*=\s*(\d+)`)
 
 func extractRoomDatabaseVersionLiteral(text string) string {
 	m := roomDatabaseVersionRe.FindStringSubmatch(text)
@@ -491,7 +491,7 @@ func enclosedInBuildConfigDebugGuard(file *scanner.File, idx uint32) bool {
 	return false
 }
 
-var migrationConstantRefRe = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Z0-9_]*$`)
+var migrationConstantRefRe = lazyre.New(`^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Z][A-Z0-9_]*$`)
 
 // migrationInterpolationsAreConstants reports whether every interpolation in
 // the string is a SCREAMING_SNAKE constant reference, which is a fixed value

@@ -7,9 +7,9 @@ package rules
 // android_manifest_lint_exported.go.
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -304,7 +304,7 @@ func flatJavaArgumentTexts(file *scanner.File, args uint32) []string {
 	return out
 }
 
-var dynamicReceiverPublicActionString = regexp.MustCompile(`"com\.example\.[A-Za-z0-9_.-]+"`)
+var dynamicReceiverPublicActionString = lazyre.New(`"com\.example\.[A-Za-z0-9_.-]+"`)
 
 func dynamicReceiverFilterMentionsPublicAction(file *scanner.File, call uint32) bool {
 	filterText := dynamicReceiverFilterText(file, call)

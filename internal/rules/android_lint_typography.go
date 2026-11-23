@@ -2,12 +2,12 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -66,11 +66,11 @@ func (r *TypographyOtherRule) Confidence() float64 { return api.ConfidenceHigh }
 func (r *TypographyQuotesRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
-	typographyHyphenRange = regexp.MustCompile(`^.*(\d+\s*)-(\s*\d+).*$`)
-	typographyGrave       = regexp.MustCompile("^(?:(?:[^`]*`[^'`]+'[^']*)|(?:[^`]*``[^'`]+''[^']*))$")
-	typographyFraction    = regexp.MustCompile(`^.*\b([13])\s*/\s*([234])\b.*$`)
+	typographyHyphenRange = lazyre.New(`^.*(\d+\s*)-(\s*\d+).*$`)
+	typographyGrave       = lazyre.New("^(?:(?:[^`]*`[^'`]+'[^']*)|(?:[^`]*``[^'`]+''[^']*))$")
+	typographyFraction    = lazyre.New(`^.*\b([13])\s*/\s*([234])\b.*$`)
 	// Lint compiles this with UNICODE_CHARACTER_CLASS, so \W is anything but a Unicode letter, digit, or underscore.
-	typographySingleQuote = regexp.MustCompile(`^.*[^\p{L}\p{N}_]*'[^']+'(?:[^\p{L}\p{N}_].*)?$`)
+	typographySingleQuote = lazyre.New(`^.*[^\p{L}\p{N}_]*'[^']+'(?:[^\p{L}\p{N}_].*)?$`)
 )
 
 // typographyHit is one finding: a message and the 1-based position it is reported at.

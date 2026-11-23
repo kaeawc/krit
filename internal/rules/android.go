@@ -19,10 +19,10 @@ package rules
 //   Category.RTL         → android-lint (rtl)
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -372,10 +372,10 @@ type PrivateKeyRule struct {
 func (r *PrivateKeyRule) Confidence() float64 { return api.ConfidenceMedium }
 
 // privateKeyHeaderRe matches a PEM private key header; the dashes keep prose that merely names the format from matching.
-var privateKeyHeaderRe = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----`)
+var privateKeyHeaderRe = lazyre.New(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----`)
 
 // pemBodyRe matches a run of base64 as found in a PEM body.
-var pemBodyRe = regexp.MustCompile(`[A-Za-z0-9+/]{60,}`)
+var pemBodyRe = lazyre.New(`[A-Za-z0-9+/]{60,}`)
 
 func (r *PrivateKeyRule) check(ctx *api.Context) {
 	file := ctx.File

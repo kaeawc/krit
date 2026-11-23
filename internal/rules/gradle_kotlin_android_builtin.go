@@ -2,9 +2,9 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -33,10 +33,10 @@ type KotlinAndroidPluginWithBuiltInKotlinRule struct {
 func (r *KotlinAndroidPluginWithBuiltInKotlinRule) Confidence() float64 { return api.ConfidenceHigh }
 
 var (
-	builtInKotlinPluginRe  = regexp.MustCompile(`["']com\.android\.built-in-kotlin["']`)
+	builtInKotlinPluginRe  = lazyre.New(`["']com\.android\.built-in-kotlin["']`)
 	kaptPluginSpec         = newPluginSpec([]string{"kotlin-kapt", "org.jetbrains.kotlin.kapt"}, "kapt")
 	kotlinAndroidSpec      = newPluginSpec([]string{"org.jetbrains.kotlin.android", "kotlin-android"}, "android")
-	kotlinMigrationBlockRe = regexp.MustCompile(`\bkotlinOptions\b|\bsourceSets\b`)
+	kotlinMigrationBlockRe = lazyre.New(`\bkotlinOptions\b|\bsourceSets\b`)
 )
 
 func (r *KotlinAndroidPluginWithBuiltInKotlinRule) check(ctx *api.Context) {

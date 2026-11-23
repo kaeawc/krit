@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/lazyre"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -37,7 +38,7 @@ type unusedVariableDecl struct {
 	scope    uint32
 }
 
-var unusedVariableClassHeaderBeforeConstructorPattern = regexp.MustCompile(`\bclass\s+[A-Za-z_][A-Za-z0-9_]*[^{};=]*$`)
+var unusedVariableClassHeaderBeforeConstructorPattern = lazyre.New(`\bclass\s+[A-Za-z_][A-Za-z0-9_]*[^{};=]*$`)
 
 func unusedVariableDeclaration(file *scanner.File, idx uint32) (unusedVariableDecl, bool) {
 	var target unusedVariableDecl
@@ -235,7 +236,7 @@ func unusedVariableIsConstructorBodyParseArtifact(file *scanner.File, idx uint32
 	return false
 }
 
-var unusedVariableClassHeaderWithConstructorPattern = regexp.MustCompile(`(?s)\bclass\s+\w+[^{};]*?\bconstructor\s*\(.*\)\s*:\s*$`)
+var unusedVariableClassHeaderWithConstructorPattern = lazyre.New(`(?s)\bclass\s+\w+[^{};]*?\bconstructor\s*\(.*\)\s*:\s*$`)
 
 func unusedVariableFollowsClassHeaderWithConstructor(file *scanner.File, node uint32) bool {
 	start := int(file.FlatStartByte(node))

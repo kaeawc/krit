@@ -3,12 +3,12 @@ package librarymodel
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/strutil"
 )
 
@@ -22,9 +22,9 @@ type JavaSourceProfile struct {
 	ClasspathComplete       bool
 }
 
-var sourceSetJavaDirsRe = regexp.MustCompile(`(?s)(\w+)\s*\{[^{}]*(?:java\.srcDirs?|java\s*\{\s*srcDirs?)\s*(?:=|\+=|\()\s*([^}\n]+)`)
-var namedSourceSetJavaDirsRe = regexp.MustCompile(`(?s)(?:getByName|named)\(\s*["']([A-Za-z0-9_]+)["']\s*\)\s*\{[^{}]*(?:java\.srcDirs?|java\s*\{\s*srcDirs?)\s*(?:=|\+=|\()\s*([^}\n]+)`)
-var quotedPathRe = regexp.MustCompile(`["']([^"']+)["']`)
+var sourceSetJavaDirsRe = lazyre.New(`(?s)(\w+)\s*\{[^{}]*(?:java\.srcDirs?|java\s*\{\s*srcDirs?)\s*(?:=|\+=|\()\s*([^}\n]+)`)
+var namedSourceSetJavaDirsRe = lazyre.New(`(?s)(?:getByName|named)\(\s*["']([A-Za-z0-9_]+)["']\s*\)\s*\{[^{}]*(?:java\.srcDirs?|java\s*\{\s*srcDirs?)\s*(?:=|\+=|\()\s*([^}\n]+)`)
+var quotedPathRe = lazyre.New(`["']([^"']+)["']`)
 
 func JavaSourceProfileFromGradleContent(path, content string, cfg *android.BuildConfig) JavaSourceProfile {
 	if cfg == nil {

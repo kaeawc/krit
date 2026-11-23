@@ -4,13 +4,13 @@ package rules
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/android"
+	"github.com/kaeawc/krit/internal/lazyre"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	api "github.com/kaeawc/krit/internal/rules/api"
 )
@@ -662,14 +662,14 @@ var fixedQualifierGroups = map[string]int{
 }
 
 var (
-	mccQualifier       = regexp.MustCompile(`^mcc\d{3}$`)
-	mncQualifier       = regexp.MustCompile(`^mnc\d{1,3}$`)
-	smallestWidthQual  = regexp.MustCompile(`^sw\d+dp$`)
-	widthQualifier     = regexp.MustCompile(`^w\d+dp$`)
-	heightQualifier    = regexp.MustCompile(`^h\d+dp$`)
-	densityQualifier   = regexp.MustCompile(`^\d+dpi$`)
-	dimensionQualifier = regexp.MustCompile(`^\d+x\d+$`)
-	versionQualifier   = regexp.MustCompile(`^v\d+$`)
+	mccQualifier       = lazyre.New(`^mcc\d{3}$`)
+	mncQualifier       = lazyre.New(`^mnc\d{1,3}$`)
+	smallestWidthQual  = lazyre.New(`^sw\d+dp$`)
+	widthQualifier     = lazyre.New(`^w\d+dp$`)
+	heightQualifier    = lazyre.New(`^h\d+dp$`)
+	densityQualifier   = lazyre.New(`^\d+dpi$`)
+	dimensionQualifier = lazyre.New(`^\d+x\d+$`)
+	versionQualifier   = lazyre.New(`^v\d+$`)
 )
 
 // qualifierGroupOf returns a qualifier's position in the canonical order, or -1

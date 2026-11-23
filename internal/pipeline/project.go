@@ -364,6 +364,15 @@ type ProjectHostState struct {
 	// cache even if a store is set. The daemon supplies this from
 	// scanner.FindingsBundleCacheDir's parent (the repo dir).
 	FindingsBundleCacheRoot string
+	// PreparseBundleShortcut lets RunProjectAnalysis serve the run from
+	// the findings bundle before parsing anything, when every source
+	// file's (size, mtime) and every other run input still match the
+	// prior manifest. The one-shot CLI sets it; RunProjectStreaming
+	// already does the same check itself before calling
+	// RunProjectAnalysis. Source paths come from args.KotlinPaths /
+	// args.JavaPaths (the caller's own discovery), never from the
+	// manifest, so an added or removed file is always a miss.
+	PreparseBundleShortcut bool
 	// SourceSetClean lets a long-lived host that already tracks file
 	// changes skip source discovery on a manifest-backed bundle hit.
 	// False keeps RunProject conservative by re-collecting source paths.
@@ -767,6 +776,11 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	}
 	in.Args.ActiveRules = api.ResolveActiveRulesAtDepth(in.Args.ActiveRules, in.Args.TargetedResolution)
 	args := in.Args
+	if in.Host.PreparseBundleShortcut {
+		if res, ok := preparseBundleAnalysis(args, in.Host); ok {
+			return res, nil
+		}
+	}
 	host := awaitAnalysisCacheFuture(in.Host)
 	hits0, misses0 := parseCacheCounters(host.ParseCache)
 	warmPlan := buildWarmAnalysisCachePlan(args, host)
@@ -2636,6 +2650,12 @@ type JSONSummary = output.JSONSummary
 // non-perf calls), in which case the scopes are elided to keep the
 // hot path zero-overhead.
 func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, tracker perf.Tracker) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
+	return preparseBundleFingerprintWithPaths(args, host, tracker, func(prior scanner.FindingsBundleManifest) ([]string, []string, bool) {
+		return preparseSourcePaths(args, host, prior)
+	})
+}
+
+func preparseBundleFingerprintWithPaths(args ProjectArgs, host ProjectHostState, tracker perf.Tracker, sourcePaths func(scanner.FindingsBundleManifest) ([]string, []string, bool)) (scanner.RunFingerprint, []*scanner.File, []*scanner.File, bool) {
 	track := func(name string, fn func()) {
 		if tracker == nil {
 			fn()
@@ -2666,7 +2686,7 @@ func preparseBundleFingerprintTracked(args ProjectArgs, host ProjectHostState, t
 	}
 	var kotlinPaths, javaPaths []string
 	track("sourcePaths", func() {
-		kotlinPaths, javaPaths, ok = preparseSourcePaths(args, host, prior)
+		kotlinPaths, javaPaths, ok = sourcePaths(prior)
 	})
 	if !ok {
 		return scanner.RunFingerprint{}, nil, nil, false
@@ -2756,6 +2776,96 @@ func preparseSourcePaths(args ProjectArgs, host ProjectHostState, prior scanner.
 	}
 	javaPaths = filterGeneratedSourcePaths(javaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
 	return kotlinPaths, javaPaths, true
+}
+
+// callerSourcePaths is the source set the parse phase would build from the
+// caller's own discovery (args.KotlinPaths / args.JavaPaths): the same
+// generated-source filter, and Java only when an active rule needs it.
+// Any difference from the set the prior manifest recorded (an allowlisted
+// generated file, a file that failed to read, an exclude the fallback
+// collection does not apply) makes fileStatsMatch fail, so it can only
+// cost a miss, never a stale hit.
+func callerSourcePaths(args ProjectArgs) ([]string, []string, bool) {
+	if args.KotlinPaths == nil {
+		return nil, nil, false
+	}
+	kotlinPaths := filterGeneratedSourcePaths(args.KotlinPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
+	var javaPaths []string
+	caps := unionNeeds(args.ActiveRules)
+	if caps.Has(api.NeedsCrossFile) || caps.Has(api.NeedsParsedFiles) || NeedsJavaSourceDispatch(args.ActiveRules) {
+		if args.JavaPaths == nil {
+			return nil, nil, false
+		}
+		javaPaths = filterGeneratedSourcePaths(args.JavaPaths, args.IncludeGenerated, args.GeneratedSourceDirs...)
+	}
+	return kotlinPaths, javaPaths, true
+}
+
+// preparseBundleAnalysis is RunProjectAnalysis's pre-parse findings-bundle
+// hit: when every source file's stat and every other run input match the
+// prior manifest, the stored bundle is exactly what the post-parse path
+// would load, so the run skips parsing, indexing and dispatch. It returns
+// the same shape a post-parse bundle hit produces; the files carry paths
+// only, which is all a bundle-hit consumer reads.
+func preparseBundleAnalysis(args ProjectArgs, host ProjectHostState) (ProjectAnalysisResult, bool) {
+	if !preParseBundleShortcutAllowed(args, host) || host.Preparse != nil {
+		return ProjectAnalysisResult{}, false
+	}
+	var tracker perf.Tracker
+	if host.Tracker != nil && host.Tracker.IsEnabled() {
+		tracker = host.Tracker.Serial("bundleHit")
+	}
+	start := time.Now()
+	fp, kotlinFiles, javaFiles, ok := preparseBundleFingerprintWithPaths(args, host, tracker, func(scanner.FindingsBundleManifest) ([]string, []string, bool) {
+		return callerSourcePaths(args)
+	})
+	var cached *scanner.FindingColumns
+	if ok {
+		load := func() {
+			c, found := host.FindingsBundleStore.Load(host.FindingsBundleCacheRoot, fp)
+			if found && c != nil {
+				cached = c
+			}
+		}
+		if tracker != nil {
+			tracker.TrackVoid("bundleLoad", load)
+		} else {
+			load()
+		}
+	}
+	recordBundleOutcome(tracker, cached != nil)
+	if tracker != nil {
+		tracker.End()
+	}
+	if cached == nil {
+		return ProjectAnalysisResult{}, false
+	}
+	parseResult := ParseResult{
+		KotlinFiles: kotlinFiles,
+		JavaFiles:   javaFiles,
+		Paths:       args.Paths,
+		ActiveRules: args.ActiveRules,
+	}
+	// Report the incremental analysis cache the way the post-parse path
+	// does (its stats appear in the JSON report), from the same lookup.
+	var indexResult IndexResult
+	if host = awaitAnalysisCacheFuture(host); host.AnalysisCache != nil && host.AnalysisCacheLookup && !args.OracleEnabled {
+		warmKotlin, warmJava := warmSourcePaths(args)
+		filePaths := warmCacheFilePaths(args, warmKotlin, warmJava)
+		ruleHash := projectAnalysisCacheRuleHash(args, host, args.EditorConfigEnabled)
+		indexResult.CacheResult, indexResult.CacheStats = warmAnalysisCacheResult(args, host, filePaths, ruleHash)
+		indexResult.Cache = host.AnalysisCache
+		indexResult.RuleHash = ruleHash
+	}
+	return ProjectAnalysisResult{
+		ParseResult:       parseResult,
+		IndexResult:       indexResult,
+		CrossFileResult:   CrossFileResult{Findings: *cached},
+		FilesScanned:      len(kotlinFiles) + len(javaFiles),
+		RunFP:             fp,
+		FindingsBundleHit: true,
+		PhaseTimingsMs:    PhaseTimingsMs{Parse: time.Since(start).Milliseconds()},
+	}, true
 }
 
 // dirtyPathsAllInManifest reports whether every path in dirty is also

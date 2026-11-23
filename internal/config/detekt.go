@@ -236,6 +236,9 @@ func translateRule(out map[string]interface{}, view RegistryView, section, rule,
 			setNested(out, val, set, target, key)
 			continue
 		}
+		if renamed, ok := detektOptionRenames[target][key]; ok {
+			key = renamed
+		}
 		if th, ok := detektThresholds[target][key]; ok {
 			setNested(out, shiftInt(val, -1), set, target, th.Target)
 			continue
@@ -256,6 +259,15 @@ func translateRule(out map[string]interface{}, view RegistryView, section, rule,
 		setNested(out, map[string]interface{}{}, set, target)
 	}
 	return notes
+}
+
+// detektOptionRenames maps detekt option names whose krit namesake means
+// something else. detekt 2's ForbiddenImport `forbiddenImports` (renamed
+// from 1.x `imports`) holds globs matched against the whole import path;
+// krit's `forbiddenImports` is its own package-prefix list, so the detekt
+// value goes to krit's glob option `imports`.
+var detektOptionRenames = map[string]map[string]string{
+	"ForbiddenImport": {"forbiddenImports": "imports"},
 }
 
 // shiftInt adds delta to integer values (floored at 0) and leaves others as is.

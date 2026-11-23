@@ -29,6 +29,7 @@ import (
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/sysres"
 	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
@@ -1716,6 +1717,7 @@ func buildManifestData(args ProjectArgs, host ProjectHostState, parseResult Pars
 	abiHashes := make(map[string]string, len(parseResult.KotlinFiles))
 	dirty := dirtyPathSet(host.SourceSetDirty)
 	priorAbi := host.PriorAbiHashes
+	prewarmStructuralFingerprints(host.PriorStructuralFPs, dirty, parseResult.KotlinFiles, parseResult.JavaFiles)
 	for path, f := range parsedByPath {
 		contentHashes[path] = priorOrCompute(host.PriorContentHashes, dirty, path, func() string {
 			return hashutil.Default().HashContent(path, f.Content)
@@ -3887,6 +3889,7 @@ func computeRunFingerprint(args ProjectArgs, host ProjectHostState, parseResult 
 // kotlin-corpus's 16 k+ files. CLI callers leave both prior and
 // dirty nil and pay the full recompute.
 func crossFileStructuralFingerprint(kotlinFiles, javaFiles []*scanner.File, prior map[string]string, dirty map[string]bool) string {
+	prewarmStructuralFingerprints(prior, dirty, kotlinFiles, javaFiles)
 	entries := make([]string, 0, len(kotlinFiles)+len(javaFiles))
 	add := func(f *scanner.File) {
 		if f == nil {
@@ -3930,6 +3933,32 @@ func sourceSetFingerprint(kotlinFiles, javaFiles []*scanner.File, prior map[stri
 	}
 	sort.Strings(entries)
 	return hashutil.HashHex([]byte(strings.Join(entries, "\x01")))
+}
+
+// prewarmStructuralFingerprints computes, in parallel, the structural
+// fingerprint of every file that priorOrCompute would recompute, so the
+// serial loops that consume them only read the per-File memo.
+func prewarmStructuralFingerprints(prior map[string]string, dirty map[string]bool, fileSets ...[]*scanner.File) {
+	var todo []*scanner.File
+	for _, files := range fileSets {
+		for _, f := range files {
+			if f == nil {
+				continue
+			}
+			if prior != nil && (dirty == nil || !dirty[f.Path]) {
+				if _, ok := prior[f.Path]; ok {
+					continue
+				}
+			}
+			todo = append(todo, f)
+		}
+	}
+	if len(todo) < 2 {
+		return
+	}
+	forEachParallel(len(todo), sysres.CPUs(), func(i int) {
+		scanner.FileStructuralFingerprint(todo[i])
+	})
 }
 
 // priorOrCompute returns prior[path] when the path is NOT in the

@@ -10,7 +10,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 )
 
-// BenchmarkAnalyzeBufferEdit measures the per-file path the IntelliJ plugin
+// BenchmarkAnalyzeBufferEdit measures the per-file path an editor client
 // takes after each edit (issue #538 targets under 200 ms): one
 // analyze-buffer round trip on a warm daemon. The content changes on every
 // call, so the daemon's buffer cache never answers. Reports the p50, p95,

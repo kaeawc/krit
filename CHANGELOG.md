@@ -77,6 +77,11 @@ All notable changes to Krit will be documented in this file.
   FIR uses the same call pre-order as Go. Go remains
   the fallback without a classpath or when files do not compile (#1076).
 
+### Removed
+- The native IntelliJ IDEA / Android Studio plugin (`editors/intellij-plugin/`)
+  and its CI and JetBrains Marketplace publish workflows. IntelliJ users can
+  keep using krit through the LSP server (`editors/intellij/`).
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

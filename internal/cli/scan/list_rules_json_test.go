@@ -14,9 +14,8 @@ import (
 )
 
 // TestListRulesJSONMatchesRegistry checks the --list-rules --format json
-// document: one entry per registered rule, with the fields editor
-// integrations read (the IntelliJ plugin builds per-rule inspections
-// from it).
+// document: one entry per registered rule, with the fields editor and
+// tooling integrations read.
 func TestListRulesJSONMatchesRegistry(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code, ok := PrintListRules(&stdout, &stderr, false, "", "", "json", nil, nil); !ok {

@@ -148,43 +148,6 @@ jobs:
             go test -tags fanotify_integration -count=1 -v \
             ./internal/cli/serve/ -run TestFanotify
 
-  intellij-plugin:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
-        with:
-          distribution: zulu
-          java-version: "21"
-      - name: Set Gradle User Home
-        run: echo "GRADLE_USER_HOME=$HOME/.gradle/intellij-plugin" >> "$GITHUB_ENV"
-      # Never cache this job's Gradle home. The IntelliJ platform SDK and its
-      # transforms come to about 9 GB, nearly the repository's 10 GB Actions
-      # cache limit, so each save evicted every other entry, including
-      # krit-fir's cached test results. Without those, krit-fir reran about an
-      # hour of compiler tests on every run instead of taking seconds.
-      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
-        with:
-          cache-disabled: true
-          validate-wrappers: true
-      - name: Validate IntelliJ plugin
-        working-directory: editors/intellij-plugin
-        run: ../../tools/krit-fir/gradlew test buildPlugin verifyPlugin --stacktrace
-      - name: Upload IntelliJ plugin ZIP
-        if: success()
-        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
-        with:
-          name: krit-intellij-plugin
-          path: editors/intellij-plugin/build/distributions/*.zip
-      - name: Upload IntelliJ plugin test reports
-        if: failure()
-        uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
-        with:
-          name: krit-intellij-plugin-test-reports
-          path: |
-            editors/intellij-plugin/build/reports/tests/test/
-            editors/intellij-plugin/build/reports/pluginVerifier/
-
   regression:
     runs-on: ubuntu-latest
     steps:

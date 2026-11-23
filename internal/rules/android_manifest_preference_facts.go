@@ -12,7 +12,62 @@ const preferenceActivityFQN = "android.preference.PreferenceActivity"
 var (
 	sourcePackageRe = regexp.MustCompile(`(?m)^\s*package\s+([\w.]+)`)
 	sourceImportRe  = regexp.MustCompile(`(?m)^\s*import\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
+	// sourceImportTailRe is sourceImportRe after its `^\s*` prefix, anchored at an `import` keyword.
+	sourceImportTailRe = regexp.MustCompile(`(?m)\Aimport\s+(?:static\s+)?([\w.]+?)(\.\*)?(?:\s+as\s+(\w+))?\s*;?\s*$`)
 )
+
+// findSourceImports returns the submatches sourceImportRe.FindAllStringSubmatch(content, -1)
+// would, except that element 0 starts at the `import` keyword rather than at the line start.
+//
+// The regex starts with `^\s*`, so Go's matcher tries it at every byte of the file; on a
+// large project that was most of the cost of the preference facts. Every match begins with
+// whitespace from a line start up to an `import` keyword, so it is enough to find each
+// keyword with strings.Index, check that only whitespace separates it from a line start at
+// or after the previous match's end, and run the remainder of the pattern anchored there.
+func findSourceImports(content string) [][]string {
+	var out [][]string
+	prevEnd, cursor := 0, 0
+	for cursor < len(content) {
+		i := strings.Index(content[cursor:], "import")
+		if i < 0 {
+			break
+		}
+		pos := cursor + i
+		cursor = pos + 1
+		if !reWhitespaceFromLineStart(content, pos, prevEnd) {
+			continue
+		}
+		loc := sourceImportTailRe.FindStringSubmatchIndex(content[pos:])
+		if loc == nil {
+			continue
+		}
+		m := make([]string, len(loc)/2)
+		for g := range m {
+			if loc[2*g] >= 0 {
+				m[g] = content[pos+loc[2*g] : pos+loc[2*g+1]]
+			}
+		}
+		out = append(out, m)
+		prevEnd = pos + loc[1]
+		cursor = prevEnd
+	}
+	return out
+}
+
+// reWhitespaceFromLineStart reports whether `(?m)^\s*` can match content[start:pos] for some
+// start >= lower: only RE2 whitespace ([\t\n\f\r ]) between a line start and pos.
+func reWhitespaceFromLineStart(content string, pos, lower int) bool {
+	for k := pos - 1; k >= lower; k-- {
+		switch content[k] {
+		case '\n':
+			return true
+		case '\t', '\f', '\r', ' ':
+		default:
+			return false
+		}
+	}
+	return lower == 0 || content[lower-1] == '\n'
+}
 
 // preferenceClassDecl is one source class with its direct supertype names as written.
 type preferenceClassDecl struct {
@@ -60,7 +115,7 @@ func newPreferenceFileScope(content string) *preferenceFileScope {
 	if m := sourcePackageRe.FindStringSubmatch(content); m != nil {
 		scope.pkg = m[1]
 	}
-	for _, m := range sourceImportRe.FindAllStringSubmatch(content, -1) {
+	for _, m := range findSourceImports(content) {
 		switch {
 		case m[2] != "":
 			scope.wildcards = append(scope.wildcards, m[1])

@@ -647,14 +647,24 @@ func ignoredReturnValueHelperResultUsedElsewhere(file *scanner.File, idx uint32,
 	if file == nil || name == "" || !ignoredReturnValueFileDeclaresFunction(file, name) {
 		return false
 	}
-	used := false
-	file.FlatWalkNodes(0, "call_expression", func(call uint32) {
-		if used || call == idx || flatCallExpressionName(file, call) != name {
-			return
-		}
-		used = flatIsUsedAsExpression(file, call)
+	// Index the file's calls by name once instead of re-walking every call
+	// for each ignored call site, which was quadratic in files that call a
+	// local helper many times.
+	byName := filefacts.FileFact(fileFactsCache(), file, slotCallExpressionsByName, func() map[string][]uint32 {
+		out := map[string][]uint32{}
+		file.FlatWalkNodes(0, "call_expression", func(call uint32) {
+			if n := flatCallExpressionName(file, call); n != "" {
+				out[n] = append(out[n], call)
+			}
+		})
+		return out
 	})
-	return used
+	for _, call := range byName[name] {
+		if call != idx && flatIsUsedAsExpression(file, call) {
+			return true
+		}
+	}
+	return false
 }
 
 func ignoredReturnValueFileDeclaresFunction(file *scanner.File, name string) bool {

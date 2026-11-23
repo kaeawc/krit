@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"weak"
 
 	"github.com/kaeawc/krit/internal/android"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -560,24 +561,41 @@ func translationRoots(ctx *api.Context) []string {
 
 // translationMemo holds the analysis of one resource index so the five translation rules share it.
 type translationMemo struct {
-	idx      *android.ResourceIndex
+	idx      weak.Pointer[android.ResourceIndex] // weak so the memo never pins an index
 	roots    []string
 	once     sync.Once
 	findings []translationFinding
 }
 
+// translationMemoKeep bounds how many recent resource indexes keep their
+// translation analysis. Resource dirs run in parallel, so the memo has to
+// hold one entry per in-flight index or the five translation rules of one
+// index evict each other's results and re-read every values file.
+const translationMemoKeep = 32
+
 var (
-	translationMemoMu   sync.Mutex
-	translationMemoLast *translationMemo
+	translationMemoMu     sync.Mutex
+	translationMemoRecent []*translationMemo // most recent last
 )
 
 // translationFindingsFor runs analyzeTranslations once per resource index and roots set.
 func translationFindingsFor(idx *android.ResourceIndex, roots []string) []translationFinding {
 	translationMemoMu.Lock()
-	m := translationMemoLast
-	if m == nil || m.idx != idx || !slices.Equal(m.roots, roots) {
-		m = &translationMemo{idx: idx, roots: roots}
-		translationMemoLast = m
+	key := weak.Make(idx)
+	var m *translationMemo
+	for i := len(translationMemoRecent) - 1; i >= 0; i-- {
+		if c := translationMemoRecent[i]; c.idx == key && slices.Equal(c.roots, roots) {
+			m = c
+			break
+		}
+	}
+	if m == nil {
+		m = &translationMemo{idx: key, roots: roots}
+		if len(translationMemoRecent) >= translationMemoKeep {
+			translationMemoRecent[0] = nil
+			translationMemoRecent = translationMemoRecent[1:]
+		}
+		translationMemoRecent = append(translationMemoRecent, m)
 	}
 	translationMemoMu.Unlock()
 	m.once.Do(func() { m.findings = analyzeTranslations(roots) })

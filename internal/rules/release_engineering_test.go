@@ -2337,3 +2337,42 @@ fun helper() { println("x") }
 		t.Errorf("expected plain println to stay flagged, got %d", len(plain))
 	}
 }
+
+// The idling-resource interface ships in production builds so UI tests can
+// wait on app work (the architecture-samples counting idling resource).
+func TestTestOnlyImportInProduction_IdlingResourceInterface(t *testing.T) {
+	code := "package com.example\n\nimport androidx.test.espresso.IdlingResource\n\nclass SimpleCountingIdlingResource : IdlingResource\n"
+	if got := len(runRuleByNameOnPath(t, "TestOnlyImportInProduction", "app/src/main/java/com/example/SimpleCountingIdlingResource.kt", code)); got != 0 {
+		t.Errorf("findings = %d, want 0", got)
+	}
+}
+
+// Modules that exist to ship test helpers, test-framework integrations or
+// benchmarks import test frameworks from main code on purpose (149 corpus
+// findings, all in such modules). Production modules are still reported.
+func TestTestOnlyImportInProduction_TestFrameworkModules(t *testing.T) {
+	code := "package com.example\n\nimport org.junit.Test\n\nclass Helper\n"
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"okhttp-testing-support/src/main/kotlin/okhttp3/TestUtil.kt", 0},
+		{"mockwebserver-junit5/src/main/kotlin/mockwebserver3/junit5/StartStop.kt", 0},
+		{"ktor-client/ktor-client-tests/jvm/src/io/ktor/client/tests/utils/TestWithKtor.kt", 0},
+		{"leakcanary/leakcanary-android-instrumentation/src/main/java/leakcanary/FailTestOnLeak.kt", 0},
+		{"benchmarks/src/main/kotlin/com/example/ScrollBenchmark.kt", 0},
+		{"macrobenchmark/src/main/java/com/example/StartupBenchmark.kt", 0},
+		{"kotlinx-coroutines-debug/src/junit/junit5/CoroutinesTimeout.kt", 0},
+		{"detekt-gradle-plugin/src/functionalTestMinSupportedGradle/kotlin/GradleVersionSpec.kt", 0},
+		{"app/src/integrationTest/kotlin/com/example/Helper.kt", 0},
+		{"app/src/main/kotlin/com/example/Helper.kt", 1},
+		{"contest/src/main/kotlin/com/example/Helper.kt", 1},
+		{"app/src/main/kotlin/com/example/junit5/Helper.kt", 1}, // package directories are not module names
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := len(runRuleByNameOnPath(t, "TestOnlyImportInProduction", tc.path, code)); got != tc.want {
+				t.Errorf("findings = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

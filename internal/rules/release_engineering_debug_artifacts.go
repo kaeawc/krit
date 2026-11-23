@@ -530,10 +530,11 @@ func (r *TestOnlyImportInProductionRule) check(ctx *api.Context) {
 	}
 	fqn := file.FlatNodeText(ident)
 	// Idling resources ship in production builds so UI tests can wait on them.
-	if strings.HasPrefix(fqn, "androidx.test.espresso.idling.") {
+	if strings.HasPrefix(fqn, "androidx.test.espresso.idling.") ||
+		fqn == "androidx.test.espresso.IdlingResource" || fqn == "androidx.test.espresso.IdlingRegistry" {
 		return
 	}
-	if isTestFixtureModulePath(file.Path) {
+	if isTestFixtureModulePath(file.Path) || isTestFrameworkModulePath(file.Path) {
 		return
 	}
 	for _, prefix := range testOnlyImportPrefixes {

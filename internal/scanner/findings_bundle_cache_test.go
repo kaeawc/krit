@@ -216,3 +216,22 @@ func TestSweepStalePackDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestFileStructuralFingerprint_MemoMatchesCompute(t *testing.T) {
+	f := parseKotlinSnippet(t, "class R { fun f(x: Int): String = x.toString() }")
+	want := computeFileStructuralFingerprint(f)
+	if got := FileStructuralFingerprint(f); got != want {
+		t.Fatalf("first call = %s, want %s", got, want)
+	}
+	if got := FileStructuralFingerprint(f); got != want {
+		t.Fatalf("memoized call = %s, want %s", got, want)
+	}
+
+	// A File without a tree is not memoized, so attaching one later is seen.
+	bare := &File{Path: f.Path, Language: f.Language, Content: f.Content}
+	empty := FileStructuralFingerprint(bare)
+	bare.FlatTree = f.FlatTree
+	if got := FileStructuralFingerprint(bare); got != want || got == empty {
+		t.Fatalf("after attaching a tree = %s, want %s (tree-less %s)", got, want, empty)
+	}
+}

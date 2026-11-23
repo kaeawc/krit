@@ -188,10 +188,25 @@ func ClearFindingsBundleCache(dir string) error {
 // ConservativeDeltaPlanner's "CrossFile stable" gate uses the
 // aggregate of per-file structural fps to decide whether the delta
 // path is safe — see pipeline.crossFileStructuralFingerprint.
+//
+// The result is memoized on the File: a run computes it for the run
+// fingerprint and again for the findings-bundle manifest, and both
+// walk every node of the file. A File without a FlatTree is not
+// memoized, so a tree attached later is still seen.
 func FileStructuralFingerprint(file *File) string {
 	if file == nil {
 		return ""
 	}
+	if file.FlatTree == nil {
+		return computeFileStructuralFingerprint(file)
+	}
+	file.structuralFPOnce.Do(func() {
+		file.structuralFP = computeFileStructuralFingerprint(file)
+	})
+	return file.structuralFP
+}
+
+func computeFileStructuralFingerprint(file *File) string {
 	symbols, references := indexFileForFingerprint(file)
 	return hashFileStructural(symbols, references)
 }

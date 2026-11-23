@@ -143,6 +143,10 @@ type File struct {
 	errorRegions     []errorRegion // cached ERROR/MISSING byte spans; populated under errorRegionsOnce
 	errorRegionsOnce sync.Once
 	hasErrorNodes    bool
+	// structuralFP caches FileStructuralFingerprint; populated under
+	// structuralFPOnce once the file has a FlatTree.
+	structuralFP     string
+	structuralFPOnce sync.Once
 
 	// Generated is true when the file came from a build/generated/**
 	// directory and was kept by the parse phase's known-safe-generator

@@ -229,6 +229,45 @@ func TestKotlinVersionMismatchAcrossModules(t *testing.T) {
 		}
 	})
 
+	// ktor-client-java targets 11 for java.net.http and
+	// kotlinx-coroutines-jdk9 targets 9 for java.util.concurrent.Flow; a
+	// raised target only matters to a lower-target module that depends on it.
+	t.Run("higher target without a lower consumer is clean", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "a", "build.gradle.kts"), `kotlin { jvmToolchain(8) }`)
+		writeFile(t, filepath.Join(root, "b", "build.gradle.kts"), `kotlin { jvmToolchain(8) }`)
+		writeFile(t, filepath.Join(root, "c", "build.gradle.kts"), `kotlin { jvmToolchain(11) }`)
+
+		if findings := runKotlinVersionMismatchAcrossModules(t, r, root); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
+	t.Run("higher target with a lower consumer triggers", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "a", "build.gradle.kts"), `kotlin { jvmToolchain(8) }`)
+		writeFile(t, filepath.Join(root, "b", "build.gradle.kts"), `kotlin { jvmToolchain(8) }`)
+		writeFile(t, filepath.Join(root, "c", "build.gradle.kts"), `kotlin { jvmToolchain(11) }`)
+
+		findings := runKotlinVersionMismatchAcrossModules(t, r, root, ":c", ":a")
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "Module :c uses Kotlin JVM target 11") {
+			t.Fatalf("expected the :c finding, got %v", findings)
+		}
+	})
+
+	t.Run("explicit targets in a minority of modules are not a baseline", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, filepath.Join(root, "a", "build.gradle.kts"), `kotlin { jvmToolchain(17) }`)
+		writeFile(t, filepath.Join(root, "b", "build.gradle.kts"), `kotlin { jvmToolchain(11) }`)
+		for _, name := range []string{"c", "d", "e"} {
+			writeFile(t, filepath.Join(root, name, "build.gradle.kts"), `plugins { id("convention.kotlin") }`)
+		}
+
+		if findings := runKotlinVersionMismatchAcrossModules(t, r, root); len(findings) != 0 {
+			t.Fatalf("expected 0 findings, got %d: %v", len(findings), findings)
+		}
+	})
+
 	t.Run("matching modules and single configured module are clean", func(t *testing.T) {
 		root := t.TempDir()
 		writeFile(t, filepath.Join(root, "a", "build.gradle.kts"), `tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
@@ -250,14 +289,19 @@ func TestKotlinVersionMismatchAcrossModules(t *testing.T) {
 	})
 }
 
-func runKotlinVersionMismatchAcrossModules(t *testing.T, r *api.Rule, root string) []scanner.Finding {
+// runKotlinVersionMismatchAcrossModules runs the rule over the modules :a to
+// :e that exist under root; consumedBy lists (module, consumer) path pairs.
+func runKotlinVersionMismatchAcrossModules(t *testing.T, r *api.Rule, root string, consumedBy ...string) []scanner.Finding {
 	t.Helper()
 	graph := module.NewModuleGraph(root)
-	for _, name := range []string{"a", "b", "c"} {
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
 		dir := filepath.Join(root, name)
 		if _, err := os.Stat(dir); err == nil {
 			graph.Modules[":"+name] = &module.Module{Path: ":" + name, Dir: dir}
 		}
+	}
+	for i := 0; i+1 < len(consumedBy); i += 2 {
+		graph.Consumers[consumedBy[i]] = append(graph.Consumers[consumedBy[i]], consumedBy[i+1])
 	}
 	ctx := &api.Context{
 		ModuleIndex: &module.PerModuleIndex{Graph: graph},
@@ -1446,5 +1490,24 @@ func TestJvmTargetMismatch_ModernAndGroovySyntax(t *testing.T) {
 				t.Fatalf("expected %d findings, got %d: %v", tc.want, len(findings), findings)
 			}
 		})
+	}
+}
+
+func TestModuleDependencyCycleAnchorsGroovyBuildFile(t *testing.T) {
+	r := buildRuleIndex()["ModuleDependencyCycle"]
+	if r == nil {
+		t.Fatal("ModuleDependencyCycle rule not registered")
+	}
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a", "build.gradle"), "")
+	writeFile(t, filepath.Join(root, "b", "build.gradle"), "")
+	graph := module.NewModuleGraph(root)
+	graph.Modules[":a"] = &module.Module{Path: ":a", Dir: filepath.Join(root, "a"), Dependencies: []module.Dependency{{ModulePath: ":b", Configuration: "implementation"}}}
+	graph.Modules[":b"] = &module.Module{Path: ":b", Dir: filepath.Join(root, "b"), Dependencies: []module.Dependency{{ModulePath: ":a", Configuration: "implementation"}}}
+	ctx := &api.Context{ModuleIndex: &module.PerModuleIndex{Graph: graph}, Collector: scanner.NewFindingCollector(0)}
+	r.Check(ctx)
+	findings := api.ContextFindings(ctx)
+	if len(findings) != 1 || findings[0].File != filepath.Join(root, "a", "build.gradle") {
+		t.Fatalf("findings = %+v, want one anchored at a/build.gradle", findings)
 	}
 }

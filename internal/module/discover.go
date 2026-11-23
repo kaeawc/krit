@@ -11,53 +11,138 @@ import (
 // settingsFiles lists the settings file names in priority order.
 var settingsFiles = []string{"settings.gradle.kts", "settings.gradle"}
 
-// DiscoverModules parses a Gradle settings file to discover all modules
-// in the project rooted at rootDir. Returns nil if no settings file is found.
+// DiscoverModules discovers the Gradle modules of the project rooted at
+// rootDir. Modules declared in the settings file come first; directories
+// with a build script that the settings parser could not see (custom
+// settings DSLs, helper functions, ValueSources) are added from the
+// filesystem. A root without a settings file that holds several
+// independent builds gets each build's modules under its directory path.
+// Returns nil when rootDir has no settings file and no build scripts.
 func DiscoverModules(ctx context.Context, rootDir string) (*Graph, error) {
 	rootDir, err := filepath.Abs(rootDir)
 	if err != nil {
 		return nil, err
 	}
-
-	settingsPath, content, err := readSettingsFile(rootDir)
+	graph := NewModuleGraph(rootDir)
+	found, err := discoverBuild(ctx, graph, rootDir, "")
 	if err != nil {
 		return nil, err
 	}
-	if content == "" {
+	if !found {
 		return nil, nil
 	}
+	return graph, nil
+}
 
-	graph := NewModuleGraph(rootDir)
+// discoverBuild adds the modules of the Gradle build at buildDir to graph,
+// prefixing their paths with prefix. It reports whether buildDir holds a
+// settings file or any build script.
+func discoverBuild(ctx context.Context, graph *Graph, buildDir, prefix string) (bool, error) {
+	settingsPath, content, err := readSettingsFile(buildDir)
+	if err != nil {
+		return false, err
+	}
 
 	var modulePaths []string
 	var dirOverrides map[string]string
-
-	if strings.HasSuffix(settingsPath, ".kts") {
+	switch {
+	case content == "":
+	case strings.HasSuffix(settingsPath, ".kts"):
 		// Kotlin DSL — tree-sitter parse handles both static include()
 		// calls and dynamic dir.listFiles().forEach { include(...) }
 		// idioms. See discover_kts.go.
-		parsed := parseSettingsKts(ctx, rootDir, content)
+		parsed := parseSettingsKts(ctx, buildDir, content)
 		modulePaths = parsed.paths
 		dirOverrides = parsed.overrides
-	} else {
+	default:
 		// Groovy DSL — regex-based parser. We don't attempt to expand
 		// dynamic includes for Groovy.
 		modulePaths = parseIncludes(content)
 		dirOverrides = parseProjectDirOverrides(content)
 	}
 
-	// Build modules.
+	declared := make([]*Module, 0, len(modulePaths))
 	for _, modPath := range modulePaths {
-		dir := modulePathToDir(rootDir, modPath, dirOverrides)
 		m := &Module{
-			Path: modPath,
-			Dir:  dir,
+			Path:      prefix + modPath,
+			Dir:       modulePathToDir(buildDir, modPath, dirOverrides),
+			BuildPath: prefix,
 		}
-		m.SourceRoots = findSourceRoots(dir)
-		graph.Modules[modPath] = m
+		declared = append(declared, m)
+		graph.Modules[m.Path] = m
 	}
 
-	return graph, nil
+	scan := scanBuildTree(buildDir)
+	claimed := make(map[string]bool, len(declared))
+	for _, m := range declared {
+		claimed[m.Dir] = true
+	}
+	relocateDeclaredModules(declared, scan.buildDirs, claimed)
+	for _, dir := range scan.buildDirs {
+		if claimed[dir] {
+			continue
+		}
+		rel, err := filepath.Rel(buildDir, dir)
+		if err != nil {
+			continue
+		}
+		path := prefix + ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":")
+		if _, exists := graph.Modules[path]; exists {
+			continue
+		}
+		graph.Modules[path] = &Module{Path: path, Dir: dir, BuildPath: prefix}
+	}
+	for _, m := range graph.Modules {
+		if m.BuildPath == prefix && m.SourceRoots == nil {
+			m.SourceRoots = findSourceRoots(m.Dir)
+		}
+	}
+
+	// Included builds (build-logic, a nested settings file) are
+	// independent graphs of the build that includes them. Only a root
+	// without settings — a repository of separate samples — gets the
+	// nested builds' modules.
+	found := settingsPath != "" || len(scan.buildDirs) > 0
+	if settingsPath == "" {
+		for _, nested := range scan.nestedBuilds {
+			rel, err := filepath.Rel(buildDir, nested)
+			if err != nil {
+				continue
+			}
+			nestedPrefix := prefix + ":" + strings.ReplaceAll(filepath.ToSlash(rel), "/", ":")
+			ok, err := discoverBuild(ctx, graph, nested, nestedPrefix)
+			if err != nil {
+				return false, err
+			}
+			found = found || ok
+		}
+	}
+	return found, nil
+}
+
+// relocateDeclaredModules points a declared module whose directory has no
+// build script at the one unclaimed build directory with the same name.
+// Settings helpers such as `fun module(path) { include(name);
+// project(":$name").projectDir = file(path) }` declare the name but hide
+// the directory.
+func relocateDeclaredModules(declared []*Module, buildDirs []string, claimed map[string]bool) {
+	byName := make(map[string][]string)
+	for _, dir := range buildDirs {
+		if !claimed[dir] {
+			byName[filepath.Base(dir)] = append(byName[filepath.Base(dir)], dir)
+		}
+	}
+	for _, m := range declared {
+		if hasBuildScript(m.Dir) {
+			continue
+		}
+		name := m.Path[strings.LastIndex(m.Path, ":")+1:]
+		if candidates := byName[name]; len(candidates) == 1 && !claimed[candidates[0]] {
+			delete(claimed, m.Dir)
+			m.Dir = candidates[0]
+			claimed[m.Dir] = true
+		}
+	}
 }
 
 // readSettingsFile finds and reads the settings file content. Returns the
@@ -173,20 +258,48 @@ func modulePathToDir(rootDir, modPath string, dirOverrides map[string]string) st
 }
 
 // findSourceRoots scans a module directory for source roots like
-// src/main/kotlin, src/main/java, etc.
+// src/main/kotlin, src/main/java, etc. Without any, it falls back to the
+// flat multiplatform layout kotlinx.coroutines and ktor use, where each
+// target directory holds src/ and test/ directly (common/src, jvm/test).
 func findSourceRoots(dir string) []string {
 	var roots []string
 	srcDir := filepath.Join(dir, "src")
 	entries, err := os.ReadDir(srcDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			for _, lang := range []string{"kotlin", "java"} {
+				candidate := filepath.Join(srcDir, entry.Name(), lang)
+				if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+					roots = append(roots, candidate)
+				}
+			}
+		}
+	}
+	if len(roots) > 0 {
+		return roots
+	}
+	return findFlatTargetSourceRoots(dir)
+}
+
+func findFlatTargetSourceRoots(dir string) []string {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
+	var roots []string
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || skipBuildScanDir(entry.Name()) {
 			continue
 		}
-		for _, lang := range []string{"kotlin", "java"} {
-			candidate := filepath.Join(srcDir, entry.Name(), lang)
+		target := filepath.Join(dir, entry.Name())
+		if hasBuildScript(target) {
+			continue
+		}
+		for _, kind := range []string{"src", "test"} {
+			candidate := filepath.Join(target, kind)
 			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 				roots = append(roots, candidate)
 			}

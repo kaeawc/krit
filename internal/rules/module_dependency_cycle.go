@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -39,7 +40,10 @@ func (r *ModuleDependencyCycleRule) check(ctx *api.Context) {
 		if !ok {
 			continue
 		}
-		anchorFile := mod.Dir + "/build.gradle.kts"
+		anchorFile := gradleBuildFileForModule(mod.Dir)
+		if anchorFile == "" {
+			anchorFile = filepath.Join(mod.Dir, "build.gradle.kts")
+		}
 		ctx.Emit(scanner.Finding{
 			File:     anchorFile,
 			Line:     1,

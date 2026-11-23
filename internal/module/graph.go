@@ -12,12 +12,20 @@ type Module struct {
 	Dependencies []Dependency // module-to-module deps
 	IsPublished  bool         // has maven-publish plugin
 	SourceRoots  []string     // source directories
+	// BuildPath is the path prefix of the Gradle build that owns the
+	// module: empty for the root build, ":samples:app" style for a
+	// separate build nested under a root without a settings file.
+	BuildPath string
 }
 
 // Dependency represents a module-to-module dependency.
 type Dependency struct {
 	ModulePath    string // Gradle path of depended-on module
 	Configuration string // "api", "implementation", "compileOnly", etc.
+	// Test is set for a test configuration (testImplementation,
+	// androidTestImplementation, testFixturesApi) or a dependency declared
+	// in a test source set's block (commonTest.dependencies { ... }).
+	Test bool
 }
 
 // Graph holds all discovered modules and their relationships.
@@ -34,6 +42,43 @@ func NewModuleGraph(rootDir string) *Graph {
 		Consumers: make(map[string][]string),
 		RootDir:   rootDir,
 	}
+}
+
+// resolveModulePath maps a project path referenced from a build file to a
+// module in the graph. It tries the path inside the referencing build
+// first (buildPath prefix), then the path as written, then the one module
+// whose last segment matches a single-segment path — filesystem-discovered
+// modules carry their directory path while a custom settings DSL may have
+// registered them under the bare name. Unresolved paths are returned as
+// written.
+func (g *Graph) resolveModulePath(path, buildPath string) string {
+	if g == nil {
+		return path
+	}
+	if buildPath != "" {
+		if _, ok := g.Modules[buildPath+path]; ok {
+			return buildPath + path
+		}
+	}
+	if _, ok := g.Modules[path]; ok {
+		return path
+	}
+	if strings.Count(path, ":") != 1 {
+		return path
+	}
+	match := ""
+	for p, m := range g.Modules {
+		if m.BuildPath == buildPath && strings.HasSuffix(p, path) {
+			if match != "" {
+				return path
+			}
+			match = p
+		}
+	}
+	if match == "" {
+		return path
+	}
+	return match
 }
 
 // FileToModule maps an absolute file path to the Gradle path of the module

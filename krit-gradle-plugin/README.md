@@ -8,6 +8,19 @@ Gradle plugin that integrates the [krit](https://github.com/kaeawc/krit) Kotlin 
 
 ## Setup
 
+The plugin is published to Maven Central, so include `mavenCentral()` in
+your plugin repositories:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+```
+
 Add the plugin to your `build.gradle.kts`:
 
 ```kotlin

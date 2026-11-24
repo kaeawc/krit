@@ -14,6 +14,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import javax.inject.Inject
 
 /**
@@ -24,6 +25,7 @@ import javax.inject.Inject
  * - idiomatic: Kotlin idiom improvements (default)
  * - semantic: fixes that may change runtime behavior
  */
+@DisableCachingByDefault(because = "Rewrites source files in place")
 abstract class KritFormatTask @Inject constructor(
     private val execOps: ExecOperations,
 ) : DefaultTask() {

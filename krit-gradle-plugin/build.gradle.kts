@@ -1,7 +1,11 @@
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+
 plugins {
     `java-gradle-plugin`
     `kotlin-dsl`
     `maven-publish`
+    signing
+    id("com.gradle.plugin-publish") version "2.2.1"
 }
 
 group = "dev.jasonpearson.krit"
@@ -17,17 +21,25 @@ version = ((findProperty("kritVersion") as String?)
     .trim()
     .removePrefix("v")
 
+val isSnapshot = version.toString().endsWith("-SNAPSHOT")
+
 repositories {
     mavenCentral()
 }
 
+// com.gradle.plugin-publish adds the sources and javadoc jars Maven Central
+// requires, and `publishPlugins` uploads the same publications to the Gradle
+// Plugin Portal.
 gradlePlugin {
+    website = "https://github.com/kaeawc/krit"
+    vcsUrl = "https://github.com/kaeawc/krit"
     plugins {
         create("krit") {
             id = "dev.jasonpearson.krit"
             implementationClass = "dev.jasonpearson.krit.gradle.KritPlugin"
             displayName = "Krit Kotlin Lint"
             description = "Static analysis for Kotlin using tree-sitter"
+            tags = listOf("kotlin", "android", "lint", "static-analysis", "code-quality")
         }
     }
 }
@@ -78,4 +90,91 @@ sourceSets {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+// Maven Central: `pluginMaven` is the plugin jar (krit-gradle-plugin), and each
+// `<name>PluginMarkerMaven` publication is the `<id>.gradle.plugin` marker that
+// resolves `plugins { id("dev.jasonpearson.krit") }` from mavenCentral().
+publishing {
+    publications.withType<MavenPublication>().configureEach {
+        pom {
+            if (name.orNull.isNullOrBlank()) name.set("Krit Gradle Plugin")
+            if (description.orNull.isNullOrBlank()) {
+                description.set("Gradle plugin that runs the krit static analyzer for Kotlin, Java, and Android.")
+            }
+            url.set("https://github.com/kaeawc/krit")
+            inceptionYear.set("2026")
+            licenses {
+                license {
+                    name.set("MIT License")
+                    url.set("https://opensource.org/licenses/MIT")
+                    distribution.set("repo")
+                }
+            }
+            developers {
+                developer {
+                    id.set("kaeawc")
+                    name.set("Jason Pearson")
+                    email.set("jason.d.pearson@gmail.com")
+                    url.set("https://github.com/kaeawc")
+                }
+            }
+            scm {
+                connection.set("scm:git:https://github.com/kaeawc/krit.git")
+                developerConnection.set("scm:git:ssh://git@github.com/kaeawc/krit.git")
+                url.set("https://github.com/kaeawc/krit")
+            }
+            issueManagement {
+                system.set("GitHub")
+                url.set("https://github.com/kaeawc/krit/issues")
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "stagingDir"
+            url = layout.buildDirectory.dir("staging-deploy").get().asFile.toURI()
+        }
+        maven {
+            name = "centralPortal"
+            url = if (isSnapshot) uri("https://central.sonatype.com/repository/maven-snapshots/")
+                else uri("https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/")
+            credentials {
+                username = System.getenv("SONATYPE_USERNAME").orEmpty()
+                password = System.getenv("SONATYPE_PASSWORD").orEmpty()
+            }
+        }
+    }
+}
+
+val signingKey: String? = System.getenv("SIGNING_KEY")
+val signingPassword: String? = System.getenv("SIGNING_PASSWORD")
+val hasSigningKey = !signingKey.isNullOrBlank() && !signingPassword.isNullOrBlank()
+
+signing {
+    if (hasSigningKey) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign(publishing.publications)
+    }
+}
+
+// plugin-publish registers sign tasks for every publication whenever the
+// signing plugin is applied; skip them for local builds without a key (the
+// centralPortal guard below still refuses an unsigned release upload).
+tasks.withType<Sign>().configureEach {
+    onlyIf { !isSnapshot && hasSigningKey }
+}
+
+// The repository is not bound yet when java-gradle-plugin's marker publish
+// tasks are configured, so check it when the task runs.
+tasks.withType<PublishToMavenRepository>().configureEach {
+    doFirst {
+        if (repository.name == "centralPortal" && !isSnapshot) {
+            val missing = listOf("SIGNING_KEY", "SIGNING_PASSWORD")
+                .filter { System.getenv(it).isNullOrBlank() }
+            if (missing.isNotEmpty()) {
+                throw GradleException("Cannot publish to centralPortal without ${missing.joinToString(" and ")}")
+            }
+        }
+    }
 }

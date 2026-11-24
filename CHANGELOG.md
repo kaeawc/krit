@@ -43,6 +43,21 @@ All notable changes to Krit will be documented in this file.
   CLI on the same sources. They run only when the project declares appcompat (or Material). Receivers are proven from
   declarations, imports, the resolver hierarchy and Java facts; an implicit receiver inside `apply`/`run`/`with` whose
   subject is not proven abstains (#1319, #1321, #1322, #1324, #1326).
+- `UnrememberedMutableState`, `RememberInComposition` and `FrequentlyChangingValue`, ported from
+  `androidx.compose.runtime:runtime-android` 1.12.1 under their Lint IDs and checked against the Lint CLI on the same
+  inputs. `UnrememberedMutableState` reports state factories (`mutableStateOf`, the primitive variants,
+  `mutableStateListOf`/`MapOf`/`SetOf`, `derivedStateOf`, same-file `@StateFactoryMarker` functions), constructors of
+  same-file `State` classes and `object : MutableState` literals created in composition outside `remember { }`.
+  `RememberInComposition` does the same for `@RememberInComposition` APIs: same-file declarations and the annotated
+  Compose 1.12.1 / material3 1.5.0 APIs (`Animatable`, `MutableInteractionSource`, `FocusRequester`,
+  `BringIntoViewRequester`, `SliderState`, `movableContentOf`, ...). `FrequentlyChangingValue` reports reads of
+  `@FrequentlyChangingValue` values in composition (same-file declarations, and `LazyListState`/`LazyGridState`
+  `firstVisibleItemIndex`/`firstVisibleItemScrollOffset`/`layoutInfo`, `ScrollState.value`,
+  `PagerState.currentPageOffsetFraction`, `AnchoredDraggableState` offsets and similar on proven receivers). The
+  retired Lint IDs `UnrememberedAnimatable`, `UnrememberedMutableInteractionSource` and
+  `FrequentlyChangedStateReadInComposition` still suppress the matching rule. Until `ComposeMutableStateInComposition`
+  is retired, `UnrememberedMutableState` leaves the plain `val x = mutableStateOf(...)` locals that rule already
+  reports to it (#1472, #1476, #1478).
 
 ### Fixed
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an

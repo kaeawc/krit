@@ -1,0 +1,54 @@
+r/Frequent.kt:24:5: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:25:9: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:26:9: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:27:11: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:28:11: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:29:11: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:30:12: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:32:11: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/Frequent.kt:34:8: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:13:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:14:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:15:29: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:16:11: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:18:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:19:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:20:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:21:10: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:22:12: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibFrequent.kt:23:12: FrequentlyChangingValue: Reading a value annotated with @FrequentlyChangingValue inside composition
+r/LibRemember.kt:17:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:18:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:19:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:21:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:22:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:23:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:24:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/LibRemember.kt:25:32: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:39:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:40:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:41:9: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:42:9: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:43:10: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:44:10: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:45:9: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:46:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:47:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:48:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:50:5: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:51:30: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:52:13: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/RememberIn.kt:53:16: RememberInComposition: Calling a @RememberInComposition annotated declaration inside composition without using `remember`
+r/States.kt:19:18: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:20:22: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:21:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:22:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:23:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:24:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:25:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:31:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:32:9: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:33:16: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:42:18: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:43:17: UnrememberedMutableState: Creating a state object during composition without using `remember`
+r/States.kt:46:34: UnrememberedMutableState: Creating a state object during composition without using `remember`

@@ -1,0 +1,1 @@
+r/States.kt:19:18: UnrememberedMutableState: Creating a state object during composition without using `remember` # still reported by ComposeMutableStateInComposition, which a follow-up PR retires into an alias of this rule

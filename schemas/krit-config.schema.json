@@ -16212,6 +16212,72 @@
             }
           }
         },
+        "FrequentlyChangingValue": {
+          "description": "Detects @FrequentlyChangingValue values such as LazyListState.firstVisibleItemIndex read during composition. [precision: ast-backed] [noisiness: normal]\nCaveat: Annotated declarations are recognized in the same file and for the Compose 1.12.1 / material3 1.5.0 state classes (LazyListState, LazyGridState, ScrollState, PagerState, ...), whose receiver type must be proven by a same-file declaration or initializer.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FrequentlyChangingValue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RememberInComposition": {
+          "description": "Detects @RememberInComposition APIs such as Animatable or MutableInteractionSource called during composition without remember. [precision: ast-backed] [noisiness: normal]\nCaveat: Annotated declarations are recognized in the same file and for the Compose 1.12.1 / material3 1.5.0 APIs (Animatable, MutableInteractionSource, FocusRequester, TextFieldState, SliderState, movableContentOf, ...).\nCaveat: The retired IDs UnrememberedAnimatable and UnrememberedMutableInteractionSource suppress every finding of this rule in their scope, not only Animatable and MutableInteractionSource calls.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RememberInComposition (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "StateFlowValueCalledInComposition": {
           "description": "Detects StateFlow.value read in composition, which does not observe changes; use collectAsState(). [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -16219,6 +16285,39 @@
           "properties": {
             "active": {
               "description": "Enable StateFlowValueCalledInComposition (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnrememberedMutableState": {
+          "description": "Detects state objects created during composition without remember, which are recreated and lose their value on recomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: User @StateFactoryMarker functions and State subclasses are recognized only when declared in the same file.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnrememberedMutableState (default: true).",
               "type": "boolean",
               "default": true
             },

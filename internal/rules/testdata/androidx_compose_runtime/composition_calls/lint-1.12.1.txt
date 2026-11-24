@@ -1,0 +1,56 @@
+c/Args.kt:15:11: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Args.kt:16:11: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Args.kt:17:23: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Args.kt:17:46: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Args.kt:18:7: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Coroutines.kt:20:11: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:21:11: CoroutineCreationDuringComposition: Calls to async should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:22:18: CoroutineCreationDuringComposition: Calls to launchIn should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:23:17: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:29:11: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:30:30: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:34:57: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:38:17: CoroutineCreationDuringComposition: Calls to async should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:43:39: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:44:29: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:45:20: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:46:27: CoroutineCreationDuringComposition: Calls to async should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:47:38: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:50:22: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:52:20: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:53:17: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:54:26: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:73:36: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Coroutines.kt:98:21: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Flows.kt:29:15: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:29:28: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:29:49: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:31:16: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:32:16: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:33:16: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:52:16: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:53:19: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:54:10: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:55:12: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:56:16: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:58:11: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:64:10: StateFlowValueCalledInComposition: StateFlow.value should not be called within composition
+c/Flows.kt:81:23: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Flows.kt:82:11: FlowOperatorInvokedInComposition: Flow operator functions should not be invoked within composition
+c/Library.kt:26:31: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:26:64: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:26:96: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:27:51: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:28:65: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:29:55: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:30:21: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:31:18: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:32:27: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:33:17: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:34:32: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:35:20: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:36:32: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:38:29: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:39:31: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:42:22: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition
+c/Library.kt:44:27: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition

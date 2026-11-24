@@ -35,6 +35,24 @@ type CompositionLocalNamingRule struct {
 	BaseRule
 }
 
+// fileMentions gates the rule to files that can reference the Compose runtime.
+func (r *ComposableNamingRule) fileMentions() []string { return []string{"androidx.compose.runtime"} }
+
+// fileMentions gates the rule to files that can reference the Compose runtime.
+func (r *ComposableLambdaParameterNamingRule) fileMentions() []string {
+	return []string{"androidx.compose.runtime"}
+}
+
+// fileMentions gates the rule to files that can reference the Compose runtime.
+func (r *ComposableLambdaParameterPositionRule) fileMentions() []string {
+	return []string{"androidx.compose.runtime"}
+}
+
+// fileMentions gates the rule to files that can reference the Compose runtime.
+func (r *CompositionLocalNamingRule) fileMentions() []string {
+	return []string{"androidx.compose.runtime"}
+}
+
 func (r *ComposableNamingRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "ComposableNaming", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: []string{
@@ -308,7 +326,7 @@ func acrTypeIsCompositionLocal(file *scanner.File, typeNode uint32) bool {
 		typeNode, _ = file.FlatFindChild(typeNode, "user_type")
 	}
 	for _, name := range acrCompositionLocalTypes {
-		if acrTypeRefersTo(file, typeNode, acrRuntimePackage, name) {
+		if acrTypeIsRuntime(file, typeNode, name) {
 			return true
 		}
 	}
@@ -316,7 +334,7 @@ func acrTypeIsCompositionLocal(file *scanner.File, typeNode uint32) bool {
 }
 
 func acrCallIsCompositionLocalFactory(file *scanner.File, call uint32) bool {
-	callee := file.FlatFirstChild(call)
+	callee := acrCalleeExpression(file, call)
 	switch file.FlatType(callee) {
 	case "simple_identifier":
 		name := file.FlatNodeText(callee)

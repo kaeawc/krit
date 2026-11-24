@@ -15,6 +15,17 @@ All notable changes to Krit will be documented in this file.
   function without a declared return type is only checked when its body is `Unit` or a call to a same-file function;
   otherwise its return type needs type inference, and it is a known false negative. Lint's rename quick fixes are
   not ported, because they leave call sites unchanged (#1467, #1468, #1469, #1471).
+- `CoroutineCreationDuringComposition`, `FlowOperatorInvokedInComposition` and `StateFlowValueCalledInComposition`,
+  ported from `androidx.compose.runtime:runtime-android` 1.12.1 under their Lint IDs and checked against the Lint CLI
+  on the same inputs. They report `launch`/`async`/`launchIn`, Flow operators (`map`, `filter`, `stateIn`, ...,
+  and same-file `Flow` extensions returning a `Flow`) and `StateFlow.value` reads and writes made in composition. A
+  shared composition-context walk mirrors Lint's `isInvokedWithinComposable`: it sees through local properties,
+  anonymous objects and lambdas inlined into their caller (same-file `inline` functions, `let`/`run`/`apply`/...),
+  and stops at functions, accessors and other lambdas. A lambda counts as composition when it is annotated or typed
+  `@Composable`, when it is passed to a same-file parameter typed `@Composable`, or when it is passed to a known
+  Compose content parameter (`Column`, `Box`, `Scaffold` slots, `CompositionLocalProvider`, `key`, lazy `item`/`items`,
+  ...). Receivers must be proven to be a `CoroutineScope`, `Flow` or `StateFlow` by same-file declarations or
+  initializers, which rules out lookalike members such as `ActivityResultLauncher.launch` (#1465, #1466, #1470).
 
 ### Fixed
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an

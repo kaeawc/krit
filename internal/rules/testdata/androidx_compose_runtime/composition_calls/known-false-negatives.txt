@@ -1,0 +1,1 @@
+c/Coroutines.kt:98:21: CoroutineCreationDuringComposition: Calls to launch should happen inside a LaunchedEffect and not composition # tree-sitter-kotlin parses a top-level `@Composable get() { ... }` right after the imports as a call to `get`, so the accessor is not seen

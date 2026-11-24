@@ -75,3 +75,38 @@ func TestResolveSDKLevelsSeesSameTickRewrite(t *testing.T) {
 		t.Fatalf("settled build file was not memoized: ok=%v levels=%+v", ok, entry.levels)
 	}
 }
+
+// A build file rewritten just before the stat stays out of the memo even when the parse takes
+// longer than sdkRacyWindow: raciness is judged against when the read started.
+func TestSDKLevelsSlowReadOfFreshInputIsNotMemoized(t *testing.T) {
+	dir := t.TempDir()
+	build := filepath.Join(dir, "build.gradle.kts")
+	if err := os.WriteFile(build, []byte("android {\n    defaultConfig {\n        minSdk = 21\n    }\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mod := time.Now()
+	if err := os.Chtimes(build, mod, mod); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first clock read is the read start; every later read is past the racy window.
+	calls := 0
+	sdkNow = func() time.Time {
+		calls++
+		if calls == 1 {
+			return mod.Add(time.Second)
+		}
+		return mod.Add(10 * sdkRacyWindow)
+	}
+	t.Cleanup(func() { sdkNow = time.Now })
+
+	if got := sdkLevelsDeclaredIn(dir).MinSdk; got != 21 {
+		t.Fatalf("minSdk = %d, want 21", got)
+	}
+	sdkDeclaredMu.RLock()
+	_, memoized := sdkDeclaredMemo[dir]
+	sdkDeclaredMu.RUnlock()
+	if memoized {
+		t.Fatal("input modified within the racy window of the read start was memoized")
+	}
+}

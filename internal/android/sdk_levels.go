@@ -115,6 +115,9 @@ func sdkLevelsAbove(dir string) SDKLevels {
 // sdkLevelsDeclaredIn returns the levels declared by dir's own build.gradle(.kts) or manifest, or
 // the zero value when it declares none. A build file wins over a manifest.
 func sdkLevelsDeclaredIn(dir string) SDKLevels {
+	// Judge raciness against the start of the read: a slow parse must not age an input rewritten
+	// just before the stat into one that looks settled.
+	readStart := sdkNow()
 	stamp := sdkInputStamp(dir)
 	sdkDeclaredMu.RLock()
 	entry, ok := sdkDeclaredMemo[dir]
@@ -123,7 +126,7 @@ func sdkLevelsDeclaredIn(dir string) SDKLevels {
 		return entry.levels
 	}
 	levels := readSDKLevelsDeclaredIn(dir)
-	if !sdkStampRacy(stamp, time.Now()) {
+	if !sdkStampRacy(stamp, readStart) {
 		sdkDeclaredMu.Lock()
 		sdkDeclaredMemo[dir] = sdkDeclaredEntry{stamp: stamp, levels: levels}
 		sdkDeclaredMu.Unlock()
@@ -136,6 +139,9 @@ func sdkLevelsDeclaredIn(dir string) SDKLevels {
 // same-size rewrite shortly after the stat can keep the stamp it had; trusting a memo keyed by that
 // stamp would hide the edit from later passes in this process (for example a daemon request).
 const sdkRacyWindow = 2 * time.Second
+
+// sdkNow is the clock sdkLevelsDeclaredIn reads; tests replace it.
+var sdkNow = time.Now
 
 // sdkStampRacy reports whether any input in stamp was modified within sdkRacyWindow of now.
 func sdkStampRacy(stamp [len(sdkInputs)]sdkInputStat, now time.Time) bool {

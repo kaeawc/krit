@@ -375,6 +375,11 @@ func (h *parsePackHandle) putMany(writes []parseEncodedEntryWrite) (bool, error)
 		if !ok || e.length != uint64(len(item.data)) || e.crc != item.crc {
 			continue
 		}
+		// A matching index does not prove the stored bytes are intact (a torn write keeps the
+		// header); rewrite the entry unless its payload still checks out.
+		if crc32.ChecksumIEEE(existingData[e.offset:e.offset+e.length]) != e.crc {
+			continue
+		}
 		delete(latest, key)
 	}
 	if len(latest) == 0 {

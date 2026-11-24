@@ -1,4 +1,4 @@
-// go-lines: 51
+// go-lines: 47, 51
 package unnecessarysafecall.resolution
 
 class ResolvedSafeCallHolder(val text: String)
@@ -43,7 +43,7 @@ fun resolvedSafeCallAnonymous() {
     println(holder.text<!UnnecessarySafeCall!>?.<!>length)
 }
 
-// Go cannot resolve extension this here; the non-null String receiver type proves the report.
+// FIR and Go both type extension this as its receiver; the non-null String receiver proves the report.
 fun String.resolvedSafeCallThis() = this<!UnnecessarySafeCall!>?.<!>length
 
 // FIR and Go both recognize the stable same-module cast; the type test proves String is non-null here.

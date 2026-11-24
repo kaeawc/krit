@@ -1,6 +1,10 @@
 // fir-parity: skip Intentional unresolved external types and missing members; Go remains authoritative on this error file.
 package fixtures.negative.potentialbugs
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+
 class UselessElvisOnNonNull {
     // Nullable parameter — elvis is meaningful.
     fun nullableParam(s: String?) {
@@ -110,4 +114,79 @@ class ShadowedNullableElvisBail {
     }
 
     fun use(value: Any?) {}
+}
+
+// Issue #1116: `Flow<T?>.first()` returns `T?`; after `.catch {}` the element type is unknown to source
+// inference, which must not default it to a non-null `Any`.
+class ElvisFlowChannel(val name: String)
+
+interface ElvisFlowRepo {
+    fun byId(id: String): Flow<ElvisFlowChannel?>
+}
+
+class ElvisFlowElementResolver(private val repo: ElvisFlowRepo) {
+    suspend fun source(id: String): String {
+        val channel =
+            repo
+                .byId(id)
+                .catch { emit(null) }
+                .first() ?: return "other"
+        return channel.name
+    }
+
+    suspend fun direct(id: String): String {
+        val channel = repo.byId(id).first() ?: return "other"
+        return channel.name
+    }
+}
+
+// Issue #1116: inside `fun T?.f()`, `this` is the nullable receiver, not the enclosing class.
+class ElvisReceiverConfig(val name: String)
+
+class ElvisReceiverCache {
+    fun default(): ElvisReceiverConfig = ElvisReceiverConfig("d")
+}
+
+class ElvisNullableReceiverOverlay(private val cache: ElvisReceiverCache) {
+    private fun ElvisReceiverConfig?.withLayout(): ElvisReceiverConfig {
+        val config = this ?: cache.default()
+        return config
+    }
+
+    private val ElvisReceiverConfig?.label: String
+        get() = this?.name ?: "none"
+
+    private val ElvisReceiverConfig?.orDefault: ElvisReceiverConfig
+        get() = this ?: cache.default()
+}
+
+// Issue #1116: `a != null || b` does not prove `a != null`.
+fun elvisDisjunctionGuard(navigationKey: String?, changed: Boolean): String {
+    if (navigationKey != null || changed) {
+        val key = navigationKey ?: "default"
+        return key
+    }
+    if ((navigationKey != null) || changed) {
+        return navigationKey ?: "default"
+    }
+    if (!(navigationKey == null)) {
+        return ""
+    }
+    return navigationKey ?: ""
+}
+
+// Issue #1116: inside an extension, a bare name may be a member of the receiver, which shadows an outer
+// declaration of the same name (okhttp's `val address = address ?: return hostName`).
+class ElvisReceiverMemberHolder(val label: String?)
+
+class ElvisReceiverMemberShadow(private val label: String, private val address: ElvisReceiverConfig) {
+    fun ElvisReceiverMemberHolder.labelOrDefault(): String = label ?: "none"
+
+    companion object {
+        val java.net.InetSocketAddress.socketHost: String
+            get() {
+                val address = address ?: return hostName
+                return address.hostAddress
+            }
+    }
 }

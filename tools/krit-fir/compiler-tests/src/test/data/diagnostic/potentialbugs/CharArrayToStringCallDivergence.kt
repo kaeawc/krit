@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 34, 41
+// go-lines: 25, 34, 41
 // Where FIR's resolved receiver type and the Go rule disagree. Go types the
 // receiver by looking its text (after the last `.`) up by name, then falls
 // back to any same-named parameter or property in the file declared CharArray
@@ -7,9 +7,9 @@
 // FIR reads the receiver's resolved type.
 package test
 
-// Go misses these: the receiver is a CharArray, but its text is not a name
-// Go can look up (a call, `x!!`, a parenthesized expression, `this`), or the
-// receiver is implicit (Go only visits `receiver.toString()`).
+// Go misses these but explicitThis: the receiver is a CharArray, but its text is not a name Go can
+// look up (a call, `x!!`, a parenthesized expression), or the receiver is implicit (Go only visits
+// `receiver.toString()`). Go types an extension's `this` as its receiver, so it reports explicitThis.
 fun callResult(text: String): String = <!CharArrayToStringCall!>text.toCharArray().toString()<!>
 
 fun constructorCall(): String = <!CharArrayToStringCall!>CharArray(2).toString()<!>

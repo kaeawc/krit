@@ -9,6 +9,15 @@ All notable changes to Krit will be documented in this file.
   exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
   recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
   directories, up to 16 sets per scan (#1023).
+- `UselessElvisOnNonNull` and `UnnecessarySafeCall` (Go path) no longer report operands that can be null. Source
+  type inference narrows on `x != null` only when it is the whole `if` condition, not an operand of `||`, `!` or a
+  call argument. Inside an extension function or property accessor, `this` is the receiver type rather than the
+  enclosing class, and a bare name that may be a receiver member no longer resolves to an enclosing declaration
+  of the same name. `first()`, `single()` and other element-returning stdlib calls keep a nullable element type
+  (`Flow<T?>.first()` is `T?`) and abstain when the receiver's type arguments are unknown, instead of returning a
+  non-null `Any`; `listOf(a, b)` and `mapOf(k to v)` infer their type arguments from arguments that share one type.
+  `UnnecessarySafeCall`'s same-file fallback reads only the nearest declaration in scope, so a local no longer
+  borrows the non-null type of a property or parameter it shadows (#1116).
 
 ## [0.5.0] - 2026-11-24
 

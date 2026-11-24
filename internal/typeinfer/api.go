@@ -357,6 +357,9 @@ func (r *defaultResolver) IsTopLevelBindingFlat(idx uint32, file *scanner.File) 
 		if scope.Entries[name] != nil && offset >= scope.EntryStarts[name] {
 			return scope.Parent == nil
 		}
+		if scope.shadowsByImplicitReceiver(name) {
+			return false
+		}
 	}
 	return false
 }
@@ -778,6 +781,80 @@ var collectionFactories = map[string]string{
 	"doubleArrayOf": "DoubleArray", "shortArrayOf": "ShortArray",
 }
 
+// factoryTypeArgArity maps the collectionFactories whose type arguments follow from their vararg
+// arguments to the number of type arguments: `listOf(a)` is a List<A>, `mapOf(k to v)` a Map<K, V>.
+var factoryTypeArgArity = map[string]int{
+	"listOf": 1, "mutableListOf": 1, "arrayListOf": 1,
+	"setOf": 1, "mutableSetOf": 1, "hashSetOf": 1, "linkedSetOf": 1,
+	"sequenceOf": 1, "arrayOf": 1,
+	"mapOf": 2, "mutableMapOf": 2, "hashMapOf": 2, "linkedMapOf": 2,
+}
+
+// inferFactoryTypeArgsFlat infers the type arguments of `listOf(a, b)` or `mapOf(k to v)` from the call's
+// arguments: for each position, the one type all arguments share, nullable when any of them is. It
+// returns nil when there are no arguments or any of them is unknown, a spread, not a `k to v` pair for a
+// map, or of a different type than the others, since Kotlin then infers a common supertype.
+func (r *defaultResolver) inferFactoryTypeArgsFlat(call uint32, arity int, file *scanner.File, it *ImportTable) []ResolvedType {
+	suffix := flatFindNamedChildOfType(file, call, "call_suffix")
+	if suffix == 0 {
+		return nil
+	}
+	args := flatFindNamedChildOfType(file, suffix, "value_arguments")
+	if args == 0 || file.FlatNamedChildCount(args) == 0 {
+		return nil
+	}
+	typeArgs := make([]*ResolvedType, arity)
+	for i := 0; i < file.FlatNamedChildCount(args); i++ {
+		operands := flatFactoryArgOperands(file, file.FlatNamedChild(args, i), arity)
+		if operands == nil {
+			return nil
+		}
+		for pos, operand := range operands {
+			typ := r.inferExpressionTypeFlat(operand, file, it)
+			if typ == nil || typ.Kind == TypeUnknown || !typ.Resolved || typ.FQN == "" {
+				return nil
+			}
+			if typeArgs[pos] == nil {
+				copyVal := *typ
+				typeArgs[pos] = &copyVal
+				continue
+			}
+			if typeArgs[pos].FQN != typ.FQN {
+				return nil
+			}
+			if typ.IsNullable() {
+				typeArgs[pos].Nullable = true
+			}
+		}
+	}
+	out := make([]ResolvedType, arity)
+	for i, typ := range typeArgs {
+		out[i] = *typ
+	}
+	return out
+}
+
+// flatFactoryArgOperands returns the expressions a collection factory argument contributes, one per type
+// argument: the element, or the key and value of a `k to v` pair. It returns nil for a spread, a named
+// argument, or a map argument that is not a `to` pair.
+func flatFactoryArgOperands(file *scanner.File, arg uint32, arity int) []uint32 {
+	if file.FlatType(arg) != "value_argument" || file.FlatNamedChildCount(arg) != 1 {
+		return nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(arg)), "*") {
+		return nil
+	}
+	expr := file.FlatNamedChild(arg, 0)
+	if arity == 1 {
+		return []uint32{expr}
+	}
+	if arity != 2 || file.FlatType(expr) != "infix_expression" || file.FlatNamedChildCount(expr) != 3 ||
+		file.FlatNodeText(file.FlatNamedChild(expr, 1)) != "to" {
+		return nil
+	}
+	return []uint32{file.FlatNamedChild(expr, 0), file.FlatNamedChild(expr, 2)}
+}
+
 func (r *defaultResolver) inferCallExpressionTypeFlat(idx uint32, file *scanner.File, it *ImportTable) *ResolvedType {
 	firstChild := file.FlatChild(idx, 0)
 	funcName := flatLastIdentifierText(file, firstChild)
@@ -785,6 +862,9 @@ func (r *defaultResolver) inferCallExpressionTypeFlat(idx uint32, file *scanner.
 	if resultType, ok := collectionFactories[funcName]; ok {
 		result := r.makeResolvedType(resultType, it, false)
 		r.attachFlatCallTypeArgs(result, idx, file, it)
+		if arity := factoryTypeArgArity[funcName]; arity > 0 && len(result.TypeArgs) == 0 {
+			result.TypeArgs = r.inferFactoryTypeArgsFlat(idx, arity, file, it)
+		}
 		return result
 	}
 	if funcName != "" && funcName[0] >= 'A' && funcName[0] <= 'Z' {

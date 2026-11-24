@@ -60,17 +60,26 @@ func (r *defaultResolver) applyStdlibReturnType(m *StdlibMethod, receiverType *R
 		Nullable: m.Nullable,
 		Resolved: m.ReturnType.Resolved,
 	}
-	// Propagate generic type args from receiver
-	if m.ReturnTypeArgIndex >= 0 && receiverType != nil && len(receiverType.TypeArgs) > m.ReturnTypeArgIndex {
-		arg := receiverType.TypeArgs[m.ReturnTypeArgIndex]
-		result.Name = arg.Name
-		result.FQN = arg.FQN
-		result.Kind = arg.Kind
-		result.Resolved = arg.Resolved
-		result.ProjectLookalike = arg.ProjectLookalike
-		if m.Nullable {
-			result.Nullable = true
-		}
+	if m.ReturnTypeArgIndex < 0 {
+		return result
 	}
+	// The method returns the receiver's type argument (`Flow<T>.first(): T`). When the receiver's type
+	// arguments are unknown, so is the element's nullability: a non-null `Any` would be a guess, while
+	// `firstOrNull(): T?` is an `Any?` either way.
+	if receiverType == nil || len(receiverType.TypeArgs) <= m.ReturnTypeArgIndex {
+		if m.Nullable {
+			return result
+		}
+		return UnknownType()
+	}
+	arg := receiverType.TypeArgs[m.ReturnTypeArgIndex]
+	result.Name = arg.Name
+	result.FQN = arg.FQN
+	result.Kind = arg.Kind
+	result.Resolved = arg.Resolved
+	result.ProjectLookalike = arg.ProjectLookalike
+	result.TypeArgs = arg.TypeArgs
+	// `Flow<Channel?>.first()` is a `Channel?`.
+	result.Nullable = m.Nullable || arg.IsNullable()
 	return result
 }

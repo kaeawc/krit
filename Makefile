@@ -1,4 +1,4 @@
-.PHONY: build test vet lint lint-rules fix schema clean bench integration playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch
+.PHONY: build test vet lint lint-rules fix schema clean bench integration integration-ci playground ci regression daemon-verify corpus-snapshot corpus-precision corpus-bench fir-validate fir-jar test-fanotify all install install-completions watch
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -s -w -X main.version=$(VERSION)
@@ -51,6 +51,12 @@ bench:
 
 integration: build
 	bash scripts/integration-test.sh
+
+# CI variant: the `test` job already runs every Go test package, so this only
+# compiles them (keeping the shared Go build cache complete) and runs the
+# binary, playground, and CLI/LSP/MCP end-to-end checks.
+integration-ci: build
+	KRIT_INTEGRATION_SKIP_GO_TESTS=1 bash scripts/integration-test.sh
 
 playground: build
 	./krit --no-fir -f json playground/kotlin-webservice/ | head -20

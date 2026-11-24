@@ -5,6 +5,12 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- The repository root is a GitHub Action: `uses: kaeawc/krit@vX.Y.Z`
+  installs that release, verified against `checksums.txt` (failing closed),
+  cached and on `PATH` for Linux (glibc and musl), macOS and Windows; with
+  `run: 'true'` it writes SARIF with workspace-relative paths, reports
+  `findings-count` and can upload to code scanning. Release builds move a
+  floating `v0` tag to each stable release (#1058).
 - krit reads the project's Android Lint configuration (`lint.xml` issues set
   to `severity="ignore"`, Gradle `lint { disable ... }`) and keeps its ports of
   ignored issues off unless `krit.yml` sets them active;
@@ -28,6 +34,9 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- The `krit-action` composite action counts SARIF findings with `jq`
+  (`findings-count` was always 0 outside this repository) and no longer
+  installs a binary it could not verify against `checksums.txt` (#1058).
 - A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
   whole-path globs (#1072).
 - `PackageNaming` allows digits and underscores after a segment's first

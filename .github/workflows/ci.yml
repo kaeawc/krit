@@ -741,6 +741,41 @@ jobs:
           sarif_file: results.sarif
           category: krit-self-lint
 
+  # The root action.yml (uses: kaeawc/krit@vX.Y.Z) on every runner OS: it
+  # installs a checksum-verified release, puts krit on PATH, and runs it with
+  # SARIF output. `uses: ./` has no release ref, so the version is pinned.
+  setup-action:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: krit
+        uses: ./
+        with:
+          version: '0.3.1'
+          run: 'true'
+          paths: tests/fixtures/positive/style
+          args: --no-fir
+          sarif-file: ${{ runner.temp }}/krit.sarif
+          fail-on-findings: 'false'
+      - name: Check the action's outputs
+        shell: bash
+        env:
+          VERSION: ${{ steps.krit.outputs.version }}
+          COUNT: ${{ steps.krit.outputs.findings-count }}
+          SARIF: ${{ steps.krit.outputs.sarif-file }}
+        run: |
+          set -euo pipefail
+          krit --version
+          test "$VERSION" = "0.3.1"
+          test -s "$SARIF"
+          test "$COUNT" -gt 0
+          test "$COUNT" = "$(jq '[.runs[]?.results[]?] | length' "$SARIF")"
+          echo "krit $VERSION reported $COUNT findings"
+
   # actionlint validates the workflow files themselves — catches semantic
   # mistakes (e.g. `hashFiles()` at workflow-`env` scope) that plain YAML
   # parsers accept but GitHub Actions silently rejects, causing the

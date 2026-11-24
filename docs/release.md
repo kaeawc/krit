@@ -33,6 +33,12 @@ Krit ships from `v*` tags:
   is the krit release it downloads by default; build it with
   `-PkritVersion=X.Y.Z` to match the tag.
 
+- **GitHub Action** — the root `action.yml` is versioned by the release
+  tags themselves (`uses: kaeawc/krit@vX.Y.Z`). On stable tags `release.yml`
+  moves the floating major tag (`v0`) to the release. Listing it on the
+  GitHub Marketplace is a one-time manual step from the repository's
+  release page ("Publish this Action to the GitHub Marketplace").
+
 [`nightly.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/nightly.yml) pushes a
 `vX.Y.Z-nightly.<date>` tag daily when `main` has new commits, so
 nightlies get a GitHub prerelease and nothing else.

@@ -24,8 +24,9 @@ permissions:
 
 jobs:
   publish:
-    # Stable tags only; manual dispatch always proceeds, including for recovery.
-    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
+    # Stable vX.Y.Z tags only (not prereleases, not the action's floating
+    # major tag v0); manual dispatch always proceeds, including for recovery.
+    if: ${{ github.event_name == 'workflow_dispatch' || (!contains(github.ref_name, '-') && contains(github.ref_name, '.')) }}
     runs-on: ubuntu-latest
     concurrency:
       group: publish-maven-central-${{ github.ref }}

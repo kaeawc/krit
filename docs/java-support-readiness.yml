@@ -578,6 +578,26 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_register_receiver_test.go
+  UseSupportActionBar:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_appcompat_calls_test.go
+  UseCompatLoadingForColorStateLists:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_appcompat_calls_test.go
+  UseCompatLoadingForDrawables:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_appcompat_calls_test.go
+  UseCompatTextViewDrawableApis:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_appcompat_calls_test.go
+  UseSwitchCompatOrMaterialCode:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_appcompat_calls_test.go
   UsableSpace:
     status: supported
     fixtures:

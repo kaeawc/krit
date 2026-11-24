@@ -15,6 +15,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import javax.inject.Inject
 import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
 
@@ -24,6 +25,7 @@ import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarA
  * A baseline captures all current findings so that subsequent runs only report
  * new issues. This is useful when adopting krit on an existing codebase.
  */
+@DisableCachingByDefault(because = "Captures the current findings on every run")
 abstract class KritBaselineTask @Inject constructor(
     private val execOps: ExecOperations,
 ) : DefaultTask() {

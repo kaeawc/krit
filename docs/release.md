@@ -24,14 +24,20 @@ Krit ships from `v*` tags:
   `dev.jasonpearson.krit:krit-rule-api` so external rule authors can
   compile against the SPI without vendoring the analyzer, plus the
   self-contained `:krit-fir` oracle jar (see
-  [Oracle jar on Maven Central](#oracle-jar-on-maven-central) below).
+  [Oracle jar on Maven Central](#oracle-jar-on-maven-central) below),
+  plus the `dev.jasonpearson.krit` Gradle plugin (see
+  [Gradle plugin](#gradle-plugin) below).
   Owned by
   [`publish-maven-central.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/publish-maven-central.yml).
-- **Gradle Plugin Portal** — `dev.jasonpearson.krit` Gradle plugin
-  (separate; not yet automated, see
-  [`krit-gradle-plugin/`](https://github.com/kaeawc/krit/tree/main/krit-gradle-plugin)). The plugin's version
-  is the krit release it downloads by default; build it with
-  `-PkritVersion=X.Y.Z` to match the tag.
+- **Gradle Plugin Portal** — the same `dev.jasonpearson.krit` plugin,
+  published by `publish-maven-central.yml` once `GRADLE_PUBLISH_KEY` and
+  `GRADLE_PUBLISH_SECRET` are set (skipped with a warning until then). The
+  plugin's version is the krit release it downloads by default; the
+  workflow builds it with the tag's version.
+- **Bazel Central Registry** — stable `vX.Y.Z` tags only. The `krit`
+  module in `bazel/` (see [Bazel Central Registry](#bazel-central-registry)
+  below). Owned by
+  [`publish-bcr.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/publish-bcr.yml).
 
 - **GitHub Action** — the root `action.yml` is versioned by the release
   tags themselves (`uses: kaeawc/krit@vX.Y.Z`). On stable tags `release.yml`
@@ -103,12 +109,30 @@ the `kaeawc/krit` repo. All four are required for a successful
 `publish-maven-central.yml` run; the workflow fails fast if any are
 missing during signing or upload.
 
+If your Central credentials are already in a Gradle properties file under
+the keys the vanniktech `maven-publish` plugin uses (`mavenCentralUsername`,
+`mavenCentralPassword`, `signingInMemoryKey`, `signingInMemoryKeyPassword`),
+copy them over without printing them:
+
+```bash
+scripts/release/set-maven-central-secrets.sh   # defaults to ~/.gradle/gradle.properties
+```
+
+The Central Portal account behind the token must own the
+`dev.jasonpearson.krit` namespace (or its parent `dev.jasonpearson`).
+A token that only owns another namespace is rejected at upload with
+"File is not related to an authorized namespace". Register it under
+**Publish → Namespaces** in the Central Portal and add the TXT record it
+shows to the `jasonpearson.dev` DNS zone.
+
 | Secret | Purpose |
 | --- | --- |
 | `MAVEN_CENTRAL_SIGNING_KEY` | ASCII-armored PGP private key (subkey is fine) used by Gradle's `signing` plugin to sign the publication. Generate with `gpg --armor --export-secret-keys <KEYID>`. Must be uploaded to a public keyserver (`keys.openpgp.org`) so Central can verify. |
 | `MAVEN_CENTRAL_SIGNING_PASSWORD` | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`. Empty passphrase is allowed but discouraged. |
 | `SONATYPE_USERNAME` | Sonatype Central Portal user token name (**not** the portal account email). Generate from the Central Portal "Account → Generate User Token" page. |
 | `SONATYPE_PASSWORD` | Paired Central Portal user token password. |
+| `GRADLE_PUBLISH_KEY` / `GRADLE_PUBLISH_SECRET` | Optional. Gradle Plugin Portal API key pair (plugins.gradle.org → your account → API Keys). Without them the Plugin Portal step is skipped; the plugin is still on Maven Central. |
+| `BCR_PUBLISH_TOKEN` | Optional, for `publish-bcr.yml`. Classic PAT with `repo` and `workflow` scopes that can push to `kaeawc/bazel-central-registry` (a fork of `bazelbuild/bazel-central-registry`). Without it a tag push skips the BCR publish with a warning. |
 
 When any of the four is missing, a tag push skips the publish with a
 warning naming them (the tag's other workflows are unaffected); a manual
@@ -133,7 +157,8 @@ independently of the binary release key.
 
 ```
 group:    dev.jasonpearson.krit
-artifact: krit-rule-api
+artifact: krit-rule-api | krit-fir | krit-gradle-plugin
+          dev.jasonpearson.krit.gradle.plugin   (Gradle plugin marker)
 version:  <tag-without-leading-v>
 ```
 
@@ -219,3 +244,64 @@ for what that finalize step does. Publishing the shadow jar to
 `centralPortal` with a non-SNAPSHOT version fails fast if `SIGNING_KEY`
 or `SIGNING_PASSWORD` is missing, the same guard
 `krit-rule-api` uses.
+
+## Gradle plugin
+
+`krit-gradle-plugin` publishes the plugin jar
+(`dev.jasonpearson.krit:krit-gradle-plugin`) and its plugin marker
+(`dev.jasonpearson.krit:dev.jasonpearson.krit.gradle.plugin`) to Maven
+Central in the same deployment as `krit-rule-api` and `krit-fir`. Until
+the plugin is on the Gradle Plugin Portal, consumers resolve it from
+Maven Central:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+```
+
+`com.gradle.plugin-publish` supplies the sources and javadoc jars and the
+`publishPlugins` task. The Plugin Portal step runs only for real
+publishes (tag pushes and `automatic` dispatches), since the portal has
+no staging step to drop. A plugin's first Plugin Portal release waits
+for manual approval by the Gradle team.
+
+Check the bundle locally (unsigned without a key):
+
+```bash
+cd krit-gradle-plugin
+./gradlew publishAllPublicationsToStagingDirRepository -PkritVersion=0.4.0-LOCAL
+```
+
+## Bazel Central Registry
+
+`bazel/` is a Bzlmod module that downloads the prebuilt release, so the
+registry entry only needs the tagged source archive. Nothing from Maven
+Central is involved. `publish-bcr.yml` runs bazel-contrib's
+`publish-to-bcr` reusable workflow on stable tags. It reads the templates
+in `.bcr/bazel/` (`.bcr/config.yml` sets `moduleRoots: ["bazel"]`), sets
+the module version from the tag, and opens a pull request from
+`kaeawc/bazel-central-registry` against `bazelbuild/bazel-central-registry`.
+BCR CI then runs `.bcr/bazel/presubmit.yml`, which builds the
+`bazel/e2e` test module against the new version.
+
+One-time setup:
+
+1. Fork `bazelbuild/bazel-central-registry` to `kaeawc/bazel-central-registry`.
+2. Create a classic PAT with `repo` and `workflow` scopes and save it as
+   the `BCR_PUBLISH_TOKEN` repository secret.
+
+The source archive is GitHub's generated tag tarball
+(`archive/refs/tags/<tag>.tar.gz`, see `.bcr/bazel/source.template.json`),
+which BCR's validation flags as an unstable URL. Until the release uploads
+its own source tarball, comment `@bazel-io skip_check unstable_url` on each
+registry pull request so its checks can pass.
+
+Attestations are off (`attest: false`): BCR only accepts source archive
+attestations made by bazel-contrib's `release_ruleset` workflow, which
+krit's release does not use. To republish an existing tag, dispatch
+`publish-bcr.yml` with `tag_name`.

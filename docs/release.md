@@ -134,7 +134,7 @@ shows to the `jasonpearson.dev` DNS zone.
 | `MAVEN_CENTRAL_SIGNING_PASSWORD` | Passphrase for `MAVEN_CENTRAL_SIGNING_KEY`. Empty passphrase is allowed but discouraged. |
 | `SONATYPE_USERNAME` | Sonatype Central Portal user token name (**not** the portal account email). Generate from the Central Portal "Account → Generate User Token" page. |
 | `SONATYPE_PASSWORD` | Paired Central Portal user token password. |
-| `GRADLE_PUBLISH_KEY` / `GRADLE_PUBLISH_SECRET` | Optional. Gradle Plugin Portal API key pair (plugins.gradle.org → your account → API Keys). Without them the Plugin Portal step is skipped; the plugin is still on Maven Central. |
+| `GRADLE_PUBLISH_KEY` / `GRADLE_PUBLISH_SECRET` | Optional. Gradle Plugin Portal API key pair (plugins.gradle.org → your account → API Keys). Without them the Plugin Portal step is skipped; the plugin is still on Maven Central. `scripts/release/set-maven-central-secrets.sh` copies them from `gradle.publish.key` / `gradle.publish.secret` when the properties file has both. |
 | `BCR_PUBLISH_TOKEN` | Optional, for `publish-bcr.yml`. Classic PAT with `repo` and `workflow` scopes that can push to `kaeawc/bazel-central-registry` (a fork of `bazelbuild/bazel-central-registry`). Without it a tag push skips the BCR publish with a warning. |
 
 When any of the four is missing, a tag push skips the publish with a

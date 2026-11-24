@@ -4,7 +4,26 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-24
+
 ### Added
+- The `dev.jasonpearson.krit` Gradle plugin and the
+  `dev.jasonpearson.krit.settings` settings plugin are published to Maven
+  Central (`dev.jasonpearson.krit:krit-gradle-plugin`,
+  `dev.jasonpearson.krit:krit-settings-plugin`) with their plugin markers
+  (`dev.jasonpearson.krit:dev.jasonpearson.krit.gradle.plugin`,
+  `dev.jasonpearson.krit.settings:dev.jasonpearson.krit.settings.gradle.plugin`),
+  so `kritExportModel` and FIR work without a local plugin build. Add
+  `mavenCentral()` to `pluginManagement { repositories { … } }`, keeping
+  `gradlePluginPortal()` there for other plugins. The settings plugin can also be
+  applied from a Gradle init script. Release builds resolve both plugins from
+  the staged artifacts in a throwaway project before uploading them (#1119,
+  #1122).
+- `krit-rule-api` and the `krit-fir` oracle jar publish to Maven Central on
+  every stable tag; 0.4.0 is the first version there.
+- The `krit` Bazel module is set up for the Bazel Central Registry: a stable
+  release opens the registry pull request once the GitHub release is public
+  (#1122).
 - Releases upload `krit-bazel-<tag>.tar.gz`, a reproducible source archive
   of the Bazel module, listed in `checksums.txt` and checked before the
   release is published. The Bazel Central Registry entry now downloads it
@@ -13,14 +32,24 @@ All notable changes to Krit will be documented in this file.
   against the published archive (#1195).
 
 ### Fixed
-- Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
-  finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,
-  so a recording daemon is shut down, its profile is finalized or discarded, and its `.aot.lock` build
-  lock is released (#1262).
 - Compiling the Java-facts helper gives each `javac` run a 2-minute timeout, so a `javac` that never
   exits (such as macOS's `/usr/bin/javac` stub under `JAVA_HOME=/usr`) produces the "Java facts
   unavailable" warning instead of hanging the scan. The helper's `JAVA_HOME` cache-key test now skips
   unless `javac` sits in a real JDK home (#1518).
+- Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
+  finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,
+  so a recording daemon is shut down, its profile is finalized or discarded, and its `.aot.lock` build
+  lock is released (#1262).
+- JVM helper launches no longer fail with "argument list too long" on large
+  Linux projects: the Java-facts helper, the krit-fir checker daemon and the
+  oracle's cached run pass long file lists, source dirs and classpaths through
+  a JDK argument file (#1118).
+- The settings plugin's README listed `java` among the plugins that trigger
+  auto-apply; only Kotlin JVM, Kotlin Multiplatform and the Android plugins do.
+
+### Changed
+- Cold scans are about 38% faster: rebuildable cache writes skip `fsync`
+  (#1114).
 
 ## [0.4.0] - 2026-11-24
 

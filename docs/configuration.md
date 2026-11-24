@@ -180,7 +180,7 @@ pluginManagement {
 }
 
 plugins {
-    id("dev.jasonpearson.krit.settings") version "0.4.0"
+    id("dev.jasonpearson.krit.settings") version "0.5.0"
 }
 ```
 
@@ -192,7 +192,7 @@ plugin on the init script's classpath and apply it by class:
 initscript {
     repositories { mavenCentral() }
     dependencies {
-        classpath("dev.jasonpearson.krit:krit-settings-plugin:0.4.0")
+        classpath("dev.jasonpearson.krit:krit-settings-plugin:0.5.0")
     }
 }
 

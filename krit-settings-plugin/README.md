@@ -15,7 +15,7 @@ pluginManagement {
 }
 
 plugins {
-    id("dev.jasonpearson.krit.settings") version "0.3.1"
+    id("dev.jasonpearson.krit.settings") version "0.4.0"
 }
 
 krit {

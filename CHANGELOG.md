@@ -17,6 +17,8 @@ All notable changes to Krit will be documented in this file.
   exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
   recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
   directories, up to 16 sets per scan (#1023).
+- Source-level smart casts from an early-exit guard (`if (x !is String) return`) apply only after the guard:
+  a use of `x` earlier in the same scope keeps its declared type (#1520).
 
 ## [0.5.0] - 2026-11-24
 

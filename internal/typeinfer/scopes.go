@@ -266,7 +266,8 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 				if fromPrefix[name] && !alwaysExits {
 					continue
 				}
-				scope.SetSmartCastType(name, typ)
+				// The guard narrows x only after the if-statement, not for earlier uses in the scope.
+				scope.SetSmartCastTypeAfter(name, typ, file.FlatEndByte(idx))
 			}
 		}
 		if elseBody != 0 {

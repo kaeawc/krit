@@ -151,8 +151,10 @@ type ScopeTable struct {
 	SmartCasts      map[string]bool          // variable names known to be non-null in this scope
 	SmartCastStarts map[string]uint32        // name → first byte where the non-null fact applies
 	SmartCastTypes  map[string]*ResolvedType // variable names narrowed by is-checks
-	StartByte       uint32                   // byte offset where this scope begins
-	EndByte         uint32                   // byte offset where this scope ends
+	// SmartCastTypeStarts maps a name to the first byte where its SmartCastTypes fact applies.
+	SmartCastTypeStarts map[string]uint32
+	StartByte           uint32 // byte offset where this scope begins
+	EndByte             uint32 // byte offset where this scope ends
 }
 
 // NewScope creates a child scope. Only Entries is allocated up front; the
@@ -181,6 +183,24 @@ func (s *ScopeTable) SetSmartCastType(name string, typ *ResolvedType) {
 		s.SmartCastTypes = make(map[string]*ResolvedType)
 	}
 	s.SmartCastTypes[name] = typ
+}
+
+// SetSmartCastTypeAfter records that name is narrowed to typ from startByte on, such as after an
+// early-exit guard `if (x !is T) return`. Uses of name before the guard keep their declared type. If
+// several guards establish the same fact, the earliest point is sufficient.
+func (s *ScopeTable) SetSmartCastTypeAfter(name string, typ *ResolvedType, startByte uint32) {
+	if s.SmartCastTypes != nil {
+		if _, ok := s.SmartCastTypes[name]; ok {
+			if start, hasStart := s.SmartCastTypeStarts[name]; !hasStart || start <= startByte {
+				return
+			}
+		}
+	}
+	s.SetSmartCastType(name, typ)
+	if s.SmartCastTypeStarts == nil {
+		s.SmartCastTypeStarts = make(map[string]uint32)
+	}
+	s.SmartCastTypeStarts[name] = startByte
 }
 
 // NewScopeForNode creates a child scope with byte range from the given node.
@@ -265,7 +285,7 @@ func (s *ScopeTable) LookupAt(name string, offset uint32) *ResolvedType {
 	if typ == nil {
 		return nil
 	}
-	if narrowed := s.lookupSmartCastType(name); narrowed != nil {
+	if narrowed := s.lookupSmartCastTypeAt(name, offset); narrowed != nil {
 		return narrowed
 	}
 	if typ.Nullable && s.IsSmartCastNonNullAt(name, offset) {
@@ -288,6 +308,21 @@ func (s *ScopeTable) lookupSmartCastType(name string) *ResolvedType {
 	}
 	if s.Parent != nil {
 		return s.Parent.lookupSmartCastType(name)
+	}
+	return nil
+}
+
+// lookupSmartCastTypeAt is lookupSmartCastType restricted to facts established by offset.
+func (s *ScopeTable) lookupSmartCastTypeAt(name string, offset uint32) *ResolvedType {
+	if s.SmartCastTypes != nil {
+		if t, ok := s.SmartCastTypes[name]; ok {
+			if start, hasStart := s.SmartCastTypeStarts[name]; !hasStart || offset >= start {
+				return t
+			}
+		}
+	}
+	if s.Parent != nil {
+		return s.Parent.lookupSmartCastTypeAt(name, offset)
 	}
 	return nil
 }

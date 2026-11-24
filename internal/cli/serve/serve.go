@@ -295,6 +295,8 @@ type daemonState struct {
 	mu    sync.RWMutex
 	graph *module.Graph
 	files int
+	// filesInModules is true when files counts module source roots only.
+	filesInModules bool
 
 	// configMu guards cachedConfig + configDirty. Use ensureConfig().
 	configMu     sync.Mutex
@@ -1037,7 +1039,7 @@ func (s *daemonState) warm() error {
 	}
 	s.mu.Lock()
 	s.graph = graph
-	s.files = countKotlinFiles(s.root, graph)
+	s.files, s.filesInModules = countKotlinFiles(s.root, graph)
 	s.mu.Unlock()
 	return nil
 }
@@ -1063,24 +1065,36 @@ func (s *daemonState) fileCount() int {
 	return s.files
 }
 
+// readyLine reports what startup did: module discovery and a Kotlin file
+// count. Parsing and indexing are lazy (the first analyze is the cold run),
+// so the time is labeled as discovery rather than as a warm-up.
 func (s *daemonState) readyLine(watcherLine string) string {
-	label := "module Kotlin files"
-	if s.moduleCount() == 0 {
-		label = "Kotlin files"
+	s.mu.RLock()
+	files, modules, label := s.files, 0, "Kotlin files"
+	if s.graph != nil {
+		modules = len(s.graph.Modules)
 	}
-	return fmt.Sprintf("krit daemon: ready (%d %s, %d modules, warm in %.1fs%s)",
-		s.fileCount(), label, s.moduleCount(), s.warmDuration.Seconds(), watcherLine)
+	if s.filesInModules {
+		label = "module Kotlin files"
+	}
+	s.mu.RUnlock()
+	return fmt.Sprintf("krit daemon: ready (%d %s, %d modules, discovered in %.1fs%s)",
+		files, label, modules, s.warmDuration.Seconds(), watcherLine)
 }
 
 // countKotlinFiles estimates how many Kotlin files the repo holds for the
-// ready line. It counts module source roots, or walks the repo root when
-// there is no module graph (no settings file) so the count is not a
+// ready line, and reports whether the count is scoped to module source
+// roots. It walks the repo root instead when there is no module graph (no
+// settings file) or the modules' source roots hold no Kotlin (custom
+// sourceSets, code outside src/main/kotlin), so the count is not a
 // misleading 0.
-func countKotlinFiles(root string, graph *module.Graph) int {
-	if graph == nil || len(graph.Modules) == 0 {
-		return countKotlinUnder(root, skippedWalkDirs)
+func countKotlinFiles(root string, graph *module.Graph) (int, bool) {
+	if graph != nil && len(graph.Modules) > 0 {
+		if n := countModuleFiles(graph); n > 0 {
+			return n, true
+		}
 	}
-	return countModuleFiles(graph)
+	return countKotlinUnder(root, skippedWalkDirs), false
 }
 
 func countModuleFiles(graph *module.Graph) int {

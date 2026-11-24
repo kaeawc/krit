@@ -65,11 +65,17 @@ timer; it does not configure these JVM timeouts.
 
 `krit daemon stop --repo .` stops the Go project daemon. On graceful shutdown
 it closes its oracle handles: owned JVMs shut down, while reused/shared JVMs
-only lose that connection. This is not a stop-all command for independently
-persistent helpers. There is no dedicated CLI command to stop all FIR/oracle
-JVMs.
+only lose that connection. It does not stop independently persistent
+helpers.
 
-To stop a remaining helper immediately, inspect its PID record in
+`krit daemon stop --all` stops this project's Go daemon and then every
+krit-fir and oracle helper recorded in the registry, for all projects. A
+helper is signalled only when its recorded start time proves the live PID is
+that helper, and a record another krit holds locked is left alone; stale
+records are removed. The command prints how many helpers it stopped and how
+many it left.
+
+To stop a single helper by hand instead, inspect its PID record in
 `~/.krit/cache/daemons/` (or `KRIT_DAEMON_REGISTRY_DIR` when set). Oracle records
 use `*.pid`; FIR checker records use `*.krit-fir.pid`. Verify the live process
 with `ps -p PID -o pid=,args=` and confirm that its jar and source arguments

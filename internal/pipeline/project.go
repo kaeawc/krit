@@ -871,7 +871,7 @@ func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisRe
 	// Oracle facts are produced inside IndexPhase for daemon/input-types
 	// project runs. Make the current lookup available to the bundle manifest
 	// builder that runs immediately afterward.
-	host.OracleBlobHash = indexResult.OracleBlobHash
+	host.OracleBlobHash = runOracleBlobLookup(args, host, warmPlan, &indexResult)
 	defer endProjectAnalysisTrackers(indexResult)
 	if err := loadJavaSemanticFacts(ctx, args, host, parseResult.JavaFiles, &indexResult); err != nil {
 		return ProjectAnalysisResult{}, err
@@ -3827,6 +3827,65 @@ func tryAffectedSetDispatch(
 // canonical implementation and uses preparseProjectFingerprints for
 // the Android/LibraryFacts pair (the same helper preparseBundleFingerprint
 // already trusts on the warm pre-parse fast path).
+// unknownOracleBlob is what priorOracleBlobLookup returns for a path the
+// prior run recorded no facts for. No computed fact hash equals it, so a
+// fingerprint that needed such a path cannot match a stored one.
+const unknownOracleBlob = "oracle-facts-unknown"
+
+// priorOracleBlobLookup serves the prior run's per-file oracle fact hashes,
+// or nil when it recorded none.
+func priorOracleBlobLookup(prior map[string]string) func(string) string {
+	if len(prior) == 0 {
+		return nil
+	}
+	return func(path string) string {
+		if hash, ok := prior[path]; ok {
+			return hash
+		}
+		return unknownOracleBlob
+	}
+}
+
+// previewOracleBlobLookup is the oracle-facts lookup the post-parse bundle
+// preview fingerprints with. The daemon resolves oracle facts inside
+// IndexPhase, after the preview, so it has no current lookup; for an oracle
+// run the preview then uses the prior run's facts. That is what the
+// canonical fingerprint uses for every clean file (priorOrCompute), and a
+// dirty or new file changes SourceSet anyway. Without it the preview's
+// OracleFacts was always "" and never matched, so every warm no-edit call
+// ran the oracle's jvmAnalyze before hitting the full bundle (#974).
+func previewOracleBlobLookup(args ProjectArgs, host ProjectHostState) func(string) string {
+	if host.OracleBlobHash != nil {
+		return host.OracleBlobHash
+	}
+	if !args.OracleEnabled {
+		return nil
+	}
+	return priorOracleBlobLookup(host.PriorOracleBlobHashes)
+}
+
+// skippedOracleBlobLookup returns the lookup the run's fingerprint and
+// manifest use when a confirmed bundle preview skipped the oracle: the same
+// prior facts the preview keyed on, so the run keeps the bundle's
+// fingerprint and the next manifest keeps the facts. Nil when the oracle ran
+// or the run did not depend on the preview.
+func skippedOracleBlobLookup(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, indexResult IndexResult) func(string) string {
+	if indexResult.OracleBlobHash != nil || !warm.crossIsFullBundle || !args.OracleEnabled {
+		return nil
+	}
+	return priorOracleBlobLookup(host.PriorOracleBlobHashes)
+}
+
+// runOracleBlobLookup returns the oracle-facts lookup the rest of the run
+// (fingerprint, manifest) uses, storing it in indexResult: the oracle's own,
+// or the prior facts when a confirmed bundle preview skipped the oracle.
+func runOracleBlobLookup(args ProjectArgs, host ProjectHostState, warm warmAnalysisCachePlan, indexResult *IndexResult) func(string) string {
+	if lookup := skippedOracleBlobLookup(args, host, warm, *indexResult); lookup != nil {
+		indexResult.OracleBlobHash = lookup
+	}
+	return indexResult.OracleBlobHash
+}
+
 func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseResult ParseResult) *scanner.FindingColumns {
 	if host.FindingsBundleStore == nil || host.FindingsBundleCacheRoot == "" {
 		return nil
@@ -3852,7 +3911,7 @@ func previewPostParseBundleHit(args ProjectArgs, host ProjectHostState, parseRes
 		Config:           rulesHash,
 		SourceSet:        sourceSetFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, dirty),
 		CrossFile:        crossFileStructuralFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorStructuralFPs, dirty),
-		OracleFacts:      oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, host.OracleBlobHash),
+		OracleFacts:      oracleFactsFingerprint(parseResult.KotlinFiles, parseResult.JavaFiles, host.PriorContentHashes, host.PriorOracleBlobHashes, dirty, previewOracleBlobLookup(args, host)),
 		Android:          androidFP,
 		LibraryFacts:     libraryFactsFP,
 		CompilerSettings: args.OracleKotlin.Identity(),

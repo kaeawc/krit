@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `krit daemon stop --all` also stops every krit-fir and oracle JVM helper
+  recorded in the daemon registry, signalling only helpers whose PID it can
+  prove (#974).
 - `ForegroundServicePermission` and `QueryAllPackagesPermission`, ported from Android Lint 32.4.1 and checked against
   the Lint CLI on synthetic and fuzzed manifests. `ForegroundServicePermission` reports each `foregroundServiceType`
   value of a `<service>` whose permissions are missing from the same manifest, once the manifest declares
@@ -19,6 +22,17 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- A warm daemon call with no edits no longer runs the type oracle's
+  `jvmAnalyze` before serving the full findings bundle: the post-parse bundle
+  preview keys an oracle run on the prior run's per-file oracle facts, as the
+  canonical fingerprint does for clean files, and a run the preview served
+  keeps those facts in its fingerprint and manifest (#974).
+- The daemon's `ready` line no longer reports `0 module Kotlin files` when
+  module source roots hold no Kotlin (custom `sourceSets`); it counts the
+  repository instead, and labels its time as module discovery, since
+  analysis is lazy (#974).
+- Warnings from the daemon-side FIR preflight reach a `-v` client instead of
+  only the daemon's stderr (#974).
 - A `--fir` scan whose FIR pass returns without a usable verdict now reports
   it like a checker failure (a warning, `summary.firDegraded`, exit 2 under
   `--fail-on-degraded`) instead of silently returning Go-only findings: the

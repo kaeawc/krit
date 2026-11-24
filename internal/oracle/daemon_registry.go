@@ -1144,3 +1144,54 @@ func ConnectOrStartDaemon(jarPath string, sourceDirs []string, classpath []strin
 
 	return d, nil
 }
+
+// StopRegisteredDaemons stops every oracle daemon recorded in the registry
+// (KRIT_DAEMON_REGISTRY_DIR, else ~/.krit/cache/daemons) through
+// stopDaemonSlotIf, so a record is acted on only under its lock and a live
+// PID is signalled only when it is proven to be the daemon. krit-fir records
+// share the directory and are skipped. It returns how many records it
+// stopped or cleared and how many it left (locked, or unproven).
+func StopRegisteredDaemons(verbose bool) (stopped, left int) {
+	dir, err := daemonsDir()
+	if err != nil {
+		return 0, 0
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.pid"))
+	if err != nil {
+		return 0, 0
+	}
+	for _, path := range paths {
+		name := filepath.Base(path)
+		if strings.HasSuffix(name, ".krit-fir.pid") {
+			continue
+		}
+		hash, slot, ok := parseDaemonPIDFileName(name)
+		if !ok {
+			continue
+		}
+		if stopDaemonSlotIf(hash, slot, 0, verbose) {
+			stopped++
+		} else {
+			left++
+		}
+	}
+	return stopped, left
+}
+
+// parseDaemonPIDFileName inverts daemonPIDFileName: "<hash>.pid" is slot 0,
+// "<hash>.<slot>.pid" a numbered slot.
+func parseDaemonPIDFileName(name string) (string, int, bool) {
+	stem, ok := strings.CutSuffix(name, ".pid")
+	if !ok || stem == "" {
+		return "", 0, false
+	}
+	hash, slotText, hasSlot := strings.Cut(stem, ".")
+	if !hasSlot {
+		return stem, 0, true
+	}
+	slot, err := strconv.Atoi(slotText)
+	if err != nil || slot <= 0 || hash == "" {
+		return "", 0, false
+	}
+	return hash, slot, true
+}

@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -91,6 +92,10 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		state.analyzeMu.Unlock()
 		return nil, err
 	}
+	// The FIR preflight runs before the request's reporter exists; its
+	// warnings (a stale Gradle model, unbuilt module outputs) are held and
+	// forwarded to the client once it does.
+	var preflightWarnings bytes.Buffer
 	if args.Fir {
 		if !args.FirPreflightPassed {
 			paths := args.Paths
@@ -102,7 +107,7 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 				state.analyzeMu.Unlock()
 				return nil, cfgErr
 			}
-			model, preflightErr := scan.PreflightFIR(context.Background(), paths, cfg, args.GradleModel, args.NoGradleModel, os.Stderr)
+			model, preflightErr := scan.PreflightFIR(context.Background(), paths, cfg, args.GradleModel, args.NoGradleModel, &preflightWarnings)
 			if preflightErr != nil {
 				state.analyzeMu.Unlock()
 				return nil, preflightErr
@@ -129,6 +134,7 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		return nil, err
 	}
 	streamVerboseOutput(ctx, state, args, in.Host.Reporter)
+	forwardPreflightWarnings(preflightWarnings.Bytes(), in.Host.Reporter, os.Stderr)
 	in.Host.SourceSetClean = !cold && len(dirty) == 0
 	dropStalePrepopulatedPaths(&in, cold, dirty)
 	if !cold {
@@ -870,4 +876,18 @@ func oracleDaemonMatcher(d *oracle.Daemon) firchecks.ContextMatcher {
 	return func(jarPath string, sourceDirs []string, kt gradlemodel.KotlinSettings, classpath []string) bool {
 		return d.MatchesRepoSettings(jarPath, sourceDirs, kt, classpath...)
 	}
+}
+
+// forwardPreflightWarnings sends the daemon-side FIR preflight's warnings to
+// the request's reporter, which a -v client receives, and otherwise to the
+// daemon's own stderr as before.
+func forwardPreflightWarnings(warnings []byte, reporter *diag.Reporter, fallback io.Writer) {
+	if len(warnings) == 0 {
+		return
+	}
+	if reporter != nil && reporter.Warning != nil {
+		_, _ = reporter.Warning.Write(warnings)
+		return
+	}
+	_, _ = fallback.Write(warnings)
 }

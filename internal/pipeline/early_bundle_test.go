@@ -264,3 +264,80 @@ func TestPreviewPostParseBundleHit_SkipsFullBundleLoadWhenFpDiffers(t *testing.T
 		t.Errorf("fp != prior.Fingerprint must skip cacheHitFullBundle Load; got loadCalls=%d", store.loadCalls)
 	}
 }
+
+// The daemon resolves oracle facts inside IndexPhase, after the preview, so
+// the preview has no current lookup (host.OracleBlobHash is nil). For an
+// oracle run it must key on the prior run's facts, as the canonical
+// fingerprint does for clean files; otherwise its OracleFacts was always ""
+// and every warm no-edit call ran jvmAnalyze before hitting the full bundle
+// (#974). With the oracle off this run, the prior oracle facts must not let
+// it hit.
+func TestPreviewPostParseBundleHit_OracleRunUsesPriorFacts(t *testing.T) {
+	priorContent := map[string]string{"/repo/Foo.kt": "h1", "/repo/Bar.kt": "h2"}
+	priorBlobs := map[string]string{"/repo/Foo.kt": "facts-foo", "/repo/Bar.kt": "facts-bar"}
+	parseResult := ParseResult{}
+	for _, oracleEnabled := range []bool{true, false} {
+		t.Run(map[bool]string{true: "oracle", false: "no-oracle"}[oracleEnabled], func(t *testing.T) {
+			args := ProjectArgs{Paths: []string{"/repo"}, Version: "test", OracleEnabled: oracleEnabled}
+			host := ProjectHostState{
+				FindingsBundleCacheRoot: "/tmp/cache",
+				PriorContentHashes:      priorContent,
+				PriorOracleBlobHashes:   priorBlobs,
+			}
+			rulesHash := projectRuleHash(args.ActiveRules, args.Config)
+			androidFP, libraryFactsFP := preparseProjectFingerprints(args, host)
+			// The prior oracle run's fingerprint, built from its real facts.
+			prior := scanner.FindingsBundleManifest{
+				Fingerprint: scanner.RunFingerprint{
+					Version:      args.Version,
+					Rules:        rulesHash,
+					Config:       rulesHash,
+					SourceSet:    sourceSetFingerprint(nil, nil, priorContent, nil),
+					CrossFile:    crossFileStructuralFingerprint(nil, nil, nil, nil),
+					OracleFacts:  oracleFactsFingerprint(nil, nil, priorContent, nil, nil, func(path string) string { return priorBlobs[path] }),
+					Android:      androidFP,
+					LibraryFacts: libraryFactsFP,
+				},
+				ContentHashes:    priorContent,
+				OracleBlobHashes: priorBlobs,
+			}
+			cached := &scanner.FindingColumns{}
+			store := &recordingPreviewStore{loaded: cached}
+			host.FindingsBundleStore = store
+			host.FindingsBundleManifestLoader = func(string) (scanner.FindingsBundleManifest, bool) { return prior, true }
+
+			got := previewPostParseBundleHit(args, host, parseResult)
+			if oracleEnabled && got != cached {
+				t.Fatalf("oracle run without a current lookup must hit on prior facts; loadCalls=%d", store.loadCalls)
+			}
+			if !oracleEnabled && got != nil {
+				t.Fatal("a run without the oracle must not hit a bundle keyed on oracle facts")
+			}
+		})
+	}
+}
+
+func TestSkippedOracleBlobLookup(t *testing.T) {
+	prior := map[string]string{"/repo/Foo.kt": "facts-foo"}
+	host := ProjectHostState{PriorOracleBlobHashes: prior}
+	args := ProjectArgs{OracleEnabled: true}
+	hit := warmAnalysisCachePlan{crossIsFullBundle: true}
+
+	lookup := skippedOracleBlobLookup(args, host, hit, IndexResult{})
+	if lookup == nil || lookup("/repo/Foo.kt") != "facts-foo" || lookup("/repo/New.kt") != unknownOracleBlob {
+		t.Fatal("a confirmed preview hit must carry the prior facts")
+	}
+	ran := func(string) string { return "fresh" }
+	if skippedOracleBlobLookup(args, host, hit, IndexResult{OracleBlobHash: ran}) != nil {
+		t.Fatal("the oracle's own facts take precedence")
+	}
+	if skippedOracleBlobLookup(args, host, warmAnalysisCachePlan{}, IndexResult{}) != nil {
+		t.Fatal("without a confirmed preview hit the run keeps its own (absent) facts")
+	}
+	if skippedOracleBlobLookup(ProjectArgs{}, host, hit, IndexResult{}) != nil {
+		t.Fatal("a run without the oracle keeps no oracle facts")
+	}
+	if skippedOracleBlobLookup(args, ProjectHostState{}, hit, IndexResult{}) != nil {
+		t.Fatal("no prior facts, no lookup")
+	}
+}

@@ -24,6 +24,12 @@ All notable changes to Krit will be documented in this file.
 - The `krit` Bazel module is set up for the Bazel Central Registry: a stable
   release opens the registry pull request once the GitHub release is public
   (#1122).
+- Releases upload `krit-bazel-<tag>.tar.gz`, a reproducible source archive
+  of the Bazel module, listed in `checksums.txt` and checked before the
+  release is published. The Bazel Central Registry entry now downloads it
+  from the release, so registry pull requests pass BCR's stable-URL check
+  without a `skip_check` comment. Nightly releases run the Bazel e2e module
+  against the published archive (#1195).
 
 ### Fixed
 - Compiling the Java-facts helper gives each `javac` run a 2-minute timeout, so a `javac` that never

@@ -11,7 +11,10 @@ Krit ships from `v*` tags:
   plugin, VS Code extension, and `install.sh` all download these archives
   and verify them against `checksums.txt`. Released CLIs download
   `krit-fir-<tag>.jar` the same way, so the release job fails when that jar
-  is missing, is not a jar, or has no matching `checksums.txt` line. The
+  is missing, is not a jar, or has no matching `checksums.txt` line. Every
+  release also carries `krit-bazel-<tag>.tar.gz`, the source archive of the
+  Bazel module (see [Bazel Central Registry](#bazel-central-registry)),
+  checked the same way. The
   release is created as a draft, each asset upload is retried up to three
   times, and the draft is published only after the uploaded asset list is
   checked (`internal/devtools/releaseassets`).
@@ -303,7 +306,7 @@ scripts/release/plugin-smoke.sh 0.4.0-LOCAL \
 ## Bazel Central Registry
 
 `bazel/` is a Bzlmod module that downloads the prebuilt release, so the
-registry entry only needs the tagged source archive. Nothing from Maven
+registry entry only needs the module's source archive. Nothing from Maven
 Central is involved. `publish-bcr.yml` runs bazel-contrib's
 `publish-to-bcr` reusable workflow on stable tags. It reads the templates
 in `.bcr/bazel/` (`.bcr/config.yml` sets `moduleRoots: ["bazel"]`), sets
@@ -318,11 +321,31 @@ One-time setup:
 2. Create a classic PAT with `repo` and `workflow` scopes and save it as
    the `BCR_PUBLISH_TOKEN` repository secret.
 
-The source archive is GitHub's generated tag tarball
-(`archive/refs/tags/<tag>.tar.gz`, see `.bcr/bazel/source.template.json`),
-which BCR's validation flags as an unstable URL. Until the release uploads
-its own source tarball, comment `@bazel-io skip_check unstable_url` on each
-registry pull request so its checks can pass.
+The source archive is the release asset `krit-bazel-<tag>.tar.gz`, which
+`release.yml` builds with `scripts/release/bazel-source-archive.sh`
+(`git archive` of `bazel/` at the tag, so a rebuild is byte-identical) and
+lists in `checksums.txt`. `.bcr/bazel/source.template.json` points at
+`releases/download/<tag>/krit-bazel-<tag>.tar.gz` with `strip_prefix`
+`krit-bazel-<tag>/bazel`; BCR treats release-download URLs as stable, so
+its validation passes without a `skip_check` comment. A test in
+`internal/devtools/releaseassets` keeps the template and the asset name in
+step. publish-to-bcr stamps the tag's version into the entry's
+`MODULE.bazel`; the copy in `bazel/` stays at `0.0.0`.
+
+On nightly tags the `bazel-e2e` job in `release.yml` checks the published
+archive the way a registry entry consumes it: `scripts/release/bazel-e2e.sh`
+writes a local registry whose `source.json` points at the archive, and runs
+the `bazel/e2e` test module against it, which downloads that nightly's
+binaries. Run it locally against any published release (needs Bazelisk):
+
+```bash
+scripts/release/bazel-e2e.sh v0.5.0-nightly.20261124
+# Test unreleased bazel/ changes against v0.4.0's binaries: in a scratch
+# clone (never push it), point a local v0.4.0 tag at your commit first.
+git tag -f v0.4.0 HEAD
+scripts/release/bazel-source-archive.sh v0.4.0 /tmp/out
+scripts/release/bazel-e2e.sh v0.4.0 /tmp/out/krit-bazel-v0.4.0.tar.gz
+```
 
 Attestations are off (`attest: false`): BCR only accepts source archive
 attestations made by bazel-contrib's `release_ruleset` workflow, which

@@ -1,5 +1,7 @@
 // Command releaseassets checks that a release carries the krit-fir jar that
-// released CLIs download, together with a checksums.txt line that verifies it.
+// released CLIs download and the Bazel module source archive that Bazel
+// Central Registry entries point at, each with a checksums.txt line that
+// verifies it.
 //
 // Before publishing, check the assembled dist directory:
 //
@@ -13,9 +15,11 @@
 package main
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -47,34 +51,53 @@ func main() {
 		fmt.Fprintf(os.Stderr, "release assets: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("release assets: %s ok\n", firJarName(*tag))
+	fmt.Printf("release assets: %s and %s ok\n", firJarName(*tag), bazelArchiveName(*tag))
 }
 
 // firJarName is the krit-fir release asset a CLI built for tag downloads.
 // It must match oracle.BackendFIR's asset name; a test pins that.
 func firJarName(tag string) string { return "krit-fir-" + tag + ".jar" }
 
+// bazelArchiveName is the Bazel module source archive that
+// scripts/release/bazel-source-archive.sh builds for tag and that
+// .bcr/bazel/source.template.json downloads; a test pins the template.
+func bazelArchiveName(tag string) string { return "krit-bazel-" + tag + ".tar.gz" }
+
+// bazelModuleFile is MODULE.bazel's path inside the Bazel source archive; the
+// template's strip_prefix is its directory.
+func bazelModuleFile(tag string) string { return "krit-bazel-" + tag + "/bazel/MODULE.bazel" }
+
 // requiredPublished are the assets, besides platform archives, that the jar
-// download and its verification need.
+// download, the Bazel module and their verification need.
 func requiredPublished(tag string) []string {
-	return []string{firJarName(tag), "checksums.txt", "checksums.txt.sig"}
+	return []string{firJarName(tag), bazelArchiveName(tag), "checksums.txt", "checksums.txt.sig"}
 }
 
-// checkDir verifies the jar in dir is a readable jar with a manifest and that
-// checksums.txt lists its SHA-256.
+// checkDir verifies the jar in dir is a readable jar with a manifest, that
+// the Bazel source archive holds the module, and that checksums.txt lists the
+// SHA-256 of both.
 func checkDir(dir, tag string) error {
-	name := firJarName(tag)
-	jarPath := filepath.Join(dir, name)
-	data, err := os.ReadFile(jarPath)
-	if err != nil {
-		return fmt.Errorf("missing %s: %w", name, err)
-	}
-	if err := checkJar(data); err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
 	sums, err := os.ReadFile(filepath.Join(dir, "checksums.txt"))
 	if err != nil {
 		return fmt.Errorf("missing checksums.txt: %w", err)
+	}
+	if err := checkAsset(dir, firJarName(tag), sums, checkJar); err != nil {
+		return err
+	}
+	return checkAsset(dir, bazelArchiveName(tag), sums, func(data []byte) error {
+		return checkTarGzHas(data, bazelModuleFile(tag))
+	})
+}
+
+// checkAsset reads name from dir, runs check on its content, and requires
+// sums to list its SHA-256.
+func checkAsset(dir, name string, sums []byte, check func([]byte) error) error {
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return fmt.Errorf("missing %s: %w", name, err)
+	}
+	if err := check(data); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	want, err := checksumFor(sums, name)
 	if err != nil {
@@ -85,6 +108,28 @@ func checkDir(dir, tag string) error {
 		return fmt.Errorf("checksums.txt lists %x for %s, file hashes to %x", want, name, got)
 	}
 	return nil
+}
+
+// checkTarGzHas requires a gzip-compressed tar archive with a regular file
+// named want.
+func checkTarGzHas(data []byte, want string) error {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("not a gzip archive: %w", err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("no %s", want)
+		}
+		if err != nil {
+			return fmt.Errorf("not a tar archive: %w", err)
+		}
+		if h.Name == want && h.Typeflag == tar.TypeReg {
+			return nil
+		}
+	}
 }
 
 // checkJar requires a zip archive with a META-INF/MANIFEST.MF entry.

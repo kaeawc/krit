@@ -77,6 +77,7 @@ type PendingPass struct {
 	targets             passTargetSet
 	requested, excluded []string
 	buildLogicExcluded  int
+	rules               []string
 	done                chan checkOutcome
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -149,6 +150,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		return p
 	}
 	p.targets, p.requested, p.excluded, p.buildLogicExcluded = plan.targets, plan.requested, plan.excluded, plan.buildLogicExcluded
+	p.rules = plan.rules
 	requested := slices.Clone(p.requested)
 	sourceDirs, classpath, ruleNames := slices.Clone(opts.SourceDirs), slices.Clone(opts.Classpath), plan.rules
 	configs, facts := plan.configs, plan.facts
@@ -263,37 +265,31 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	select {
 	case outcome = <-p.done:
 	case <-p.ctx.Done():
-		return base, p.ctx.Err()
+		// The scan keeps Go's findings; record that, so a caller that still
+		// reports them does not present them as a complete FIR result.
+		err := p.ctx.Err()
+		if opts.OnDegraded != nil {
+			opts.OnDegraded(fmt.Errorf("FIR pass cancelled: %w", err))
+		}
+		return base, err
 	}
 	p.Cancel()
 	result, err := outcome.result, outcome.err
 	verbose := opts.Verbose && opts.VerboseOut != nil
 	if err != nil {
-		// Always visible: the result holds only Go findings, which looks complete.
-		reporter().Warnf("warning: --fir checker failed (%v); results contain Go-only findings\n", err)
-		if opts.OnDegraded != nil {
-			opts.OnDegraded(err)
-		}
+		reportDegraded(opts, err)
 		if verbose {
 			fmt.Fprintf(opts.VerboseOut, "verbose: FIR checker error: %v\n", err)
 		}
 		return base, nil
 	}
-	if opts.Config != nil && len(opts.Config.FIR().GoAuthoritativeRules) > 0 {
-		goAuthoritative := make(map[string]bool)
-		for _, rule := range opts.Config.FIR().GoAuthoritativeRules {
-			goAuthoritative[rule] = true
-		}
-		filtered := make([]string, 0, len(result.Rules))
-		for _, rule := range result.Rules {
-			if !goAuthoritative[rule] {
-				filtered = append(filtered, rule)
-			}
-		}
-		copyResult := *result
-		copyResult.Rules = filtered
-		result = &copyResult
+	if lost := lostPassError(result, p.requested, p.rules); lost != nil {
+		// The check returned, but ApplyVerdict will keep Go's findings for
+		// every file. Report it like a checker error, then still apply the
+		// (empty) verdict so verbose mode explains the gating.
+		reportDegraded(opts, lost)
 	}
+	result = withoutGoAuthoritativeRules(result, opts.Config)
 
 	merged, stats := ApplyVerdict(VerdictInput{
 		Go:          base,
@@ -319,6 +315,84 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		}
 	}
 	return merged, nil
+}
+
+// reportDegraded makes a pass whose result holds only Go findings visible:
+// those findings look complete, so the warning is printed even without -v.
+func reportDegraded(opts PassOptions, err error) {
+	reporter().Warnf("warning: --fir checker failed (%v); results contain Go-only findings\n", err)
+	if opts.OnDegraded != nil {
+		opts.OnDegraded(err)
+	}
+}
+
+// withoutGoAuthoritativeRules drops the rules the config keeps Go-authoritative
+// (fir.goAuthoritativeRules) from the rules FIR owns.
+func withoutGoAuthoritativeRules(result *Result, cfg *config.Config) *Result {
+	if cfg == nil || len(cfg.FIR().GoAuthoritativeRules) == 0 {
+		return result
+	}
+	goAuthoritative := make(map[string]bool)
+	for _, rule := range cfg.FIR().GoAuthoritativeRules {
+		goAuthoritative[rule] = true
+	}
+	filtered := make([]string, 0, len(result.Rules))
+	for _, rule := range result.Rules {
+		if !goAuthoritative[rule] {
+			filtered = append(filtered, rule)
+		}
+	}
+	copyResult := *result
+	copyResult.Rules = filtered
+	return &copyResult
+}
+
+// lostPassError reports a check that returned without error but left FIR no
+// verdict to apply, so ApplyVerdict would keep Go's findings for every file:
+// krit-fir advertised none of the requested rules although some have a FIR
+// checker, or it crashed on or failed to compile every requested file (a
+// compiler exception under memory pressure marks every file of the compile
+// crashed). Nil when FIR owns at least one file and rule, when nothing was
+// requested, or when no requested rule has a FIR checker (every active rule
+// ID is sent; the jar advertises the ones it implements).
+func lostPassError(result *Result, requested, rules []string) error {
+	if len(requested) == 0 {
+		return nil
+	}
+	known := slices.ContainsFunc(rules, IsKnownFIRRule)
+	if result == nil {
+		if !known {
+			return nil
+		}
+		return fmt.Errorf("krit-fir returned no result for %d files", len(requested))
+	}
+	if len(result.Rules) == 0 {
+		if !known {
+			return nil
+		}
+		return fmt.Errorf("krit-fir ran none of the requested rules on %d files", len(requested))
+	}
+	crashed, failed := 0, 0
+	firstReason := ""
+	for _, path := range requested {
+		if msg, ok := result.Crashed[path]; ok {
+			crashed++
+			if firstReason == "" {
+				firstReason = "crashed: " + firstLine(msg)
+			}
+			continue
+		}
+		msg, ok := result.ErrorFiles[path]
+		if !ok {
+			return nil
+		}
+		failed++
+		if firstReason == "" {
+			firstReason = firstLine(msg)
+		}
+	}
+	return fmt.Errorf("krit-fir had no usable verdict for any of %d files (%d crashed, %d with compiler errors; first: %s)",
+		len(requested), crashed, failed, firstReason)
 }
 
 // maxGatedFilesListed caps the per-file gating lines in verbose output.

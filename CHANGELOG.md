@@ -28,6 +28,13 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- A `--fir` scan whose FIR pass returns without a usable verdict now reports
+  it like a checker failure (a warning, `summary.firDegraded`, exit 2 under
+  `--fail-on-degraded`) instead of silently returning Go-only findings: the
+  compile crashed or failed for every requested file, the jar ran none of the
+  requested FIR rules, or the pass was cancelled. A crash shared by every
+  file of a compile is no longer cached, so it is not replayed on later
+  runs (#994).
 - A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
   whole-path globs (#1072).
 - `PackageNaming` allows digits and underscores after a segment's first

@@ -10,6 +10,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -30,7 +31,7 @@ var (
 )
 
 func init() {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithLowerEncoderMem(true))
+	enc, err := cacheutil.NewZstdEncoder()
 	if err != nil {
 		panic(fmt.Sprintf("init cache zstd encoder: %v", err))
 	}

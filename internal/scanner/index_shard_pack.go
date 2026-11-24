@@ -42,19 +42,20 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/zstd"
+
+	"github.com/kaeawc/krit/internal/cacheutil"
 )
 
 // Per-process zstd codec for shard blobs. Both encoder and decoder are
-// safe for concurrent EncodeAll / DecodeAll. Level=SpeedDefault (~3)
-// hits the documented ~5× ratio at ~1 GB/s decompress on M-class
-// silicon, well below disk-read amortisation.
+// safe for concurrent EncodeAll / DecodeAll. The encoder uses the shared
+// cache level (cacheutil.ZstdEncoderLevel).
 var (
 	shardZstdEncoder *zstd.Encoder
 	shardZstdDecoder *zstd.Decoder
 )
 
 func init() {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithLowerEncoderMem(true))
+	enc, err := cacheutil.NewZstdEncoder()
 	if err != nil {
 		panic(fmt.Sprintf("init shard zstd encoder: %v", err))
 	}

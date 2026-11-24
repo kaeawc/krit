@@ -3,6 +3,7 @@ package typeinfer
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/analyzers/astflat"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -217,22 +218,17 @@ func flatPropertyDeclarationIsLocal(file *scanner.File, idx uint32) bool {
 }
 
 func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
+	thenBody, elseBody := flatIfBranchBodies(file, idx)
+
 	nullVars, isChecks := r.extractConjunctionChecksFlat(idx, file, it)
 	if len(nullVars) > 0 || len(isChecks) > 0 {
-		flatForEachRelevantScopeChild(file, idx, func(child uint32) {
-			if file.FlatType(child) == "control_structure_body" {
-				childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-				for _, v := range nullVars {
-					childScope.SetSmartCast(v)
-				}
-				for varName, typ := range isChecks {
-					childScope.SetSmartCastType(varName, typ)
-				}
-				flatForEachRelevantScopeChild(file, child, func(gc uint32) {
-					r.buildScopesFlat(gc, file, childScope, it)
-				})
-			} else {
-				r.buildScopesFlat(child, file, scope, it)
+		// The conjunction holds only in the then-branch; the else-branch learns nothing about any one operand.
+		r.buildIfBranchScopesFlat(idx, thenBody, file, scope, it, func(branch *ScopeTable) {
+			for _, v := range nullVars {
+				branch.SetSmartCast(v)
+			}
+			for varName, typ := range isChecks {
+				branch.SetSmartCastType(varName, typ)
 			}
 		})
 		return
@@ -240,16 +236,8 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 
 	varName, isNotNullCheck, isNullCheck, _ := r.extractNullCheckFromIfFlatByIdx(idx, file)
 	if varName != "" && isNotNullCheck {
-		flatForEachRelevantScopeChild(file, idx, func(child uint32) {
-			if file.FlatType(child) == "control_structure_body" {
-				childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-				childScope.SetSmartCast(varName)
-				flatForEachRelevantScopeChild(file, child, func(gc uint32) {
-					r.buildScopesFlat(gc, file, childScope, it)
-				})
-			} else {
-				r.buildScopesFlat(child, file, scope, it)
-			}
+		r.buildIfBranchScopesFlat(idx, thenBody, file, scope, it, func(branch *ScopeTable) {
+			branch.SetSmartCast(varName)
 		})
 		return
 	}
@@ -259,29 +247,92 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 	}
 
 	isVarName, targetType, isPositive, _ := r.extractIsCheckFromIfFlatByIdx(idx, file, it)
-	if isVarName != "" && targetType != nil {
-		if isPositive {
-			flatForEachRelevantScopeChild(file, idx, func(child uint32) {
-				if file.FlatType(child) == "control_structure_body" {
-					childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-					childScope.SetSmartCastType(isVarName, targetType)
-					flatForEachRelevantScopeChild(file, child, func(gc uint32) {
-						r.buildScopesFlat(gc, file, childScope, it)
-					})
-				} else {
-					r.buildScopesFlat(child, file, scope, it)
+	if isVarName != "" && targetType != nil && isPositive {
+		// `x is T` holds in the then-branch only: in the else-branch x is "not T".
+		r.buildIfBranchScopesFlat(idx, thenBody, file, scope, it, func(branch *ScopeTable) {
+			branch.SetSmartCastType(isVarName, targetType)
+		})
+		return
+	}
+
+	// `x !is T`, alone or as an operand of `||`, is false whenever the condition is false: after an early
+	// exit and in the else-branch, x is a T.
+	if negated := r.extractNegatedIsChecksFromIfFlat(idx, file, it); len(negated) > 0 {
+		if r.ifBodyIsEarlyReturnFlat(idx, file) {
+			for name, typ := range negated {
+				scope.SetSmartCastType(name, typ)
+			}
+		}
+		if elseBody != 0 {
+			r.buildIfBranchScopesFlat(idx, elseBody, file, scope, it, func(branch *ScopeTable) {
+				for name, typ := range negated {
+					branch.SetSmartCastType(name, typ)
 				}
 			})
 			return
-		}
-		if r.ifBodyIsEarlyReturnFlat(idx, file) {
-			scope.SetSmartCastType(isVarName, targetType)
 		}
 	}
 
 	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
 		r.buildScopesFlat(child, file, scope, it)
 	})
+}
+
+// buildIfBranchScopesFlat builds the scopes of an if-expression's children. Every branch body gets its own
+// child scope, so its locals and post-statement facts stay inside it; only narrowed (one branch body) also
+// gets the facts narrow records. Other children are built in scope.
+func (r *defaultResolver) buildIfBranchScopesFlat(ifIdx, narrowed uint32, file *scanner.File, scope *ScopeTable, it *ImportTable, narrow func(branch *ScopeTable)) {
+	flatForEachRelevantScopeChild(file, ifIdx, func(child uint32) {
+		if file.FlatType(child) != "control_structure_body" {
+			r.buildScopesFlat(child, file, scope, it)
+			return
+		}
+		branch := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
+		if child == narrowed {
+			narrow(branch)
+		}
+		flatForEachRelevantScopeChild(file, child, func(gc uint32) {
+			r.buildScopesFlat(gc, file, branch, it)
+		})
+	})
+}
+
+// flatUnwrapParenthesizedExpression strips redundant parentheses around an expression.
+func flatUnwrapParenthesizedExpression(file *scanner.File, idx uint32) uint32 {
+	for idx != 0 && file.FlatType(idx) == "parenthesized_expression" {
+		inner := uint32(0)
+		for i := 0; i < file.FlatNamedChildCount(idx); i++ {
+			if c := file.FlatNamedChild(idx, i); c != 0 {
+				inner = c
+				break
+			}
+		}
+		idx = inner
+	}
+	return idx
+}
+
+// flatIfBranchBodies returns the then-body and the else-body (0 when absent) of an if-expression.
+func flatIfBranchBodies(file *scanner.File, ifIdx uint32) (thenBody, elseBody uint32) {
+	if file == nil || file.FlatTree == nil || ifIdx == 0 {
+		return 0, 0
+	}
+	afterElse := false
+	for child := file.FlatFirstChild(ifIdx); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "else":
+			afterElse = true
+		case "control_structure_body":
+			if afterElse {
+				if elseBody == 0 {
+					elseBody = child
+				}
+			} else if thenBody == 0 {
+				thenBody = child
+			}
+		}
+	}
+	return thenBody, elseBody
 }
 
 func (r *defaultResolver) buildWhenExpressionScopesFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
@@ -346,7 +397,18 @@ func flatWhenEntryTargetType(file *scanner.File, entryIdx uint32, it *ImportTabl
 	if file == nil || file.FlatTree == nil || entryIdx == 0 {
 		return nil
 	}
-	cond, _ := file.FlatFindChild(entryIdx, "when_condition")
+	cond := uint32(0)
+	for i := 0; i < file.FlatNamedChildCount(entryIdx); i++ {
+		c := file.FlatNamedChild(entryIdx, i)
+		if c == 0 || file.FlatType(c) != "when_condition" {
+			continue
+		}
+		if cond != 0 {
+			// `is A, is B ->` proves only "A or B", so no single type narrows the entry.
+			return nil
+		}
+		cond = c
+	}
 	if cond == 0 {
 		return nil
 	}
@@ -444,8 +506,59 @@ func (r *defaultResolver) extractIsCheckFromIfFlatByIdx(ifIdx uint32, file *scan
 		return "", nil, false, false
 	}
 
-	isNode := flatFirstDescendantOfType(file, condRoot, "check_expression")
-	if isNode == 0 || file.FlatChildCount(isNode) < 3 {
+	// Only a check that is the whole condition narrows a branch: under `||`, `!` or a call argument it does not hold.
+	return r.checkExpressionFactFlat(flatUnwrapParenthesizedExpression(file, condRoot), file, it)
+}
+
+// extractNegatedIsChecksFromIfFlat returns the `x !is T` checks that all hold when the if-condition is false:
+// the condition itself, or any operand of a top-level `||` chain (nested and parenthesized `||` included).
+func (r *defaultResolver) extractNegatedIsChecksFromIfFlat(ifIdx uint32, file *scanner.File, it *ImportTable) map[string]*ResolvedType {
+	condRoot := flatIfConditionNode(file, ifIdx)
+	if condRoot == 0 {
+		return nil
+	}
+	checks := make(map[string]*ResolvedType)
+	var collect func(node uint32)
+	collect = func(node uint32) {
+		node = flatUnwrapParenthesizedExpression(file, node)
+		switch file.FlatType(node) {
+		case "disjunction_expression":
+			for i := 0; i < file.FlatChildCount(node); i++ {
+				if child := file.FlatChild(node, i); child != 0 && file.FlatIsNamed(child) {
+					collect(child)
+				}
+			}
+		case "check_expression":
+			if name, typ, positive, ok := r.checkExpressionFactFlat(node, file, it); ok && !positive {
+				checks[name] = typ
+			}
+		case "prefix_expression":
+			// `!(x is T)` is false exactly when `x is T` holds, like `x !is T`.
+			if !astflat.PrefixExpressionIsNot(file, node) {
+				return
+			}
+			inner := flatUnwrapParenthesizedExpression(file, flatLastNamedChildFlat(file, node))
+			if name, typ, positive, ok := r.checkExpressionFactFlat(inner, file, it); ok && positive {
+				checks[name] = typ
+			}
+		}
+	}
+	collect(condRoot)
+	return checks
+}
+
+// flatLastNamedChildFlat returns idx's last named child, or 0.
+func flatLastNamedChildFlat(file *scanner.File, idx uint32) uint32 {
+	n := file.FlatNamedChildCount(idx)
+	if n == 0 {
+		return 0
+	}
+	return file.FlatNamedChild(idx, n-1)
+}
+
+// checkExpressionFactFlat reads `x is T` / `x !is T` from a check_expression node.
+func (r *defaultResolver) checkExpressionFactFlat(isNode uint32, file *scanner.File, it *ImportTable) (string, *ResolvedType, bool, bool) {
+	if isNode == 0 || file.FlatType(isNode) != "check_expression" || file.FlatChildCount(isNode) < 3 {
 		return "", nil, false, false
 	}
 
@@ -491,30 +604,37 @@ func (r *defaultResolver) extractConjunctionChecksFlat(ifIdx uint32, file *scann
 		return nil, nil
 	}
 
-	conjIdx := flatFirstDescendantOfType(file, condRoot, "conjunction_expression")
-	if conjIdx == 0 {
+	// Only a conjunction that is the whole condition guarantees each operand in the then-branch.
+	conjIdx := flatUnwrapParenthesizedExpression(file, condRoot)
+	if conjIdx == 0 || file.FlatType(conjIdx) != "conjunction_expression" {
 		return nil, nil
 	}
 
 	var nullVars []string
 	isChecks := make(map[string]*ResolvedType)
+	r.collectConjunctionChecksFlat(conjIdx, file, it, &nullVars, isChecks)
+	return nullVars, isChecks
+}
 
+// collectConjunctionChecksFlat records the `!= null` and `is` operands of a conjunction. `&&` parses
+// left-nested (`a && b && c` is `(a && b) && c`), so nested and parenthesized conjunctions are walked too.
+func (r *defaultResolver) collectConjunctionChecksFlat(conjIdx uint32, file *scanner.File, it *ImportTable, nullVars *[]string, isChecks map[string]*ResolvedType) {
 	for i := 0; i < file.FlatChildCount(conjIdx); i++ {
-		child := file.FlatChild(conjIdx, i)
+		child := flatUnwrapParenthesizedExpression(file, file.FlatChild(conjIdx, i))
 		if child == 0 {
 			continue
 		}
 		switch file.FlatType(child) {
+		case "conjunction_expression":
+			r.collectConjunctionChecksFlat(child, file, it, nullVars, isChecks)
 		case "equality_expression":
 			if v := r.extractConjunctionNullCheckFlat(child, file); v != "" {
-				nullVars = append(nullVars, v)
+				*nullVars = append(*nullVars, v)
 			}
 		case "check_expression":
 			r.extractConjunctionIsCheckFlat(child, file, it, isChecks)
 		}
 	}
-
-	return nullVars, isChecks
 }
 
 func (r *defaultResolver) extractConjunctionNullCheckFlat(child uint32, file *scanner.File) string {

@@ -333,15 +333,25 @@ func unsafeCastClassInfoForType(resolver typeinfer.TypeResolver, t *typeinfer.Re
 	if resolver == nil || t == nil {
 		return nil
 	}
-	for _, name := range []string{t.FQN, t.Name} {
-		if name == "" {
-			continue
-		}
-		if info := resolver.ClassHierarchy(name); info != nil {
+	if t.FQN != "" {
+		if info := resolver.ClassHierarchy(t.FQN); info != nil {
 			return info
 		}
 	}
-	return nil
+	if t.Name == "" || t.Name == t.FQN {
+		return nil
+	}
+	info := resolver.ClassHierarchy(t.Name)
+	if info == nil {
+		return nil
+	}
+	// A simple-name lookup returns whichever project class claimed that name, such as a nested
+	// `Slot.Context` in another package. Once an import has resolved the type to a qualified name,
+	// that class only stands for it when it is the same class.
+	if strings.Contains(t.FQN, ".") && info.FQN != "" && info.FQN != t.FQN {
+		return nil
+	}
+	return info
 }
 
 func unsafeCastTypeKey(t *typeinfer.ResolvedType) string {

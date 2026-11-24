@@ -130,3 +130,17 @@ class UnsafeCastAndroidFrameworkSamples : Fragment() {
         val params = child.layoutParams as FlexboxLayout.LayoutParams
     }
 }
+
+// An `is` check narrows only its then-branch: in the else-branch `meta` is a Meta that is not Single.
+sealed class UnsafeCastMeta
+data class UnsafeCastSingle(val type: String) : UnsafeCastMeta()
+data class UnsafeCastMulti(val type: String) : UnsafeCastMeta()
+
+class UnsafeCastSelectPresenter(private val meta: UnsafeCastMeta) {
+    val type: String =
+        if (meta is UnsafeCastSingle) meta.type
+        else (meta as UnsafeCastMulti).type
+
+    fun multiOrNull(): UnsafeCastMulti? =
+        if (meta is UnsafeCastSingle) null else meta as? UnsafeCastMulti
+}

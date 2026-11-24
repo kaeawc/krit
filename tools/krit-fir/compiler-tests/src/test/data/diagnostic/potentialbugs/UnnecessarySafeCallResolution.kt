@@ -1,4 +1,4 @@
-// go-lines: 47, 51
+// go-lines: 47, 51, 60, 65, 70
 package unnecessarysafecall.resolution
 
 class ResolvedSafeCallHolder(val text: String)
@@ -55,7 +55,7 @@ class LambdaReceiverSettings {
     fun reset() {}
 }
 
-// FIR resolves this to the non-null apply lambda receiver; Go does not resolve lambda-receiver this.
+// FIR and Go resolve this to the non-null apply lambda receiver.
 fun lambdaReceiverApply(settings: LambdaReceiverSettings) {
     settings.apply { this<!UnnecessarySafeCall!>?.<!>reset() }
 }

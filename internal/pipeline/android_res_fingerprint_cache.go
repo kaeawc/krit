@@ -86,7 +86,7 @@ func (c *resDirFingerprintCache) save() error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(c.path, raw, 0o644)
+	return fsutil.WriteFileAtomicNoSync(c.path, raw, 0o644)
 }
 
 func snapshotResDirFingerprintFiles(resDir string) ([]resDirFingerprintFile, bool) {

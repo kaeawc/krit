@@ -122,7 +122,7 @@ func SaveProjectProfileCache(cacheDir string, paths []string, profile ProjectPro
 	}
 	path := projectProfileCachePath(cacheDir, paths)
 	// A fixed temp name let concurrent scans overwrite each other's partial file.
-	if err := fsutil.WriteFileAtomic(path, data, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(path, data, 0o644); err != nil {
 		return err
 	}
 	projectProfileCacheBytes.Store(int64(len(data)))

@@ -180,7 +180,7 @@ func (c *ResourceIndexCache) Save(fingerprint string, _ ValuesScanKind, _ string
 	}
 	size := int64(len(blob))
 
-	if err := fsutil.WriteFileAtomicStream(target, 0o644, func(w io.Writer) error {
+	if err := fsutil.WriteFileAtomicStreamNoSync(target, 0o644, func(w io.Writer) error {
 		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {

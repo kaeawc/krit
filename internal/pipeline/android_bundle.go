@@ -81,7 +81,7 @@ func saveResourceSourceBundleManifest(cacheDir, key, bundleKey string, hashes ma
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, raw, 0o644)
+	return fsutil.WriteFileAtomicNoSync(path, raw, 0o644)
 }
 
 // lookupResourceSourceBundleManifest returns the resource-source bundle
@@ -188,5 +188,5 @@ func saveMergedResourceIndexBundle(cacheDir, key string, idx *android.ResourceIn
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, raw, 0o644)
+	return fsutil.WriteFileAtomicNoSync(path, raw, 0o644)
 }

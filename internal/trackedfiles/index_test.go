@@ -1,6 +1,7 @@
 package trackedfiles
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -264,4 +265,33 @@ func (s *memoryStore) Save(_ string, _ Snapshot, files []string) error {
 	s.files = append([]string(nil), files...)
 	sort.Strings(s.files)
 	return nil
+}
+
+// Entries are written without fsync, so a crash can leave one that still parses and matches the
+// snapshot but lists different paths. It must load as a miss.
+func TestDiskStore_ParseableDamagedEntryIsMiss(t *testing.T) {
+	root := t.TempDir()
+	snapshot := Snapshot{Root: root, GitDir: filepath.Join(root, ".git"), IndexPath: filepath.Join(root, ".git", "index"), IndexSize: 1, IndexModTime: 2, Head: "head"}
+	store := DiskStore{}
+	if err := store.Save(root, snapshot, []string{"A.kt", "B.kt"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, ok := store.Load(root, snapshot); !ok {
+		t.Fatal("intact entry did not load")
+	}
+	path := diskEntryPath(root)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	damaged := bytes.Replace(raw, []byte(`"B.kt"`), []byte(`"C.kt"`), 1)
+	if bytes.Equal(damaged, raw) {
+		t.Fatal("entry does not contain B.kt")
+	}
+	if err := os.WriteFile(path, damaged, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if files, ok := store.Load(root, snapshot); ok {
+		t.Fatalf("damaged entry loaded as %v, want miss", files)
+	}
 }

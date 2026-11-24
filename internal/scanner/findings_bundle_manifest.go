@@ -283,5 +283,5 @@ func SaveFindingsBundleManifest(repoDir, key string, manifest FindingsBundleMani
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(path, raw, 0o644)
+	return fsutil.WriteFileAtomicNoSync(path, raw, 0o644)
 }

@@ -779,3 +779,47 @@ func TestResourceIndexCache_MissesAcrossBuilds(t *testing.T) {
 		t.Fatal("an index written by another build must miss: the resource parser may have changed")
 	}
 }
+
+// TestResourceIndexCache_TornEntryIsMiss covers an entry damaged by a crash
+// (cache writes skip fsync): empty, truncated, zero-filled, or garbage entries
+// must be misses.
+func TestResourceIndexCache_TornEntryIsMiss(t *testing.T) {
+	repo := t.TempDir()
+	fingerprint := strings.Repeat("b", 64)
+	idx := newResourceIndex()
+	idx.Strings["hello"] = "Hello"
+	cache, err := NewResourceIndexCache(repo)
+	if err != nil {
+		t.Fatalf("NewResourceIndexCache: %v", err)
+	}
+	defer cache.Close()
+	if err := cache.Save(fingerprint, ValuesScanAll, "res", idx); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	entry := cache.entryPath(fingerprint)
+	valid, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	if _, ok := cache.Load(fingerprint, ValuesScanAll, "res"); !ok {
+		t.Fatal("valid entry did not load")
+	}
+	for name, damaged := range map[string][]byte{
+		"empty":       {},
+		"truncated":   valid[:len(valid)/2],
+		"zero-filled": make([]byte, len(valid)),
+		"garbage":     []byte("not a zstd gob payload"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(entry, damaged, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := cache.Load(fingerprint, ValuesScanAll, "res"); ok {
+				t.Fatal("damaged entry loaded as a hit")
+			}
+		})
+	}
+}

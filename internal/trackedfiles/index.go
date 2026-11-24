@@ -72,7 +72,7 @@ type cachedEntry struct {
 
 const (
 	trackedFilesCacheDirName = "tracked-files-cache"
-	trackedFilesCacheVersion = 1
+	trackedFilesCacheVersion = 2
 )
 
 var (
@@ -329,6 +329,18 @@ type diskEntry struct {
 	Version  int      `json:"version"`
 	Snapshot Snapshot `json:"snapshot"`
 	Files    []string `json:"files"`
+	// Checksum covers Files. Entries are written without fsync, so a crash can leave one that
+	// still parses but lists the wrong paths; Load treats a mismatch as a miss.
+	Checksum string `json:"checksum"`
+}
+
+func filesChecksum(files []string) string {
+	h := hashutil.Hasher().New()
+	for _, f := range files {
+		_, _ = h.Write([]byte(f))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func CacheDir(repoDir string) string {
@@ -359,7 +371,8 @@ func (DiskStore) Load(root string, snapshot Snapshot) ([]string, bool) {
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return nil, false
 	}
-	if entry.Version != trackedFilesCacheVersion || !sameSnapshot(entry.Snapshot, snapshot) || entry.Files == nil {
+	if entry.Version != trackedFilesCacheVersion || !sameSnapshot(entry.Snapshot, snapshot) || entry.Files == nil ||
+		entry.Checksum != filesChecksum(entry.Files) {
 		return nil, false
 	}
 	trackedFilesBytes.Add(int64(len(raw)))
@@ -371,15 +384,17 @@ func (DiskStore) Save(root string, snapshot Snapshot, files []string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	files = append([]string(nil), files...)
 	raw, err := json.Marshal(diskEntry{
 		Version:  trackedFilesCacheVersion,
 		Snapshot: snapshot,
-		Files:    append([]string(nil), files...),
+		Files:    files,
+		Checksum: filesChecksum(files),
 	})
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFileAtomic(path, raw, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(path, raw, 0o644); err != nil {
 		return err
 	}
 	trackedFilesBytes.Add(int64(len(raw)))

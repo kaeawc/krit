@@ -82,6 +82,7 @@ func overlayMetaForEntries(prev CrossFileCacheMeta, current []fingerprintEntry) 
 		PayloadEntries:      payloadEntries,
 		OverlayEntries:      overlayEntries,
 		RemovedPayloadPaths: removedPaths,
+		PayloadCRC:          prev.PayloadCRC,
 	}
 }
 

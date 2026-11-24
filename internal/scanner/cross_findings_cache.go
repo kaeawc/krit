@@ -185,6 +185,12 @@ func loadCrossFindings(cacheDir, key string, requireKey bool) (FindingColumns, b
 		crossFindingsMisses.Add(1)
 		return FindingColumns{}, false
 	}
+	// A garbage length (for example from a torn cache file) must read as a
+	// miss, not drive a huge allocation.
+	if hdr.Length > uint64(r.Len()) {
+		crossFindingsMisses.Add(1)
+		return FindingColumns{}, false
+	}
 	compressed := make([]byte, hdr.Length)
 	if _, err := io.ReadFull(r, compressed); err != nil {
 		crossFindingsMisses.Add(1)
@@ -234,7 +240,7 @@ func SaveCrossFindings(cacheDir, key string, cols FindingColumns) error {
 	_ = binary.Write(out, binary.BigEndian, uint64(len(compressed)))
 	out.Write(compressed)
 	dest := filepath.Join(cacheDir, crossFindingsCacheFile)
-	if err := fsutil.WriteFileAtomic(dest, out.Bytes(), 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(dest, out.Bytes(), 0o644); err != nil {
 		return err
 	}
 	crossFindingsBytes.Store(int64(out.Len()))

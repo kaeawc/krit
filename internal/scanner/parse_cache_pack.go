@@ -375,6 +375,11 @@ func (h *parsePackHandle) putMany(writes []parseEncodedEntryWrite) (bool, error)
 		if !ok || e.length != uint64(len(item.data)) || e.crc != item.crc {
 			continue
 		}
+		// A matching index does not prove the stored bytes are intact (a torn write keeps the
+		// header); rewrite the entry unless its payload still checks out.
+		if crc32.ChecksumIEEE(existingData[e.offset:e.offset+e.length]) != e.crc {
+			continue
+		}
 		delete(latest, key)
 	}
 	if len(latest) == 0 {
@@ -402,7 +407,7 @@ func (h *parsePackHandle) putMany(writes []parseEncodedEntryWrite) (bool, error)
 	}
 
 	buf := buildParsePack(items)
-	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(h.path, buf, 0o644); err != nil {
 		return false, err
 	}
 	h.index = mustParsePackHeader(buf)
@@ -492,7 +497,7 @@ func (h *parsePackHandle) removeMany(hashes []string) error {
 	}
 
 	buf := buildParsePack(items)
-	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(h.path, buf, 0o644); err != nil {
 		return err
 	}
 	h.index = mustParsePackHeader(buf)

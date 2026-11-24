@@ -291,7 +291,7 @@ func saveBaseline(key string, report matrixCaseReport, s *store.FileStore) {
 		return
 	}
 	path := matrixCachePath(key)
-	_ = fsutil.WriteFileAtomic(path, data, 0o644)
+	_ = fsutil.WriteFileAtomicNoSync(path, data, 0o644)
 }
 
 // clearMatrixCache removes every cached baseline entry. It is safe to

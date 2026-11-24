@@ -83,7 +83,7 @@ func RecordTypesFactsForPaths(typesPath string, scanPaths []string, scope ...Sto
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFileAtomic(typesFactsPath(typesPath), body, 0o644)
+	return fsutil.WriteFileAtomicNoSync(typesFactsPath(typesPath), body, 0o644)
 }
 
 // TypesJSONSatisfies checks the exact backend, jar, compile settings, and

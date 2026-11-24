@@ -206,6 +206,12 @@ func LoadAndroidFindings(cacheDir, key string) (FindingColumns, bool) {
 		androidFindingsMisses.Add(1)
 		return FindingColumns{}, false
 	}
+	// A garbage length (for example from a torn cache file) must read as a
+	// miss, not drive a huge allocation.
+	if hdr.Length > uint64(r.Len()) {
+		androidFindingsMisses.Add(1)
+		return FindingColumns{}, false
+	}
 	compressed := make([]byte, hdr.Length)
 	if _, err := io.ReadFull(r, compressed); err != nil {
 		androidFindingsMisses.Add(1)
@@ -255,7 +261,7 @@ func SaveAndroidFindings(cacheDir, key string, cols FindingColumns) error {
 	_ = binary.Write(out, binary.BigEndian, crc32.ChecksumIEEE(compressed))
 	_ = binary.Write(out, binary.BigEndian, uint64(len(compressed)))
 	out.Write(compressed)
-	if err := fsutil.WriteFileAtomic(entryPath, out.Bytes(), 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(entryPath, out.Bytes(), 0o644); err != nil {
 		return err
 	}
 	androidFindingsBytes.Add(int64(out.Len()))

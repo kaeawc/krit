@@ -781,11 +781,11 @@ func writeMergeMarker(markerPath, coveredPath, output, id string, covered map[st
 	list := []byte(strings.Join(paths, "\n"))
 	// Drop the marker first so a crash between the two writes leaves a miss, not a mismatched pair.
 	_ = os.Remove(markerPath)
-	if fsutil.WriteFileAtomic(coveredPath, list, 0o644) != nil {
+	if fsutil.WriteFileAtomicNoSync(coveredPath, list, 0o644) != nil {
 		return
 	}
 	data, _ := json.Marshal(mergeMarker{ID: id, Size: info.Size(), MTime: info.ModTime().UnixNano(), CoveredSum: coveredChecksum(list)})
-	_ = fsutil.WriteFileAtomic(markerPath, data, 0o644)
+	_ = fsutil.WriteFileAtomicNoSync(markerPath, data, 0o644)
 }
 
 func coveredChecksum(list []byte) string {

@@ -26,7 +26,24 @@ import (
 // Like os.WriteFile, perm is subject to the process umask, and a symlink at
 // path is written through: its final target is replaced, the link is kept.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	return writeAtomic(path, perm, false, func(f *os.File) error {
+	return writeAtomic(path, perm, false, true, func(f *os.File) error {
+		_, err := f.Write(data)
+		return err
+	})
+}
+
+// WriteFileAtomicNoSync is WriteFileAtomic without the durability step: the
+// tempfile + rename still guarantees a concurrent reader sees either the old
+// file or the complete new one, but neither the file nor its parent directory
+// is fsynced. After an OS crash or power loss the file may therefore be
+// missing, stale, empty, or hold garbage.
+//
+// Use it only for rebuildable cache entries whose readers validate what they
+// load and treat a missing or malformed entry as a miss. Anything user-owned
+// or not trivially rebuildable (source edits, baselines, config, reports,
+// coordination files) must keep using WriteFileAtomic.
+func WriteFileAtomicNoSync(path string, data []byte, perm os.FileMode) error {
+	return writeAtomic(path, perm, false, false, func(f *os.File) error {
 		_, err := f.Write(data)
 		return err
 	})
@@ -40,9 +57,9 @@ func WriteFileAtomicKeepMode(path string, data []byte, defaultPerm os.FileMode) 
 		return err
 	}
 	if info, err := os.Stat(path); err == nil {
-		return writeAtomic(path, info.Mode().Perm(), true, write)
+		return writeAtomic(path, info.Mode().Perm(), true, true, write)
 	}
-	return writeAtomic(path, defaultPerm, false, write)
+	return writeAtomic(path, defaultPerm, false, true, write)
 }
 
 // WriteFileAtomicStream is like WriteFileAtomic but streams into a caller-provided
@@ -56,19 +73,36 @@ func WriteFileAtomicKeepMode(path string, data []byte, defaultPerm os.FileMode) 
 // The writer is buffered; flush is handled by the helper. fsync runs after
 // flush and before rename.
 func WriteFileAtomicStream(path string, perm os.FileMode, write func(io.Writer) error) error {
-	return writeAtomic(path, perm, false, func(f *os.File) error {
+	return writeAtomic(path, perm, false, true, streamPayload(write))
+}
+
+// WriteFileAtomicStreamNoSync is WriteFileAtomicStream without fsync; see
+// WriteFileAtomicNoSync for when that is acceptable.
+func WriteFileAtomicStreamNoSync(path string, perm os.FileMode, write func(io.Writer) error) error {
+	return writeAtomic(path, perm, false, false, streamPayload(write))
+}
+
+func streamPayload(write func(io.Writer) error) func(*os.File) error {
+	return func(f *os.File) error {
 		bw := bufio.NewWriter(f)
 		if err := write(bw); err != nil {
 			return err
 		}
 		return bw.Flush()
-	})
+	}
 }
 
-// writeAtomic is the shared tempfile + fsync + rename core. payload decides
-// how bytes reach the file handle (direct write vs. buffered stream). exact
-// sets perm regardless of the umask, for preserving an existing file's mode.
-func writeAtomic(path string, perm os.FileMode, exact bool, payload func(*os.File) error) error {
+// Sync hooks, replaced by tests to observe which writes are made durable.
+var (
+	syncFile      = (*os.File).Sync
+	syncParentDir = syncDir
+)
+
+// writeAtomic is the shared tempfile + rename core. payload decides how bytes
+// reach the file handle (direct write vs. buffered stream). exact sets perm
+// regardless of the umask, for preserving an existing file's mode. durable
+// fsyncs the tempfile before the rename and the parent directory after it.
+func writeAtomic(path string, perm os.FileMode, exact, durable bool, payload func(*os.File) error) error {
 	path, err := symlinkTarget(path)
 	if err != nil {
 		return fmt.Errorf("resolve symlink: %w", err)
@@ -99,9 +133,11 @@ func writeAtomic(path string, perm os.FileMode, exact bool, payload func(*os.Fil
 		return fmt.Errorf("write tempfile: %w", err)
 	}
 
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return fmt.Errorf("sync tempfile: %w", err)
+	if durable {
+		if err := syncFile(tmp); err != nil {
+			cleanup()
+			return fmt.Errorf("sync tempfile: %w", err)
+		}
 	}
 
 	if err := tmp.Close(); err != nil {
@@ -120,7 +156,9 @@ func writeAtomic(path string, perm os.FileMode, exact bool, payload func(*os.Fil
 	// pre-rename state. Best-effort: directory fsync is a no-op or rejected
 	// (EINVAL/ENOTSUP) on some platforms (notably Windows), and the rename
 	// itself already succeeded, so we don't propagate errors from this step.
-	syncDir(dir)
+	if durable {
+		syncParentDir(dir)
+	}
 
 	return nil
 }

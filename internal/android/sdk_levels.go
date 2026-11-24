@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // SDKLevels is the minSdk / targetSdk a source file is built against. A zero
@@ -114,6 +115,9 @@ func sdkLevelsAbove(dir string) SDKLevels {
 // sdkLevelsDeclaredIn returns the levels declared by dir's own build.gradle(.kts) or manifest, or
 // the zero value when it declares none. A build file wins over a manifest.
 func sdkLevelsDeclaredIn(dir string) SDKLevels {
+	// Judge raciness against the start of the read: a slow parse must not age an input rewritten
+	// just before the stat into one that looks settled.
+	readStart := sdkNow()
 	stamp := sdkInputStamp(dir)
 	sdkDeclaredMu.RLock()
 	entry, ok := sdkDeclaredMemo[dir]
@@ -122,10 +126,32 @@ func sdkLevelsDeclaredIn(dir string) SDKLevels {
 		return entry.levels
 	}
 	levels := readSDKLevelsDeclaredIn(dir)
-	sdkDeclaredMu.Lock()
-	sdkDeclaredMemo[dir] = sdkDeclaredEntry{stamp: stamp, levels: levels}
-	sdkDeclaredMu.Unlock()
+	if !sdkStampRacy(stamp, readStart) {
+		sdkDeclaredMu.Lock()
+		sdkDeclaredMemo[dir] = sdkDeclaredEntry{stamp: stamp, levels: levels}
+		sdkDeclaredMu.Unlock()
+	}
 	return levels
+}
+
+// sdkRacyWindow is how recently an input may have been modified before its result is not memoized.
+// Filesystem timestamps come from a coarse clock (and are 1-2 s granular on some filesystems), so a
+// same-size rewrite shortly after the stat can keep the stamp it had; trusting a memo keyed by that
+// stamp would hide the edit from later passes in this process (for example a daemon request).
+const sdkRacyWindow = 2 * time.Second
+
+// sdkNow is the clock sdkLevelsDeclaredIn reads; tests replace it.
+var sdkNow = time.Now
+
+// sdkStampRacy reports whether any input in stamp was modified within sdkRacyWindow of now.
+func sdkStampRacy(stamp [len(sdkInputs)]sdkInputStat, now time.Time) bool {
+	cutoff := now.Add(-sdkRacyWindow).UnixNano()
+	for _, st := range stamp {
+		if st.exists && st.modTime >= cutoff {
+			return true
+		}
+	}
+	return false
 }
 
 // sdkInputs are the files sdkLevelsDeclaredIn reads, relative to a directory.

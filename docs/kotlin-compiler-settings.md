@@ -265,9 +265,43 @@ too, since the merged compile also puts its files next to other projects'
 sets. A project keeps its merged verdicts when a set's unbuilt dependency
 sources exceed 3000 files or one of its source files belongs to another
 project too. A source set whose compile fails keeps its merged verdicts, while
-the project's other sets still take theirs. A gated file outside every
-exported source set (for example a `src/debug` or flavor directory of a
-variant the model did not export) is not rechecked.
+the project's other sets still take theirs.
+
+A gated file outside every exported source set is in a variant directory the
+model did not export, such as `src/release` next to an exported debug variant
+or another flavor's directory. Android builds compile one variant at a time,
+and each build type or flavor may declare its own copy of a class, so these
+duplicates are false too. The recheck compiles each such source set
+(`src/<set>/kotlin` and `src/<set>/java`) on its own, with the sets its
+variant would add:
+- the base set of its kind: `src/main`, or `src/test` and `src/androidTest`
+  for `test…` and `androidTest…` sets;
+- the sets its name combines: `src/freeRelease` gets `src/free` and
+  `src/release`;
+- the exported set's generated sources and dependency context.
+
+Those sets are compiled but not checked. The exported variant's own
+directories (`src/debug` for a debug model) are never added. Each unit takes
+its classpath, compiler settings and friends from the project's exported set of
+the same kind. A project without one, or a project that keeps its merged
+verdicts, keeps them for its variant directories too. At most 16 variant
+sets are rechecked per scan; `--verbose` lists the others.
+
+These rechecks approximate the variant, and a few files stay gated, now on
+the error the approximation reports:
+- a flavor directory such as `src/paid` is compiled without any build-type
+  directory, so a reference to a class only `src/debug` and `src/release`
+  declare stays unresolved;
+- the classpath is the exported variant's, so a set that uses its own
+  dependencies (`prodImplementation(...)` for a `src/prod` flavor) leaves
+  them unresolved;
+- `test…` sets see only test-side directories next to the exported variant's
+  production code;
+- `testFixtures` sets are not rechecked.
+
+Exporting every variant's source sets from the Gradle plugin would remove
+these limits, at the cost of resolving each variant's classpath in every
+build.
 The recheck reads the same Gradle model as the scan (`--gradle-model`,
 `--no-gradle-model`) and keeps any configured `oracle.classpath` or
 `CLASSPATH` entries. It replaces FIR check verdicts only; the type oracle's facts still

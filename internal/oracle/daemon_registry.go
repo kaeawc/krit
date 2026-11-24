@@ -20,6 +20,7 @@ import (
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/jvmargs"
 	"github.com/kaeawc/krit/internal/procstart"
 )
 
@@ -629,7 +630,7 @@ func startDaemonOnce(jarPath string, sourceDirs []string, classpath []string, ve
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-fir daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
-	args, cleanupArgs, err := prepareJavaArgs(args)
+	args, cleanupArgs, err := jvmargs.Prepare(args)
 	if err != nil {
 		return nil, err
 	}
@@ -1015,7 +1016,7 @@ func startDaemonWithPortSlotOnce(jarPath string, sourceDirs []string, classpath 
 	if verbose {
 		reporter().Verbosef("verbose: Starting persistent krit-fir daemon slot %d: %s %s\n", slot, javaPath, strings.Join(args, " "))
 	}
-	args, cleanupArgs, err := prepareJavaArgs(args)
+	args, cleanupArgs, err := jvmargs.Prepare(args)
 	if err != nil {
 		return nil, err
 	}

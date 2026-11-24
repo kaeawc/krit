@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/jdk"
+	"github.com/kaeawc/krit/internal/jvmargs"
 	"github.com/kaeawc/krit/internal/perf"
 )
 
@@ -66,11 +67,11 @@ func Invoke(ctx context.Context, helperClasspath string, files []string, opts Op
 	out := filepath.Join(tmp, "facts.json")
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
-	args := []string{"-cp", helperClasspath, opts.HelperMain, "--out", out}
-	if opts.Classpath != "" {
-		args = append(args, "--classpath", opts.Classpath)
+	args, cleanupArgs, err := launchArgs(helperClasspath, out, files, opts)
+	if err != nil {
+		return nil, "", err
 	}
-	args = append(args, files...)
+	defer cleanupArgs()
 	start := time.Now()
 	output, err := exec.CommandContext(runCtx, opts.Java, args...).CombinedOutput()
 	if tracker != nil {
@@ -88,4 +89,16 @@ func Invoke(ctx context.Context, helperClasspath string, files []string, opts Op
 		return nil, "", err
 	}
 	return facts, "", nil
+}
+
+// launchArgs builds the helper's java argv. It holds every Java file path
+// and the project classpath, so it grows with the project; a long one moves
+// into a JDK argfile, which the caller removes once the helper has exited.
+func launchArgs(helperClasspath, out string, files []string, opts Options) ([]string, func(), error) {
+	args := []string{"-cp", helperClasspath, opts.HelperMain, "--out", out}
+	if opts.Classpath != "" {
+		args = append(args, "--classpath", opts.Classpath)
+	}
+	args = append(args, files...)
+	return jvmargs.Prepare(args)
 }

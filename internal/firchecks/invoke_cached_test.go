@@ -302,3 +302,53 @@ func TestInvokeCached_RestoredSourceDoesNotWriteCache(t *testing.T) {
 		})
 	}
 }
+
+// A compiler exception marks every file of the compile crashed with the same
+// message (#994). Caching those as poison entries would replay the crash, and
+// its Go-only result, on every later run of the same inputs.
+func TestInvokeCached_WholeCompileCrashIsNotCached(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		files     []string
+		crashed   map[string]string
+		wantCache int
+	}{
+		{"all files, one message", []string{"A.kt", "B.kt"}, map[string]string{"A.kt": "OutOfMemoryError", "B.kt": "OutOfMemoryError"}, 0},
+		{"different messages", []string{"A.kt", "B.kt"}, map[string]string{"A.kt": "boom", "B.kt": "bang"}, 2},
+		{"one of two files", []string{"A.kt", "B.kt"}, map[string]string{"A.kt": "boom"}, 2},
+		{"single file", []string{"A.kt"}, map[string]string{"A.kt": "boom"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			files := make([]string, len(tc.files))
+			crashed := map[string]string{}
+			for i, name := range tc.files {
+				files[i] = filepath.Join(root, name)
+				if err := os.WriteFile(files[i], []byte("fun f() {}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if msg, ok := tc.crashed[name]; ok {
+					crashed[files[i]] = msg
+				}
+			}
+			run := func(_ string, _, _, _, _ []string, _ RuleConfigs, _ FileFacts, _, _ bool, _ ...CompileTarget) (*CheckResponse, error) {
+				return &CheckResponse{Rules: []string{"MagicNumber"}, Crashed: crashed}, nil
+			}
+			result, err := invokeCachedWith(run, "", files, nil, nil, nil, nil, FileFacts{}, root, false, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Crashed) != len(crashed) {
+				t.Fatalf("crashed = %v, want %v", result.Crashed, crashed)
+			}
+			cacheDir, err := CacheDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fingerprint := CheckCacheFingerprint(nil, files, nil, "", nil, nil, FileFacts{})
+			if hits, _ := ClassifyFilesForFingerprint(cacheDir, files, fingerprint); len(hits) != tc.wantCache {
+				t.Fatalf("cached %d files, want %d", len(hits), tc.wantCache)
+			}
+		})
+	}
+}

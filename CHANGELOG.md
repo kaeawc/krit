@@ -19,6 +19,13 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- A `--fir` scan whose FIR pass returns without a usable verdict now reports
+  it like a checker failure (a warning, `summary.firDegraded`, exit 2 under
+  `--fail-on-degraded`) instead of silently returning Go-only findings: the
+  compile crashed or failed for every requested file, the jar ran none of the
+  requested FIR rules, or the pass was cancelled. A crash shared by every
+  file of a compile is no longer cached, so it is not replayed on later
+  runs (#994).
 - Releases publish the Homebrew cask and Scoop manifest with a GitHub App
   installation token (falling back to the PAT secrets), in the stanza order
   the tap's `brew style` audit requires. Build provenance is attested before

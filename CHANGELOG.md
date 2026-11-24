@@ -4,6 +4,16 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- `UnsafeCast` no longer reports "Cast can never succeed" for casts that do
+  succeed: an explicitly imported type is no longer checked against an
+  unrelated project class with the same simple name, and an `is` check in an
+  `if` condition no longer narrows the variable in the `else` branch.
+  Source-level smart casts are tighter in general: `is`, `!= null` and `&&`
+  checks narrow only the then-branch, `!is` and `!(x is T)` narrow the
+  else-branch and the code after an early exit, and `||` conditions and
+  multi-condition `when` entries no longer narrow (#1115).
+
 ## [0.5.0] - 2026-11-24
 
 ### Added

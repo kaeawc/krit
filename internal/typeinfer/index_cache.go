@@ -27,6 +27,8 @@ const (
 	// Bumped to 9 when smart casts stopped leaking onto the root scope from files with several top-level declarations.
 	// Bumped to 10 when file info gained FunctionDecls and extensions gained visibility scopes.
 	// Bumped to 15 when file info began preserving declarations with duplicate FQNs and distinct scopes.
+	// Bumped to 16 when extension scopes gained `this` and implicit-receiver entries and `||` stopped
+	// narrowing on `x != null`.
 	// Bumped to 18 when scopes gained start offsets for post-guard type facts.
 	typeIndexCacheVersion = 18
 )

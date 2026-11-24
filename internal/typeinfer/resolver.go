@@ -333,7 +333,11 @@ func (s *ScopeTable) lookupRaw(name string) *ResolvedType {
 		return typ
 	}
 	if s.Parent != nil {
-		return s.Parent.lookupRaw(name)
+		typ := s.Parent.lookupRaw(name)
+		if typ != nil && s.shadowsByImplicitReceiver(name) {
+			return UnknownType()
+		}
+		return typ
 	}
 	return nil
 }
@@ -346,9 +350,29 @@ func (s *ScopeTable) lookupRawAt(name string, offset uint32) *ResolvedType {
 		}
 	}
 	if s.Parent != nil {
-		return s.Parent.lookupRawAt(name, offset)
+		typ := s.Parent.lookupRawAt(name, offset)
+		if typ != nil && s.shadowsByImplicitReceiver(name) {
+			return UnknownType()
+		}
+		return typ
 	}
 	return nil
+}
+
+// implicitReceiverEntry marks the scope of an extension function or accessor. It cannot collide with a
+// Kotlin identifier.
+const implicitReceiverEntry = "@receiver"
+
+// shadowsByImplicitReceiver reports whether name, not declared in s itself, may be a member of the
+// extension receiver of s, which shadows any enclosing local, parameter or property of that name. Inside
+// `val InetSocketAddress.host get() = address`, `address` is the receiver's member, not the enclosing
+// class's `address`, so a lookup that would reach such an outer declaration yields an unknown type.
+func (s *ScopeTable) shadowsByImplicitReceiver(name string) bool {
+	if name == "this" {
+		return false
+	}
+	_, ok := s.Entries[implicitReceiverEntry]
+	return ok
 }
 
 // IsSmartCastNonNull checks if a name is smart-cast to non-null in this scope or any parent.

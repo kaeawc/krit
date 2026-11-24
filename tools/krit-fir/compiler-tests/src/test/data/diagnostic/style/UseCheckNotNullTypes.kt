@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 25, 30, 34, 38, 42, 46, 53, 57, 61
+// go-lines: 25, 30, 34, 38, 42, 46, 53, 57
 // The compared value's type decides the finding: a type that can hold null
 // (nullable, platform, type parameter with a nullable bound) is reported, a
 // type that cannot is skipped, whatever the expression's shape.
@@ -47,8 +47,8 @@ fun String?.nullableReceiver() {
 }
 
 // Not nullable: there is no nullable value to pass to checkNotNull, and the
-// comparison is always true. Go resolves only a plain name, so it cannot see
-// the type of a property chain, a call or `this` and reports these three.
+// comparison is always true. Go resolves only a plain name or an extension's
+// `this`, so it cannot see the type of a property chain or a call and reports those two.
 fun nonNullProperty(box: Box) {
     check(box.present != null)
 }

@@ -63,6 +63,11 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 
 func (r *defaultResolver) buildExecutableScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	if t := file.FlatType(idx); t == "getter" || t == "setter" {
+		if prop := flatAccessorProperty(file, idx); prop != 0 {
+			r.declareExtensionReceiverFlat(prop, file, childScope, it)
+		}
+	}
 	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
 		r.buildScopesFlat(child, file, childScope, it)
 	})
@@ -99,12 +104,67 @@ func (r *defaultResolver) buildFunctionDeclScopeFlat(idx uint32, file *scanner.F
 		r.declareParamsFlat(ctxParams, file, scope, it)
 	}
 	childScope := scope.NewScopeForNode(span)
+	r.declareExtensionReceiverFlat(idx, file, childScope, it)
 	r.indexFunctionParamsFlat(idx, file, childScope, it)
 	if bodyIdx := flatFindNamedChildOfType(file, idx, "function_body"); bodyIdx != 0 {
 		flatForEachRelevantScopeChild(file, bodyIdx, func(child uint32) {
 			r.buildScopesFlat(child, file, childScope, it)
 		})
 	}
+}
+
+// declareExtensionReceiverFlat declares `this` as the extension receiver of a function or property
+// declaration, so inside `fun Config?.f()` it is a `Config?` rather than the enclosing class.
+func (r *defaultResolver) declareExtensionReceiverFlat(decl uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
+	recv := flatExtensionReceiverTypeNode(file, decl)
+	if recv == 0 {
+		return
+	}
+	typ := r.resolveTypeNodeFlat(recv, file, it)
+	if typ == nil {
+		typ = UnknownType()
+	}
+	if file.FlatType(recv) == "nullable_type" {
+		typ.Nullable = true
+	}
+	scope.Declare("this", typ)
+	scope.Declare(implicitReceiverEntry, typ)
+}
+
+// flatAccessorProperty returns the property a getter or setter belongs to, or 0. An accessor on its own
+// line parses as a sibling that follows the property_declaration rather than as its child.
+func flatAccessorProperty(file *scanner.File, accessor uint32) uint32 {
+	if parent, ok := file.FlatParent(accessor); ok && file.FlatType(parent) == "property_declaration" {
+		return parent
+	}
+	for prev, ok := file.FlatPrevSibling(accessor); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "property_declaration":
+			return prev
+		case "getter", "setter":
+			continue
+		}
+		if file.FlatIsNamed(prev) {
+			return 0
+		}
+	}
+	return 0
+}
+
+// flatExtensionReceiverTypeNode returns the receiver type node of an extension function or property, or 0.
+// The grammar has no receiver node: the receiver is the type child directly followed by `.`, before the name.
+func flatExtensionReceiverTypeNode(file *scanner.File, decl uint32) uint32 {
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier", "variable_declaration", "multi_variable_declaration", "function_value_parameters":
+			return 0
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_identifier":
+			if next := file.FlatNextSib(child); next != 0 && file.FlatType(next) == "." {
+				return child
+			}
+		}
+	}
+	return 0
 }
 
 func (r *defaultResolver) buildLambdaScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
@@ -499,8 +559,36 @@ func (r *defaultResolver) extractNullCheckFromIfFlatByIdx(ifIdx uint32, file *sc
 		return "", false, false, false
 	}
 
-	condNode := flatFirstDescendantOfType(file, condRoot, "equality_expression")
-	if condNode == 0 || file.FlatChildCount(condNode) < 3 {
+	// `x != null` narrows the then-branch only when it is the whole condition: under `||`, `!` or a call
+	// argument it proves nothing. Each `x == null` operand of a top-level `||` is false when the condition
+	// is, so it still narrows x after an early exit.
+	condNode := astflat.UnwrapParenExpr(file, condRoot)
+	if file.FlatType(condNode) == "disjunction_expression" {
+		return flatDisjunctionEqualsNullOperand(file, condNode), false, true, true
+	}
+	return flatNullCheckOperand(file, condNode)
+}
+
+// flatDisjunctionEqualsNullOperand returns the first `x == null` operand of a `||` chain, or "".
+func flatDisjunctionEqualsNullOperand(file *scanner.File, disj uint32) string {
+	for i := 0; i < file.FlatNamedChildCount(disj); i++ {
+		operand := astflat.UnwrapParenExpr(file, file.FlatNamedChild(disj, i))
+		if file.FlatType(operand) == "disjunction_expression" {
+			if name := flatDisjunctionEqualsNullOperand(file, operand); name != "" {
+				return name
+			}
+			continue
+		}
+		if name, _, isNull, ok := flatNullCheckOperand(file, operand); ok && isNull {
+			return name
+		}
+	}
+	return ""
+}
+
+// flatNullCheckOperand reads `x != null` / `x == null` (either operand order) from an equality_expression.
+func flatNullCheckOperand(file *scanner.File, condNode uint32) (string, bool, bool, bool) {
+	if condNode == 0 || file.FlatType(condNode) != "equality_expression" || file.FlatChildCount(condNode) < 3 {
 		return "", false, false, false
 	}
 

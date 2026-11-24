@@ -4,6 +4,8 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-24
+
 ### Added
 - The repository root is a GitHub Action: `uses: kaeawc/krit@vX.Y.Z`
   installs that release, verified against `checksums.txt` (failing closed),

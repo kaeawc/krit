@@ -147,3 +147,21 @@ guidance.
   into FIR helper facts when source analysis is not enough.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.
+
+## AndroidX Library Lint Checks
+
+Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of
+them run only when the project declares the library (or one that brings it, such as Material for appcompat); a
+library that arrives only transitively through another dependency is not seen, so those checks stay silent there.
+
+`androidx.appcompat:appcompat` 1.8.0:
+
+- `UseAndroidAlpha` reports `app:alpha` on a `<selector>` `<item>` that has `android:color` but no `android:alpha`,
+  in any resource folder. Lint reports an item of a nested `<selector>` once per enclosing selector at the same
+  position; krit reports it once.
+- `UseAppTint`, `UseSwitchCompatOrMaterialXml` and `UseCompatTextViewDrawableXml` match the exact layout tags
+  `ImageView`/`ImageButton`, `Switch` and `TextView`, as Lint does, so `android.widget.Switch` or
+  `AppCompatTextView` tags are not reported. Attributes are matched by namespace URI, not by prefix.
+- `UsingOnClickInXml` reports an `onClick` attribute in any namespace whose value is not a data binding expression,
+  when minSdk is below 23. When the build does not show minSdk (for example, a convention plugin sets it), Lint
+  assumes API 1 and reports; krit abstains.

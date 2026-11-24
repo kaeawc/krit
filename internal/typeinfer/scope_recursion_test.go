@@ -86,13 +86,17 @@ fun outer(param: String) {
 	if got := ifScope.Lookup("item"); got == nil {
 		t.Fatalf("expected if-body region to see item declared, got %#v", got)
 	}
+	// The if-body gets its own scope even though its condition narrows nothing.
+	if ifScope.Parent != forScope {
+		t.Fatalf("expected if-body scope parent to be for-loop scope, for=%p if=%p parent=%p", forScope, ifScope, ifScope.Parent)
+	}
 
 	whenScope := fi.RootScope.FindScopeAtOffset(uint32(strings.Index(src, "branchValue")))
 	if whenScope == nil {
 		t.Fatal("expected when-branch scope")
 	}
-	if whenScope.Parent != forScope {
-		t.Fatalf("expected when-branch scope parent to be for-loop scope, for=%p when=%p parent=%p", forScope, whenScope, whenScope.Parent)
+	if whenScope.Parent != ifScope {
+		t.Fatalf("expected when-branch scope parent to be if-body scope, if=%p when=%p parent=%p", ifScope, whenScope, whenScope.Parent)
 	}
 	if got := whenScope.Lookup("subject"); got == nil || got.Name != "String" {
 		t.Fatalf("expected when branch to smart-cast subject to String, got %#v", got)

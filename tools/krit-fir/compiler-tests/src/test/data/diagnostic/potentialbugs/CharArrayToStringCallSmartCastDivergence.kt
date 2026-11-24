@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 23, 27, 32, 42, 50
+// go-lines: 32, 42, 50
 // Where Go's name-keyed smart casts and the value K2 proves disagree.
 package test
 
@@ -17,24 +17,24 @@ class Holder(val data: Any) {
     fun memberThis(): String = if (this.data is CharArray) <!CharArrayToStringCall!>this.data.toString()<!> else ""
 }
 
-// Go reports these; the value is not a CharArray, so FIR is correct to drop
-// them.
-// Go narrows every body of the `if`, the else branch included.
+// Go and FIR agree on these two: the value is not proven to be a CharArray.
+// The is-check narrows only the then-branch, not the else branch, where the
+// value is not a CharArray.
 fun elseBranch(value: Any): String = if (value is CharArray) "" else value.toString()
 
-// Go takes the first is-check anywhere in the condition, here under `||`;
-// with `flag` true the value can be anything.
+// An is-check under `||` does not narrow the branch: with `flag` true the
+// value can be anything.
 fun disjunction(value: Any, flag: Boolean): String = if (flag || value is CharArray) value.toString() else ""
 
-// Go applies the narrowing of `if (x !is CharArray) return` to its whole
-// scope, including the statements before the check.
+// Go reports this: it applies the narrowing of `if (x !is CharArray) return`
+// to its whole scope, including the statements before the check.
 fun beforeEarlyReturn(value: Any): String {
     val before = value.toString()
     if (value !is CharArray) return before
     return ""
 }
 
-// Go keys the smart cast by name; `value` is reassigned to a String first.
+// Go reports this, keying the smart cast by name; `value` is now a String.
 fun reassigned(input: Any): String {
     var value = input
     if (value is CharArray) {
@@ -44,8 +44,8 @@ fun reassigned(input: Any): String {
     return ""
 }
 
-// Go keys the smart cast by the name `data`; the check reads this node's
-// data, the call reads other.data.
+// Go reports this, keying the smart cast by the name `data`; the check reads
+// this node's data, the call reads other.data.
 class Node(val data: Any) {
     fun compare(other: Node): String = if (data is CharArray) other.data.toString() else ""
 }

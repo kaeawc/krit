@@ -257,9 +257,15 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 
 	// `x !is T`, alone or as an operand of `||`, is false whenever the condition is false: after an early
 	// exit and in the else-branch, x is a T.
-	if negated := r.extractNegatedIsChecksFromIfFlat(idx, file, it); len(negated) > 0 {
+	if negated, fromPrefix := r.extractNegatedIsChecksFromIfFlat(idx, file, it); len(negated) > 0 {
 		if r.ifBodyIsEarlyReturnFlat(idx, file) {
+			// A `!(x is T)` guard only narrows after a then-body that always exits, not one that merely
+			// holds a return somewhere inside it.
+			alwaysExits := flatBodyAlwaysExits(file, thenBody)
 			for name, typ := range negated {
+				if fromPrefix[name] && !alwaysExits {
+					continue
+				}
 				scope.SetSmartCastType(name, typ)
 			}
 		}
@@ -273,9 +279,39 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 		}
 	}
 
-	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
-		r.buildScopesFlat(child, file, scope, it)
-	})
+	// No narrowing, but each branch body still gets its own scope so its locals and facts stay inside it.
+	r.buildIfBranchScopesFlat(idx, 0, file, scope, it, nil)
+}
+
+// flatBodyAlwaysExits reports whether a branch body ends in return/throw (or TODO()/error()) on every path
+// through its own statements: a single exit expression, or a block whose last statement is one.
+func flatBodyAlwaysExits(file *scanner.File, body uint32) bool {
+	if file == nil || body == 0 {
+		return false
+	}
+	last := body
+	for {
+		switch file.FlatType(last) {
+		case "control_structure_body", "statements", "block", "parenthesized_expression":
+			next := flatLastNamedChildFlat(file, last)
+			if next == 0 {
+				return false
+			}
+			last = next
+		case "jump_expression":
+			text := file.FlatNodeText(last)
+			return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
+		case "call_expression":
+			callee := file.FlatChild(last, 0)
+			if callee == 0 || file.FlatType(callee) != "simple_identifier" {
+				return false
+			}
+			name := file.FlatNodeText(callee)
+			return name == "TODO" || name == "error"
+		default:
+			return false
+		}
+	}
 }
 
 // buildIfBranchScopesFlat builds the scopes of an if-expression's children. Every branch body gets its own
@@ -288,7 +324,7 @@ func (r *defaultResolver) buildIfBranchScopesFlat(ifIdx, narrowed uint32, file *
 			return
 		}
 		branch := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(child), end: file.FlatEndByte(child)})
-		if child == narrowed {
+		if child == narrowed && narrow != nil {
 			narrow(branch)
 		}
 		flatForEachRelevantScopeChild(file, child, func(gc uint32) {
@@ -512,12 +548,14 @@ func (r *defaultResolver) extractIsCheckFromIfFlatByIdx(ifIdx uint32, file *scan
 
 // extractNegatedIsChecksFromIfFlat returns the `x !is T` checks that all hold when the if-condition is false:
 // the condition itself, or any operand of a top-level `||` chain (nested and parenthesized `||` included).
-func (r *defaultResolver) extractNegatedIsChecksFromIfFlat(ifIdx uint32, file *scanner.File, it *ImportTable) map[string]*ResolvedType {
+// fromPrefix marks the names whose check came from a `!(x is T)` operand.
+func (r *defaultResolver) extractNegatedIsChecksFromIfFlat(ifIdx uint32, file *scanner.File, it *ImportTable) (checks map[string]*ResolvedType, fromPrefix map[string]bool) {
 	condRoot := flatIfConditionNode(file, ifIdx)
 	if condRoot == 0 {
-		return nil
+		return nil, nil
 	}
-	checks := make(map[string]*ResolvedType)
+	checks = make(map[string]*ResolvedType)
+	fromPrefix = make(map[string]bool)
 	var collect func(node uint32)
 	collect = func(node uint32) {
 		node = flatUnwrapParenthesizedExpression(file, node)
@@ -540,11 +578,12 @@ func (r *defaultResolver) extractNegatedIsChecksFromIfFlat(ifIdx uint32, file *s
 			inner := flatUnwrapParenthesizedExpression(file, flatLastNamedChildFlat(file, node))
 			if name, typ, positive, ok := r.checkExpressionFactFlat(inner, file, it); ok && positive {
 				checks[name] = typ
+				fromPrefix[name] = true
 			}
 		}
 	}
 	collect(condRoot)
-	return checks
+	return checks, fromPrefix
 }
 
 // flatLastNamedChildFlat returns idx's last named child, or 0.

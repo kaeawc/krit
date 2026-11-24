@@ -332,3 +332,42 @@ fun example(x: Any, flag: Boolean) {
 		t.Errorf("else-branch: x = %q, want Any", got)
 	}
 }
+
+// Base pin: an if whose condition narrows nothing still keeps its branch locals inside the branch.
+func TestSmartCast_FallbackBranchLocalsStayInBranch(t *testing.T) {
+	for _, cond := range []string{"flag || a is String", "!(a is String) == flag"} {
+		src := "fun example(a: Any, flag: Boolean) {\n    if (" + cond + ") {\n        val tmp = 1\n    } else {\n        val tmp = 2\n    }\n    val tmp = \"s\"\n    tmp.length // after\n}\n"
+		if got := smartCastNameAt(t, src, "tmp.length // after", "tmp"); got != "String" {
+			t.Errorf("if (%s): tmp after the if = %q, want String", cond, got)
+		}
+	}
+}
+
+// Base pin: `!(x is T)` narrows after the if only when the then-body always exits, not when it holds a
+// conditional return.
+func TestSmartCast_NegatedPrefixGuardNeedsUnconditionalExit(t *testing.T) {
+	src := `
+fun example(x: Any, flag: Boolean) {
+    if (!(x is String)) {
+        if (flag) return
+        println()
+    }
+    x.hashCode() // after
+}
+`
+	if got := smartCastNameAt(t, src, "x.hashCode() // after", "x"); got != "Any" {
+		t.Errorf("after a conditional exit: x = %q, want Any", got)
+	}
+	exits := `
+fun example(x: Any) {
+    if (!(x is String)) {
+        println()
+        return
+    }
+    x.hashCode() // after
+}
+`
+	if got := smartCastNameAt(t, exits, "x.hashCode() // after", "x"); got != "String" {
+		t.Errorf("after an unconditional exit: x = %q, want String", got)
+	}
+}

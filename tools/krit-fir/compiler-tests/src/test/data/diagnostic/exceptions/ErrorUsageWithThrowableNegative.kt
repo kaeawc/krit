@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 33, 45, 51, 53, 55, 66, 91, 101, 117, 126
+// go-lines: 33, 45, 51, 53, 55, 66, 117, 126
 // Negative: error() with a message, a non-Throwable value, or a call that does
 // not resolve to kotlin.error must NOT trigger ErrorUsageWithThrowable.
 package test
@@ -82,8 +82,8 @@ fun capturedVarOtherType(initial: Any) {
     if (value is CharSequence) error(value)
 }
 
-// Go reports this because it narrows from an `is` check anywhere in an `||`
-// condition; FIR is correct because `enabled` alone can take the branch.
+// Go and FIR agree: an `is` check under `||` does not narrow the branch,
+// because `enabled` alone can take it.
 fun capturedVarDisjunction(initial: Any, enabled: Boolean) {
     var value = initial
     val reset = { value = "reset" }
@@ -91,9 +91,9 @@ fun capturedVarDisjunction(initial: Any, enabled: Boolean) {
     if (enabled || value is Exception) error(value)
 }
 
-// Go reports this because it narrows `value` in every branch body of the
-// `if`, including `else`; FIR is correct because the else branch runs only
-// when `value` is not an Exception.
+// Go and FIR agree: the `is` check narrows only the then-branch, and the
+// else branch runs only when `value` is not an Exception, so `error(value)`
+// there passes an Any.
 fun capturedVarElseBranch(initial: Any) {
     var value = initial
     val reset = { value = "reset" }

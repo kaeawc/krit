@@ -9,10 +9,13 @@ All notable changes to Krit will be documented in this file.
 ### Added
 - The `dev.jasonpearson.krit` Gradle plugin and the
   `dev.jasonpearson.krit.settings` settings plugin are published to Maven
-  Central with their plugin markers (`dev.jasonpearson.krit:krit-gradle-plugin`,
-  `dev.jasonpearson.krit:krit-settings-plugin`), so `kritExportModel` and FIR
-  work without a local plugin build. Add `mavenCentral()` to
-  `pluginManagement { repositories { … } }`. The settings plugin can also be
+  Central (`dev.jasonpearson.krit:krit-gradle-plugin`,
+  `dev.jasonpearson.krit:krit-settings-plugin`) with their plugin markers
+  (`dev.jasonpearson.krit:dev.jasonpearson.krit.gradle.plugin`,
+  `dev.jasonpearson.krit.settings:dev.jasonpearson.krit.settings.gradle.plugin`),
+  so `kritExportModel` and FIR work without a local plugin build. Add
+  `mavenCentral()` to `pluginManagement { repositories { … } }`, keeping
+  `gradlePluginPortal()` there for other plugins. The settings plugin can also be
   applied from a Gradle init script. Release builds resolve both plugins from
   the staged artifacts in a throwaway project before uploading them (#1119,
   #1122).

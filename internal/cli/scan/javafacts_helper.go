@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/javafacts"
@@ -25,6 +27,19 @@ var javaFactsCacheRoot = func() (string, error) {
 	}
 	return filepath.Join(dir, "jars"), nil
 }
+
+// javaFactsJavac locates javac; tests replace it to run a stand-in compiler.
+var javaFactsJavac = jdk.Javac
+
+// javaFactsCompileTimeout bounds one javac run of the helper. A healthy JDK
+// compiles the single helper file in seconds; the limit leaves room for a cold
+// CI runner while keeping a javac that never exits (such as macOS's
+// /usr/bin/javac stub under a misconfigured JAVA_HOME) from hanging the scan.
+var javaFactsCompileTimeout = 2 * time.Minute
+
+// javaFactsCompileWaitDelay bounds how long Wait keeps reading javac's output
+// after the timeout kills it, in case a child process still holds the pipes.
+var javaFactsCompileWaitDelay = 5 * time.Second
 
 // javacIdentity is a cheap, JVM-free fingerprint of a javac binary: its
 // symlink-resolved path plus that file's size and mtime. Folded into the helper
@@ -55,7 +70,7 @@ var resolveJavacIdentity = func(javac string) javacIdentity {
 // and JAVA_HOME. The .complete marker denotes a usable cache entry.
 // Concurrent callers populate via rename-into-place; a loser reuses the winner's completed entry.
 func compileJavaFactsHelper(_ []string) (classpath string, cleanup func(), warning string, err error) {
-	javac, lookupErr := jdk.Javac()
+	javac, lookupErr := javaFactsJavac()
 	if lookupErr != nil {
 		// Surfaces the lookup failure as a warning string, not an err
 		// — javac being absent is non-fatal: the caller falls back to
@@ -105,8 +120,8 @@ func compileJavaFactsHelper(_ []string) (classpath string, cleanup func(), warni
 		return "", nil, "", err
 	}
 	classesDir := filepath.Join(tmp, "classes")
-	if output, compileErr := exec.CommandContext(context.Background(), javac, "--release", "17", "-d", classesDir, srcFile).CombinedOutput(); compileErr != nil {
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("compile helper (Java facts need JDK >= 17): %w: %s", compileErr, string(output))), nil //nolint:nilerr // compile failure is intentionally surfaced as warning
+	if warning := runJavaFactsJavac(javac, classesDir, srcFile); warning != "" {
+		return "", nil, warning, nil
 	}
 	if err := os.WriteFile(filepath.Join(classesDir, ".complete"), nil, 0o600); err != nil {
 		return "", nil, "", err
@@ -135,9 +150,27 @@ func compileJavaFactsHelperOneShot(javac string) (classpath string, cleanup func
 		return "", nil, "", err
 	}
 	classesDir := filepath.Join(tmp, "classes")
-	if output, compileErr := exec.CommandContext(context.Background(), javac, "--release", "17", "-d", classesDir, srcFile).CombinedOutput(); compileErr != nil {
+	if warning := runJavaFactsJavac(javac, classesDir, srcFile); warning != "" {
 		cleanup()
-		return "", nil, javafacts.UnavailableWarning(fmt.Errorf("compile helper (Java facts need JDK >= 17): %w: %s", compileErr, string(output))), nil //nolint:nilerr // compile failure is intentionally surfaced as warning
+		return "", nil, warning, nil
 	}
 	return classesDir, cleanup, "", nil
+}
+
+// runJavaFactsJavac compiles the helper source into classesDir. A failed or
+// timed-out compile returns the "Java facts unavailable" warning, so the scan
+// falls back to AST-only Java analysis.
+func runJavaFactsJavac(javac, classesDir, srcFile string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), javaFactsCompileTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, javac, "--release", "17", "-d", classesDir, srcFile)
+	cmd.WaitDelay = javaFactsCompileWaitDelay
+	output, err := cmd.CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return javafacts.UnavailableWarning(fmt.Errorf("compile helper: %s did not finish within %s (is JAVA_HOME a real JDK?)", javac, javaFactsCompileTimeout))
+	}
+	if err != nil {
+		return javafacts.UnavailableWarning(fmt.Errorf("compile helper (Java facts need JDK >= 17): %w: %s", err, string(output)))
+	}
+	return ""
 }

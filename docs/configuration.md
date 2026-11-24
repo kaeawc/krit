@@ -166,6 +166,44 @@ modules or rerun `kritExportModel`.
 For an explicit model location use `--gradle-model DIR`. An empty exported
 classpath is valid.
 
+To get `kritExportModel` and `kritCheck` in every Kotlin/Android module of a
+multi-module build, apply the settings plugin once. Both plugins are on Maven
+Central, so `mavenCentral()` in `pluginManagement` is enough:
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id("dev.jasonpearson.krit.settings") version "0.5.0"
+}
+```
+
+From a Gradle init script instead (no edits to the project), resolve the
+plugin on the init script's classpath and apply it by class:
+
+```kotlin
+// init.gradle.kts, passed with: ./gradlew -I init.gradle.kts kritExportModel
+initscript {
+    repositories { mavenCentral() }
+    dependencies {
+        classpath("dev.jasonpearson.krit:krit-settings-plugin:0.5.0")
+    }
+}
+
+beforeSettings {
+    pluginManager.apply(dev.jasonpearson.krit.settings.KritSettingsPlugin::class.java)
+}
+```
+
+See [krit-settings-plugin](https://github.com/kaeawc/krit/blob/main/krit-settings-plugin/README.md)
+for the `krit { }` settings block.
+
 For Maven, generate the classpath with
 `mvn dependency:build-classpath -Dmdep.outputFile=classpath.txt`, then split
 the file's platform-separated paths into a YAML list:

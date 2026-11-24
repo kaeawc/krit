@@ -10,6 +10,10 @@ Exit code is `0` when clean, `1` when findings exist, `2` when setup or config
 preflight fails. FIR is on by default. Install Java 21+, provide the matching
 `krit-fir.jar` (or set `KRIT_FIR_JAR` for air-gapped use), and export a Gradle
 model with `kritExportModel` or declare `oracle.classpath` in `krit.yml`.
+The Gradle plugins resolve from Maven Central: apply
+`id("dev.jasonpearson.krit.settings") version "0.5.0"` in `settings.gradle.kts`
+(with `mavenCentral()` in `pluginManagement`) or from a Gradle init script, see
+[configuration](configuration.md#gradle-model).
 Krit prints one actionable stderr error and stops before analysis if any of
 these are missing. `krit --no-fir .` runs Go-only. See
 [configuration](configuration.md#fir-scan-requirements) for Maven/Bazel recipes

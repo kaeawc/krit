@@ -1,0 +1,9 @@
+q/Alias.kt:6:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+q/JComposable.java:7:17: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+q/Shadow.kt:11:9: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+q/Star.kt:6:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+q/Star.kt:9:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+q/Star.kt:11:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+q/Star.kt:17:5: ComposableNaming: Composable functions with a return type should start with a lowercase letter
+q/Star.kt:23:53: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+q/Star.kt:23:53: ComposableLambdaParameterPosition: Composable lambda parameter should be the last parameter so it can be used as a trailing lambda

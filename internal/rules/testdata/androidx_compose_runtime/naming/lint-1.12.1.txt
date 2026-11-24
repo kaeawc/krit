@@ -1,0 +1,28 @@
+p/J.java:7:60: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:10:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:16:5: ComposableNaming: Composable functions with a return type should start with a lowercase letter
+p/Naming.kt:22:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:25:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:28:9: ComposableNaming: Composable functions with a return type should start with a lowercase letter
+p/Naming.kt:31:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:34:5: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:40:9: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:43:9: ComposableNaming: Composable functions with a return type should start with a lowercase letter
+p/Naming.kt:59:18: ComposableNaming: Composable functions that return Unit should start with an uppercase letter
+p/Naming.kt:70:24: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:73:14: ComposableLambdaParameterPosition: Composable lambda parameter should be the last parameter so it can be used as a trailing lambda
+p/Naming.kt:76:14: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:76:14: ComposableLambdaParameterPosition: Composable lambda parameter should be the last parameter so it can be used as a trailing lambda
+p/Naming.kt:82:14: ComposableLambdaParameterPosition: Composable lambda parameter should be the last parameter so it can be used as a trailing lambda
+p/Naming.kt:88:14: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:88:14: ComposableLambdaParameterPosition: Composable lambda parameter should be the last parameter so it can be used as a trailing lambda
+p/Naming.kt:91:14: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:94:14: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:100:31: ComposableLambdaParameterNaming: Composable lambda parameter should be named `content`
+p/Naming.kt:102:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:105:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:106:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:107:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:109:5: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:112:9: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`
+p/Naming.kt:117:13: CompositionLocalNaming: CompositionLocal properties should be prefixed with `Local`

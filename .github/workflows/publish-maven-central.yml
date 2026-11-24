@@ -32,19 +32,53 @@ jobs:
       group: publish-maven-central-${{ github.ref }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A tag push without the Central secrets skips with a warning instead of
+      # failing the tag (v0.3.0 and v0.3.1 went red only because they were
+      # unset); it publishes on the first tag after they are configured. A
+      # manual dispatch is an explicit request, so it still fails.
+      - name: Check Maven Central secrets
+        id: secrets
+        env:
+          SIGNING_KEY: ${{ secrets.MAVEN_CENTRAL_SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.MAVEN_CENTRAL_SIGNING_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$SIGNING_KEY" ] || missing+=(MAVEN_CENTRAL_SIGNING_KEY)
+          [ -n "$SIGNING_PASSWORD" ] || missing+=(MAVEN_CENTRAL_SIGNING_PASSWORD)
+          [ -n "$SONATYPE_USERNAME" ] || missing+=(SONATYPE_USERNAME)
+          [ -n "$SONATYPE_PASSWORD" ] || missing+=(SONATYPE_PASSWORD)
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          msg="Maven Central secrets not configured: ${missing[*]}. See docs/release.md#required-repository-secrets."
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "::error::$msg"
+            exit 1
+          fi
+          echo "::warning::$msg Skipping the Maven Central publish."
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
         with:
           distribution: zulu
           java-version: '21'
-      - uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
+      - if: steps.secrets.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4
         with:
           cache-cleanup: on-success
           validate-wrappers: true
       # Derive the version from dispatch input or v-prefixed tag, failing closed otherwise.
       - name: Resolve publish version
+        if: steps.secrets.outputs.ready == 'true'
         id: version
         env:
           DISPATCH_VERSION: ${{ inputs.version }}
@@ -62,6 +96,7 @@ jobs:
           echo "version=${ver}" >> "$GITHUB_OUTPUT"
           echo "Publishing ${ver}"
       - name: Publish krit-rule-api
+        if: steps.secrets.outputs.ready == 'true'
         working-directory: tools/krit-rule-api
         env:
           KRIT_VERSION: ${{ steps.version.outputs.version }}
@@ -74,6 +109,7 @@ jobs:
             publishAllPublicationsToStagingDirRepository \
             publishAllPublicationsToCentralPortalRepository
       - name: Publish krit-fir to Sonatype Central Portal
+        if: steps.secrets.outputs.ready == 'true'
         working-directory: tools/krit-fir
         env:
           KRIT_VERSION: ${{ steps.version.outputs.version }}
@@ -86,6 +122,7 @@ jobs:
             :publishAllPublicationsToStagingDirRepository \
             :publishAllPublicationsToCentralPortalRepository
       - name: Finalize Sonatype Central Portal staging repository
+        if: steps.secrets.outputs.ready == 'true'
         env:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}

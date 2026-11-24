@@ -314,21 +314,70 @@ jobs:
           esac
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false "$latest_flag"
 
+      # Attest right after publishing, before the package-manager steps: a
+      # tap or bucket push that fails must not leave the release without
+      # provenance (v0.3.0 and v0.3.1 did).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/*.tar.gz,dist/*.zip,dist/*.jar'
+
+      # The root action.yml is used as kaeawc/krit@vX.Y.Z or @vX; move the
+      # floating major tag (v0, v1, ...) to each stable release. Prereleases
+      # (nightlies, -rc tags) never move it.
+      - name: Move floating major tag for the action
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          major="${TAG%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f -a "$major" -m "krit action ${TAG}" "${TAG}^{commit}"
+          git push --force origin "refs/tags/${major}"
+          echo "Moved ${major} to ${TAG}"
+
       # Package managers only track stable releases. Tags with a SemVer
       # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)
       # stop at the GitHub prerelease above.
-      - name: Publish Homebrew cask
+      #
+      # The tap and bucket are pushed with a short-lived installation token
+      # of the repository's GitHub App (GH_APP_ID / GH_APP_PRIVATE_KEY),
+      # which must be installed on kaeawc/homebrew-tap and kaeawc/scoop-krit
+      # with Contents: write. When the App cannot mint that token (not
+      # installed there, or secrets unset) the steps fall back to the
+      # HOMEBREW_TAP_TOKEN / SCOOP_BUCKET_TOKEN PATs.
+      - name: Mint package-manager token
+        id: pkg-token
         if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap,scoop-krit
+          permission-contents: write
+
+      # Each publisher runs even when the other fails; "Check package-manager
+      # publishing" below fails the job afterwards and names which one broke.
+      - name: Publish Homebrew cask
+        id: brew
+        if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: bash scripts/release/update-brew-tap.sh
 
       - name: Publish Scoop manifest
+        id: scoop
         if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          GH_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.SCOOP_BUCKET_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: bash scripts/release/update-scoop-bucket.sh
@@ -350,26 +399,27 @@ jobs:
           path: dist/winget/
           if-no-files-found: error
 
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: 'dist/*.tar.gz,dist/*.zip,dist/*.jar'
-
-      # The root action.yml is used as kaeawc/krit@vX.Y.Z or @vX; move the
-      # floating major tag (v0, v1, ...) to each stable release. Prereleases
-      # (nightlies, -rc tags) never move it.
-      - name: Move floating major tag for the action
+      - name: Check package-manager publishing
         if: ${{ !contains(github.ref_name, '-') }}
         env:
-          TAG: ${{ github.ref_name }}
+          TOKEN_SOURCE: ${{ steps.pkg-token.outputs.token != '' && 'GitHub App' || 'PAT secrets' }}
+          BREW: ${{ steps.brew.outcome }}
+          SCOOP: ${{ steps.scoop.outcome }}
         run: |
           set -euo pipefail
-          major="${TAG%%.*}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f -a "$major" -m "krit action ${TAG}" "${TAG}^{commit}"
-          git push --force origin "refs/tags/${major}"
-          echo "Moved ${major} to ${TAG}"
+          echo "Package-manager token: $TOKEN_SOURCE"
+          echo "Homebrew cask: $BREW"
+          echo "Scoop manifest: $SCOOP"
+          failed=0
+          if [ "$BREW" != "success" ]; then
+            echo "::error::Homebrew cask was not published ($BREW). Re-run the job after fixing access to kaeawc/homebrew-tap; the GitHub release itself is complete."
+            failed=1
+          fi
+          if [ "$SCOOP" != "success" ]; then
+            echo "::error::Scoop manifest was not published ($SCOOP). Re-run the job after fixing access to kaeawc/scoop-krit; the GitHub release itself is complete."
+            failed=1
+          fi
+          exit "$failed"
 
   # Submit the rendered winget manifests to microsoft/winget-pkgs (opens a
   # PR from the token owner's winget-pkgs fork). Stable tags only, and a

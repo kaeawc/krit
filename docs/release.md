@@ -42,6 +42,42 @@ Krit ships from `v*` tags:
 [`nightly.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/nightly.yml) pushes a
 `vX.Y.Z-nightly.<date>` tag daily when `main` has new commits, so
 nightlies get a GitHub prerelease and nothing else.
+The tag is pushed with `GITHUB_TOKEN`, which cannot trigger `release.yml`'s
+`push: tags` event, so `nightly.yml` dispatches `release.yml` on the new tag.
+The version is the next minor after the latest stable tag (after `v0.3.1`,
+nightlies are `v0.4.0-nightly.<date>`).
+
+## Cadence
+
+- **Nightly**: daily at 06:00 UTC when `main` has new commits. Pin a nightly
+  tag to try fixes before they reach a stable release.
+- **Stable**: a minor release (`vX.Y.0`) about once a month, cut from a
+  green nightly; patch releases (`vX.Y.Z`) when a regression needs a fix
+  before the next minor.
+
+## Cutting a stable release
+
+1. Pick a recent nightly whose `Release` run passed, and check that `main`'s
+   CI is green at the commit you will tag.
+2. In one PR: rename `## [Unreleased]` in `CHANGELOG.md` to
+   `## [X.Y.Z] - <date>` (keep an empty `## [Unreleased]` above it), and
+   bump the version pins that name a release: the `krit-gradle-plugin`
+   default in `krit-gradle-plugin/build.gradle.kts` and the version
+   examples in the plugin READMEs. Merge it.
+3. Check the publishing credentials (see
+   [Required repository secrets](#required-repository-secrets)): the
+   GitHub App is installed on `kaeawc/homebrew-tap` and `kaeawc/scoop-krit`,
+   or the PAT fallbacks are current.
+4. Tag the merge commit and push the tag:
+   `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+5. Watch `Release` and `Publish to Maven Central`. The GitHub release is
+   published (with provenance attestation) before the package-manager
+   steps; if the Homebrew or Scoop push fails, the job fails at
+   "Check package-manager publishing" with the reason, and re-running the
+   `release` job after fixing access reuses the published release.
+6. Confirm `brew install kaeawc/tap/krit` and `scoop install krit` pick up
+   the new version, and submit `winget-manifests` by hand if no
+   `WINGET_TOKEN` is configured.
 
 This page focuses on the Maven Central piece. The binary release flow
 is documented inline in `release.yml`.
@@ -74,12 +110,17 @@ missing during signing or upload.
 | `SONATYPE_USERNAME` | Sonatype Central Portal user token name (**not** the portal account email). Generate from the Central Portal "Account → Generate User Token" page. |
 | `SONATYPE_PASSWORD` | Paired Central Portal user token password. |
 
+When any of the four is missing, a tag push skips the publish with a
+warning naming them (the tag's other workflows are unaffected); a manual
+dispatch fails instead.
+
 `release.yml` uses these for the package-manager steps:
 
 | Secret | Purpose |
 | --- | --- |
-| `HOMEBREW_TAP_TOKEN` | PAT with Contents: write on `kaeawc/homebrew-tap`. |
-| `SCOOP_BUCKET_TOKEN` | PAT with Contents: write on `kaeawc/scoop-krit`. |
+| `GH_APP_ID` / `GH_APP_PRIVATE_KEY` | The repository's GitHub App. `release.yml` mints a short-lived installation token for `kaeawc/homebrew-tap` and `kaeawc/scoop-krit` with Contents: write, so the App must be installed on both repositories with that permission. Preferred: nothing expires. |
+| `HOMEBREW_TAP_TOKEN` | Fallback when the App cannot mint a token: PAT with Contents: write on `kaeawc/homebrew-tap`. |
+| `SCOOP_BUCKET_TOKEN` | Fallback when the App cannot mint a token: PAT with Contents: write on `kaeawc/scoop-krit`. |
 | `WINGET_TOKEN` | Optional. Classic PAT with `public_repo` scope; `wingetcreate` opens the winget-pkgs PR from this account's fork. Without it the `winget` job is a no-op and the manifests are left in the run's `winget-manifests` artifact. |
 
 Reuse note: the binary release already uses a separate GPG identity

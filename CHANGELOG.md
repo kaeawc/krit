@@ -4,6 +4,12 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an
+  exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
+  recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
+  directories, up to 16 sets per scan (#1023).
+
 ## [0.5.0] - 2026-11-24
 
 ### Added

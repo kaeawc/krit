@@ -17,7 +17,7 @@ import (
 func TestIsolationUnitsKeepEveryScannedSetOfAnOwningProject(t *testing.T) {
 	model, root := fixtureModel(t)
 	units, _ := Plan(model, root, []string{root})
-	kept, skipped := isolationUnits(units, []string{filepath.Join(root, "lib", "src", "test", "kotlin", "LTest.kt")})
+	kept, skipped, _ := isolationUnits(units, []string{filepath.Join(root, "lib", "src", "test", "kotlin", "LTest.kt")})
 	var ids []string
 	for _, u := range kept {
 		ids = append(ids, u.Spec.ID)
@@ -31,7 +31,7 @@ func TestIsolationUnitsRecheckASingleSetAndIgnoreUnknownFiles(t *testing.T) {
 	model, root := fixtureModel(t)
 	units, _ := Plan(model, root, []string{root})
 	gated := []string{filepath.Join(root, "app", "src", "main", "kotlin", "A.kt"), filepath.Join(root, "elsewhere", "B.kt")}
-	kept, skipped := isolationUnits(units, gated)
+	kept, skipped, _ := isolationUnits(units, gated)
 	if len(kept) != 1 || kept[0].Spec.ID != ":app:release" || len(skipped) != 0 {
 		t.Fatalf("a single set merged with other projects' sets is rechecked alone; unknown files are ignored: %+v %v", kept, skipped)
 	}
@@ -45,7 +45,7 @@ func TestIsolationUnitsSkipProjectsWithoutFullContext(t *testing.T) {
 			units[i].ContextDropped = true
 		}
 	}
-	kept, skipped := isolationUnits(units, []string{filepath.Join(root, "lib", "src", "main", "kotlin", "L.kt")})
+	kept, skipped, _ := isolationUnits(units, []string{filepath.Join(root, "lib", "src", "main", "kotlin", "L.kt")})
 	if len(kept) != 0 || !slices.Equal(skipped, []string{":lib"}) {
 		t.Fatalf("a project that lost dependency context keeps its merged verdicts: %+v %v", kept, skipped)
 	}
@@ -225,7 +225,7 @@ func TestIsolationUnitsSkipProjectsSharingASourceFile(t *testing.T) {
 		{Spec: firchecks.ModuleSpec{ID: ":b:main"}, Sources: []string{"/r/shared/S.kt"}},
 		{Spec: firchecks.ModuleSpec{ID: ":c:main"}, Sources: []string{"/r/c/C.kt"}},
 	}
-	kept, skipped := isolationUnits(units, []string{"/r/a/A.kt", "/r/shared/S.kt", "/r/c/C.kt"})
+	kept, skipped, _ := isolationUnits(units, []string{"/r/a/A.kt", "/r/shared/S.kt", "/r/c/C.kt"})
 	if len(kept) != 1 || kept[0].Spec.ID != ":c:main" || !slices.Equal(skipped, []string{":a", ":b"}) {
 		t.Fatalf("projects listing the same file keep their merged verdicts: %+v %v", kept, skipped)
 	}

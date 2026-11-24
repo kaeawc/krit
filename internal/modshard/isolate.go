@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
@@ -67,7 +68,8 @@ func Isolator(scanPaths []string, modelDir string, modelDisabled, noCache bool, 
 // CheckIsolated runs the FIR check of in.CheckRequest over the projects that own a gated file, with
 // each of their scanned source sets compiled on its own: a test or androidTest set sees its project's
 // main set but never a sibling, and no set sees another project's sets except as dependency context.
-// A project qualifies when each of its scanned sets has its full dependency context. It returns the merged check response for the rechecked files and
+// A project qualifies when each of its scanned sets has its full dependency context. Gated files in
+// variant directories no exported set lists are rechecked by variantUnits. It returns the merged check response for the rechecked files and
 // those files (as the request spells them); both are empty when no project qualified.
 func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []string, error) {
 	logf := in.Logf
@@ -86,15 +88,20 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 		return nil, nil, nil
 	}
 	all, _ := Plan(model, repoRoot, in.ScanPaths)
-	units, skipped := isolationUnits(all, gated)
+	units, skipped, unowned := isolationUnits(all, gated)
+	variants, beyond := variantUnits(model, all, skipped, unowned)
+	units = append(units, variants...)
 	addUserClasspath(units, model, check.classpath)
 	for _, project := range skipped {
 		logf("verbose: FIR source sets: %s keeps its merged verdicts (dependency sources exceed the context limit, or a source file belongs to another project too)\n", project)
 	}
+	if len(beyond) > 0 {
+		logf("verbose: FIR source sets: %d variant source sets beyond the limit of %d keep their merged verdicts: %s\n", len(beyond), maxVariantUnits, strings.Join(beyond, ", "))
+	}
 	if len(units) == 0 {
 		return nil, nil, nil
 	}
-	logf("verbose: FIR source sets: rechecking %d source sets of %d projects\n", len(units), countProjects(units))
+	logf("verbose: FIR source sets: rechecking %d source sets of %d projects (%d variant source sets outside the Gradle model)\n", len(units), countProjects(units), len(variants))
 	if err := os.MkdirAll(in.CacheDir, 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -121,10 +128,11 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	return resp, rechecked, nil
 }
 
-// isolationUnits returns the units of every project that owns a gated file, and the owning projects
-// left out because a unit lost dependency context or shares a source file with another project. A project with one scanned set qualifies too: the
+// isolationUnits returns the units of every project that owns a gated file, the owning projects
+// left out because a unit lost dependency context or shares a source file with another project, and
+// the gated files no unit owns. A project with one scanned set qualifies too: the
 // whole-repository compile also merges it with other projects' sets, which can declare the same class.
-func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped []string) {
+func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped, unowned []string) {
 	owner := map[string]string{}
 	shared := map[string]bool{}
 	byProject := map[string][]Unit{}
@@ -150,6 +158,8 @@ func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped []string
 		}
 		if ok {
 			wanted[project] = true
+		} else {
+			unowned = append(unowned, path)
 		}
 	}
 	projects := make([]string, 0, len(wanted))
@@ -165,7 +175,7 @@ func isolationUnits(units []Unit, gated []string) (kept []Unit, skipped []string
 		}
 		kept = append(kept, byProject[p]...)
 	}
-	return kept, skipped
+	return kept, skipped, unowned
 }
 
 // finishedUnits returns the units whose check finished, their keys, and the files they checked. A

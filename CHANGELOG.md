@@ -4,6 +4,14 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Releases upload `krit-bazel-<tag>.tar.gz`, a reproducible source archive
+  of the Bazel module, listed in `checksums.txt` and checked before the
+  release is published. The Bazel Central Registry entry now downloads it
+  from the release, so registry pull requests pass BCR's stable-URL check
+  without a `skip_check` comment. Nightly releases run the Bazel e2e module
+  against the published archive (#1195).
+
 ### Fixed
 - Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
   finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,

@@ -36,12 +36,16 @@ func jarBytes(t *testing.T, withManifest bool) []byte {
 	return buf.Bytes()
 }
 
-// releaseDir writes a dist directory holding jar (when non-nil) and sums.
-func releaseDir(t *testing.T, jar []byte, sums string) string {
+// releaseDir writes a dist directory holding jar and bazelArchive (each when
+// non-nil) and sums.
+func releaseDir(t *testing.T, jar, bazelArchive []byte, sums string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if jar != nil {
-		if err := os.WriteFile(filepath.Join(dir, firJarName(tag)), jar, 0o644); err != nil {
+	for name, data := range map[string][]byte{firJarName(tag): jar, bazelArchiveName(tag): bazelArchive} {
+		if data == nil {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,24 +62,34 @@ func sumLine(data []byte, name string) string {
 func TestCheckDir(t *testing.T) {
 	jar := jarBytes(t, true)
 	archive := []byte("archive")
-	good := sumLine(archive, "krit_1.2.3_linux_amd64.tar.gz") + sumLine(jar, firJarName(tag))
+	bazel := tarGz(t, map[string]string{bazelModuleFile(tag): "module(name = \"krit\")\n"})
+	wrongPrefix := tarGz(t, map[string]string{"krit-v1.2.3/bazel/MODULE.bazel": "module(name = \"krit\")\n"})
+	jarSum := sumLine(jar, firJarName(tag))
+	bazelSum := sumLine(bazel, bazelArchiveName(tag))
+	good := sumLine(archive, "krit_1.2.3_linux_amd64.tar.gz") + jarSum + bazelSum
 
 	cases := []struct {
 		name    string
 		jar     []byte
+		bazel   []byte
 		sums    string
 		wantErr string
 	}{
-		{"valid", jar, good, ""},
-		{"missing jar", nil, good, "missing krit-fir-v1.2.3.jar"},
-		{"not a jar", []byte("not a zip"), sumLine([]byte("not a zip"), firJarName(tag)), "not a jar"},
-		{"no manifest", jarBytes(t, false), sumLine(jarBytes(t, false), firJarName(tag)), "MANIFEST"},
-		{"jar not in checksums", jar, sumLine(archive, "krit_1.2.3_linux_amd64.tar.gz"), "no line for krit-fir-v1.2.3.jar"},
-		{"checksum mismatch", jar, sumLine(archive, firJarName(tag)), "hashes to"},
+		{"valid", jar, bazel, good, ""},
+		{"missing jar", nil, bazel, good, "missing krit-fir-v1.2.3.jar"},
+		{"not a jar", []byte("not a zip"), bazel, sumLine([]byte("not a zip"), firJarName(tag)) + bazelSum, "not a jar"},
+		{"no manifest", jarBytes(t, false), bazel, sumLine(jarBytes(t, false), firJarName(tag)) + bazelSum, "MANIFEST"},
+		{"jar not in checksums", jar, bazel, sumLine(archive, "krit_1.2.3_linux_amd64.tar.gz") + bazelSum, "no line for krit-fir-v1.2.3.jar"},
+		{"checksum mismatch", jar, bazel, sumLine(archive, firJarName(tag)) + bazelSum, "hashes to"},
+		{"missing bazel archive", jar, nil, good, "missing krit-bazel-v1.2.3.tar.gz"},
+		{"bazel archive not gzip", jar, []byte("plain"), jarSum + sumLine([]byte("plain"), bazelArchiveName(tag)), "not a gzip archive"},
+		{"bazel archive without module", jar, wrongPrefix, jarSum + sumLine(wrongPrefix, bazelArchiveName(tag)), "no krit-bazel-v1.2.3/bazel/MODULE.bazel"},
+		{"bazel archive not in checksums", jar, bazel, jarSum, "no line for krit-bazel-v1.2.3.tar.gz"},
+		{"bazel archive checksum mismatch", jar, bazel, jarSum + sumLine(archive, bazelArchiveName(tag)), "hashes to"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := checkDir(releaseDir(t, c.jar, c.sums), tag)
+			err := checkDir(releaseDir(t, c.jar, c.bazel, c.sums), tag)
 			if c.wantErr == "" {
 				if err != nil {
 					t.Fatalf("checkDir: %v", err)
@@ -90,13 +104,15 @@ func TestCheckDir(t *testing.T) {
 }
 
 func TestCheckPublished(t *testing.T) {
-	all := "krit_1.2.3_linux_amd64.tar.gz\nkrit-fir-v1.2.3.jar\nchecksums.txt\nchecksums.txt.sig\n"
+	all := "krit_1.2.3_linux_amd64.tar.gz\nkrit-fir-v1.2.3.jar\nkrit-bazel-v1.2.3.tar.gz\nchecksums.txt\nchecksums.txt.sig\n"
 	if err := checkPublished(strings.NewReader(all), tag, nil); err != nil {
 		t.Fatalf("complete release: %v", err)
 	}
-	withoutJar := strings.Replace(all, "krit-fir-v1.2.3.jar\n", "", 1)
-	if err := checkPublished(strings.NewReader(withoutJar), tag, nil); err == nil || !strings.Contains(err.Error(), "krit-fir-v1.2.3.jar") {
-		t.Fatalf("release without the jar: error = %v", err)
+	for _, asset := range []string{"krit-fir-v1.2.3.jar", "krit-bazel-v1.2.3.tar.gz"} {
+		without := strings.Replace(all, asset+"\n", "", 1)
+		if err := checkPublished(strings.NewReader(without), tag, nil); err == nil || !strings.Contains(err.Error(), asset) {
+			t.Fatalf("release without %s: error = %v", asset, err)
+		}
 	}
 	// Every uploaded name must be present, and a duplicated expected name is
 	// reported once.

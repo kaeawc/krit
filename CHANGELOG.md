@@ -4,6 +4,12 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
+  finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,
+  so a recording daemon is shut down, its profile is finalized or discarded, and its `.aot.lock` build
+  lock is released (#1262).
+
 ## [0.4.0] - 2026-11-24
 
 ### Added

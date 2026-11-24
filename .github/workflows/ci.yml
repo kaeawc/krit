@@ -142,10 +142,11 @@ jobs:
         with:
           family: linux
           writer: "true"
-      - name: Integration tests
-        run: make integration
-      # integration builds every binary and every test package, so its build
+      # integration-ci skips the Go test runs the `test` job already does but
+      # still compiles every binary and every test package, so its build
       # cache serves the other Linux jobs (family `linux`).
+      - name: Integration tests
+        run: make integration-ci
       - uses: ./.github/actions/go-cache-save
         with:
           family: linux

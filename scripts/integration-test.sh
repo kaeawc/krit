@@ -71,15 +71,27 @@ echo ""
 echo "=== SARIF Output ==="
 run_lint_test "SARIF generation" ./krit --no-fir -f sarif -no-type-inference -no-type-oracle -q -o /tmp/krit-test.sarif playground/kotlin-webservice/
 
-echo ""
-echo "=== Go Integration Tests ==="
-run_test "CLI tests" go test ./cmd/krit/ -count=1 -timeout 600s
-run_test "LSP tests" go test ./cmd/krit-lsp/ -count=1 -timeout 60s
-run_test "MCP tests" go test ./cmd/krit-mcp/ -count=1 -timeout 60s
+if [ "${KRIT_INTEGRATION_SKIP_GO_TESTS:-0}" = 1 ]; then
+    # CI's `test` job already runs every Go test package (no build tags, so
+    # this script's cmd/krit, cmd/krit-lsp, and cmd/krit-mcp runs below are a
+    # subset of it). Still compile, vet, and link every test package so this
+    # job's Go build cache, which the other Linux jobs restore, stays
+    # complete. `-exec true` hands each linked test binary to true(1), so no
+    # test or TestMain runs.
+    echo ""
+    echo "=== Go Tests (compile only; KRIT_INTEGRATION_SKIP_GO_TESTS=1) ==="
+    run_test "Compile all test packages" bash scripts/go-test.sh ./... -exec true
+else
+    echo ""
+    echo "=== Go Integration Tests ==="
+    run_test "CLI tests" go test ./cmd/krit/ -count=1 -timeout 600s
+    run_test "LSP tests" go test ./cmd/krit-lsp/ -count=1 -timeout 60s
+    run_test "MCP tests" go test ./cmd/krit-mcp/ -count=1 -timeout 60s
 
-echo ""
-echo "=== Unit Tests ==="
-run_test "All packages" bash scripts/go-test.sh ./... -count=1 -timeout 600s
+    echo ""
+    echo "=== Unit Tests ==="
+    run_test "All packages" bash scripts/go-test.sh ./... -count=1 -timeout 600s
+fi
 
 echo ""
 echo "================================"

@@ -745,6 +745,7 @@ jobs:
   # installs a checksum-verified release, puts krit on PATH, and runs it with
   # SARIF output. `uses: ./` has no release ref, so the version is pinned.
   setup-action:
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -758,7 +759,10 @@ jobs:
           version: '0.3.1'
           run: 'true'
           paths: tests/fixtures/positive/style
-          args: --no-fir
+          # Go-only: this job checks the action (install, PATH, SARIF and
+          # outputs), not the JVM helpers; krit 0.3.1's scan with the type
+          # oracle on hangs on windows-latest.
+          args: --no-fir --no-type-oracle
           sarif-file: ${{ runner.temp }}/krit.sarif
           fail-on-findings: 'false'
       - name: Check the action's outputs

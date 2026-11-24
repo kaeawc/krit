@@ -295,6 +295,12 @@ One-time setup:
 2. Create a classic PAT with `repo` and `workflow` scopes and save it as
    the `BCR_PUBLISH_TOKEN` repository secret.
 
+The source archive is GitHub's generated tag tarball
+(`archive/refs/tags/<tag>.tar.gz`, see `.bcr/bazel/source.template.json`),
+which BCR's validation flags as an unstable URL. Until the release uploads
+its own source tarball, comment `@bazel-io skip_check unstable_url` on each
+registry pull request so its checks can pass.
+
 Attestations are off (`attest: false`): BCR only accepts source archive
 attestations made by bazel-contrib's `release_ruleset` workflow, which
 krit's release does not use. To republish an existing tag, dispatch

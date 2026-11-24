@@ -91,24 +91,33 @@ if "value" in dir():
 PY
 }
 
+# Read and check every value before the first `gh secret set`, so a bad
+# file never overwrites a working secret with an empty or partial value.
+username="$(prop mavenCentralUsername)"
+password="$(prop mavenCentralPassword)"
+signing_key="$(prop signingInMemoryKey)"
+signing_password="$(prop signingInMemoryKeyPassword)"
+
 missing=()
-for key in mavenCentralUsername mavenCentralPassword signingInMemoryKey signingInMemoryKeyPassword; do
-  [ -n "$(prop "$key")" ] || missing+=("$key")
-done
+[ -n "$username" ] || missing+=(mavenCentralUsername)
+[ -n "$password" ] || missing+=(mavenCentralPassword)
+[ -n "$signing_key" ] || missing+=(signingInMemoryKey)
+[ -n "$signing_password" ] || missing+=(signingInMemoryKeyPassword)
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "set-maven-central-secrets: $props is missing ${missing[*]}" >&2
   exit 1
 fi
+case "$signing_key" in
+  "-----BEGIN PGP PRIVATE KEY BLOCK-----"*) ;;
+  *)
+    echo "set-maven-central-secrets: signingInMemoryKey is not an ASCII-armored private key" >&2
+    exit 1
+    ;;
+esac
 
-prop signingInMemoryKey | python3 -c '
-import sys
-key = sys.stdin.read().strip()
-if not key.startswith("-----BEGIN PGP PRIVATE KEY BLOCK-----"):
-    sys.exit("set-maven-central-secrets: signingInMemoryKey is not an ASCII-armored private key")
-sys.stdout.write(key + "\n")
-' | gh secret set MAVEN_CENTRAL_SIGNING_KEY -R "$repo"
-printf '%s' "$(prop signingInMemoryKeyPassword)" | gh secret set MAVEN_CENTRAL_SIGNING_PASSWORD -R "$repo"
-printf '%s' "$(prop mavenCentralUsername)" | gh secret set SONATYPE_USERNAME -R "$repo"
-printf '%s' "$(prop mavenCentralPassword)" | gh secret set SONATYPE_PASSWORD -R "$repo"
+printf '%s\n' "$signing_key" | gh secret set MAVEN_CENTRAL_SIGNING_KEY -R "$repo"
+printf '%s' "$signing_password" | gh secret set MAVEN_CENTRAL_SIGNING_PASSWORD -R "$repo"
+printf '%s' "$username" | gh secret set SONATYPE_USERNAME -R "$repo"
+printf '%s' "$password" | gh secret set SONATYPE_PASSWORD -R "$repo"
 
 gh secret list -R "$repo" | grep -E '^(MAVEN_CENTRAL_SIGNING_KEY|MAVEN_CENTRAL_SIGNING_PASSWORD|SONATYPE_USERNAME|SONATYPE_PASSWORD)\b'

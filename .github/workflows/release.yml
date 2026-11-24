@@ -207,6 +207,11 @@ jobs:
           # Released CLIs download this jar; a release without it degrades
           # every FIR scan, so a missing jar fails the job here.
           cp "staging/krit-fir-${TAG}.jar" dist/
+          # Source archive of the Bazel module (bazel/). The Bazel Central
+          # Registry entry downloads it from this release
+          # (.bcr/bazel/source.template.json); the *.tar.gz globs below
+          # checksum, upload and attest it with the platform archives.
+          bash scripts/release/bazel-source-archive.sh "$TAG" dist
           ls -la dist/
 
       - name: Generate combined checksums.txt
@@ -222,7 +227,7 @@ jobs:
           sort -k2 checksums.txt -o checksums.txt
           cat checksums.txt
 
-      - name: Verify krit-fir jar and checksum
+      - name: Verify krit-fir jar, Bazel source archive and checksums
         env:
           TAG: ${{ github.ref_name }}
         run: go run ./internal/devtools/releaseassets --tag "$TAG" --dir dist
@@ -420,6 +425,26 @@ jobs:
             failed=1
           fi
           exit "$failed"
+
+  # Nightly canary for the Bazel module: once the nightly release is public,
+  # resolve the krit module from a local registry whose source.json points
+  # at this release's krit-bazel-<tag>.tar.gz (the way a BCR entry does) and
+  # run the bazel/e2e test module, which downloads this release's binaries.
+  # Stable tags are covered by BCR's own presubmit on the registry PR.
+  bazel-e2e:
+    needs: release
+    if: ${{ contains(github.ref_name, '-nightly.') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test the Bazel module from the release
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+          BAZEL: bazelisk
+        run: bash scripts/release/bazel-e2e.sh "$TAG"
 
   # Submit the rendered winget manifests to microsoft/winget-pkgs (opens a
   # PR from the token owner's winget-pkgs fork). Stable tags only, and a

@@ -1,5 +1,5 @@
 {
   "integrity": "",
-  "strip_prefix": "{REPO}-{VERSION}/bazel",
-  "url": "https://github.com/{OWNER}/{REPO}/archive/refs/tags/{TAG}.tar.gz"
+  "strip_prefix": "krit-bazel-{TAG}/bazel",
+  "url": "https://github.com/{OWNER}/{REPO}/releases/download/{TAG}/krit-bazel-{TAG}.tar.gz"
 }

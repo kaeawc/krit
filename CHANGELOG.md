@@ -4,6 +4,36 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-24
+
+### Added
+- The `dev.jasonpearson.krit` Gradle plugin and the
+  `dev.jasonpearson.krit.settings` settings plugin are published to Maven
+  Central with their plugin markers (`dev.jasonpearson.krit:krit-gradle-plugin`,
+  `dev.jasonpearson.krit:krit-settings-plugin`), so `kritExportModel` and FIR
+  work without a local plugin build. Add `mavenCentral()` to
+  `pluginManagement { repositories { … } }`. The settings plugin can also be
+  applied from a Gradle init script. Release builds resolve both plugins from
+  the staged artifacts in a throwaway project before uploading them (#1119,
+  #1122).
+- `krit-rule-api` and the `krit-fir` oracle jar publish to Maven Central on
+  every stable tag; 0.4.0 is the first version there.
+- The `krit` Bazel module is set up for the Bazel Central Registry: a stable
+  release opens the registry pull request once the GitHub release is public
+  (#1122).
+
+### Fixed
+- JVM helper launches no longer fail with "argument list too long" on large
+  Linux projects: the Java-facts helper, the krit-fir checker daemon and the
+  oracle's cached run pass long file lists, source dirs and classpaths through
+  a JDK argument file (#1118).
+- The settings plugin's README listed `java` among the plugins that trigger
+  auto-apply; only Kotlin JVM, Kotlin Multiplatform and the Android plugins do.
+
+### Changed
+- Cold scans are about 38% faster: rebuildable cache writes skip `fsync`
+  (#1114).
+
 ## [0.4.0] - 2026-11-24
 
 ### Added

@@ -9,6 +9,10 @@
 #   signingInMemoryKey / signingInMemoryKeyPassword -> MAVEN_CENTRAL_SIGNING_KEY / MAVEN_CENTRAL_SIGNING_PASSWORD
 # signingInMemoryKey may hold literal "\n" escapes; they become real newlines.
 #
+# Optional, for the Gradle Plugin Portal: when the file has Gradle's own
+# plugin-publish keys, they are copied too (both or neither):
+#   gradle.publish.key / gradle.publish.secret -> GRADLE_PUBLISH_KEY / GRADLE_PUBLISH_SECRET
+#
 # Usage: scripts/release/set-maven-central-secrets.sh [properties-file] [owner/repo]
 set -euo pipefail
 
@@ -97,6 +101,8 @@ username="$(prop mavenCentralUsername)"
 password="$(prop mavenCentralPassword)"
 signing_key="$(prop signingInMemoryKey)"
 signing_password="$(prop signingInMemoryKeyPassword)"
+portal_key="$(prop gradle.publish.key)"
+portal_secret="$(prop gradle.publish.secret)"
 
 missing=()
 [ -n "$username" ] || missing+=(mavenCentralUsername)
@@ -105,6 +111,10 @@ missing=()
 [ -n "$signing_password" ] || missing+=(signingInMemoryKeyPassword)
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "set-maven-central-secrets: $props is missing ${missing[*]}" >&2
+  exit 1
+fi
+if { [ -n "$portal_key" ] && [ -z "$portal_secret" ]; } || { [ -z "$portal_key" ] && [ -n "$portal_secret" ]; }; then
+  echo "set-maven-central-secrets: $props has only one of gradle.publish.key / gradle.publish.secret" >&2
   exit 1
 fi
 case "$signing_key" in
@@ -119,5 +129,9 @@ printf '%s\n' "$signing_key" | gh secret set MAVEN_CENTRAL_SIGNING_KEY -R "$repo
 printf '%s' "$signing_password" | gh secret set MAVEN_CENTRAL_SIGNING_PASSWORD -R "$repo"
 printf '%s' "$username" | gh secret set SONATYPE_USERNAME -R "$repo"
 printf '%s' "$password" | gh secret set SONATYPE_PASSWORD -R "$repo"
+if [ -n "$portal_key" ]; then
+  printf '%s' "$portal_key" | gh secret set GRADLE_PUBLISH_KEY -R "$repo"
+  printf '%s' "$portal_secret" | gh secret set GRADLE_PUBLISH_SECRET -R "$repo"
+fi
 
-gh secret list -R "$repo" | grep -E '^(MAVEN_CENTRAL_SIGNING_KEY|MAVEN_CENTRAL_SIGNING_PASSWORD|SONATYPE_USERNAME|SONATYPE_PASSWORD)\b'
+gh secret list -R "$repo" | grep -E '^(MAVEN_CENTRAL_SIGNING_KEY|MAVEN_CENTRAL_SIGNING_PASSWORD|SONATYPE_USERNAME|SONATYPE_PASSWORD|GRADLE_PUBLISH_KEY|GRADLE_PUBLISH_SECRET)\b'

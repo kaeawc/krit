@@ -25,7 +25,7 @@ Add the plugin to your `build.gradle.kts`:
 
 ```kotlin
 plugins {
-    id("dev.jasonpearson.krit") version "0.4.0"
+    id("dev.jasonpearson.krit") version "0.5.0"
 }
 ```
 
@@ -70,7 +70,7 @@ For overrides most projects never need:
 ```kotlin
 krit {
     advanced {
-        toolVersion = "0.4.0"                       // pin the binary version (defaults to the plugin version)
+        toolVersion = "0.5.0"                       // pin the binary version (defaults to the plugin version)
         binary = file("/usr/local/bin/krit")        // skip the download entirely
         parallel = 4                                // -j
         noCache = false                             // --no-cache

@@ -15,7 +15,7 @@ pluginManagement {
 }
 
 plugins {
-    id("dev.jasonpearson.krit.settings") version "0.4.0"
+    id("dev.jasonpearson.krit.settings") version "0.5.0"
 }
 
 krit {
@@ -54,7 +54,7 @@ initscript {
         mavenCentral()
     }
     dependencies {
-        classpath("dev.jasonpearson.krit:krit-settings-plugin:0.4.0")
+        classpath("dev.jasonpearson.krit:krit-settings-plugin:0.5.0")
     }
 }
 

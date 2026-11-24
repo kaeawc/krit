@@ -17,7 +17,7 @@ group = "dev.jasonpearson.krit"
 version = ((findProperty("kritVersion") as String?)
     ?.takeIf { it.isNotBlank() }
     ?: System.getenv("KRIT_VERSION")?.takeIf { it.isNotBlank() }
-    ?: "0.4.0")
+    ?: "0.5.0")
     .trim()
     .removePrefix("v")
 

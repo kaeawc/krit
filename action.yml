@@ -1,0 +1,148 @@
+name: "Setup krit"
+description: "Install a checksum-verified krit release (Kotlin/Java/Android static analysis) and optionally run it with SARIF output"
+author: "kaeawc"
+branding:
+  icon: "check-circle"
+  color: "blue"
+
+# uses: kaeawc/krit@vX.Y.Z installs krit X.Y.Z: the action and the CLI share
+# release tags, so Dependabot's github-actions ecosystem bumps both. A SHA pin
+# or the floating major tag (v0) resolves to the release tag on that commit.
+
+inputs:
+  version:
+    description: "krit version to install (X.Y.Z or vX.Y.Z). Empty installs the release this action is pinned to; 'latest' is accepted but not reproducible."
+    required: false
+    default: ""
+  libc:
+    description: "Linux C library build: auto (detect), glibc, or musl (linux/amd64 only)"
+    required: false
+    default: "auto"
+  verify-attestation:
+    description: "Also verify the archive's GitHub build-provenance attestation with `gh attestation verify` (needs a token with attestations read access)"
+    required: false
+    default: "false"
+  cache:
+    description: "Cache the installed binary with actions/cache"
+    required: false
+    default: "true"
+  run:
+    description: "Run krit after installing it"
+    required: false
+    default: "false"
+  paths:
+    description: "With run: space-separated paths to scan"
+    required: false
+    default: "."
+  args:
+    description: "With run: extra krit CLI arguments"
+    required: false
+    default: ""
+  config:
+    description: "With run: krit.yml path (default: auto-detect)"
+    required: false
+    default: ""
+  baseline:
+    description: "With run: baseline file of known findings to suppress"
+    required: false
+    default: ""
+  sarif-file:
+    description: "With run: where to write the SARIF report (locations are relative to the workspace)"
+    required: false
+    default: "krit.sarif"
+  fail-on-findings:
+    description: "With run: fail the step when the SARIF report has results"
+    required: false
+    default: "true"
+  upload-sarif:
+    description: "With run: upload the SARIF report to GitHub code scanning (needs security-events: write)"
+    required: false
+    default: "false"
+  category:
+    description: "With upload-sarif: the code scanning category"
+    required: false
+    default: "krit"
+  github-token:
+    description: "Token for the GitHub API (resolving the release) and attestation checks"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  version:
+    description: "The installed krit version (X.Y.Z)"
+    value: ${{ steps.resolve.outputs.version }}
+  path:
+    description: "Directory holding the krit, krit-lsp and krit-mcp binaries (also added to PATH)"
+    value: ${{ steps.dir.outputs.dir }}
+  findings-count:
+    description: "With run: the number of SARIF results"
+    value: ${{ steps.run.outputs.findings-count }}
+  sarif-file:
+    description: "With run: the SARIF report path"
+    value: ${{ steps.run.outputs.sarif-file }}
+  exit-code:
+    description: "With run: krit's exit code"
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Resolve krit release
+      id: resolve
+      shell: bash
+      env:
+        KRIT_VERSION: ${{ inputs.version }}
+        KRIT_LIBC: ${{ inputs.libc }}
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPO: ${{ github.action_repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/install-krit.sh" resolve
+
+    - name: Locate install directory
+      id: dir
+      shell: bash
+      env:
+        VERSION: ${{ steps.resolve.outputs.version }}
+        PLATFORM: ${{ steps.resolve.outputs.platform }}
+      run: echo "dir=${RUNNER_TOOL_CACHE}/krit/${VERSION}/${PLATFORM}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore krit from cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ${{ steps.dir.outputs.dir }}
+        key: krit-${{ steps.resolve.outputs.asset }}
+
+    - name: Install krit
+      shell: bash
+      env:
+        KRIT_TAG: ${{ steps.resolve.outputs.tag }}
+        KRIT_ASSET: ${{ steps.resolve.outputs.asset }}
+        KRIT_DIR: ${{ steps.dir.outputs.dir }}
+        KRIT_REPO: ${{ github.action_repository || 'kaeawc/krit' }}
+        KRIT_VERIFY_ATTESTATION: ${{ inputs.verify-attestation }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/scripts/action/install-krit.sh" install
+        echo "$KRIT_DIR" >> "$GITHUB_PATH"
+        "$KRIT_DIR/krit" --version
+
+    - name: Run krit
+      id: run
+      if: inputs.run == 'true'
+      shell: bash
+      env:
+        KRIT_PATHS: ${{ inputs.paths }}
+        KRIT_ARGS: ${{ inputs.args }}
+        KRIT_CONFIG: ${{ inputs.config }}
+        KRIT_BASELINE: ${{ inputs.baseline }}
+        KRIT_SARIF: ${{ inputs.sarif-file }}
+        KRIT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/action/run-krit.sh"
+
+    - name: Upload SARIF to code scanning
+      if: always() && inputs.run == 'true' && inputs.upload-sarif == 'true' && steps.run.outputs.sarif-file != ''
+      uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4
+      with:
+        sarif_file: ${{ steps.run.outputs.sarif-file }}
+        category: ${{ inputs.category }}

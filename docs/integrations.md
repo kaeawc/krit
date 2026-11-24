@@ -40,6 +40,52 @@ Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64) are
 supported. krit itself needs no Bazel build to analyze a Bazel workspace;
 see [Bazel workspaces](hermetic-builds.md#bazel-workspaces).
 
+## GitHub Actions
+
+The repository root is a GitHub Action. It installs a krit release, puts
+`krit`, `krit-lsp` and `krit-mcp` on `PATH`, and can run a scan:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # only for upload-sarif
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: kaeawc/krit@v0.4.0
+    with:
+      run: 'true'
+      args: --no-fir
+      upload-sarif: 'true'
+```
+
+- **Version**: the action installs the release it is pinned to, so
+  `kaeawc/krit@v0.4.0` runs krit 0.4.0, and Dependabot's `github-actions`
+  ecosystem bumps the action and the CLI together. A SHA pin, or the
+  floating major tag `@v0` (moved to every stable release), installs the
+  release tagged on that commit. `version:` overrides it; `latest` works but
+  is not reproducible.
+- **Verification**: the archive is checked against the release's
+  `checksums.txt` and the install fails if it is missing, does not list the
+  archive, or does not match. `verify-attestation: 'true'` also checks the
+  GitHub build-provenance attestation with `gh attestation verify`.
+- **Platforms**: Linux amd64/arm64 (musl amd64 detected, or forced with
+  `libc: musl`), macOS amd64/arm64 and Windows amd64. The binary is cached
+  with `actions/cache` unless `cache: 'false'`.
+- **Run** (`run: 'true'`): `paths`, `args`, `config` and `baseline` pass
+  through to krit, which writes `sarif-file` (default `krit.sarif`) with
+  locations relative to the workspace. The `findings-count` output is the
+  number of SARIF results (counted with `jq`), and `fail-on-findings`
+  (default `true`) fails the step when it is non-zero. `upload-sarif: 'true'`
+  uploads the report to code scanning under `category` (default `krit`).
+
+Outputs: `version`, `path`, `findings-count`, `sarif-file`, `exit-code`.
+
+`kaeawc/krit/.github/actions/krit-action` is the older composite action
+(annotations through a problem matcher, a `fir` input that sets up Java). It
+now shares the root action's fail-closed download and counts findings with
+`jq`; new workflows should use the root action.
+
 ## Pre-commit
 
 ```yaml
@@ -62,7 +108,7 @@ in `krit.yml`. To use Go analysis only, add `args: [--no-fir]` to the hook.
 
 ## Output formats for CI
 
-The GitHub Action's `fir` input defaults to `true` and sets up Temurin
+The older `krit-action`'s `fir` input defaults to `true` and sets up Temurin
 Java 21. Before the action runs, export a Gradle model with
 `./gradlew kritExportModel` or set `oracle.classpath` in `krit.yml`.
 Set `fir: 'false'` to run with `--no-fir`.

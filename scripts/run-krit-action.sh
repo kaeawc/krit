@@ -46,7 +46,9 @@ if [ "$REPORTER" = "sarif" ]; then
 
   # Count findings from SARIF
   if [ -f "$SARIF_FILE" ]; then
-    COUNT=$(go run ./internal/devtools/jsonstat -mode sarif-results -file "$SARIF_FILE" 2>/dev/null || echo "0")
+    # jq ships on GitHub-hosted runners; the action runs in consumer repos,
+    # which have no krit source tree to `go run` a helper from.
+    COUNT=$(jq '[.runs[]?.results[]?] | length' "$SARIF_FILE")
   else
     COUNT=0
   fi

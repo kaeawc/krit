@@ -5,6 +5,12 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- The repository root is a GitHub Action: `uses: kaeawc/krit@vX.Y.Z`
+  installs that release, verified against `checksums.txt` (failing closed),
+  cached and on `PATH` for Linux (glibc and musl), macOS and Windows; with
+  `run: 'true'` it writes SARIF with workspace-relative paths, reports
+  `findings-count` and can upload to code scanning. Release builds move a
+  floating `v0` tag to each stable release (#1058).
 - `krit daemon stop --all` also stops every krit-fir and oracle JVM helper
   recorded in the daemon registry, signalling only helpers whose PID it can
   prove (#974).
@@ -22,6 +28,9 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- The `krit-action` composite action counts SARIF findings with `jq`
+  (`findings-count` was always 0 outside this repository) and no longer
+  installs a binary it could not verify against `checksums.txt` (#1058).
 - A warm daemon call with no edits no longer runs the type oracle's
   `jvmAnalyze` before serving the full findings bundle: the post-parse bundle
   preview keys an oracle run on the prior run's per-file oracle facts, as the

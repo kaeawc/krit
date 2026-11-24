@@ -16,8 +16,9 @@ jobs:
   # We --skip=publish here; the funnel job handles GitHub release create,
   # the brew cask, and the scoop manifest.
   build:
-    # A dispatch must name a tag ref; a branch is not a release.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # A dispatch must name a tag ref; a branch is not a release, and neither
+    # is the action's floating major tag (v0), which has no dot.
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +105,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ secrets.GPG_FINGERPRINT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          # The commit can also carry the action's floating major tag (v0).
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # Upload everything except the per-goos checksums/sigs — the
       # funnel produces a unified set covering all platforms.
@@ -130,7 +133,7 @@ jobs:
   # their version, verified against checksums.txt; see
   # internal/oracle.EnsureBackendJar.
   build-jvm-jars:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     strategy:
       fail-fast: false
       matrix:
@@ -319,6 +322,22 @@ jobs:
         with:
           subject-path: 'dist/*.tar.gz,dist/*.zip,dist/*.jar'
 
+      # The root action.yml is used as kaeawc/krit@vX.Y.Z or @vX; move the
+      # floating major tag (v0, v1, ...) to each stable release. Prereleases
+      # (nightlies, -rc tags) never move it.
+      - name: Move floating major tag for the action
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          major="${TAG%%.*}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f -a "$major" -m "krit action ${TAG}" "${TAG}^{commit}"
+          git push --force origin "refs/tags/${major}"
+          echo "Moved ${major} to ${TAG}"
+
       # Package managers only track stable releases. Tags with a SemVer
       # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)
       # stop at the GitHub prerelease above.
@@ -401,7 +420,6 @@ jobs:
             failed=1
           fi
           exit "$failed"
-
 
   # Submit the rendered winget manifests to microsoft/winget-pkgs (opens a
   # PR from the token owner's winget-pkgs fork). Stable tags only, and a

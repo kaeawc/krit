@@ -741,6 +741,56 @@ jobs:
           sarif_file: results.sarif
           category: krit-self-lint
 
+  # The root action.yml (uses: kaeawc/krit@vX.Y.Z) on every runner OS: it
+  # installs a checksum-verified release and puts krit on PATH, and on Linux
+  # and macOS runs it with SARIF output. `uses: ./` has no release ref, so the
+  # version is pinned. The Windows leg stops at the install: krit 0.3.1's scan
+  # hangs on windows-latest (with --no-fir --no-type-oracle too), which is a
+  # krit bug, not the action's.
+  setup-action:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            run: 'true'
+          - os: macos-latest
+            run: 'true'
+          - os: windows-latest
+            run: 'false'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: krit
+        uses: ./
+        with:
+          version: '0.3.1'
+          run: ${{ matrix.run }}
+          paths: tests/fixtures/positive/style
+          args: --no-fir
+          sarif-file: ${{ runner.temp }}/krit.sarif
+          fail-on-findings: 'false'
+      - name: Check the action's outputs
+        shell: bash
+        env:
+          VERSION: ${{ steps.krit.outputs.version }}
+          KRIT_PATH: ${{ steps.krit.outputs.path }}
+          RAN: ${{ matrix.run }}
+          COUNT: ${{ steps.krit.outputs.findings-count }}
+          SARIF: ${{ steps.krit.outputs.sarif-file }}
+        run: |
+          set -euo pipefail
+          krit --version | grep -Fx "krit 0.3.1"
+          test "$VERSION" = "0.3.1"
+          test -d "$KRIT_PATH"
+          if [ "$RAN" = "true" ]; then
+            test -s "$SARIF"
+            test "$COUNT" -gt 0
+            test "$COUNT" = "$(jq '[.runs[]?.results[]?] | length' "$SARIF")"
+            echo "krit $VERSION reported $COUNT findings"
+          fi
+
   # actionlint validates the workflow files themselves — catches semantic
   # mistakes (e.g. `hashFiles()` at workflow-`env` scope) that plain YAML
   # parsers accept but GitHub Actions silently rejects, causing the

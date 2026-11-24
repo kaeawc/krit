@@ -351,3 +351,44 @@ Attestations are off (`attest: false`): BCR only accepts source archive
 attestations made by bazel-contrib's `release_ruleset` workflow, which
 krit's release does not use. To republish an existing tag, dispatch
 `publish-bcr.yml` with `tag_name`.
+
+### First submission
+
+`krit` is not in the registry yet, so its first registry pull request is
+reviewed by a BCR maintainer. A person with admin access to `kaeawc/krit`
+runs these steps:
+
+1. Do the one-time setup above (the fork and `BCR_PUBLISH_TOKEN`).
+2. Pick a stable release that carries `krit-bazel-<tag>.tar.gz`. Releases
+   cut before the source archive was added (v0.4.0 and older) do not.
+   Either wait for the next stable tag, whose Release run triggers
+   `publish-bcr.yml`, or dispatch `publish-bcr.yml` with that `tag_name`.
+3. On the registry pull request (opened from
+   `kaeawc/bazel-central-registry`), check that the entry
+   `modules/krit/<version>/` has `MODULE.bazel` with the release version,
+   `source.json` pointing at the release's `krit-bazel-<tag>.tar.gz` and
+   `presubmit.yml`, and that `metadata.json` lists `@kaeawc` as maintainer.
+   No `skip_check` comment is needed. BCR presubmit runs the `bazel/e2e`
+   module on the platforms and Bazel versions in `.bcr/bazel/presubmit.yml`.
+4. Answer the maintainer review. Later versions are approved by the
+   module's maintainers listed in `metadata.json`.
+
+If the workflow cannot run, open the pull request by hand: add
+`modules/krit/metadata.json` from `.bcr/bazel/metadata.template.json` with
+`"versions": ["<version>"]`, and `modules/krit/<version>/` holding
+`bazel/MODULE.bazel` with `version = "<version>"`,
+`.bcr/bazel/presubmit.yml`, and `source.json` from
+`.bcr/bazel/source.template.json`. Fill `{OWNER}`, `{REPO}` and `{TAG}`,
+and set `integrity` to
+`sha384-$(curl -fsSL <url> | openssl dgst -sha384 -binary | openssl base64 -A)`.
+Run `bazel run //tools:bcr_validation -- --check=krit@<version>` in the
+registry checkout before pushing.
+
+To test changes to `bazel/` before a release, run the e2e module against a
+published release's binaries:
+
+```bash
+cd bazel/e2e
+KRIT_BAZEL_RELEASE=0.4.0 bazel test //...
+USE_BAZEL_VERSION=9.x KRIT_BAZEL_RELEASE=0.4.0 bazel test //...
+```

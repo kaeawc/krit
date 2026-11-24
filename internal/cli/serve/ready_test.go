@@ -20,7 +20,9 @@ func TestReadyLineLabelsModuleKotlinFileCount(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeKotlinFile(t, root, "app/custom/Outside.kt", "class Outside\n")
-			want := "0 module Kotlin files, 1 modules"
+			// The module's source roots hold no Kotlin, so the count falls
+			// back to the repo walk instead of reporting 0 (#974).
+			want := "1 Kotlin files, 1 modules"
 			if conventional {
 				writeKotlinFile(t, root, "app/src/main/kotlin/Main.kt", "class Main\n")
 				writeKotlinFile(t, root, "app/src/test/kotlin/Test.kt", "class Test\n")
@@ -54,6 +56,21 @@ func TestReadyLineCountsRepoFilesWithoutModuleGraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	if line := state.readyLine(""); !strings.Contains(line, "(2 Kotlin files, 0 modules") {
+		t.Fatalf("ready line=%q", line)
+	}
+}
+
+// Startup only discovers modules and counts files; analysis is lazy, so the
+// ready line must not call that time a warm-up (#974).
+func TestReadyLineLabelsDiscoveryTime(t *testing.T) {
+	root := t.TempDir()
+	writeKotlinFile(t, root, "A.kt", "class A\n")
+	state := newDaemonState(root)
+	if err := state.warm(); err != nil {
+		t.Fatal(err)
+	}
+	line := state.readyLine("")
+	if !strings.Contains(line, "discovered in ") || strings.Contains(line, "warm in") {
 		t.Fatalf("ready line=%q", line)
 	}
 }

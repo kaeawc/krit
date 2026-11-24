@@ -1393,3 +1393,28 @@ func hashFirSources(sourceDirs []string) string {
 	sort.Strings(sorted)
 	return hashutil.HashHex([]byte(strings.Join(sorted, "\n")))[:16]
 }
+
+// StopRegisteredDaemons stops every krit-fir daemon recorded in the registry
+// (KRIT_DAEMON_REGISTRY_DIR, else ~/.krit/cache/daemons) through
+// stopFirDaemon, so a record is acted on only under its lock and a live PID
+// is signalled only when its recorded start time proves it is the daemon.
+// It returns how many records it stopped or cleared and how many it left
+// (locked by another krit, or a PID it could not prove).
+func StopRegisteredDaemons(verbose bool) (stopped, left int) {
+	dir, err := firDaemonsDir()
+	if err != nil {
+		return 0, 0
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.krit-fir.pid"))
+	if err != nil {
+		return 0, 0
+	}
+	for _, path := range paths {
+		if stopFirDaemon(strings.TrimSuffix(filepath.Base(path), ".krit-fir.pid"), verbose) {
+			stopped++
+		} else {
+			left++
+		}
+	}
+	return stopped, left
+}

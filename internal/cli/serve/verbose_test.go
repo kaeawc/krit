@@ -217,3 +217,30 @@ func TestAnalyzeProject_StreamsVerboseOutputBeforeEnvelope(t *testing.T) {
 	// Each phase line reaches the client once across the frames and the response.
 	assertVerbosePhasesOnce(t, streamed+got.VerboseOutput)
 }
+
+// The daemon-side FIR preflight runs before the request's reporter exists;
+// its warnings reach a -v client instead of only the daemon's stderr (#974).
+func TestForwardPreflightWarnings(t *testing.T) {
+	warning := []byte("warning: gradle model is stale\n")
+	reporter := newVerboseReporter(true)
+	var fallback bytes.Buffer
+	forwardPreflightWarnings(warning, reporter, &fallback)
+	if fallback.Len() != 0 {
+		t.Fatalf("fallback got %q with a reporter present", fallback.String())
+	}
+	var out bytes.Buffer
+	if err := writeVerboseOutput(&out, reporter); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "gradle model is stale") {
+		t.Fatalf("verbose output = %q", out.String())
+	}
+	forwardPreflightWarnings(warning, nil, &fallback)
+	if fallback.String() != string(warning) {
+		t.Fatalf("fallback = %q", fallback.String())
+	}
+	forwardPreflightWarnings(nil, nil, &fallback)
+	if fallback.String() != string(warning) {
+		t.Fatalf("empty warnings wrote %q", fallback.String())
+	}
+}

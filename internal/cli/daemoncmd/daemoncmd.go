@@ -44,7 +44,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: krit daemon <start|stop|status|restart> [flags]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  start    Spawn the krit-daemon process and wait until ready.")
-	fmt.Fprintln(w, "  stop     Send SIGTERM, wait up to 5s, then SIGKILL.")
+	fmt.Fprintln(w, "  stop     Send SIGTERM, wait up to 5s, then SIGKILL. --all also stops the")
+	fmt.Fprintln(w, "           krit-fir and oracle JVM helpers recorded for every project.")
 	fmt.Fprintln(w, "  status   Print PID, uptime, socket, last-flush. Add --json for tooling.")
 	fmt.Fprintln(w, "  restart  Stop the daemon (force if necessary) then start a fresh one.")
 }

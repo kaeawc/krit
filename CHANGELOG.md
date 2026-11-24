@@ -26,6 +26,10 @@ All notable changes to Krit will be documented in this file.
   (#1122).
 
 ### Fixed
+- Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
+  finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,
+  so a recording daemon is shut down, its profile is finalized or discarded, and its `.aot.lock` build
+  lock is released (#1262).
 - JVM helper launches no longer fail with "argument list too long" on large
   Linux projects: the Java-facts helper, the krit-fir checker daemon and the
   oracle's cached run pass long file lists, source dirs and classpaths through

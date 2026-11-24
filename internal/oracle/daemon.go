@@ -59,6 +59,9 @@ type Daemon struct {
 	// gates the first-response health check (see checkAOTHealthLocked).
 	aotCachePath string
 	aotCheckOnce sync.Once
+	// launchArgs is the java argument vector this process started the daemon
+	// with, before it moved into an argfile (see jvmArgs).
+	launchArgs []string
 	// kotlin is the Kotlin compiler settings this daemon was launched with
 	// (part of its registry key); zero means the embedded defaults.
 	kotlin gradlemodel.KotlinSettings
@@ -617,6 +620,7 @@ func (d *Daemon) Shutdown() error {
 	// caller observes started=false and short-circuits.
 	d.started = false
 	cmd := d.cmd
+	jvmArgs := d.jvmArgs()
 	// Send shutdown request while we still hold the lock — sendOnce
 	// would otherwise reject the call (started=false). Errors are
 	// ignored because the JVM may close the pipe before responding.
@@ -625,9 +629,22 @@ func (d *Daemon) Shutdown() error {
 
 	err := waitForCmdExit(cmd)
 	if cmd != nil {
-		jvmaot.FinalizeRecording(cmd.Args, err == nil)
+		jvmaot.FinalizeRecording(jvmArgs, err == nil)
 	}
 	return err
+}
+
+// jvmArgs is the daemon's launch argument vector before any argfile, which
+// the AOT recording checks read: an argfile launch hides the
+// -XX:AOTConfiguration flag from cmd.Args.
+func (d *Daemon) jvmArgs() []string {
+	if d.launchArgs != nil {
+		return d.launchArgs
+	}
+	if d.cmd == nil {
+		return nil
+	}
+	return d.cmd.Args
 }
 
 // waitForCmdExit waits for cmd to exit. On grace-period expiry it
@@ -675,7 +692,7 @@ func waitForCmdExit(cmd *exec.Cmd) error {
 // shuts the daemon down on exit (losing all the warmup benefit),
 // Release() leaves it alive.
 func (d *Daemon) Release() error {
-	if d.cmd != nil && !d.shared && (d.unpublished || jvmaot.IsRecording(d.cmd.Args)) {
+	if d.cmd != nil && !d.shared && (d.unpublished || jvmaot.IsRecording(d.jvmArgs())) {
 		return d.Close()
 	}
 	d.mu.Lock()
@@ -715,6 +732,7 @@ func (d *Daemon) Close() error {
 	srcHash := d.sourcesHash
 	slot := d.slot
 	unpublished := d.unpublished
+	jvmArgs := d.jvmArgs()
 	// Send the shutdown verb under the lock so sendOnce doesn't reject
 	// it (we just flipped started=false). Only the caller that won the
 	// claim gets to talk to the JVM here.
@@ -735,7 +753,7 @@ func (d *Daemon) Close() error {
 	if claimedShutdown {
 		if err := waitForCmdExit(cmd); err != nil {
 			if cmd != nil {
-				jvmaot.FinalizeRecording(cmd.Args, false)
+				jvmaot.FinalizeRecording(jvmArgs, false)
 			}
 			// waitForCmdExit already issued Kill on the grace-period
 			// path; this is the belt-and-suspenders fallback for a
@@ -745,7 +763,7 @@ func (d *Daemon) Close() error {
 				_ = cmd.Process.Kill()
 			}
 		} else if cmd != nil {
-			jvmaot.FinalizeRecording(cmd.Args, true)
+			jvmaot.FinalizeRecording(jvmArgs, true)
 		}
 	}
 	// Clean up PID files if this was a persistent daemon we started.

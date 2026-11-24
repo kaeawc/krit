@@ -4,9 +4,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/oracle"
 )
 
 var stopGrace = 5 * time.Second
@@ -16,11 +20,33 @@ func runStop(args []string) int {
 	fs.SetOutput(os.Stderr)
 	repoFlag := addRepoFlag(fs)
 	timeoutFlag := fs.Duration("timeout", stopGrace, "SIGTERM grace before SIGKILL")
+	allFlag := fs.Bool("all", false, "also stop every krit-fir and oracle JVM helper in the daemon registry (all projects)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if *allFlag {
+		code := stopRepoDaemon(*repoFlag, *timeoutFlag)
+		stopHelpers(os.Stdout)
+		return code
+	}
+	return stopRepoDaemon(*repoFlag, *timeoutFlag)
+}
 
-	repo, err := resolveRepo(*repoFlag)
+// stopHelpers stops the JVM helpers recorded in the daemon registry. They are
+// shared across projects and outlive the CLI by design (see docs/perf.md);
+// each package's stop path signals a PID only when it proves the process is
+// the recorded helper.
+func stopHelpers(w io.Writer) {
+	firStopped, firLeft := firchecks.StopRegisteredDaemons(false)
+	oracleStopped, oracleLeft := oracle.StopRegisteredDaemons(false)
+	fmt.Fprintf(w, "krit-fir helpers: %d stopped or cleared, %d left (busy or unproven)\n", firStopped, firLeft)
+	fmt.Fprintf(w, "oracle helpers: %d stopped or cleared, %d left (busy or unproven)\n", oracleStopped, oracleLeft)
+}
+
+// stopRepoDaemon stops the Go project daemon serving repoFlag (or the cwd).
+func stopRepoDaemon(repoFlag string, timeout time.Duration) int {
+
+	repo, err := resolveRepo(repoFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "krit daemon stop: %v\n", err)
 		return 2
@@ -50,7 +76,7 @@ func runStop(args []string) int {
 		return 1
 	}
 
-	code := stopProcess(pid, *timeoutFlag)
+	code := stopProcess(pid, timeout)
 	_ = removePIDFile(pidPath)
 	return code
 }

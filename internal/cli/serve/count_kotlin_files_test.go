@@ -28,11 +28,11 @@ func TestCountKotlinFilesKeepsBuildPackageInSourceRoot(t *testing.T) {
 	graph := &module.Graph{Modules: map[string]*module.Module{
 		":app": {Path: ":app", Dir: filepath.Join(root, "app"), SourceRoots: []string{src}},
 	}}
-	if got := countKotlinFiles(root, graph); got != 2 {
-		t.Errorf("module count = %d, want 2 (the build package inside the source root counts)", got)
+	if got, scoped := countKotlinFiles(root, graph); got != 2 || !scoped {
+		t.Errorf("module count = %d (scoped %v), want 2 scoped (the build package inside the source root counts)", got, scoped)
 	}
 	// The repo-root fallback skips every build directory, including build output.
-	if got := countKotlinFiles(root, nil); got != 1 {
-		t.Errorf("root fallback count = %d, want 1", got)
+	if got, scoped := countKotlinFiles(root, nil); got != 1 || scoped {
+		t.Errorf("root fallback count = %d (scoped %v), want 1 unscoped", got, scoped)
 	}
 }

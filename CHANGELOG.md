@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `krit daemon stop --all` also stops every krit-fir and oracle JVM helper
+  recorded in the daemon registry, signalling only helpers whose PID it can
+  prove (#974).
 - krit reads the project's Android Lint configuration (`lint.xml` issues set
   to `severity="ignore"`, Gradle `lint { disable ... }`) and keeps its ports of
   ignored issues off unless `krit.yml` sets them active;
@@ -28,6 +31,17 @@ All notable changes to Krit will be documented in this file.
   (a source check that reads the merged manifest) is not ported. Neither permission check needs a FIR checker.
 
 ### Fixed
+- A warm daemon call with no edits no longer runs the type oracle's
+  `jvmAnalyze` before serving the full findings bundle: the post-parse bundle
+  preview keys an oracle run on the prior run's per-file oracle facts, as the
+  canonical fingerprint does for clean files, and a run the preview served
+  keeps those facts in its fingerprint and manifest (#974).
+- The daemon's `ready` line no longer reports `0 module Kotlin files` when
+  module source roots hold no Kotlin (custom `sourceSets`); it counts the
+  repository instead, and labels its time as module discovery, since
+  analysis is lazy (#974).
+- Warnings from the daemon-side FIR preflight reach a `-v` client instead of
+  only the daemon's stderr (#974).
 - A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
   whole-path globs (#1072).
 - `PackageNaming` allows digits and underscores after a segment's first

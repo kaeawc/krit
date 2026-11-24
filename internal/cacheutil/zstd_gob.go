@@ -9,13 +9,26 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+// ZstdEncoderLevel is the zstd level every on-disk krit cache writes with.
+// SpeedFastest was measured against SpeedDefault on element-x-android: cold
+// scans were ~3% faster in wall time (~1.4x encode throughput on real cache
+// payloads) for ~10% more cache bytes; warm scans were unchanged. Readers do
+// not depend on the level, so caches written at any level stay readable.
+const ZstdEncoderLevel = zstd.SpeedFastest
+
+// NewZstdEncoder returns a zstd encoder configured for cache payloads. The
+// encoder is safe for concurrent EncodeAll calls.
+func NewZstdEncoder() (*zstd.Encoder, error) {
+	return zstd.NewWriter(nil, zstd.WithEncoderLevel(ZstdEncoderLevel), zstd.WithLowerEncoderMem(true))
+}
+
 var (
 	zstdGobEncoder *zstd.Encoder
 	zstdGobDecoder *zstd.Decoder
 )
 
 func init() {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithLowerEncoderMem(true))
+	enc, err := NewZstdEncoder()
 	if err != nil {
 		panic(fmt.Sprintf("init cache zstd encoder: %v", err))
 	}

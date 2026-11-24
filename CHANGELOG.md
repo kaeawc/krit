@@ -5,15 +5,6 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- krit reads the project's Android Lint configuration (`lint.xml` issues set
-  to `severity="ignore"`, Gradle `lint { disable ... }`) and keeps its ports of
-  ignored issues off unless `krit.yml` sets them active;
-  `androidLintConfig: {enabled: false}` opts out (#1071).
-- krit reads ktlint settings and `max_line_length` from `.editorconfig`: a
-  disabled ktlint rule turns off krit's equivalent, IntelliJ's
-  import-on-demand packages are exempt from `WildcardImport`, and
-  `max_line_length` sets `MaxLineLength`'s limit;
-  `ktlintEditorConfig: {enabled: false}` opts out (#1077).
 - `ForegroundServicePermission` and `QueryAllPackagesPermission`, ported from Android Lint 32.4.1 and checked against
   the Lint CLI on synthetic and fuzzed manifests. `ForegroundServicePermission` reports each `foregroundServiceType`
   value of a `<service>` whose permissions are missing from the same manifest, once the manifest declares
@@ -35,11 +26,12 @@ All notable changes to Krit will be documented in this file.
   requested FIR rules, or the pass was cancelled. A crash shared by every
   file of a compile is no longer cached, so it is not replayed on later
   runs (#994).
-- A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
-  whole-path globs (#1072).
-- `PackageNaming` allows digits and underscores after a segment's first
-  letter (`okhttp3`, `coil3`); the detekt-compat profile keeps detekt's
-  pattern (#1078).
+- Releases publish the Homebrew cask and Scoop manifest with a GitHub App
+  installation token (falling back to the PAT secrets), in the stanza order
+  the tap's `brew style` audit requires. Build provenance is attested before
+  the package-manager steps, and one publisher failing no longer skips the
+  other. Maven Central publishing skips with a warning while its secrets are
+  unset (#1057).
 - FIR `TooGenericExceptionCaught` honors Go-accepted plain configured patterns
   made from letters, digits, `_`, `.`, `|`, parentheses, brackets (including a
   leading `^` negation), `-`, and single `*`, `+`, or `?` quantifiers. It
@@ -53,10 +45,6 @@ All notable changes to Krit will be documented in this file.
   through unchanged.
 
 ### Changed
-- `OptInMarkerExposedPublicly` does not report a library's own markers in
-  its own packages (#1073).
-- `TestOnlyImportInProduction` skips test-support, test-framework
-  integration and benchmark modules and Gradle test source sets (#1074).
 - `CursorLoopWithColumnIndexInLoop` gains a FIR checker requiring a resolved
   Android Cursor receiver, preserving while-loop first-match semantics.
   Both engines require an explicit bare simple-name receiver
@@ -113,6 +101,32 @@ All notable changes to Krit will be documented in this file.
 - The native IntelliJ IDEA / Android Studio plugin (`editors/intellij-plugin/`)
   and its CI and JetBrains Marketplace publish workflows. IntelliJ users can
   keep using krit through the LSP server (`editors/intellij/`).
+
+## [0.3.1] - 2026-11-23
+
+### Added
+- krit reads the project's Android Lint configuration (`lint.xml` issues set
+  to `severity="ignore"`, Gradle `lint { disable ... }`) and keeps its ports of
+  ignored issues off unless `krit.yml` sets them active;
+  `androidLintConfig: {enabled: false}` opts out (#1071).
+- krit reads ktlint settings and `max_line_length` from `.editorconfig`: a
+  disabled ktlint rule turns off krit's equivalent, IntelliJ's
+  import-on-demand packages are exempt from `WildcardImport`, and
+  `max_line_length` sets `MaxLineLength`'s limit;
+  `ktlintEditorConfig: {enabled: false}` opts out (#1077).
+
+### Fixed
+- A detekt 2 `ForbiddenImport.forbiddenImports` list is imported as
+  whole-path globs (#1072).
+- `PackageNaming` allows digits and underscores after a segment's first
+  letter (`okhttp3`, `coil3`); the detekt-compat profile keeps detekt's
+  pattern (#1078).
+
+### Changed
+- `OptInMarkerExposedPublicly` does not report a library's own markers in
+  its own packages (#1073).
+- `TestOnlyImportInProduction` skips test-support, test-framework
+  integration and benchmark modules and Gradle test source sets (#1074).
 
 ## [0.3.0] - 2026-11-23
 

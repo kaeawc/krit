@@ -379,7 +379,7 @@ func (DiskStore) Save(root string, snapshot Snapshot, files []string) error {
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFileAtomic(path, raw, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(path, raw, 0o644); err != nil {
 		return err
 	}
 	trackedFilesBytes.Add(int64(len(raw)))

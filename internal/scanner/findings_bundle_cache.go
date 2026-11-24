@@ -353,6 +353,12 @@ func (DiskFindingsBundleStore) Load(root string, fp RunFingerprint) (*FindingCol
 		findingsBundleMisses.Add(1)
 		return nil, false
 	}
+	// A garbage length (for example from a torn cache file) must read as a
+	// miss, not drive a huge allocation.
+	if hdr.Length > uint64(r.Len()) {
+		findingsBundleMisses.Add(1)
+		return nil, false
+	}
 	compressed := make([]byte, hdr.Length)
 	if _, err := io.ReadFull(r, compressed); err != nil || crc32.ChecksumIEEE(compressed) != hdr.CRC32 {
 		findingsBundleMisses.Add(1)
@@ -396,7 +402,7 @@ func (DiskFindingsBundleStore) Save(root string, fp RunFingerprint, cols *Findin
 	_ = binary.Write(out, binary.BigEndian, crc32.ChecksumIEEE(compressed))
 	_ = binary.Write(out, binary.BigEndian, uint64(len(compressed)))
 	out.Write(compressed)
-	if err := fsutil.WriteFileAtomic(path, out.Bytes(), 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(path, out.Bytes(), 0o644); err != nil {
 		return err
 	}
 	findingsBundleBytes.Add(int64(out.Len()))

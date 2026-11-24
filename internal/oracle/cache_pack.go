@@ -327,7 +327,7 @@ func (h *oraclePackHandle) putMany(writes []oracleEncodedEntryWrite) error {
 	sortOraclePackItems(items)
 
 	buf := buildOraclePack(items)
-	if err := fsutil.WriteFileAtomic(h.path, buf, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(h.path, buf, 0o644); err != nil {
 		return err
 	}
 	h.data = buf

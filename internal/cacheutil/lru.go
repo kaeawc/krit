@@ -418,7 +418,7 @@ func (l *SizeCapLRU) flushLocked() error {
 		Version: lruSidecarVersion,
 		Entries: l.entries,
 	}
-	err := fsutil.WriteFileAtomicStream(l.IndexPath, 0o644, func(w io.Writer) error {
+	err := fsutil.WriteFileAtomicStreamNoSync(l.IndexPath, 0o644, func(w io.Writer) error {
 		return gob.NewEncoder(w).Encode(&side)
 	})
 	if err != nil {

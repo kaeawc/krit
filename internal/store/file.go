@@ -82,7 +82,7 @@ func (s *FileStore) Put(key Key, value []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("store mkdir: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(target, value, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(target, value, 0o644); err != nil {
 		return fmt.Errorf("store write: %w", err)
 	}
 	return nil

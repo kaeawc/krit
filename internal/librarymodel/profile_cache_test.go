@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/buildid"
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 func TestProjectProfileCache_HitAndGradleInvalidation(t *testing.T) {
@@ -39,6 +40,11 @@ android {
     compileSdk = 36
 }
 `)
+	// The load below stands in for a later krit run, which starts with an
+	// empty content-hash memo (runner_state resets it). Without the reset, the
+	// same-size rewrite above can land in the same coarse mtime tick and reuse
+	// the hash memoized for the old content.
+	hashutil.ResetDefault()
 	if _, ok := LoadProjectProfileCache(cacheDir, []string{buildPath}); ok {
 		t.Fatal("expected cache miss after Gradle file change")
 	}
@@ -129,5 +135,40 @@ func TestProjectProfileCache_ConcurrentSavesLeaveValidEntry(t *testing.T) {
 		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("leftover temp file %s", e.Name())
 		}
+	}
+}
+
+// TestProjectProfileCache_TornEntryIsMiss covers an entry damaged by a crash
+// (cache writes skip fsync): it must be a miss, never a wrong profile.
+func TestProjectProfileCache_TornEntryIsMiss(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := ProjectProfileCacheDir(root)
+	buildPath := filepath.Join(root, "app", "build.gradle.kts")
+	if err := os.MkdirAll(filepath.Dir(buildPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, buildPath, "android {\n    compileSdk = 35\n}\n")
+	paths := []string{buildPath}
+	if err := SaveProjectProfileCache(cacheDir, paths, ProfileFromGradlePaths(paths)); err != nil {
+		t.Fatalf("SaveProjectProfileCache: %v", err)
+	}
+	entry := projectProfileCachePath(cacheDir, paths)
+	valid, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{
+		"empty":       {},
+		"truncated":   valid[:len(valid)/2],
+		"zero-filled": make([]byte, len(valid)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(entry, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := LoadProjectProfileCache(cacheDir, paths); ok {
+				t.Fatal("damaged entry loaded as a hit")
+			}
+		})
 	}
 }

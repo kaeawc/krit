@@ -263,7 +263,7 @@ func saveFileTypeInfoCached(cacheDir string, file *scanner.File, info *FileTypeI
 	if err != nil {
 		return fmt.Errorf("encode type-index cache: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(path, blob, 0o644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(path, blob, 0o644); err != nil {
 		return fmt.Errorf("write type-index cache: %w", err)
 	}
 	typeIndexLastWrite.Store(time.Now().Unix())

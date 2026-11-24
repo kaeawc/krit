@@ -3,7 +3,9 @@ package scanner
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -95,7 +97,10 @@ func recordCrossFileDisk(paths crossFileCachePaths, entries int) {
 // v12: function, method, constructor and Java field signatures carry declared
 // parameter, return and field types.
 // v13: local functions, classes, objects and properties are no longer indexed.
-const CrossFileCacheVersion = 13
+// v14: meta records the payload's CRC32. Cache writes skip fsync, so after a
+// crash the meta can survive while the payload rename it describes is lost;
+// the checksum makes that pair a miss instead of a stale index.
+const CrossFileCacheVersion = 14
 
 // bloomLibraryVersion is the pinned bits-and-blooms/bloom/v3 version.
 // It is mixed into the cross-file fingerprint so a library upgrade
@@ -121,6 +126,8 @@ type CrossFileCacheMeta struct {
 	RemovedPayloadPaths []string           `json:"removed_payload_paths,omitempty"`
 	WrittenAt           time.Time          `json:"written_at"`
 	KritVersion         string             `json:"krit_version,omitempty"`
+	// PayloadCRC is the CRC32 (IEEE) of the payload file this meta describes.
+	PayloadCRC uint32 `json:"payload_crc"`
 }
 
 // CrossFileCacheDir returns the cache root for a repo. The directory is
@@ -803,9 +810,9 @@ func loadCrossFileCacheMeta(dir string) (CrossFileCacheMeta, crossFileCachePaths
 	return meta, paths, true
 }
 
-func loadCrossFileCachePayload(paths crossFileCachePaths) (*CodeIndex, bool) {
+func loadCrossFileCachePayload(paths crossFileCachePaths, meta CrossFileCacheMeta) (*CodeIndex, bool) {
 	var packed cachePayload
-	if err := decodeZstdGob(paths.Symbols, &packed); err != nil {
+	if err := decodeCrossFilePayload(paths.Symbols, meta.PayloadCRC, &packed); err != nil {
 		return nil, false
 	}
 	idx, ok := packed.unpackFull()
@@ -841,7 +848,7 @@ func loadCrossFileOverlayEntries(dir string, entries []fingerprintEntry) ([]Symb
 }
 
 func loadCrossFileCacheIndexFromMeta(dir string, meta CrossFileCacheMeta, paths crossFileCachePaths) (*CodeIndex, bool) {
-	idx, ok := loadCrossFileCachePayload(paths)
+	idx, ok := loadCrossFileCachePayload(paths, meta)
 	if !ok {
 		return nil, false
 	}
@@ -997,7 +1004,8 @@ func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, i
 	if err != nil {
 		return fmt.Errorf("encode cross-file cache payload: %w", err)
 	}
-	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
+	meta.PayloadCRC = crc32.ChecksumIEEE(blob)
+	if err := fsutil.WriteFileAtomicStreamNoSync(paths.Symbols, 0o644, func(w io.Writer) error {
 		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
@@ -1007,7 +1015,7 @@ func SaveCrossFileCacheIndex(dir, fingerprint string, meta CrossFileCacheMeta, i
 	if err != nil {
 		return fmt.Errorf("marshal meta: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
 	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
@@ -1035,6 +1043,15 @@ func SaveCrossFileCacheOverlay(dir, fingerprint string, meta CrossFileCacheMeta,
 	if _, err := os.Stat(paths.Symbols); err != nil {
 		return fmt.Errorf("stat cross-file payload: %w", err)
 	}
+	if meta.PayloadCRC == 0 {
+		// The overlay keeps the existing payload, so it inherits the checksum
+		// recorded when that payload was written.
+		prior, _, ok := loadCrossFileCacheMeta(dir)
+		if !ok || prior.PayloadCRC == 0 {
+			return fmt.Errorf("no payload checksum for cross-file overlay")
+		}
+		meta.PayloadCRC = prior.PayloadCRC
+	}
 
 	meta.Version = CrossFileCacheVersion
 	meta.Fingerprint = fingerprint
@@ -1048,7 +1065,7 @@ func SaveCrossFileCacheOverlay(dir, fingerprint string, meta CrossFileCacheMeta,
 	if err != nil {
 		return fmt.Errorf("marshal meta: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
 	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
@@ -1081,7 +1098,7 @@ func LoadCrossFileCache(dir, wantFingerprint string) ([]Symbol, []Reference, boo
 		return nil, nil, false
 	}
 	var packed cachePayload
-	if err := decodeZstdGob(paths.Symbols, &packed); err != nil {
+	if err := decodeCrossFilePayload(paths.Symbols, meta.PayloadCRC, &packed); err != nil {
 		crossFileMisses.Add(1)
 		return nil, nil, false
 	}
@@ -1124,7 +1141,8 @@ func SaveCrossFileCache(dir, fingerprint string, meta CrossFileCacheMeta, symbol
 	if err != nil {
 		return fmt.Errorf("encode cross-file cache symbols: %w", err)
 	}
-	if err := fsutil.WriteFileAtomicStream(paths.Symbols, 0o644, func(w io.Writer) error {
+	meta.PayloadCRC = crc32.ChecksumIEEE(blob)
+	if err := fsutil.WriteFileAtomicStreamNoSync(paths.Symbols, 0o644, func(w io.Writer) error {
 		_, werr := w.Write(blob)
 		return werr
 	}); err != nil {
@@ -1134,7 +1152,7 @@ func SaveCrossFileCache(dir, fingerprint string, meta CrossFileCacheMeta, symbol
 	if err != nil {
 		return fmt.Errorf("marshal meta: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(paths.Meta, metaBytes, 0644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(paths.Meta, metaBytes, 0644); err != nil {
 		return fmt.Errorf("write meta: %w", err)
 	}
 	recordCrossFileDisk(paths, meta.SymbolCount+meta.ReferenceCount)
@@ -1152,11 +1170,17 @@ func ClearCrossFileCache(dir string) error {
 	return os.RemoveAll(dir)
 }
 
-func decodeZstdGob(path string, v any) error {
-	f, err := os.Open(path)
+// decodeCrossFilePayload decodes the payload at path after checking it is the
+// one the meta recorded, so a payload left over from an earlier write is a miss.
+func decodeCrossFilePayload(path string, wantCRC uint32, v any) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return cacheutil.DecodeZstdGob(f, v)
+	if crc32.ChecksumIEEE(data) != wantCRC {
+		return errCrossFilePayloadMismatch
+	}
+	return cacheutil.DecodeZstdGobBytes(data, v)
 }
+
+var errCrossFilePayloadMismatch = errors.New("cross-file payload does not match meta checksum")

@@ -201,42 +201,137 @@ func TestParentDirSyncDoesNotBreakHappyPath(t *testing.T) {
 	}
 }
 
-// TestSyncCalled is the regression guard for the fsync guarantee.
-//
-// We cannot intercept OS-level syscalls in a portable Go test, so we verify
-// durability indirectly: the -race flag catches concurrent memory access on the
-// file descriptor, and passing TestRace under -race is sufficient evidence that
-// Sync() serialises the write before the rename makes the file visible to other
-// readers. This test documents that guarantee explicitly and will catch any
-// future refactoring that accidentally removes the Sync call (e.g., by making
-// the test suite flaky under concurrent load or the race detector noisy).
-func TestSyncCalled(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sync-check.bin")
-	data := []byte("sync durability check")
-
-	if err := WriteFileAtomic(path, data, 0o644); err != nil {
-		t.Fatalf("WriteFileAtomic: %v", err)
+// countSyncs replaces the sync hooks for the duration of the test and returns
+// counters for tempfile and parent-directory fsyncs. The tempfile counter also
+// records whether the fsync happened before the rename made the file visible.
+func countSyncs(t *testing.T, path string) (fileSyncs, dirSyncs, syncedBeforeRename *int) {
+	t.Helper()
+	var files, dirs, before int
+	origFile, origDir := syncFile, syncParentDir
+	syncFile = func(f *os.File) error {
+		files++
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			before++
+		}
+		return origFile(f)
 	}
+	syncParentDir = func(dir string) {
+		dirs++
+		origDir(dir)
+	}
+	t.Cleanup(func() { syncFile, syncParentDir = origFile, origDir })
+	return &files, &dirs, &before
+}
 
-	// If Sync were absent, a crash between Write and Rename could leave
-	// a zero-byte or partial file. We simulate the post-rename observation:
-	// the file must exist and contain exactly the data we wrote.
+// TestSyncCalled is the regression guard for the fsync guarantee of the
+// durable helpers: each must fsync the tempfile before the rename and the
+// parent directory after it.
+func TestSyncCalled(t *testing.T) {
+	writers := map[string]func(path string, data []byte) error{
+		"WriteFileAtomic": func(path string, data []byte) error {
+			return WriteFileAtomic(path, data, 0o644)
+		},
+		"WriteFileAtomicKeepMode": func(path string, data []byte) error {
+			return WriteFileAtomicKeepMode(path, data, 0o644)
+		},
+		"WriteFileAtomicStream": func(path string, data []byte) error {
+			return WriteFileAtomicStream(path, 0o644, func(w io.Writer) error {
+				_, err := w.Write(data)
+				return err
+			})
+		},
+	}
+	for name, write := range writers {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sync-check.bin")
+			data := []byte("sync durability check")
+			fileSyncs, dirSyncs, before := countSyncs(t, path)
+
+			if err := write(path, data); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if *fileSyncs != 1 || *before != 1 {
+				t.Errorf("tempfile fsyncs = %d (%d before rename), want 1 before rename", *fileSyncs, *before)
+			}
+			if *dirSyncs != 1 {
+				t.Errorf("parent dir fsyncs = %d, want 1", *dirSyncs)
+			}
+			assertWritten(t, dir, path, data)
+		})
+	}
+}
+
+// TestNoSyncSkipsFsync asserts the cache-only helpers skip both fsyncs while
+// keeping the tempfile + rename, so the content still lands whole and no
+// tempfile is left behind.
+func TestNoSyncSkipsFsync(t *testing.T) {
+	writers := map[string]func(path string, data []byte) error{
+		"WriteFileAtomicNoSync": func(path string, data []byte) error {
+			return WriteFileAtomicNoSync(path, data, 0o644)
+		},
+		"WriteFileAtomicStreamNoSync": func(path string, data []byte) error {
+			return WriteFileAtomicStreamNoSync(path, 0o644, func(w io.Writer) error {
+				_, err := w.Write(data)
+				return err
+			})
+		},
+	}
+	for name, write := range writers {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "nosync.bin")
+			if err := os.WriteFile(path, []byte("previous, longer contents"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			fileSyncs, dirSyncs, _ := countSyncs(t, path)
+
+			data := []byte("cache entry")
+			if err := write(path, data); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if *fileSyncs != 0 || *dirSyncs != 0 {
+				t.Errorf("fsyncs = file %d, dir %d; want none", *fileSyncs, *dirSyncs)
+			}
+			assertWritten(t, dir, path, data)
+		})
+	}
+}
+
+// TestNoSyncWriteFailureLeavesOriginal asserts a failed no-sync write neither
+// touches the existing file nor leaves a tempfile.
+func TestNoSyncWriteFailureLeavesOriginal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keep.bin")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("boom")
+	err := WriteFileAtomicStreamNoSync(path, 0o644, func(w io.Writer) error {
+		_, _ = w.Write([]byte("partial"))
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+	assertWritten(t, dir, path, []byte("original"))
+}
+
+func assertWritten(t *testing.T, dir, path string, want []byte) {
+	t.Helper()
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if string(got) != string(data) {
-		t.Errorf("durability check failed: got %q, want %q", got, data)
+	if string(got) != string(want) {
+		t.Errorf("got %q, want %q", got, want)
 	}
-
-	// Verify the tempfile was cleaned up (rename happened, not just a copy).
-	matches, err := filepath.Glob(filepath.Join(dir, ".sync-check.bin.tmp-*"))
+	matches, err := filepath.Glob(filepath.Join(dir, "."+filepath.Base(path)+".tmp-*"))
 	if err != nil {
 		t.Fatalf("Glob: %v", err)
 	}
 	if len(matches) > 0 {
-		t.Errorf("tempfile still present after successful write: %v", matches)
+		t.Errorf("tempfile still present: %v", matches)
 	}
 }
 

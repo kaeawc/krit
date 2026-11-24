@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 )
 
 // gitAvailable reports whether `git` is on the PATH.
@@ -501,5 +502,35 @@ func TestSaveFilewalkCacheLeavesNoTempFiles(t *testing.T) {
 	}
 	if _, ok := loadFilewalkCache(dir); !ok {
 		t.Fatal("saved cache did not load")
+	}
+}
+
+// TestFilewalkCache_RacyDirNotCached guards the racily-clean case: a directory
+// changed within the filesystem's timestamp granularity of being listed keeps
+// its mtime, so caching its listing would hide the change from the next walk.
+// Recently modified directories must be listed again; older ones are cached.
+func TestFilewalkCache_RacyDirNotCached(t *testing.T) {
+	root := t.TempDir()
+	cache := t.TempDir()
+	old := filepath.Join(root, "old")
+	writeFile(t, filepath.Join(old, "A.kt"), "")
+	writeFile(t, filepath.Join(root, "B.kt"), "")
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(old, past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := CollectFilesCached([]string{root}, ktFilters, cache); err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	p, ok := loadFilewalkCache(cache)
+	if !ok {
+		t.Fatal("no filewalk cache written")
+	}
+	if _, cached := p.Dirs[old]; !cached {
+		t.Errorf("directory last modified an hour ago was not cached")
+	}
+	if _, cached := p.Dirs[root]; cached {
+		t.Errorf("directory modified just now was cached")
 	}
 }

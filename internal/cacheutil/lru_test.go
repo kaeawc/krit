@@ -278,3 +278,50 @@ func TestSizeCapLRU_ForgetRemovesEntry(t *testing.T) {
 		t.Fatalf("Forget left residue: entries=%d bytes=%d", stats.Entries, stats.Bytes)
 	}
 }
+
+// TestSizeCapLRU_TornSidecarRebuildsFromDisk covers a sidecar damaged by a
+// crash (it is written without fsync): Open must not fail and must rebuild
+// the accounting from the entries on disk, even for a TrustIndex store.
+func TestSizeCapLRU_TornSidecarRebuildsFromDisk(t *testing.T) {
+	for _, trust := range []bool{false, true} {
+		dir := t.TempDir()
+		entries := filepath.Join(dir, "entries")
+		indexPath := filepath.Join(dir, "lru-index.gob")
+		open := func() *cacheutil.SizeCapLRU {
+			l := &cacheutil.SizeCapLRU{
+				EntriesRoot: entries,
+				IndexPath:   indexPath,
+				LockPath:    filepath.Join(dir, "lru.lock"),
+				Ext:         ".bin",
+				CapBytes:    1 << 20,
+				TrustIndex:  trust,
+			}
+			if err := l.Open(); err != nil {
+				t.Fatalf("trust=%v Open: %v", trust, err)
+			}
+			return l
+		}
+		writeEntry(t, entries, hash64(31), make([]byte, 128))
+		writeEntry(t, entries, hash64(32), make([]byte, 256))
+		l := open()
+		if err := l.Flush(); err != nil {
+			t.Fatalf("Flush: %v", err)
+		}
+		valid, err := os.ReadFile(indexPath)
+		if err != nil || len(valid) < 8 {
+			t.Fatalf("read sidecar: %v (%d bytes)", err, len(valid))
+		}
+		for name, data := range map[string][]byte{
+			"empty":       {},
+			"truncated":   valid[:len(valid)/2],
+			"zero-filled": make([]byte, len(valid)),
+		} {
+			if err := os.WriteFile(indexPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if stats := open().Stats(); stats.Entries != 2 || stats.Bytes != 128+256 {
+				t.Errorf("trust=%v %s sidecar: entries=%d bytes=%d, want 2/384", trust, name, stats.Entries, stats.Bytes)
+			}
+		}
+	}
+}

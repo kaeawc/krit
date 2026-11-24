@@ -335,3 +335,52 @@ func TestXMLParseCache_NilSafe(t *testing.T) {
 		t.Fatalf("nil Stats = %+v", st)
 	}
 }
+
+// TestXMLParseCache_TornEntryIsMiss covers an entry damaged by a crash (cache
+// writes skip fsync): empty, truncated, or garbage entries must be misses.
+func TestXMLParseCache_TornEntryIsMiss(t *testing.T) {
+	pc, err := NewXMLParseCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewXMLParseCache: %v", err)
+	}
+	defer pc.Close()
+	data := largeManifest()
+	root, err := ParseXMLAST(t.Context(), data)
+	if err != nil {
+		t.Fatalf("ParseXMLAST: %v", err)
+	}
+	if err := pc.Save(data, root); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// ParseXMLAST also queued an async save of the same entry into this
+	// (active) cache; drain it so it cannot overwrite the damaged copies.
+	if err := pc.writer.Flush(); err != nil {
+		t.Fatalf("flush async writer: %v", err)
+	}
+	entry := pc.entryPath(hashutil.Default().HashContent("", data))
+	valid, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	if _, ok := pc.Load(data); !ok {
+		t.Fatal("valid entry did not load")
+	}
+	for name, damaged := range map[string][]byte{
+		"empty":       {},
+		"truncated":   valid[:len(valid)/2],
+		"zero-filled": make([]byte, len(valid)),
+		"garbage":     []byte("not a zstd gob payload"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.MkdirAll(filepath.Dir(entry), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(entry, damaged, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := pc.Load(data); ok {
+				t.Fatal("damaged entry loaded as a hit")
+			}
+		})
+	}
+}

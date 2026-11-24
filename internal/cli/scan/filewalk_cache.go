@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/fileignore"
@@ -19,10 +20,18 @@ import (
 
 const (
 	filewalkCacheMagic    uint32 = 0x4b465743 // "KFWC"
-	filewalkCacheVersion  uint32 = 1
+	filewalkCacheVersion  uint32 = 2          // v2: racily-clean directories are not cached
 	filewalkCacheDirName         = "filewalk-cache"
 	filewalkCacheFileName        = "index.bin"
 	filewalkHeaderSize           = 4 + 4 + 4 + 8 // magic + version + crc32 + length (bytes)
+
+	// filewalkRacyWindow is how close to the start of a walk a directory's
+	// mtime may be before its listing is not cached. Filesystem timestamps
+	// come from a coarse clock (and are 1-2 s granular on some filesystems),
+	// so a directory changed right after it was listed can keep the mtime it
+	// had when listed; trusting that entry would hide the change from the
+	// next walk. Such directories are simply listed again next time.
+	filewalkRacyWindow = 2 * time.Second
 )
 
 // FilewalkFilters controls which files are collected and which paths are skipped.
@@ -78,6 +87,10 @@ type filewalkPayload struct {
 	Roots   []string
 	Filters string // FilewalkFilters.Hash() at write time
 	Dirs    map[string]filewalkDirEntry
+
+	// racyCutoff (UnixNano, not persisted) is the mtime at or after which a
+	// freshly listed directory is too recent to cache; see filewalkRacyWindow.
+	racyCutoff int64
 }
 
 // filewalkDirEntry records the directory snapshot used to detect mutations.
@@ -149,7 +162,7 @@ func saveFilewalkCache(cacheDir string, p *filewalkPayload) error {
 	var buf bytes.Buffer
 	buf.Write(hdr[:])
 	buf.Write(encoded)
-	return fsutil.WriteFileAtomic(filewalkIndexPath(cacheDir), buf.Bytes(), 0o644)
+	return fsutil.WriteFileAtomicNoSync(filewalkIndexPath(cacheDir), buf.Bytes(), 0o644)
 }
 
 // CollectFilesCached returns every path under roots whose basename matches
@@ -243,6 +256,8 @@ func walkRootsWithCache(roots []string, filters FilewalkFilters, cacheDir string
 		Roots:   append([]string{}, roots...),
 		Filters: filters.Hash(),
 		Dirs:    make(map[string]filewalkDirEntry),
+
+		racyCutoff: time.Now().Add(-filewalkRacyWindow).UnixNano(),
 	}
 
 	var out []string
@@ -314,7 +329,9 @@ func filewalkReadDir(dir string, info os.FileInfo, filters FilewalkFilters, cach
 		fe.Children = append(fe.Children, filewalkChild{Name: e.Name(), IsDir: e.IsDir()})
 	}
 	sort.Slice(fe.Children, func(i, j int) bool { return fe.Children[i].Name < fe.Children[j].Name })
-	fresh.Dirs[dir] = fe
+	if fe.ModNanos < fresh.racyCutoff {
+		fresh.Dirs[dir] = fe
+	}
 
 	for _, e := range entries {
 		full := filepath.Join(dir, e.Name())

@@ -342,7 +342,7 @@ func WriteSnapshot(cacheFilePath string, data []byte) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
-	if err := fsutil.WriteFileAtomic(cacheFilePath, data, 0644); err != nil {
+	if err := fsutil.WriteFileAtomicNoSync(cacheFilePath, data, 0644); err != nil {
 		return fmt.Errorf("write cache: %w", err)
 	}
 	return nil

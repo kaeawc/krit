@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/buildid"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -111,6 +112,11 @@ func TestIndexFilesParallelCachedInvalidatesChangedFileOnly(t *testing.T) {
 	if err := os.WriteFile(bPath, []byte("class C\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The second index stands in for a later krit run, which starts with an
+	// empty content-hash memo (runner_state resets it). Without the reset, the
+	// same-size rewrite above can land in the same coarse mtime tick and reuse
+	// the hash memoized for the old content.
+	hashutil.ResetDefault()
 	bChanged, err := scanner.ParseFile(context.Background(), bPath)
 	if err != nil {
 		t.Fatal(err)
@@ -208,5 +214,50 @@ func TestTypeIndexCacheMissesAcrossBuilds(t *testing.T) {
 	}
 	if hits, misses := index(); hits != 1 || misses != 0 {
 		t.Fatalf("different build rescan = hits %d misses %d, want 1/0", hits, misses)
+	}
+}
+
+// TestTypeIndexCacheTornEntryIsMiss covers entries damaged by a crash: cache
+// writes skip fsync, so an entry can come back empty, cut short, or garbage.
+// Each must be a miss that re-indexes the file, with the same resolution.
+func TestTypeIndexCacheTornEntryIsMiss(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := TypeIndexCacheDir(dir)
+	aPath := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(aPath, []byte("package demo\nclass A { val name: String = \"a\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), aPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, misses := NewResolver().IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil); misses != 1 {
+		t.Fatalf("cold scan misses = %d, want 1", misses)
+	}
+	entry := typeIndexCachePath(cacheDir, typeIndexCacheKey(file))
+	valid, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	damaged := map[string][]byte{
+		"empty":       {},
+		"truncated":   valid[:len(valid)/2],
+		"zero-filled": make([]byte, len(valid)),
+		"garbage":     []byte("not a zstd gob payload"),
+	}
+	for name, data := range damaged {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(entry, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			r := NewResolver()
+			hits, misses := r.IndexFilesParallelCachedWithTracker([]*scanner.File{file}, 1, cacheDir, nil)
+			if hits != 0 || misses != 1 {
+				t.Fatalf("damaged entry = hits %d misses %d, want 0/1", hits, misses)
+			}
+			if got := r.ResolveImport("String", file); got != "kotlin.String" {
+				t.Fatalf("resolver import String after miss = %q", got)
+			}
+		})
 	}
 }

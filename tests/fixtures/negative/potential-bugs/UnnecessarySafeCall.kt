@@ -41,3 +41,31 @@ class UnnecessarySafeCall {
         }
     }
 }
+
+// A local shadows a same-named non-null declaration; only the nearest declaration in scope counts
+// (#1116, #1117: `val session = users[...]` shadows the `session` property).
+class SafeCallShadowUser(val name: String?)
+
+class SafeCallShadowSession(val user: SafeCallShadowUser)
+
+class SafeCallShadowPresenter(
+    private val session: SafeCallShadowSession,
+    private val users: Map<String, SafeCallShadowUser>,
+) {
+    fun firstName(): String? {
+        val session = users[this.session.user.name ?: ""]
+        return session?.name
+    }
+}
+
+// ktor's OidcBearer: inside an extension, `parameters` is a receiver member, so the local `state` has an
+// unknown type and must not borrow the non-null type of the outer `state` context parameter.
+class SafeCallShadowState(val id: String)
+
+class SafeCallShadowProvider(val parameters: Map<String, String>)
+
+context(state: SafeCallShadowState)
+fun SafeCallShadowProvider.settings(): () -> Int? = {
+    val state = parameters["state"]
+    state?.length
+}

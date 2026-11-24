@@ -595,13 +595,17 @@ func unnecessarySafeCallNonNullFunctionParamFlat(file *scanner.File, idx uint32,
 	return false
 }
 
+// sameFileExplicitNonNullValueDeclaration reports whether the nearest same-file declaration of name in
+// scope at ref has an explicit non-null type. Only the nearest one counts: in
+// `val session = users[id]; session?.name` the local shadows a non-null `session` property.
 func sameFileExplicitNonNullValueDeclaration(file *scanner.File, ref uint32, name string) bool {
 	if file == nil || ref == 0 || name == "" {
 		return false
 	}
-	found := false
+	refStart := file.FlatStartByte(ref)
+	var nearest uint32
 	file.FlatWalkAllNodes(0, func(decl uint32) {
-		if found || file.FlatStartByte(decl) > file.FlatStartByte(ref) {
+		if file.FlatStartByte(decl) > refStart {
 			return
 		}
 		switch file.FlatType(decl) {
@@ -612,14 +616,35 @@ func sameFileExplicitNonNullValueDeclaration(file *scanner.File, ref uint32, nam
 		if extractIdentifierFlat(file, decl) != name {
 			return
 		}
-		if !declarationVisibleFromReference(file, decl, ref) {
+		if !declarationVisibleFromReference(file, decl, ref) || !declarationScopeContains(file, decl, ref) {
 			return
 		}
-		if declarationHasExplicitTypeFlat(file, decl) && !declarationHasNullableTypeFlat(file, decl) {
-			found = true
-		}
+		// Declarations are walked in source order, and an inner declaration in scope at ref starts after
+		// the outer ones it shadows.
+		nearest = decl
 	})
-	return found
+	return nearest != 0 && declarationHasExplicitTypeFlat(file, nearest) && !declarationHasNullableTypeFlat(file, nearest)
+}
+
+// declarationScopeContains reports whether ref lies in the scope of decl: the block holding a property,
+// or the function, lambda, constructor or class that a parameter belongs to.
+func declarationScopeContains(file *scanner.File, decl uint32, ref uint32) bool {
+	scope, ok := file.FlatParent(decl)
+	switch file.FlatType(decl) {
+	case "parameter":
+		scope, ok = flatEnclosingAncestor(file, decl, "function_declaration", "lambda_literal", "anonymous_function",
+			"secondary_constructor", "setter")
+	case "class_parameter":
+		scope, ok = flatEnclosingAncestor(file, decl, "class_declaration")
+	}
+	if !ok {
+		return false
+	}
+	if scope == 0 {
+		return true // a top-level declaration
+	}
+	refStart := file.FlatStartByte(ref)
+	return file.FlatStartByte(scope) <= refStart && refStart < file.FlatEndByte(scope)
 }
 
 func declarationHasExplicitTypeFlat(file *scanner.File, decl uint32) bool {

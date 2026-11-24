@@ -25,7 +25,9 @@ for run in report.get("runs", []):
     filtered = []
     for result in results:
         uri = result_uri(result).replace("\\", "/")
-        if uri.startswith("tests/fixtures/"):
+        # Deliberate findings: rule fixtures, and the Bazel e2e module's
+        # krit_test inputs (bazel/e2e/src/Unsafe.kt must report one).
+        if uri.startswith(("tests/fixtures/", "bazel/e2e/")):
             continue
         filtered.append(result)
     run["results"] = filtered

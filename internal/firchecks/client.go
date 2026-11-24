@@ -34,6 +34,7 @@ import (
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/jvmaot"
+	"github.com/kaeawc/krit/internal/jvmargs"
 	"github.com/kaeawc/krit/internal/oracle"
 )
 
@@ -51,6 +52,9 @@ type FirDaemon struct {
 	slot    int
 	// aotCachePath is persisted with the PID registry for reconnecting clients.
 	aotCachePath string
+	// launchArgs is the java argument vector this process started the daemon
+	// with, before it moved into an argfile (see jvmArgs).
+	launchArgs   []string
 	aotCheckOnce sync.Once
 	// aotVerified records that the AOT canary passed for this daemon's JVM,
 	// here or in the krit run that started it (persisted with the registry).
@@ -238,18 +242,21 @@ func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, ta
 		return nil, fmt.Errorf("java not found: %w", err)
 	}
 
-	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, oracle.LauncherMajorVersion(javaPath), verbose, mode)
-	if t := firstTarget(target); t.JvmTarget != "" {
-		args = append(args, "--jvm-target", t.JvmTarget)
-	}
-	args = append(args, oracle.KotlinLaunchArgs(jarPath, firstTarget(target).Kotlin)...)
-	args = oracle.EphemeralDaemonArgs(args...)
+	args := firDaemonLaunchArgs(jarPath, javaPath, oracle.LauncherMajorVersion(javaPath), verbose, mode, firstTarget(target))
 
 	if verbose {
 		reporter().Verbosef("verbose: Starting krit-fir daemon: %s %s\n", javaPath, strings.Join(args, " "))
 	}
+	argv, cleanupArgs, err := prepareFirDaemonArgv(args)
+	if err != nil {
+		jvmaot.FinalizeRecording(args, false)
+		return nil, err
+	}
+	// The JVM has read its argfile once it reports ready, which happens
+	// before this function returns.
+	defer cleanupArgs()
 
-	cmd := exec.CommandContext(context.Background(), javaPath, args...)
+	cmd := exec.CommandContext(context.Background(), javaPath, argv...)
 	cmd.Dir = oracle.DaemonWorkDir()
 	cmd.Env = fsutil.JVMEnv()
 	logFile, logPath, err := fsutil.CreateUserKritFile("krit-fir-daemon.log")
@@ -314,8 +321,38 @@ func startFirDaemonWithAOTMode(jarPath string, verbose bool, mode firAOTMode, ta
 		shared:       false,
 		slot:         0,
 		aotCachePath: firAOTCacheArg(args),
+		launchArgs:   args,
 	}
 	return d, nil
+}
+
+// firDaemonLaunchArgs builds the checker daemon's complete java argument
+// vector, before any argfile. The project's compiler-plugin jars and options
+// make it grow with the project.
+func firDaemonLaunchArgs(jarPath, javaPath string, jdkMajor int, verbose bool, mode firAOTMode, target CompileTarget) []string {
+	args := buildFirJVMArgsWithAOTMode(jarPath, javaPath, jdkMajor, verbose, mode)
+	if target.JvmTarget != "" {
+		args = append(args, "--jvm-target", target.JvmTarget)
+	}
+	args = append(args, oracle.KotlinLaunchArgs(jarPath, target.Kotlin)...)
+	return oracle.EphemeralDaemonArgs(args...)
+}
+
+// prepareFirDaemonArgv returns the argv to exec for the launch arguments (a
+// JDK argfile when they are long), and a cleanup to run once the daemon has
+// reported ready.
+func prepareFirDaemonArgv(args []string) ([]string, func(), error) {
+	return jvmargs.Prepare(args)
+}
+
+// jvmArgs is the daemon's launch argument vector before any argfile, which
+// the AOT recording checks read: an argfile launch hides the
+// -XX:AOTConfiguration flag from cmd.Args.
+func (d *FirDaemon) jvmArgs() []string {
+	if d.launchArgs != nil {
+		return d.launchArgs
+	}
+	return d.cmd.Args
 }
 
 func firAOTCacheArg(args []string) string {
@@ -767,7 +804,7 @@ func (d *FirDaemon) Ping() error {
 
 // Release drops this Go-side handle but leaves the daemon process alive.
 func (d *FirDaemon) Release() error {
-	if d.cmd != nil && !d.shared && (d.unpublished || jvmaot.IsRecording(d.cmd.Args)) {
+	if d.cmd != nil && !d.shared && (d.unpublished || jvmaot.IsRecording(d.jvmArgs())) {
 		return d.Close()
 	}
 	d.mu.Lock()
@@ -810,13 +847,13 @@ func (d *FirDaemon) Close() error {
 		go func() { done <- d.cmd.Wait() }()
 		select {
 		case err := <-done:
-			jvmaot.FinalizeRecording(d.cmd.Args, err == nil)
+			jvmaot.FinalizeRecording(d.jvmArgs(), err == nil)
 		case <-time.After(10 * time.Second):
 			if d.cmd != nil && d.cmd.Process != nil {
 				d.cmd.Process.Kill()
 			}
 			<-done //nolint:errcheck // killed above, so the exit error is expected
-			jvmaot.FinalizeRecording(d.cmd.Args, false)
+			jvmaot.FinalizeRecording(d.jvmArgs(), false)
 		}
 	}
 	if d.port != 0 && d.sourcesHash != "" && !d.unpublished && d.cmd != nil && d.cmd.Process != nil {

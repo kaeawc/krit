@@ -1,4 +1,4 @@
-package oracle
+package jvmargs
 
 import (
 	"bytes"
@@ -12,20 +12,20 @@ import (
 	"testing"
 )
 
-func TestPrepareJavaArgsLargeClasspath(t *testing.T) {
+func TestPrepareLargeClasspath(t *testing.T) {
 	var entries []string
 	for i := 1; i <= 5000; i++ {
 		entries = append(entries, fmt.Sprintf("/fake/path/entry-%04d.jar", i))
 	}
 	joined := strings.Join(entries, string(os.PathListSeparator))
 	args := []string{"-Xms1g", "-jar", "/fake/krit-fir.jar", "--classpath", joined}
-	got, cleanup, err := prepareJavaArgs(args)
+	got, cleanup, err := Prepare(args)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 	cmd := exec.Command("java", got...)
-	if len(cmd.Args) != 2 || !strings.HasPrefix(cmd.Args[1], "@") || len(cmd.Args[1]) >= javaArgfileThreshold {
+	if len(cmd.Args) != 2 || !strings.HasPrefix(cmd.Args[1], "@") || len(cmd.Args[1]) >= Threshold {
 		t.Fatalf("long classpath leaked into exec argv: %v", cmd.Args)
 	}
 	body, err := os.ReadFile(strings.TrimPrefix(got[0], "@"))
@@ -33,7 +33,7 @@ func TestPrepareJavaArgsLargeClasspath(t *testing.T) {
 		t.Fatalf("argfile did not preserve classpath: %v", err)
 	}
 	short := []string{"-jar", "a.jar", "--classpath", "/one.jar"}
-	unchanged, shortCleanup, err := prepareJavaArgs(short)
+	unchanged, shortCleanup, err := Prepare(short)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,22 @@ func TestPrepareJavaArgsLargeClasspath(t *testing.T) {
 	}
 }
 
-func TestPrepareJavaArgsQuotesTokens(t *testing.T) {
+func TestPrepareCleanupRemovesArgfile(t *testing.T) {
+	got, cleanup, err := Prepare([]string{strings.Repeat("x", Threshold+1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := strings.TrimPrefix(got[0], "@")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("argfile missing before cleanup: %v", err)
+	}
+	cleanup()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("argfile still present after cleanup: %v", err)
+	}
+}
+
+func TestPrepareQuotesTokens(t *testing.T) {
 	cases := []struct {
 		arg  string
 		want string
@@ -66,10 +81,10 @@ func TestPrepareJavaArgsQuotesTokens(t *testing.T) {
 		args = append(args, tc.arg)
 		wantLines = append(wantLines, tc.want)
 	}
-	padding := strings.Repeat("x", javaArgfileThreshold)
+	padding := strings.Repeat("x", Threshold)
 	args = append(args, padding)
 	wantLines = append(wantLines, padding)
-	got, cleanup, err := prepareJavaArgs(args)
+	got, cleanup, err := Prepare(args)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +101,7 @@ func TestPrepareJavaArgsQuotesTokens(t *testing.T) {
 	}
 }
 
-func TestPrepareJavaArgsJavaRoundTrip(t *testing.T) {
+func TestPrepareJavaRoundTrip(t *testing.T) {
 	java, err := exec.LookPath("java")
 	if err != nil {
 		t.Skip("java is not on PATH; skipping argfile launcher round trip")
@@ -109,9 +124,9 @@ func TestPrepareJavaArgsJavaRoundTrip(t *testing.T) {
 		t.Fatalf("compile ArgDump: %v\n%s", err, output)
 	}
 	want := []string{"/work/project#1/lib.jar", "#lead.jar", `C:\work dir\lib.jar`, `a"b.jar`, "line\nbreak.jar", "carriage\rreturn.jar", "it's.jar", "plain.jar"}
-	args := []string{"-Dkrit.argfile.padding=" + strings.Repeat("x", javaArgfileThreshold), "-cp", dir, "ArgDump"}
+	args := []string{"-Dkrit.argfile.padding=" + strings.Repeat("x", Threshold), "-cp", dir, "ArgDump"}
 	args = append(args, want...)
-	got, cleanup, err := prepareJavaArgs(args)
+	got, cleanup, err := Prepare(args)
 	if err != nil {
 		t.Fatal(err)
 	}

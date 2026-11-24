@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/env"
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/jvmargs"
 )
 
 // invokeTimeout returns the max wall-clock duration allowed for a krit-fir
@@ -283,7 +284,7 @@ func InvokeWithFilesWithOptions(jarPath string, sourceDirs []string, outputPath,
 	if verbose {
 		reporter().Verbosef("verbose: Running krit-fir: %s %s\n", javaPath, strings.Join(args, " "))
 	}
-	args, cleanupArgs, err := prepareJavaArgs(args)
+	args, cleanupArgs, err := jvmargs.Prepare(args)
 	if err != nil {
 		return "", err
 	}

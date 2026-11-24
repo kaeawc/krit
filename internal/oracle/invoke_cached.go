@@ -32,6 +32,7 @@ import (
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/iterutil"
+	"github.com/kaeawc/krit/internal/jvmargs"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/store"
 )
@@ -810,6 +811,11 @@ func runOracleOneShot(
 		// Whatever jar the caller passed in — krit-fir.
 		reporter().Verbosef("verbose: Running oracle JVM (cached) jar=%s: %s %s\n", filepath.Base(jarPath), javaPath, strings.Join(args, " "))
 	}
+	args, cleanupArgs, err := jvmargs.Prepare(args)
+	if err != nil {
+		return err
+	}
+	defer cleanupArgs()
 
 	timeout := invokeTimeout()
 	grace := invokeGraceExit()

@@ -124,9 +124,12 @@ To keep a build-system action cacheable:
 ## Bazel workspaces
 
 krit needs no build to analyze a Bazel workspace (rules_kotlin,
-rules_android, rules_jvm_external). Its project model reads the workspace
-files directly, so module-aware, Android resource and library-aware rules work
-as they do for Gradle:
+rules_android, rules_jvm_external). To run it as a cached Bazel test over a
+target's sources, use [`krit_test`](integrations.md#krit_test) from the
+`krit` Bazel module; it applies the settings above. Run from the workspace
+root, krit's project model reads the workspace files directly, so
+module-aware, Android resource and library-aware rules work as they do for
+Gradle:
 
 - **Modules.** Each Bazel package with JVM or Android targets becomes a module
   named by its label (`//app/src/main`). That covers `kt_jvm_*`,

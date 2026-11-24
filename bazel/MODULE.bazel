@@ -4,6 +4,12 @@
 
     bazel run @krit//:krit -- --base-path "$PWD" "$PWD"
 
+and to lint a target's sources as a test:
+
+    load("@krit//:defs.bzl", "krit_test")
+
+    krit_test(name = "lib_krit", targets = [":lib"])
+
 The module downloads the release archive for the host platform and verifies
 it against the release's checksums.txt (or a pinned sha256 map), so krit's
 version is an ordinary bazel_dep that Dependabot or Renovate can bump.

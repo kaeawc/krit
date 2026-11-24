@@ -36,6 +36,14 @@ All notable changes to Krit will be documented in this file.
   from the release, so registry pull requests pass BCR's stable-URL check
   without a `skip_check` comment. Nightly releases run the Bazel e2e module
   against the published archive (#1195).
+- The Bazel module has a `krit_test` rule
+  (`load("@krit//:defs.bzl", "krit_test")`): `bazel test` runs krit over
+  the `srcs` of `kt_jvm_library`, `kt_android_library`, `java_library` or
+  any target with a `srcs` attribute, Go-only and in-process, so the result
+  needs no JDK or network and Bazel caches it. A test whose sources krit
+  skips (test-data directories) fails instead of passing vacuously. BCR
+  presubmit also runs on Bazel 9, and docs/release.md lists the first
+  registry submission steps (#1060).
 
 ### Fixed
 - Compiling the Java-facts helper gives each `javac` run a 2-minute timeout, so a `javac` that never

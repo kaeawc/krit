@@ -349,6 +349,13 @@ func (p *xmlFastParser) markup(out *XMLNode, dom *domCounter, flush func(), dept
 		if end < 0 {
 			return false
 		}
+		// tree-sitter-xml mis-scans an empty CDATA section and one whose
+		// content starts or ends with ']' (it runs on to a later "]]>" or
+		// parses the content as markup). Leave those to tree-sitter so both
+		// paths keep producing the same tree.
+		if body := p.src[p.pos+len("<![CDATA[") : p.pos+end]; len(body) == 0 || body[0] == ']' || body[len(body)-1] == ']' {
+			return false
+		}
 		p.pos += end + 3
 		dom.advance("CDSect")
 	case xmlFastNameStart(p.peek(1)):

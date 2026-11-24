@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"maps"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -117,6 +119,13 @@ var xmlFastDeclined = []string{
 	"<ä/>",
 	" <?xml version=\"1.0\"?><a/>",
 	"",
+	// CDATA shapes tree-sitter-xml mis-scans.
+	"<a><![CDATA[]]><x/><![CDATA[]]></a>",
+	"<a><![CDATA[]]>text<![CDATA[x]]>tail</a>",
+	"<a><![CDATA[<b>x</b>]]]></a>",
+	"<a><![CDATA[]x]]></a>",
+	"<a><![CDATA[<x>]]]]>>tail</a>",
+	"<resources>\n  <string name=\"empty\"><![CDATA[]]></string>\n  <string name=\"loading\">Loading...</string>\n</resources>\n",
 }
 
 func TestParseXMLFastSamples(t *testing.T) {
@@ -170,8 +179,11 @@ func TestParseXMLFastMatchesTreeSitterOnCorpus(t *testing.T) {
 func TestParseXMLFastMutations(t *testing.T) {
 	seeds := append([]string(nil), xmlFastSamples...)
 	seeds = append(seeds, xmlFastDeclined...)
-	for _, data := range collectXMLFiles(t, filepath.Join("..", "..", "tests", "fixtures")) {
-		if len(data) < 4000 {
+	// Visit fixtures in path order: map order would change the seed list, and
+	// so the inputs the fixed-seed generator produces, on every run.
+	fixtures := collectXMLFiles(t, filepath.Join("..", "..", "tests", "fixtures"))
+	for _, path := range slices.Sorted(maps.Keys(fixtures)) {
+		if data := fixtures[path]; len(data) < 4000 {
 			seeds = append(seeds, string(data))
 		}
 	}

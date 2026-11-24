@@ -25,15 +25,15 @@ Krit ships from `v*` tags:
   compile against the SPI without vendoring the analyzer, plus the
   self-contained `:krit-fir` oracle jar (see
   [Oracle jar on Maven Central](#oracle-jar-on-maven-central) below),
-  plus the `dev.jasonpearson.krit` Gradle plugin (see
-  [Gradle plugin](#gradle-plugin) below).
+  plus the `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings`
+  Gradle plugins (see [Gradle plugins](#gradle-plugins) below).
   Owned by
   [`publish-maven-central.yml`](https://github.com/kaeawc/krit/blob/main/.github/workflows/publish-maven-central.yml).
-- **Gradle Plugin Portal** — the same `dev.jasonpearson.krit` plugin,
+- **Gradle Plugin Portal** — the same two plugins,
   published by `publish-maven-central.yml` once `GRADLE_PUBLISH_KEY` and
   `GRADLE_PUBLISH_SECRET` are set (skipped with a warning until then). The
-  plugin's version is the krit release it downloads by default; the
-  workflow builds it with the tag's version.
+  project plugin's version is the krit release it downloads by default;
+  the workflow builds both with the tag's version.
 - **Bazel Central Registry** — stable `vX.Y.Z` tags only. The `krit`
   module in `bazel/` (see [Bazel Central Registry](#bazel-central-registry)
   below). Owned by
@@ -157,8 +157,11 @@ independently of the binary release key.
 
 ```
 group:    dev.jasonpearson.krit
-artifact: krit-rule-api | krit-fir | krit-gradle-plugin
-          dev.jasonpearson.krit.gradle.plugin   (Gradle plugin marker)
+artifact: krit-rule-api | krit-fir | krit-gradle-plugin | krit-settings-plugin
+group:    dev.jasonpearson.krit
+artifact: dev.jasonpearson.krit.gradle.plugin           (krit-gradle-plugin marker)
+group:    dev.jasonpearson.krit.settings
+artifact: dev.jasonpearson.krit.settings.gradle.plugin  (krit-settings-plugin marker)
 version:  <tag-without-leading-v>
 ```
 
@@ -245,14 +248,18 @@ for what that finalize step does. Publishing the shadow jar to
 or `SIGNING_PASSWORD` is missing, the same guard
 `krit-rule-api` uses.
 
-## Gradle plugin
+## Gradle plugins
 
 `krit-gradle-plugin` publishes the plugin jar
 (`dev.jasonpearson.krit:krit-gradle-plugin`) and its plugin marker
 (`dev.jasonpearson.krit:dev.jasonpearson.krit.gradle.plugin`) to Maven
-Central in the same deployment as `krit-rule-api` and `krit-fir`. Until
-the plugin is on the Gradle Plugin Portal, consumers resolve it from
-Maven Central:
+Central in the same deployment as `krit-rule-api` and `krit-fir`.
+`krit-settings-plugin` does the same for the settings plugin
+(`dev.jasonpearson.krit:krit-settings-plugin` and the marker
+`dev.jasonpearson.krit.settings:dev.jasonpearson.krit.settings.gradle.plugin`).
+The settings plugin depends on `krit-gradle-plugin` at its own version, so
+both always ship together. Until the plugins are on the Gradle Plugin Portal,
+consumers resolve them from Maven Central:
 
 ```kotlin
 // settings.gradle.kts
@@ -270,11 +277,27 @@ publishes (tag pushes and `automatic` dispatches), since the portal has
 no staging step to drop. A plugin's first Plugin Portal release waits
 for manual approval by the Gradle team.
 
-Check the bundle locally (unsigned without a key):
+Before either plugin is uploaded to Central, the workflow stages both and
+runs `scripts/release/plugin-smoke.sh`, which resolves them from the staged
+output in a throwaway Gradle project (settings plugin applied from
+`settings.gradle.kts`, project plugin through its own marker). A broken POM,
+module file, or marker fails the release before either plugin is uploaded
+(krit-rule-api and krit-fir are already in the open staging repository by
+then, but nothing is finalized, so nothing is published).
+
+The settings plugin's marker is in the `dev.jasonpearson.krit.settings`
+group, a sub-group of the verified namespace. Make the first release that
+includes it a `user_managed` dispatch and check that the deployment lists
+`dev.jasonpearson.krit.settings.gradle.plugin` before publishing it.
+
+Check the bundles and the smoke test locally (unsigned without a key):
 
 ```bash
-cd krit-gradle-plugin
-./gradlew publishAllPublicationsToStagingDirRepository -PkritVersion=0.4.0-LOCAL
+(cd krit-gradle-plugin && ./gradlew publishAllPublicationsToStagingDirRepository -PkritVersion=0.4.0-LOCAL)
+(cd krit-settings-plugin && ./gradlew publishAllPublicationsToStagingDirRepository -PkritVersion=0.4.0-LOCAL)
+scripts/release/plugin-smoke.sh 0.4.0-LOCAL \
+  krit-gradle-plugin/build/staging-deploy \
+  krit-settings-plugin/build/staging-deploy
 ```
 
 ## Bazel Central Registry

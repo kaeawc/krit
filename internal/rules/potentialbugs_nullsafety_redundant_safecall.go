@@ -610,6 +610,10 @@ func sameFileExplicitNonNullValueDeclaration(file *scanner.File, ref uint32, nam
 		}
 		switch file.FlatType(decl) {
 		case "property_declaration", "parameter", "class_parameter":
+		case "variable_declaration":
+			if !flatIsLambdaOrDestructuredVariable(file, decl) {
+				return
+			}
 		default:
 			return
 		}
@@ -626,6 +630,21 @@ func sameFileExplicitNonNullValueDeclaration(file *scanner.File, ref uint32, nam
 	return nearest != 0 && declarationHasExplicitTypeFlat(file, nearest) && !declarationHasNullableTypeFlat(file, nearest)
 }
 
+// flatIsLambdaOrDestructuredVariable reports whether a variable_declaration declares a lambda parameter
+// (`{ items -> }`) or a destructured component (`{ (items) -> }`, `val (a, b) = pair`), rather than
+// being the name part of a property_declaration.
+func flatIsLambdaOrDestructuredVariable(file *scanner.File, decl uint32) bool {
+	parent, ok := file.FlatParent(decl)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(parent) {
+	case "lambda_parameters", "multi_variable_declaration":
+		return true
+	}
+	return false
+}
+
 // declarationScopeContains reports whether ref lies in the scope of decl: the block holding a property,
 // or the function, lambda, constructor or class that a parameter belongs to.
 func declarationScopeContains(file *scanner.File, decl uint32, ref uint32) bool {
@@ -636,6 +655,15 @@ func declarationScopeContains(file *scanner.File, decl uint32, ref uint32) bool 
 			"secondary_constructor", "setter")
 	case "class_parameter":
 		scope, ok = flatEnclosingAncestor(file, decl, "class_declaration")
+	case "variable_declaration":
+		scope, ok = flatEnclosingAncestor(file, decl, "lambda_literal", "for_statement", "statements")
+		if ok && file.FlatType(scope) == "statements" {
+			// `val (a, b) = pair` is visible in the rest of the block that holds it.
+			scope, ok = flatEnclosingAncestor(file, decl, "property_declaration")
+			if ok {
+				scope, ok = file.FlatParent(scope)
+			}
+		}
 	}
 	if !ok {
 		return false

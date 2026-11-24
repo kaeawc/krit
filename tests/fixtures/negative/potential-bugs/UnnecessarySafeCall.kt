@@ -2,6 +2,9 @@
 
 package fixtures.negative.potentialbugs
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
 class UnnecessarySafeCall {
     fun example(nullable: String?) {
         val len = nullable?.length
@@ -68,4 +71,46 @@ context(state: SafeCallShadowState)
 fun SafeCallShadowProvider.settings(): () -> Int? = {
     val state = parameters["state"]
     state?.length
+}
+
+// Issue #1117: a destructured lambda parameter shadows an outer local of the same name.
+data class SafeCallTranscriptState(val items: List<String>? = null)
+
+class SafeCallDestructuringPresenter(private val states: Flow<SafeCallTranscriptState>) {
+    fun present(): Flow<List<String>> {
+        val items: List<String> = emptyList()
+        return states.map { (items) ->
+            items?.reversed() ?: emptyList()
+        }
+    }
+
+    fun plainParameter(all: List<SafeCallTranscriptState>): List<Int?> {
+        val items: List<String> = emptyList()
+        return all.map { state -> state.items }.map { items -> items?.size }
+    }
+}
+
+// Issue #1117: `this` inside `with(x)` / `x.run {}` / `x.apply {}` has x's type, so it is nullable when x is.
+class SafeCallAccount(val plan: String)
+
+class SafeCallAccountManager {
+    fun find(id: String): SafeCallAccount? = null
+}
+
+class SafeCallWithHandler(private val manager: SafeCallAccountManager) {
+    fun onChange(id: String) {
+        with(manager.find(id)) {
+            this?.let { println(it.plan) }
+        }
+    }
+
+    fun onRun(account: SafeCallAccount?) {
+        account.run { this?.plan }
+        account.apply { this?.plan }
+    }
+}
+
+// The implicit `it` of a lambda over nullable elements is nullable.
+fun safeCallNullableElements(names: List<String?>) {
+    names.forEach { println(it?.length) }
 }

@@ -1,4 +1,4 @@
-// go-lines: none
+// go-lines: 25
 package notnulloperator.negative
 
 fun nullableAssertion(value: String?, values: Map<String, String>) {
@@ -21,6 +21,6 @@ fun platformAssertion() {
 
 fun lambdaAssertion(value: String?) {
     value.apply { println(this!!) }
-    // Deliberate conservative miss: skip lambda this even when resolution proves non-nullness.
+    // FIR deliberately skips lambda this even when resolution proves non-nullness; Go types apply's this.
     "value".apply { println(this!!) }
 }

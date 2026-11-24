@@ -347,6 +347,15 @@ jobs:
       # prerelease suffix (nightly.yml's v*-nightly.* tags, -rc/-beta tags)
       # stop at the GitHub prerelease above.
       #
+      # Homebrew and Scoop publishing is opt-in: set the repository variable
+      # KRIT_PACKAGE_MANAGERS to "true" to push the cask and manifest (and
+      # fail the job when either push fails). Unset, the release skips them,
+      # so a missing tap/bucket credential does not fail the release or hold
+      # back the Bazel Central Registry publish that runs after it.
+      - name: Note skipped package-manager publishing
+        if: ${{ !contains(github.ref_name, '-') && vars.KRIT_PACKAGE_MANAGERS != 'true' }}
+        run: echo "::notice::Homebrew and Scoop publishing is off (repository variable KRIT_PACKAGE_MANAGERS is not 'true'); skipping the cask and manifest. See docs/release.md."
+      #
       # The tap and bucket are pushed with a short-lived installation token
       # of the repository's GitHub App (GH_APP_ID / GH_APP_PRIVATE_KEY),
       # which must be installed on kaeawc/homebrew-tap and kaeawc/scoop-krit
@@ -355,7 +364,7 @@ jobs:
       # HOMEBREW_TAP_TOKEN / SCOOP_BUCKET_TOKEN PATs.
       - name: Mint package-manager token
         id: pkg-token
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(github.ref_name, '-') && vars.KRIT_PACKAGE_MANAGERS == 'true' }}
         continue-on-error: true
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         with:
@@ -369,7 +378,7 @@ jobs:
       # publishing" below fails the job afterwards and names which one broke.
       - name: Publish Homebrew cask
         id: brew
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(github.ref_name, '-') && vars.KRIT_PACKAGE_MANAGERS == 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.HOMEBREW_TAP_TOKEN }}
@@ -379,7 +388,7 @@ jobs:
 
       - name: Publish Scoop manifest
         id: scoop
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(github.ref_name, '-') && vars.KRIT_PACKAGE_MANAGERS == 'true' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.pkg-token.outputs.token || secrets.SCOOP_BUCKET_TOKEN }}
@@ -405,7 +414,7 @@ jobs:
           if-no-files-found: error
 
       - name: Check package-manager publishing
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(github.ref_name, '-') && vars.KRIT_PACKAGE_MANAGERS == 'true' }}
         env:
           TOKEN_SOURCE: ${{ steps.pkg-token.outputs.token != '' && 'GitHub App' || 'PAT secrets' }}
           BREW: ${{ steps.brew.outcome }}

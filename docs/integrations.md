@@ -40,6 +40,52 @@ Linux (amd64, arm64), macOS (amd64, arm64) and Windows (amd64) are
 supported. krit itself needs no Bazel build to analyze a Bazel workspace;
 see [Bazel workspaces](hermetic-builds.md#bazel-workspaces).
 
+### krit_test
+
+`krit_test` runs krit as a Bazel test, so `bazel test //...` lints the
+sources and Bazel caches the result until a source or the config changes.
+The test fails when krit reports a finding:
+
+```starlark
+load("@krit//:defs.bzl", "krit_test")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+kt_jvm_library(
+    name = "lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+)
+
+krit_test(
+    name = "lib_krit",
+    targets = [":lib"],
+    config = "//:krit.yml",
+)
+```
+
+| Attribute | |
+| --- | --- |
+| `targets` | Targets whose `srcs` are analyzed: `kt_jvm_library`, `kt_android_library`, `java_library`, or any rule with a `srcs` attribute. Only each target's own `.kt`, `.kts` and `.java` files are analyzed, not its dependencies'. |
+| `srcs` | Kotlin and Java files to analyze directly. |
+| `config` | `krit.yml` passed as `--config`. |
+| `baseline` | Baseline file passed as `--baseline`. |
+| `format` | Report format printed to the test log (default `plain`). |
+| `args`, `data` | Extra krit flags, placed before the files, and files they refer to (`$(rootpath ...)`). |
+
+The test runs Go-only and in-process: no daemon, no incremental cache, no
+FIR checker, no type oracle and no Java facts helper. It needs no JDK or
+network and reports the same findings on every machine. Rules that rely on
+the JVM fall back to their source-level checks, as with `--no-fir`. Rules that
+look across modules (dead code, unused resources) only see the test's
+sources; run those as a whole-repository `bazel run @krit//:krit` step (see
+[Sharding rules by scope](hermetic-builds.md#sharding-rules-by-scope)).
+Reported paths are relative to the workspace root.
+
+krit skips files under test-data and test-resource directories
+(`testdata/`, `testData/`, `test-data/`, `src/test/resources/`, ...). A
+`krit_test` whose sources are all skipped fails instead of passing without
+checking anything. `krit_test` is a shell script, so it runs on Linux and
+macOS, not Windows.
+
 ## GitHub Actions
 
 The repository root is a GitHub Action. It installs a krit release, puts

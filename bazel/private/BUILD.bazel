@@ -1,1 +1,4 @@
-exports_files(["krit_binary.bzl"])
+exports_files([
+    "krit_binary.bzl",
+    "krit_test.bzl",
+])

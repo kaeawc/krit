@@ -13,6 +13,10 @@ All notable changes to Krit will be documented in this file.
   checks narrow only the then-branch, `!is` and `!(x is T)` narrow the
   else-branch and the code after an early exit, and `||` conditions and
   multi-condition `when` entries no longer narrow (#1115).
+- `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an
+  exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
+  recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
+  directories, up to 16 sets per scan (#1023).
 
 ## [0.5.0] - 2026-11-24
 
@@ -40,6 +44,14 @@ All notable changes to Krit will be documented in this file.
   from the release, so registry pull requests pass BCR's stable-URL check
   without a `skip_check` comment. Nightly releases run the Bazel e2e module
   against the published archive (#1195).
+- The Bazel module has a `krit_test` rule
+  (`load("@krit//:defs.bzl", "krit_test")`): `bazel test` runs krit over
+  the `srcs` of `kt_jvm_library`, `kt_android_library`, `java_library` or
+  any target with a `srcs` attribute, Go-only and in-process, so the result
+  needs no JDK or network and Bazel caches it. A test whose sources krit
+  skips (test-data directories) fails instead of passing vacuously. BCR
+  presubmit also runs on Bazel 9, and docs/release.md lists the first
+  registry submission steps (#1060).
 
 ### Fixed
 - Compiling the Java-facts helper gives each `javac` run a 2-minute timeout, so a `javac` that never

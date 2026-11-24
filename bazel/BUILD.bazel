@@ -17,4 +17,7 @@ alias(
     visibility = ["//visibility:public"],
 )
 
-exports_files(["extensions.bzl"])
+exports_files([
+    "defs.bzl",
+    "extensions.bzl",
+])

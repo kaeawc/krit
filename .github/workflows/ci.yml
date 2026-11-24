@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue runs the required checks on its temporary
+  # gh-readonly-queue/main/* ref. The jobs have no event-specific branches
+  # except the SARIF upload (push / same-repo PR only); go-cache-save and
+  # go-tool save caches only on pushes to main, so queue runs restore main's
+  # caches without writing to them.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   actions: read

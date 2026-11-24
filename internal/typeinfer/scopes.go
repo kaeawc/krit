@@ -283,8 +283,9 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 	r.buildIfBranchScopesFlat(idx, 0, file, scope, it, nil)
 }
 
-// flatBodyAlwaysExits reports whether a branch body ends in return/throw (or TODO()/error()) on every path
-// through its own statements: a single exit expression, or a block whose last statement is one.
+// flatBodyAlwaysExits reports whether a branch body ends in return/throw on every path through its own
+// statements: a single exit expression, or a block whose last statement is one. Calls such as TODO() or
+// error() are not accepted by name, because a local function with that name can return normally.
 func flatBodyAlwaysExits(file *scanner.File, body uint32) bool {
 	if file == nil || body == 0 {
 		return false
@@ -301,13 +302,6 @@ func flatBodyAlwaysExits(file *scanner.File, body uint32) bool {
 		case "jump_expression":
 			text := file.FlatNodeText(last)
 			return strings.HasPrefix(text, "return") || strings.HasPrefix(text, "throw")
-		case "call_expression":
-			callee := file.FlatChild(last, 0)
-			if callee == 0 || file.FlatType(callee) != "simple_identifier" {
-				return false
-			}
-			name := file.FlatNodeText(callee)
-			return name == "TODO" || name == "error"
 		default:
 			return false
 		}

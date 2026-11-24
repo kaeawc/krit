@@ -370,4 +370,14 @@ fun example(x: Any) {
 	if got := smartCastNameAt(t, exits, "x.hashCode() // after", "x"); got != "String" {
 		t.Errorf("after an unconditional exit: x = %q, want String", got)
 	}
+	localError := `fun error() {}
+
+fun example(x: Any) {
+    if (!(x is String)) error()
+    x.hashCode() // after
+}
+`
+	if got := smartCastNameAt(t, localError, "x.hashCode() // after", "x"); got != "Any" {
+		t.Errorf("after a local error() that returns: x = %q, want Any", got)
+	}
 }

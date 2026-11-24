@@ -20,8 +20,75 @@ if [ ! -f "$props" ]; then
   exit 1
 fi
 
+# Reads one key with java.util.Properties semantics: `=`, `:` or whitespace
+# separators with optional surrounding blanks, CRLF or LF line endings,
+# `#`/`!` comments, backslash line continuations and escapes (so a
+# signingInMemoryKey written with literal "\n" escapes comes back with real
+# newlines, as Gradle reads it). Prints the value without a trailing newline.
 prop() {
-  grep -E "^$1=" "$props" | head -1 | cut -d= -f2-
+  python3 - "$props" "$1" <<'PY'
+import re, sys
+
+path, wanted = sys.argv[1], sys.argv[2]
+with open(path, encoding="latin-1", newline="") as fh:
+    raw = re.split(r"\r\n|\r|\n", fh.read())
+
+def logical_lines(lines):
+    buf = None
+    for line in lines:
+        stripped = line.lstrip(" \t\f")
+        if buf is None:
+            if not stripped or stripped[0] in "#!":
+                continue
+            buf = stripped
+        else:
+            buf += stripped
+        trailing = len(buf) - len(buf.rstrip("\\"))
+        if trailing % 2 == 1:
+            buf = buf[:-1]
+            continue
+        yield buf
+        buf = None
+    if buf is not None:
+        yield buf
+
+def unescape(text):
+    out, i = [], 0
+    while i < len(text):
+        c = text[i]
+        if c != "\\" or i + 1 == len(text):
+            out.append(c)
+            i += 1
+            continue
+        n = text[i + 1]
+        if n == "u" and re.fullmatch(r"[0-9a-fA-F]{4}", text[i + 2:i + 6] or ""):
+            out.append(chr(int(text[i + 2:i + 6], 16)))
+            i += 6
+            continue
+        out.append({"t": "\t", "n": "\n", "r": "\r", "f": "\f"}.get(n, n))
+        i += 2
+    return "".join(out)
+
+for line in logical_lines(raw):
+    i = 0
+    while i < len(line):
+        if line[i] == "\\":
+            i += 2
+            continue
+        if line[i] in "=: \t\f":
+            break
+        i += 1
+    key = unescape(line[:i])
+    rest = line[i:].lstrip(" \t\f")
+    if rest[:1] in ("=", ":") and (i == len(line) or line[i] in " \t\f"):
+        rest = rest[1:].lstrip(" \t\f")
+    elif line[i:i + 1] in ("=", ":"):
+        rest = line[i + 1:].lstrip(" \t\f")
+    if key == wanted:
+        value = unescape(rest)
+if "value" in dir():
+    sys.stdout.write(value)
+PY
 }
 
 missing=()
@@ -35,7 +102,7 @@ fi
 
 prop signingInMemoryKey | python3 -c '
 import sys
-key = sys.stdin.read().strip().replace("\\n", "\n")
+key = sys.stdin.read().strip()
 if not key.startswith("-----BEGIN PGP PRIVATE KEY BLOCK-----"):
     sys.exit("set-maven-central-secrets: signingInMemoryKey is not an ASCII-armored private key")
 sys.stdout.write(key + "\n")

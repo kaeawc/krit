@@ -4,9 +4,15 @@ name: Publish to Bazel Central Registry
 # the `krit` module (bazel/ in this repository) at the tagged version. The
 # templates live in .bcr/bazel/ and .bcr/config.yml points moduleRoots at
 # bazel/. See docs/release.md#bazel-central-registry.
+#
+# The module's repository rule downloads the release archives and
+# checksums.txt, so BCR's presubmit needs the GitHub release to be public.
+# This runs after the Release workflow succeeds instead of on the tag push
+# (the release stays a draft until its last step).
 on:
-  push:
-    tags: ['v*']
+  workflow_run:
+    workflows: ['Release']
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -19,15 +25,21 @@ permissions:
 
 jobs:
   check:
-    # Stable vX.Y.Z tags only (not prereleases or the floating v0 tag);
-    # a manual dispatch always proceeds.
-    if: ${{ github.event_name == 'workflow_dispatch' || (!contains(github.ref_name, '-') && contains(github.ref_name, '.')) }}
+    # A successful Release run for a stable vX.Y.Z tag (head_branch is the
+    # tag for tag-triggered runs; prereleases and the floating v0 tag are
+    # excluded); a manual dispatch always proceeds.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v') &&
+      !contains(github.event.workflow_run.head_branch, '-') &&
+      contains(github.event.workflow_run.head_branch, '.')) }}
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.token.outputs.ready }}
       tag_name: ${{ steps.token.outputs.tag_name }}
     steps:
-      # Without the token a tag push skips with a warning; a manual dispatch
+      # Without the token a release-triggered run skips with a warning; a dispatch
       # is an explicit request, so it fails.
       - name: Check BCR publish token
         id: token
@@ -35,10 +47,10 @@ jobs:
           BCR_PUBLISH_TOKEN: ${{ secrets.BCR_PUBLISH_TOKEN }}
           EVENT: ${{ github.event_name }}
           DISPATCH_TAG: ${{ inputs.tag_name }}
-          REF_NAME: ${{ github.ref_name }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          echo "tag_name=${DISPATCH_TAG:-$REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${DISPATCH_TAG:-$RUN_TAG}" >> "$GITHUB_OUTPUT"
           if [ -n "$BCR_PUBLISH_TOKEN" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -50,6 +62,20 @@ jobs:
             exit 1
           fi
           echo "::warning::$msg Skipping the Bazel Central Registry publish."
+      # BCR's presubmit downloads this release's assets, so refuse a draft
+      # or missing release (a dispatch can name any tag).
+      - name: Check the GitHub release is public
+        if: steps.token.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.token.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [ "$draft" != "false" ]; then
+            echo "::error::Release $TAG is not published yet; BCR presubmit could not download its assets."
+            exit 1
+          fi
 
   publish:
     needs: check

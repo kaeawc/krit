@@ -26,6 +26,10 @@ All notable changes to Krit will be documented in this file.
   (#1122).
 
 ### Fixed
+- Compiling the Java-facts helper gives each `javac` run a 2-minute timeout, so a `javac` that never
+  exits (such as macOS's `/usr/bin/javac` stub under `JAVA_HOME=/usr`) produces the "Java facts
+  unavailable" warning instead of hanging the scan. The helper's `JAVA_HOME` cache-key test now skips
+  unless `javac` sits in a real JDK home (#1518).
 - Oracle daemons whose java argv moved into an argfile (over 8000 chars, common on large projects) now
   finish Leyden AOT training: `Release`, `Shutdown` and `Close` read the pre-argfile launch arguments,
   so a recording daemon is shut down, its profile is finalized or discarded, and its `.aot.lock` build

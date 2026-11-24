@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -103,9 +104,10 @@ func TestCompileJavaFactsHelperCacheKeyIncludesJavaHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	javaHome := filepath.Dir(filepath.Dir(resolved))
-	if _, err := os.Stat(filepath.Join(javaHome, "bin", "javac")); err != nil {
-		// A version-manager shim is not inside a JDK home.
-		t.Skipf("javac on PATH is not inside a JDK home: %v", err)
+	if !isJDKHome(javaHome) {
+		// A version-manager shim is not inside a JDK home, and neither is
+		// macOS's /usr/bin/javac stub: with JAVA_HOME=/usr it runs itself.
+		t.Skipf("javac on PATH is not inside a JDK home: %s", javaHome)
 	}
 	originalRoot := javaFactsCacheRoot
 	cacheRoot := t.TempDir()
@@ -135,6 +137,63 @@ func TestCompileJavaFactsHelperCacheKeyIncludesJavaHome(t *testing.T) {
 	}
 	if secondPath == firstPath {
 		t.Fatalf("classpath did not change for a different JAVA_HOME: %q", firstPath)
+	}
+}
+
+// isJDKHome reports whether dir is a JDK installation: bin/javac plus a
+// run-time image marker (the release file or lib/modules, see JEP 220).
+func isJDKHome(dir string) bool {
+	javac := filepath.Join(dir, "bin", "javac")
+	if runtime.GOOS == "windows" {
+		javac += ".exe"
+	}
+	if info, err := os.Stat(javac); err != nil || info.IsDir() {
+		return false
+	}
+	for _, marker := range []string{"release", filepath.Join("lib", "modules")} {
+		if info, err := os.Stat(filepath.Join(dir, marker)); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func TestIsJDKHomeRequiresRuntimeImageMarker(t *testing.T) {
+	javacName := "javac"
+	if runtime.GOOS == "windows" {
+		javacName += ".exe"
+	}
+	write := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// /usr on macOS: bin/javac is the stub, with no JDK beside it.
+	usr := t.TempDir()
+	write(t, filepath.Join(usr, "bin", javacName))
+	if isJDKHome(usr) {
+		t.Fatal("a directory with only bin/javac is not a JDK home")
+	}
+	withRelease := t.TempDir()
+	write(t, filepath.Join(withRelease, "bin", javacName))
+	write(t, filepath.Join(withRelease, "release"))
+	if !isJDKHome(withRelease) {
+		t.Fatal("bin/javac plus release is a JDK home")
+	}
+	withModules := t.TempDir()
+	write(t, filepath.Join(withModules, "bin", javacName))
+	write(t, filepath.Join(withModules, "lib", "modules"))
+	if !isJDKHome(withModules) {
+		t.Fatal("bin/javac plus lib/modules is a JDK home")
+	}
+	noJavac := t.TempDir()
+	write(t, filepath.Join(noJavac, "release"))
+	if isJDKHome(noJavac) {
+		t.Fatal("a JRE without bin/javac is not a JDK home")
 	}
 }
 

@@ -600,3 +600,121 @@ func TestStartPassCheckerErrorCallsOnDegraded(t *testing.T) {
 		t.Fatalf("OnDegraded err = %v", got)
 	}
 }
+
+// A check that returns without error but leaves FIR no verdict keeps Go's
+// findings for every file, so it must be reported like a checker error
+// (#994): a warning, and OnDegraded for summary.firDegraded and
+// --fail-on-degraded.
+func TestFinishReportsLostPassAsDegraded(t *testing.T) {
+	paths := []string{"A.kt", "B.kt"}
+	abs := func(path string) string {
+		t.Helper()
+		out, err := filepath.Abs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name  string
+		setup func(*FakeFirChecker)
+		want  string // substring of the degraded error; "" means not degraded
+	}{
+		{"every file crashed", func(c *FakeFirChecker) {
+			c.Crashed = map[string]string{abs("A.kt"): "OutOfMemoryError\n\tat ...", abs("B.kt"): "OutOfMemoryError"}
+		}, "2 crashed, 0 with compiler errors; first: crashed: OutOfMemoryError)"},
+		{"every file failed to compile", func(c *FakeFirChecker) {
+			c.ErrorFiles = map[string]string{abs("A.kt"): "unresolved reference: x", abs("B.kt"): "unresolved reference: y"}
+		}, "0 crashed, 2 with compiler errors"},
+		{"crashed and failed", func(c *FakeFirChecker) {
+			c.Crashed = map[string]string{abs("A.kt"): "boom"}
+			c.ErrorFiles = map[string]string{abs("B.kt"): "unresolved reference: y"}
+		}, "1 crashed, 1 with compiler errors"},
+		{"no rules advertised", func(c *FakeFirChecker) { c.Rules = []string{} }, "ran none of the requested rules on 2 files"},
+		{"one file authoritative", func(c *FakeFirChecker) { c.Crashed = map[string]string{abs("A.kt"): "boom"} }, ""},
+		{"healthy", func(*FakeFirChecker) {}, ""},
+	} {
+		if !IsKnownFIRRule(verdictRule) {
+			t.Fatalf("%s must have a FIR checker for this test", verdictRule)
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			warnings := &bytes.Buffer{}
+			SetReporter(&diag.Reporter{Warning: warnings})
+			t.Cleanup(func() { SetReporter(nil) })
+			checker := NewFakeFirChecker()
+			tc.setup(checker)
+			goFinding := scanner.Finding{File: "A.kt", Line: 1, Rule: verdictRule}
+			var degraded error
+			merged, err := StartPass(context.Background(), PassOptions{
+				Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: verdictRule}},
+				KotlinPaths: paths, OnDegraded: func(err error) { degraded = err },
+			}).Finish([]scanner.Finding{goFinding})
+			if err != nil {
+				t.Fatalf("Finish err = %v", err)
+			}
+			if tc.want == "" {
+				if degraded != nil || warnings.Len() != 0 {
+					t.Fatalf("healthy pass reported degraded: %v / %q", degraded, warnings.String())
+				}
+				return
+			}
+			if degraded == nil || !strings.Contains(degraded.Error(), tc.want) {
+				t.Fatalf("OnDegraded err = %v, want it to contain %q", degraded, tc.want)
+			}
+			if !strings.Contains(warnings.String(), "results contain Go-only findings") {
+				t.Fatalf("warning = %q", warnings.String())
+			}
+			if len(merged) != 1 || !reflect.DeepEqual(merged[0], goFinding) {
+				t.Fatalf("lost pass must keep Go findings, got %+v", merged)
+			}
+		})
+	}
+}
+
+// Every active rule ID reaches the jar, which advertises the ones it
+// implements: advertising none is expected when no active rule has a FIR
+// checker, and is not a lost pass.
+func TestFinishNoKnownFIRRuleIsNotDegraded(t *testing.T) {
+	warnings := &bytes.Buffer{}
+	SetReporter(&diag.Reporter{Warning: warnings})
+	t.Cleanup(func() { SetReporter(nil) })
+	checker := NewFakeFirChecker()
+	checker.Rules = []string{}
+	var degraded error
+	_, _ = StartPass(context.Background(), PassOptions{
+		Enabled: true, Checker: checker, ActiveRules: []*api.Rule{{ID: "NotAFirRule"}},
+		KotlinPaths: []string{"A.kt"}, OnDegraded: func(err error) { degraded = err },
+	}).Finish(nil)
+	if len(checker.Called) != 1 {
+		t.Fatalf("checker calls = %d, want 1", len(checker.Called))
+	}
+	if degraded != nil || warnings.Len() != 0 {
+		t.Fatalf("no FIR-capable rule reported degraded: %v / %q", degraded, warnings.String())
+	}
+}
+
+func TestFinishCancelledPassCallsOnDegraded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	var degraded error
+	p := StartPass(ctx, PassOptions{
+		Enabled: true, Checker: blockingChecker{release}, ActiveRules: []*api.Rule{{ID: verdictRule}},
+		KotlinPaths: []string{"A.kt"}, OnDegraded: func(err error) { degraded = err },
+	})
+	cancel()
+	if _, err := p.Finish(nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Finish err = %v, want context.Canceled", err)
+	}
+	if degraded == nil || !errors.Is(degraded, context.Canceled) {
+		t.Fatalf("OnDegraded err = %v, want a cancellation", degraded)
+	}
+}
+
+// blockingChecker holds Check until release closes.
+type blockingChecker struct{ release chan struct{} }
+
+func (b blockingChecker) Check([]string, []string, []string, []string, RuleConfigs, FileFacts) (*Result, error) {
+	<-b.release
+	return newResult(), nil
+}

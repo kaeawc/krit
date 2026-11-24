@@ -197,7 +197,14 @@ func invokeCachedWith(
 
 	// Write new cache entries.
 	written := 0
-	if CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
+	if wholeCompileCrashed(misses, resp) {
+		// Poison entries would replay a compile-wide crash (a compiler
+		// exception, often memory pressure) on every later run of the same
+		// inputs; leave the files uncached so the next run checks them again.
+		if verbose {
+			reporter().Verbosef("verbose: fir cache: not caching %d files that crashed together\n", len(misses))
+		}
+	} else if CheckCacheFingerprint(sourceDirs, files, classpath, jarPath, rules, ruleConfigs, facts, target...) == cacheFingerprint && sourceStatsUnchanged(sourceStats) {
 		written = WriteFreshEntriesForFingerprint(cacheDir, misses, resp, cacheFingerprint)
 	}
 	if verbose && written > 0 {
@@ -208,6 +215,26 @@ func invokeCachedWith(
 	result := assembleFromCache(hits)
 	result.addResponse(resp)
 	return result, nil
+}
+
+// wholeCompileCrashed reports whether every checked file crashed with the
+// same message: krit-fir marks all files of a compile crashed when the
+// compiler itself throws, which says nothing about the files. A single file
+// cannot be told apart from a crash in that file, so it keeps its poison entry.
+func wholeCompileCrashed(files []string, resp *CheckResponse) bool {
+	if resp == nil || len(files) < 2 {
+		return false
+	}
+	first, ok := resp.Crashed[files[0]]
+	if !ok {
+		return false
+	}
+	for _, path := range files[1:] {
+		if msg, ok := resp.Crashed[path]; !ok || msg != first {
+			return false
+		}
+	}
+	return true
 }
 
 type sourceStat struct {

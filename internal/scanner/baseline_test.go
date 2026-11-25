@@ -725,3 +725,37 @@ func TestWriteBaselineIDsXMLWritesThroughSymlink(t *testing.T) {
 		t.Fatalf("target mode = %v, want 0600 kept", info.Mode().Perm())
 	}
 }
+
+func TestFilterColumnsByBaseline_LegacyKritRuleIDs(t *testing.T) {
+	// ComposeMutableStateInComposition was retired into UnrememberedMutableState, whose findings carry a new rule ID
+	// and message: an old entry still silences one finding of the replacement rule in the same file.
+	path := filepath.Join(t.TempDir(), "baseline.xml")
+	baseline := `<?xml version="1.0" ?>
+<SmellBaseline>
+  <CurrentIssues>
+    <ID>ComposeMutableStateInComposition:ui/Counter.kt:$ComposeMutableStateInComposition$mutableStateOf() as a plain local in a @Composable creates a fresh state on every recomposition; wrap it in remember { mutableStateOf(...) } or use ` + "`by remember { mutableStateOf(...) }`" + `.</ID>
+  </CurrentIssues>
+</SmellBaseline>
+`
+	if err := os.WriteFile(path, []byte(baseline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadBaseline(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := "Creating a state object during composition without using `remember`"
+	columns := CollectFindings([]Finding{
+		{File: "/p/ui/Counter.kt", Rule: "UnrememberedMutableState", Line: 7, Message: msg},
+		{File: "/p/ui/Counter.kt", Rule: "UnrememberedMutableState", Line: 9, Message: msg}, // new: one entry
+		{File: "/p/ui/Other.kt", Rule: "UnrememberedMutableState", Line: 3, Message: msg},   // other file
+	})
+	got := FilterColumnsByBaseline(&columns, b, "/p")
+	var left []string
+	for _, f := range got.Findings() {
+		left = append(left, fmt.Sprintf("%s:%d", filepath.Base(f.File), f.Line))
+	}
+	if want := "Counter.kt:9,Other.kt:3"; strings.Join(left, ",") != want {
+		t.Errorf("remaining = %v, want %s", left, want)
+	}
+}

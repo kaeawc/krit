@@ -105,19 +105,31 @@ func parseDetektBaselineID(id string) (rule, file string, ok bool) {
 
 // indexDetektEntries builds the per-(rule, file) budget from detekt-format
 // IDs, also crediting the krit rules that replaced a renamed detekt rule.
+// Krit-format IDs of a removed or renamed krit rule (config.LegacyRuleIDs)
+// credit the rule that replaced it the same way, because the new rule's ID
+// and message no longer match the old entry.
 func (b *Baseline) indexDetektEntries() {
 	renames := config.DetektRuleRenames()
-	count := func(id string) {
-		rule, file, ok := parseDetektBaselineID(id)
-		if !ok {
-			return
-		}
+	legacy := config.LegacyRuleIDs()
+	credit := func(rule, file string) {
 		if b.detektBudget == nil {
 			b.detektBudget = map[detektKey]int{}
 		}
 		b.detektBudget[detektKey{rule, file}]++
+	}
+	count := func(id string) {
+		rule, file, ok := parseDetektBaselineID(id)
+		if !ok {
+			if entry := ParseBaselineEntry("", id); entry.Path != "" {
+				if current, renamed := legacy[entry.Rule]; renamed {
+					credit(current, filepath.Base(entry.Path))
+				}
+			}
+			return
+		}
+		credit(rule, file)
 		for _, target := range renames[rule] {
-			b.detektBudget[detektKey{target, file}]++
+			credit(target, file)
 		}
 	}
 	for id := range b.ManuallySuppressed {

@@ -35,6 +35,10 @@ func (r *RememberInCompositionRule) Confidence() float64 { return api.Confidence
 // Confidence reports medium confidence: the annotation and composition proofs are source-level.
 func (r *FrequentlyChangingValueRule) Confidence() float64 { return api.ConfidenceMedium }
 
+// acrUnrememberedMutableStateAliases is the retired krit rule this port replaced; its ID still suppresses findings
+// and configures the rule.
+var acrUnrememberedMutableStateAliases = []string{"ComposeMutableStateInComposition"}
+
 // acrRememberInCompositionAliases are the retired Lint IDs RememberInComposition still honors for suppression.
 var acrRememberInCompositionAliases = []string{"UnrememberedAnimatable", "UnrememberedMutableInteractionSource"}
 
@@ -52,6 +56,7 @@ func (r *FrequentlyChangingValueRule) fileMentions() []string { return []string{
 
 func (r *UnrememberedMutableStateRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UnrememberedMutableState", RuleSet: "compose", DefaultActive: true,
+		Aliases: acrUnrememberedMutableStateAliases,
 		KnownLimitations: append([]string{
 			"User @StateFactoryMarker functions and State subclasses are recognized only when declared in the same file.",
 		}, acrCompositionLimitations[0])}
@@ -80,7 +85,7 @@ func registerAndroidxComposeRuntimeRememberRules() {
 		RuleSetName: "compose", Sev: "error",
 		Desc: "Detects state objects created during composition without remember, which are recreated and lose their value on recomposition."}}
 	registerAcrRule(unremembered.BaseRule, unremembered, []string{"call_expression", "object_literal"}, kotlin,
-		unremembered.check)
+		unremembered.check, acrUnrememberedMutableStateAliases...)
 
 	remember := &RememberInCompositionRule{BaseRule: BaseRule{RuleName: "RememberInComposition", RuleSetName: "compose",
 		Sev: "error", Desc: "Detects @RememberInComposition APIs such as Animatable or MutableInteractionSource called during composition without remember."}}
@@ -119,9 +124,6 @@ func (r *UnrememberedMutableStateRule) check(ctx *api.Context) {
 	if acrIsInnerCallOfTrailingLambda(file, node) || !acrCallCreatesState(file, node) || !acrNotRemembered(file, node) {
 		return
 	}
-	if acrLegacyMutableStateRuleCovers(file, node) {
-		return
-	}
 	_, nameNode, _ := acrCallCallee(file, node)
 	ctx.EmitAtNode(nameNode, acrUnrememberedStateMessage)
 }
@@ -151,21 +153,6 @@ func acrCallCreatesState(file *scanner.File, call uint32) bool {
 		return acrHasAnnotation(file, fn, acrRuntimePackage+".snapshots", "StateFactoryMarker", "")
 	}
 	return false
-}
-
-// acrLegacyMutableStateRuleCovers reports whether ComposeMutableStateInComposition already reports this call
-// (`val x = mutableStateOf(...)` as a plain local of a @Composable function), so both rules do not report the same
-// code while the legacy rule is still registered.
-func acrLegacyMutableStateRuleCovers(file *scanner.File, call uint32) bool {
-	prop, ok := file.FlatParent(call)
-	if !ok || file.FlatType(prop) != "property_declaration" || acrInitializer(file, prop) != call {
-		return false
-	}
-	fn, ok := flatEnclosingFunction(file, prop)
-	if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
-		return false
-	}
-	return composeMutableStateFactories[flatCallExpressionName(file, call)] && !composeRefInDeferredLambda(file, fn, prop)
 }
 
 const acrRememberInCompositionMessage = "Calling a @RememberInComposition annotated declaration inside composition without using `remember`"

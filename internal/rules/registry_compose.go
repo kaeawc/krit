@@ -21,7 +21,6 @@ func registerComposeRules() {
 	registerComposeStringResourceInsideLambda()
 	registerComposeRememberWithoutKey()
 	registerComposeLaunchedEffectWithoutKeys()
-	registerComposeMutableStateInComposition()
 	registerComposeStatefulDefaultParameter()
 	registerComposePreviewWithBackingState()
 	registerComposeDisposableEffectMissingDispose()
@@ -482,53 +481,6 @@ func registerComposeLaunchedEffectWithoutKeys() {
 			}
 			ctx.EmitAt(callLine(file, idx), callCol(file, idx),
 				"LaunchedEffect body reads enclosing "+noun+list+" but is keyed only on constants; the effect won't re-run when "+list+verb+". Pass LaunchedEffect("+list+") { ... }.")
-		},
-	})
-}
-
-var composeMutableStateFactories = map[string]bool{
-	"mutableStateOf": true, "mutableIntStateOf": true, "mutableLongStateOf": true, "mutableFloatStateOf": true,
-	"mutableDoubleStateOf": true, "mutableStateListOf": true, "mutableStateMapOf": true,
-}
-
-func registerComposeMutableStateInComposition() {
-	r := &ComposeMutableStateInCompositionRule{BaseRule: BaseRule{RuleName: "ComposeMutableStateInComposition", RuleSetName: "compose", Sev: "warning", Desc: "Detects mutableStateOf() used as a plain local without remember, causing state loss on every recomposition."}}
-	api.Register(&api.Rule{
-		ID: r.RuleName, Category: r.RuleSetName, Description: r.Desc, Sev: api.Severity(r.Sev),
-		NodeTypes: []string{"property_declaration"}, Confidence: api.ConfidenceMedium, Implementation: r,
-		Check: func(ctx *api.Context) {
-			idx, file := ctx.Idx, ctx.File
-			fn, ok := flatEnclosingFunction(file, idx)
-			if !ok || !flatHasAnnotationNamed(file, fn, "Composable") {
-				return
-			}
-			sawEquals := false
-			for child := file.FlatFirstChild(idx); child != 0; child = file.FlatNextSib(child) {
-				switch file.FlatType(child) {
-				case "=":
-					sawEquals = true
-					continue
-				case "property_delegate":
-					return
-				}
-				if !sawEquals {
-					continue
-				}
-				if file.FlatType(child) != "call_expression" {
-					continue
-				}
-				callee := flatCallExpressionName(file, child)
-				if !composeMutableStateFactories[callee] {
-					return
-				}
-				// A callback or effect body runs outside composition.
-				if composeRefInDeferredLambda(file, fn, idx) {
-					return
-				}
-				ctx.EmitAt(file.FlatRow(child)+1, file.FlatCol(child)+1,
-					callee+"() as a plain local in a @Composable creates a fresh state on every recomposition; wrap it in remember { "+callee+"(...) } or use `by remember { "+callee+"(...) }`.")
-				return
-			}
 		},
 	})
 }

@@ -1312,8 +1312,8 @@ fun Heartbeat() {
 	}
 }
 
-func TestComposeMutableStateInComposition_Positive(t *testing.T) {
-	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+func TestUnrememberedMutableStateLegacy_Positive(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
 package test
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -1329,8 +1329,8 @@ fun Counter() {
 	}
 }
 
-func TestComposeMutableStateInComposition_Negative_RememberDelegate(t *testing.T) {
-	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+func TestUnrememberedMutableStateLegacy_Negative_RememberDelegate(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
 package test
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -1349,8 +1349,8 @@ fun Counter() {
 	}
 }
 
-func TestComposeMutableStateInComposition_Negative_RememberAssignment(t *testing.T) {
-	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+func TestUnrememberedMutableStateLegacy_Negative_RememberAssignment(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
 package test
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -1367,8 +1367,8 @@ fun Counter() {
 	}
 }
 
-func TestComposeMutableStateInComposition_Negative_NotComposable(t *testing.T) {
-	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+func TestUnrememberedMutableStateLegacy_Negative_NotComposable(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
 package test
 import androidx.compose.runtime.mutableStateOf
 
@@ -3504,11 +3504,16 @@ fun Screen() {
 	}
 }
 
-func TestComposeMutableStateInComposition_CallbackAndFactoryVariants(t *testing.T) {
-	findings := runRuleByName(t, "ComposeMutableStateInComposition", `
+func TestUnrememberedMutableStateLegacy_CallbackAndFactoryVariants(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
 package test
 
+import androidx.compose.material3.Button
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 
 @Composable
 fun Screen() {
@@ -3520,5 +3525,23 @@ fun Screen() {
 `)
 	if len(findings) != 2 {
 		t.Fatalf("expected 2 findings (c, d), got %d: %v", len(findings), findings)
+	}
+}
+
+// Without the runtime imports the factories are unresolved, so Lint (and the port) report nothing.
+func TestUnrememberedMutableStateLegacy_UnresolvedFactories(t *testing.T) {
+	findings := runRuleByName(t, "UnrememberedMutableState", `
+package test
+
+import androidx.compose.runtime.Composable
+
+@Composable
+fun Screen() {
+    val c = mutableIntStateOf(0)
+    val d = mutableStateListOf<Int>()
+}
+`)
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings for unresolved factories, got %d: %v", len(findings), findings)
 	}
 }

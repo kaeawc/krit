@@ -87,14 +87,6 @@ func (r *ComposeMutableDefaultArgumentRule) Meta() api.RuleDescriptor {
 	}
 }
 
-func (r *ComposeMutableStateInCompositionRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{
-		ID:            "ComposeMutableStateInComposition",
-		RuleSet:       "compose",
-		DefaultActive: true,
-	}
-}
-
 func (r *ComposePreviewAnnotationMissingRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{
 		ID:            "ComposePreviewAnnotationMissing",

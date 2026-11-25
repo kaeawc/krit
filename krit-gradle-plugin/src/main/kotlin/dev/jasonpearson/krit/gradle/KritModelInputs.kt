@@ -23,7 +23,8 @@ internal object KritModelInputs {
     private const val GRADLE_CACHES = "\$GRADLE_CACHES"
 
     /** `<gradle user home>/caches/` followed by one of Gradle's dependency or transform caches. */
-    private val GRADLE_CACHE_PREFIX = Regex("^.*?/caches/(?=(modules-\\d+|transforms-\\d+|jars-\\d+|[0-9][^/]*/transforms)/)")
+    private val GRADLE_CACHE_PREFIX =
+        Regex("^.*?/caches/(?=(modules-\\d+|transforms-\\d+|jars-\\d+|[0-9][^/]*/transforms)/)")
 
     /** Root-relative model content, one entry per file, ordered by file name. */
     fun normalized(models: Collection<File>): String =
@@ -48,7 +49,8 @@ internal object KritModelInputs {
         // jars share a name, such as Android's classes.jar), just not its location.
         is String -> when {
             root != null && (value == root || value.startsWith("$root/")) -> ROOT + value.removePrefix(root)
-            classpath -> GRADLE_CACHE_PREFIX.find(value)?.let { GRADLE_CACHES + "/" + value.substring(it.range.last + 1) } ?: value
+            classpath -> GRADLE_CACHE_PREFIX.find(value)
+                ?.let { GRADLE_CACHES + "/" + value.substring(it.range.last + 1) } ?: value
             else -> value
         }
         else -> value

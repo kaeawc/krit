@@ -560,6 +560,7 @@ jobs:
             [ ${#candidates[@]} -eq 0 ] && return 0
             printf '%s\n' "${candidates[@]}" | sort | tail -1
           }
+          rm -rf "$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib" # TEMP: force the fallback
           jar="$(glob)"
           if [ -z "$jar" ]; then
             echo "kotlin-stdlib not in Gradle cache; downloading it through krit-fir's copyKotlinStdlib"
@@ -679,6 +680,7 @@ jobs:
             [ ${#candidates[@]} -eq 0 ] && return 0
             printf '%s\n' "${candidates[@]}" | sort | tail -1
           }
+          rm -rf "$HOME/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib" # TEMP: force the fallback
           jar="$(glob)"
           if [ -z "$jar" ]; then
             echo "kotlin-stdlib not in Gradle cache; downloading it through krit-fir's copyKotlinStdlib"

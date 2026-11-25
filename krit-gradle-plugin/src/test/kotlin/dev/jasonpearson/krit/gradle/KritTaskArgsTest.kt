@@ -9,14 +9,15 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 /**
- * The argv `kritBaseline` and `kritCheck` hand krit. `--create-baseline` takes the
+ * The argv `kritBaseline` and `kritCheck` hand krit. Several reports come from one
+ * krit run (`--report FORMAT=PATH`, #1578). `--create-baseline` takes the
  * baseline path as its value (#1639), and both tasks pass the same `--base-path`,
  * so baseline IDs written by one match the other.
  */
-class KritBaselineArgsTest {
+class KritTaskArgsTest {
     @TempDir lateinit var directory: File
 
-    private fun fixture(): File {
+    private fun fixture(extraKrit: String = ""): File {
         val root = File(directory, "args").also { it.mkdirs() }
         File(root, "settings.gradle.kts").writeText("rootProject.name = \"args\"\n")
         val binary = File(root, "fake-krit")
@@ -28,6 +29,7 @@ class KritBaselineArgsTest {
             previous=""
             for arg in "${'$'}@"; do
               if [ "${'$'}previous" = "-o" ] || [ "${'$'}previous" = "--create-baseline" ]; then printf '{}\n' > "${'$'}arg"; fi
+              if [ "${'$'}previous" = "--report" ]; then printf '{}\n' > "${'$'}{arg#*=}"; fi
               previous="${'$'}arg"
             done
             """.trimIndent() + "\n"
@@ -40,6 +42,7 @@ class KritBaselineArgsTest {
                 advanced { binary.set(file("fake-krit")) }
                 fir = false
                 exportModel = false
+                $extraKrit
             }
             """.trimIndent() + "\n"
         )
@@ -95,5 +98,60 @@ class KritBaselineArgsTest {
         assertFalse(argv.any { it.endsWith("src/test/kotlin") }, argv.joinToString(" "))
         assertEquals(File(root, "src/main/kotlin").absolutePath, argv.last(), argv.joinToString(" "))
         assertTrue("--no-fir" in argv, argv.joinToString(" "))
+    }
+
+    @Test
+    fun `kritCheck writes several reports from one krit run`() {
+        val root = fixture(extraKrit = "reports { json.required = true }")
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withArguments("kritCheck", "--offline").build()
+
+        val argv = invocations(root).single()
+        val sarif = File(root, "build/reports/krit/krit.sarif")
+        val json = File(root, "build/reports/krit/krit.json")
+        assertEquals(listOf("sarif=${sarif.absolutePath}", "json=${json.absolutePath}"),
+            argv.indices.filter { argv[it] == "--report" }.map { argv[it + 1] })
+        assertFalse("-o" in argv, argv.joinToString(" "))
+        assertTrue(sarif.isFile && json.isFile)
+    }
+
+    // A single report keeps --format/-o, which krit releases before --report understand.
+    @Test
+    fun `kritCheck with one report uses -o`() {
+        val root = fixture()
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withArguments("kritCheck", "--offline").build()
+
+        val argv = invocations(root).single()
+        assertEquals(File(root, "build/reports/krit/krit.sarif").absolutePath, valueOf(argv, "-o"))
+        assertFalse("--report" in argv, argv.joinToString(" "))
+    }
+
+    // Custom rules run through the krit daemon, which renders one report per request.
+    @Test
+    fun `kritCheck with custom rule jars runs once per report`() {
+        val root = fixture(extraKrit = "reports { json.required = true }\n    customRuleJars.from(file(\"rules.jar\"))")
+        File(root, "rules.jar").writeBytes(byteArrayOf())
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withArguments("kritCheck", "--offline").build()
+
+        val runs = invocations(root)
+        assertEquals(2, runs.size, runs.toString())
+        runs.forEach { assertTrue("--daemon" in it && "-o" in it && "--report" !in it, it.joinToString(" ")) }
+    }
+
+    // krit 0.5.0 and earlier reject --report FORMAT=PATH ("unknown format", exit 2).
+    @Test
+    fun `kritCheck falls back to one run per report on a krit without --report`() {
+        val root = fixture(extraKrit = "reports { json.required = true }")
+        val binary = File(root, "fake-krit")
+        binary.writeText(binary.readText().replaceFirst("\n", "\n" +
+            "case \"${'$'}*\" in *--report*) echo 'error: unknown format: sarif=x' >&2; exit 2;; esac\n"))
+        GradleRunner.create().withProjectDir(root).withPluginClasspath()
+            .withArguments("kritCheck", "--offline").build()
+
+        val runs = invocations(root)
+        assertEquals(listOf("sarif", "json"), runs.map { valueOf(it, "-o")!!.substringAfterLast('.') })
+        assertTrue(File(root, "build/reports/krit/krit.sarif").isFile && File(root, "build/reports/krit/krit.json").isFile)
     }
 }

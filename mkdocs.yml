@@ -88,6 +88,7 @@ nav:
     - release-engineering: rules/release-engineering/index.md
     - resource-cost: rules/resource-cost/index.md
     - security: rules/security/index.md
+    - slack-lint: rules/slack-lint/index.md
     - style: rules/style/index.md
     - supply-chain: rules/supply-chain/index.md
     - testing-quality: rules/testing-quality/index.md

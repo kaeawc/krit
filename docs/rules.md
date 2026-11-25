@@ -101,6 +101,25 @@ live at `https://kaeawc.github.io/krit/rules/<category>/<rule-id-kebab>/`
 does). The same URL is the `docsUrl` field of `krit --list-rules --format json`
 and the SARIF `helpUri`.
 
+## Third-party Lint checks
+
+The `slack-lint` rule set ports checks from [slack-lints](https://github.com/slackhq/slack-lints) 0.11.1. Each rule
+uses its Lint issue ID, message and severity, so `@SuppressLint("MoshiUsageEnumCasing")`, `tools:ignore` and
+`lint.xml` entries for the Lint ID apply to the krit rule. The rules are experimental and off by default; turn them
+on by ID (`--enable-rules MoshiUsageEnumCasing`) or with `--experimental`.
+
+The `MoshiUsage*` rules port `MoshiUsageDetector`. As in Lint, one pass over the project serves all of them, and
+they need Kotlin or Java sources that import Moshi (`com.squareup.moshi`) or moshix (`dev.zacsweers.moshix`).
+They report only what the source proves:
+
+- an annotation counts only when its import, full name, wildcard import or package proves it is Moshi's;
+- an annotation argument that is not a literal (a `const val` reference, an escaped string) makes the check
+  abstain. Lint evaluates constants and so reports, for example, `MoshiUsageEnumMissingUnknown` on an enum whose
+  `generator` is a constant `""`. On a non-literal `generateAdapter` Lint itself fails with an internal error.
+
+Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
+lives in Slack's own `slack.*` packages.
+
 ## Compose-aware defaults
 
 Krit recognizes common Compose patterns without extra config:

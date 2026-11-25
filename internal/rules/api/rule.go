@@ -724,6 +724,13 @@ type Rule struct {
 	// renaming a rule so existing user suppressions keep working.
 	Aliases []string
 
+	// LintIssue marks a rule whose ID is a real Android Lint issue ID
+	// outside the android-lint rule set, such as a third-party lint port
+	// (slack-lints, Compose lint). A lint.xml `severity="ignore"` entry or a
+	// Gradle `lint { disable }` for that ID then turns the rule off, the same
+	// way it does for android-lint rules.
+	LintIssue bool
+
 	// Tags are advisory cross-cutting labels that group rules across
 	// RuleSets. Unlike Category/RuleSet (which is the rule's primary
 	// configuration group and is load-bearing for activation, suppression

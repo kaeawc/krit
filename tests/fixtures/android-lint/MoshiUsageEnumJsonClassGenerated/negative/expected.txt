@@ -1,0 +1,1 @@
+src/main/java/com/example/lookalike/Lookalike.kt:8:12: MoshiUsageEnumMissingJsonClass: Enums serialized with Moshi should be annotated with @JsonClass.

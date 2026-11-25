@@ -1,0 +1,4 @@
+src/main/java/com/example/JavaMissing.java:8:3: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.
+src/main/java/com/example/Missing.kt:10:31: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.
+src/main/java/com/example/Missing.kt:16:5: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.
+src/main/java/com/example/Missing.kt:7:12: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.

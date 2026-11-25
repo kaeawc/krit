@@ -1,0 +1,2 @@
+src/main/java/com/example/Annotated.kt:7:12: MoshiUsageEnumAnnotatedUnknown: UNKNOWN members in @JsonClass-annotated enums should not be annotated with @Json
+src/main/java/com/example/JavaAnnotated.java:7:13: MoshiUsageEnumAnnotatedUnknown: UNKNOWN members in @JsonClass-annotated enums should not be annotated with @Json

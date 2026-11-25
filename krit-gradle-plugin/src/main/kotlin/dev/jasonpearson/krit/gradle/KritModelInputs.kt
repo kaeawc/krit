@@ -11,13 +11,19 @@ import java.io.File
  * jars under the Gradle user home. Hashing it as a file would give checkouts at
  * different paths different cache keys and would miss a jar whose content changed
  * at the same path (a re-published SNAPSHOT). So tasks key the model in two parts:
- * [normalized], the JSON with paths under the model's `rootDir` made root-relative
- * and classpath entries reduced to file names, and [classpath], the jars
- * themselves, hashed by content as a `@Classpath` input.
+ * [normalized], the JSON with paths made location-independent (under the model's
+ * `rootDir`, `$ROOT/…`; under a Gradle user home's dependency caches, whose
+ * layout is content-addressed, `$GRADLE_CACHES/…`) so each source set's classpath
+ * keeps its identity, and [classpath], the jars themselves, hashed by content as a
+ * `@Classpath` input.
  */
 internal object KritModelInputs {
     private val CLASSPATH_KEYS = setOf("classpath", "bootClasspath", "generatedClasspath", "compilerPluginClasspath")
     private const val ROOT = "\$ROOT"
+    private const val GRADLE_CACHES = "\$GRADLE_CACHES"
+
+    /** `<gradle user home>/caches/` followed by one of Gradle's dependency or transform caches. */
+    private val GRADLE_CACHE_PREFIX = Regex("^.*?/caches/(?=(modules-\\d+|transforms-\\d+|jars-\\d+|[0-9][^/]*/transforms)/)")
 
     /** Root-relative model content, one entry per file, ordered by file name. */
     fun normalized(models: Collection<File>): String =
@@ -38,10 +44,11 @@ internal object KritModelInputs {
             key.toString() to normalize(entry, root, key in CLASSPATH_KEYS)
         }
         is List<*> -> value.map { normalize(it, root, classpath) }
+        // Content is tracked by classpath(); here each entry keeps its identity (many
+        // jars share a name, such as Android's classes.jar), just not its location.
         is String -> when {
-            // Content is tracked by classpath(); only the entry's identity stays here.
-            classpath -> File(value).name
             root != null && (value == root || value.startsWith("$root/")) -> ROOT + value.removePrefix(root)
+            classpath -> GRADLE_CACHE_PREFIX.find(value)?.let { GRADLE_CACHES + "/" + value.substring(it.range.last + 1) } ?: value
             else -> value
         }
         else -> value

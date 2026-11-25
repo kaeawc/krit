@@ -123,7 +123,7 @@ abstract class KritCheckAllTask @Inject constructor(
     @get:Optional
     abstract val firJar: ConfigurableFileCollection
 
-    /** The model JSON with root-relative paths and classpath entries by name. */
+    /** The model JSON with location-independent paths (see KritModelInputs). */
     @get:Input
     abstract val normalizedModel: Property<String>
 

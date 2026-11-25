@@ -112,4 +112,28 @@ class KritBuildCacheTest {
         }
         assertOutcomes(TaskOutcome.FROM_CACHE, run(second))
     }
+
+    // The krit-fir jar is an input exactly when the task itself runs FIR, whatever
+    // the extension says.
+    @Test
+    fun `a task that turns FIR on tracks the krit-fir jar`() {
+        val root = checkout("first")
+        File(root, "lib/build.gradle.kts").appendText(
+            "krit { fir = false }\ntasks.named<dev.jasonpearson.krit.gradle.KritCheckTask>(\"kritCheck\") { fir = true }\n"
+        )
+        run(root)
+        firJar.writeText("fir v2\n")
+        assertEquals(TaskOutcome.SUCCESS, run(root).task(":lib:kritCheck")?.outcome)
+    }
+
+    @Test
+    fun `a task that turns FIR off ignores the krit-fir jar`() {
+        val root = checkout("first")
+        File(root, "lib/build.gradle.kts").appendText(
+            "tasks.named<dev.jasonpearson.krit.gradle.KritCheckTask>(\"kritCheck\") { fir = false }\n"
+        )
+        run(root)
+        firJar.writeText("fir v2\n")
+        assertEquals(TaskOutcome.UP_TO_DATE, run(root).task(":lib:kritCheck")?.outcome)
+    }
 }

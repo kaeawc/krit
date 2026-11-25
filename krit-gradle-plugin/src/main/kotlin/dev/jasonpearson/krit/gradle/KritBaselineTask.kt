@@ -72,10 +72,18 @@ abstract class KritBaselineTask @Inject constructor(
     @get:Input
     abstract val typeInference: Property<Boolean>
 
+    /** Same FIR setting as `kritCheck`, so the baseline holds the findings it reports. */
+    @get:Input
+    abstract val fir: Property<Boolean>
+
     @get:InputFiles
     @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val customRuleJars: ConfigurableFileCollection
+
+    /** `--base-path` for baseline IDs; must match `kritCheck`'s (the project directory). */
+    @get:Internal
+    abstract val basePath: org.gradle.api.file.DirectoryProperty
 
     init {
         group = BasePlugin.BUILD_GROUP
@@ -84,7 +92,9 @@ abstract class KritBaselineTask @Inject constructor(
 
     @TaskAction
     fun createBaseline() {
-        val sourceFiles = source.files
+        // The default source roots (src/main/kotlin, src/test/kotlin) are directories
+        // that need not exist; krit rejects a missing scan path.
+        val sourceFiles = source.files.filter { it.exists() }
         if (sourceFiles.isEmpty()) {
             logger.info("No source files found, skipping baseline creation")
             return
@@ -94,13 +104,16 @@ abstract class KritBaselineTask @Inject constructor(
         outputFile.parentFile.mkdirs()
 
         val args = buildList {
-            add("--create-baseline")
-            add("--baseline"); add(outputFile.absolutePath)
+            // --create-baseline takes the output path; a separate --baseline flag
+            // would be read as its value (#1639).
+            add("--create-baseline"); add(outputFile.absolutePath)
+            if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
             add("-j"); add(parallel.get().toString())
             if (allRules.get()) add("--all-rules")
             if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
             if (noCache.get()) add("--no-cache")
             if (!typeInference.get()) add("--no-type-inference")
+            if (!fir.getOrElse(true)) add("--no-fir")
             appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
             add("-q")
             sourceFiles.forEach { add(it.absolutePath) }

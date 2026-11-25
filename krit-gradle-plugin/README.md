@@ -260,6 +260,15 @@ krit {
 }
 ```
 
+## Configuration cache and Isolated Projects
+
+`kritCheck`, `kritCheck<SourceSet>`, `kritBaseline`, `kritFormat`, `kritExportModel` and
+`kritCheckAll` store and reuse the configuration cache with Isolated Projects on
+(`org.gradle.isolated-projects=true`), with no reported problems. TestKit tests in
+`src/test` check each one in a multi-project build. Task actions read only their
+own properties, and every location, such as the default SARIF report, is wired at
+configuration time.
+
 ## Binary Resolution
 
 The plugin downloads the correct platform-specific krit binary from GitHub Releases and caches it in `~/.gradle/krit/`. Supported platforms: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-amd64`. To skip the download and use a local binary, set `advanced.binary` (see [Advanced / escape hatches](#advanced--escape-hatches) above).

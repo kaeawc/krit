@@ -3,7 +3,6 @@ package dev.jasonpearson.krit.gradle
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileTree
-import org.gradle.api.file.ProjectLayout
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.provider.Property
@@ -35,7 +34,6 @@ import javax.inject.Inject
 @CacheableTask
 abstract class KritCheckTask @Inject constructor(
     private val execOps: ExecOperations,
-    private val layout: ProjectLayout,
 ) : SourceTask() {
 
     /**
@@ -108,6 +106,14 @@ abstract class KritCheckTask @Inject constructor(
     @get:Internal
     abstract val cacheDir: DirectoryProperty
 
+    /**
+     * `--base-path`: report paths and baseline IDs are relative to it (the project
+     * directory by convention). Without it krit uses the first scan path, which for
+     * a file list is an arbitrary file, so `kritBaseline` and `kritCheck` IDs differ.
+     */
+    @get:Internal
+    abstract val basePath: DirectoryProperty
+
     // --- Report configuration properties ---
 
     @get:Input
@@ -163,84 +169,59 @@ abstract class KritCheckTask @Inject constructor(
         val enabledReports = buildEnabledReports()
 
         if (enabledReports.isEmpty()) {
-            // Fall back to SARIF if nothing is enabled (preserves old behavior)
-            val fallback = sarifReport.orNull?.asFile
-                ?: layout.buildDirectory.file("reports/krit/krit.sarif").get().asFile
+            // Fall back to SARIF if nothing is enabled (preserves old behavior). The
+            // location is the declared sarifOutput, wired at configuration time, so the
+            // action never reads the project (configuration cache, Isolated Projects).
+            val fallback = sarifReport.orNull?.asFile ?: sarifOutput.orNull?.asFile
+                ?: throw GradleException("kritCheck: no report enabled and no sarifOutput location set")
             enabledReports.add("sarif" to fallback)
         }
 
         // Ensure parent directories exist for all report files
         enabledReports.forEach { (_, file) -> file.parentFile.mkdirs() }
 
-        // Use the first enabled report as the primary output format
-        val primaryReport = enabledReports.first()
-
-        val args = buildList {
-            add("--format=${primaryReport.first}")
-            add("-o"); add(primaryReport.second.absolutePath)
-            add("-j"); add(parallel.get().toString())
-            if (allRules.get()) add("--all-rules")
-            if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
-            if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
-            if (noCache.get()) add("--no-cache")
-            if (!typeInference.get()) add("--no-type-inference")
-            if (!fir.get()) add("--no-fir")
-            if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
-            addCustomRuleJarArgs()
-            add("-q")
-            appendScanPaths()
-        }
-
-        val stderr = ByteArrayOutputStream()
-        val result = execOps.exec {
-            executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
-            args(args)
-            errorOutput = stderr
-            isIgnoreExitValue = true
-        }
-
-        if (result.exitValue == 2) {
-            throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
-        }
-
-        // Run additional report formats if more than one is enabled
-        for (i in 1 until enabledReports.size) {
-            val (format, outputFile) = enabledReports[i]
-            val extraArgs = buildList {
-                add("--format=$format")
-                add("-o"); add(outputFile.absolutePath)
-                add("-j"); add(parallel.get().toString())
-                if (allRules.get()) add("--all-rules")
-                if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
-                if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
-                if (noCache.get()) add("--no-cache")
-                if (!typeInference.get()) add("--no-type-inference")
-                if (!fir.get()) add("--no-fir")
-                if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
-                addCustomRuleJarArgs()
-                add("-q")
-                appendScanPaths()
+        // One krit run writes every report (--report FORMAT=PATH, #1578). Custom rules
+        // need the krit daemon, which renders one report per request, so with custom
+        // rule jars each report keeps its own run.
+        val batches = if (customRuleJars.isEmpty) listOf(enabledReports) else enabledReports.map { listOf(it) }
+        var exitValue = 0
+        batches.forEach { reports ->
+            val batchExit = runReports(reports, logger) { batch ->
+                val stderr = ByteArrayOutputStream()
+                val result = execOps.exec {
+                    executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
+                    args(scanArgs(batch))
+                    errorOutput = stderr
+                    isIgnoreExitValue = true
+                }
+                result.exitValue to stderr.toString()
             }
-
-            val extraStderr = ByteArrayOutputStream()
-            val extraResult = execOps.exec {
-                executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
-                args(extraArgs)
-                errorOutput = extraStderr
-                isIgnoreExitValue = true
-            }
-            if (extraResult.exitValue == 2) {
-                throw GradleException("krit configuration/preflight error: ${extraStderr.toString().trim()}")
-            }
+            if (exitValue == 0) exitValue = batchExit
         }
 
-        if (result.exitValue != 0 && !ignoreFailures.get()) {
+        if (exitValue != 0 && !ignoreFailures.get()) {
             val reportPaths = enabledReports.joinToString(", ") { it.second.absolutePath }
             throw GradleException(
-                "krit analysis found issues (exit code ${result.exitValue}). " +
+                "krit analysis found issues (exit code $exitValue). " +
                     "See reports at: $reportPaths"
             )
         }
+    }
+
+    private fun scanArgs(reports: List<Pair<String, File>>): List<String> = buildList {
+        appendReportArgs(reports)
+        add("-j"); add(parallel.get().toString())
+        if (allRules.get()) add("--all-rules")
+        if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
+        if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
+        if (noCache.get()) add("--no-cache")
+        if (!typeInference.get()) add("--no-type-inference")
+        if (!fir.get()) add("--no-fir")
+        if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
+        if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
+        addCustomRuleJarArgs()
+        add("-q")
+        appendScanPaths()
     }
 
     private fun buildEnabledReports(): MutableList<Pair<String, File>> {

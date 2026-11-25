@@ -14,7 +14,7 @@ android_library(
 genrule(
     name = "view_binding_srcjar",
     srcs = glob(["src/main/res/layout/*.xml"]),
-    outs = ["view_binding.srcjar"],
+    outs = ["view_binding_classes.srcjar"],
     cmd = "$(execpath //tools/viewbinding:generator) dev.krit.firsample.app $@ $(SRCS)",
     tools = ["//tools/viewbinding:generator"],
 )

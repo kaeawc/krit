@@ -43,9 +43,6 @@ native_binary(
 
 override_repo(krit, krit_bin = "krit_local_bin")
 
-rules_kotlin_extensions = use_extension("@rules_kotlin//src/main/starlark/core/repositories:bzlmod_setup.bzl", "rules_kotlin_extensions")
-use_repo(rules_kotlin_extensions, "com_github_jetbrains_kotlin")
-
 register_toolchains("//:kotlin_toolchain")
 
 remote_android_extensions = use_extension("@rules_android//bzlmod_extensions:android_extensions.bzl", "remote_android_tools_extensions")

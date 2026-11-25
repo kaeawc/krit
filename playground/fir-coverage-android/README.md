@@ -18,7 +18,7 @@ Each module covers a case that has broken FIR coverage before:
 | `:benchmark` | `//benchmark` | `com.android.test` module targeting `:app` | #1572 |
 
 Versions: AGP 9.5.3 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.14, Wire 7.2.2,
-Moshi 1.15.2, Gradle 9.9.2; Bazel 8.4.2 with rules_kotlin 2.4.21 and
+Moshi 1.15.2, Gradle 9.9.2; Bazel 9.3.3 with rules_kotlin 2.4.21 and
 rules_android 0.8.1. Keep `gradle/libs.versions.toml` and `MODULE.bazel` on
 the same library versions.
 

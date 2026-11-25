@@ -1,0 +1,48 @@
+# TEMPORARY diagnostic (do not merge): why does krit 0.3.1 find 0 issues in
+# tests/fixtures/positive/style on macOS since #1565?
+name: diag-macos-krit031
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  diag:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./
+        with:
+          version: '0.3.1'
+          run: 'false'
+      - name: Probe
+        shell: bash
+        run: |
+          set -u
+          P=tests/fixtures/positive/style
+          stop() { krit daemon stop >/dev/null 2>&1 || true; pkill -f 'krit.*(serve|daemon)' >/dev/null 2>&1 || true; sleep 1; }
+          probe() { echo "--- $*"; stop; krit --no-fir "$@" -f json $P >/tmp/out 2>/tmp/err; echo "exit=$? bytes=$(wc -c </tmp/out)"; jq -c '[keys, (.findings|length), .summary]' /tmp/out 2>&1 | cut -c1-600; head -c 1500 /tmp/err; echo; }
+          probe --no-daemon
+          probe --no-daemon --no-cache
+          probe
+          probe --no-cache
+          for f in \
+            schemas/krit-config.schema.json \
+            internal/rules/testdata/androidx_compose_runtime/retain \
+            tests/fixtures/positive/compose/RetainLeaksContext.kt \
+            tests/fixtures/positive/compose/RetainRememberObserver.kt \
+            tests/fixtures/positive/compose/RetainUnitType.kt \
+            tests/fixtures/positive/compose/RetainingDoNotRetainType.kt \
+            tests/fixtures/negative/compose/RetainLeaksContext.kt \
+            tests/fixtures/negative/compose/RetainRememberObserver.kt \
+            tests/fixtures/negative/compose/RetainUnitType.kt \
+            tests/fixtures/negative/compose/RetainingDoNotRetainType.kt \
+            internal/rules/androidx_compose_runtime_retain.go; do
+            rm -rf "$f"
+            echo "=== without $f"; probe --no-daemon
+            git checkout -q HEAD -- "$f"
+          done

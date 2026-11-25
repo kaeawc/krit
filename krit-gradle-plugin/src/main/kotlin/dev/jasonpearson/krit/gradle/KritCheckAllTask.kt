@@ -163,6 +163,7 @@ abstract class KritCheckAllTask @Inject constructor(
         if (noCache.get()) add("--no-cache")
         if (!typeInference.get()) add("--no-type-inference")
         if (!fir.get()) add("--no-fir")
+        add("--base-path"); add(root.absolutePath)
         appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
         add("-q")
         add(root.absolutePath)

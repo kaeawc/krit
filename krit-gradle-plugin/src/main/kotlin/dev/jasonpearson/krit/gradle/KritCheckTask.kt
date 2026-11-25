@@ -106,6 +106,14 @@ abstract class KritCheckTask @Inject constructor(
     @get:Internal
     abstract val cacheDir: DirectoryProperty
 
+    /**
+     * `--base-path`: report paths and baseline IDs are relative to it (the project
+     * directory by convention). Without it krit uses the first scan path, which for
+     * a file list is an arbitrary file, so `kritBaseline` and `kritCheck` IDs differ.
+     */
+    @get:Internal
+    abstract val basePath: DirectoryProperty
+
     // --- Report configuration properties ---
 
     @get:Input
@@ -186,6 +194,7 @@ abstract class KritCheckTask @Inject constructor(
             if (!typeInference.get()) add("--no-type-inference")
             if (!fir.get()) add("--no-fir")
             if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
+            if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
             addCustomRuleJarArgs()
             add("-q")
             appendScanPaths()
@@ -217,6 +226,7 @@ abstract class KritCheckTask @Inject constructor(
                 if (!typeInference.get()) add("--no-type-inference")
                 if (!fir.get()) add("--no-fir")
                 if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
+                if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
                 addCustomRuleJarArgs()
                 add("-q")
                 appendScanPaths()

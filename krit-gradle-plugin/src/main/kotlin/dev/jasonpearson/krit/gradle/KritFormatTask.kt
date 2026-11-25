@@ -79,7 +79,9 @@ abstract class KritFormatTask @Inject constructor(
 
     @TaskAction
     fun format() {
-        val sourceFiles = source.files
+        // The default source roots (src/main/kotlin, src/test/kotlin) are directories
+        // that need not exist; krit rejects a missing scan path.
+        val sourceFiles = source.files.filter { it.exists() }
         if (sourceFiles.isEmpty()) {
             logger.info("No source files found, skipping krit format")
             return

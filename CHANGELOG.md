@@ -343,6 +343,10 @@ All notable changes to Krit will be documented in this file.
 - Gradle: `kritCheck` no longer reads the project layout when it runs; its fallback SARIF location is the
   configured `sarifOutput`. Functional tests now check `kritCheck`, `kritBaseline`, `kritFormat` and `kritCheckAll`
   store and reuse the configuration cache with Isolated Projects on, in a multi-project build (#1583).
+- Gradle: `kritBaseline` writes the baseline to the configured file; it passed `--create-baseline --baseline <file>`,
+  so krit wrote a file named `--baseline` in the working directory. It now also skips missing default source roots
+  (krit rejected them with exit 2), honors `fir = false`, and passes the project directory as `--base-path`, as
+  `kritCheck` now does, so baseline IDs and report paths no longer depend on which source file came first (#1639).
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than
   a dozen directories deep, instead of falling back to the project profile.
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

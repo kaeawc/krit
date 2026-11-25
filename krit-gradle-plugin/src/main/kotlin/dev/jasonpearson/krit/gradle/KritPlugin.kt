@@ -150,6 +150,7 @@ class KritPlugin : Plugin<Project> {
             plainOutput.convention(extension.reports.plain.outputLocation)
             checkstyleRequired.convention(extension.reports.checkstyle.required)
             checkstyleOutput.convention(extension.reports.checkstyle.outputLocation)
+            basePath.convention(project.layout.projectDirectory)
         }
 
         // Wire task defaults for the root kritCheckAll (dev.jasonpearson.krit.aggregate)
@@ -199,6 +200,8 @@ class KritPlugin : Plugin<Project> {
             noCache.convention(advanced.noCache)
             typeInference.convention(advanced.typeInference)
             customRuleJars.from(extension.customRuleJars)
+            basePath.convention(project.layout.projectDirectory)
+            fir.convention(extension.fir)
         }
 
         // Register the aggregate kritCheck task

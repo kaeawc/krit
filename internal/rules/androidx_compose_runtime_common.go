@@ -23,7 +23,8 @@ const (
 // registerAcrRule registers a Compose runtime Lint port. Lint's scope for these issues includes test sources, so
 // unlike the AOSP Lint ports they also run on tests. The confidence is high unless impl declares Confidence(), and
 // an impl declaring fileMentions() only runs on files whose text contains every listed string.
-func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []scanner.Language, check func(*api.Context)) {
+func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []scanner.Language, check func(*api.Context),
+	aliases ...string) {
 	confidence := api.ConfidenceHigh
 	if c, ok := impl.(interface{ Confidence() float64 }); ok {
 		confidence = c.Confidence()
@@ -43,7 +44,7 @@ func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []sc
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Implementation: impl, Check: check,
-		FileGate: gate,
+		FileGate: gate, Aliases: aliases,
 	})
 }
 

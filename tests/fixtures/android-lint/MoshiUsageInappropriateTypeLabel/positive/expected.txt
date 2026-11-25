@@ -1,0 +1,4 @@
+src/main/java/com/example/Orphans.kt:12:1: MoshiUsageInappropriateTypeLabel: Inappropriate @TypeLabel or @DefaultObject annotation.
+src/main/java/com/example/Orphans.kt:17:1: MoshiUsageInappropriateTypeLabel: Inappropriate @TypeLabel or @DefaultObject annotation.
+src/main/java/com/example/Orphans.kt:7:1: MoshiUsageInappropriateTypeLabel: Inappropriate @TypeLabel or @DefaultObject annotation.
+src/main/java/com/example/other/Elsewhere.kt:7:1: MoshiUsageInappropriateTypeLabel: Inappropriate @TypeLabel or @DefaultObject annotation.

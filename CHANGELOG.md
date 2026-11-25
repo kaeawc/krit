@@ -263,6 +263,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
   `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
   #1419, #1420, #1422).
+- `slack-lint` gains `MoshiUsageDetector`'s moshi-sealed checks for Kotlin: `MoshiUsageBlankTypeLabel`,
+  `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
+  `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
+  same package across files, including files that never mention Moshi (#1387, #1389, #1399, #1400, #1403, #1415).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

@@ -1,0 +1,2 @@
+src/main/java/com/example/Blank.kt:5:48: MoshiUsageBlankTypeLabel: Moshi-sealed requires a type label specified after the 'sealed:' prefix.
+src/main/java/com/example/Blank.kt:8:48: MoshiUsageBlankTypeLabel: Moshi-sealed requires a type label specified after the 'sealed:' prefix.

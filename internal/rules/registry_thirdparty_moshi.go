@@ -18,16 +18,22 @@ type moshiIssue struct {
 // Slack's own `slack.*` packages.
 var moshiIssues = []moshiIssue{
 	{"MoshiUsageBlankGenerator", api.SeverityError, "Don't use blank JsonClass.generator values."},
+	{"MoshiUsageBlankTypeLabel", api.SeverityError, "Moshi-sealed requires a type label specified after the 'sealed:' prefix."},
 	{"MoshiUsageClassVisibility", api.SeverityError, "@JsonClass-annotated types must be public, package-private, or internal."},
 	{"MoshiUsageDoubleClassAnnotation", api.SeverityError, "Only use one of @AdaptedBy or @JsonClass."},
+	{"MoshiUsageDoubleTypeLabel", api.SeverityError, "Only use one of @TypeLabel or @DefaultObject."},
 	{"MoshiUsageEnumAnnotatedUnknown", api.SeverityError, "UNKNOWN members in @JsonClass-annotated enums should not be annotated with @Json"},
 	{"MoshiUsageEnumCasing", api.SeverityWarning, "Consider using @Json(name = ...) rather than lower casing."},
 	{"MoshiUsageEnumJsonClassGenerated", api.SeverityError, "Enums annotated with @JsonClass must not set generateAdapter to true."},
 	{"MoshiUsageEnumMissingJsonClass", api.SeverityError, "Enums serialized with Moshi should be annotated with @JsonClass."},
 	{"MoshiUsageEnumMissingUnknown", api.SeverityError, "Enums serialized with Moshi must reserve the first member as UNKNOWN."},
 	{"MoshiUsageGenerateAdapterShouldBeTrue", api.SeverityError, "JsonClass.generateAdapter must be true in order for Moshi code gen to run."},
+	{"MoshiUsageGenericSealedSubtype", api.SeverityError, "Sealed subtypes used with moshi-sealed cannot be generic."},
+	{"MoshiUsageInappropriateTypeLabel", api.SeverityError, "Inappropriate @TypeLabel or @DefaultObject annotation."},
 	{"MoshiUsageMissingPrimary", api.SeverityError, "@JsonClass-annotated types must have a primary constructor or be sealed."},
+	{"MoshiUsageMissingTypeLabel", api.SeverityError, "Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject."},
 	{"MoshiUsageObject", api.SeverityError, "Object types cannot be annotated with @JsonClass."},
+	{"MoshiUsageSealedMustBeSealed", api.SeverityError, "Moshi-sealed can only be applied to 'sealed' types."},
 	{"MoshiUsageUnsupportedType", api.SeverityError, "This type cannot be annotated with @JsonClass."},
 	{"MoshiUsageUseData", api.SeverityError, "Model classes should be immutable data classes."},
 }

@@ -1,0 +1,33 @@
+load("@krit//:defs.bzl", "krit_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# Type-aware krit_test: //typed/app uses a type from //typed/lib, which krit
+# sees only through Bazel's compile classpath (lib's ABI jar). FIR proves
+# that `upstream.name` is a non-null String and reports UnnecessarySafeCall;
+# the Go-only test of the same sources cannot, and passes.
+krit_test(
+    name = "app_type_aware_krit_test",
+    tags = ["manual"],
+    targets = ["//typed/app"],
+    type_aware = True,
+)
+
+krit_test(
+    name = "app_go_only_krit_test",
+    targets = ["//typed/app"],
+)
+
+sh_test(
+    name = "type_aware_finding_test",
+    srcs = ["type_aware_finding_test.sh"],
+    args = ["$(rootpath :app_type_aware_krit_test)"],
+    data = [":app_type_aware_krit_test"],
+)
+
+# The FIR pass runs without findings on //typed/lib: the JDK toolchain and
+# krit-fir jar work, and --fail-on-degraded would fail a Go-only fallback.
+krit_test(
+    name = "lib_type_aware_krit_test",
+    targets = ["//typed/lib"],
+    type_aware = True,
+)

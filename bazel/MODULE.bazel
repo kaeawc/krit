@@ -22,6 +22,7 @@ module(
 )
 
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "rules_java", version = "8.9.0")
 
 krit = use_extension("//:extensions.bzl", "krit")
-use_repo(krit, "krit_bin")
+use_repo(krit, "krit_bin", "krit_fir")

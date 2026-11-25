@@ -816,6 +816,54 @@ jobs:
             echo "krit $VERSION reported $COUNT findings"
           fi
 
+  # The Bazel module (bazel/) against the krit and krit-fir built from this
+  # commit (KRIT_BAZEL_LOCAL_DIST), on the e2e module's Bazel version and on
+  # Bazel 9: type-aware krit_test finds a FIR-only issue through Bazel's
+  # compile classpath, and a second run after `bazel clean` must be served
+  # entirely from the disk cache. See scripts/bazel-e2e-local.sh.
+  bazel-e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bazel: ["", "9.x"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: ./.github/actions/go-cache
+        with:
+          family: linux
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v5
+        with:
+          distribution: zulu
+          java-version: "21"
+      # Cache key matches the `external-rule-example` job above.
+      - name: Cache krit-fir shadow jar
+        id: cache-krit-fir
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: tools/krit-fir/build/libs
+          key: krit-fir-jar-${{ hashFiles('tools/krit-fir/**/*.kt', 'tools/krit-fir/**/*.kts', 'tools/krit-rule-api/**/*.kt', 'tools/krit-rule-api/**/*.kts') }}
+      - name: Build krit-fir shadow jar
+        if: steps.cache-krit-fir.outputs.cache-hit != 'true'
+        working-directory: tools/krit-fir
+        run: ./gradlew --no-daemon shadowJar
+      - name: Cache Bazel downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/bazel-repo
+          key: bazel-repo-${{ matrix.bazel }}-${{ hashFiles('bazel/MODULE.bazel', 'bazel/e2e/MODULE.bazel', 'bazel/e2e/.bazelversion') }}
+          restore-keys: bazel-repo-${{ matrix.bazel }}-
+      - name: Bazel e2e (cache hit on rerun)
+        env:
+          BAZEL: bazelisk
+          USE_BAZEL_VERSION: ${{ matrix.bazel }}
+          KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
+        run: bash scripts/bazel-e2e-local.sh --repository_cache="$HOME/.cache/bazel-repo"
+
   # actionlint validates the workflow files themselves — catches semantic
   # mistakes (e.g. `hashFiles()` at workflow-`env` scope) that plain YAML
   # parsers accept but GitHub Actions silently rejects, causing the

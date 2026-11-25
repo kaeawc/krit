@@ -244,7 +244,9 @@ oracle:
     - /absolute/path/to/dependency-two.jar
 ```
 
-For Bazel, inspect the compile action for your `java_library` or
+For Bazel, a type-aware `krit_test` reads the classpath from the build
+graph (see [Type-aware krit_test](integrations.md#type-aware-krit_test)).
+To scan outside Bazel, inspect the compile action for your `java_library` or
 `kt_jvm_library` target with `bazel aquery --include_commandline
 'deps(//app:lib)'`. Copy its resolved compile-classpath jars into Krit's
 configuration, for example:

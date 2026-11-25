@@ -1,0 +1,8 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+kt_jvm_library(
+    name = "app",
+    srcs = ["Consumer.kt"],
+    visibility = ["//typed:__pkg__"],
+    deps = ["//typed/lib"],
+)

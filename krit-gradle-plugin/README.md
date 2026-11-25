@@ -134,8 +134,11 @@ selection. No separate aggregate step is needed. Each file contains that project
 entry, with external artifacts and project dependencies recorded separately. Schema 2
 contains a `sourceSets` list (schema 1, written by older plugin versions, is the same
 without each source set's `kotlin` object). JVM exports `main`, `test`, and (when enabled)
-`testFixtures`. Android exports the selected production variant plus available unit
-and instrumented test variants. Kotlin Multiplatform exports the `main` and `test`
+`testFixtures`. Android (`com.android.application`, `com.android.library`,
+`com.android.dynamic-feature` and `com.android.test`) exports the selected production
+variant plus available unit and instrumented test variants. A `com.android.test` module
+(instrumentation, benchmark or baseline-profile tests) has only `main`, exported as kind
+`main` with its `targetProjectPath` in `projectDeps`. Kotlin Multiplatform exports the `main` and `test`
 compilations of JVM and Android JVM targets; other targets are skipped. Android uses
 `debug` or the alphabetically first available production variant if it is absent.
 

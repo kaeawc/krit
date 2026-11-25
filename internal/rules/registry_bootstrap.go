@@ -59,6 +59,7 @@ func init() {
 	registerCommentsRules()
 	registerComplexityRules()
 	registerComposeRules()
+	registerAndroidxComposeRuntimeNamingRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

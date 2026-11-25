@@ -183,6 +183,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"IntentReset":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
 		"IntentWithNullActionLaunch":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
 		"BinderGetCallingInMainThread":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
+		"ComposableNaming":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_compose_runtime_parity_test.go"}},
+		"CompositionLocalNaming":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_compose_runtime_parity_test.go"}},
 		"MutatingSharedPrefs":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
 		"ObsoleteSdkInt":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_obsolete_sdk_int_test.go"}},
 		"ConstantLocale":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_source_hygiene_test.go"}},

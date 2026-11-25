@@ -147,6 +147,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/hostname_verifier_test.go
+  ComposableNaming:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_compose_runtime_parity_test.go
+  CompositionLocalNaming:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_compose_runtime_parity_test.go
   ApplySharedPref:
     status: supported
     fixtures:

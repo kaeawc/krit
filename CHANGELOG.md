@@ -4,6 +4,18 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
+  `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
+  their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs
+  (`internal/rules/testdata/androidx_compose_runtime/`). They match Lint's messages, locations, severities and
+  defaults: the two lambda-parameter checks are opt-in, as in Lint, and test sources are analyzed. Local functions
+  and overrides are skipped as Lint skips them. Shadowing member or local functions and same-file declarations are
+  respected. `ComposableNaming` and `CompositionLocalNaming` also check Java. An expression-bodied `@Composable`
+  function without a declared return type is only checked when its body is `Unit` or a call to a same-file function;
+  otherwise its return type needs type inference, and it is a known false negative. Lint's rename quick fixes are
+  not ported, because they leave call sites unchanged (#1467, #1468, #1469, #1471).
+
 ### Fixed
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an
   exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set

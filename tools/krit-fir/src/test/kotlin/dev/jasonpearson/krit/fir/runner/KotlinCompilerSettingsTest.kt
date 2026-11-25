@@ -124,9 +124,46 @@ class KotlinCompilerSettingsTest {
             "-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn", "-Xjsr305=strict",
         ))
         assertTrue(s.warnings.isEmpty(), s.warnings.toString())
-        // The last -Xjsr305 wins, and '@' stays valid only inside a value.
-        assertEquals(listOf("-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=strict"), s.flags)
+        // -Xjsr305 is a string array: the per-annotation override and the global state both apply,
+        // and '@' stays valid only inside a value.
+        assertEquals(listOf("-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn",
+            "-Xjsr305=strict"), s.flags)
         assertTrue(KotlinCompilerSettings.parse(listOf("@-Xjsr305=strict")).isEmpty)
+    }
+
+    @Test fun repeatableFlagsReplaceOnlyTheSameSubject() {
+        val s = KotlinCompilerSettings.parse(listOf(
+            "-Xjsr305=strict", "-Xjsr305=under-migration:warn", "-Xjsr305=@org.a.Nullable:ignore",
+            "-Xnullability-annotations=@org.jspecify.annotations:warn", "-Xnullability-annotations=@io.reactivex.rxjava3.annotations:strict",
+            "-Xjsr305=warn", "-Xnullability-annotations=@org.jspecify.annotations:strict",
+        ))
+        assertTrue(s.warnings.isEmpty(), s.warnings.toString())
+        assertEquals(listOf(
+            "-Xjsr305=under-migration:warn", "-Xjsr305=@org.a.Nullable:ignore",
+            "-Xnullability-annotations=@io.reactivex.rxjava3.annotations:strict", "-Xjsr305=warn",
+            "-Xnullability-annotations=@org.jspecify.annotations:strict",
+        ), s.flags)
+    }
+
+    // Every allowlisted flag must be one the embedded compiler parses: a misspelled or removed
+    // flag would otherwise be "applied" and silently do nothing.
+    @Test fun everyAllowlistedFlagIsKnownToTheEmbeddedCompiler() {
+        val sampleValues = mapOf(
+            "-Xannotation-default-target" to "param-property", "-Xjspecify-annotations" to "warn", "-Xjsr305" to "strict",
+            "-Xjvm-default" to "all", "-Xname-based-destructuring" to "only-syntax",
+            "-Xnullability-annotations" to "@org.jspecify.annotations:strict", "-Xreturn-value-checker" to "check",
+            "-Xsupport-compatqual-checker-framework-annotations" to "enable", "-jvm-default" to "enable",
+        )
+        for ((name, takesValue) in KotlinCompilerSettings.ALLOWLIST) {
+            val arg = if (takesValue) "$name=${sampleValues[name] ?: error("add a sample value for $name")}" else name
+            val settings = KotlinCompilerSettings.parse(listOf(arg))
+            assertEquals(listOf(arg), settings.flags, settings.warnings.toString())
+            val args = K2JVMCompilerArguments()
+            settings.applyTo(args)
+            val errors = args.errors
+            assertTrue(errors == null || (errors.unknownArgs.isEmpty() && errors.unknownExtraFlags.isEmpty()),
+                "$arg is not a flag of the embedded compiler: ${errors?.unknownArgs} ${errors?.unknownExtraFlags}")
+        }
     }
 
     @Test fun progressiveFalseTurnsProgressiveModeOff() {

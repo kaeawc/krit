@@ -65,27 +65,54 @@ data class KotlinCompilerSettings(
     companion object {
         /** Flag name to whether it takes a `=value`. */
         internal val ALLOWLIST: Map<String, Boolean> = mapOf(
+            "-Xallow-condition-implies-returns-contracts" to false, // allowlist:
+            "-Xallow-contracts-on-more-functions" to false, // allowlist:
+            "-Xallow-holdsin-contract" to false, // allowlist:
+            "-Xallow-kotlin-package" to false, // allowlist:
+            "-Xallow-reified-type-in-catch" to false, // allowlist:
+            "-Xallow-returns-result-of" to false, // allowlist:
+            "-Xallow-unstable-dependencies" to false, // allowlist:
             "-Xannotation-default-target" to true, // allowlist:
             "-Xannotation-target-all" to false, // allowlist:
+            "-Xannotations-in-metadata" to false, // allowlist:
+            "-Xcollection-literals" to false, // allowlist:
+            "-Xcompanion-blocks-and-extensions" to false, // allowlist:
             "-Xcontext-parameters" to false, // allowlist:
             "-Xcontext-receivers" to false, // allowlist:
             "-Xcontext-sensitive-resolution" to false, // allowlist:
             "-Xconsistent-data-class-copy-visibility" to false, // allowlist:
             "-Xdata-flow-based-exhaustiveness" to false, // allowlist:
+            "-Xeager-lambda-analysis" to false, // allowlist:
             "-Xenhance-type-parameter-types-to-def-not-null" to false, // allowlist:
             "-Xexplicit-backing-fields" to false, // allowlist:
+            "-Xexplicit-context-arguments" to false, // allowlist:
             "-Xexpect-actual-classes" to false, // allowlist:
+            "-Xintrinsic-const-evaluation" to false, // allowlist:
+            "-Xjspecify-annotations" to true, // allowlist:
             "-Xjsr305" to true, // allowlist:
             "-Xjvm-default" to true, // allowlist:
+            "-Xlocal-type-aliases" to false, // allowlist:
             "-Xmulti-dollar-interpolation" to false, // allowlist:
+            "-Xname-based-destructuring" to true, // allowlist:
             "-Xnested-type-aliases" to false, // allowlist:
             "-Xnon-local-break-continue" to false, // allowlist:
             "-Xnullability-annotations" to true, // allowlist:
             "-Xreturn-value-checker" to true, // allowlist:
+            "-Xskip-metadata-version-check" to false, // allowlist:
+            "-Xskip-prerelease-check" to false, // allowlist:
+            "-Xsupport-compatqual-checker-framework-annotations" to true, // allowlist:
             "-Xtype-enhancement-improvements-strict-mode" to false, // allowlist:
             "-Xunrestricted-builder-inference" to false, // allowlist:
             "-Xwhen-guards" to false, // allowlist:
+            "-jvm-default" to true, // allowlist:
         )
+
+        /**
+         * Valued flags the compiler declares as string arrays: every occurrence applies, and only
+         * occurrences that set the same subject (the value before its last ':', or the global state)
+         * replace each other.
+         */
+        internal val REPEATABLE = setOf("-Xjsr305", "-Xnullability-annotations")
 
         /** Arguments krit owns; the valued ones take the next token in split form. */
         private val PROTECTED = setOf(
@@ -153,6 +180,11 @@ data class KotlinCompilerSettings(
                             !takesValue && hasValue -> reject(arg, "flag takes no value")
                             takesValue && (!hasValue || !FLAG_VALUE.matches(arg.substringAfter('='))) ->
                                 reject(arg, "flag needs a simple value")
+                            name in REPEATABLE -> {
+                                val value = arg.substringAfter('=')
+                                val subject = if (':' in value) value.substringBeforeLast(':') else ""
+                                replaceFlag(flags, flagKeys, "$name=$subject", arg)
+                            }
                             else -> replaceFlag(flags, flagKeys, name, arg)
                         }
                     }

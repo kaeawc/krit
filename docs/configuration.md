@@ -370,9 +370,13 @@ Build systems that package generated code as source jars (Bazel's KSP, kapt,
 Wire/protobuf, SQLDelight and view-binding outputs) pass them with
 `--generated-srcjar PATH`, repeated once per archive, or list them per source
 set in the model as `generatedSourceJars`. Each srcjar is treated like a
-`generatedSourceDirs` entry: its `.kt` and `.java` files are compiled as FIR
-checker and type-oracle context, so code that uses a generated type is not
-gated, and nothing in it is reported. Other entries are ignored.
+`generatedSourceDirs` entry: its Kotlin files are compiled as FIR checker and
+type-oracle context, so code that uses a generated Kotlin type is not gated,
+and nothing in it is reported. Its `.java` files are unpacked too, but FIR
+sessions do not resolve Java sources yet, so code using a generated Java
+type (view binding, Wire-Java) stays gated
+([#1630](https://github.com/kaeawc/krit/issues/1630)). Other entries are
+ignored.
 
 The Kotlin compiler only reads sources from disk, so krit unpacks each srcjar
 once into `$KRIT_HOME/srcjars/<sha256 of the archive>/` (default

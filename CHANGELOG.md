@@ -6,9 +6,10 @@ All notable changes to Krit will be documented in this file.
 
 ### Added
 - `--generated-srcjar PATH` (repeatable) and the model field `generatedSourceJars` accept generated-source jars
-  (Bazel's KSP, kapt, Wire, SQLDelight and view-binding outputs). Like `generatedSourceDirs`, their `.kt` and `.java`
-  files are compiled as FIR checker and type-oracle context and never reported, so code using a generated type is no
-  longer gated. Each srcjar is unpacked once into `$KRIT_HOME/srcjars/<sha256>/` (#1588).
+  (Bazel's KSP, kapt, Wire, SQLDelight and view-binding outputs). Like `generatedSourceDirs`, their Kotlin files are
+  compiled as FIR checker and type-oracle context and never reported, so code using a generated Kotlin type is no
+  longer gated; generated Java is not resolved by FIR yet (#1630). Each srcjar is unpacked once into
+  `$KRIT_HOME/srcjars/<sha256>/` (#1588).
 - `--report FORMAT=PATH`, repeatable, writes several report formats (json, sarif, checkstyle, plain) from one analysis
   run instead of one scan per format. Each file is published atomically like `-o`; with only such reports stdout gets
   no report. A bare `--report FORMAT` is still an alias for `-f` (#1578).

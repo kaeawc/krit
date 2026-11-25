@@ -311,6 +311,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
+  and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
+  Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than
   a dozen directories deep, instead of falling back to the project profile.
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

@@ -85,6 +85,15 @@ class AnalysisSessionKotlinSettingsTest {
         }
     }
 
+    // Regression for #1571: name-based destructuring needs -Xname-based-destructuring on the
+    // embedded 2.4 compiler; a Gradle model that carries the flag must keep the file compiling.
+    @Test fun nameBasedDestructuringFollowsTheProjectsFlag() {
+        val without = errorsFor(NAME_BASED_DESTRUCTURING, emptyList())
+        assertEquals(setOf("A.kt"), without.keys)
+        assertTrue("name based destructuring" in without.getValue("A.kt"), without.toString())
+        assertEquals(emptyMap(), errorsFor(NAME_BASED_DESTRUCTURING, listOf("-Xname-based-destructuring=only-syntax")))
+    }
+
     @Test fun optInMarkersAreAppliedFromTheProjectSettings() {
         assertEquals(setOf("A.kt"), errorsFor(OPT_IN, emptyList()).keys)
         assertEquals(emptyMap(), errorsFor(OPT_IN, listOf("-opt-in=p.Experimental")))
@@ -191,6 +200,14 @@ class AnalysisSessionKotlinSettingsTest {
     }
 
     private companion object {
+        const val NAME_BASED_DESTRUCTURING = """
+            package p
+            data class User(val username: String, val email: String)
+            fun describe(user: User): String {
+                (val mail = email, val name = username) = user
+                return "${'$'}name <${'$'}mail>"
+            }
+        """
         val WHEN_GUARD = """
             package p
             fun f(x: Any): Int = when (x) {

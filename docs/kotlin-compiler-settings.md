@@ -157,16 +157,46 @@ compile errors in 60 files)` instead of `full (slice_unavailable)`.
 Only settings that change how source is analyzed are applied: the language
 and API level, opt-ins, progressive mode, and these flags:
 
-`-Xannotation-default-target=`, `-Xannotation-target-all`, `-Xcontext-parameters`,
-`-Xcontext-receivers`, `-Xcontext-sensitive-resolution`,
-`-Xconsistent-data-class-copy-visibility`,
-`-Xdata-flow-based-exhaustiveness`, `-Xenhance-type-parameter-types-to-def-not-null`,
-`-Xexplicit-backing-fields`, `-Xexpect-actual-classes`, `-Xjsr305=`,
-`-Xjvm-default=`, `-Xmulti-dollar-interpolation`, `-Xnested-type-aliases`,
-`-Xnon-local-break-continue`, `-Xnullability-annotations=`,
-`-Xreturn-value-checker=`, `-Xtype-enhancement-improvements-strict-mode`,
-`-Xunrestricted-builder-inference`, `-Xwhen-guards`, and
-`-XXLanguage:+Feature` / `-XXLanguage:-Feature`.
+* Language features: `-Xallow-condition-implies-returns-contracts`,
+  `-Xallow-contracts-on-more-functions`, `-Xallow-holdsin-contract`,
+  `-Xallow-reified-type-in-catch`, `-Xallow-returns-result-of`,
+  `-Xannotation-default-target=`, `-Xannotation-target-all`,
+  `-Xannotations-in-metadata`, `-Xcollection-literals`,
+  `-Xcompanion-blocks-and-extensions`, `-Xcontext-parameters`,
+  `-Xcontext-receivers`, `-Xcontext-sensitive-resolution`,
+  `-Xconsistent-data-class-copy-visibility`, `-Xdata-flow-based-exhaustiveness`,
+  `-Xeager-lambda-analysis`, `-Xexplicit-backing-fields`,
+  `-Xexplicit-context-arguments`, `-Xexpect-actual-classes`,
+  `-Xintrinsic-const-evaluation`, `-Xlocal-type-aliases`,
+  `-Xmulti-dollar-interpolation`, `-Xname-based-destructuring=`,
+  `-Xnested-type-aliases`, `-Xnon-local-break-continue`,
+  `-Xunrestricted-builder-inference`, `-Xwhen-guards`, and
+  `-XXLanguage:+Feature` / `-XXLanguage:-Feature`.
+* Java interop and nullability: `-Xenhance-type-parameter-types-to-def-not-null`,
+  `-Xjspecify-annotations=`, `-Xjsr305=`, `-Xnullability-annotations=`,
+  `-Xsupport-compatqual-checker-framework-annotations=`,
+  `-Xtype-enhancement-improvements-strict-mode`, `-Xjvm-default=` and `-jvm-default=`.
+* Dependency loading (without them the frontend reports errors the real build
+  does not): `-Xallow-kotlin-package`, `-Xallow-unstable-dependencies`,
+  `-Xskip-metadata-version-check`, `-Xskip-prerelease-check`.
+* Diagnostics: `-Xreturn-value-checker=`.
+
+`-Xjsr305=` and `-Xnullability-annotations=` are string arrays in the
+compiler: every occurrence applies, and a later one replaces an earlier one
+only for the same subject (the global state, `under-migration`, or one
+`@annotation`).
+
+The list is audited against the `compilerArgument` definitions of the
+embedded compiler (`compiler/arguments` in the Kotlin repository): a flag
+is applied when it enables a `LanguageFeature`, changes how Java or
+dependency classes are typed or loaded, or turns a frontend check on. Flags
+that only change codegen (`-Xlambdas`, `-Xsam-conversions`, `-Xstring-concat`,
+assertion and inlining switches), only change warning severity
+(`-Xexplicit-api`, `-Xwarning-level`, `-Xsuppress-warning`,
+`-Xsuppress-version-warnings`), or are obsolete (`-Xnew-inference`,
+`-Xinline-classes`) are not applied. A krit-fir test parses every
+allowlisted flag with the embedded compiler, so a flag the compiler does not
+know fails the build instead of being silently ignored.
 
 Krit-owned arguments are **protected** and can never be set from a model or a
 request: output (`-d`), classpath (`-classpath`, `-cp`), `-jvm-target`,

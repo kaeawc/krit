@@ -180,35 +180,63 @@ type kotlinFlagKind int
 const (
 	flagBoolean kotlinFlagKind = iota
 	flagValued
+	// flagRepeatable is a valued flag the compiler declares as a string array:
+	// every occurrence applies (-Xjsr305=strict -Xjsr305=@foo.Nullable:warn
+	// sets a global state and a per-annotation override). Occurrences that set
+	// the same subject (the part of the value before the last ':', or the
+	// global state when there is no ':') replace each other, as in the compiler.
+	flagRepeatable
 )
 
-// kotlinFlagAllowlist is the authoritative set of -X flags krit applies from a
+// kotlinFlagAllowlist is the authoritative set of flags krit applies from a
 // Gradle model. It lists flags that change language semantics, type
-// resolution or diagnostics the frontend produces; codegen, output, plugin and
-// path flags are never applied. The JVM helpers keep an identical copy
+// resolution, how dependencies load, or errors the frontend produces; codegen,
+// output, plugin, path and warning-only flags are never applied (see
+// docs/kotlin-compiler-settings.md for the audit against the embedded
+// compiler's arguments). The JVM helpers keep an identical copy
 // (KotlinCompilerSettings.kt in krit-fir) as defense in depth; a Go test
 // keeps the lists equal.
 var kotlinFlagAllowlist = map[string]kotlinFlagKind{
-	"-Xannotation-default-target":                    flagValued,
-	"-Xannotation-target-all":                        flagBoolean,
-	"-Xcontext-parameters":                           flagBoolean,
-	"-Xcontext-receivers":                            flagBoolean,
-	"-Xcontext-sensitive-resolution":                 flagBoolean,
-	"-Xconsistent-data-class-copy-visibility":        flagBoolean,
-	"-Xdata-flow-based-exhaustiveness":               flagBoolean,
-	"-Xenhance-type-parameter-types-to-def-not-null": flagBoolean,
-	"-Xexplicit-backing-fields":                      flagBoolean,
-	"-Xexpect-actual-classes":                        flagBoolean,
-	"-Xjsr305":                                       flagValued,
-	"-Xjvm-default":                                  flagValued,
-	"-Xmulti-dollar-interpolation":                   flagBoolean,
-	"-Xnested-type-aliases":                          flagBoolean,
-	"-Xnon-local-break-continue":                     flagBoolean,
-	"-Xnullability-annotations":                      flagValued,
-	"-Xreturn-value-checker":                         flagValued,
-	"-Xtype-enhancement-improvements-strict-mode":    flagBoolean,
-	"-Xunrestricted-builder-inference":               flagBoolean,
-	"-Xwhen-guards":                                  flagBoolean,
+	"-Xallow-condition-implies-returns-contracts":        flagBoolean,
+	"-Xallow-contracts-on-more-functions":                flagBoolean,
+	"-Xallow-holdsin-contract":                           flagBoolean,
+	"-Xallow-kotlin-package":                             flagBoolean,
+	"-Xallow-reified-type-in-catch":                      flagBoolean,
+	"-Xallow-returns-result-of":                          flagBoolean,
+	"-Xallow-unstable-dependencies":                      flagBoolean,
+	"-Xannotation-default-target":                        flagValued,
+	"-Xannotation-target-all":                            flagBoolean,
+	"-Xannotations-in-metadata":                          flagBoolean,
+	"-Xcollection-literals":                              flagBoolean,
+	"-Xcompanion-blocks-and-extensions":                  flagBoolean,
+	"-Xcontext-parameters":                               flagBoolean,
+	"-Xcontext-receivers":                                flagBoolean,
+	"-Xcontext-sensitive-resolution":                     flagBoolean,
+	"-Xconsistent-data-class-copy-visibility":            flagBoolean,
+	"-Xdata-flow-based-exhaustiveness":                   flagBoolean,
+	"-Xeager-lambda-analysis":                            flagBoolean,
+	"-Xenhance-type-parameter-types-to-def-not-null":     flagBoolean,
+	"-Xexplicit-backing-fields":                          flagBoolean,
+	"-Xexplicit-context-arguments":                       flagBoolean,
+	"-Xexpect-actual-classes":                            flagBoolean,
+	"-Xintrinsic-const-evaluation":                       flagBoolean,
+	"-Xjspecify-annotations":                             flagValued,
+	"-Xjsr305":                                           flagRepeatable,
+	"-Xjvm-default":                                      flagValued,
+	"-Xlocal-type-aliases":                               flagBoolean,
+	"-Xmulti-dollar-interpolation":                       flagBoolean,
+	"-Xname-based-destructuring":                         flagValued,
+	"-Xnested-type-aliases":                              flagBoolean,
+	"-Xnon-local-break-continue":                         flagBoolean,
+	"-Xnullability-annotations":                          flagRepeatable,
+	"-Xreturn-value-checker":                             flagValued,
+	"-Xskip-metadata-version-check":                      flagBoolean,
+	"-Xskip-prerelease-check":                            flagBoolean,
+	"-Xsupport-compatqual-checker-framework-annotations": flagValued,
+	"-Xtype-enhancement-improvements-strict-mode":        flagBoolean,
+	"-Xunrestricted-builder-inference":                   flagBoolean,
+	"-Xwhen-guards":                                      flagBoolean,
+	"-jvm-default":                                       flagValued,
 }
 
 // protectedKotlinArgs are arguments krit owns: output, classpath, plugin, JDK,
@@ -324,8 +352,14 @@ func (p *kotlinArgParser) flag(arg, name, value string, hasValue bool) {
 		p.reject(arg, "not an analysis-semantic setting krit applies")
 	case kind == flagBoolean && hasValue:
 		p.reject(arg, "flag takes no value")
-	case kind == flagValued && (!hasValue || !flagValueRe.MatchString(value)):
+	case kind != flagBoolean && (!hasValue || !flagValueRe.MatchString(value)):
 		p.reject(arg, "flag needs a simple value")
+	case kind == flagRepeatable:
+		subject := ""
+		if at := strings.LastIndexByte(value, ':'); at >= 0 {
+			subject = value[:at]
+		}
+		p.out.flags = appendFlag(p.out.flags, p.seenFlag, name+"="+subject, arg)
 	default:
 		// A repeated flag keeps its last position, so contradictory
 		// -XXLanguage toggles resolve the way the compiler would.

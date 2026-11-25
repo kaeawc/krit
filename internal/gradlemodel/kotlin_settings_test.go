@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -338,7 +339,13 @@ func kotlinStringSet(t *testing.T, text, name string) map[string]bool {
 func TestKotlinSettingsMatchHelpers(t *testing.T) {
 	wantAllow := map[string]bool{}
 	for name, kind := range kotlinFlagAllowlist {
-		wantAllow[name] = kind == flagValued
+		wantAllow[name] = kind != flagBoolean
+	}
+	wantRepeatable := map[string]bool{}
+	for name, kind := range kotlinFlagAllowlist {
+		if kind == flagRepeatable {
+			wantRepeatable[name] = true
+		}
 	}
 	wantProtected := map[string]bool{}
 	for name := range protectedKotlinArgs {
@@ -355,11 +362,14 @@ func TestKotlinSettingsMatchHelpers(t *testing.T) {
 	for name := range helperSources {
 		text := readHelper(t, name)
 		gotAllow := map[string]bool{}
-		for _, m := range regexp.MustCompile(`"(-X[A-Za-z0-9-]+)" to (true|false), // allowlist:`).FindAllStringSubmatch(text, -1) {
+		for _, m := range regexp.MustCompile(`"(-[A-Za-z][A-Za-z0-9-]*)" to (true|false), // allowlist:`).FindAllStringSubmatch(text, -1) {
 			gotAllow[m[1]] = m[2] == "true"
 		}
 		if !reflect.DeepEqual(gotAllow, wantAllow) {
 			t.Errorf("%s allowlist (name -> takes a value) differs from Go:\n got %v\nwant %v", name, gotAllow, wantAllow)
+		}
+		if got := kotlinStringSet(t, text, "REPEATABLE"); !reflect.DeepEqual(got, wantRepeatable) {
+			t.Errorf("%s repeatable set differs from Go:\n got %v\nwant %v", name, got, wantRepeatable)
 		}
 		if got := kotlinStringSet(t, text, "PROTECTED"); !reflect.DeepEqual(got, wantProtected) {
 			t.Errorf("%s protected set differs from Go:\n got %v\nwant %v", name, got, wantProtected)
@@ -390,12 +400,65 @@ func TestKotlinSettingsNullabilityValuesAllowAtSigns(t *testing.T) {
 	got := ClassifyKotlinArgs([]string{
 		"-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn", "-Xjsr305=strict", "@-Xjsr305=strict",
 	})
-	want := []string{"-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=strict"}
+	// -Xjsr305 is a string array in the compiler: the global state and the
+	// per-annotation override both apply.
+	want := []string{"-Xnullability-annotations=@org.jspecify.annotations:strict", "-Xjsr305=@org.example.Nullable:warn", "-Xjsr305=strict"}
 	if !reflect.DeepEqual(got.Flags, want) {
 		t.Fatalf("flags = %v want %v", got.Flags, want)
 	}
 	if len(got.Rejected) != 1 {
 		t.Fatalf("only the argument starting with '@' is rejected: %v", got.Rejected)
+	}
+}
+
+// Repeated occurrences of an array-valued flag accumulate, and only an
+// occurrence for the same subject replaces an earlier one, keeping its last
+// position.
+func TestKotlinSettingsRepeatableFlags(t *testing.T) {
+	got := ClassifyKotlinArgs([]string{
+		"-Xjsr305=strict", "-Xjsr305=under-migration:warn", "-Xjsr305=@org.a.Nullable:ignore",
+		"-Xnullability-annotations=@org.jspecify.annotations:warn", "-Xnullability-annotations=@io.reactivex.rxjava3.annotations:strict",
+		"-Xjsr305=warn", "-Xnullability-annotations=@org.jspecify.annotations:strict",
+	})
+	want := []string{
+		"-Xjsr305=under-migration:warn", "-Xjsr305=@org.a.Nullable:ignore",
+		"-Xnullability-annotations=@io.reactivex.rxjava3.annotations:strict", "-Xjsr305=warn",
+		"-Xnullability-annotations=@org.jspecify.annotations:strict",
+	}
+	if !reflect.DeepEqual(got.Flags, want) || len(got.Rejected) != 0 {
+		t.Fatalf("flags = %v rejected = %v\nwant %v", got.Flags, got.Rejected, want)
+	}
+}
+
+// Regression for #1571: language-feature and Java-nullability flags a Gradle
+// model carries reach the compiler arguments instead of being reported as
+// "not an analysis-semantic setting".
+func TestKotlinSettingsKeepSemanticFlagsFromModel(t *testing.T) {
+	args := []string{
+		"-Xname-based-destructuring=only-syntax", "-Xjspecify-annotations=warn",
+		"-Xsupport-compatqual-checker-framework-annotations=disable", "-Xexplicit-context-arguments",
+		"-Xcollection-literals", "-Xlocal-type-aliases", "-Xskip-prerelease-check", "-jvm-default=no-compatibility",
+	}
+	s := ResolveKotlinSettings(&KotlinOptions{LanguageVersion: "2.3", FreeCompilerArgs: args})
+	if len(s.Rejected) != 0 {
+		t.Fatalf("semantic flags rejected: %v", s.Rejected)
+	}
+	compiler := s.CompilerArgs()
+	for _, arg := range args {
+		if !slices.Contains(compiler, arg) {
+			t.Errorf("%s missing from compiler args %v", arg, compiler)
+		}
+	}
+	for _, arg := range []string{"-Xname-based-destructuring", "-Xjspecify-annotations", "-Xcollection-literals=true"} {
+		if got := ClassifyKotlinArgs([]string{arg}); len(got.Flags) != 0 || len(got.Rejected) != 1 {
+			t.Errorf("%s: malformed flag must be rejected, got %+v", arg, got)
+		}
+	}
+	// Codegen and warning-only flags stay out.
+	for _, arg := range []string{"-Xexplicit-api=strict", "-Xlambdas=class", "-Xsuppress-version-warnings", "-Xwarning-level=X:error"} {
+		if got := ClassifyKotlinArgs([]string{arg}); len(got.Flags) != 0 || len(got.Rejected) != 1 {
+			t.Errorf("%s must not be applied, got %+v", arg, got)
+		}
 	}
 }
 

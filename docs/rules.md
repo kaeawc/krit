@@ -445,3 +445,19 @@ Lint checks only modules that shrink, so krit stays quiet in a Gradle project wh
 `minifyEnabled true`. ProGuard/R8 keep rules, which Lint also accepts, and the MotionLayout `CustomAttribute` half of
 the detector (it needs source and resources together) are not covered.
 
+`androidx.fragment` 1.9.1 API misuse checks (Kotlin and Java):
+
+- `UseRequireInsteadOfGet` reports a Fragment's `arguments`, `context`, `activity`, `fragmentManager`, `host`,
+  `parentFragment` or `view` (or the `getX()` call) asserted with `!!`, or passed alone to `checkNotNull` or
+  `requireNonNull`, and names the `requireX()` rewrite as Lint does (`this.context!!` becomes
+  `this.requireContext()`). Kotlin's `requireNotNull` is not one of Lint's null checks, and a check with a message is
+  not rewritten. A local variable that shadows the getter is skipped, as in Lint; krit also skips a shadowing
+  parameter, which Lint reports.
+- `UseGetLayoutInflater` reports `LayoutInflater.from(x)` in a class whose direct superclass is `DialogFragment`. Lint's
+  Kotlin path also asks whether the class extends the unqualified name `DialogFragment`, which never matches, so
+  subclasses such as `AppCompatDialogFragment` are not reported in either language.
+- `DialogFragmentCallbacksDetector` reports `setOnCancelListener` and `setOnDismissListener` calls inside
+  `onCreateDialog` of a class whose first supertype is named `DialogFragment`, matching names as Lint does.
+- `DetachAndAttachSameFragment` reports a `beginTransaction()` on a FragmentManager whose transaction, followed through
+  call chains and local variables of the function, ends with `detach(f)` and `attach(f)` of the same fragment, at the
+  `beginTransaction` name. Fragments are compared by their argument text; Lint compares the resolved declaration.

@@ -83,6 +83,13 @@ All notable changes to Krit will be documented in this file.
   which krit does not read. It was checked against the Lint CLI, which matches same-file setters exactly. For setters
   in another file, Lint reports the same setters at positions computed against the wrong file; krit reports them at
   their declarations (#1227).
+- `UseRequireInsteadOfGet`, `UseGetLayoutInflater`, `DialogFragmentCallbacksDetector` and
+  `DetachAndAttachSameFragment`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and Java
+  and checked against that AAR's `lint.jar` through the Lint CLI on the same sources, with Lint's rewritten
+  suggestions in the messages. `UseRequireInsteadOfGet` does not report a parameter that shadows a Fragment getter,
+  which Lint does (#1446, #1447, #1448, #1450).
+
+### Added
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

@@ -272,7 +272,7 @@ abstract class KritCheckTask @Inject constructor(
         if (!fir.get()) add("--no-fir")
         if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
         if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
-        if (useBuiltDependencies.getOrElse(false)) {
+        if (useBuiltDependencies.getOrElse(false) && fir.getOrElse(true)) {
             add("--gradle-project-outputs"); add(writeProjectOutputs().absolutePath)
         }
         addCustomRuleJarArgs()

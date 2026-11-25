@@ -13,9 +13,11 @@ const ProjectOutputsSchema = 1
 // LoadProjectOutputs reads the built outputs of Gradle project dependencies, as the
 // Gradle plugin writes them for --gradle-project-outputs:
 //
-//	{"schema": 1, "projects": {":lib": ["/repo/lib/build/classes/kotlin/main"]}}
+//	{"schema": 1, "projects": {":lib": ["/repo/lib/build/libs/lib.jar"]}}
 //
-// Each project maps to its class directories or jars. A project listed here goes on
+// Each project maps to its jars. The Gradle plugin passes jars, not class directories:
+// krit's caches key a classpath entry by its size and modification time, which a
+// directory keeps when the classes in it are recompiled. A project listed here goes on
 // the classpath through these outputs instead of being compiled from its sources.
 func LoadProjectOutputs(path string) (map[string][]string, error) {
 	data, err := os.ReadFile(path)

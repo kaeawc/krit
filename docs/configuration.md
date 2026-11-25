@@ -391,8 +391,8 @@ environment variable. Duplicate paths keep their first position.
 
 A scan of one project compiles the sources of the projects it depends on as
 context. `--gradle-project-outputs FILE` names their built outputs instead, as
-`{"schema": 1, "projects": {":lib": ["/repo/lib/build/classes/kotlin/main"]}}`.
-A listed project goes on the classpath through those class directories or jars,
+`{"schema": 1, "projects": {":lib": ["/repo/lib/build/libs/lib.jar"]}}`.
+A listed project goes on the classpath through those jars (or class directories),
 and its sources are not compiled. The Gradle plugin writes this file when
 `krit { fir { useBuiltDependencies = true } }` is set. Such scans run in-process.
 

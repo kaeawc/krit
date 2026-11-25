@@ -321,12 +321,13 @@ krit { fir { useBuiltDependencies = true } }
 ```
 
 `kritCheck` then depends on the upstream compile tasks through the exported
-source sets' compile classpaths (class directories for JVM projects, AGP's
+source sets' compile classpaths (jars for JVM projects, AGP's
 `android-classes-jar` for Android libraries), so those results come from the build
 cache when available. krit compiles only the checked project's own sources, and
 reads the upstream classes from `--gradle-project-outputs`. The classes are an
 ABI-normalized input: an upstream change that keeps the ABI, such as a method body,
-does not rerun the check. The classpath is the one Gradle compiles with, so
+does not rerun the check. Projects of included builds are left to krit as
+before. The classpath is the one Gradle compiles with, so
 upstream implementation dependencies are not visible, as in a normal compile.
 This needs a krit release after 0.5.0.
 

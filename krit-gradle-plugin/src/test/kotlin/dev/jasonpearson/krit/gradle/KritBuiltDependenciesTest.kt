@@ -75,14 +75,15 @@ class KritBuiltDependenciesTest {
         val root = fixture()
         val result = run(root, ":leaf:kritCheck")
         assertEquals(TaskOutcome.SUCCESS, result.task(":leaf:kritCheck")?.outcome, result.output)
-        assertEquals(TaskOutcome.SUCCESS, result.task(":mid:compileJava")?.outcome, result.output)
-        assertEquals(TaskOutcome.SUCCESS, result.task(":core:compileJava")?.outcome, result.output)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":mid:jar")?.outcome, result.output)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":core:jar")?.outcome, result.output)
         assertNull(result.task(":leaf:compileJava"), "the checked project itself is not compiled")
 
+        // Jars, not class directories: krit keys classpath entries by size and mtime.
         val projects = outputs(root)
         assertEquals(setOf(":core", ":mid"), projects.keys, projects.toString())
-        assertEquals(listOf(modelPath(File(root, "mid/build/classes/java/main"))), projects[":mid"])
-        assertEquals(listOf(modelPath(File(root, "core/build/classes/java/main"))), projects[":core"])
+        assertEquals(listOf(modelPath(File(root, "mid/build/libs/mid.jar"))), projects[":mid"])
+        assertEquals(listOf(modelPath(File(root, "core/build/libs/core.jar"))), projects[":core"])
     }
 
     @Test
@@ -100,6 +101,32 @@ class KritBuiltDependenciesTest {
             "package mid;\npublic class Mid {\n    public int value() { return 2; }\n    public int added() { return 3; }\n}\n"
         )
         assertEquals(TaskOutcome.SUCCESS, run(root, ":leaf:kritCheck").task(":leaf:kritCheck")?.outcome)
+    }
+
+    @Test
+    fun `a task with FIR off neither builds upstream nor passes outputs`() {
+        val root = fixture()
+        File(root, "leaf/build.gradle.kts").appendText(
+            "tasks.named<dev.jasonpearson.krit.gradle.KritCheckTask>(\"kritCheck\") { fir = false }\n"
+        )
+        val result = run(root, ":leaf:kritCheck")
+        assertNull(result.task(":mid:jar"), result.output)
+        assertFalse(File(root, "argv.log").readText().contains("--gradle-project-outputs"))
+    }
+
+    // An included build's project is another build's: its path may equal one of ours,
+    // and krit's --gradle-project-outputs keys this build's projects only.
+    @Test
+    fun `included build projects are not passed as this build's projects`() {
+        val root = fixture()
+        File(root, "ext/util/src/main/java/util").mkdirs()
+        File(root, "ext/settings.gradle.kts").writeText("rootProject.name = \"ext\"\ninclude(\"util\")\n")
+        File(root, "ext/util/build.gradle.kts").writeText("plugins { `java-library` }\ngroup = \"g\"\n")
+        File(root, "ext/util/src/main/java/util/Util.java").writeText("package util;\npublic class Util {}\n")
+        File(root, "settings.gradle.kts").appendText("includeBuild(\"ext\")\n")
+        File(root, "leaf/build.gradle.kts").appendText("dependencies { implementation(\"g:util\") }\n")
+        run(root, ":leaf:kritCheck")
+        assertEquals(setOf(":core", ":mid"), outputs(root).keys)
     }
 
     @Test

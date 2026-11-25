@@ -117,6 +117,36 @@ class KritSettingsPluginFunctionalTest {
             "expected configuration cache reuse; got:\n${second.output}")
     }
 
+    // The root kritCheckAll aggregates every included, non-skipped project's model
+    // through project dependencies, so it stays Isolated Projects safe.
+    @Test
+    fun `root kritCheckAll exports every included project's model`() {
+        val kritGradlePluginDir = locateKritGradlePlugin() ?: return
+        writeMultiProjectBuild(kritGradlePluginDir, skipList = "\":skipped\"")
+        File(projectDir, "settings.gradle.kts").appendText(
+            "\ndependencyResolutionManagement { repositories { mavenCentral() } }\n"
+        )
+        File(projectDir, "gradle.properties").writeText("kotlin.internal.collectFUSMetrics=false\n")
+
+        fun run() = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withArguments(":kritCheckAll", "--dry-run", "--configuration-cache",
+                "-Dorg.gradle.isolated-projects=true", "--stacktrace")
+            .forwardOutput()
+            .build()
+
+        val first = run()
+        assertTrue("Isolated Projects is an incubating feature." in first.output, first.output)
+        assertTrue("Configuration cache entry stored." in first.output, first.output)
+        assertTrue(":lib1:kritExportModel SKIPPED" in first.output, first.output)
+        assertTrue(":lib2:kritExportModel SKIPPED" in first.output, first.output)
+        assertTrue(":kritCheckAll SKIPPED" in first.output, first.output)
+        assertFalse(":skipped:kritExportModel" in first.output, first.output)
+        assertFalse(":lib1:kritCheck " in first.output, first.output)
+        assertTrue("Reusing configuration cache." in run().output)
+    }
+
     private fun writeMultiProjectBuild(kritGradlePluginDir: String, skipList: String) {
         // Escape backslashes so Windows paths survive the heredoc.
         val safePath = kritGradlePluginDir.replace("\\", "\\\\")

@@ -1,0 +1,188 @@
+package dev.jasonpearson.krit.gradle
+
+import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.IgnoreEmptyDirectories
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.SkipWhenEmpty
+import org.gradle.api.tasks.TaskAction
+import org.gradle.language.base.plugins.LifecycleBasePlugin
+import org.gradle.process.ExecOperations
+import java.io.ByteArrayOutputStream
+import java.io.File
+import javax.inject.Inject
+
+/**
+ * Whole-build krit scan: one krit process (and so one FIR session, or one set of
+ * module-shard workers) over the build root, reading every project's exported
+ * Gradle model. Registered as `kritCheckAll` by the `dev.jasonpearson.krit.aggregate`
+ * plugin, which the settings plugin applies to the root project.
+ *
+ * The models reach this task through variant-aware project dependencies (see
+ * [KritAggregatePlugin]), so the task never touches another project's state and
+ * stays Isolated Projects safe.
+ */
+@CacheableTask
+abstract class KritCheckAllTask @Inject constructor(
+    private val execOps: ExecOperations,
+) : DefaultTask() {
+
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val kritBinary: RegularFileProperty
+
+    @get:Input
+    abstract val toolVersion: Property<String>
+
+    @get:Internal
+    abstract val binaryResolver: Property<KritBinaryResolver>
+
+    /** Every project's `kritExportModel` output; they all live in `<root>/.krit/gradle-model`. */
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val modelFiles: ConfigurableFileCollection
+
+    /**
+     * The files krit reads under [scanRoot], so the task is up to date only when
+     * none of them changed. Build directories and krit's own state are excluded.
+     */
+    @get:InputFiles
+    @get:SkipWhenEmpty
+    @get:IgnoreEmptyDirectories
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sources: ConfigurableFileCollection
+
+    /** Directory krit scans: the build root. Its content is tracked through [sources]. */
+    @get:Internal
+    abstract val scanRoot: DirectoryProperty
+
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val config: RegularFileProperty
+
+    @get:InputFile
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val baseline: RegularFileProperty
+
+    @get:Input abstract val allRules: Property<Boolean>
+    @get:Input abstract val ignoreFailures: Property<Boolean>
+    @get:Input abstract val parallel: Property<Int>
+    @get:Input abstract val noCache: Property<Boolean>
+    @get:Input abstract val typeInference: Property<Boolean>
+    @get:Input abstract val fir: Property<Boolean>
+
+    /**
+     * `KRIT_MODULE_SHARDS` for the scan (`auto`, a worker count, `merged`, `isolate`);
+     * unset keeps krit's default whole-repository compile. See docs/module-sharding.md.
+     */
+    @get:Input
+    @get:Optional
+    abstract val moduleShards: Property<String>
+
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val customRuleJars: ConfigurableFileCollection
+
+    @get:Input abstract val sarifRequired: Property<Boolean>
+    @get:OutputFile @get:Optional abstract val sarifOutput: RegularFileProperty
+    @get:Input abstract val jsonRequired: Property<Boolean>
+    @get:OutputFile @get:Optional abstract val jsonOutput: RegularFileProperty
+    @get:Input abstract val plainRequired: Property<Boolean>
+    @get:OutputFile @get:Optional abstract val plainOutput: RegularFileProperty
+    @get:Input abstract val checkstyleRequired: Property<Boolean>
+    @get:OutputFile @get:Optional abstract val checkstyleOutput: RegularFileProperty
+
+    init {
+        group = LifecycleBasePlugin.VERIFICATION_GROUP
+        description = "Run one krit analysis over the whole build with every project's Gradle model"
+    }
+
+    @TaskAction
+    fun check() {
+        val reports = listOfNotNull(
+            report("sarif", sarifRequired, sarifOutput),
+            report("json", jsonRequired, jsonOutput),
+            report("plain", plainRequired, plainOutput),
+            report("checkstyle", checkstyleRequired, checkstyleOutput),
+        ).ifEmpty {
+            listOfNotNull(sarifOutput.orNull?.let { "sarif" to it.asFile })
+        }
+        if (reports.isEmpty()) throw GradleException("kritCheckAll: no report output configured")
+        reports.forEach { (_, file) -> file.parentFile.mkdirs() }
+
+        val executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
+        val root = scanRoot.get().asFile
+        var findingsExit = 0
+        // One scan per format until the CLI can write several formats from one run.
+        reports.forEach { (format, output) ->
+            val stderr = ByteArrayOutputStream()
+            val result = execOps.exec {
+                this.executable = executable
+                workingDir = root
+                moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
+                args(scanArgs(format, output, root))
+                errorOutput = stderr
+                isIgnoreExitValue = true
+            }
+            if (result.exitValue == 2) {
+                throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
+            }
+            if (findingsExit == 0) findingsExit = result.exitValue
+        }
+        if (findingsExit != 0 && !ignoreFailures.get()) {
+            throw GradleException(
+                "krit analysis found issues (exit code $findingsExit). " +
+                    "See reports at: ${reports.joinToString(", ") { it.second.absolutePath }}"
+            )
+        }
+    }
+
+    private fun report(format: String, required: Property<Boolean>, output: RegularFileProperty): Pair<String, File>? =
+        if (required.getOrElse(false)) output.orNull?.let { format to it.asFile } else null
+
+    private fun scanArgs(format: String, output: File, root: File): List<String> = buildList {
+        add("--format=$format")
+        add("-o"); add(output.absolutePath)
+        add("-j"); add(parallel.get().toString())
+        if (allRules.get()) add("--all-rules")
+        if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }
+        if (baseline.isPresent) { add("--baseline"); add(baseline.get().asFile.absolutePath) }
+        if (noCache.get()) add("--no-cache")
+        if (!typeInference.get()) add("--no-type-inference")
+        if (!fir.get()) add("--no-fir")
+        appendCustomRuleJarArgs(customRuleJars.files.map { it.absolutePath })
+        add("-q")
+        add(root.absolutePath)
+    }
+
+    internal companion object {
+        /** Files under the build root that a whole-build scan reads. */
+        val SOURCE_INCLUDES = listOf(
+            "**/*.kt", "**/*.kts", "**/*.java", "**/*.xml", "**/*.toml", "**/*.gradle",
+            "**/krit.yml", "**/.krit.yml",
+        )
+
+        /** Build outputs and tool state: never analysis input, and often other tasks' outputs. */
+        val SOURCE_EXCLUDES = listOf(
+            "**/build/**", "**/.gradle/**", "**/.krit/**", "**/.git/**", "**/.idea/**",
+            "**/node_modules/**", "**/.kotlin/**",
+        )
+    }
+}

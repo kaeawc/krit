@@ -200,6 +200,42 @@ Runs krit analysis on all configured Kotlin sources. Produces a SARIF report at 
 ./gradlew kritCheck
 ```
 
+### `kritCheckAll`
+
+One krit scan of the whole build: a single krit process, and so a single FIR
+session, over the build root, reading every project's `kritExportModel` output.
+Registered on the root project by `dev.jasonpearson.krit.aggregate`, which the
+[settings plugin](../krit-settings-plugin/README.md) applies automatically.
+Without the settings plugin, apply it to the root project and list the projects:
+
+```kotlin
+// build.gradle.kts (root)
+plugins { id("dev.jasonpearson.krit.aggregate") version "0.5.0" }
+
+dependencies {
+    kritAggregate(project(":app"))
+    kritAggregate(project(":lib"))
+}
+```
+
+Each project with the krit plugin publishes its model on a `kritModelElements`
+variant, and `kritCheckAll` resolves them through these project dependencies.
+That way it never reads another project's state, and it stays configuration
+cache and Isolated Projects safe. A listed project without the krit plugin is
+skipped. The root `krit { }` block configures the scan (config, baseline, FIR,
+binary, reports). Reports go to `build/reports/krit/all/`.
+
+The task is up to date until a model, or a Kotlin, Java, XML, Gradle, TOML or
+`krit.yml` file under the root (outside `build/`, `.gradle/` and `.krit/`), changes.
+`advanced.moduleShards` passes `KRIT_MODULE_SHARDS` to the scan
+(`"auto"` or a worker count analyzes modules on several worker JVMs against their
+built dependency jars; see [module sharding](../docs/module-sharding.md)). Unset,
+krit compiles the whole repository in one session.
+
+**Which task should CI use?** `kritCheckAll`. Per-project `kritCheck` starts one
+krit process and FIR JVM per project, and compiles unbuilt upstream projects'
+sources again for each dependent project. Keep `kritCheck` for single-module work.
+
 ### `kritFormat`
 
 Applies krit auto-fixes to Kotlin sources. The fix level is controlled by the `fixLevel` extension property.

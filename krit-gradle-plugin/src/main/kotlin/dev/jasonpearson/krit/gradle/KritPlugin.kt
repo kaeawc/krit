@@ -108,7 +108,7 @@ class KritPlugin : Plugin<Project> {
 
         // Register the binary resolver as a shared build service
         val binaryResolver = project.gradle.sharedServices.registerIfAbsent(
-            "kritBinaryResolver",
+            BINARY_RESOLVER_SERVICE,
             KritBinaryResolver::class.java,
         ) {
             parameters.version.set(extension.advanced.toolVersion)
@@ -150,6 +150,28 @@ class KritPlugin : Plugin<Project> {
             plainOutput.convention(extension.reports.plain.outputLocation)
             checkstyleRequired.convention(extension.reports.checkstyle.required)
             checkstyleOutput.convention(extension.reports.checkstyle.outputLocation)
+        }
+
+        // Wire task defaults for the root kritCheckAll (dev.jasonpearson.krit.aggregate)
+        project.tasks.withType(KritCheckAllTask::class.java).configureEach {
+            kritBinary.convention(advanced.binary)
+            toolVersion.convention(toolVersionInput)
+            this.binaryResolver.convention(binaryResolver)
+            usesService(binaryResolver)
+            allRules.convention(advanced.allRules)
+            ignoreFailures.convention(extension.ignoreFailures)
+            config.convention(extension.config)
+            baseline.convention(extension.baseline)
+            parallel.convention(advanced.parallel)
+            noCache.convention(advanced.noCache)
+            typeInference.convention(advanced.typeInference)
+            fir.convention(extension.fir)
+            moduleShards.convention(advanced.moduleShards)
+            customRuleJars.from(extension.customRuleJars)
+            sarifRequired.convention(extension.reports.sarif.required)
+            jsonRequired.convention(extension.reports.json.required)
+            plainRequired.convention(extension.reports.plain.required)
+            checkstyleRequired.convention(extension.reports.checkstyle.required)
         }
 
         // Wire task defaults for all KritFormatTask instances
@@ -809,6 +831,15 @@ class KritPlugin : Plugin<Project> {
             rootDir.set(rootPath)
             outputFile.set(File(rootPath, ".krit/gradle-model/${fileName}.json"))
         }
+        // Published for the root kritCheckAll (KritAggregatePlugin), which resolves
+        // every project's model through a project dependency.
+        project.configurations.create(KRIT_MODEL_ELEMENTS) {
+            isCanBeConsumed = true
+            isCanBeResolved = false
+            attributes.attribute(Category.CATEGORY_ATTRIBUTE,
+                project.objects.named(Category::class.java, KRIT_GRADLE_MODEL_CATEGORY))
+            outgoing.artifact(export.flatMap { it.outputFile })
+        }
         if (extension.exportGenerated.get()) {
             val variantNames = specs.filter { it.platform == "android" }.map { it.variant }
                 .filter { it.isNotEmpty() }.distinct()
@@ -930,6 +961,14 @@ class KritPlugin : Plugin<Project> {
          * `dev.jasonpearson.krit.custom`'s `KritCustomRulePlugin`.
          */
         const val KRIT_RULE_BUNDLE_CATEGORY = "krit-rule-bundle"
+
+        /** Category of the consumable variant carrying a project's `kritExportModel` file. */
+        const val KRIT_GRADLE_MODEL_CATEGORY = "krit-gradle-model"
+
+        /** Consumable configuration that publishes the project's exported model. */
+        const val KRIT_MODEL_ELEMENTS = "kritModelElements"
+
+        internal const val BINARY_RESOLVER_SERVICE = "kritBinaryResolver"
 
         const val KOTLIN_JVM_PLUGIN_ID = "org.jetbrains.kotlin.jvm"
         const val KOTLIN_MULTIPLATFORM_PLUGIN_ID = "org.jetbrains.kotlin.multiplatform"

@@ -249,6 +249,19 @@ type streamingAnalyzeResponse struct {
 
 var _ daemon.RawResponseWriter = (*streamingAnalyzeResponse)(nil)
 
+// addFirStats records the FIR pass's degraded state and coverage, when the
+// request ran one.
+func (r *streamingAnalyzeResponse) addFirStats(stats *daemon.AnalyzeProjectStats) {
+	if r.in.Host.FirDegraded != nil {
+		if d := r.in.Host.FirDegraded(); d != nil {
+			stats.FirDegraded = &daemon.FirDegradedStats{Reason: d.Reason, FallbackRules: d.FallbackRules}
+		}
+	}
+	if r.in.Host.FirCoverage != nil {
+		stats.FirCoverage = r.in.Host.FirCoverage()
+	}
+}
+
 func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Writer) error {
 	defer r.releaseLock()
 
@@ -294,14 +307,7 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 		},
 		ProfileWarnings: profileWarnings,
 	}
-	if r.in.Host.FirDegraded != nil {
-		if d := r.in.Host.FirDegraded(); d != nil {
-			stats.FirDegraded = &daemon.FirDegradedStats{Reason: d.Reason, FallbackRules: d.FallbackRules}
-		}
-	}
-	if r.in.Host.FirCoverage != nil {
-		stats.FirCoverage = r.in.Host.FirCoverage()
-	}
+	r.addFirStats(&stats)
 	// CreateBaseline ships a sorted+deduped baseline-ID list so the
 	// CLI can write the XML locally — daemon never writes user
 	// files. See scanner.CollectBaselineIDs / WriteBaselineIDsXML.

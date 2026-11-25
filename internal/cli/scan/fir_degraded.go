@@ -95,16 +95,16 @@ func reportFirCoverage(w io.Writer, f *scanFlags, cov *output.FirCoverage, degra
 	if f.MinFirCoverage == nil || *f.MinFirCoverage <= 0 {
 		return 0
 	}
-	min := *f.MinFirCoverage
+	threshold := *f.MinFirCoverage
 	switch {
 	case degraded || (cov == nil && firRequested(f)):
-		fmt.Fprintf(w, "error: --min-fir-coverage=%g: the FIR pass did not run\n", min)
+		fmt.Fprintf(w, "error: --min-fir-coverage=%g: the FIR pass did not run\n", threshold)
 		return 2
 	case cov == nil:
 		return 0
-	case cov.Ratio() < min:
+	case cov.Ratio() < threshold:
 		fmt.Fprintf(w, "error: --min-fir-coverage=%g: FIR analyzed %.1f%% of the files it checked (%d of %d; %d gated)\n",
-			min, 100*cov.Ratio(), cov.Authoritative, cov.Authoritative+cov.Gated, cov.Gated)
+			threshold, 100*cov.Ratio(), cov.Authoritative, cov.Authoritative+cov.Gated, cov.Gated)
 		return 2
 	}
 	return 0

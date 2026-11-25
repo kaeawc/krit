@@ -540,7 +540,7 @@ func (AndroidPhase) manifestBundleFingerprint(paths []string) string {
 // loads cached findings), dispatches manifest rules on miss, and queues
 // fresh entries on the writer. Returns accumulated timing durations and
 // cache outcome counts.
-func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.FindingCollector) (parseDur, ruleDur time.Duration, stats manifestCacheStats) {
+func (p AndroidPhase) runManifestPhase(in AndroidInput, manifests *parsedManifests, collector *scanner.FindingCollector) (parseDur, ruleDur time.Duration, stats manifestCacheStats) {
 	cacheable := in.CacheDir != "" && in.CacheWriter != nil && in.RuleHash != ""
 	preferenceFacts := &manifestSourceFacts{needed: anyRuleNamed(in.ActiveRules, "ExportedPreferenceActivityManifest") && len(in.Project.ManifestPaths) > 0}
 	var bundleFP string
@@ -585,7 +585,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 					continue
 				}
 				stats.misses++
-				cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, preferenceFacts)
+				cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, manifests, preferenceFacts)
 				parseDur += pdur
 				ruleDur += rdur
 				collector.AppendColumns(&cols)
@@ -598,7 +598,7 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 				continue
 			}
 		}
-		cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, preferenceFacts)
+		cols, resultCacheable, pdur, rdur := p.runManifestOne(in, path, manifests, preferenceFacts)
 		parseDur += pdur
 		ruleDur += rdur
 		collector.AppendColumns(&cols)
@@ -615,14 +615,13 @@ func (p AndroidPhase) runManifestPhase(in AndroidInput, collector *scanner.Findi
 
 // runManifestOne does the parse + rule dispatch for a single manifest path.
 // Returns the empty FindingColumns when parsing fails.
-func (AndroidPhase) runManifestOne(in AndroidInput, path string, facts *manifestSourceFacts) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
+func (AndroidPhase) runManifestOne(in AndroidInput, path string, manifests *parsedManifests, facts *manifestSourceFacts) (scanner.FindingColumns, bool, time.Duration, time.Duration) {
 	parseStart := time.Now()
-	parsed, err := android.ParseManifest(path)
+	manifest, err := manifests.get(path)
 	parseDur := time.Since(parseStart)
 	if err != nil {
 		return scanner.FindingColumns{}, true, parseDur, 0
 	}
-	manifest := ConvertManifestForRules(android.ConvertManifest(parsed, path))
 	if facts != nil && facts.needed {
 		manifest.ActivityExtendsPreferenceActivity = facts.preferenceActivities(in.SourceFiles)
 	}
@@ -1141,7 +1140,9 @@ func filterAndroidSuppressedFindings(file *scanner.File, cols scanner.FindingCol
 
 func (p AndroidPhase) runManifestSubphase(in AndroidInput, collector *scanner.FindingCollector, tracker perf.Tracker) {
 	manifestTracker := tracker.Serial("manifestAnalysis")
-	manifestParseDur, manifestRuleDur, manifestStats := p.runManifestPhase(in, collector)
+	manifests := &parsedManifests{}
+	manifestParseDur, manifestRuleDur, manifestStats := p.runManifestPhase(in, manifests, collector)
+	p.runManifestSourcePass(in, manifests, collector, manifestTracker)
 	perf.AddEntry(manifestTracker, "manifestParse", manifestParseDur)
 	perf.AddEntry(manifestTracker, "manifestRuleChecks", manifestRuleDur)
 	if manifestStats.hits+manifestStats.misses+manifestStats.skips > 0 {

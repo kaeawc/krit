@@ -228,6 +228,16 @@ func (in AndroidInput) androidProjectBundleFingerprint(needs androidPhaseNeeds, 
 			h.Write([]byte("icon-manifest\x00" + iconManifestFingerprint(resDir) + "\x00"))
 		}
 	}
+	if hasManifestSourceRules(in.ActiveRules) {
+		sourceFP, ok := in.manifestSourceSourceFingerprint()
+		if !ok {
+			return "", false
+		}
+		h.Write([]byte("manifest-sources"))
+		h.Write([]byte{0})
+		h.Write([]byte(sourceFP))
+		h.Write([]byte{0})
+	}
 	if hasResourceSourceRules(in.ActiveRules) {
 		sourceFP, ok := in.resourceSourceFingerprintForBundle()
 		if !ok {

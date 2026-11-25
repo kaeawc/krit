@@ -46,6 +46,9 @@ func (CrossFilePhase) classifyCrossFileNeeds(activeRules []*api.Rule) (hasIndexB
 		if r == nil {
 			continue
 		}
+		if rules.RuleScope(r) == api.ScopeManifestSource {
+			continue
+		}
 		if r.Needs.Has(api.NeedsParsedFiles) {
 			hasParsedFiles = true
 		} else if r.Needs.Has(api.NeedsCrossFile) {
@@ -554,6 +557,10 @@ func splitConcurrentCrossRules(active []*api.Rule) (serial, concurrent []*api.Ru
 			continue
 		}
 		if !r.Needs.Has(api.NeedsParsedFiles) && !r.Needs.Has(api.NeedsCrossFile) {
+			continue
+		}
+		// Manifest-source rules need the manifests, so the Android phase runs them.
+		if rules.RuleScope(r) == api.ScopeManifestSource {
 			continue
 		}
 		if r.Needs.Has(api.NeedsConcurrent) {

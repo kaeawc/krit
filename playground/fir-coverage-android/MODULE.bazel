@@ -21,7 +21,8 @@ local_path_override(
 )
 
 # The krit module downloads a release binary; use the one built from this
-# checkout instead: `go build -o playground/fir-coverage-android/.krit-bin/krit ./cmd/krit`.
+# checkout instead: `go build -o playground/fir-coverage-android/.krit-bin/dist/krit ./cmd/krit`
+# (the same dist/ layout as the release repository).
 krit = use_extension("@krit//:extensions.bzl", "krit")
 
 new_local_repository = use_repo_rule("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
@@ -33,7 +34,7 @@ load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
 
 native_binary(
     name = "krit",
-    src = "krit",
+    src = "dist/krit",
     out = "krit_bin",
     visibility = ["//visibility:public"],
 )

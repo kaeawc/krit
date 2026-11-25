@@ -46,16 +46,15 @@ Needs JDK 21, the Android SDK (`ANDROID_HOME`, platform 36 and build-tools
 36.0.0), Go, and Bazelisk. From the repository root:
 
 ```bash
-mkdir -p playground/fir-coverage-android/.krit-bin
-go build -o playground/fir-coverage-android/.krit-bin/krit ./cmd/krit/
+go build -o playground/fir-coverage-android/.krit-bin/dist/krit ./cmd/krit/
 make fir-jar   # or set KRIT_FIR_JAR
 cd playground/fir-coverage-android
 
 # Gradle
-./gradlew kritExportModel -PkritBinary="$PWD/.krit-bin/krit"
-.krit-bin/krit --no-daemon --fir -v . 2>&1 | grep -E 'FIR verdict:|FIR gated'
+./gradlew kritExportModel -PkritBinary="$PWD/.krit-bin/dist/krit"
+.krit-bin/dist/krit --no-daemon --fir -v . 2>&1 | grep -E 'FIR verdict:|FIR gated'
 
-# Bazel (uses .krit-bin/krit through override_repo in MODULE.bazel)
+# Bazel (uses .krit-bin/dist/krit through override_repo in MODULE.bazel)
 bazel build //...
 bazel test //:krit_test
 ```

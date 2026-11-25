@@ -125,21 +125,21 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: krit-bin
-          path: ${{ env.SAMPLE }}/.krit-bin
+          path: ${{ env.SAMPLE }}/.krit-bin/dist
       - name: Stage krit
         working-directory: ${{ env.SAMPLE }}
         run: |
-          chmod +x .krit-bin/krit
+          chmod +x .krit-bin/dist/krit
           cp ci/krit-verbose.sh .krit-bin/krit-verbose
-          echo "KRIT_FIR_JAR=$PWD/.krit-bin/krit-fir.jar" >> "$GITHUB_ENV"
+          echo "KRIT_FIR_JAR=$PWD/.krit-bin/dist/krit-fir.jar" >> "$GITHUB_ENV"
           echo "KRIT_NO_JAR_DOWNLOAD=1" >> "$GITHUB_ENV"
           echo "KRIT_NO_DAEMON_AUTOSTART=1" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/fir"
       - name: kritExportModel, then the whole-build CLI scan
         working-directory: ${{ env.SAMPLE }}
         run: |
-          ./gradlew kritExportModel -PkritBinary="$PWD/.krit-bin/krit"
-          .krit-bin/krit --no-daemon --no-cache --fir -v -f json -o "$RUNNER_TEMP/fir/gradle-model-cli.json" . \
+          ./gradlew kritExportModel -PkritBinary="$PWD/.krit-bin/dist/krit"
+          .krit-bin/dist/krit --no-daemon --no-cache --fir -v -f json -o "$RUNNER_TEMP/fir/gradle-model-cli.json" . \
             2> "$RUNNER_TEMP/fir/gradle-model-cli.log" || true
           grep -E 'FIR verdict:|FIR gated|error' "$RUNNER_TEMP/fir/gradle-model-cli.log" || true
           python3 ci/fir_coverage.py measure gradle-model-cli "$RUNNER_TEMP/fir/gradle-model-cli.result.json" \
@@ -189,14 +189,14 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: krit-bin
-          path: ${{ env.SAMPLE }}/.krit-bin
+          path: ${{ env.SAMPLE }}/.krit-bin/dist
       - name: Stage krit
         run: |
-          chmod +x "$SAMPLE/.krit-bin/krit"
+          chmod +x "$SAMPLE/.krit-bin/dist/krit"
           mkdir -p "$RUNNER_TEMP/fir"
       - name: bazel build //...
         working-directory: ${{ env.SAMPLE }}
-        run: bazel build //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-build.log"
+        run: bazel build --keep_going //... 2>&1 | tee "$RUNNER_TEMP/fir/bazel-build.log"
       - name: bazel test (krit_test)
         working-directory: ${{ env.SAMPLE }}
         run: |

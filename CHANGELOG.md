@@ -5,6 +5,17 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `CompileTimeConstant`, a partial port of Android Lint 32.4.1's `CompileTimeConstantDetector` under its Lint ID for
+  Kotlin and Java, checked against the Lint CLI on the same inputs. For callees and variables declared in the same
+  file it reports a non-constant argument for a `@CompileTimeConstant` parameter and a non-constant (or compound)
+  assignment to a `@CompileTimeConstant` variable, using Lint's notion of a constant: literals, `const val`, final Java
+  fields and declared-final locals with constant initializers, annotated parameters, constant string templates and
+  concatenations, both branches of an `if`, and `listOf`/`setOf`/`emptyList`/`emptySet` of constants. It also reports
+  Lint's declaration checks: non-final annotated fields, annotated public properties without `@JvmField`,
+  `@field:CompileTimeConstant` constructor properties, annotated setter parameters, `@receiver:` use, `++`/`--` on an
+  annotated variable, overrides that add the annotation to a same-file supertype method, and function references to
+  such methods. Calls into other files or libraries, references to declarations in other files, Kotlin operator
+  overloads, and methods inherited through interfaces are not checked yet (part of #1151).
 - `RemoveWorkManagerInitializer` and `SpecifyForegroundServiceType`, the `androidx.work:work-runtime` 2.12.0 checks that
   join source with `AndroidManifest.xml`, ported for Kotlin and Java on the new `manifest-source` scope under their Lint
   IDs, severities and messages. Their findings match the Lint CLI running that release's `lint.jar`, including manifest

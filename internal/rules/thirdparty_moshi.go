@@ -299,10 +299,13 @@ func (a *moshiAnalyzer) checkEnum(c moshiClass) {
 		a.reportIssue("MoshiUsageEnumAnnotatedUnknown", file, c.nameNode)
 	}
 
+	jsonNames := map[string]moshiMember{}
 	for i, k := range c.constants {
 		if i == unknownIndex {
 			continue
 		}
+		member := moshiMember{name: k.name, nameNode: k.nameNode, anns: k.anns}
+		a.validateJSONName(file, member, moshiFindAnnotation(file, k.anns, fqcnMoshiJSON), jsonNames)
 		if k.name != moshiScreamingSnakeCase(k.name) {
 			a.reportIssue("MoshiUsageEnumCasing", file, k.nameNode)
 		}
@@ -529,6 +532,7 @@ func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
 			a.reportIssue("MoshiUsagePrivateConstructor", file, vis)
 		}
 	}
+	jsonNames := map[string]moshiMember{}
 	for _, p := range moshiParams(file, c.primary) {
 		hasDefault := p.defaultVal != 0
 		for _, ann := range p.anns {
@@ -549,5 +553,115 @@ func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
 		if !moshiVisibilityAllowed(file, p.visibility) {
 			a.reportIssue("MoshiUsagePrivateConstructorProperty", file, p.visibility)
 		}
+		a.checkPropertyJSONName(file, p, jsonNames)
 	}
+}
+
+const fqcnGsonSerializedName = "com.google.gson.annotations.SerializedName"
+
+// moshiMember is an enum constant or constructor property whose JSON name
+// MoshiUsageDetector.validateJsonName checks.
+type moshiMember struct {
+	name     string
+	nameNode uint32
+	anns     []moshiAnnotation
+}
+
+// validateJSONName ports MoshiUsageDetector.validateJsonName. seen maps each
+// JSON name to the member that claimed it.
+func (a *moshiAnalyzer) validateJSONName(file *scanner.File, member moshiMember, json *moshiAnnotation, seen map[string]moshiMember) {
+	jsonName := member.name
+	known := true
+	if json != nil {
+		// Without a name argument Moshi uses the member name. (Lint reads the
+		// annotation's "\u0000" UNSET_NAME default there; see the fixtures.)
+		if expr := moshiAnnotationArg(file, *json, "name", 0); expr != 0 {
+			value, ok := moshiStringLiteral(file, expr)
+			switch {
+			case !ok:
+				known = false
+			case strings.TrimSpace(value) == "":
+				a.reportIssue("MoshiUsageBlankJsonName", file, expr)
+			case value == member.name:
+				a.reportIssue("MoshiUsageRedundantJsonName", file, expr)
+			default:
+				jsonName = value
+			}
+		}
+	}
+
+	if known {
+		if existing, dup := seen[jsonName]; dup {
+			a.report("MoshiUsageDuplicateJsonName", file, member.nameNode,
+				fmt.Sprintf("Name '%s' is duplicated by member '%s'.", jsonName, existing.name))
+			a.report("MoshiUsageDuplicateJsonName", file, existing.nameNode,
+				fmt.Sprintf("Name '%s' is duplicated by member '%s'.", jsonName, member.name))
+		}
+		seen[jsonName] = member
+	}
+
+	if serialized := moshiFindAnnotation(file, member.anns, fqcnGsonSerializedName); serialized != nil {
+		a.reportIssue("MoshiUsageSerializedName", file, serialized.node)
+	}
+}
+
+// checkPropertyJSONName ports the @Json handling of a constructor property:
+// redundant site targets, the JSON name, and snake_case names.
+func (a *moshiAnalyzer) checkPropertyJSONName(file *scanner.File, p moshiParam, seen map[string]moshiMember) {
+	var jsonAnns []moshiAnnotation
+	for _, ann := range p.anns {
+		if moshiRefIs(file, ann.name, fqcnMoshiJSON) {
+			jsonAnns = append(jsonAnns, ann)
+		}
+	}
+	var toValidate *moshiAnnotation
+	switch {
+	case len(jsonAnns) > 1:
+		// Keep the target-less one (or the first) and flag the others.
+		keep := 0
+		for i, ann := range jsonAnns {
+			if ann.site == 0 {
+				keep = i
+				break
+			}
+		}
+		for i, ann := range jsonAnns {
+			if i != keep {
+				a.reportIssue("MoshiUsageRedundantSiteTarget", file, ann.node)
+			}
+		}
+	case len(jsonAnns) == 1:
+		if jsonAnns[0].site != 0 {
+			a.reportIssue("MoshiUsageRedundantSiteTarget", file, jsonAnns[0].site)
+		}
+		toValidate = &jsonAnns[0]
+	}
+
+	a.validateJSONName(file, moshiMember{name: p.name, nameNode: p.nameNode, anns: p.anns}, toValidate, seen)
+
+	// With an @Json present the IDE already offers better renaming, so only
+	// unannotated snake_case names are flagged.
+	if toValidate == nil && p.name != moshiSnakeToCamel(p.name) {
+		a.reportIssue("MoshiUsageSnakeCase", file, p.nameNode)
+	}
+}
+
+// moshiSnakeToCamel ports slack-lints' String.snakeToCamel.
+func moshiSnakeToCamel(s string) string {
+	var b strings.Builder
+	capNext, letterSeen := false, false
+	for _, c := range s {
+		if c == '_' || c == '-' {
+			capNext = letterSeen
+			continue
+		}
+		letterSeen = true
+		if capNext {
+			b.WriteRune(unicode.ToUpper(c))
+			capNext = false
+		} else {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
 }

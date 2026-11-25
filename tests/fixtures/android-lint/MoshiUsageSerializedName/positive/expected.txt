@@ -1,0 +1,4 @@
+src/main/java/com/example/Gson.kt:10:16: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.
+src/main/java/com/example/Gson.kt:11:3: MoshiUsageSerializedName: Use Moshi's @Json rather than Gson's @SerializedName.
+src/main/java/com/example/Gson.kt:15:32: MoshiUsageSerializedName: Use Moshi's @Json rather than Gson's @SerializedName.
+src/main/java/com/example/JavaGson.java:9:3: MoshiUsageSerializedName: Use Moshi's @Json rather than Gson's @SerializedName.

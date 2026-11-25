@@ -1,0 +1,1 @@
+src/main/java/com/example/NoSites.kt:7:33: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.

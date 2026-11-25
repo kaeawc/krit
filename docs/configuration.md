@@ -158,6 +158,35 @@ JSON reports carry `summary.firDegraded` and SARIF reports carry a
 the same message instead, for CI. With `--no-fir`, Krit uses the Go-only
 checker path without a warning.
 
+### FIR coverage
+
+FIR can only analyze a file the embedded compiler compiles without errors; a
+file with a compiler error (often an unresolved reference to a library the
+classpath lacks) is *gated* and keeps Go's findings. Whenever the pass gates
+files, the scan prints one line to stderr (not with `-q`):
+
+```
+info: FIR analyzed 3,875 of 27,213 files (14%); 23,338 gated by compile errors, so Go-only findings stand for them (top causes: Unresolved reference 'androidx.compose' x12,034, ...). Run with -v for the list.
+```
+
+JSON reports carry the same numbers as `summary.fir`, and SARIF reports as
+`runs[0].properties.fir`:
+
+```json
+"fir": {"authoritative": 3875, "gated": 23338, "excluded": 120,
+        "topCauses": [{"cause": "Unresolved reference 'androidx.compose'", "count": 12034}]}
+```
+
+`excluded` counts scripts and files outside every JVM compilation. Up to five
+causes are listed, most frequent first. An unresolved reference is reported as
+the package prefix of the import that names it, so a missing library shows up
+as one cause; other messages have their quoted names blanked (`'…'`).
+`--min-fir-coverage=0.8` exits `2`, like `--fail-on-degraded`, when FIR
+analyzed less than that share of the files it checked (authoritative plus
+gated), or when the FIR pass did not run; such scans run in-process. When at
+least a quarter of a Gradle model's classpath is missing on disk, the stale
+model warning adds that FIR results will be mostly gated.
+
 For Gradle projects, run `kritExportModel` (the Gradle plugin's `kritCheck`
 task already depends on it). Krit discovers `.krit/gradle-model/`; a stale
 model or classpath jars missing on disk produces a warning and analysis

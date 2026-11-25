@@ -81,3 +81,36 @@ func (r *runner) currentFirDegraded() *output.FirDegraded {
 	}
 	return r.f.firDegraded
 }
+
+// reportFirCoverage prints the one-line FIR coverage summary when the pass
+// gated files (unless -q), and enforces --min-fir-coverage: it returns 2 when
+// FIR analyzed less than the required share, or did not run at all
+// (degraded, or no coverage recorded although FIR was on), else 0.
+func reportFirCoverage(w io.Writer, f *scanFlags, cov *output.FirCoverage, degraded bool) int {
+	if cov != nil && (f.Quiet == nil || !*f.Quiet) {
+		if line := output.FirCoverageLine(*cov); line != "" {
+			fmt.Fprintf(w, "info: %s\n", line)
+		}
+	}
+	if f.MinFirCoverage == nil || *f.MinFirCoverage <= 0 {
+		return 0
+	}
+	threshold := *f.MinFirCoverage
+	switch {
+	case degraded || (cov == nil && firRequested(f)):
+		fmt.Fprintf(w, "error: --min-fir-coverage=%g: the FIR pass did not run\n", threshold)
+		return 2
+	case cov == nil:
+		return 0
+	case cov.Ratio() < threshold:
+		fmt.Fprintf(w, "error: --min-fir-coverage=%g: FIR analyzed %.1f%% of the files it checked (%d of %d; %d gated)\n",
+			threshold, 100*cov.Ratio(), cov.Authoritative, cov.Authoritative+cov.Gated, cov.Gated)
+		return 2
+	}
+	return 0
+}
+
+// firRequested reports whether the scan asked for the FIR pass.
+func firRequested(f *scanFlags) bool {
+	return f.Fir != nil && *f.Fir && (f.NoFir == nil || !*f.NoFir)
+}

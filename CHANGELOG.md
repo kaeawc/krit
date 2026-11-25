@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- FIR coverage is visible without `-v`: when the FIR pass gates files on compiler errors, the scan prints `FIR analyzed
+  N of M files ...` with the top causes (unresolved references grouped by import package prefix), JSON reports carry
+  `summary.fir` and SARIF reports `runs[0].properties.fir` (`authoritative`, `gated`, `excluded`, `topCauses`).
+  `--min-fir-coverage=0.8` exits 2 below that share, and the stale-model warning says when most of the model's classpath
+  is missing (#1573).
 - `--fir` splits the FIR check into one session per group of source sets that share their Kotlin compiler settings
   (compiler arguments, compiler plugin jars and options, JVM target) when a group's settings differ from the merged
   whole-repository session's. A file gated only because the merged session dropped a flag or plugin option becomes

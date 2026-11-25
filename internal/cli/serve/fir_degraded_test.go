@@ -28,7 +28,7 @@ func TestFirStartFindingsPassRecordsCheckerFailure(t *testing.T) {
 	var recorded *output.FirDegraded
 	hook := firStartFindingsPass(daemon.AnalyzeProjectArgs{Fir: true, NoFirDaemon: true, NoCache: true},
 		[]string{root}, config.NewConfig(), firchecks.NewBroker(), nil, nil, &diag.Reporter{},
-		func(d *output.FirDegraded) { recorded = d })
+		func(d *output.FirDegraded) { recorded = d }, nil)
 	pending, err := hook(context.Background(), pipeline.ParseResult{
 		ActiveRules: []*api.Rule{{ID: "InjectDispatcher"}, {ID: "NotAFirRule"}},
 		KotlinPaths: []string{src},

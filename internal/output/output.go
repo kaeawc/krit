@@ -92,6 +92,8 @@ type sarifRun struct {
 	Taxonomies []sarifTaxonomy `json:"taxonomies,omitempty"`
 	// Invocations is set only for a degraded (no-FIR) scan.
 	Invocations []sarifInvocation `json:"invocations,omitempty"`
+	// Properties carries "fir", the FIR coverage, when the FIR pass ran.
+	Properties map[string]any `json:"properties,omitempty"`
 }
 
 type sarifInvocation struct {
@@ -221,6 +223,20 @@ func FormatSARIFColumns(w io.Writer, columns *scanner.FindingColumns, version st
 // FormatSARIFColumnsDegraded is FormatSARIFColumns plus a tool notification
 // when the FIR pass did not run.
 func FormatSARIFColumnsDegraded(w io.Writer, columns *scanner.FindingColumns, version string, degraded *FirDegraded) error {
+	return FormatSARIFColumnsReport(w, columns, version, SARIFOptions{FirDegraded: degraded})
+}
+
+// SARIFOptions carries optional run-level SARIF report fields.
+type SARIFOptions struct {
+	// FirDegraded, when non-nil, adds a tool-execution notification.
+	FirDegraded *FirDegraded
+	// FirCoverage, when non-nil, is reported as runs[0].properties.fir.
+	FirCoverage *FirCoverage
+}
+
+// FormatSARIFColumnsReport is FormatSARIFColumns with run-level report options.
+func FormatSARIFColumnsReport(w io.Writer, columns *scanner.FindingColumns, version string, opts SARIFOptions) error {
+	degraded := opts.FirDegraded
 	cols := normalizedFindingColumns(columns)
 
 	descMap := make(map[string]string)
@@ -326,6 +342,9 @@ func FormatSARIFColumnsDegraded(w io.Writer, columns *scanner.FindingColumns, ve
 		}},
 	}
 
+	if opts.FirCoverage != nil {
+		log.Runs[0].Properties = map[string]any{"fir": opts.FirCoverage}
+	}
 	if degraded != nil {
 		log.Runs[0].Invocations = []sarifInvocation{{
 			ExecutionSuccessful: true,

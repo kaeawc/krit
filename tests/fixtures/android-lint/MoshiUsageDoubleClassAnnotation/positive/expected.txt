@@ -1,0 +1,2 @@
+src/main/java/com/example/Double.kt:8:1: MoshiUsageDoubleClassAnnotation: Only use one of @AdaptedBy or @JsonClass.
+src/main/java/com/example/Double.kt:9:1: MoshiUsageDoubleClassAnnotation: Only use one of @AdaptedBy or @JsonClass.

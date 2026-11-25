@@ -97,6 +97,10 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `slack-lint` gains `MoshiUsageDetector`'s class-level `@JsonClass` checks for Kotlin: `MoshiUsageDoubleClassAnnotation`,
+  `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
+  `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
+  #1419, #1420, #1422).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

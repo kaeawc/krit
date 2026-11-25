@@ -280,3 +280,28 @@ func TestMoshiUsageHonorsLintXMLIgnore(t *testing.T) {
 		t.Error("a rule without LintIssue outside android-lint was treated as a Lint issue")
 	}
 }
+
+// Known false negatives: Lint evaluates `const val` arguments of @JsonClass on
+// classes and reports GenerateAdapterShouldBeTrue on ConstFlag, and
+// BlankGenerator plus UseData on ConstGenerator. krit does not fold constants,
+// so it abstains on the whole class.
+func TestMoshiUsageClassAbstainsOnConstantArguments(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Classes.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+
+const val NO = false
+const val GEN = ""
+
+@JsonClass(generateAdapter = NO)
+data class ConstFlag(val a: Int)
+
+@JsonClass(generateAdapter = true, generator = GEN)
+class ConstGenerator(val a: Int)
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}

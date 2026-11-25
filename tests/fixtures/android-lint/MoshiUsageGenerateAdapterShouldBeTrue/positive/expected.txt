@@ -1,0 +1,2 @@
+src/main/java/com/example/NotGenerated.kt:5:30: MoshiUsageGenerateAdapterShouldBeTrue: JsonClass.generateAdapter must be true in order for Moshi code gen to run.
+src/main/java/com/example/NotGenerated.kt:8:12: MoshiUsageGenerateAdapterShouldBeTrue: JsonClass.generateAdapter must be true in order for Moshi code gen to run.

@@ -1,0 +1,26 @@
+p/Custom.kt:7:14: ModifierFactoryReturnType: Modifier factory functions should have a return type of Modifier
+p/Custom.kt:7:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Custom.kt:8:5: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Custom.kt:8:5: ModifierFactoryReturnType: Modifier factory functions should have a return type of Modifier
+p/Factories.kt:24:15: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:27:5: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:28:5: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:29:9: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:32:14: ModifierFactoryReturnType: Modifier factory functions should have a return type of Modifier
+p/Factories.kt:32:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:33:14: ModifierFactoryReturnType: Modifier factory functions should have a return type of Modifier
+p/Factories.kt:33:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:40:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:41:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:45:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:46:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:49:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:50:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:51:5: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:56:14: ModifierFactoryReturnType: Modifier factory functions should have a return type of Modifier
+p/Factories.kt:56:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Factories.kt:60:9: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:66:9: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Factories.kt:74:18: ModifierFactoryExtensionFunction: Modifier factory functions should be extensions on Modifier
+p/Properties.kt:7:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance
+p/Properties.kt:8:14: ModifierFactoryUnreferencedReceiver: Modifier factory functions must use the receiver Modifier instance

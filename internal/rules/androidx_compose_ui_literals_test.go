@@ -1,7 +1,11 @@
 package rules
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/config"
 
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -106,13 +110,30 @@ val c = Locale("en_AU")
 	}
 }
 
-// Pinned gap: isKnownLintIssueID only counts rules in the android-lint rule set, so lint.xml and Gradle
-// `lint { disable }` entries naming these compose-rule-set Lint IDs are not applied yet. The per-rule opt-in marker
-// being added for Lint-ID rules outside android-lint will close it; flip this assertion then.
-func TestAcuiLintIDsNotYetKnownToLintXML(t *testing.T) {
-	for _, id := range []string{"MissingColorAlphaChannel", "InvalidColorHexValue", "InvalidLanguageTagDelimiter"} {
-		if isKnownLintIssueID(id) {
-			t.Errorf("%s is now a known Lint issue ID; drop this pinned gap test and note it in the docs", id)
+// The rule IDs are Lint issue IDs, so lint.xml (and Gradle `lint { disable }`) entries naming them turn the rules off.
+func TestAcuiRulesHonorLintXMLIgnore(t *testing.T) {
+	ids := []string{"MissingColorAlphaChannel", "InvalidColorHexValue", "InvalidLanguageTagDelimiter",
+		"ModifierFactoryExtensionFunction", "ModifierFactoryReturnType", "ModifierFactoryUnreferencedReceiver",
+		"ModifierParameter"}
+	for _, id := range ids {
+		if !isKnownLintIssueID(id) {
+			t.Errorf("%s is not a known Lint issue ID", id)
 		}
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "lint.xml"), []byte(`<lint>
+  <issue id="ModifierParameter" severity="ignore"/>
+</lint>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadAndMergeDefaults("", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !androidLintTurnsOff(cfg, registeredRule(t, "ModifierParameter")) {
+		t.Error("lint.xml ignore did not turn off ModifierParameter")
+	}
+	if androidLintTurnsOff(cfg, registeredRule(t, "ModifierFactoryReturnType")) {
+		t.Error("lint.xml ignore of another ID turned off ModifierFactoryReturnType")
 	}
 }

@@ -1,0 +1,2 @@
+src/main/java/com/example/Double.kt:10:3: MoshiUsageDoubleTypeLabel: Only use one of @TypeLabel or @DefaultObject.
+src/main/java/com/example/Double.kt:9:3: MoshiUsageDoubleTypeLabel: Only use one of @TypeLabel or @DefaultObject.

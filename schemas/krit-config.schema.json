@@ -28691,6 +28691,39 @@
             }
           }
         },
+        "MoshiUsageBlankTypeLabel": {
+          "description": "Moshi-sealed requires a type label specified after the 'sealed:' prefix. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageBlankTypeLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageClassVisibility": {
           "description": "@JsonClass-annotated types must be public, package-private, or internal. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -28731,6 +28764,39 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageDoubleClassAnnotation (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageDoubleTypeLabel": {
+          "description": "Only use one of @TypeLabel or @DefaultObject. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageDoubleTypeLabel (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -28955,6 +29021,72 @@
             }
           }
         },
+        "MoshiUsageGenericSealedSubtype": {
+          "description": "Sealed subtypes used with moshi-sealed cannot be generic. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageGenericSealedSubtype (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageInappropriateTypeLabel": {
+          "description": "Inappropriate @TypeLabel or @DefaultObject annotation. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageInappropriateTypeLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageMissingPrimary": {
           "description": "@JsonClass-annotated types must have a primary constructor or be sealed. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -28988,6 +29120,39 @@
             }
           }
         },
+        "MoshiUsageMissingTypeLabel": {
+          "description": "Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageMissingTypeLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageObject": {
           "description": "Object types cannot be annotated with @JsonClass. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -28995,6 +29160,39 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageObject (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageSealedMustBeSealed": {
+          "description": "Moshi-sealed can only be applied to 'sealed' types. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageSealedMustBeSealed (default: false).",
               "type": "boolean",
               "default": false
             },

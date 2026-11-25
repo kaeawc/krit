@@ -315,6 +315,7 @@ func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
 			verboseOut = os.Stderr
 		}
 		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel, verboseOut)
+		f.modelSourceDirs, f.modelGeneratedSourceDirs = withGeneratedSrcjars(f.modelSourceDirs, f.modelGeneratedSourceDirs, *f.GeneratedSrcjars, *f.Verbose, os.Stderr)
 		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
 		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
 	}

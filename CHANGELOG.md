@@ -5,6 +5,14 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
+  `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
+  Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three
+  follow same-file helpers called from a Fragment's view lifecycle methods. Without the type oracle a LiveData whose
+  type is only declared in another file (a ViewModel property) is not proven, a known false negative
+  (#1443, #1444, #1445, #1449).
+
+### Added
 - `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
   `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
   their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs

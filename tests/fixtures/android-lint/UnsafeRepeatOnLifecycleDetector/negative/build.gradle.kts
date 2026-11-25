@@ -1,0 +1,20 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.example.synth"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.example.synth"
+        minSdk = 21
+        targetSdk = 35
+    }
+}
+
+dependencies {
+    implementation("androidx.fragment:fragment-ktx:1.9.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+}

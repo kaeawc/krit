@@ -206,6 +206,9 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"UseCompatLoadingForDrawables":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
 		"UseCompatTextViewDrawableApis":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
 		"UseSwitchCompatOrMaterialCode":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"FragmentLiveDataObserve":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
+		"FragmentBackPressedCallback":             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
+		"FragmentAddMenuProvider":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
 	},
 }
 

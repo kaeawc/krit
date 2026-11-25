@@ -598,6 +598,18 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_appcompat_calls_test.go
+  FragmentLiveDataObserve:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_fragment_lifecycle_test.go
+  FragmentBackPressedCallback:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_fragment_lifecycle_test.go
+  FragmentAddMenuProvider:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_fragment_lifecycle_test.go
   UsableSpace:
     status: supported
     fixtures:

@@ -3066,6 +3066,72 @@
             }
           }
         },
+        "FragmentAddMenuProvider": {
+          "description": "Use getViewLifecycleOwner() as the LifecycleOwner instead of a Fragment instance. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FragmentAddMenuProvider (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "FragmentBackPressedCallback": {
+          "description": "Use getViewLifecycleOwner() as the LifecycleOwner instead of a Fragment instance. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FragmentBackPressedCallback (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "FragmentConstructor": {
           "description": "Fragment not instantiatable [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -3106,6 +3172,39 @@
           "properties": {
             "active": {
               "description": "Enable FragmentGradleConfiguration (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "FragmentLiveDataObserve": {
+          "description": "Use getViewLifecycleOwner() as the LifecycleOwner instead of a Fragment instance when observing a LiveData object. [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FragmentLiveDataObserve (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -11451,6 +11550,39 @@
               "description": "Enable UnsafeProtectedBroadcastReceiverManifest (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeRepeatOnLifecycleDetector": {
+          "description": "RepeatOnLifecycle should be used with viewLifecycleOwner in Fragments. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeRepeatOnLifecycleDetector (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

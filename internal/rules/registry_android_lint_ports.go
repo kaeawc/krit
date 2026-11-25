@@ -51,6 +51,7 @@ func registerAndroidLintPortRules() {
 	registerAndroidXFragmentBuildChecks()
 	registerAndroidXActivityChecks()
 	registerAndroidXAppCompatCallChecks()
+	registerAndroidXFragmentLifecycleChecks()
 }
 
 // lintRulesScanningTests lists the ports that also analyze test sources. Lint skips them by default for every detector

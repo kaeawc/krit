@@ -33,9 +33,14 @@ var moshiIssues = []moshiIssue{
 	{"MoshiUsageMissingPrimary", api.SeverityError, "@JsonClass-annotated types must have a primary constructor or be sealed."},
 	{"MoshiUsageMissingTypeLabel", api.SeverityError, "Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject."},
 	{"MoshiUsageObject", api.SeverityError, "Object types cannot be annotated with @JsonClass."},
+	{"MoshiUsageParamNeedsInit", api.SeverityError, "Constructor non-property parameters in Moshi classes must have default values."},
+	{"MoshiUsagePrivateConstructor", api.SeverityError, "Constructors in Moshi classes cannot be private."},
+	{"MoshiUsagePrivateConstructorProperty", api.SeverityError, "Constructor parameter properties in Moshi classes cannot be private."},
 	{"MoshiUsageSealedMustBeSealed", api.SeverityError, "Moshi-sealed can only be applied to 'sealed' types."},
+	{"MoshiUsageTransientNeedsInit", api.SeverityError, "Transient constructor properties must have default values."},
 	{"MoshiUsageUnsupportedType", api.SeverityError, "This type cannot be annotated with @JsonClass."},
 	{"MoshiUsageUseData", api.SeverityError, "Model classes should be immutable data classes."},
+	{"MoshiUsageVarProperty", api.SeverityWarning, "Moshi properties should be immutable."},
 }
 
 // moshiIssueMessage returns the Lint message for a MoshiUsage issue ID.

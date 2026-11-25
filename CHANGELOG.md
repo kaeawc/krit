@@ -105,6 +105,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
   same package across files, including files that never mention Moshi (#1387, #1389, #1399, #1400, #1403, #1415).
+- `slack-lint` gains `MoshiUsageDetector`'s primary-constructor checks for Kotlin: `MoshiUsagePrivateConstructor`,
+  `MoshiUsagePrivateConstructorProperty`, `MoshiUsageVarProperty`, `MoshiUsageParamNeedsInit` and
+  `MoshiUsageTransientNeedsInit`. Unlike Lint 9.4, which no longer sees `@Transient` on a constructor property,
+  krit reports a `@Transient` property without a default, as slack-lints' own tests expect (#1411, #1412, #1413,
+  #1418, #1421).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

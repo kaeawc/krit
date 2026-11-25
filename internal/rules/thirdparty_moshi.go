@@ -444,4 +444,110 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 		a.reportIssue("MoshiUsageMissingPrimary", file, c.nameNode)
 		return
 	}
+
+	a.checkPrimaryConstructor(c)
+}
+
+const fqcnKotlinJvmTransient = "kotlin.jvm.Transient"
+
+// moshiParam is one Kotlin primary-constructor parameter.
+type moshiParam struct {
+	node       uint32
+	nameNode   uint32
+	name       string
+	anns       []moshiAnnotation
+	binding    uint32 // the val/var binding_pattern_kind, or 0 for a plain parameter
+	isVar      bool
+	visibility uint32
+	typeNode   uint32
+	defaultVal uint32 // default value expression, or 0
+}
+
+func moshiParams(file *scanner.File, primary uint32) []moshiParam {
+	var out []moshiParam
+	file.FlatForEachChild(primary, func(child uint32) {
+		if file.FlatType(child) != "class_parameter" {
+			return
+		}
+		p := moshiParam{node: child, anns: moshiAnnotationsOf(file, child)}
+		afterEquals := false
+		file.FlatForEachChild(child, func(part uint32) {
+			switch t := file.FlatType(part); {
+			case t == "modifiers":
+				p.visibility, _ = file.FlatFindChild(part, "visibility_modifier")
+			case t == "binding_pattern_kind":
+				p.binding = part
+				p.isVar = file.FlatHasChildOfType(part, "var")
+			case t == "simple_identifier" && p.nameNode == 0:
+				p.nameNode = part
+				p.name = file.FlatNodeText(part)
+			case t == "=":
+				afterEquals = true
+			case afterEquals && p.defaultVal == 0:
+				// The default may be an anonymous token such as `null`.
+				p.defaultVal = part
+			case !file.FlatIsNamed(part):
+			case p.nameNode != 0 && p.typeNode == 0:
+				p.typeNode = part
+			}
+		})
+		if p.nameNode != 0 {
+			out = append(out, p)
+		}
+	})
+	return out
+}
+
+// moshiIsKotlinTransient reports whether ann is kotlin.jvm.Transient. A bare
+// @Transient resolves through Kotlin's default kotlin.jvm import unless an
+// import, a same-file class, or a star import of another package may shadow it.
+func moshiIsKotlinTransient(file *scanner.File, ann moshiAnnotation) bool {
+	if moshiRefIs(file, ann.name, fqcnKotlinJvmTransient) {
+		return true
+	}
+	if ann.name != "Transient" {
+		return false
+	}
+	imports := lintImportsOf(file)
+	if _, ok := imports.bySimple["Transient"]; ok || lintSameFileClass(file, "Transient") != 0 {
+		return false
+	}
+	for _, star := range imports.stars {
+		if star != "com.squareup.moshi" && !strings.HasPrefix(star, "dev.zacsweers.moshix") && star != "kotlin.jvm" {
+			return false
+		}
+	}
+	return true
+}
+
+// checkPrimaryConstructor ports the primary-constructor part of
+// MoshiUsageDetector.visitClass.
+func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
+	file := c.file
+	if mods, ok := file.FlatFindChild(c.primary, "modifiers"); ok {
+		if vis, ok := file.FlatFindChild(mods, "visibility_modifier"); ok && !moshiVisibilityAllowed(file, vis) {
+			a.reportIssue("MoshiUsagePrivateConstructor", file, vis)
+		}
+	}
+	for _, p := range moshiParams(file, c.primary) {
+		hasDefault := p.defaultVal != 0
+		for _, ann := range p.anns {
+			if moshiIsKotlinTransient(file, ann) && !hasDefault {
+				a.reportIssue("MoshiUsageTransientNeedsInit", file, p.node)
+				break
+			}
+		}
+		if p.binding == 0 {
+			if !hasDefault {
+				a.reportIssue("MoshiUsageParamNeedsInit", file, p.node)
+			}
+			continue
+		}
+		if p.isVar {
+			a.reportIssue("MoshiUsageVarProperty", file, p.binding)
+		}
+		if !moshiVisibilityAllowed(file, p.visibility) {
+			a.reportIssue("MoshiUsagePrivateConstructorProperty", file, p.visibility)
+		}
+	}
 }

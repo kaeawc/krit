@@ -29186,6 +29186,105 @@
             }
           }
         },
+        "MoshiUsageParamNeedsInit": {
+          "description": "Constructor non-property parameters in Moshi classes must have default values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageParamNeedsInit (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsagePrivateConstructor": {
+          "description": "Constructors in Moshi classes cannot be private. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsagePrivateConstructor (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsagePrivateConstructorProperty": {
+          "description": "Constructor parameter properties in Moshi classes cannot be private. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsagePrivateConstructorProperty (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageSealedMustBeSealed": {
           "description": "Moshi-sealed can only be applied to 'sealed' types. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -29193,6 +29292,39 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageSealedMustBeSealed (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageTransientNeedsInit": {
+          "description": "Transient constructor properties must have default values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageTransientNeedsInit (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -29259,6 +29391,39 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageUseData (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageVarProperty": {
+          "description": "Moshi properties should be immutable. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageVarProperty (default: false).",
               "type": "boolean",
               "default": false
             },

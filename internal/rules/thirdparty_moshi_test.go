@@ -79,7 +79,10 @@ func parseMoshiFixtureFile(t *testing.T, path string) *scanner.File {
 // under tests/fixtures/android-lint/MoshiUsage*/ and compares the findings with
 // expected.txt. expected.txt is the output of Android Lint 9.4.0-rc01 running
 // slack-lint-checks 0.11.1 on the same sources (plus Moshi, moshix, Gson and
-// androidx.annotation stubs), keeping only the IDs krit ports.
+// androidx.annotation stubs and kotlin-stdlib), keeping only the IDs krit
+// ports. A directory's krit-divergence.txt lists the deliberate differences:
+// "+ <finding>" lines krit reports beyond Lint and "- <finding>" lines it
+// does not, each explained by the comment lines above it.
 func TestMoshiUsageLintParity(t *testing.T) {
 	registered := map[string]bool{}
 	for _, r := range moshiRules(t) {
@@ -109,6 +112,7 @@ func TestMoshiUsageLintParity(t *testing.T) {
 					want = append(want, line)
 				}
 			}
+			want = applyMoshiDivergences(t, filepath.Join(dir, "krit-divergence.txt"), want)
 			sort.Strings(want)
 			var files []*scanner.File
 			if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -131,6 +135,52 @@ func TestMoshiUsageLintParity(t *testing.T) {
 	if ran == 0 {
 		t.Fatal("no MoshiUsage fixture directories found")
 	}
+}
+
+// applyMoshiDivergences applies a fixture's documented differences from Lint.
+func applyMoshiDivergences(t *testing.T, path string, want []string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return want
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	explained := false
+	for _, line := range strings.Split(string(data), "\n") {
+		switch {
+		case strings.HasPrefix(line, "#"):
+			explained = true
+		case strings.HasPrefix(line, "+ "):
+			if !explained {
+				t.Fatalf("%s: divergence %q has no explaining comment", path, line)
+			}
+			want = append(want, strings.TrimPrefix(line, "+ "))
+		case strings.HasPrefix(line, "- "):
+			if !explained {
+				t.Fatalf("%s: divergence %q has no explaining comment", path, line)
+			}
+			drop := strings.TrimPrefix(line, "- ")
+			kept := want[:0]
+			found := false
+			for _, w := range want {
+				if w == drop && !found {
+					found = true
+					continue
+				}
+				kept = append(kept, w)
+			}
+			if !found {
+				t.Fatalf("%s: divergence %q removes a finding Lint does not report", path, line)
+			}
+			want = kept
+		case strings.TrimSpace(line) == "":
+		default:
+			t.Fatalf("%s: unrecognized line %q", path, line)
+		}
+	}
+	return want
 }
 
 // moshiFindingsForSources runs the MoshiUsage rules over in-memory sources.
@@ -356,5 +406,29 @@ class Outer {
 	})
 	if len(got) != 0 {
 		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// A `null` default is an anonymous token in the tree; it still counts as a
+// default value (moshi's GeneratedAdaptersTest has this shape).
+func TestMoshiUsageNullDefaultCountsAsInitialized(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Lambdas.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true)
+data class LambdaTypeNames(
+  val id: String,
+  @Transient val simple: ((String) -> Boolean)? = null,
+)
+
+@JsonClass(generateAdapter = true)
+class NullDefault(val id: String, plain: String? = null)
+`,
+	})
+	want := []string{"Lambdas.kt:12:7: MoshiUsageUseData: Model classes should be immutable data classes."}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
 }

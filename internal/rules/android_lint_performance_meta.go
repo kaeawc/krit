@@ -15,11 +15,3 @@ func (r *ExpensiveAssertionRule) Meta() api.RuleDescriptor {
 func (r *AssertionSideEffectRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "AssertionSideEffect", RuleSet: "android-lint", DefaultActive: true}
 }
-
-func (r *NotificationTrampolineRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{ID: "NotificationTrampoline", RuleSet: "android-lint", DefaultActive: true}
-}
-
-func (r *LaunchActivityFromNotificationRule) Meta() api.RuleDescriptor {
-	return api.RuleDescriptor{ID: "LaunchActivityFromNotification", RuleSet: "android-lint", DefaultActive: true}
-}

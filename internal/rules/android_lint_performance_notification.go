@@ -596,3 +596,11 @@ func javaDeclaredMethod(file *scanner.File, class uint32, name string, params []
 	}
 	return 0
 }
+
+func (r *NotificationTrampolineRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "NotificationTrampoline", RuleSet: "android-lint", DefaultActive: true}
+}
+
+func (r *LaunchActivityFromNotificationRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "LaunchActivityFromNotification", RuleSet: "android-lint", DefaultActive: true}
+}

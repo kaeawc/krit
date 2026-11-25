@@ -122,6 +122,15 @@ All notable changes to Krit will be documented in this file.
   false negative unless its body proves `Unit`. The Compose UI ports, `MissingColorAlphaChannel`,
   `InvalidColorHexValue` and `InvalidLanguageTagDelimiter` included, are marked as Lint issues, so `lint.xml` and
   Gradle `lint { }` severities apply to them (#1492, #1493, #1494, #1496).
+- `UnnecessaryComposedModifier`, `SuspiciousModifierThen`, `ModifierNodeInspectableProperties` and
+  `SuspiciousCompositionLocalModifierRead`, ported from `androidx.compose.ui:ui-android` 1.12.1 under their Lint IDs
+  and checked against the Lint CLI on the same inputs and on android/snippets' Modifier samples.
+  `UnnecessaryComposedModifier` reports a `composed` factory that provably calls no `@Composable` function (it abstains
+  on calls to functions declared in other files and on `.current` reads). `SuspiciousModifierThen` reports
+  implicit-receiver Modifier factories inside `then(...)`. `ModifierNodeInspectableProperties` (informational, Kotlin
+  and Java) follows same-file superclasses to `ModifierNodeElement`. `SuspiciousCompositionLocalModifierRead` reports
+  `currentValueOf` in `onAttach`/`onDetach`, `init` blocks and secondary constructors of a direct
+  `CompositionLocalConsumerModifierNode`, and inside any `lazy { }` (#1486, #1495, #1499, #1500).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

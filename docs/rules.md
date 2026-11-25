@@ -291,3 +291,21 @@ IDs, so `@SuppressLint`, `tools:ignore`, `lint.xml` and Gradle `lint { }` severi
 - `ModifierParameter` checks the first Modifier-typed parameter of a `@Composable` function returning `Unit`: it should
   be named `modifier`, typed `Modifier`, default to the bare `Modifier` and be the first optional parameter. Lint's
   rename and retype quick fixes are not ported, because they would leave call sites and the body unchanged.
+
+`androidx.compose.ui:ui-android` 1.12.1 Modifier usage and nodes:
+
+- `UnnecessaryComposedModifier` reports `composed` (imported from `androidx.compose.ui`) whose `factory` argument, nested
+  lambdas included, calls nothing that may be `@Composable`. A call proves nothing when it names a same-file function
+  that is not `@Composable`, a known Compose Modifier factory, a Kotlin stdlib function or a same-file class; any other
+  call, a `.current` read or a property read on an object other than `Modifier`, `Color`, `Alignment` or `Arrangement`
+  makes krit abstain, so factories that call functions declared in other files are not reported.
+- `SuspiciousModifierThen` reports, inside `then(arg)` on a Modifier receiver, each call in `arg` without an explicit
+  receiver to a same-file `Modifier.` extension or a known Compose Modifier factory. Calls in lambdas inside `arg` have
+  their own receivers and are skipped. As in Lint, a call nested in two `then`s is reported once per `then`.
+- `ModifierNodeInspectableProperties` (informational) reports Kotlin classes, objects and object literals (named `null`,
+  as Lint does) that reach `ModifierNodeElement` through same-file superclasses without declaring
+  `fun InspectorInfo.inspectableProperties()`, and Java classes extending `ModifierNodeElement`, which cannot declare it.
+  A superclass from another file is a known false negative.
+- `SuspiciousCompositionLocalModifierRead` reports `currentValueOf(...)` in `onAttach`/`onDetach` and constructors
+  (`init` blocks and secondary constructors) of a class that itself implements `CompositionLocalConsumerModifierNode`
+  (stopping at lambdas and local functions, as Lint does), and inside any `lazy { }`.

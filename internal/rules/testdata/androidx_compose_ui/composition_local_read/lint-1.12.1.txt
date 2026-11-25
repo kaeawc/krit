@@ -1,0 +1,6 @@
+p/Locals.kt:13:19: SuspiciousCompositionLocalModifierRead: Reading LocalDensity in onAttach will only access the CompositionLocal's value when the modifier is attached. To be notified of the latest value of the CompositionLocal, read the value in one of the modifier's other callbacks.
+p/Locals.kt:16:19: SuspiciousCompositionLocalModifierRead: Reading LocalDensity in onDetach will only access the CompositionLocal's value when the modifier is detached. To be notified of the latest value of the CompositionLocal, read the value in one of the modifier's other callbacks.
+p/Locals.kt:22:9: SuspiciousCompositionLocalModifierRead: CompositionLocals cannot be read in modifiers before the node is attached.
+p/Locals.kt:24:31: SuspiciousCompositionLocalModifierRead: Reading LocalDensity lazily will only access the CompositionLocal's value once. To be notified of the latest value of the CompositionLocal, read the value in one of the modifier's callbacks.
+p/Locals.kt:48:9: SuspiciousCompositionLocalModifierRead: CompositionLocals cannot be read in modifiers before the node is attached.
+p/Locals.kt:66:25: SuspiciousCompositionLocalModifierRead: Reading LocalDensity lazily will only access the CompositionLocal's value once. To be notified of the latest value of the CompositionLocal, read the value in one of the modifier's callbacks.

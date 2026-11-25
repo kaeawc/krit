@@ -149,7 +149,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		return res, nil
 	}
 	res.Applied = true
-	prune(in.CacheDir, keys, pruneAge)
+	prune(in.CacheDir, keys)
 	if check != nil {
 		if res.Check, err = mergeChecks(in, units, keys, requested, check); err != nil {
 			return res, err
@@ -673,8 +673,8 @@ func unitKey(u Unit, jarPath string, ident *identities, check *checkContext) (st
 // branches reuses their modules' facts, short enough that the cache does not grow without bound.
 const pruneAge = 7 * 24 * time.Hour
 
-// prune removes fact and check files whose key is not in liveKeys and that are older than maxAge.
-func prune(dir string, liveKeys []string, maxAge time.Duration) {
+// prune removes fact and check files whose key is not in liveKeys and that are older than pruneAge.
+func prune(dir string, liveKeys []string) {
 	live := make(map[string]bool, len(liveKeys))
 	for _, k := range liveKeys {
 		live[k] = true
@@ -683,7 +683,7 @@ func prune(dir string, liveKeys []string, maxAge time.Duration) {
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-maxAge)
+	cutoff := time.Now().Add(-pruneAge)
 	for _, e := range entries {
 		name := e.Name()
 		key := strings.TrimSuffix(strings.TrimSuffix(name, ".json"), ".check")

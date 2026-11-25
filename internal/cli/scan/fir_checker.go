@@ -36,6 +36,18 @@ func SourceSetIsolator(paths []string, modelDir string, modelDisabled, noCache b
 	return modshard.Isolator(paths, modelDir, modelDisabled, noCache, logf)
 }
 
+// SettingsSplitter returns the --fir pass's recheck of the source sets whose
+// Kotlin compiler settings differ from the merged session's, one session per
+// settings group (#1577), or nil when KRIT_MODULE_SHARDS=merged turns it off
+// or the scan reads no Gradle model. Arguments are those of SourceSetIsolator.
+func SettingsSplitter(paths []string, modelDir string, modelDisabled, noCache bool, verboseOut io.Writer) firchecks.SettingsSplitter {
+	var logf func(string, ...any)
+	if verboseOut != nil {
+		logf = func(format string, args ...any) { fmt.Fprintf(verboseOut, format, args...) }
+	}
+	return modshard.SettingsSplitter(paths, modelDir, modelDisabled, noCache, logf)
+}
+
 // FIRCompileContext returns the compile context the --fir pass checks
 // against: the JVM-scoped source roots the oracle compiles (non-JVM KMP
 // source sets dropped) and the configured oracle classpath, so the checkers

@@ -77,8 +77,47 @@ only suppress experimental-API diagnostics; the intersection can falsely
 report "This API is experimental" for code whose source set already enables
 the required marker. The union avoids those false errors, but can hide a real
 missing opt-in in another source set. A note reports differing opt-ins and
-this trade-off; the shared compilation cannot validate each source set's
-opt-in requirements independently.
+this trade-off.
+
+### Settings-group sessions (`--fir`)
+
+With a Gradle model, the `--fir` checker pass then splits the check along
+settings boundaries (#1577). It groups the scanned source sets by their exact
+compile configuration: compiler arguments (language and API version, opt-ins,
+progressive mode, flags), compiler plugin jars and options, and JVM target.
+Every group whose arguments or plugins differ from what the merged session
+applied gets one session of its own: its source sets are compiled together as
+one module with the group's settings, against their dependencies' built jars,
+or those dependencies' sources as context when they were not built (up to 3000
+files, as for module compilations). Groups that the merged session already
+compiles exactly need no session, so a model whose source sets all agree runs
+one session as before.
+
+A group session's verdict replaces the merged one for its files when it
+answers the file (a file gated by a dropped flag or plugin option becomes
+authoritative) or when it gates the file on a missing opt-in, an error the
+source set's real build reports and the opt-in union hid. A group session that
+gates a file for any other reason keeps the merged answer, so a session that
+lacks some context never turns an authoritative file into a gated one. The
+source-set recheck for duplicate declarations (see [Known limits](#known-limits))
+runs after the split. Multiplatform source sets (HMPP fragments), source sets
+whose unbuilt dependency context was too large, and groups that share a source
+file with another group keep the merged session.
+
+`-v` reports the session count, the grouping key and each group:
+
+```
+verbose: FIR settings: 3 sessions for 2 settings groups (grouping key: ...); merged session plus 2 compiled on their own:
+verbose: FIR settings: session 2: :core:main, :other:main [(compiler defaults)]
+verbose: FIR settings: session 3: :feature:main [-opt-in=core.Exp -Xcontext-sensitive-resolution]
+verbose: FIR settings: rechecked 3 files with their own source set's settings in 5s: 1 gated files now authoritative, 1 now gated on a missing opt-in, 0 kept the merged verdict
+```
+
+Group sessions run in the module worker JVMs (`KRIT_WORKER_JAVA`,
+`KRIT_WORKER_AOT`; see [module sharding](module-sharding.md)) and are cached
+by content under `.krit/module-facts/settings-groups`.
+`KRIT_MODULE_SHARDS=merged` turns the split off and keeps the single merged
+session. The type oracle still compiles with the merged settings.
 
 For per-module `analyzeModules` requests, `ModuleSpecsFromModel` builds one
 `ModuleSpec` per source set whose `compilerArgs` hold that source set's own

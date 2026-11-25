@@ -206,7 +206,7 @@ func TestPruneRemovesOldUnreferencedFactsOnly(t *testing.T) {
 	write("stale-old.check.json", old)
 	write("stale-new.json", time.Now())
 	write("worker-0.log", old)
-	prune(dir, []string{"live"}, 7*24*time.Hour)
+	prune(dir, []string{"live"})
 	for name, want := range map[string]bool{"live.json": true, "live.check.json": true, "stale-old.json": false,
 		"stale-old.check.json": false, "stale-new.json": true, "worker-0.log": true} {
 		_, err := os.Stat(filepath.Join(dir, name))

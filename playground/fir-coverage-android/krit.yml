@@ -1,0 +1,8 @@
+# krit config for the FIR coverage sample; the Gradle and Bazel runs both
+# read it. The sample is a minimal launcher app, not a shipped product, so
+# the release-readiness manifest checks are off.
+android-lint:
+  AllowBackupManifest:
+    active: false
+  GoogleAppIndexingWarningManifest:
+    active: false

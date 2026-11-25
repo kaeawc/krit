@@ -1,0 +1,21 @@
+load("@krit//:defs.bzl", "krit_test")
+load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain")
+
+define_kt_toolchain(
+    name = "kotlin_toolchain",
+    jvm_target = "17",
+)
+
+# Go-only krit over every target's own sources (krit_test has no FIR pass
+# yet; the FIR aspect is #1587).
+krit_test(
+    name = "krit_test",
+    config = "krit.yml",
+    targets = [
+        "//app:app_lib",
+        "//benchmark:benchmark",
+        "//data",
+        "//model",
+        "//proto",
+    ],
+)

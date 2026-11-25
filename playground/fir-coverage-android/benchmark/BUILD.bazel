@@ -1,0 +1,17 @@
+load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+
+# Gradle :benchmark is a com.android.test module targeting :app; here the
+# instrumentation sources compile against //app:app_lib.
+kt_android_library(
+    name = "benchmark",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    custom_package = "dev.krit.firsample.benchmark",
+    manifest = "src/main/AndroidManifest.xml",
+    deps = [
+        "//app:app_lib",
+        "@maven//:androidx_test_core",
+        "@maven//:androidx_test_ext_junit",
+        "@maven//:androidx_test_runner",
+        "@maven//:junit_junit",
+    ],
+)

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package dev.krit.firsample.proto;
+
+option java_package = "dev.krit.firsample.proto";
+
+message UserRecord {
+  string id = 1;
+  string name = 2;
+  int32 visits = 3;
+}

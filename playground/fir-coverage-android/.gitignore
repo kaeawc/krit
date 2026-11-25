@@ -1,0 +1,7 @@
+.gradle/
+.kotlin/
+build/
+.krit/
+.krit-bin/
+bazel-*
+local.properties

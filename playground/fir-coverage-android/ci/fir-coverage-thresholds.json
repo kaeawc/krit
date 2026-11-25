@@ -1,0 +1,12 @@
+{
+  "_comment": "Ratchet only: raise a value when a fix lands (the report lists what to raise it to); never lower one to get green. Coverage is authoritative / (authoritative + gated).",
+  "coverage": {
+    "gradle-model-cli": {"minAuthoritative": 6, "minCoverage": 0.6667},
+    "gradle-kritCheck": {"minAuthoritative": 5, "minCoverage": 0.5556},
+    "bazel": {"minAuthoritative": 0, "minCoverage": 0.0}
+  },
+  "checks": {
+    "gradle-configuration-cache": {"required": false},
+    "bazel-action-cache": {"required": false}
+  }
+}

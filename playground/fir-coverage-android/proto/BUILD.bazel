@@ -1,0 +1,36 @@
+load("@rules_java//java:defs.bzl", "java_binary")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+
+java_binary(
+    name = "wire_compiler",
+    main_class = "com.squareup.wire.WireCompiler",
+    runtime_deps = ["@maven//:com_squareup_wire_wire_compiler"],
+)
+
+# Gradle :proto runs the Wire Gradle plugin; here the Wire CLI writes the
+# same Kotlin into a .srcjar.
+genrule(
+    name = "user_proto_kt",
+    srcs = ["src/main/proto/dev/krit/firsample/proto/user.proto"],
+    outs = ["user_proto_kt.srcjar"],
+    cmd = """
+set -e
+out=$$(mktemp -d)
+$(execpath :wire_compiler) --proto_path=$$(dirname $<)/../../../.. --kotlin_out=$$out dev/krit/firsample/proto/user.proto >/dev/null
+$(JAVABASE)/bin/jar -cf $@ -C $$out .
+rm -rf $$out
+""",
+    toolchains = ["@bazel_tools//tools/jdk:current_host_java_runtime"],
+    tools = [":wire_compiler"],
+)
+
+kt_jvm_library(
+    name = "proto",
+    srcs = glob(["src/main/kotlin/**/*.kt"]) + [":user_proto_kt"],
+    visibility = ["//visibility:public"],
+    exports = ["@maven//:com_squareup_wire_wire_runtime_jvm"],
+    deps = [
+        "@maven//:com_squareup_okio_okio_jvm",
+        "@maven//:com_squareup_wire_wire_runtime_jvm",
+    ],
+)

@@ -1,0 +1,53 @@
+load("@rules_android//android:rules.bzl", "android_binary", "android_library")
+load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+
+# Resources and the R class.
+android_library(
+    name = "res",
+    custom_package = "dev.krit.firsample.app",
+    manifest = "src/main/AndroidManifest.xml",
+    resource_files = glob(["src/main/res/**"]),
+)
+
+# Bazel has no view binding; this generates the same Java classes AGP's
+# viewBinding = true does (dev.krit.firsample.app.databinding.*) into a srcjar.
+genrule(
+    name = "view_binding_srcjar",
+    srcs = glob(["src/main/res/layout/*.xml"]),
+    outs = ["view_binding.srcjar"],
+    cmd = "$(execpath //tools/viewbinding:generator) dev.krit.firsample.app $@ $(SRCS)",
+    tools = ["//tools/viewbinding:generator"],
+)
+
+android_library(
+    name = "view_binding",
+    srcs = [":view_binding_srcjar"],
+    custom_package = "dev.krit.firsample.app",
+    deps = [":res"],
+)
+
+kt_android_library(
+    name = "app_lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    custom_package = "dev.krit.firsample.app",
+    manifest = "src/main/AndroidManifest.xml",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":res",
+        ":view_binding",
+        "//data",
+    ],
+)
+
+android_binary(
+    name = "app",
+    custom_package = "dev.krit.firsample.app",
+    manifest = "src/main/AndroidManifest.xml",
+    manifest_values = {
+        "applicationId": "dev.krit.firsample.app",
+        "minSdkVersion": "26",
+        "targetSdkVersion": "36",
+    },
+    visibility = ["//visibility:public"],
+    deps = [":app_lib"],
+)

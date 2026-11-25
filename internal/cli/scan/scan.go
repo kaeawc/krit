@@ -221,9 +221,12 @@ func Run() int {
 		fmt.Fprintf(os.Stderr, "  krit --report=sarif -o results.sarif src/\n")
 		fmt.Fprintf(os.Stderr, "  # Then upload to GitHub Code Scanning:\n")
 		fmt.Fprintf(os.Stderr, "  # gh api repos/{owner}/{repo}/code-scanning/sarifs -f sarif=@results.sarif\n")
+		fmt.Fprintf(os.Stderr, "\nSeveral reports from one run:\n")
+		fmt.Fprintf(os.Stderr, "  krit --report sarif=build/krit.sarif --report json=build/krit.json src/\n")
 	}
 
 	flag.Parse()
+	f.skipPrimary = !primaryOutputRequested(f, flag.CommandLine)
 	defer memtune.Start()()
 	if baselineAuditVerb {
 		*f.BaselineAudit = true
@@ -389,6 +392,7 @@ func (r *runner) run(ctx context.Context) (int, error) {
 	} else if r.w != nil && r.w != os.Stdout {
 		exitCode = finalizeOutputClose(r.w, os.Stderr, exitCode)
 	}
+	exitCode = r.closeReports(exitCode)
 	return exitCode, nil
 }
 

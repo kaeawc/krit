@@ -17,8 +17,13 @@ import (
 // can be called once on a fresh FlagSet and the same struct can be shared
 // with every helper that historically read *flagPointer.
 type scanFlags struct {
-	Format                   *string
-	Report                   *string
+	Format *string
+	Report *string
+	// Reports are the --report FORMAT=PATH files, all written from one run.
+	Reports []reportTarget
+	// skipPrimary is set when only --report FORMAT=PATH files were asked
+	// for: stdout (or -o) then gets no report.
+	skipPrimary              bool
 	Perf                     *bool
 	PerfRules                *bool
 	CPUProfile               *string
@@ -144,7 +149,8 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f := &scanFlags{}
 	f.Format = fs.String("f", "json", "Output format: json, plain, sarif, checkstyle (default json; plain when stdout is a terminal and no -o file is set)")
 	fs.StringVar(f.Format, "format", "json", "Alias for -f")
-	f.Report = fs.String("report", "", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence)")
+	f.Report = new(string)
+	fs.Var(&reportFlag{format: f.Report, targets: &f.Reports}, "report", "Report format: json, plain, sarif, checkstyle (alias for -f, takes precedence); or FORMAT=PATH, repeatable, to write each report file from the same analysis run (stdout then gets no report unless -f, --format or -o is given)")
 	f.Perf = fs.Bool("perf", false, "Include performance timing in output")
 	f.Reproducible = fs.Bool("reproducible", false, "Omit run-dependent JSON fields (durationMs is 0; no cache statistics or perf timings) so the same inputs give byte-identical output")
 	f.PerfRules = fs.Bool("perf-rules", false, "Include per-rule execution ranking in JSON output and stderr table (implies --perf)")

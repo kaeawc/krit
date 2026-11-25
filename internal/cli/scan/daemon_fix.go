@@ -55,7 +55,7 @@ func runDaemonFix(f *scanFlags, paths []string, res daemon.AnalyzeProjectResult)
 	printFixupResult(f, fixRes, start)
 	printBinaryFixResult(f, fixRes)
 
-	if *f.Output == "" && resolveEffectiveFormat(f) == "json" && *f.Report == "" && *f.Fix {
+	if *f.Output == "" && resolveEffectiveFormat(f) == "json" && *f.Report == "" && len(f.Reports) == 0 && *f.Fix {
 		if preCount-fixRes.FixableCount > 0 {
 			if !*f.Quiet {
 				fmt.Fprintf(os.Stderr, "info: %d unfixable issue(s) remain.\n", preCount-fixRes.FixableCount)

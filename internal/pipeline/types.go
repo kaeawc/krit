@@ -465,6 +465,13 @@ type FixupResult struct {
 // OutputInput is the entry value for the Output phase. Output is the
 // only phase whose side effect isn't a value return — it writes
 // formatted findings to the supplied Writer.
+// ReportWriter is one extra report of an Output phase: a format and the
+// destination it is written to. JSON reports are written compact.
+type ReportWriter struct {
+	Format string
+	Writer io.Writer
+}
+
 type OutputInput struct {
 	FixupResult
 	// Reporter routes verbose progress from the Output phase. Nil means silent.
@@ -475,6 +482,10 @@ type OutputInput struct {
 	// Format is one of "json", "plain", "sarif", "checkstyle", or
 	// empty to auto-detect based on whether Writer is a terminal.
 	Format string
+	// Reports are further reports written from the same final findings as
+	// Writer (#1578), each in its own format. A nil Writer with Reports
+	// writes only the reports.
+	Reports []ReportWriter
 	// BaselinePath, when non-empty, is the path to a baseline file
 	// used to suppress known findings.
 	BaselinePath string

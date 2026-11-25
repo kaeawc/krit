@@ -131,6 +131,15 @@ type runner struct {
 	basePath   string
 	w          *os.File
 	outAtomic  *atomicOutput
+	// reports are the open --report FORMAT=PATH files.
+	reports []openReport
+}
+
+// openReport is one --report FORMAT=PATH file staged for the output phase.
+type openReport struct {
+	format string
+	file   *os.File
+	atomic *atomicOutput
 }
 
 // newRunner builds the runner that drives scan.Run's phases. It performs
@@ -1066,7 +1075,7 @@ func (r *runner) runFixup() (handled bool, code int) {
 		r.printFixupResult(fixRes)
 		r.printBinaryFixResult(fixRes)
 
-		if *r.f.Output == "" && r.effectiveFormat == "json" && *r.f.Report == "" && *r.f.Fix {
+		if *r.f.Output == "" && r.effectiveFormat == "json" && *r.f.Report == "" && len(r.f.Reports) == 0 && *r.f.Fix {
 			if r.allColumns.Len()-fixRes.FixableCount > 0 {
 				if !*r.f.Quiet {
 					fmt.Fprintf(os.Stderr, "info: %d unfixable issue(s) remain.\n", r.allColumns.Len()-fixRes.FixableCount)
@@ -1088,6 +1097,18 @@ func (r *runner) runFixup() (handled bool, code int) {
 func (r *runner) openOutputWriter() (int, error) {
 	var openErr error
 	r.tracker.TrackVoid("openOutputWriter", func() {
+		for _, target := range r.f.Reports {
+			report := openReport{format: target.Format}
+			if report.atomic = openAtomicOutput(target.Path); report.atomic != nil {
+				report.file = report.atomic.file
+			} else if report.file, openErr = os.Create(target.Path); openErr != nil {
+				return
+			}
+			r.reports = append(r.reports, report)
+		}
+		if r.f.skipPrimary {
+			return
+		}
 		if *r.f.Output != "" {
 			var w *os.File
 			if r.outAtomic = openAtomicOutput(*r.f.Output); r.outAtomic != nil {
@@ -1104,10 +1125,45 @@ func (r *runner) openOutputWriter() (int, error) {
 		r.w = os.Stdout
 	})
 	if openErr != nil {
+		// Discard the report files staged before the failing one.
+		r.closeReports(2)
 		fmt.Fprintf(os.Stderr, "error: %v\n", openErr)
 		return 2, openErr
 	}
 	return 0, nil
+}
+
+// primaryWriter is the stdout or -o writer, nil when only --report
+// FORMAT=PATH files are written.
+func (r *runner) primaryWriter() io.Writer {
+	if r.w == nil {
+		return nil
+	}
+	return r.w
+}
+
+func (r *runner) reportWriters() []pipeline.ReportWriter {
+	var out []pipeline.ReportWriter
+	for _, report := range r.reports {
+		out = append(out, pipeline.ReportWriter{Format: report.format, Writer: report.file})
+	}
+	return out
+}
+
+// closeReports publishes (or, for exit code 2, discards) every staged
+// --report file, like the -o report, and folds close errors into the exit
+// code.
+func (r *runner) closeReports(exitCode int) int {
+	final := exitCode
+	for _, report := range r.reports {
+		if report.atomic != nil {
+			final = finalizeOutputClose(finishCloser{report.atomic, exitCode}, os.Stderr, final)
+		} else {
+			final = finalizeOutputClose(report.file, os.Stderr, final)
+		}
+	}
+	r.reports = nil
+	return final
 }
 
 // recordTotalTimingAndStopProfiles records the "total" wall-clock entry,
@@ -1169,7 +1225,8 @@ func (r *runner) outputPhase() int {
 				},
 			},
 		},
-		Writer:             r.w,
+		Writer:             r.primaryWriter(),
+		Reports:            r.reportWriters(),
 		BaselineSuppressed: r.baselineSuppressed,
 		FirDegraded:        r.currentFirDegraded(),
 		Format:             r.effectiveFormat,

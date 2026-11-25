@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,10 +108,35 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 		reported = &rewritten
 	}
 
-	switch in.Format {
+	write := func(w io.Writer, format string, compact bool) error {
+		return writeReport(w, format, compact, reported, fileCount, ruleCount, &in)
+	}
+	if in.Writer != nil || len(in.Reports) == 0 {
+		if err := write(in.Writer, in.Format, in.JSONCompact); err != nil {
+			return OutputResult{}, err
+		}
+	}
+	// Every report renders the same filtered, path-rewritten findings, so
+	// they agree with each other and with Writer by construction.
+	for _, report := range in.Reports {
+		if err := write(report.Writer, report.Format, true); err != nil {
+			return OutputResult{}, fmt.Errorf("report %s: %w", report.Format, err)
+		}
+	}
+
+	return OutputResult{
+		FinalFindings:          *columns,
+		FindingsInErrorRegions: findingsInErrorRegions,
+		Timings:                in.Timings,
+	}, nil
+}
+
+// writeReport renders reported in one format to w.
+func writeReport(w io.Writer, format string, compact bool, reported *scanner.FindingColumns, fileCount, ruleCount int, in *OutputInput) error {
+	switch format {
 	case "json":
 		if err := output.FormatJSONColumnsWithOptions(
-			in.Writer,
+			w,
 			reported,
 			in.Version,
 			fileCount,
@@ -122,28 +148,23 @@ func (OutputPhase) Run(_ context.Context, in OutputInput) (OutputResult, error) 
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
-			output.JSONOptions{Compact: in.JSONCompact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, Reproducible: in.Reproducible},
+			output.JSONOptions{Compact: compact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, Reproducible: in.Reproducible},
 			in.PerfRuleStats,
 		); err != nil {
-			return OutputResult{}, fmt.Errorf("format json: %w", err)
+			return fmt.Errorf("format json: %w", err)
 		}
 	case "plain":
-		output.FormatPlainColumns(in.Writer, reported)
+		output.FormatPlainColumns(w, reported)
 	case "sarif":
-		if err := output.FormatSARIFColumnsDegraded(in.Writer, reported, in.Version, in.FirDegraded); err != nil {
-			return OutputResult{}, fmt.Errorf("format sarif: %w", err)
+		if err := output.FormatSARIFColumnsDegraded(w, reported, in.Version, in.FirDegraded); err != nil {
+			return fmt.Errorf("format sarif: %w", err)
 		}
 	case "checkstyle":
-		output.FormatCheckstyleColumns(in.Writer, reported)
+		output.FormatCheckstyleColumns(w, reported)
 	default:
-		return OutputResult{}, fmt.Errorf("unknown format: %s", in.Format)
+		return fmt.Errorf("unknown format: %s", format)
 	}
-
-	return OutputResult{
-		FinalFindings:          *columns,
-		FindingsInErrorRegions: findingsInErrorRegions,
-		Timings:                in.Timings,
-	}, nil
+	return nil
 }
 
 func filterColumnsByParsedErrorRegions(columns *scanner.FindingColumns, kotlinFiles, javaFiles []*scanner.File) (scanner.FindingColumns, int) {

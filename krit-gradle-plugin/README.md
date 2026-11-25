@@ -331,6 +331,35 @@ before. The classpath is the one Gradle compiles with, so
 upstream implementation dependencies are not visible, as in a normal compile.
 This needs a krit release after 0.5.0.
 
+### Shared FIR JVMs
+
+krit keeps a FIR JVM warm between runs, but it starts one per source-dir set, so
+the per-project checks of an N-project build used to leave N JVMs running (each
+up to a quarter of memory). The plugin's `kritFirDaemonPool` build service has
+the build's krit tasks share a small pool instead. Each task leases a slot for
+its krit run (`KRIT_FIR_DAEMON_POOL`), and every request retargets that JVM to
+the project at hand. The JVMs stay warm for later builds of the same root and
+exit after 30 idle minutes.
+
+```kotlin
+krit {
+    fir {
+        maxDaemons = 2   // default: warm JVMs, and the most FIR tasks that run at once
+        maxHeap = "4g"   // default: a quarter of memory per JVM
+    }
+}
+```
+
+`maxDaemons` is capped by `--max-workers`. Projects share a JVM only when they
+agree on the JVM target, Kotlin compiler settings (including compiler plugins) and
+the JDK, so a build that mixes, say, Compose and plain modules keeps one warm JVM
+per slot and setting. `maxHeap` applies to the JVMs a run starts. Configure both the
+same way in every project (for example from a convention plugin): the build
+service takes them from the first project that applies krit. When the extension
+turns FIR off, krit tasks don't use the pool and run without its limit; a single
+task's `fir = false` skips the lease but still counts toward the limit. The pool
+needs a krit release after 0.5.0; older ones ignore it.
+
 ## Build cache
 
 `kritCheck` and `kritCheckAll` are cacheable, and their cache keys are relocatable:

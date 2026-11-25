@@ -15,6 +15,7 @@ import (
 	"github.com/kaeawc/krit/internal/cli/daemonclient"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/daemon"
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -729,6 +730,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	// The analyze-project wire carries no project outputs; the daemon would compile
 	// the built project dependencies from source again.
 	if *f.GradleProjectOutputs != "" {
+		return false
+	}
+	// A pooled FIR check daemon (KRIT_FIR_DAEMON_POOL) is chosen from this process's
+	// environment, which a delegated scan would not see.
+	if strings.TrimSpace(os.Getenv(firchecks.FirDaemonPoolEnv)) != "" {
 		return false
 	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;

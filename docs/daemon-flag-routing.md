@@ -319,6 +319,13 @@ files (#1578) stays in-process and renders all of them from one result set.
 The analyze-project wire does not carry the built outputs of project
 dependencies (#1581), so a scan that reads them stays in-process.
 
+### `KRIT_FIR_DAEMON_POOL`
+
+This environment variable keys the FIR check daemon by a pool slot instead of
+the scan's source dirs, so the per-project scans of one build share a warm JVM
+(#1582). A delegated scan would run with the daemon's environment, not the
+caller's, so a scan with the variable set stays in-process.
+
 ## Cache clears
 
 ### `--clear-cache` (now routed via daemon)

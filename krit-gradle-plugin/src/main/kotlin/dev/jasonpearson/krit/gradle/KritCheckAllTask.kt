@@ -130,6 +130,14 @@ abstract class KritCheckAllTask @Inject constructor(
     @get:Optional
     abstract val javaLauncher: Property<org.gradle.jvm.toolchain.JavaLauncher>
 
+    /** Shared warm FIR JVMs; absent when FIR is off. */
+    @get:Internal
+    abstract val firDaemonPool: Property<KritFirDaemonPool>
+
+    /** `fir { maxHeap }`: does not change the findings, so not an input. */
+    @get:Internal
+    abstract val firMaxHeap: Property<String>
+
     /** The model JSON with location-independent paths (see KritModelInputs). */
     @get:Input
     abstract val normalizedModel: Property<String>
@@ -167,14 +175,16 @@ abstract class KritCheckAllTask @Inject constructor(
         val root = scanRoot.get().asFile
         val exitValue = runReports(reports, logger) { batch ->
             val stderr = ByteArrayOutputStream()
-            val result = execOps.exec {
-                this.executable = executable
-                workingDir = root
-                moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
-                args(scanArgs(batch, root))
-                kritFirEnvironment(firJar, javaLauncher)
-                errorOutput = stderr
-                isIgnoreExitValue = true
+            val result = withFirDaemonSlot(firDaemonPool) { slot ->
+                execOps.exec {
+                    this.executable = executable
+                    workingDir = root
+                    moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
+                    args(scanArgs(batch, root))
+                    kritFirEnvironment(firJar, javaLauncher, slot, firMaxHeap)
+                    errorOutput = stderr
+                    isIgnoreExitValue = true
+                }
             }
             result.exitValue to stderr.toString()
         }

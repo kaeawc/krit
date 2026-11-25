@@ -642,6 +642,22 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_performance_classes_test.go
+  IdleBatteryChargingConstraints:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  InvalidPeriodicWorkRequestInterval:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  BadPeriodicWorkRequestEnqueue:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  UseRxSetProgress2:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
   UsableSpace:
     status: supported
     fixtures:

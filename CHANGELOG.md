@@ -127,6 +127,16 @@ All notable changes to Krit will be documented in this file.
   which Lint does (#1446, #1447, #1448, #1450).
 
 ### Added
+- `IdleBatteryChargingConstraints`, `InvalidPeriodicWorkRequestInterval`, `BadPeriodicWorkRequestEnqueue` and
+  `UseRxSetProgress2`, ported from the Lint checks bundled in `androidx.work:work-runtime` 2.12.0 for Kotlin and Java
+  under their Lint IDs, severities and messages. They are checked against the Lint CLI 9.4 running that release's
+  `lint.jar` on the same inputs (`internal/rules/testdata/androidx_work/`). `IdleBatteryChargingConstraints` and
+  `UseRxSetProgress2` match Lint's findings exactly. `BadPeriodicWorkRequestEnqueue` reports at the `enqueue()` call,
+  where Lint reports inside the library jar. It skips Lint's `List<WorkRequest>` match on one-time requests.
+  `InvalidPeriodicWorkRequestInterval` follows the detector source, because the shipped detector reported nothing
+  against compiled WorkManager. Receivers are proven from imports, constructors, builder chains and same-file
+  declarations. The checks skip test sources, and projects whose dependency list proves androidx.work absent.
+  `UseRxSetProgress2` renames a statement call to `setCompletableProgress` (#1509, #1510, #1511, #1513).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

@@ -461,3 +461,20 @@ the detector (it needs source and resources together) are not covered.
 - `DetachAndAttachSameFragment` reports a `beginTransaction()` on a FragmentManager whose transaction, followed through
   call chains and local variables of the function, ends with `detach(f)` and `attach(f)` of the same fragment, at the
   `beginTransaction` name. Fragments are compared by their argument text; Lint compares the resolved declaration.
+`androidx.work:work-runtime` 2.12.0 call-site checks (Kotlin and Java), checked against the Lint CLI running that
+release's `lint.jar` (`internal/rules/testdata/androidx_work/`):
+
+- `IdleBatteryChargingConstraints` reports `setRequiresCharging(true)` in the same block as `setRequiresDeviceIdle(true)`
+  on a `Constraints.Builder` reached from the same variable (or both from a bare constructor chain), once per idle call.
+  As in Lint, the walk does not enter call arguments or lambdas passed to calls, and an expression-bodied function has
+  no block, so a one-expression builder chain there is not reported.
+- `InvalidPeriodicWorkRequestInterval` reports a `PeriodicWorkRequest.Builder` constructor whose repeat interval folds
+  below 15 minutes (`TimeUnit` constants convert with truncation; `Duration.ofX`). It follows the detector source: the
+  Lint CLI reported no finding at all for this ID against the compiled 2.12.0 classes. As in the detector, a Java
+  `int` argument is not evaluated. `PeriodicWorkRequestBuilder<W>(...)` is covered by `PeriodicWorkRequestLessThan15Min`.
+- `BadPeriodicWorkRequestEnqueue` reports `WorkManager.enqueue(...)` with a proven `PeriodicWorkRequest` argument or a
+  Kotlin `List<out PeriodicWorkRequest>`, at the call. Lint reports the location of `WorkManager.enqueue` in the
+  library jar, and its `List<? extends WorkRequest>` match also reports lists of one-time requests; krit does not.
+- `UseRxSetProgress2` reports `setProgress(...)` resolved to `androidx.work.RxWorker` (RxJava 2), not the RxJava 3
+  `androidx.work.rxjava3.RxWorker` or `CoroutineWorker.setProgress`. When the call is a statement of its own, the fix
+  renames it to `setCompletableProgress` (Lint's quick fix); a call whose `Single` result is used is not rewritten.

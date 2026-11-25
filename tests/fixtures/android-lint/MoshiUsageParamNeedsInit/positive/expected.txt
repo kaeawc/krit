@@ -1,0 +1,2 @@
+src/main/java/com/example/Params.kt:6:26: MoshiUsageParamNeedsInit: Constructor non-property parameters in Moshi classes must have default values.
+src/main/java/com/example/Params.kt:6:7: MoshiUsageUseData: Model classes should be immutable data classes.

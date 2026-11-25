@@ -1,0 +1,4 @@
+src/main/java/com/example/Blank.kt:10:46: MoshiUsageBlankJsonName: Don't use blank names in @Json.
+src/main/java/com/example/Blank.kt:7:31: MoshiUsageBlankJsonName: Don't use blank names in @Json.
+src/main/java/com/example/Blank.kt:7:60: MoshiUsageBlankJsonName: Don't use blank names in @Json.
+src/main/java/com/example/JavaBlank.java:9:16: MoshiUsageBlankJsonName: Don't use blank names in @Json.

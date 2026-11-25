@@ -1,0 +1,4 @@
+src/main/java/com/example/Sites.kt:10:27: MoshiUsageRedundantSiteTarget: Use of site-targets on @Json are redundant.
+src/main/java/com/example/Sites.kt:8:22: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.
+src/main/java/com/example/Sites.kt:8:4: MoshiUsageRedundantSiteTarget: Use of site-targets on @Json are redundant.
+src/main/java/com/example/Sites.kt:9:21: MoshiUsageRedundantSiteTarget: Use of site-targets on @Json are redundant.

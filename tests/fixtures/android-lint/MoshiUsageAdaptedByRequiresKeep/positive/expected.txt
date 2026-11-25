@@ -1,0 +1,2 @@
+src/main/java/com/example/NoKeep.kt:6:12: MoshiUsageAdaptedByRequiresKeep: Adapters targeted by @AdaptedBy must have @Keep.
+src/main/java/com/example/NoKeep.kt:9:12: MoshiUsageAdaptedByRequiresKeep: Adapters targeted by @AdaptedBy must have @Keep.

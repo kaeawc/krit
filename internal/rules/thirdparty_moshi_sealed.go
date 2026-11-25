@@ -93,9 +93,12 @@ func moshiClassFQN(file *scanner.File, pkg string, node uint32) string {
 func moshiEnclosingClassNames(file *scanner.File, node uint32) []string {
 	var names []string
 	for cur := node; cur != 0; {
-		switch file.FlatType(cur) {
-		case "class_declaration", "object_declaration", "companion_object":
-			name, ok := file.FlatFindChild(cur, "type_identifier")
+		if moshiIsTypeDeclaration(file, cur) {
+			nameType := "type_identifier"
+			if file.Language == scanner.LangJava {
+				nameType = "identifier"
+			}
+			name, ok := file.FlatFindChild(cur, nameType)
 			text := "Companion"
 			if ok {
 				text = file.FlatNodeText(name)

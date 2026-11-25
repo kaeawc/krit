@@ -1,0 +1,2 @@
+src/main/java/com/example/Vars.kt:6:17: MoshiUsageVarProperty: Moshi properties should be immutable.
+src/main/java/com/example/Vars.kt:6:41: MoshiUsageVarProperty: Moshi properties should be immutable.

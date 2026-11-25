@@ -1,0 +1,8 @@
+src/main/java/com/example/Duplicates.kt:10:7: MoshiUsageDuplicateJsonName: Name 'plain' is duplicated by member 'renamedToPlain'.
+src/main/java/com/example/Duplicates.kt:11:29: MoshiUsageDuplicateJsonName: Name 'plain' is duplicated by member 'plain'.
+src/main/java/com/example/Duplicates.kt:15:55: MoshiUsageDuplicateJsonName: Name 'x' is duplicated by member 'TWO'.
+src/main/java/com/example/Duplicates.kt:15:78: MoshiUsageDuplicateJsonName: Name 'x' is duplicated by member 'ONE'.
+src/main/java/com/example/Duplicates.kt:8:27: MoshiUsageDuplicateJsonName: Name 'dup' is duplicated by member 'second'.
+src/main/java/com/example/Duplicates.kt:9:27: MoshiUsageDuplicateJsonName: Name 'dup' is duplicated by member 'first'.
+src/main/java/com/example/JavaDuplicates.java:10:21: MoshiUsageDuplicateJsonName: Name 'd' is duplicated by member 'A'.
+src/main/java/com/example/JavaDuplicates.java:9:21: MoshiUsageDuplicateJsonName: Name 'd' is duplicated by member 'B'.

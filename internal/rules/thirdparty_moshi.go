@@ -79,8 +79,9 @@ func emitMoshiFindings(ctx *api.Context) {
 
 // moshiAnalyzer accumulates findings over one project.
 type moshiAnalyzer struct {
-	result *moshiResult
-	sealed *moshiSealedIndex
+	result  *moshiResult
+	sealed  *moshiSealedIndex
+	classes *moshiClassIndex // built on first use by projectClasses
 }
 
 func analyzeMoshiProject(files []*scanner.File) *moshiResult {
@@ -128,6 +129,9 @@ func (a *moshiAnalyzer) analyzeFile(file *scanner.File) {
 		if decl.isEnum {
 			a.checkEnum(decl)
 			return
+		}
+		if moshiIsAnnotationType(decl) {
+			a.checkJSONQualifier(decl)
 		}
 		if file.Language == scanner.LangKotlin {
 			a.checkKotlinClass(decl)
@@ -299,10 +303,13 @@ func (a *moshiAnalyzer) checkEnum(c moshiClass) {
 		a.reportIssue("MoshiUsageEnumAnnotatedUnknown", file, c.nameNode)
 	}
 
+	jsonNames := map[string]moshiMember{}
 	for i, k := range c.constants {
 		if i == unknownIndex {
 			continue
 		}
+		member := moshiMember{name: k.name, nameNode: k.nameNode, anns: k.anns}
+		a.validateJSONName(file, member, moshiFindAnnotation(file, k.anns, fqcnMoshiJSON), jsonNames)
 		if k.name != moshiScreamingSnakeCase(k.name) {
 			a.reportIssue("MoshiUsageEnumCasing", file, k.nameNode)
 		}
@@ -368,6 +375,7 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, adaptedBy.node)
 			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, jsonClass.node)
 		}
+		a.validateAdaptedBy(file, c.node, *adaptedBy)
 		return
 	}
 
@@ -444,4 +452,238 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 		a.reportIssue("MoshiUsageMissingPrimary", file, c.nameNode)
 		return
 	}
+
+	a.checkPrimaryConstructor(c)
+}
+
+const fqcnKotlinJvmTransient = "kotlin.jvm.Transient"
+
+// moshiParam is one Kotlin primary-constructor parameter.
+type moshiParam struct {
+	node       uint32
+	nameNode   uint32
+	name       string
+	anns       []moshiAnnotation
+	binding    uint32 // the val/var binding_pattern_kind, or 0 for a plain parameter
+	isVar      bool
+	visibility uint32
+	typeNode   uint32
+	defaultVal uint32 // default value expression, or 0
+}
+
+func moshiParams(file *scanner.File, primary uint32) []moshiParam {
+	var out []moshiParam
+	file.FlatForEachChild(primary, func(child uint32) {
+		if file.FlatType(child) != "class_parameter" {
+			return
+		}
+		p := moshiParam{node: child, anns: moshiAnnotationsOf(file, child)}
+		afterEquals := false
+		file.FlatForEachChild(child, func(part uint32) {
+			switch t := file.FlatType(part); {
+			case t == "modifiers":
+				p.visibility, _ = file.FlatFindChild(part, "visibility_modifier")
+			case t == "binding_pattern_kind":
+				p.binding = part
+				p.isVar = file.FlatHasChildOfType(part, "var")
+			case t == "simple_identifier" && p.nameNode == 0:
+				p.nameNode = part
+				p.name = file.FlatNodeText(part)
+			case t == "=":
+				afterEquals = true
+			case afterEquals && p.defaultVal == 0:
+				// The default may be an anonymous token such as `null`.
+				p.defaultVal = part
+			case !file.FlatIsNamed(part):
+			case p.nameNode != 0 && p.typeNode == 0:
+				p.typeNode = part
+			}
+		})
+		if p.nameNode != 0 {
+			out = append(out, p)
+		}
+	})
+	return out
+}
+
+// moshiIsKotlinTransient reports whether ann is kotlin.jvm.Transient. A bare
+// @Transient resolves through Kotlin's default kotlin.jvm import unless an
+// import, a same-file class, or a star import of another package may shadow it.
+func moshiIsKotlinTransient(file *scanner.File, ann moshiAnnotation) bool {
+	if moshiRefIs(file, ann.name, fqcnKotlinJvmTransient) {
+		return true
+	}
+	if ann.name != "Transient" {
+		return false
+	}
+	imports := lintImportsOf(file)
+	if _, ok := imports.bySimple["Transient"]; ok || lintSameFileClass(file, "Transient") != 0 {
+		return false
+	}
+	for _, star := range imports.stars {
+		if star != "com.squareup.moshi" && !strings.HasPrefix(star, "dev.zacsweers.moshix") && star != "kotlin.jvm" {
+			return false
+		}
+	}
+	return true
+}
+
+// checkPrimaryConstructor ports the primary-constructor part of
+// MoshiUsageDetector.visitClass.
+func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
+	file := c.file
+	if mods, ok := file.FlatFindChild(c.primary, "modifiers"); ok {
+		if vis, ok := file.FlatFindChild(mods, "visibility_modifier"); ok && !moshiVisibilityAllowed(file, vis) {
+			a.reportIssue("MoshiUsagePrivateConstructor", file, vis)
+		}
+	}
+	jsonNames := map[string]moshiMember{}
+	scope := moshiTypeScope{a: a, file: file, pkg: moshiFilePackage(file), class: c.node, typeParams: moshiTypeParamNames(file, c.node)}
+	if mods, ok := file.FlatFindChild(c.node, "modifiers"); ok && moshiMentionsWildcardControl(file.FlatNodeText(mods)) {
+		scope.wildcardsOverridden = true
+	}
+	if moshiMentionsWildcardControl(moshiFileAnnotationsText(file)) {
+		scope.wildcardsOverridden = true
+	}
+	for _, p := range moshiParams(file, c.primary) {
+		hasDefault := p.defaultVal != 0
+		for _, ann := range p.anns {
+			if moshiIsKotlinTransient(file, ann) && !hasDefault {
+				a.reportIssue("MoshiUsageTransientNeedsInit", file, p.node)
+				break
+			}
+		}
+		if p.binding == 0 {
+			if !hasDefault {
+				a.reportIssue("MoshiUsageParamNeedsInit", file, p.node)
+			}
+			continue
+		}
+		if p.isVar {
+			a.reportIssue("MoshiUsageVarProperty", file, p.binding)
+		}
+		if !moshiVisibilityAllowed(file, p.visibility) {
+			a.reportIssue("MoshiUsagePrivateConstructorProperty", file, p.visibility)
+		}
+		adaptedBy := moshiFindAnnotation(file, p.anns, fqcnMoshixAdaptedBy)
+		if adaptedBy != nil {
+			a.validateAdaptedBy(file, c.node, *adaptedBy)
+		}
+		// An adapter or a JsonQualifier takes over the property's type.
+		if adaptedBy == nil && p.typeNode != 0 && !scope.moshiPropertyHasQualifier(p.anns) {
+			propScope := scope
+			propScope.wildcardsOverridden = scope.wildcardsOverridden || moshiMentionsWildcardControl(file.FlatNodeText(p.node))
+			propScope.checkPropertyType(p.typeNode, p.typeNode, p.defaultVal, false)
+		}
+		a.checkPropertyJSONName(file, p, jsonNames)
+	}
+}
+
+const fqcnGsonSerializedName = "com.google.gson.annotations.SerializedName"
+
+// moshiMember is an enum constant or constructor property whose JSON name
+// MoshiUsageDetector.validateJsonName checks.
+type moshiMember struct {
+	name     string
+	nameNode uint32
+	anns     []moshiAnnotation
+}
+
+// validateJSONName ports MoshiUsageDetector.validateJsonName. seen maps each
+// JSON name to the member that claimed it.
+func (a *moshiAnalyzer) validateJSONName(file *scanner.File, member moshiMember, json *moshiAnnotation, seen map[string]moshiMember) {
+	jsonName := member.name
+	known := true
+	if json != nil {
+		// Without a name argument Moshi uses the member name. (Lint reads the
+		// annotation's "\u0000" UNSET_NAME default there; see the fixtures.)
+		if expr := moshiAnnotationArg(file, *json, "name", 0); expr != 0 {
+			value, ok := moshiStringLiteral(file, expr)
+			switch {
+			case !ok:
+				known = false
+			case strings.TrimSpace(value) == "":
+				a.reportIssue("MoshiUsageBlankJsonName", file, expr)
+			case value == member.name:
+				a.reportIssue("MoshiUsageRedundantJsonName", file, expr)
+			default:
+				jsonName = value
+			}
+		}
+	}
+
+	if known {
+		if existing, dup := seen[jsonName]; dup {
+			a.report("MoshiUsageDuplicateJsonName", file, member.nameNode,
+				fmt.Sprintf("Name '%s' is duplicated by member '%s'.", jsonName, existing.name))
+			a.report("MoshiUsageDuplicateJsonName", file, existing.nameNode,
+				fmt.Sprintf("Name '%s' is duplicated by member '%s'.", jsonName, member.name))
+		}
+		seen[jsonName] = member
+	}
+
+	if serialized := moshiFindAnnotation(file, member.anns, fqcnGsonSerializedName); serialized != nil {
+		a.reportIssue("MoshiUsageSerializedName", file, serialized.node)
+	}
+}
+
+// checkPropertyJSONName ports the @Json handling of a constructor property:
+// redundant site targets, the JSON name, and snake_case names.
+func (a *moshiAnalyzer) checkPropertyJSONName(file *scanner.File, p moshiParam, seen map[string]moshiMember) {
+	var jsonAnns []moshiAnnotation
+	for _, ann := range p.anns {
+		if moshiRefIs(file, ann.name, fqcnMoshiJSON) {
+			jsonAnns = append(jsonAnns, ann)
+		}
+	}
+	var toValidate *moshiAnnotation
+	switch {
+	case len(jsonAnns) > 1:
+		// Keep the target-less one (or the first) and flag the others.
+		keep := 0
+		for i, ann := range jsonAnns {
+			if ann.site == 0 {
+				keep = i
+				break
+			}
+		}
+		for i, ann := range jsonAnns {
+			if i != keep {
+				a.reportIssue("MoshiUsageRedundantSiteTarget", file, ann.node)
+			}
+		}
+	case len(jsonAnns) == 1:
+		if jsonAnns[0].site != 0 {
+			a.reportIssue("MoshiUsageRedundantSiteTarget", file, jsonAnns[0].site)
+		}
+		toValidate = &jsonAnns[0]
+	}
+
+	a.validateJSONName(file, moshiMember{name: p.name, nameNode: p.nameNode, anns: p.anns}, toValidate, seen)
+
+	// With an @Json present the IDE already offers better renaming, so only
+	// unannotated snake_case names are flagged.
+	if toValidate == nil && p.name != moshiSnakeToCamel(p.name) {
+		a.reportIssue("MoshiUsageSnakeCase", file, p.nameNode)
+	}
+}
+
+// moshiSnakeToCamel ports slack-lints' String.snakeToCamel.
+func moshiSnakeToCamel(s string) string {
+	var b strings.Builder
+	capNext, letterSeen := false, false
+	for _, c := range s {
+		if c == '_' || c == '-' {
+			capNext = letterSeen
+			continue
+		}
+		letterSeen = true
+		if capNext {
+			b.WriteRune(unicode.ToUpper(c))
+			capNext = false
+		} else {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
 }

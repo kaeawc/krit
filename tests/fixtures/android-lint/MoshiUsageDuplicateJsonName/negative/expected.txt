@@ -1,0 +1,2 @@
+src/main/java/com/example/Unique.kt:15:57: MoshiUsageDuplicateJsonName: Name '\u0000' is duplicated by member 'c'.
+src/main/java/com/example/Unique.kt:15:94: MoshiUsageDuplicateJsonName: Name '\u0000' is duplicated by member 'b'.

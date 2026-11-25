@@ -1,0 +1,3 @@
+src/main/java/com/example/ConcreteMaps.kt:10:13: MoshiUsageNonMoshiClassMap: Concrete Map type 'TreeMap' is not natively supported by Moshi.
+src/main/java/com/example/ConcreteMaps.kt:8:13: MoshiUsageNonMoshiClassMap: Concrete Map type 'HashMap' is not natively supported by Moshi.
+src/main/java/com/example/ConcreteMaps.kt:9:15: MoshiUsageNonMoshiClassMap: Concrete Map type 'LinkedHashMap' is not natively supported by Moshi.

@@ -1,0 +1,4 @@
+src/main/java/com/example/Mutable.kt:10:19: MoshiUsageMutableCollections: Use immutable collections rather than mutable versions.
+src/main/java/com/example/Mutable.kt:7:13: MoshiUsageMutableCollections: Use immutable collections rather than mutable versions.
+src/main/java/com/example/Mutable.kt:8:12: MoshiUsageMutableCollections: Use immutable collections rather than mutable versions.
+src/main/java/com/example/Mutable.kt:9:12: MoshiUsageMutableCollections: Use immutable collections rather than mutable versions.

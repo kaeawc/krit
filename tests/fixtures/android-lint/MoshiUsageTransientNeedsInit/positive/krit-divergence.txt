@@ -1,0 +1,7 @@
+# Lint 9.4.0 (K1 and K2 UAST) does not see @Transient on a constructor *property*: Kotlin places the
+# annotation on the backing field, and UParameter.uAnnotations no longer includes it. slack-lints'
+# own test (params_that_need_init) expects these to be reported, and Moshi cannot construct the class
+# without a default, so krit reports them.
++ src/main/java/com/example/Transients.kt:8:3: MoshiUsageTransientNeedsInit: Transient constructor properties must have default values.
++ src/main/java/com/example/Transients.kt:9:3: MoshiUsageTransientNeedsInit: Transient constructor properties must have default values.
++ src/main/java/com/example/Transients.kt:10:3: MoshiUsageTransientNeedsInit: Transient constructor properties must have default values.

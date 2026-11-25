@@ -267,6 +267,27 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
   same package across files, including files that never mention Moshi (#1387, #1389, #1399, #1400, #1403, #1415).
+- `slack-lint` gains `MoshiUsageDetector`'s primary-constructor checks for Kotlin: `MoshiUsagePrivateConstructor`,
+  `MoshiUsagePrivateConstructorProperty`, `MoshiUsageVarProperty`, `MoshiUsageParamNeedsInit` and
+  `MoshiUsageTransientNeedsInit`. Unlike Lint 9.4, which no longer sees `@Transient` on a constructor property,
+  krit reports a `@Transient` property without a default, as slack-lints' own tests expect (#1411, #1412, #1413,
+  #1418, #1421).
+- `slack-lint` gains `MoshiUsageDetector`'s JSON name checks, on Kotlin constructor properties and on Kotlin and
+  Java enum members: `MoshiUsageBlankJsonName`, `MoshiUsageRedundantJsonName`, `MoshiUsageDuplicateJsonName`,
+  `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
+  reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
+  duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
+- `slack-lint` gains `MoshiUsageAdaptedByRequiresAdapter` and `MoshiUsageAdaptedByRequiresKeep` for moshix
+  `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
+  `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
+  classes (#1382, #1383, #1405, #1406).
+- `slack-lint` gains `MoshiUsageDetector`'s constructor-property type checks for Kotlin: `MoshiUsageArray`,
+  `MoshiUsageMutableCollections`, `MoshiUsageNonMoshiClassCollection`, `MoshiUsageNonMoshiClassMap`,
+  `MoshiUsageNonMoshiClassPlatform`, `MoshiUsageEnumPropertyCouldBeMoshi` and `MoshiUsageEnumPropertyDefaultUnknown`.
+  Type arguments are checked where Kotlin passes them to Java without a wildcard, as Lint sees them; types that
+  cannot be classified from source (star imports, typealiases, unresolved annotations that may be qualifiers) are
+  skipped. This completes the `MoshiUsageDetector` port except for Slack's package-specific
+  `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

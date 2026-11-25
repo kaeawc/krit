@@ -1,0 +1,5 @@
+src/main/java/com/example/Snake.kt:10:7: MoshiUsageSnakeCase: Consider using @Json(name = ...) rather than direct snake casing.
+src/main/java/com/example/Snake.kt:11:21: MoshiUsageRedundantSiteTarget: Use of site-targets on @Json are redundant.
+src/main/java/com/example/Snake.kt:11:49: MoshiUsageSnakeCase: Consider using @Json(name = ...) rather than direct snake casing.
+src/main/java/com/example/Snake.kt:8:7: MoshiUsageSnakeCase: Consider using @Json(name = ...) rather than direct snake casing.
+src/main/java/com/example/Snake.kt:9:7: MoshiUsageSnakeCase: Consider using @Json(name = ...) rather than direct snake casing.

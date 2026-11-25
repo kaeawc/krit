@@ -30,7 +30,8 @@ def _krit_sources_aspect_impl(target, ctx):
     android = model.android
     scan = [android.manifest] if android.manifest else []
     if android.resource_files:
-        build_file = ctx.actions.declare_file(target.label.name + ".krit-android/BUILD.bazel")
+        # Not krit_aspect's name: both aspects can apply to one target.
+        build_file = ctx.actions.declare_file(target.label.name + ".krit-test-android/BUILD.bazel")
         ctx.actions.write(
             output = build_file,
             content = resource_dirs_build_file(build_file.short_path, android.resource_files, path = _short_path),

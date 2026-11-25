@@ -372,3 +372,13 @@ Gradle model; krit reads the build script, the version catalog, and the project'
   `sourceCompatibility`, `jvmToolchain`/`JavaLanguageVersion`, or else AGP 4.2 or later, whose default is Java 8. With
   no declaration and no known AGP version, krit does not report, because Lint treats an unknown level as Java 7.
 
+- `NotificationTrampoline` (error) and `LaunchActivityFromNotification` (warning), Kotlin and Java, run once over all
+  parsed files. A `setContentIntent`/`setFullScreenIntent`/`addAction` call on a proven
+  `androidx.core.app.NotificationCompat.Builder` is followed to its `PendingIntent.getBroadcast`/`getService`. That
+  can be direct, the last assignment of a local, or the return of a same-class Java helper. The trace then goes to
+  the `Intent(context, X::class.java)` assigned to the local passed in. When `X` is a Java source class whose own
+  `onReceive`/`onStartCommand` calls `startActivity`/`startActivities` (lambdas included), the notification call is a
+  trampoline. When `X` cannot be found, and the call is not `addAction`, it is `LaunchActivityFromNotification`. Lint's class
+  lookup does not find Kotlin classes, so a Kotlin receiver gets `LaunchActivityFromNotification`. Kotlin helper
+  functions and qualified calls into other classes are not followed, as in Lint. `android.app.Notification.Builder`
+  and the support-library `NotificationCompat` are not checked.

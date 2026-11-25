@@ -59,6 +59,15 @@ All notable changes to Krit will be documented in this file.
   Source findings honor `@Suppress`/`@SuppressLint`. Manifest findings honor `tools:ignore`. Results are cached on the
   content of every manifest plus the whole source set, so editing either side reruns the rules on CLI, warm and daemon
   runs.
+- `NotificationTrampoline` and `LaunchActivityFromNotification`, ported from Android Lint 32.4.1's
+  `NotificationTrampolineDetector` under their Lint IDs for Kotlin and Java, as a project-scope check over the
+  parsed files. They were checked against the Lint CLI on the same sources
+  (`internal/rules/testdata/android_lint_performance/`). `setContentIntent`, `setFullScreenIntent` and `addAction`
+  on a proven `androidx.core.app.NotificationCompat.Builder` (explicit, chained, or the receiver of
+  `apply`/`run`/`with`) are traced to a `PendingIntent.getBroadcast`/`getService` and its `Intent` through the last
+  assignment of locals, and through same-class Java helpers. As in Lint, only Java receiver and service classes are
+  inspected for `startActivity`. A Kotlin one is not found, which yields `LaunchActivityFromNotification` instead of
+  `NotificationTrampoline` (#1225, #1226).
 - `UnnecessaryArrayInit`, `ExpensiveAssertion` and `AssertionSideEffect`, ported from Android Lint 32.4.1's
   `ArrayInitDetector` and `AssertDetector` under their Lint IDs and checked against the Lint CLI on the same sources.
   They follow the detectors' UAST walks, including the depth limits and Lint's quirks: qualified calls are cheap for

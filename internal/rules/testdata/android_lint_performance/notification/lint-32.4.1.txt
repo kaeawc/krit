@@ -1,0 +1,21 @@
+p/JHelper.java:10:54: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`JReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/JHelper.java:19:14: LaunchActivityFromNotification: Notifications should only launch a `Service` from notification actions (`addAction`)
+p/JHelper.java:30:54: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`JReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/JNotify.java:12:54: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/JNotify.java:17:17: LaunchActivityFromNotification: Notifications should only launch a `Service` from notification actions (`addAction`)
+p/JNotify2.java:12:54: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`JReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/JNotify2.java:17:54: NotificationTrampoline: This intent launches a `Service` (`JService`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KEdge.kt:13:50: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`Inner`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KEdge.kt:19:13: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`OtherReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KNotify2.kt:12:50: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`JReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KNotify3.kt:13:17: NotificationTrampoline: This intent launches a `Service` (`JService`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KNotify3.kt:14:17: NotificationTrampoline: This intent launches a `Service` (`JService`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/KNotify3.kt:31:14: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/KNotify3.kt:38:13: NotificationTrampoline: This intent launches a `BroadcastReceiver` (`JReceiver`) which launches activities; this indirection is bad for performance, and activities should be launched directly from the notification
+p/Notify.kt:13:50: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/Notify.kt:20:17: LaunchActivityFromNotification: Notifications should only launch a `Service` from notification actions (`addAction`)
+p/Notify.kt:26:50: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/Notify.kt:43:50: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/Notify.kt:47:50: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/Notify.kt:54:50: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)
+p/Notify.kt:82:11: LaunchActivityFromNotification: Notifications should only launch a `BroadcastReceiver` from notification actions (`addAction`)

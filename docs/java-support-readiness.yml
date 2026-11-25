@@ -622,6 +622,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_performance_assert_test.go
+  NotificationTrampoline:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_performance_notification_test.go
+  LaunchActivityFromNotification:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_performance_notification_test.go
   UsableSpace:
     status: supported
     fixtures:

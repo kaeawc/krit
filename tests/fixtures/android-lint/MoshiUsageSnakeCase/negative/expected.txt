@@ -1,0 +1,1 @@
+src/main/java/com/example/Camel.kt:9:16: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.

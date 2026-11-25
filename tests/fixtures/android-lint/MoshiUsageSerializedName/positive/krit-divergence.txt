@@ -1,0 +1,6 @@
+# Gson's @SerializedName targets FIELD and METHOD, so on a constructor property Kotlin puts it on the
+# backing field and Lint 9.4.0's UParameter no longer sees it. slack-lints' own test
+# (serializedNameIssues) expects these to be reported, and Moshi ignores the Gson name, so krit
+# reports them. An explicit @param: target is seen by Lint too.
++ src/main/java/com/example/Gson.kt:9:3: MoshiUsageSerializedName: Use Moshi's @Json rather than Gson's @SerializedName.
++ src/main/java/com/example/Gson.kt:10:25: MoshiUsageSerializedName: Use Moshi's @Json rather than Gson's @SerializedName.

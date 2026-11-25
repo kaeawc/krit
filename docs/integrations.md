@@ -107,6 +107,18 @@ krit_test(
   target, list the libraries they use in `deps`. krit reads the classpath
   from a generated model in the [Gradle model](configuration.md) format
   (`--gradle-model`).
+- **Kotlin settings.** For rules_kotlin targets, what their `KotlinCompile`
+  action uses: the Kotlin toolchain's `language_version`, `api_version` and
+  `jvm_target`, the target's `kotlinc_opts` (or else the toolchain's
+  `kotlinc_options`) as kotlinc flags, and the compiler plugins of its
+  `plugins` and of its deps' `exported_compiler_plugins`
+  (`KtCompilerPluginInfo`: jars, id and options), plus KSP and kapt
+  generated sources (`KtJvmInfo.additional_generated_source_jars`). krit
+  filters them through the same allowlist as a Gradle model's settings
+  ([Kotlin compiler settings](kotlin-compiler-settings.md)), so both build
+  systems reject the same flags. Plugin options that name the compile
+  action's own directories (`{generatedClasses}`, `{temp}`, ...) are left
+  out.
 - **JDK.** Bazel's Java runtime toolchain
   (`@bazel_tools//tools/jdk:current_java_runtime`) is `JAVA_HOME`. krit-fir
   needs Java 21 or newer, so pin a hermetic runtime in `.bazelrc`:
@@ -151,8 +163,11 @@ jars and not their sources, so editing a library re-runs only the targets
 whose classpath changed. `.srcjar` files in `srcs` are compiled as
 generated-source context and not reported on.
 
-The action reads only declared inputs (sources, classpath, krit, the
-krit-fir jar, the Java runtime, `krit.yml`, the baseline), runs no daemon,
+The action compiles each target with its rules_kotlin settings (language
+and API version, `kotlinc_opts`, compiler plugins, KSP/kapt sources), as
+[type-aware krit_test](#type-aware-krit_test) does. It reads only declared
+inputs (sources, classpath, plugin jars, krit, the krit-fir jar, the Java
+runtime, `krit.yml`, the baseline), runs no daemon,
 uses a scratch `$HOME` and never downloads anything. A FIR pass that cannot
 run fails the action (`--fail-on-degraded`). The Java runtime is Bazel's
 *exec* Java runtime, so pin it to JDK 21 or newer next to the target one:

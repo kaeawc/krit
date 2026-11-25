@@ -10,7 +10,8 @@ the build when a target has findings.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
-load(":model.bzl", "compile_classpath", "krit_model_json", "label_name")
+load(":kotlin.bzl", "KT_TOOLCHAIN")
+load(":model.bzl", "krit_model_json", "label_name", "target_source_set")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -66,6 +67,9 @@ fi
 : > "$4"
 """
 
+def _exec_path(f):
+    return f.path
+
 def _flag(ctx, attr):
     return getattr(ctx.attr, attr)[BuildSettingInfo].value
 
@@ -103,16 +107,11 @@ def _krit_aspect_impl(target, ctx):
     if _flag(ctx, "_fir"):
         runtime = ctx.attr._java_runtime[java_common.JavaRuntimeInfo]
         fir_jar = ctx.file._krit_fir_jar
-        classpath = compile_classpath(target)
+        model_set = target_source_set(ctx, target, path = _exec_path, srcjars = srcjars)
         model = ctx.actions.declare_file(name + ".krit-model/model.json")
         ctx.actions.write(
             output = model,
-            content = krit_model_json(
-                label = target.label,
-                classpath = [f.path for f in classpath.to_list()],
-                generated_source_jars = [f.path for f in srcjars],
-                kind = "test" if getattr(ctx.rule.attr, "testonly", False) else "main",
-            ),
+            content = krit_model_json(label = target.label, source_sets = [model_set.source_set]),
         )
         env["KRIT_JAVA_HOME"] = runtime.java_home
         env["KRIT_FIR_JAR_PATH"] = fir_jar.path
@@ -122,8 +121,8 @@ def _krit_aspect_impl(target, ctx):
             "--gradle-model",
             model.dirname,
         ]
-        inputs += [model, fir_jar] + srcjars
-        transitive += [classpath, runtime.files]
+        inputs += [model, fir_jar]
+        transitive += [model_set.inputs, runtime.files]
     else:
         krit_args += ["--no-fir", "--no-type-oracle"]
 
@@ -198,6 +197,7 @@ Flags:
   target has findings (with the default `--run_validations`).
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
 """,
+    toolchains = [KT_TOOLCHAIN],
     attrs = {
         "_krit": attr.label(
             default = Label("//:krit"),

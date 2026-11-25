@@ -3,7 +3,8 @@
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
-load(":model.bzl", "compile_classpath", "krit_model_json")
+load(":kotlin.bzl", "KT_TOOLCHAIN")
+load(":model.bzl", "compile_classpath", "krit_model_json", "krit_source_set", "target_source_set")
 
 _SOURCE_EXTENSIONS = ["kt", "kts", "java"]
 
@@ -11,23 +12,32 @@ KritSourcesInfo = provider(
     doc = "Kotlin and Java sources a target lists in its srcs, and the jars it compiles against.",
     fields = {
         "srcs": "depset of File",
-        "classpath": "depset of File: the jars the target's own compilation sees (its deps' compile jars and, for Kotlin targets, the stdlib), without the target's own outputs",
+        "source_set": "dict: the target's krit model source set (classpath, generated srcjars, Kotlin settings), with runfiles paths",
+        "model_inputs": "depset of File: the files source_set names",
     },
 )
 
 def _krit_sources_aspect_impl(target, ctx):
     srcs = []
+    srcjars = []
     if hasattr(ctx.rule.files, "srcs"):
         srcs = [f for f in ctx.rule.files.srcs if f.extension in _SOURCE_EXTENSIONS]
+        srcjars = [f for f in ctx.rule.files.srcs if f.extension == "srcjar"]
+    model = target_source_set(ctx, target, path = _short_path, srcjars = srcjars)
     return [KritSourcesInfo(
         srcs = depset(srcs),
-        classpath = compile_classpath(target),
+        source_set = model.source_set,
+        model_inputs = model.inputs,
     )]
+
+def _short_path(f):
+    return f.short_path
 
 # Not transitive: each target's own srcs, so a krit_test over a library does
 # not also lint its dependencies.
 _krit_sources_aspect = aspect(
     implementation = _krit_sources_aspect_impl,
+    toolchains = [KT_TOOLCHAIN],
     doc = "Collects the .kt, .kts and .java files in a target's srcs attribute and its compile classpath.",
 )
 
@@ -101,17 +111,20 @@ def _krit_test_impl(ctx):
     if ctx.attr.type_aware:
         runtime = ctx.attr._java_runtime[java_common.JavaRuntimeInfo]
         fir_jar = ctx.file._krit_fir_jar
-        classpath = depset(transitive = [i.classpath for i in infos] + [
-            compile_classpath(d, include_own = True)
-            for d in ctx.attr.deps
-        ])
+        source_sets = [i.source_set for i in infos]
+        model_inputs = [i.model_inputs for i in infos]
+        if ctx.attr.deps:
+            # srcs outside any target compile against the deps' jars.
+            classpath = depset(transitive = [compile_classpath(d, include_own = True) for d in ctx.attr.deps])
+            source_sets.append(krit_source_set(
+                label = ctx.label,
+                classpath = [f.short_path for f in classpath.to_list()],
+            ))
+            model_inputs.append(classpath)
         model = ctx.actions.declare_file(ctx.label.name + ".krit-model/model.json")
         ctx.actions.write(
             output = model,
-            content = krit_model_json(
-                label = ctx.label,
-                classpath = [f.short_path for f in classpath.to_list()],
-            ),
+            content = krit_model_json(label = ctx.label, source_sets = source_sets),
         )
 
         # A FIR pass that cannot run fails the test instead of passing on a
@@ -123,7 +136,7 @@ def _krit_test_impl(ctx):
             _dirname(model.short_path),
         ]
         inputs += [model, fir_jar]
-        transitive_inputs += [classpath, runtime.files]
+        transitive_inputs += model_inputs + [runtime.files]
         setup = _TYPE_AWARE_SETUP.format(
             java_home = shell.quote(runtime.java_home_runfiles_path),
             fir_jar = shell.quote(fir_jar.short_path),

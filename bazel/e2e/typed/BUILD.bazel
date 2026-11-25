@@ -48,3 +48,5 @@ krit_report_test(
     name = "lib_aspect_report_test",
     target = "//typed/lib",
 )
+
+exports_files(["type_aware_finding_test.sh"])

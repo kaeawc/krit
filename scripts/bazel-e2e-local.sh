@@ -9,7 +9,9 @@
 # cache can share them. Then builds krit_aspect's output group over
 # //typed/... the same way (every Krit action of the second build must be a
 # cache hit), and checks that --@krit//:fail_on_findings fails the build
-# through a validation action on a target with findings, and only there.
+# through a validation action on a target with findings, and only there,
+# and that the rules_kotlin settings (kotlinc_opts, compiler plugins) reach
+# krit-fir: without them //kotlin_settings's sources do not compile.
 #
 # Usage: scripts/bazel-e2e-local.sh [extra bazel test args...]
 #
@@ -104,13 +106,13 @@ build() {
     "$@"
 }
 
-echo "== krit_aspect over //typed/... (first build)"
-build "${extra[@]}" //typed/...
+echo "== krit_aspect over //typed/... //kotlin_settings/... (first build)"
+build "${extra[@]}" //typed/... //kotlin_settings/...
 # shellcheck disable=SC2086
 $BAZEL clean
-echo "== krit_aspect over //typed/... (second build after bazel clean: every Krit action must be a cache hit)"
+echo "== krit_aspect over //typed/... //kotlin_settings/... (second build after bazel clean: every Krit action must be a cache hit)"
 log="$work/exec.json"
-build "${extra[@]}" --execution_log_json_file="$log" //typed/...
+build "${extra[@]}" --execution_log_json_file="$log" //typed/... //kotlin_settings/...
 python3 - "$log" << 'PY'
 import json, sys
 text = open(sys.argv[1]).read()
@@ -147,4 +149,26 @@ case "$out" in
 esac
 echo "== --@krit//:fail_on_findings passes on the clean //typed/lib"
 build "${extra[@]}" --@krit//:fail_on_findings //typed/lib
+
+# Without the target's kotlinc_opts or compiler plugin the sources do not
+# compile, so the Kotlin settings are what makes the FIR pass work.
+for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive" \
+  "settings_without_plugin:'val' cannot be reassigned"; do
+  target="//kotlin_settings:${case%%:*}"
+  want="${case#*:}"
+  echo "== $target: the Krit action fails without the Kotlin setting"
+  if out="$(build "${extra[@]}" "$target" 2>&1)"; then
+    printf '%s\n' "$out"
+    echo "ERROR: krit analyzed $target although it lacks the Kotlin setting it needs" >&2
+    exit 1
+  fi
+  case "$out" in
+    *"$want"*) ;;
+    *)
+      printf '%s\n' "$out"
+      echo "ERROR: $target failed for another reason than: $want" >&2
+      exit 1
+      ;;
+  esac
+done
 echo "OK: krit_aspect"

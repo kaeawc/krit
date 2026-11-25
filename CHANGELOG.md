@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_aspect` and type-aware `krit_test` compile rules_kotlin targets with the settings their
+  `KotlinCompile` uses: the toolchain's language/API/JVM target, the target's (or toolchain's) `kotlinc_opts`, compiler
+  plugins from `plugins` and deps' `exported_compiler_plugins`, and KSP/kapt generated srcjars, filtered through the
+  Gradle model's Kotlin-settings allowlist. The krit module now depends on rules_kotlin (>= 2.2.0) (#1589).
 - Bazel: `krit_aspect` runs krit with FIR as one cacheable, remotely executable action per Kotlin/Java target
   (`bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit`), against the deps' compile jars,
   writing `<target>.krit.sarif` and `.krit.txt`. `--@krit//:config`, `--@krit//:baseline`, `--@krit//:fir` and

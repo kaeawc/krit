@@ -1,0 +1,81 @@
+load("@krit//:defs.bzl", "krit_test")
+load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin", "kt_kotlinc_options")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//typed:krit_report_test.bzl", "krit_report_test")
+
+# Kotlin settings from rules_kotlin reach krit's FIR pass: Settings.kt
+# compiles only with the target's kotlinc_opts (-XXLanguage:+ContextSensitiveResolutionUsingExpectedType) and
+# its compiler plugin (the assignment plugin, with its annotation option).
+# krit reports the FIR-only finding in it only when it compiles; with a
+# compile error --fail-on-degraded would fail the action instead.
+kt_compiler_plugin(
+    name = "assignment_plugin",
+    compile_phase = True,
+    id = "org.jetbrains.kotlin.assignment",
+    options = {"annotation": ["kotlin_settings.SupportsAssignment"]},
+    stubs_phase = False,
+    deps = ["@rules_kotlin//kotlin/compiler:assignment-compiler-plugin"],
+)
+
+kt_kotlinc_options(
+    name = "context_sensitive_resolution",
+    x_xlanguage = ["+ContextSensitiveResolutionUsingExpectedType"],
+)
+
+kt_jvm_library(
+    name = "annotation",
+    srcs = ["SupportsAssignment.kt"],
+)
+
+kt_jvm_library(
+    name = "settings",
+    srcs = ["Settings.kt"],
+    kotlinc_opts = ":context_sensitive_resolution",
+    plugins = [":assignment_plugin"],
+    deps = [":annotation"],
+)
+
+krit_report_test(
+    name = "settings_aspect_report_test",
+    expect = [
+        "kotlin_settings/Settings.kt:32:",
+        "UnnecessarySafeCall",
+    ],
+    target = ":settings",
+)
+
+krit_test(
+    name = "settings_type_aware_krit_test",
+    tags = ["manual"],
+    targets = [":settings"],
+    type_aware = True,
+)
+
+sh_test(
+    name = "settings_type_aware_finding_test",
+    srcs = ["//typed:type_aware_finding_test.sh"],
+    args = [
+        "$(rootpath :settings_type_aware_krit_test)",
+        "kotlin_settings/Settings.kt:32:",
+    ],
+    data = [":settings_type_aware_krit_test"],
+)
+
+# The same sources without the settings, which krit-fir cannot compile; only
+# scripts/bazel-e2e-local.sh builds them, and expects the Krit action to fail.
+kt_jvm_library(
+    name = "settings_without_kotlinc_opts",
+    srcs = ["Settings.kt"],
+    plugins = [":assignment_plugin"],
+    tags = ["manual"],
+    deps = [":annotation"],
+)
+
+kt_jvm_library(
+    name = "settings_without_plugin",
+    srcs = ["Settings.kt"],
+    kotlinc_opts = ":context_sensitive_resolution",
+    tags = ["manual"],
+    deps = [":annotation"],
+)

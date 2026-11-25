@@ -10,11 +10,21 @@ permissions:
   pages: write
   id-token: write
 
+# Pages deployments must not overlap. Queue rather than cancel so an
+# in-progress production deploy always finishes; GitHub keeps only the
+# newest pending run. Matches GitHub's Pages starter workflows.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  # Build and deploy are separate jobs, as in GitHub's multi-job Pages
+  # starter workflows. When deploy-pages runs in the same job right after
+  # upload-pages-artifact, its artifact lookup can miss the just-finalized
+  # artifact ("No artifacts named github-pages were found"); see
+  # https://github.com/actions/deploy-pages/issues/451.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,4 +51,12 @@ jobs:
         with:
           path: site
 
-      - uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

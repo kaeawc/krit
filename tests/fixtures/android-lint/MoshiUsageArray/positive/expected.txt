@@ -1,0 +1,3 @@
+src/main/java/com/example/Arrays.kt:7:14: MoshiUsageArray: Prefer List over Array.
+src/main/java/com/example/Arrays.kt:8:12: MoshiUsageArray: Prefer List over Array.
+src/main/java/com/example/Arrays.kt:9:15: MoshiUsageArray: Prefer List over Array.

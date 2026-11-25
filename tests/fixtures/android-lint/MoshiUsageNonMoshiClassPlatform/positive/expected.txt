@@ -1,0 +1,7 @@
+src/main/java/com/example/Platform.kt:10:13: MoshiUsageNonMoshiClassPlatform: Platform type 'Date' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:11:13: MoshiUsageNonMoshiClassPlatform: Platform type 'UUID' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:12:16: MoshiUsageNonMoshiClassPlatform: Platform type 'Instant' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:13:13: MoshiUsageNonMoshiClassPlatform: Platform type 'Pair' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:14:17: MoshiUsageNonMoshiClassPlatform: Platform type 'Function1' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:16:17: MoshiUsageNonMoshiClassPlatform: Platform type 'Instant' is not natively supported by Moshi.
+src/main/java/com/example/Platform.kt:17:16: MoshiUsageNonMoshiClassPlatform: Platform type 'Date' is not natively supported by Moshi.

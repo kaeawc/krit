@@ -52,6 +52,9 @@ interface KritSettingsExtension {
 }
 
 abstract class DefaultKritSettingsExtension : KritSettingsExtension {
+    /** Every included project path, filled in once the settings script has run. */
+    internal abstract val projectPaths: org.gradle.api.provider.ListProperty<String>
+
     override fun skip(vararg paths: String) {
         skipped.addAll(*paths)
     }

@@ -49,6 +49,14 @@ interface KritAdvanced {
      */
     val source: ConfigurableFileCollection
 
+    /**
+     * `KRIT_MODULE_SHARDS` for `kritCheckAll`: `auto` or a worker count analyzes each
+     * module on worker JVMs against its built dependency jars; `merged` and `isolate`
+     * pick the other compile modes. Unset keeps krit's default single
+     * whole-repository compile. See docs/module-sharding.md.
+     */
+    val moduleShards: Property<String>
+
     /** Reports output directory. Default: `build/reports/krit`. */
     val reportsDir: DirectoryProperty
 }

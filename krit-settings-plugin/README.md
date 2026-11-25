@@ -39,6 +39,10 @@ The plugin then:
 2. Seeds each subproject's `krit { }` block with the values configured above
    as conventions. Per-subproject overrides remain authoritative — set the
    property again in a subproject's `build.gradle.kts` and it wins.
+3. Applies `dev.jasonpearson.krit.aggregate` to the root project, so
+   `./gradlew kritCheckAll` runs one krit scan of the whole build with every
+   included, non-skipped project's exported model (see
+   [`kritCheckAll`](../krit-gradle-plugin/README.md#kritcheckall)). Use it in CI.
 
 ## Apply it from an init script
 

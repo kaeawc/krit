@@ -44,6 +44,14 @@ gradlePlugin {
             // Checked by the configuration-cache tests in src/test.
             compatibility { features { configurationCache = true } }
         }
+        create("kritAggregate") {
+            id = "dev.jasonpearson.krit.aggregate"
+            implementationClass = "dev.jasonpearson.krit.gradle.KritAggregatePlugin"
+            displayName = "Krit Whole-Build Check"
+            description = "Root kritCheckAll task: one krit scan of the whole build with every project's classpath"
+            tags = listOf("kotlin", "android", "lint", "static-analysis", "code-quality")
+            compatibility { features { configurationCache = true } }
+        }
     }
 }
 

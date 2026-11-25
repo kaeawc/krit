@@ -322,18 +322,20 @@ func planSettingsSessions(in Input, model *gradlemodel.Model, repoRoot string, c
 	addUserClasspath(all, model, check.classpath)
 	groups, left := groupBySettings(all)
 	split.Groups = len(groups)
-	if len(groups) <= 1 {
-		logf("verbose: FIR settings: 1 session (every scanned source set shares its compiler settings)\n")
+	if len(groups) == 0 {
 		return nil, split
 	}
+	// Even one scanned group can differ from the merged session, whose
+	// settings merge every source set of the model. Shared sources are found
+	// across every group, including those the merged session already compiles
+	// exactly, so a file one of those also owns keeps its merged verdict.
 	merged := appliedKey(check.kotlinArgs, check.pluginClasspath, check.pluginOptions)
 	var own []*settingsGroup
-	for _, g := range groups {
+	for _, g := range withoutSharedSources(groups, logf) {
 		if appliedKey(g.args, g.plugins, g.options) != merged {
 			own = append(own, g)
 		}
 	}
-	own = withoutSharedSources(own, logf)
 	if len(left) > 0 {
 		logf("verbose: FIR settings: %d multiplatform or context-limited source sets keep the merged session: %s\n", len(left), summarizeIDs(left))
 	}

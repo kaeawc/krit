@@ -1,11 +1,17 @@
 package modshard
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 func settingsUnit(id, kind string, args, plugins []string, sources ...string) Unit {
@@ -111,5 +117,86 @@ func TestWithoutSharedSourcesDropsGroupsThatShareAFile(t *testing.T) {
 	kept := withoutSharedSources(groups, func(format string, args ...any) { logged = append(logged, format) })
 	if len(kept) != 1 || kept[0].units[0].Spec.ID != ":c:main" || len(logged) != 2 {
 		t.Fatalf("kept %d groups, logged %d lines", len(kept), len(logged))
+	}
+}
+
+// writeSettingsModel writes a model with one main source set per project,
+// each with its own source root and Kotlin free compiler args, and returns
+// the loaded model and the project directories.
+func writeSettingsModel(t *testing.T, projects map[string][]string, shared bool) (*gradlemodel.Model, map[string]string) {
+	t.Helper()
+	root := t.TempDir()
+	dirs := map[string]string{}
+	var specs []string
+	sharedRoot := filepath.Join(root, "shared", "src")
+	if shared {
+		if err := os.MkdirAll(sharedRoot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sharedRoot, "S.kt"), []byte("package s\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		dir := filepath.Join(root, name)
+		src := filepath.Join(dir, "src", "main", "kotlin")
+		if err := os.MkdirAll(src, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src, strings.ToUpper(name)+".kt"), []byte("package "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dirs[name] = dir
+		roots := []string{src}
+		if shared {
+			roots = append(roots, sharedRoot)
+		}
+		rootsJSON, _ := json.Marshal(roots)
+		argsJSON, _ := json.Marshal(projects[name])
+		specs = append(specs, fmt.Sprintf(`{"path":":%s","dir":%q,"sourceSets":[{"name":"main","kind":"main","platform":"jvm","sourceDirs":%s,"kotlin":{"optIn":[],"freeCompilerArgs":%s}}]}`, name, dir, rootsJSON, argsJSON))
+	}
+	modelDir := filepath.Join(root, ".krit", "gradle-model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "m.json"), []byte(`{"schema":2,"projects":[`+strings.Join(specs, ",")+`]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, _, err := gradlemodel.Load(modelDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return model, dirs
+}
+
+// A scan of one module yields one settings group, which still differs from
+// the merged session when another module of the model adds a flag the
+// merged session applies.
+func TestPlanSettingsSessionsComparesASingleScannedGroup(t *testing.T) {
+	model, dirs := writeSettingsModel(t, map[string][]string{"a": {"-Xcontext-sensitive-resolution"}, "b": nil}, false)
+	check := &checkContext{kotlinArgs: []string{"-Xcontext-sensitive-resolution"}}
+	units, split := planSettingsSessions(Input{ScanPaths: []string{dirs["b"]}}, model, filepath.Dir(dirs["b"]), check, func(string, ...any) {})
+	if len(units) != 1 || split.Sessions != 2 || !strings.Contains(split.Labels[0], ":b:main") {
+		t.Fatalf("units=%d split=%+v; want one session for :b:main", len(units), split)
+	}
+	units, _ = planSettingsSessions(Input{ScanPaths: []string{dirs["a"]}}, model, filepath.Dir(dirs["a"]), check, func(string, ...any) {})
+	if len(units) != 0 {
+		t.Fatalf("a group the merged session compiles exactly needs no session, got %d", len(units))
+	}
+}
+
+// A group that shares a source file with a group the merged session already
+// compiles exactly keeps the merged verdicts.
+func TestPlanSettingsSessionsKeepsFilesSharedWithMergedCoveredGroups(t *testing.T) {
+	model, dirs := writeSettingsModel(t, map[string][]string{"a": {"-Xcontext-sensitive-resolution"}, "b": nil}, true)
+	check := &checkContext{kotlinArgs: []string{"-Xcontext-sensitive-resolution"}}
+	root := filepath.Dir(dirs["a"])
+	if units, _ := planSettingsSessions(Input{ScanPaths: []string{root}}, model, root, check, func(string, ...any) {}); len(units) != 0 {
+		t.Fatalf("got %d sessions; :b:main shares S.kt with :a:main, which the merged session covers", len(units))
 	}
 }

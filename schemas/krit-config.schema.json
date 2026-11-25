@@ -5811,6 +5811,39 @@
             }
           }
         },
+        "KaptUsageInsteadOfKsp": {
+          "description": "Kapt usage should be replaced with KSP [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable KaptUsageInsteadOfKsp (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "KeyboardInaccessibleWidget": {
           "description": "Keyboard inaccessible widget [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -6150,6 +6183,39 @@
               "description": "Enable LibraryCustomView (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LifecycleAnnotationProcessorWithJava8": {
+          "description": "Lifecycle Annotation Processor with Java 8 Compile Option [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LifecycleAnnotationProcessorWithJava8 (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -7742,6 +7808,39 @@
             }
           }
         },
+        "NotShrinkingResources": {
+          "description": "Use resource shrinking to optimize your resources [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NotShrinkingResources (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "NotSiblingResource": {
           "description": "RelativeLayout Invalid Constraints [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -8547,6 +8646,39 @@
               "description": "Enable Proguard (default: false).",
               "type": "boolean",
               "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ProguardAndroidTxtUsage": {
+          "description": "Use proguard-android-optimize.txt to enable optimizations [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ProguardAndroidTxtUsage (default: true).",
+              "type": "boolean",
+              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",

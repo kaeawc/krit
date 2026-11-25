@@ -28,6 +28,16 @@ All notable changes to Krit will be documented in this file.
   `JavascriptInterface`, matching Lint's split between the two issues. `@Suppress`/`@SuppressLint`/`tools:ignore`
   entries and baseline entries written for `AddJavascriptInterface` still silence the moved finding: a rule's
   `Aliases` (its former IDs) now also match baseline entries (#1204, #1286).
+- `ProguardAndroidTxtUsage`, `NotShrinkingResources`, `KaptUsageInsteadOfKsp` and
+  `LifecycleAnnotationProcessorWithJava8`, ported from Android Lint 32.4.1's `ProguardAndroidTxtDetector`,
+  `R8GradleConfigDetector` and `GradleDetector` under their Lint IDs. Findings were checked against those detectors
+  through Lint's own test harness (`TestLintTask` with its mocked Gradle model) on the same build scripts. The R8
+  checks skip library modules and use the Lint command line's severities: a warning for `NotShrinkingResources`,
+  and for `ProguardAndroidTxtUsage` a warning before AGP 9 and an error from AGP 9. Both have semantic fixes
+  (`proguard-android-optimize.txt`, `shrinkResources = true`). `KaptUsageInsteadOfKsp` keeps Lint's KSP table
+  (Room, Glide, Moshi, Epoxy, ...) and only the exact `kapt` configuration, so it is narrower than krit's
+  `KaptUsage`, which stays as it is. `LifecycleAnnotationProcessorWithJava8` needs Java 8 or later from
+  `sourceCompatibility`, a Java toolchain, or the AGP 4.2+ default (#1179, #1181, #1240, #1246).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name=".NotesProvider"
+            android:authorities="com.example.app.notes"
+            android:exported="true"
+            android:readPermission="com.example.app.READ_NOTES"
+            android:writePermission="com.example.app.WRITE_NOTES" />
+        <provider
+            android:name=".ReadOnlyProvider"
+            android:authorities="com.example.app.readonly"
+            android:exported="true"
+            android:readPermission="com.example.app.READ_NOTES" />
+    </application>
+</manifest>

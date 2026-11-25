@@ -1,0 +1,273 @@
+package rules
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/kaeawc/krit/internal/manifest"
+	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// ProviderReadPermissionOnlyRule mirrors Lint's ProviderReadPermissionOnly (ProviderPermissionDetector): a manifest
+// <provider> protected only by android:readPermission whose ContentProvider class implements insert, update or
+// delete.
+type ProviderReadPermissionOnlyRule struct {
+	FlatDispatchBase
+	AndroidRule
+}
+
+// Confidence reports a tier-2 (medium) base confidence: the provider class and its superclass chain are resolved
+// from project sources and imports.
+func (r *ProviderReadPermissionOnlyRule) Confidence() float64 { return api.ConfidenceMedium }
+
+// contentProviderClasses are the platform and library ContentProvider subclasses a project provider can extend.
+var contentProviderClasses = lintStringSet(
+	"android.content.ContentProvider",
+	"android.provider.DocumentsProvider",
+	"android.content.SearchRecentSuggestionsProvider",
+	"androidx.core.content.FileProvider",
+	"androidx.slice.SliceProvider",
+	"androidx.startup.InitializationProvider",
+)
+
+// lintSourceClass is a class declared in project sources, with what is needed to walk its superclass chain.
+type lintSourceClass struct {
+	decl *preferenceClassDecl
+	file *scanner.File
+	idx  uint32
+}
+
+// lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots).
+func lintSourceClasses(files []*scanner.File) map[string]*lintSourceClass {
+	out := map[string]*lintSourceClass{}
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		scope := newPreferenceFileScope(string(file.Content))
+		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
+			name := extractIdentifierFlat(file, idx)
+			if name == "" {
+				return
+			}
+			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, idx, name, scope.pkg),
+				supers: preferenceDirectSupers(file, idx), file: scope}
+			out[d.fqn] = &lintSourceClass{decl: d, file: file, idx: idx}
+		})
+	}
+	return out
+}
+
+// lintSourceClassExtends reports whether the class's superclass chain, followed through project sources, reaches one
+// of the targets.
+func lintSourceClassExtends(c *lintSourceClass, classes map[string]*lintSourceClass, targets map[string]bool) bool {
+	byFQN := make(map[string]*preferenceClassDecl, len(classes))
+	for fqn, cls := range classes {
+		byFQN[fqn] = cls.decl
+	}
+	seen := map[string]bool{}
+	var reaches func(d *preferenceClassDecl) bool
+	reaches = func(d *preferenceClassDecl) bool {
+		if seen[d.fqn] {
+			return false
+		}
+		seen[d.fqn] = true
+		for _, super := range d.supers {
+			fqn := resolvePreferenceSuper(d, super, byFQN)
+			if targets[fqn] {
+				return true
+			}
+			if next := byFQN[fqn]; next != nil && reaches(next) {
+				return true
+			}
+		}
+		return false
+	}
+	return reaches(c.decl)
+}
+
+// lintManifestClass finds the project class a manifest component name refers to: the name resolved against the
+// manifest package, or, when the manifest has no package (the Gradle namespace supplies it), the only class whose
+// FQN ends with a relative name.
+func lintManifestClass(m *manifest.Manifest, name string, classes map[string]*lintSourceClass) (string, *lintSourceClass) {
+	fqn := manifestClassFQN(m.Package, name)
+	if c := classes[fqn]; c != nil {
+		return fqn, c
+	}
+	if m.Package != "" || (!strings.HasPrefix(name, ".") && strings.Contains(name, ".")) {
+		return fqn, nil
+	}
+	suffix := strings.ReplaceAll(name, "$", ".")
+	if !strings.HasPrefix(suffix, ".") {
+		suffix = "." + suffix
+	}
+	var found *lintSourceClass
+	foundFQN := ""
+	for candidate, c := range classes {
+		if strings.HasSuffix(candidate, suffix) {
+			if found != nil {
+				return fqn, nil
+			}
+			found, foundFQN = c, candidate
+		}
+	}
+	return foundFQN, found
+}
+
+func (r *ProviderReadPermissionOnlyRule) check(ctx *api.Context) {
+	classes := lintSourceClasses(ctx.ParsedFiles)
+	for _, m := range ctx.Manifests {
+		if m == nil || m.Root == nil {
+			continue
+		}
+		for _, app := range m.Root.ChildrenByTag("application") {
+			for _, provider := range app.ChildrenByTag("provider") {
+				r.checkProvider(ctx, m, provider, classes)
+			}
+		}
+	}
+}
+
+func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *manifest.Manifest, provider *manifest.Node,
+	classes map[string]*lintSourceClass) {
+	read, ok := provider.Attr("android:readPermission")
+	if !ok {
+		return
+	}
+	if _, ok := provider.Attr("android:writePermission"); ok {
+		return
+	}
+	if _, ok := provider.Attr("android:permission"); ok {
+		return
+	}
+	fqn, cls := lintManifestClass(m, provider.AttrValue("android:name"), classes)
+	if cls == nil || scanner.IsTestFile(cls.file.Path) || !lintSourceClassExtends(cls, classes, contentProviderClasses) {
+		return
+	}
+	methods := providerImplementedWriteMethods(cls.file, cls.idx)
+	if len(methods) == 0 {
+		return
+	}
+	quoted := make([]string, len(methods))
+	for i, name := range methods {
+		quoted[i] = "`" + name + "`"
+	}
+	ctx.Emit(scanner.Finding{File: m.Path, Line: read.Line, Col: read.Col, Message: fqn + " implements {" +
+		strings.Join(quoted, ", ") + "} write APIs but does not protect them with a permission. Update the " +
+		"<provider> tag to use android:permission or android:writePermission"})
+}
+
+// providerWriteArity is the parameter count of each ContentProvider write method Lint looks for.
+var providerWriteArity = map[string]int{"insert": 2, "update": 4, "delete": 3}
+
+// providerImplementedWriteMethods lists, in declaration order, the insert/update/delete methods the class declares
+// itself whose body does real work.
+func providerImplementedWriteMethods(file *scanner.File, cls uint32) []string {
+	var out []string
+	javascriptInterfaceEachMember(file, cls, func(member uint32) {
+		name := javascriptInterfaceMemberName(file, member)
+		arity, ok := providerWriteArity[name]
+		if !ok || providerParameterCount(file, member) != arity || !providerMethodImplemented(file, member) {
+			return
+		}
+		out = append(out, name)
+	})
+	return out
+}
+
+func providerParameterCount(file *scanner.File, member uint32) int {
+	params, ok := file.FlatFindChild(member, "function_value_parameters")
+	if !ok {
+		params, ok = file.FlatFindChild(member, "formal_parameters")
+	}
+	if !ok {
+		return -1
+	}
+	n := 0
+	for child := file.FlatFirstChild(params); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "parameter", "formal_parameter", "spread_parameter":
+			n++
+		}
+	}
+	return n
+}
+
+// providerMethodImplemented ports ProviderPermissionDetector.isImplemented: a body with more than one statement, or
+// one that is not a throw, a returned literal, or a call that never returns. An empty body counts as implemented.
+func providerMethodImplemented(file *scanner.File, member uint32) bool {
+	var stmts []uint32
+	if body, ok := file.FlatFindChild(member, "function_body"); ok {
+		text := strings.TrimSpace(file.FlatNodeText(body))
+		if !strings.HasPrefix(text, "{") {
+			// An expression body is the implicitly returned value.
+			return !providerTrivialText(strings.TrimPrefix(text, "="))
+		}
+		stmts = providerBlockStatements(file, body)
+	} else if body, ok := file.FlatFindChild(member, "block"); ok {
+		stmts = providerBlockStatements(file, body)
+	} else {
+		// No body: an abstract or native declaration.
+		return false
+	}
+	if len(stmts) != 1 {
+		return true
+	}
+	text := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(stmts[0])), ";"))
+	if strings.HasPrefix(text, "return ") || text == "return" {
+		return !providerTrivialText(strings.TrimPrefix(text, "return"))
+	}
+	return !providerTrivialText(text)
+}
+
+// providerBlockStatements lists the statements of a Kotlin or Java block.
+func providerBlockStatements(file *scanner.File, block uint32) []uint32 {
+	var out []uint32
+	for child := file.FlatFirstChild(block); child != 0; child = file.FlatNextSib(child) {
+		if !file.FlatIsNamed(child) {
+			continue
+		}
+		switch file.FlatType(child) {
+		case "statements":
+			out = append(out, providerBlockStatements(file, child)...)
+		case "line_comment", "multiline_comment", "block_comment":
+		default:
+			out = append(out, child)
+		}
+	}
+	return out
+}
+
+// providerTrivialText reports whether expression text is a literal, a throw, or a call that never returns.
+func providerTrivialText(text string) bool {
+	text = strings.TrimSpace(text)
+	for strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		text = strings.TrimSpace(text[1 : len(text)-1])
+	}
+	switch {
+	case text == "null" || text == "true" || text == "false":
+		return true
+	case strings.HasPrefix(text, "throw "):
+		return true
+	case len(text) >= 2 && text[0] == '"' && text[len(text)-1] == '"' && !strings.ContainsAny(text[1:len(text)-1], `"$\`):
+		return true
+	case len(text) >= 3 && text[0] == '\'' && text[len(text)-1] == '\'':
+		return true
+	}
+	if _, err := strconv.ParseFloat(strings.TrimRight(strings.ReplaceAll(text, "_", ""), "LlFfDd"), 64); err == nil {
+		return true
+	}
+	if v := strings.ReplaceAll(text, "_", ""); strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		if _, err := strconv.ParseInt(strings.TrimRight(v[2:], "Ll"), 16, 64); err == nil {
+			return true
+		}
+	}
+	// Calls declared to return Nothing.
+	for _, fn := range []string{"TODO(", "error(", "kotlin.TODO(", "kotlin.error(", "exitProcess(", "kotlin.system.exitProcess("} {
+		if strings.HasPrefix(text, fn) && strings.HasSuffix(text, ")") {
+			return true
+		}
+	}
+	return false
+}

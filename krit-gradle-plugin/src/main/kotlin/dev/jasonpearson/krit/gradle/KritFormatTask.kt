@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.gradle
 
+import org.gradle.api.tasks.Internal
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
@@ -34,9 +35,22 @@ abstract class KritFormatTask @Inject constructor(
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val source: ConfigurableFileCollection
 
+    /**
+     * An explicit krit executable (`advanced.binary`). When absent, the binary for
+     * [toolVersion] is resolved, and downloaded if needed, only when the task runs,
+     * so that neither task-graph calculation nor the configuration cache depends on it.
+     */
     @get:InputFile
+    @get:Optional
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val kritBinary: RegularFileProperty
+
+    /** The krit release resolved when [kritBinary] is absent; empty when it is set. */
+    @get:Input
+    abstract val toolVersion: Property<String>
+
+    @get:Internal
+    abstract val binaryResolver: Property<KritBinaryResolver>
 
     @get:InputFile
     @get:Optional
@@ -86,7 +100,7 @@ abstract class KritFormatTask @Inject constructor(
         }
 
         val result = execOps.exec {
-            executable = kritBinary.get().asFile.absolutePath
+            executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
             args(args)
             isIgnoreExitValue = true
         }

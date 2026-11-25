@@ -18,8 +18,9 @@ import java.util.zip.ZipInputStream
 /**
  * Build service that downloads and caches the krit binary from GitHub Releases.
  *
- * Registered as a shared build service with maxParallelUsages=1 to prevent
- * concurrent downloads in multi-module builds.
+ * Registered once per build as a shared build service. [resolve] is synchronized
+ * on that single instance, so concurrent tasks in a multi-module build never
+ * download the same binary twice, while the tasks themselves still run in parallel.
  *
  * Release archives follow the naming in `.goreleaser.yml`:
  * `krit_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows, and
@@ -37,8 +38,9 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
      * Resolve the krit binary, downloading it if not already cached.
      * Returns the path to the executable binary.
      */
-    fun resolve(): File {
-        val version = normalizeVersion(parameters.version.get())
+    @Synchronized
+    fun resolve(requestedVersion: String = parameters.version.get()): File {
+        val version = normalizeVersion(requestedVersion)
         val platform = detectPlatform()
         val cacheDir = parameters.cacheDir.get().asFile
         val binaryDir = File(cacheDir, "krit/$version/${platform.id}")
@@ -226,4 +228,19 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
             return to
         }
     }
+}
+
+/** The executable a krit task runs: [explicit] when set, else [resolver]'s binary for [version]. */
+internal fun resolveKritExecutable(
+    explicit: org.gradle.api.file.RegularFileProperty,
+    resolver: Property<KritBinaryResolver>,
+    version: Property<String>,
+): String {
+    explicit.orNull?.let { return it.asFile.absolutePath }
+    if (!resolver.isPresent || version.orNull.isNullOrEmpty()) {
+        throw org.gradle.api.GradleException(
+            "No krit binary: set kritBinary, or apply the dev.jasonpearson.krit plugin to resolve one"
+        )
+    }
+    return resolver.get().resolve(version.get()).absolutePath
 }

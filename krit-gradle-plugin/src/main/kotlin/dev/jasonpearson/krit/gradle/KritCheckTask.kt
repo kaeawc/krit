@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.gradle
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileTree
+import org.gradle.api.file.ProjectLayout
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.provider.Property
@@ -34,11 +35,25 @@ import javax.inject.Inject
 @CacheableTask
 abstract class KritCheckTask @Inject constructor(
     private val execOps: ExecOperations,
+    private val layout: ProjectLayout,
 ) : SourceTask() {
 
+    /**
+     * An explicit krit executable (`advanced.binary`). When absent, the binary for
+     * [toolVersion] is resolved, and downloaded if needed, only when the task runs,
+     * so that neither task-graph calculation nor the configuration cache depends on it.
+     */
     @get:InputFile
+    @get:Optional
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val kritBinary: RegularFileProperty
+
+    /** The krit release resolved when [kritBinary] is absent; empty when it is set. */
+    @get:Input
+    abstract val toolVersion: Property<String>
+
+    @get:Internal
+    abstract val binaryResolver: Property<KritBinaryResolver>
 
     @get:InputFile
     @get:Optional
@@ -150,7 +165,7 @@ abstract class KritCheckTask @Inject constructor(
         if (enabledReports.isEmpty()) {
             // Fall back to SARIF if nothing is enabled (preserves old behavior)
             val fallback = sarifReport.orNull?.asFile
-                ?: project.layout.buildDirectory.file("reports/krit/krit.sarif").get().asFile
+                ?: layout.buildDirectory.file("reports/krit/krit.sarif").get().asFile
             enabledReports.add("sarif" to fallback)
         }
 
@@ -178,7 +193,7 @@ abstract class KritCheckTask @Inject constructor(
 
         val stderr = ByteArrayOutputStream()
         val result = execOps.exec {
-            executable = kritBinary.get().asFile.absolutePath
+            executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
             args(args)
             errorOutput = stderr
             isIgnoreExitValue = true
@@ -209,7 +224,7 @@ abstract class KritCheckTask @Inject constructor(
 
             val extraStderr = ByteArrayOutputStream()
             val extraResult = execOps.exec {
-                executable = kritBinary.get().asFile.absolutePath
+                executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
                 args(extraArgs)
                 errorOutput = extraStderr
                 isIgnoreExitValue = true

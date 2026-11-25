@@ -138,6 +138,15 @@ All notable changes to Krit will be documented in this file.
   and Java) follows same-file superclasses to `ModifierNodeElement`. `SuspiciousCompositionLocalModifierRead` reports
   `currentValueOf` in `onAttach`/`onDetach`, `init` blocks and secondary constructors of a direct
   `CompositionLocalConsumerModifierNode`, and inside any `lazy { }` (#1486, #1495, #1499, #1500).
+- `LocalContextConfigurationRead`, `LocalContextGetResourceValueCall`, `LocalContextResourcesRead`,
+  `ConfigurationScreenWidthHeight` and `NonObservableLocale`, ported from `androidx.compose.ui:ui-android` 1.12.1 under
+  their Lint IDs and checked against the Lint CLI on the same inputs. The `LocalContext` checks follow
+  `LocalContext.current` and its `resources` through same-file variables, and a `resources` read that feeds a
+  `configuration` read is reported once, as in Lint. `ConfigurationScreenWidthHeight` runs in the manifest-source
+  scope so that, like Lint, it skips modules whose manifest declares `android.hardware.type.watch` (and files that
+  import `androidx.wear`). `NonObservableLocale` reports `Locale.getDefault()`, `LocaleList.getAdjustedDefault()` and
+  `LocaleListCompat.getAdjustedDefault()` in composition; reads inside stdlib inline lambdas other than the scope
+  functions (such as `forEach`) are a known false negative (#1487, #1488, #1489, #1490, #1491).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

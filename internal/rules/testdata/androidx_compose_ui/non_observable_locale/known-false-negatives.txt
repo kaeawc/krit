@@ -1,0 +1,1 @@
+p/Locale.kt:24:25: NonObservableLocale: Reading locale in a non-observable way in a composable function # forEach is a stdlib inline function: the shared composition walk (acrStdlibInlineScopeFunctions) does not see through it yet

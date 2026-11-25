@@ -309,3 +309,21 @@ IDs, so `@SuppressLint`, `tools:ignore`, `lint.xml` and Gradle `lint { }` severi
 - `SuspiciousCompositionLocalModifierRead` reports `currentValueOf(...)` in `onAttach`/`onDetach` and constructors
   (`init` blocks and secondary constructors) of a class that itself implements `CompositionLocalConsumerModifierNode`
   (stopping at lambdas and local functions, as Lint does), and inside any `lazy { }`.
+
+`androidx.compose.ui:ui-android` 1.12.1 LocalContext, Configuration and Locale (Kotlin):
+
+- `LocalContextConfigurationRead` reports `….configuration` read from the `resources` of `LocalContext.current`,
+  directly or through same-file variables (`val context = LocalContext.current`, `val res = context.resources`).
+  `LocalContextResourcesRead` reports `LocalContext.current.resources` (or `context.resources`) unless that read is part
+  of such a Configuration read, so each chain is reported once, as in Lint. `LocalContextGetResourceValueCall` reports
+  `getString`, `getText`, `getColor`, `getDrawable` and `getColorStateList` on `LocalContext.current` or a variable
+  holding it. Lint's quick fixes are not ported, because they add imports.
+- `ConfigurationScreenWidthHeight` reports `screenWidthDp`/`screenHeightDp` on a value shown to be a `Configuration`
+  (`LocalConfiguration.current`, `….resources.configuration`, or a parameter or val declared or initialized as one) in
+  composition, or on a variable initialized to `LocalConfiguration.current` anywhere. It joins source with manifests:
+  files under a module whose `AndroidManifest.xml` declares `android.hardware.type.watch` are skipped, matching Lint's
+  merged-manifest filter, and so are files importing `androidx.wear`. It only runs in projects with a manifest.
+- `NonObservableLocale` reports `java.util.Locale.getDefault()`, `android.os.LocaleList.getAdjustedDefault()` and
+  `androidx.core.os.LocaleListCompat.getAdjustedDefault()` in composition, using the same composition walk as the Compose
+  runtime ports: reads inside `remember { }` and other non-inline lambdas are not in composition, and reads inside
+  stdlib inline lambdas other than the scope functions (`forEach`, `map`, ...) are a known false negative.

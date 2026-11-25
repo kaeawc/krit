@@ -1,0 +1,14 @@
+p/Context.kt:11:18: LocalContextConfigurationRead: Reading Configuration using LocalContext.current.resources.configuration is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:12:15: LocalContextResourcesRead: Reading Resources using LocalContext.current.resources is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:13:16: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:14:17: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:15:20: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:16:17: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:17:15: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:19:15: LocalContextConfigurationRead: Reading Configuration using LocalContext.current.resources.configuration is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:25:18: LocalContextConfigurationRead: Reading Configuration using LocalContext.current.resources.configuration is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:27:16: LocalContextConfigurationRead: Reading Configuration using LocalContext.current.resources.configuration is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:28:16: LocalContextGetResourceValueCall: Querying resource values using LocalContext.current is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:34:15: LocalContextResourcesRead: Reading Resources using LocalContext.current.resources is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:36:13: LocalContextResourcesRead: Reading Resources using LocalContext.current.resources is not configuration-aware and may return stale values if the Configuration changes
+p/Context.kt:55:23: LocalContextConfigurationRead: Reading Configuration using LocalContext.current.resources.configuration is not configuration-aware and may return stale values if the Configuration changes

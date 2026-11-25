@@ -16245,6 +16245,39 @@
             }
           }
         },
+        "ConfigurationScreenWidthHeight": {
+          "description": "Detects Configuration.screenWidthDp/screenHeightDp read in composition instead of LocalWindowInfo.current.containerSize. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: The receiver must be shown to be a Configuration (LocalConfiguration.current, resources.configuration, or a parameter or val declared or initialized as one).\nCaveat: Runs only in projects with an AndroidManifest.xml, which it needs for Lint's Wear OS exemption.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ConfigurationScreenWidthHeight (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CoroutineCreationDuringComposition": {
           "description": "Detects launch, async and launchIn calls made directly in composition instead of inside a LaunchedEffect. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -16384,6 +16417,105 @@
           "properties": {
             "active": {
               "description": "Enable InvalidLanguageTagDelimiter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LocalContextConfigurationRead": {
+          "description": "Detects LocalContext.current.resources.configuration reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LocalContextConfigurationRead (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LocalContextGetResourceValueCall": {
+          "description": "Detects LocalContext.current.getString/getColor/getDrawable/... calls, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LocalContextGetResourceValueCall (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LocalContextResourcesRead": {
+          "description": "Detects LocalContext.current.resources reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LocalContextResourcesRead (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -16615,6 +16747,39 @@
           "properties": {
             "active": {
               "description": "Enable MultipleAwaitPointerEventScopes (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NonObservableLocale": {
+          "description": "Detects Locale.getDefault()/LocaleList.getAdjustedDefault() in composition, which does not observe locale changes. [precision: ast-backed] [noisiness: normal]\nCaveat: Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions and let/run/apply/also/with/takeIf/takeUnless/repeat but not other stdlib inline lambdas such as forEach.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NonObservableLocale (default: true).",
               "type": "boolean",
               "default": true
             },

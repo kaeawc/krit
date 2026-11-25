@@ -246,7 +246,10 @@ oracle:
 
 For Bazel, a type-aware `krit_test` reads the classpath from the build
 graph (see [Type-aware krit_test](integrations.md#type-aware-krit_test)).
-To scan outside Bazel, inspect the compile action for your `java_library` or
+To scan outside Bazel, `bazel run @krit//:export_model -- //...` writes
+`.krit/bazel-model/`, which krit discovers like a Gradle model (see
+[Exporting a model](integrations.md#exporting-a-model-for-krit-the-lsp-and-mcp)).
+Without the krit Bazel module, inspect the compile action for your `java_library` or
 `kt_jvm_library` target with `bazel aquery --include_commandline
 'deps(//app:lib)'`. Copy its resolved compile-classpath jars into Krit's
 configuration, for example:
@@ -395,6 +398,11 @@ context. `--gradle-project-outputs FILE` names their built outputs instead, as
 A listed project goes on the classpath through those jars (or class directories),
 and its sources are not compiled. The Gradle plugin writes this file when
 `krit { fir { useBuiltDependencies = true } }` is set. Such scans run in-process.
+
+In a Bazel workspace, `bazel run @krit//:export_model -- //...` writes the
+same schema to `.krit/bazel-model/` (one project per target), which krit
+discovers the same way; a directory with both prefers `.krit/gradle-model/`.
+See [Exporting a model](integrations.md#exporting-a-model-for-krit-the-lsp-and-mcp).
 
 Schema 2 models also carry each source set's Kotlin compiler settings
 (`languageVersion`, `apiVersion`, opt-ins, semantic flags). Krit applies them to

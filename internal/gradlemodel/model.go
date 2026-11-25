@@ -319,9 +319,16 @@ func SettingsAncestors(scanRoot string) []string {
 	}
 }
 
+// modelDirNames are the model directories under .krit/ that Discover looks
+// for, in order of preference.
+var modelDirNames = []string{"gradle-model", "bazel-model"}
+
 // Discover returns the nearest .krit/gradle-model directory at or above scanRoot,
-// searching up to and including the nearest settings.gradle(.kts) root and
-// stopping at a .git directory or worktree pointer file.
+// or the nearest .krit/bazel-model directory (the same schema, written by the
+// krit Bazel module's `bazel run @krit//:export_model`), searching up to and
+// including the nearest settings.gradle(.kts) root and stopping at a .git
+// directory or worktree pointer file. A directory with both prefers the
+// Gradle model.
 func Discover(scanRoot string) string {
 	dir, err := filepath.Abs(scanRoot)
 	if err != nil {
@@ -331,9 +338,11 @@ func Discover(scanRoot string) string {
 		dir = filepath.Dir(dir)
 	}
 	for {
-		model := filepath.Join(dir, ".krit", "gradle-model")
-		if info, err := os.Stat(model); err == nil && info.IsDir() {
-			return model
+		for _, name := range modelDirNames {
+			model := filepath.Join(dir, ".krit", name)
+			if info, err := os.Stat(model); err == nil && info.IsDir() {
+				return model
+			}
 		}
 		for _, settings := range []string{"settings.gradle", "settings.gradle.kts"} {
 			if info, err := os.Stat(filepath.Join(dir, settings)); err == nil && !info.IsDir() {

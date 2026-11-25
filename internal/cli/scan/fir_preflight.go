@@ -125,6 +125,9 @@ func missingClasspathWarning(dir string, missing []string, total int) string {
 	if len(missing) == 0 {
 		return ""
 	}
+	if msg := bazelModelMissingWarning(dir, missing); msg != "" {
+		return msg
+	}
 	built := 0
 	for _, p := range missing {
 		if strings.Contains(filepath.ToSlash(p), "/build/") {

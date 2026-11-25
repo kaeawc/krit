@@ -176,6 +176,50 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
 done
 echo "OK: krit_aspect"
 
+# export_model: a krit model of the Bazel graph for scans outside Bazel. A
+# plain krit run in the workspace then finds .krit/bazel-model and gets the
+# targets' classpath and Kotlin settings: the FIR-only findings of //typed/app
+# (a type from //typed/lib's jar) and //kotlin_settings (kotlinc_opts and the
+# assignment plugin) need both.
+echo "== bazel run @krit//:export_model, then krit outside Bazel"
+# shellcheck disable=SC2086
+BAZEL="$BAZEL" $BAZEL run --lockfile_mode=off --noshow_progress --symlink_prefix=/ \
+  --disk_cache="$disk_cache" "${extra[@]}" @krit//:export_model -- \
+  --lockfile_mode=off --symlink_prefix=/ --disk_cache="$disk_cache" "${extra[@]}" \
+  //typed/... //kotlin_settings/...
+models=(.krit/bazel-model/*.krit-model.json)
+[ -f "${models[0]}" ] || {
+  echo "ERROR: export_model wrote no .krit/bazel-model/*.krit-model.json" >&2
+  exit 1
+}
+if grep -l '@@WORKSPACE@@\|@@EXECROOT@@' "${models[@]}"; then
+  echo "ERROR: export_model left path placeholders in the models above" >&2
+  exit 1
+fi
+scan_home="$work/scan-home"
+mkdir -p "$scan_home"
+rc=0
+scan="$(env -u KRIT_BAZEL_LOCAL_DIST HOME="$scan_home" KRIT_FIR_JAR="$DIST/krit-fir.jar" \
+  KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
+  "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . \
+  typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
+printf '%s\n' "$scan"
+if [ "$rc" != 1 ]; then
+  echo "ERROR: krit exited $rc; want 1 (findings)" >&2
+  exit 1
+fi
+for want in "typed/app/Consumer.kt:5:57:" "kotlin_settings/Settings.kt:32:"; do
+  case "$scan" in
+    *"$want"*UnnecessarySafeCall*) ;;
+    *)
+      echo "ERROR: krit with the exported model did not report UnnecessarySafeCall at $want" >&2
+      exit 1
+      ;;
+  esac
+done
+rm -rf .krit/bazel-model
+echo "OK: export_model"
+
 if [ "${KRIT_E2E_ANDROID:-}" = 1 ]; then
   if [ -z "${ANDROID_HOME:-}" ]; then
     echo "ERROR: KRIT_E2E_ANDROID=1 needs ANDROID_HOME" >&2

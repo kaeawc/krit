@@ -5,6 +5,7 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 - `CompileTimeConstant`, a partial port of Android Lint 32.4.1's `CompileTimeConstantDetector` under its Lint ID for
   Kotlin and Java, checked against the Lint CLI on the same inputs. For callees and variables declared in the same
   file it reports a non-constant argument for a `@CompileTimeConstant` parameter and a non-constant (or compound)

@@ -1,0 +1,3 @@
+src/com/example/FieldActivity.java:19:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/ListActivity.kt:20:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.
+src/com/example/ListActivity.kt:21:9: InvalidSetHasFixedSize: When using `setHasFixedSize() in an `RecyclerView`, `wrap_content` cannot be used as a value for `size` in the scrolling direction.

@@ -763,6 +763,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*WorkerHasAPublicModifierRule)(nil),
 		(*RemoveWorkManagerInitializerRule)(nil),
 		(*SpecifyForegroundServiceTypeRule)(nil),
+		(*InvalidSetHasFixedSizeRule)(nil),
 		(*FragmentBackPressedCallbackRule)(nil),
 		(*FragmentAddMenuProviderRule)(nil),
 		(*UnsafeRepeatOnLifecycleDetectorRule)(nil),

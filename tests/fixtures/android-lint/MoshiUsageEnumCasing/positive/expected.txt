@@ -1,0 +1,4 @@
+src/main/java/com/example/Casing.kt:10:3: MoshiUsageEnumCasing: Consider using @Json(name = ...) rather than lower casing.
+src/main/java/com/example/Casing.kt:11:29: MoshiUsageEnumCasing: Consider using @Json(name = ...) rather than lower casing.
+src/main/java/com/example/Casing.kt:9:3: MoshiUsageEnumCasing: Consider using @Json(name = ...) rather than lower casing.
+src/main/java/com/example/JavaCasing.java:8:3: MoshiUsageEnumCasing: Consider using @Json(name = ...) rather than lower casing.

@@ -1,0 +1,4 @@
+src/main/java/com/example/Generated.kt:11:65: MoshiUsageEnumJsonClassGenerated: Enums annotated with @JsonClass must not set generateAdapter to true.
+src/main/java/com/example/Generated.kt:5:30: MoshiUsageEnumJsonClassGenerated: Enums annotated with @JsonClass must not set generateAdapter to true.
+src/main/java/com/example/Generated.kt:8:12: MoshiUsageEnumJsonClassGenerated: Enums annotated with @JsonClass must not set generateAdapter to true.
+src/main/java/com/example/JavaGenerated.java:5:30: MoshiUsageEnumJsonClassGenerated: Enums annotated with @JsonClass must not set generateAdapter to true.

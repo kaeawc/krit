@@ -125,6 +125,7 @@ func init() {
 	registerSupplyChainRules()
 	registerGradleKotlinRules()
 	registerTestingQualityRules()
+	registerThirdPartyMoshiRules()
 
 	applySecurityTaxonomy()
 }

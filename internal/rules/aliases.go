@@ -137,7 +137,7 @@ var (
 )
 
 // isKnownLintIssueID reports whether id is a built-in lint issue ID or names, by ID or alias,
-// a registered Android lint rule.
+// a registered Android lint rule or a rule that declares api.Rule.LintIssue.
 func isKnownLintIssueID(id string) bool {
 	if knownLintIssueIDs[id] {
 		return true
@@ -145,7 +145,7 @@ func isKnownLintIssueID(id string) bool {
 	registeredLintIDsOnce.Do(func() {
 		registeredLintIDs = make(map[string]bool)
 		for _, r := range api.Registry {
-			if r == nil || r.Category != androidRuleSet {
+			if r == nil || (r.Category != androidRuleSet && !r.LintIssue) {
 				continue
 			}
 			registeredLintIDs[r.ID] = true

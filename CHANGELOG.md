@@ -84,6 +84,13 @@ All notable changes to Krit will be documented in this file.
   Compose `Color(...)` as Lint does; `MissingColorAlphaChannel` adds the `FF` alpha channel as a fix.
   `InvalidLanguageTagDelimiter` evaluates the tag passed to Compose `Locale`/`LocaleList` (literals, `+`, same-file
   vals and constants), checks Java too, and fixes a literal tag by replacing `_` with `-` (#1501, #1502, #1504).
+- A `slack-lint` rule set with ports of slack-lints' `MoshiUsageDetector` (0.11.1), starting with its five enum
+  checks: `MoshiUsageEnumMissingJsonClass`, `MoshiUsageEnumJsonClassGenerated`, `MoshiUsageEnumMissingUnknown`,
+  `MoshiUsageEnumAnnotatedUnknown` and `MoshiUsageEnumCasing`. Rule IDs are the Lint IDs, so `@SuppressLint`,
+  `tools:ignore` and `lint.xml` entries carry over. They are experimental and off by default; enable them by ID or
+  with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
+  lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
+  (#1391, #1392, #1393, #1394, #1397).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

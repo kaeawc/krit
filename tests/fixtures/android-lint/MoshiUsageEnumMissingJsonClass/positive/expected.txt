@@ -1,0 +1,3 @@
+src/main/java/com/example/JavaStatus.java:5:13: MoshiUsageEnumMissingJsonClass: Enums serialized with Moshi should be annotated with @JsonClass.
+src/main/java/com/example/Status.kt:11:14: MoshiUsageEnumMissingJsonClass: Enums serialized with Moshi should be annotated with @JsonClass.
+src/main/java/com/example/Status.kt:5:12: MoshiUsageEnumMissingJsonClass: Enums serialized with Moshi should be annotated with @JsonClass.

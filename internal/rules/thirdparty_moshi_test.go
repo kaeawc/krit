@@ -1,0 +1,282 @@
+package rules
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/kaeawc/krit/internal/config"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
+// moshiRules returns the registered MoshiUsage rules.
+func moshiRules(t *testing.T) []*api.Rule {
+	t.Helper()
+	var out []*api.Rule
+	for _, r := range api.Registry {
+		if r != nil && r.Category == moshiRuleSet && strings.HasPrefix(r.ID, "MoshiUsage") {
+			out = append(out, r)
+		}
+	}
+	if len(out) != len(moshiIssues) {
+		t.Fatalf("registered %d MoshiUsage rules, want %d", len(out), len(moshiIssues))
+	}
+	return out
+}
+
+// runMoshiRules runs every MoshiUsage rule over files the way the cross-file
+// phase does and returns "path:line:col: rule: message" lines, with paths
+// relative to root and suppressed findings dropped.
+func runMoshiRules(t *testing.T, root string, files []*scanner.File) []string {
+	t.Helper()
+	var out []string
+	for _, r := range moshiRules(t) {
+		collector := scanner.NewFindingCollector(0)
+		r.Check(&api.Context{Rule: r, ParsedFiles: files, Collector: collector})
+		for _, f := range collector.Columns().Findings() {
+			var file *scanner.File
+			for _, candidate := range files {
+				if candidate.Path == f.File {
+					file = candidate
+				}
+			}
+			if file != nil && file.Suppression.IsSuppressedAtColumn(f.Rule, f.RuleSet, f.Line, f.Col) {
+				continue
+			}
+			rel, err := filepath.Rel(root, f.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, f.Rule, f.Message))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func parseMoshiFixtureFile(t *testing.T, path string) *scanner.File {
+	t.Helper()
+	var file *scanner.File
+	var err error
+	if strings.HasSuffix(path, ".java") {
+		file, err = scanner.ParseJavaFile(context.Background(), path)
+	} else {
+		file, err = scanner.ParseFile(context.Background(), path)
+	}
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	file.Suppression = scanner.BuildSuppressionFilter(file, nil, nil, "").WithRuleAliases(AllSuppressionAliases())
+	return file
+}
+
+// TestMoshiUsageLintParity runs the MoshiUsage rules over each project fixture
+// under tests/fixtures/android-lint/MoshiUsage*/ and compares the findings with
+// expected.txt. expected.txt is the output of Android Lint 9.4.0-rc01 running
+// slack-lint-checks 0.11.1 on the same sources (plus Moshi, moshix, Gson and
+// androidx.annotation stubs), keeping only the IDs krit ports.
+func TestMoshiUsageLintParity(t *testing.T) {
+	registered := map[string]bool{}
+	for _, r := range moshiRules(t) {
+		registered[r.ID] = true
+	}
+	dirs, err := filepath.Glob(filepath.Join(repoRoot(t), "tests", "fixtures", "android-lint", "MoshiUsage*", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := 0
+	for _, dir := range dirs {
+		expectedPath := filepath.Join(dir, "expected.txt")
+		data, err := os.ReadFile(expectedPath)
+		if err != nil {
+			t.Fatalf("%s: every MoshiUsage fixture directory needs an expected.txt: %v", dir, err)
+		}
+		ran++
+		name, _ := filepath.Rel(filepath.Join(repoRoot(t), "tests", "fixtures", "android-lint"), dir)
+		t.Run(filepath.ToSlash(name), func(t *testing.T) {
+			var want []string
+			for _, line := range strings.Split(string(data), "\n") {
+				if line == "" {
+					continue
+				}
+				fields := strings.SplitN(line, ": ", 3)
+				if len(fields) == 3 && registered[fields[1]] {
+					want = append(want, line)
+				}
+			}
+			sort.Strings(want)
+			var files []*scanner.File
+			if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !info.IsDir() && (strings.HasSuffix(path, ".kt") || strings.HasSuffix(path, ".java")) {
+					files = append(files, parseMoshiFixtureFile(t, path))
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			got := runMoshiRules(t, dir, files)
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("findings differ from Lint\n got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+			}
+		})
+	}
+	if ran == 0 {
+		t.Fatal("no MoshiUsage fixture directories found")
+	}
+}
+
+// moshiFindingsForSources runs the MoshiUsage rules over in-memory sources.
+func moshiFindingsForSources(t *testing.T, sources map[string]string) []string {
+	t.Helper()
+	root := t.TempDir()
+	var files []*scanner.File
+	names := make([]string, 0, len(sources))
+	for name := range sources {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, []byte(sources[name]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, parseMoshiFixtureFile(t, path))
+	}
+	return runMoshiRules(t, root, files)
+}
+
+// The pass abstains where Lint would evaluate a value krit cannot prove from
+// source. These are known false negatives, not findings.
+func TestMoshiUsageEnumAbstainsOnUnprovenValues(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Enums.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+
+const val GENERATE = true
+const val GENERATOR = ""
+
+// Lint casts generateAdapter to a literal and crashes on a reference (ClassCastException,
+// aborting the file); krit abstains.
+@JsonClass(generateAdapter = GENERATE)
+enum class ConstantFlag { ONE }
+
+// Known false negative: Lint evaluates GENERATOR to "" and reports MoshiUsageEnumMissingUnknown;
+// krit cannot tell a blank generator from a custom one, so it abstains.
+@JsonClass(generateAdapter = false, generator = GENERATOR)
+enum class ConstantGenerator { ONE }
+
+// An escape in the generator literal is not decoded, so the generator is unknown.
+// Lint reads "custom" here and skips the enum, so krit staying silent matches.
+@JsonClass(generateAdapter = true, generator = "\u0063ustom")
+enum class EscapedGenerator { ONE }
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// Moshi annotations count only when their FQN is proven: imported, written in
+// full, reached through a wildcard import, or declared in the same package.
+func TestMoshiUsageEnumResolvesAnnotationFQN(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Wildcard.kt": `package com.example
+
+import com.squareup.moshi.*
+
+@JsonClass(generateAdapter = false)
+enum class Wildcard { ONE }
+`,
+		"Aliased.kt": `package com.example
+
+import com.squareup.moshi.JsonClass as MoshiClass
+
+@MoshiClass(generateAdapter = false)
+enum class Aliased { ONE }
+`,
+		"SamePackage.kt": `package com.squareup.moshi
+
+@JsonClass(generateAdapter = false)
+enum class SamePackage { ONE }
+`,
+		"Shadowed.kt": `package com.example.other
+
+import com.squareup.moshi.*
+
+annotation class JsonClass(val generateAdapter: Boolean)
+
+// The file's own JsonClass shadows the wildcard import.
+@JsonClass(generateAdapter = false)
+enum class Shadowed { ONE }
+`,
+		"OtherImport.kt": `package com.example.another
+
+import com.example.custom.JsonClass
+import com.squareup.moshi.JsonAdapter
+
+@JsonClass(generateAdapter = false)
+enum class OtherImport { ONE }
+`,
+	})
+	want := []string{
+		"Aliased.kt:6:12: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.",
+		"SamePackage.kt:4:12: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.",
+		"Wildcard.kt:6:12: MoshiUsageEnumMissingUnknown: Enums serialized with Moshi must reserve the first member as UNKNOWN.",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+	}
+}
+
+func TestMoshiScreamingSnakeCase(t *testing.T) {
+	for in, want := range map[string]string{
+		"UNKNOWN":       "UNKNOWN",
+		"lower":         "LOWER",
+		"camelCase":     "CAMEL_CASE",
+		"TWO_WORDS":     "TWO_WORDS",
+		"V2":            "V2",
+		"_leading":      "LEADING",
+		"kebab-case":    "KEBAB_CASE",
+		"dotted.name":   "DOTTED_NAME",
+		"HTTPResponse":  "HTTPRESPONSE",
+		"snake__double": "SNAKE_DOUBLE",
+	} {
+		if got := moshiScreamingSnakeCase(in); got != want {
+			t.Errorf("moshiScreamingSnakeCase(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A lint.xml that ignores a MoshiUsage ID turns the krit rule off, because the
+// rules declare api.Rule.LintIssue. A same-named ID on a rule without the flag
+// outside android-lint does not count as a Lint issue.
+func TestMoshiUsageHonorsLintXMLIgnore(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "lint.xml"), []byte(`<lint>
+  <issue id="MoshiUsageEnumCasing" severity="ignore"/>
+</lint>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadAndMergeDefaults("", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !androidLintTurnsOff(cfg, registeredRule(t, "MoshiUsageEnumCasing")) {
+		t.Error("lint.xml ignore did not turn off MoshiUsageEnumCasing")
+	}
+	if androidLintTurnsOff(cfg, registeredRule(t, "MoshiUsageEnumMissingUnknown")) {
+		t.Error("lint.xml ignore of another ID turned off MoshiUsageEnumMissingUnknown")
+	}
+	if androidLintIgnoresRule(cfg.AndroidLint(), &api.Rule{ID: "MoshiUsageEnumCasingCopy", Category: "style"}) {
+		t.Error("a rule without LintIssue outside android-lint was treated as a Lint issue")
+	}
+}

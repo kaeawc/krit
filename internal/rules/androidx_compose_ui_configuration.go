@@ -82,8 +82,9 @@ func (r *ConfigurationScreenWidthHeightRule) Meta() api.RuleDescriptor {
 func (r *NonObservableLocaleRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "NonObservableLocale", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: []string{
-			"Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions " +
-				"and let/run/apply/also/with/takeIf/takeUnless/repeat but not other stdlib inline lambdas such as forEach.",
+			"Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions, " +
+				"the stdlib scope functions and forEach/forEachIndexed/find/sumOf, but sees through map, filter, fold and " +
+				"the other collection operations only when the receiver is proven to be an Iterable, Array or Map.",
 		}}
 }
 

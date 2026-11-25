@@ -325,8 +325,9 @@ IDs, so `@SuppressLint`, `tools:ignore`, `lint.xml` and Gradle `lint { }` severi
   merged-manifest filter, and so are files importing `androidx.wear`. It only runs in projects with a manifest.
 - `NonObservableLocale` reports `java.util.Locale.getDefault()`, `android.os.LocaleList.getAdjustedDefault()` and
   `androidx.core.os.LocaleListCompat.getAdjustedDefault()` in composition, using the same composition walk as the Compose
-  runtime ports: reads inside `remember { }` and other non-inline lambdas are not in composition, and reads inside
-  stdlib inline lambdas other than the scope functions (`forEach`, `map`, ...) are a known false negative.
+  runtime ports: reads inside `remember { }` and other non-inline lambdas are not in composition, while reads inside
+  stdlib inline lambdas such as `let` and `forEach` are. Reads inside `map`, `filter` and the other collection
+  operations count only when the receiver is proven to be an `Iterable`, `Array` or `Map`.
 
 ## Android Lint Performance Checks
 

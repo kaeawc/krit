@@ -1,0 +1,5 @@
+# Lint reads @Json's "\u0000" UNSET_NAME default as the JSON name of every @Json without a name
+# argument, so two @Json(ignore = true) members are reported as duplicates of "\u0000". Moshi uses
+# the member name there, so krit does not report them.
+- src/main/java/com/example/Unique.kt:15:57: MoshiUsageDuplicateJsonName: Name '\u0000' is duplicated by member 'c'.
+- src/main/java/com/example/Unique.kt:15:94: MoshiUsageDuplicateJsonName: Name '\u0000' is duplicated by member 'b'.

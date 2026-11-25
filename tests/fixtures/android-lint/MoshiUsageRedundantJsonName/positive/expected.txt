@@ -1,0 +1,3 @@
+src/main/java/com/example/JavaRedundant.java:9:16: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.
+src/main/java/com/example/Redundant.kt:10:50: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.
+src/main/java/com/example/Redundant.kt:7:35: MoshiUsageRedundantJsonName: Json.name with the same value as the property/enum member name is redundant.

@@ -432,3 +432,18 @@ class NullDefault(val id: String, plain: String? = null)
 		t.Fatalf("got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
 }
+
+func TestMoshiSnakeToCamel(t *testing.T) {
+	for in, want := range map[string]string{
+		"userId":      "userId",
+		"user_id":     "userId",
+		"kebab-case":  "kebabCase",
+		"_leading":    "leading",
+		"trailing_":   "trailing",
+		"two__scores": "twoScores",
+	} {
+		if got := moshiSnakeToCamel(in); got != want {
+			t.Errorf("moshiSnakeToCamel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

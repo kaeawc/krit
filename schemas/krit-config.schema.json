@@ -30044,6 +30044,39 @@
             }
           }
         },
+        "MoshiUsageBlankJsonName": {
+          "description": "Don't use blank names in @Json. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageBlankJsonName (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageBlankTypeLabel": {
           "description": "Moshi-sealed requires a type label specified after the 'sealed:' prefix. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -30150,6 +30183,39 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageDoubleTypeLabel (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageDuplicateJsonName": {
+          "description": "Duplicate JSON names are errors as JSON does not allow duplicate keys in objects. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageDuplicateJsonName (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -30638,6 +30704,72 @@
             }
           }
         },
+        "MoshiUsageRedundantJsonName": {
+          "description": "Json.name with the same value as the property/enum member name is redundant. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageRedundantJsonName (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageRedundantSiteTarget": {
+          "description": "Use of site-targets on @Json are redundant. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageRedundantSiteTarget (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageSealedMustBeSealed": {
           "description": "Moshi-sealed can only be applied to 'sealed' types. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -30645,6 +30777,72 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsageSealedMustBeSealed (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageSerializedName": {
+          "description": "Use Moshi's @Json rather than Gson's @SerializedName. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageSerializedName (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageSnakeCase": {
+          "description": "Consider using @Json(name = ...) rather than direct snake casing. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageSnakeCase (default: false).",
               "type": "boolean",
               "default": false
             },

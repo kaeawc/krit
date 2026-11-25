@@ -272,6 +272,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageTransientNeedsInit`. Unlike Lint 9.4, which no longer sees `@Transient` on a constructor property,
   krit reports a `@Transient` property without a default, as slack-lints' own tests expect (#1411, #1412, #1413,
   #1418, #1421).
+- `slack-lint` gains `MoshiUsageDetector`'s JSON name checks, on Kotlin constructor properties and on Kotlin and
+  Java enum members: `MoshiUsageBlankJsonName`, `MoshiUsageRedundantJsonName`, `MoshiUsageDuplicateJsonName`,
+  `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
+  reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
+  duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

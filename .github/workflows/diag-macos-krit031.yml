@@ -30,6 +30,7 @@ jobs:
           probe --no-daemon --no-cache
           probe
           probe --no-cache
+          echo "##### daemon.log"; tail -c 6000 .krit/daemon.log 2>&1; ls -la .krit 2>&1 | head -30
           for f in \
             schemas/krit-config.schema.json \
             internal/rules/testdata/androidx_compose_runtime/retain \
@@ -43,6 +44,21 @@ jobs:
             tests/fixtures/negative/compose/RetainingDoNotRetainType.kt \
             internal/rules/androidx_compose_runtime_retain.go; do
             rm -rf "$f"
-            echo "=== without $f"; probe --no-daemon
+            echo "=== without $f"; probe
             git checkout -q HEAD -- "$f"
           done
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Probe krit built from this commit
+        shell: bash
+        run: |
+          set +e -u
+          go build -o /tmp/kritdev ./cmd/krit/ || exit 1
+          P=tests/fixtures/positive/style
+          for mode in --no-daemon ""; do
+            pkill -f 'krit.*(serve|daemon)' >/dev/null 2>&1; rm -rf .krit; sleep 1
+            /tmp/kritdev --no-fir $mode -f json $P >/tmp/out 2>/tmp/err; echo "dev mode=[$mode] exit=$? n=$(jq '.findings|length' /tmp/out)"; head -c 1500 /tmp/err; echo
+          done
+          echo "##### daemon.log"; tail -c 6000 .krit/daemon.log 2>&1

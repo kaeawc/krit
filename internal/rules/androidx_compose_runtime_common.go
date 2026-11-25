@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -20,15 +21,29 @@ const (
 )
 
 // registerAcrRule registers a Compose runtime Lint port. Lint's scope for these issues includes test sources, so
-// unlike the AOSP Lint ports they also run on tests. The confidence is high unless impl declares Confidence().
+// unlike the AOSP Lint ports they also run on tests. The confidence is high unless impl declares Confidence(), and
+// an impl declaring fileMentions() only runs on files whose text contains every listed string.
 func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []scanner.Language, check func(*api.Context)) {
 	confidence := api.ConfidenceHigh
 	if c, ok := impl.(interface{ Confidence() float64 }); ok {
 		confidence = c.Confidence()
 	}
+	var gate func(*scanner.File) bool
+	if g, ok := impl.(interface{ fileMentions() []string }); ok {
+		texts := g.fileMentions()
+		gate = func(file *scanner.File) bool {
+			for _, text := range texts {
+				if !fileFactsCache().Mentions(file, text) {
+					return false
+				}
+			}
+			return true
+		}
+	}
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Implementation: impl, Check: check,
+		FileGate: gate,
 	})
 }
 
@@ -82,23 +97,43 @@ func acrFunctionNameShadowed(file *scanner.File, node uint32, name string) bool 
 	return false
 }
 
+// Per-file fact slots for the Compose runtime ports.
+const (
+	slotAcrTopLevelNames = "acrTopLevelNames"
+	slotAcrFunctionDecls = "acrFunctionDecls"
+)
+
 // acrFileDeclaresTopLevel reports whether the file declares a top-level class, object, function, property or
 // type alias with the given name.
 func acrFileDeclaresTopLevel(file *scanner.File, name string) bool {
-	for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
-		switch file.FlatType(child) {
-		case "class_declaration", "object_declaration", "function_declaration", "type_alias":
-			if acrDeclarationName(file, child) == name {
-				return true
-			}
-		case "property_declaration":
-			if v, ok := file.FlatFindChild(child, "variable_declaration"); ok &&
-				file.FlatChildTextOrEmpty(v, "simple_identifier") == name {
-				return true
+	names := filefacts.FileFact(fileFactsCache(), file, slotAcrTopLevelNames, func() map[string]bool {
+		out := map[string]bool{}
+		for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
+			switch file.FlatType(child) {
+			case "class_declaration", "object_declaration", "function_declaration", "type_alias":
+				out[acrDeclarationName(file, child)] = true
+			case "property_declaration":
+				if v, ok := file.FlatFindChild(child, "variable_declaration"); ok {
+					out[file.FlatChildTextOrEmpty(v, "simple_identifier")] = true
+				}
 			}
 		}
-	}
-	return false
+		return out
+	})
+	return names[name]
+}
+
+// acrFunctionDecls returns every function declaration in the file (top-level, member or local) with the name.
+func acrFunctionDecls(file *scanner.File, name string) []uint32 {
+	byName := filefacts.FileFact(fileFactsCache(), file, slotAcrFunctionDecls, func() map[string][]uint32 {
+		out := map[string][]uint32{}
+		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+			n := acrDeclarationName(file, fn)
+			out[n] = append(out[n], fn)
+		})
+		return out
+	})
+	return byName[name]
 }
 
 // acrDeclarationName returns the unquoted name of a class, object, function or type alias declaration.
@@ -127,9 +162,10 @@ func acrNameNode(file *scanner.File, decl uint32) uint32 {
 	return 0
 }
 
-// acrTypeRefersTo reports whether a user_type (or its text) names pkg.name, either fully qualified or through a
-// simple name that resolves to it. Type arguments are ignored.
-func acrTypeRefersTo(file *scanner.File, typeNode uint32, pkg, name string) bool {
+// acrTypeIsRuntime reports whether a user_type (or its text) names androidx.compose.runtime.<name>, either fully
+// qualified or through a simple name that resolves to it. Type arguments are ignored.
+func acrTypeIsRuntime(file *scanner.File, typeNode uint32, name string) bool {
+	pkg := acrRuntimePackage
 	if typeNode == 0 {
 		return false
 	}
@@ -162,10 +198,10 @@ func acrAnnotationIsComposable(file *scanner.File, annotation uint32) bool {
 	for child := file.FlatFirstChild(annotation); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "user_type":
-			return acrTypeRefersTo(file, child, acrRuntimePackage, acrComposableShort)
+			return acrTypeIsRuntime(file, child, acrComposableShort)
 		case "constructor_invocation":
 			if ut, ok := file.FlatFindChild(child, "user_type"); ok {
-				return acrTypeRefersTo(file, ut, acrRuntimePackage, acrComposableShort)
+				return acrTypeIsRuntime(file, ut, acrComposableShort)
 			}
 			return false
 		case "use_site_target":

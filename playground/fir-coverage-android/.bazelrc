@@ -9,8 +9,6 @@ common --tool_java_runtime_version=remotejdk_21
 # protobuf (a rules_android and rules_kotlin dependency) needs C++17.
 common --cxxopt=-std=c++17
 common --host_cxxopt=-std=c++17
-# Use the prebuilt protoc instead of compiling protobuf from source.
-common --@com_google_protobuf//bazel/flags:prefer_prebuilt_protoc
 
 # Android SDK from $ANDROID_HOME (preinstalled on GitHub's Ubuntu runners).
 common --repo_env=ANDROID_HOME

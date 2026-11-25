@@ -80,15 +80,23 @@ func emitMoshiFindings(ctx *api.Context) {
 // moshiAnalyzer accumulates findings over one project.
 type moshiAnalyzer struct {
 	result *moshiResult
+	sealed *moshiSealedIndex
 }
 
 func analyzeMoshiProject(files []*scanner.File) *moshiResult {
-	a := &moshiAnalyzer{result: &moshiResult{files: files, byRule: map[string][]moshiFinding{}}}
+	a := &moshiAnalyzer{result: &moshiResult{files: files, byRule: map[string][]moshiFinding{}}, sealed: buildMoshiSealedIndex(files)}
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || !moshiFileMayMatch(file.Content) {
+		if file == nil || file.FlatTree == nil {
 			continue
 		}
-		a.analyzeFile(file)
+		switch {
+		case moshiFileMayMatch(file.Content):
+			a.analyzeFile(file)
+		case file.Language == scanner.LangKotlin && a.sealed.packages[moshiFilePackage(file)]:
+			// A subtype of a moshi-sealed type needs @TypeLabel even when its
+			// file never mentions Moshi.
+			a.analyzeSealedSubtypes(file)
+		}
 	}
 	return a.result
 }
@@ -127,6 +135,16 @@ func (a *moshiAnalyzer) analyzeFile(file *scanner.File) {
 	})
 }
 
+// analyzeSealedSubtypes runs only the sealed-subtype checks, for a Kotlin file
+// that does not mention Moshi but shares a package with a moshi-sealed type.
+func (a *moshiAnalyzer) analyzeSealedSubtypes(file *scanner.File) {
+	file.FlatWalkAllNodes(0, func(idx uint32) {
+		if decl, ok := moshiClassDecl(file, idx); ok && !decl.isEnum {
+			a.checkSealedClass(decl)
+		}
+	})
+}
+
 // moshiClass is the language-neutral view of a class declaration.
 type moshiClass struct {
 	file      *scanner.File
@@ -141,6 +159,7 @@ type moshiClass struct {
 	isInterface bool
 	visibility  uint32 // visibility_modifier node, or 0 for the public default
 	primary     uint32 // primary_constructor node, or 0
+	typeParams  uint32 // type_parameters node, or 0
 }
 
 // moshiEnumConstant is one enum entry (Kotlin) or enum constant (Java).
@@ -184,6 +203,7 @@ func moshiClassDecl(file *scanner.File, idx uint32) (moshiClass, bool) {
 			c.visibility, _ = file.FlatFindChild(mods, "visibility_modifier")
 		}
 		c.primary, _ = file.FlatFindChild(idx, "primary_constructor")
+		c.typeParams, _ = file.FlatFindChild(idx, "type_parameters")
 	}
 	if c.nameNode == 0 {
 		return c, false
@@ -351,6 +371,8 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 		return
 	}
 
+	a.checkSealedClass(c)
+
 	if jsonClass == nil {
 		return
 	}
@@ -371,6 +393,14 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 			a.reportIssue("MoshiUsageBlankGenerator", file, expr)
 		} else {
 			usesCustomGenerator = true
+			if label, ok := strings.CutPrefix(generator, "sealed:"); ok {
+				if strings.TrimSpace(label) == "" {
+					a.reportIssue("MoshiUsageBlankTypeLabel", file, expr)
+				}
+				if !moshiHasModifier(c, "sealed") {
+					a.reportIssue("MoshiUsageSealedMustBeSealed", file, c.nameNode)
+				}
+			}
 		}
 	}
 

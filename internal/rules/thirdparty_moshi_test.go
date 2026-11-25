@@ -305,3 +305,56 @@ class ConstGenerator(val a: Int)
 		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
 	}
 }
+
+// A subtype of a sealed type whose @JsonClass generator is not a literal
+// abstains: krit cannot tell whether the parent is moshi-sealed. Lint 9.4.0
+// with slack-lints 0.11.1 reports nothing on this input either.
+func TestMoshiUsageSealedSubtypeAbstainsOnConstantParentGenerator(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Animal.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+import dev.zacsweers.moshix.sealed.annotations.TypeLabel
+
+const val GENERATOR = "sealed:type"
+
+@JsonClass(generateAdapter = true, generator = GENERATOR)
+sealed class Animal {
+  @TypeLabel("dog")
+  @JsonClass(generateAdapter = true)
+  data class Dog(val name: String) : Animal()
+}
+`,
+		"Cat.kt": `package com.example
+
+data class Cat(val name: String) : Animal()
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// The supertype resolver follows Kotlin scoping: a nested class shadows a
+// top-level class with the same name, so a subtype of the nested non-sealed
+// Base is not a moshi-sealed subtype.
+func TestMoshiUsageSealedSupertypeScoping(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Base.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true, generator = "sealed:type")
+sealed class Base
+
+class Outer {
+  open class Base
+
+  class Child : Base()
+}
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}

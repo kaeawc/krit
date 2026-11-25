@@ -1,0 +1,3 @@
+src/main/java/com/example/Animal.kt:13:14: MoshiUsageMissingTypeLabel: Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject.
+src/main/java/com/example/Animal.kt:19:16: MoshiUsageMissingTypeLabel: Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject.
+src/main/java/com/example/Bird.kt:4:12: MoshiUsageMissingTypeLabel: Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject.

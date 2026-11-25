@@ -1,0 +1,2 @@
+src/main/java/com/example/NotSealed.kt:6:16: MoshiUsageSealedMustBeSealed: Moshi-sealed can only be applied to 'sealed' types.
+src/main/java/com/example/NotSealed.kt:9:11: MoshiUsageSealedMustBeSealed: Moshi-sealed can only be applied to 'sealed' types.

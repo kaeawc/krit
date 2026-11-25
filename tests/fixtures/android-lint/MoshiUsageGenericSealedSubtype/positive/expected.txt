@@ -1,0 +1,1 @@
+src/main/java/com/example/Generic.kt:10:21: MoshiUsageGenericSealedSubtype: Sealed subtypes used with moshi-sealed cannot be generic.

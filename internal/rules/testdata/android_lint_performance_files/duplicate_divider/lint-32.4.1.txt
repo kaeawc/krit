@@ -1,0 +1,4 @@
+DividerItemDecoration.java:5:14: DuplicateDivider: Replace with `android.support.v7.widget.DividerItemDecoration`?
+k/DividerItemDecoration.kt:5:7: DuplicateDivider: Replace with `android.support.v7.widget.DividerItemDecoration`?
+w/Sub.java:7:25: DuplicateDivider: Replace with `android.support.v7.widget.DividerItemDecoration`?
+y/DividerItemDecoration.kt:5:7: DuplicateDivider: Replace with `android.support.v7.widget.DividerItemDecoration`?

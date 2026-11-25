@@ -630,6 +630,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_performance_notification_test.go
+  DuplicateDivider:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_performance_classes_test.go
+  SyntheticAccessor:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_performance_classes_test.go
   UsableSpace:
     status: supported
     fixtures:

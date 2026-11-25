@@ -47,6 +47,7 @@ func registerAndroidLintPortRules() {
 	registerManifestAppLinkChecks()
 	registerManifestForegroundServiceChecks()
 	registerIntentLintChecks()
+	registerAndroidLintSecurityPorts()
 	registerAndroidXAppCompatXMLChecks()
 	registerAndroidXFragmentBuildChecks()
 	registerAndroidXActivityChecks()

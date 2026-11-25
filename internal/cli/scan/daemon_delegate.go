@@ -726,6 +726,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if f.MinFirCoverage != nil && *f.MinFirCoverage > 0 {
 		return false
 	}
+	// The analyze-project wire carries no project outputs; the daemon would compile
+	// the built project dependencies from source again.
+	if *f.GradleProjectOutputs != "" {
+		return false
+	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.
 	return true

@@ -75,10 +75,12 @@ type scanFlags struct {
 	NoCacheOracle         *bool
 	GradleModel           *string
 	NoGradleModel         *bool
+	GradleProjectOutputs  *string
 	// GeneratedSrcjars are --generated-srcjar archives: generated sources
 	// compiled as FIR and oracle context and never reported on.
 	GeneratedSrcjars         *clishared.MultiString
 	modelClasspath           []string
+	projectOutputs           map[string][]string
 	modelSourceDirs          []string
 	modelGeneratedSourceDirs []string
 	modelJvmTarget           string
@@ -210,6 +212,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.NoGradleModel = fs.Bool("no-gradle-model", false, "Disable automatic Gradle model discovery")
 	f.GeneratedSrcjars = &clishared.MultiString{}
 	fs.Var(f.GeneratedSrcjars, "generated-srcjar", "Generated-source jar (.srcjar, e.g. KSP, kapt, Wire, SQLDelight or view-binding output) compiled as FIR and type-oracle context, never reported on; repeatable")
+	f.GradleProjectOutputs = fs.String("gradle-project-outputs", "", "Read built outputs of Gradle project dependencies from FILE (JSON, written by the Gradle plugin); those projects resolve from their outputs instead of being compiled from source")
 	f.NoCrossFileCache = fs.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-fir daemon (experimental)")
 	f.Daemon = fs.Bool("daemon", false, "Use long-lived krit-fir oracle daemon instead of one-shot invocation")

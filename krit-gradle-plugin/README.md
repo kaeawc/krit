@@ -309,6 +309,27 @@ neither is resolved.
 Outside a `krit { }` block, `krit.fir` is the on/off switch; the options are
 `krit.firOptions` (for example `krit.firOptions.javaLauncher`).
 
+### Built project dependencies
+
+By default, a per-project `kritCheck` with FIR has krit compile the sources of
+every project the checked project depends on, transitively, as context. In a deep
+build that repeats the same upstream compiles in every dependent check. Opt in to
+resolve project dependencies from their compiled classes instead:
+
+```kotlin
+krit { fir { useBuiltDependencies = true } }
+```
+
+`kritCheck` then depends on the upstream compile tasks through the exported
+source sets' compile classpaths (class directories for JVM projects, AGP's
+`android-classes-jar` for Android libraries), so those results come from the build
+cache when available. krit compiles only the checked project's own sources, and
+reads the upstream classes from `--gradle-project-outputs`. The classes are an
+ABI-normalized input: an upstream change that keeps the ABI, such as a method body,
+does not rerun the check. The classpath is the one Gradle compiles with, so
+upstream implementation dependencies are not visible, as in a normal compile.
+This needs a krit release after 0.5.0.
+
 ## Build cache
 
 `kritCheck` and `kritCheckAll` are cacheable, and their cache keys are relocatable:
@@ -322,10 +343,12 @@ are not inputs because they don't change the findings. Report paths are relative
 to the project directory (the build root for `kritCheckAll`), so a replayed
 report is valid in the new checkout.
 
-Not keyed yet: for per-project `kritCheck`, upstream projects' sources and models.
-A per-project check reads the whole `.krit/gradle-model` directory. Use
-`kritCheckAll`, whose key covers every project's model and sources, or clean the
-entries when an upstream project changes.
+Not keyed yet: for per-project `kritCheck`, upstream projects' sources and models,
+unless `fir { useBuiltDependencies = true }` makes their compiled classes an input
+(see [Built project dependencies](#built-project-dependencies)). A per-project
+check reads the whole `.krit/gradle-model` directory. Use `kritCheckAll`, whose
+key covers every project's model and sources, or clean the entries when an
+upstream project changes.
 
 ## Binary Resolution
 

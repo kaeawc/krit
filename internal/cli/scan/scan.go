@@ -17,6 +17,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/experiment"
 	"github.com/kaeawc/krit/internal/fsutil"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/javafacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/memtune"
@@ -286,6 +287,13 @@ func Run() int {
 }
 
 func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
+	if *f.GradleProjectOutputs != "" {
+		outputs, err := gradlemodel.LoadProjectOutputs(*f.GradleProjectOutputs)
+		if err != nil {
+			return fmt.Errorf("--gradle-project-outputs: %w", err)
+		}
+		f.projectOutputs = outputs
+	}
 	if shouldPreflightFIR(f) {
 		paths := flag.Args()
 		if len(paths) == 0 {
@@ -314,8 +322,14 @@ func loadScanGradleContext(ctx context.Context, f *scanFlags) error {
 		if *f.Verbose {
 			verboseOut = os.Stderr
 		}
-		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContext(flag.Args(), *f.GradleModel, *f.NoGradleModel, verboseOut)
+		built := make(map[string]bool, len(f.projectOutputs))
+		for project := range f.projectOutputs {
+			built[project] = true
+		}
+		f.modelSourceDirs, f.modelGeneratedSourceDirs, f.modelJvmTarget = loadGradleCompileContextBuilt(flag.Args(), *f.GradleModel, *f.NoGradleModel, built, verboseOut)
 		f.modelSourceDirs, f.modelGeneratedSourceDirs = withGeneratedSrcjars(f.modelSourceDirs, f.modelGeneratedSourceDirs, *f.GeneratedSrcjars, *f.Verbose, os.Stderr)
+		// Built project dependencies resolve from their outputs, not from source context.
+		f.modelClasspath = dedupePreservingOrder(append(f.modelClasspath, gradlemodel.ProjectOutputEntries(f.projectOutputs)...))
 		f.modelKotlin = loadGradleKotlinSettings(flag.Args(), *f.GradleModel, *f.NoGradleModel, *f.Verbose, os.Stderr)
 		f.modelKotlin = withConfiguredCompilerPlugins(f.modelKotlin, quietScanConfig(f), *f.Verbose, os.Stderr)
 	}

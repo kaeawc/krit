@@ -389,6 +389,13 @@ are set. Existing boot classpath entries come first, then model classpath
 entries, `oracle.classpath` from `krit.yml`, and finally the `CLASSPATH`
 environment variable. Duplicate paths keep their first position.
 
+A scan of one project compiles the sources of the projects it depends on as
+context. `--gradle-project-outputs FILE` names their built outputs instead, as
+`{"schema": 1, "projects": {":lib": ["/repo/lib/build/classes/kotlin/main"]}}`.
+A listed project goes on the classpath through those class directories or jars,
+and its sources are not compiled. The Gradle plugin writes this file when
+`krit { fir { useBuiltDependencies = true } }` is set. Such scans run in-process.
+
 Schema 2 models also carry each source set's Kotlin compiler settings
 (`languageVersion`, `apiVersion`, opt-ins, semantic flags). Krit applies them to
 the embedded compiler so a project is analyzed under its own language level, and

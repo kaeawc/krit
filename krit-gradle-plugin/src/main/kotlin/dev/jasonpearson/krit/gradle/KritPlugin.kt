@@ -174,6 +174,7 @@ class KritPlugin : Plugin<Project> {
         // FIR JDK: Java toolchains, so FIR does not depend on the JDK the daemon has.
         project.pluginManager.apply(org.gradle.api.plugins.JvmToolchainsPlugin::class.java)
         val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
+        extension.firOptions.useBuiltDependencies.convention(false)
         extension.firOptions.javaLauncher.convention(toolchains.launcherFor {
             languageVersion.set(JavaLanguageVersion.of(maxOf(FIR_MIN_JAVA, JavaVersion.current().majorVersion.toInt())))
         })
@@ -941,6 +942,50 @@ class KritPlugin : Plugin<Project> {
                 if (extension.exportModel.get()) export.flatMap { it.outputFile }
                 else emptyList<Any>()
             })
+        }
+        wireBuiltDependencies(project, extension, specs)
+    }
+
+    /**
+     * `krit { fir { useBuiltDependencies = true } }`: every check task of this project
+     * gets the compiled outputs of its project dependencies, read from the exported
+     * source sets' compile classpaths (class directories for JVM, `android-classes-jar`
+     * for Android). Gradle wires the upstream compile tasks, so their results come from
+     * the build cache when available, and krit no longer compiles those projects'
+     * sources as context (`--gradle-project-outputs`).
+     */
+    private fun wireBuiltDependencies(project: Project, extension: KritExtension, specs: List<ModelSpec>) {
+        val enabled = extension.firOptions.useBuiltDependencies
+        val self = project.path
+        val views = specs.map { spec ->
+            spec.configuration.incoming.artifactView {
+                if (spec.platform == "android") {
+                    attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")
+                }
+                componentFilter { id -> id is ProjectComponentIdentifier && id.projectPath != self }
+            }
+        }
+        // Resolved artifacts are read lazily (when the task runs), after the upstream compiles.
+        var outputs: Provider<Map<String, List<String>>> = project.provider { emptyMap() }
+        views.forEach { view ->
+            outputs = outputs.zip(view.artifacts.resolvedArtifacts) { acc, artifacts ->
+                val merged = acc.mapValues { it.value.toMutableList() }.toMutableMap()
+                artifacts.forEach { artifact ->
+                    val id = artifact.id.componentIdentifier as? ProjectComponentIdentifier ?: return@forEach
+                    val files = merged.getOrPut(id.projectPath) { mutableListOf() }
+                    val path = modelPath(artifact.file)
+                    if (path !in files) files += path
+                }
+                merged
+            }
+        }
+        val classes = project.files(java.util.concurrent.Callable {
+            if (enabled.get()) views.map { it.files } else emptyList()
+        })
+        project.tasks.withType(KritCheckTask::class.java).configureEach {
+            useBuiltDependencies.convention(enabled)
+            projectOutputs.set(enabled.flatMap { on -> if (on) outputs else project.provider { emptyMap() } })
+            dependencyClasses.from(classes)
         }
     }
 

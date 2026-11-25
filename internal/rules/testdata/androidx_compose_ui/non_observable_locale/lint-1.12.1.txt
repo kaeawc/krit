@@ -1,0 +1,6 @@
+p/Locale.kt:11:13: NonObservableLocale: Reading locale in a non-observable way in a composable function
+p/Locale.kt:12:16: NonObservableLocale: Reading locale in a non-observable way in a composable function
+p/Locale.kt:13:18: NonObservableLocale: Reading locale in a non-observable way in a composable function
+p/Locale.kt:15:15: NonObservableLocale: Reading locale in a non-observable way in a composable function
+p/Locale.kt:16:15: NonObservableLocale: Reading locale in a non-observable way in a composable function
+p/Locale.kt:24:25: NonObservableLocale: Reading locale in a non-observable way in a composable function

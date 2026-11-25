@@ -67,6 +67,7 @@ func init() {
 	registerAndroidxComposeUIPointerInputRules()
 	registerAndroidxComposeUIModifierDeclarationRules()
 	registerAndroidxComposeUIModifierUsageRules()
+	registerAndroidxComposeUIConfigurationRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

@@ -1,0 +1,6 @@
+app/src/main/java/p/Screen.kt:50:13: ConfigurationScreenWidthHeight: Using Configuration.screenWidthDp instead of LocalWindowInfo.current.containerSize
+app/src/main/java/p/Screen.kt:51:13: ConfigurationScreenWidthHeight: Using Configuration.screenHeightDp instead of LocalWindowInfo.current.containerSize
+app/src/main/java/p/Screen.kt:53:14: ConfigurationScreenWidthHeight: Using Configuration.screenWidthDp instead of LocalWindowInfo.current.containerSize
+app/src/main/java/p/Screen.kt:55:23: ConfigurationScreenWidthHeight: Using Configuration.screenWidthDp instead of LocalWindowInfo.current.containerSize
+app/src/main/java/p/Screen.kt:61:51: ConfigurationScreenWidthHeight: Using Configuration.screenHeightDp instead of LocalWindowInfo.current.containerSize
+app/src/main/java/p/Screen.kt:65:17: ConfigurationScreenWidthHeight: Using Configuration.screenWidthDp instead of LocalWindowInfo.current.containerSize

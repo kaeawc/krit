@@ -123,6 +123,17 @@ class KritFirDaemonPoolTest {
         assertTrue(result.output.contains("krit fir.maxHeap must look like 4g or 2048m, not 'lots'"), result.output)
     }
 
+    // The lease follows the task's own fir; a task that turns FIR off never leases.
+    @Test
+    fun `a task that turns FIR off leases no slot`() {
+        val root = fixture()
+        File(root, "a/build.gradle.kts").appendText(
+            "tasks.named<dev.jasonpearson.krit.gradle.KritCheckTask>(\"kritCheck\") { fir = false }\n"
+        )
+        run(root, ":a:kritCheck", ":b:kritCheck")
+        assertEquals(listOf("-", "pool"), runs(root).map { if (it.slot == "-") "-" else "pool" }.sorted())
+    }
+
     @Test
     fun `with FIR off there is no pool`() {
         val root = fixture("fir = false")

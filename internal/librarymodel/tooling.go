@@ -122,6 +122,9 @@ type AndroidProfile struct {
 	CompileSDK VersionedPresence
 	TargetSDK  VersionedPresence
 	MinSDK     VersionedPresence
+	// Minify is PresencePresent when a build script turns on minification (`minifyEnabled true` or
+	// `isMinifyEnabled = true`) in some build type.
+	Minify Presence
 }
 
 func (a AndroidProfile) EffectiveAGPVersion() string {
@@ -170,6 +173,8 @@ var (
 	kspPluginVersionRe = lazyre.New(`id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)\s*version\s*["']([^"']+)["']`)
 	kspPluginRe        = lazyre.New(`(?:id\s*\(\s*["']com\.google\.devtools\.ksp["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*ksp[^)]*\)|\bksp\s*\()`)
 
+	// minifyEnabledRe matches a minification switch at the start of a line, so a commented-out line does not count.
+	minifyEnabledRe    = lazyre.New(`(?m)^[ \t]*(?:isMinifyEnabled[ \t]*=[ \t]*true|minifyEnabled(?:[ \t]*=)?[ \t]+true|minifyEnabled[ \t]*=[ \t]*true)\b`)
 	agpPluginVersionRe = lazyre.New(`id\s*\(\s*["']com\.android\.[^"']+["']\s*\)\s*version\s*["']([^"']+)["']`)
 	androidPluginRe    = lazyre.New(`(?:id\s*\(\s*["']com\.android\.[^"']+["']\s*\)|alias\s*\(\s*libs\.plugins\.[^)]*android[^)]*\))`)
 
@@ -211,6 +216,7 @@ func extractToolingProfile(content string, cfgMinSDK, cfgTargetSDK, cfgCompileSD
 	} else if androidPluginRe.MatchString(content) {
 		android.AGP = PresentAssumeLatestStable()
 	}
+	android.Minify = minifyPresence(content)
 	if cfgCompileSDK > 0 {
 		android.CompileSDK = KnownVersion(strconv.Itoa(cfgCompileSDK))
 	} else if android.AGP.Presence == PresencePresent {
@@ -273,11 +279,22 @@ func mergeKSPProfile(current, next KSPProfile) KSPProfile {
 	return current
 }
 
+// minifyPresence reports PresencePresent when a build script turns minification on.
+func minifyPresence(content string) Presence {
+	if minifyEnabledRe.MatchString(content) {
+		return PresencePresent
+	}
+	return PresenceUnknown
+}
+
 func mergeAndroidProfile(current, next AndroidProfile) AndroidProfile {
 	current.AGP = mergeVersionedPresence(current.AGP, next.AGP)
 	current.CompileSDK = mergeVersionedPresence(current.CompileSDK, next.CompileSDK)
 	current.TargetSDK = mergeVersionedPresence(current.TargetSDK, next.TargetSDK)
 	current.MinSDK = mergeVersionedPresence(current.MinSDK, next.MinSDK)
+	if next.Minify == PresencePresent {
+		current.Minify = PresencePresent
+	}
 	return current
 }
 

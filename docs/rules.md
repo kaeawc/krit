@@ -417,3 +417,30 @@ Gradle model; krit reads the build script, the version catalog, and the project'
   - in `apply`/`run`/`with` lambdas;
   - past a superclass declared elsewhere, for names a framework class could declare (single words and `get…`,
     `set…`, `on…`, `add…`, `start…`-style names), which Lint resolves with the compiler.
+
+## Android Lint Performance Checks (AnimatorKeep)
+
+`AnimatorKeep` (opt-in) follows an `ObjectAnimator` factory call to the property setter it reaches by reflection:
+
+- **Target class:** the first argument's class, from `this`, a constructor call, or a variable declared or
+  constructed as a class of the project.
+- **Property name:** a string literal or constant.
+- **Expected type:** the factory's value type (`ofInt`/`ofArgb` int, `ofFloat` float, `ofMultiInt`/`ofMultiFloat`
+  arrays, `ofObject` by its evaluator).
+- **`ofPropertyValuesHolder`:** each `PropertyValuesHolder.ofX` holder is followed the same way.
+
+The setter is `setX` with one parameter of the expected type, in the class or a source superclass. A Kotlin `var x`
+compiles to that setter.
+
+It reports the setter's name once when the setter:
+
+- is in the project's sources (library setters such as `View.setAlpha` are kept);
+- is not static;
+- has no `@Keep` (androidx or support) on itself or an enclosing class.
+
+As in Lint, a Kotlin property needs `@set:Keep`: a plain `@Keep` annotates the property, not its setter.
+
+Lint checks only modules that shrink, so krit stays quiet in a Gradle project whose build scripts never set
+`minifyEnabled true`. ProGuard/R8 keep rules, which Lint also accepts, and the MotionLayout `CustomAttribute` half of
+the detector (it needs source and resources together) are not covered.
+

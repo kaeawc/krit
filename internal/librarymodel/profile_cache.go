@@ -18,7 +18,7 @@ import (
 const (
 	projectProfileCacheDirName = "librarymodel-cache"
 	// The profile comes from krit's own Gradle parsing, so each entry also records the build that wrote it.
-	projectProfileCacheVersion = 3
+	projectProfileCacheVersion = 4
 )
 
 var (

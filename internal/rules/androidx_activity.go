@@ -80,7 +80,8 @@ func activityModuleHasOldFragment(ctx *api.Context) bool {
 
 // activityModuleProfile reads the nearest build.gradle(.kts) above path, with its version catalog.
 func activityModuleProfile(path string) (librarymodel.ProjectProfile, bool) {
-	for dir, depth := filepath.Dir(path), 0; depth < 12; dir, depth = filepath.Dir(dir), depth+1 {
+	// The walk ends at the filesystem root, so a source file in a deep package still finds its module.
+	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
 		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
 			build := filepath.Join(dir, name)
 			content, err := os.ReadFile(build)

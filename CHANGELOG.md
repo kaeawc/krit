@@ -140,6 +140,8 @@ All notable changes to Krit will be documented in this file.
   `CompositionLocalConsumerModifierNode`, and inside any `lazy { }` (#1486, #1495, #1499, #1500).
 
 ### Fixed
+- `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than
+  a dozen directories deep, instead of falling back to the project profile.
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do
   succeed: an explicitly imported type is no longer checked against an
   unrelated project class with the same simple name, and an `is` check in an

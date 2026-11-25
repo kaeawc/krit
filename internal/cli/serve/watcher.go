@@ -2,10 +2,13 @@ package serve
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kaeawc/krit/internal/config"
@@ -93,7 +96,22 @@ type fileWatcher struct {
 	debounce       map[string]*time.Timer
 	debounceGen    map[string]uint64
 	debounceWindow time.Duration
+
+	// fdBudget caps the descriptors the backend may hold; 0 means no
+	// cap. kqueue (macOS, BSD) opens one descriptor per watched
+	// directory and per file inside it, so on a large checkout an
+	// uncapped walk exhausts the process limit and every later open in
+	// the daemon fails with EMFILE. fdUsed is the running estimate.
+	fdBudget int64
+	fdUsed   atomic.Int64
+	// degraded is set once a watch could not be added (budget reached
+	// or backend error). The watcher then no longer sees every change
+	// under root, so CoversTree reports false for the daemon's life.
+	degraded atomic.Bool
 }
+
+// errWatchBudget reports that adding a watch would exceed fdBudget.
+var errWatchBudget = errors.New("watch descriptor budget reached")
 
 // startFileWatcher returns a started watcher rooted at root. Callers
 // must call Stop to release the underlying fsnotify resources.
@@ -114,6 +132,7 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 		debounceGen:    make(map[string]uint64),
 		debounceWindow: defaultDebounceWindow,
 		backendKind:    kindAuto,
+		fdBudget:       -1,
 	}
 	for _, opt := range opts {
 		opt(fw)
@@ -124,13 +143,19 @@ func startFileWatcherWithState(ctx context.Context, root string, state watcherSt
 	}
 	fw.w = w
 	fw.backendKind = resolved
+	if fw.fdBudget < 0 {
+		fw.fdBudget = 0
+		if resolved == kindFsnotify {
+			fw.fdBudget = kqueueWatchBudget()
+		}
+	}
 	// Add the root synchronously so files written directly under it
 	// are caught from t=0. The recursive descent runs in a goroutine —
 	// on a large repo a sync walk is slow, which is
 	// the daemon's first-call latency budget. For fanotify the first
 	// Add marks the containing filesystem; subsequent Adds during the
 	// recursive walk are no-ops handled inside the backend.
-	if err := fw.w.Add(root); err != nil {
+	if err := fw.addWatch(root); err != nil {
 		_ = fw.w.Close()
 		return nil, err
 	}
@@ -153,6 +178,55 @@ func (fw *fileWatcher) populate() {
 	defer close(fw.ready)
 	if err := fw.addRecursiveSkip(fw.root, true); err != nil {
 		fw.warn("watch populate: %v\n", err)
+	}
+}
+
+// CoversTree reports whether the watcher vouches for every change under
+// root: the initial walk has finished and every watch was added. Until
+// then, and for good once a watch fails, a warm analyze must not read
+// an empty dirty set as "nothing changed".
+func (fw *fileWatcher) CoversTree() bool {
+	select {
+	case <-fw.ready:
+		return !fw.degraded.Load()
+	default:
+		return false
+	}
+}
+
+// withWatchBudget overrides the platform descriptor budget; tests use
+// it to exercise the cap on backends that don't need one.
+func withWatchBudget(n int64) watcherOption {
+	return func(fw *fileWatcher) { fw.fdBudget = n }
+}
+
+// addWatch adds path to the backend, charging its estimated descriptor
+// cost (the directory plus each entry in it) against fdBudget. Any
+// failure marks the watcher degraded.
+func (fw *fileWatcher) addWatch(path string) error {
+	if fw.fdBudget > 0 {
+		cost := int64(1)
+		if entries, err := os.ReadDir(path); err == nil {
+			cost += int64(len(entries))
+		}
+		if fw.fdUsed.Add(cost) > fw.fdBudget {
+			fw.fdUsed.Add(-cost)
+			fw.markDegraded(fmt.Errorf("%s: %w (%d descriptors)", path, errWatchBudget, fw.fdBudget))
+			return errWatchBudget
+		}
+	}
+	if err := fw.w.Add(path); err != nil {
+		fw.markDegraded(fmt.Errorf("%s: %w", path, err))
+		return err
+	}
+	return nil
+}
+
+// markDegraded records that the watcher no longer covers the tree,
+// logging the first cause only.
+func (fw *fileWatcher) markDegraded(cause error) {
+	if fw.degraded.CompareAndSwap(false, true) {
+		fw.warn("filesystem watcher covers only part of the project (%v); analyses check files on disk instead\n", cause)
 	}
 }
 
@@ -550,7 +624,10 @@ func (fw *fileWatcher) addRecursiveSkip(dir string, skipRoot bool) error {
 		if skipRoot && path == dir {
 			return nil
 		}
-		if err := fw.w.Add(path); err != nil {
+		if err := fw.addWatch(path); err != nil {
+			if errors.Is(err, errWatchBudget) {
+				return filepath.SkipAll
+			}
 			fw.warn("watch %s: %v\n", path, err)
 		}
 		return nil

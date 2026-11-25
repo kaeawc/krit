@@ -135,37 +135,7 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 	}
 	streamVerboseOutput(ctx, state, args, in.Host.Reporter)
 	forwardPreflightWarnings(preflightWarnings.Bytes(), in.Host.Reporter, os.Stderr)
-	in.Host.SourceSetClean = !cold && len(dirty) == 0
-	dropStalePrepopulatedPaths(&in, cold, dirty)
-	if !cold {
-		// Hand the watcher's observed-dirty set to the pipeline so
-		// preparseSourcePaths can skip the 30-40s cold-OS-dentry-cache
-		// filesystem walk when every dirty path is an EDIT of an
-		// already-indexed file (not an ADD or DELETE). nil-vs-empty
-		// matters: empty means "I'm sure nothing changed", nil means
-		// "no opinion" and the pipeline walks.
-		if dirty == nil {
-			in.Host.SourceSetDirty = []string{}
-			in.Host.AnalysisCacheDirty = []string{}
-			state.distrustUnvouchedEmptyDirtySet(&in)
-		} else {
-			in.Host.SourceSetDirty = dirty
-			in.Host.AnalysisCacheDirty = dirty
-		}
-		// AnalysisCacheDirty opts cacheCheck into the incremental
-		// CheckFilesIncremental path: only files in the dirty set
-		// get the os.Stat + content-hash NeedsReanalysis check; the
-		// rest hit the cache directly. On a large-repo warm
-		// baseline this collapses a large per-file stat sweep
-		// to a map walk. The watcher's continuous presence is the
-		// correctness gate — same trust contract as the resident
-		// parsed-trees cache.
-		//
-		// Cold runs (first analyze after daemon start) leave
-		// AnalysisCacheDirty nil so CheckFiles still validates
-		// every cached entry against disk — the watcher hasn't been
-		// running long enough to vouch for "non-dirty == unchanged".
-	}
+	state.applyDirtySet(&in, cold, state.watcherCoversTree(), dirty)
 
 	// Defer pipeline execution into WriteRawResponse so the
 	// OutputPhase JSON streams directly into the connection instead
@@ -201,6 +171,52 @@ func handleAnalyzeProject(ctx context.Context, state *daemonState, raw json.RawM
 		includeColumns:  args.IncludeColumns,
 		releaseLock:     state.analyzeMu.Unlock,
 	}, nil
+}
+
+// applyDirtySet tells the pipeline what the watcher's drained dirty set
+// proves. Only a warm call whose watcher covers the whole tree may read
+// it as the complete list of changes; any other call (cold, no watcher,
+// a watcher still walking or one that hit its descriptor budget)
+// validates every file against disk.
+func (s *daemonState) applyDirtySet(in *pipeline.ProjectInput, cold, watcherCovers bool, dirty []string) {
+	trustDirty := !cold && watcherCovers
+	in.Host.SourceSetClean = trustDirty && len(dirty) == 0
+	dropStalePrepopulatedPaths(in, !trustDirty, dirty)
+	if !trustDirty {
+		if !cold {
+			distrustEmptyDirtySet(&in.Host)
+			// The stats-clean memo is advanced only by watcher events.
+			in.Host.BundleStatsClean = nil
+		}
+		return
+	}
+	// Hand the watcher's observed-dirty set to the pipeline so
+	// preparseSourcePaths can skip the 30-40s cold-OS-dentry-cache
+	// filesystem walk when every dirty path is an EDIT of an
+	// already-indexed file (not an ADD or DELETE). nil-vs-empty
+	// matters: empty means "I'm sure nothing changed", nil means
+	// "no opinion" and the pipeline walks.
+	if dirty == nil {
+		in.Host.SourceSetDirty = []string{}
+		in.Host.AnalysisCacheDirty = []string{}
+		s.distrustUnvouchedEmptyDirtySet(in)
+	} else {
+		in.Host.SourceSetDirty = dirty
+		in.Host.AnalysisCacheDirty = dirty
+	}
+	// AnalysisCacheDirty opts cacheCheck into the incremental
+	// CheckFilesIncremental path: only files in the dirty set
+	// get the os.Stat + content-hash NeedsReanalysis check; the
+	// rest hit the cache directly. On a large-repo warm
+	// baseline this collapses a large per-file stat sweep
+	// to a map walk. The watcher's continuous presence is the
+	// correctness gate — same trust contract as the resident
+	// parsed-trees cache.
+	//
+	// Cold runs (first analyze after daemon start) leave
+	// AnalysisCacheDirty nil so CheckFiles still validates
+	// every cached entry against disk — the watcher hasn't been
+	// running long enough to vouch for "non-dirty == unchanged".
 }
 
 // distrustEmptyDirtySet withdraws the two shortcuts that take an empty dirty

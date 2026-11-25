@@ -205,6 +205,35 @@ reports through the `KritReportInfo` provider. Like `krit_test`, each action
 sees one target: cross-module rules (dead code, unused resources) need a
 whole-repository run.
 
+### Exporting a model for krit, the LSP and MCP
+
+`krit --fir` run outside Bazel (editors through `krit-lsp`, `krit-mcp`,
+scripts) needs the same classpath. Export it from the build graph:
+
+```bash
+bazel run @krit//:export_model -- //...
+```
+
+This builds the `krit_model` output group of `krit_model_aspect`
+(`@krit//:defs.bzl`) for the targets, which writes one model per Kotlin or
+Java target and builds the jars and srcjars it names, and installs the
+models into `.krit/bazel-model/` with absolute paths: sources in the
+workspace, jars and generated files in Bazel's execution root (`bazel-out`,
+`external`). Each target is a project in the
+[Gradle model](configuration.md#gradle-model) schema: its label is
+the project path, its deps' labels its project dependencies, and its source
+set has the target's source directories, compile classpath, generated
+srcjars, Kotlin settings and Android inputs, as for `krit_aspect`. krit,
+`krit-lsp` and `krit-mcp` discover `.krit/bazel-model/` like
+`.krit/gradle-model/`, at or above the scanned path; `--gradle-model DIR`
+also accepts it. Arguments are passed to `bazel build`, and `BAZEL` names
+the launcher (default `bazel`).
+
+Re-run it after changing BUILD files or dependencies. After `bazel clean`
+the exported jars are gone; krit warns (`bazel model ... lists N classpath
+entries missing on disk`) and resolves their types as unknown until the
+next export.
+
 ## GitHub Actions
 
 The repository root is a GitHub Action. It installs a krit release, puts

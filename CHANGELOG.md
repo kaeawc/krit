@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `bazel run @krit//:export_model -- //...` exports a krit model of the build graph (`krit_model_aspect`, one
+  project per target: label, deps, source dirs, compile classpath, srcjars, Kotlin settings, Android inputs) into
+  `.krit/bazel-model/`, which krit, `krit-lsp` and `krit-mcp` now discover like `.krit/gradle-model/`, so FIR scans
+  outside Bazel get the full classpath without a hand-maintained `oracle.classpath`. Missing exported entries (after
+  `bazel clean`) get a Bazel-specific warning (#1592).
 - Bazel: `krit_aspect` and type-aware `krit_test` supply rules_android inputs: the Android SDK toolchain's
   `android.jar` as the boot classpath, the R class jars, and the target's own manifest and resource files, so FIR
   resolves `R` and Android SDK types and the manifest and resource rules run on rules_android and `kt_android_library`

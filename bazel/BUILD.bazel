@@ -1,4 +1,5 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
 
 # `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
 alias(
@@ -60,4 +61,13 @@ bool_flag(
 filegroup(
     name = "no_file",
     srcs = [],
+)
+
+# `bazel run @krit//:export_model -- //...` writes .krit/bazel-model/ for
+# krit, krit-lsp and krit-mcp scans outside Bazel (see private/export_model.sh).
+native_binary(
+    name = "export_model",
+    src = "//private:export_model.sh",
+    out = "export_model.sh",
+    visibility = ["//visibility:public"],
 )

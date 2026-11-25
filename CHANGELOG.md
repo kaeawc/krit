@@ -5,6 +5,14 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `TileProviderPermissions` and `UnsafeNativeCodeLocation`, ported from Android Lint 32.4.1's `TileProviderDetector`
+  and `UnsafeNativeCodeDetector` under their Lint IDs and checked against the Lint CLI on the same inputs.
+  `TileProviderPermissions` reports a manifest `<service>` with a `BIND_TILE_PROVIDER` tiles action whose
+  `android:permission` is not `com.google.android.wearable.permission.BIND_TILE_PROVIDER`, once per such action as
+  Lint does. `UnsafeNativeCodeLocation` reports ELF binaries placed directly in a `res/raw*` folder or in the source
+  set's `assets` folder, with Lint's separate messages for `.so` libraries and other executables. The resource cache
+  fingerprint now also covers the files directly inside `assets`, so adding or editing one there invalidates cached
+  resource findings (#1274, #1285).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

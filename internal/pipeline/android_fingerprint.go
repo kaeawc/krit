@@ -3,6 +3,7 @@ package pipeline
 import (
 	"encoding/hex"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -40,8 +41,46 @@ func (fps *resDirFingerprints) fingerprint(resDir string) string {
 		}
 		fp = hex.EncodeToString(h.Sum(nil))
 	}
+	// UnsafeNativeCodeLocation also reads the files directly inside the source set's assets folder.
+	if assets := resDirAssetsFingerprint(resDir); assets != "" {
+		h := hashutil.Hasher().New()
+		h.Write([]byte(fp))
+		h.Write([]byte("\x00assets\x00"))
+		h.Write([]byte(assets))
+		fp = hex.EncodeToString(h.Sum(nil))
+	}
 	fps.values[resDir] = fp
 	return fp
+}
+
+// resDirAssetsFingerprint fingerprints the regular files directly inside the assets folder beside resDir, or returns
+// "" when there are none.
+func resDirAssetsFingerprint(resDir string) string {
+	entries, err := os.ReadDir(filepath.Join(filepath.Dir(resDir), "assets"))
+	if err != nil {
+		return ""
+	}
+	h := hashutil.Hasher().New()
+	memo := hashutil.Default()
+	found := false
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		hx, err := memo.HashFile(filepath.Join(filepath.Dir(resDir), "assets", e.Name()), nil)
+		if err != nil {
+			hx = "\x00err"
+		}
+		h.Write([]byte(e.Name()))
+		h.Write([]byte{0})
+		h.Write([]byte(hx))
+		h.Write([]byte{0})
+		found = true
+	}
+	if !found {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // dirFingerprint fingerprints the content of one directory, reusing the persistent cache when present.

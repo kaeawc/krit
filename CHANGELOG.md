@@ -34,6 +34,16 @@ All notable changes to Krit will be documented in this file.
   proven to be a JDK or Android class, is not reported. `AssertionSideEffect` also checks Java `assert` statements.
   `ExpensiveAssertion` is opt-in, as in Lint. `UnnecessaryArrayInit` removes the lambda as an idiomatic fix (#1140,
   #1141, #1142).
+- `BidiSpoofing`, `AuthLeak` and `SecretInSource`, ported from Android Lint 32.4.1's `BidirectionalTextDetector`,
+  `StringAuthLeakDetector` and `SecretDetector` under their Lint IDs, for Kotlin and Java. Messages, locations and
+  severities were checked against the Lint CLI on the same inputs. `BidiSpoofing` reports comments (but not KDoc or
+  Javadoc) and string literal entries whose source text leaves a bidirectional embedding, override or isolate open
+  before a line break. `AuthLeak` reports literals of at most 512 characters holding `scheme://user:password@host`,
+  skipping a `%s`-style password. Like Lint, both look at each Kotlin template entry separately: interpolations,
+  escape sequences and raw-string line breaks split entries. `SecretInSource` reports a `GenerativeModel` API key
+  argument that is an `AIza...` literal longer than 30 characters, either written inline or read from a local
+  variable or same-file field initializer. A key held in a field in another file is a known false negative (#1145,
+  #1263, #1268).
 - `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
   `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
   their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs

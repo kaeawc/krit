@@ -862,7 +862,7 @@ jobs:
           BAZEL: bazelisk
           USE_BAZEL_VERSION: ${{ matrix.bazel }}
           KRIT_FIR_JAR: ${{ github.workspace }}/tools/krit-fir/build/libs/krit-fir.jar
-        run: bash scripts/bazel-e2e-local.sh --repository_cache="$HOME/.cache/bazel-repo"
+        run: bash scripts/bazel-e2e-local.sh --repository_cache="$HOME/.cache/bazel-repo" --downloader_config="$GITHUB_WORKSPACE/scripts/bazel-ci-downloader.cfg"
 
   # actionlint validates the workflow files themselves — catches semantic
   # mistakes (e.g. `hashFiles()` at workflow-`env` scope) that plain YAML

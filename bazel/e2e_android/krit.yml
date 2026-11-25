@@ -1,0 +1,7 @@
+# krit's Android rules are opt-in; turn on one resource rule and one
+# manifest rule so the e2e test sees both kinds of input.
+android-lint:
+  HardcodedValuesResource:
+    active: true
+  MissingApplicationIconManifest:
+    active: true

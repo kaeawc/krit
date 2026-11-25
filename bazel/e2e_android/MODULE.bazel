@@ -1,0 +1,43 @@
+"""End-to-end check of the krit module on rules_android targets.
+
+A module of its own, apart from bazel/e2e (which the Bazel Central Registry
+presubmit runs): it needs an Android SDK, from ANDROID_HOME, with platform
+android-35 and build-tools 35.0.0. scripts/bazel-e2e-local.sh runs it when
+ANDROID_HOME is set:
+
+    KRIT_BAZEL_LOCAL_DIST=<dir with krit and krit-fir.jar> bazel test //...
+"""
+
+module(name = "krit_e2e_android")
+
+bazel_dep(name = "krit")
+local_path_override(
+    module_name = "krit",
+    path = "..",
+)
+
+bazel_dep(name = "rules_android", version = "0.7.3")
+bazel_dep(name = "rules_java", version = "9.9.0")
+bazel_dep(name = "rules_kotlin", version = "2.4.21")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+
+remote_android_extensions = use_extension(
+    "@rules_android//bzlmod_extensions:android_extensions.bzl",
+    "remote_android_tools_extensions",
+)
+use_repo(remote_android_extensions, "android_tools")
+
+android_sdk_repository_extension = use_extension(
+    "@rules_android//rules/android_sdk_repository:rule.bzl",
+    "android_sdk_repository_extension",
+)
+android_sdk_repository_extension.configure(
+    api_level = 35,
+    build_tools_version = "35.0.0",
+)
+use_repo(android_sdk_repository_extension, "androidsdk")
+
+register_toolchains(
+    "@androidsdk//:sdk-toolchain",
+    "@androidsdk//:all",
+)

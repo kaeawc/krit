@@ -6,6 +6,7 @@ project with one source set.
 """
 
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load(":android.bzl", "android_inputs")
 load(":kotlin.bzl", "kotlin_settings")
 
 # Schema 2 is the first with Kotlin compiler settings; krit accepts 1 and 2.
@@ -51,7 +52,16 @@ def label_name(label):
     repo = "@" + label.repo_name if label.repo_name else ""
     return "%s//%s:%s" % (repo, label.package, label.name)
 
-def krit_source_set(label, classpath, generated_source_jars = [], kind = "main", kotlin = None, jvm_target = ""):
+def krit_source_set(
+        label,
+        classpath,
+        generated_source_jars = [],
+        kind = "main",
+        kotlin = None,
+        jvm_target = "",
+        platform = "jvm",
+        boot_classpath = [],
+        generated_classpath = []):
     """Returns one source set of a krit model: one Bazel target.
 
     Args:
@@ -63,6 +73,9 @@ def krit_source_set(label, classpath, generated_source_jars = [], kind = "main",
       kotlin: the target's Kotlin compiler settings (the model's `kotlin`
         object, see kotlin.bzl), or None.
       jvm_target: the JVM target, e.g. "17".
+      platform: "jvm" or "android".
+      boot_classpath: list of boot classpath jar paths (android.jar).
+      generated_classpath: list of generated class jar paths (R jars).
 
     Returns:
       A dict in the model's sourceSets schema.
@@ -70,14 +83,14 @@ def krit_source_set(label, classpath, generated_source_jars = [], kind = "main",
     source_set = {
         "name": label_name(label),
         "kind": kind,
-        "platform": "jvm",
+        "platform": platform,
         "variant": "",
         "sourceDirs": [],
         "generatedSourceDirs": [],
         "generatedSourceJars": generated_source_jars,
         "classpath": classpath,
-        "generatedClasspath": [],
-        "bootClasspath": [],
+        "generatedClasspath": generated_classpath,
+        "bootClasspath": boot_classpath,
         "projectDeps": [],
         "jvmTarget": jvm_target,
     }
@@ -117,12 +130,13 @@ def target_source_set(ctx, target, path, srcjars = [], classpath = None):
       classpath: depset of jars; defaults to compile_classpath(target).
 
     Returns:
-      struct(source_set, inputs): the krit_source_set dict and a depset of
-      the files it names.
+      struct(source_set, inputs, android): the krit_source_set dict, a
+      depset of the files it names, and the target's android_inputs.
     """
     if classpath == None:
         classpath = compile_classpath(target)
     kotlin = kotlin_settings(ctx, target)
+    android = android_inputs(ctx, target)
     generated = srcjars + kotlin.generated_source_jars
     settings = None
     if kotlin.kotlin != None:
@@ -135,8 +149,15 @@ def target_source_set(ctx, target, path, srcjars = [], classpath = None):
         kind = "test" if getattr(ctx.rule.attr, "testonly", False) else "main",
         kotlin = settings,
         jvm_target = kotlin.jvm_target,
+        platform = "android" if android.is_android else "jvm",
+        boot_classpath = [path(f) for f in android.boot_classpath],
+        generated_classpath = [path(f) for f in android.r_jars.to_list()],
     )
     return struct(
         source_set = source_set,
-        inputs = depset(generated, transitive = [classpath, kotlin.plugin_jars]),
+        inputs = depset(
+            generated + android.boot_classpath,
+            transitive = [classpath, kotlin.plugin_jars, android.r_jars],
+        ),
+        android = android,
     )

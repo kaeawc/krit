@@ -3,6 +3,7 @@
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load(":android.bzl", "krit_android_sdk_aspect", "resource_dirs_build_file")
 load(":kotlin.bzl", "KT_TOOLCHAIN")
 load(":model.bzl", "compile_classpath", "krit_model_json", "krit_source_set", "target_source_set")
 
@@ -12,6 +13,8 @@ KritSourcesInfo = provider(
     doc = "Kotlin and Java sources a target lists in its srcs, and the jars it compiles against.",
     fields = {
         "srcs": "depset of File",
+        "scan": "depset of File: other files krit scans (the Android manifest, a BUILD file naming the res/ directories)",
+        "android_files": "depset of File: the target's manifest and resource files",
         "source_set": "dict: the target's krit model source set (classpath, generated srcjars, Kotlin settings), with runfiles paths",
         "model_inputs": "depset of File: the files source_set names",
     },
@@ -24,8 +27,19 @@ def _krit_sources_aspect_impl(target, ctx):
         srcs = [f for f in ctx.rule.files.srcs if f.extension in _SOURCE_EXTENSIONS]
         srcjars = [f for f in ctx.rule.files.srcs if f.extension == "srcjar"]
     model = target_source_set(ctx, target, path = _short_path, srcjars = srcjars)
+    android = model.android
+    scan = [android.manifest] if android.manifest else []
+    if android.resource_files:
+        build_file = ctx.actions.declare_file(target.label.name + ".krit-android/BUILD.bazel")
+        ctx.actions.write(
+            output = build_file,
+            content = resource_dirs_build_file(build_file.short_path, android.resource_files, path = _short_path),
+        )
+        scan.append(build_file)
     return [KritSourcesInfo(
         srcs = depset(srcs),
+        scan = depset(scan),
+        android_files = depset(android.resource_files + scan),
         source_set = model.source_set,
         model_inputs = model.inputs,
     )]
@@ -38,6 +52,7 @@ def _short_path(f):
 _krit_sources_aspect = aspect(
     implementation = _krit_sources_aspect_impl,
     toolchains = [KT_TOOLCHAIN],
+    requires = [krit_android_sdk_aspect],
     doc = "Collects the .kt, .kts and .java files in a target's srcs attribute and its compile classpath.",
 )
 
@@ -95,12 +110,13 @@ def _krit_test_impl(ctx):
         [f for f in ctx.files.srcs if f.extension in _SOURCE_EXTENSIONS],
         transitive = [i.srcs for i in infos],
     ).to_list()
-    if not srcs:
-        fail("krit_test %s: no .kt, .kts or .java files in srcs or targets" % ctx.label)
+    scan = depset(transitive = [i.scan for i in infos]).to_list()
+    if not srcs and not scan:
+        fail("krit_test %s: no .kt, .kts or .java files, manifest or resources in srcs or targets" % ctx.label)
 
     flags = ["--format", ctx.attr.format]
     inputs = list(srcs)
-    transitive_inputs = []
+    transitive_inputs = [i.android_files for i in infos]
     if ctx.file.config:
         flags += ["--config", ctx.file.config.short_path]
         inputs.append(ctx.file.config)
@@ -152,7 +168,7 @@ def _krit_test_impl(ctx):
             setup = setup,
             krit = shell.quote(ctx.executable._krit.short_path),
             flags = " ".join([shell.quote(f) for f in flags]),
-            files = " ".join([shell.quote(f.short_path) for f in srcs]),
+            files = " ".join([shell.quote(f.short_path) for f in srcs + scan]),
         ),
         is_executable = True,
     )

@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_aspect` and type-aware `krit_test` supply rules_android inputs: the Android SDK toolchain's
+  `android.jar` as the boot classpath, the R class jars, and the target's own manifest and resource files, so FIR
+  resolves `R` and Android SDK types and the manifest and resource rules run on rules_android and `kt_android_library`
+  targets. The SDK toolchain is resolved only for Android targets, so JVM-only builds need no Android SDK. The module now
+  depends on rules_android (>= 0.6.4) (#1590).
 - Bazel: `krit_aspect` and type-aware `krit_test` compile rules_kotlin targets with the settings their
   `KotlinCompile` uses: the toolchain's language/API/JVM target, the target's (or toolchain's) `kotlinc_opts`, compiler
   plugins from `plugins` and deps' `exported_compiler_plugins`, and KSP/kapt generated srcjars, filtered through the

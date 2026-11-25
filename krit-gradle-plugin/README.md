@@ -166,19 +166,27 @@ krit {
 Set `exportModel = false` to run `kritCheck` without generating the model.
 The task can still be run explicitly.
 Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
-For Android source sets, `sourceDirs` and `generatedSourceDirs` come from AGP's Variant
-API (`variant.sources.java.all` and `variant.sources.kotlin.all`, AGP 8.0+). Those
-include every root a generator registered with the build, such as view binding and
-data binding, BuildConfig, AIDL, SQLDelight, Wire and KSP, so the model lists generated
-roots even before they exist.
+`sourceDirs` and `generatedSourceDirs` come from the build's own source-set APIs: AGP's
+Variant API for Android (`variant.sources.java.all` and `variant.sources.kotlin.all`,
+AGP 8.0+), and the Kotlin plugin's `kotlin` and `generatedKotlin` source sets for JVM and
+Kotlin Multiplatform. Those include every root a generator registered with the build,
+such as view binding and data binding, BuildConfig, AIDL, SQLDelight, Wire and KSP, so
+the model lists generated roots even before they exist.
 
-Set `exportGenerated = true` to also run the tasks that produce those roots, plus the
-Android R-class tasks and kapt stub tasks. Generated sources and R-class jars then exist
-on disk after export, without compiling the project; export takes longer.
+The roots carry the tasks that produce them. With `fir = true` (the default), `kritCheck`
+depends on the producers of each production source set's roots, plus the Android R-class
+tasks and kapt stub tasks, so FIR compiles against generated code on an unbuilt checkout.
+These are generators only, never a compile. Test source sets' generated roots are
+recorded but not produced, because their KSP/kapt runs against the compiled production
+classes. Generated Android resources need no wiring of their own: AGP's R-class tasks
+already depend on every `variant.sources.res` producer. Set `exportGenerated = true` to
+run the same generators for `kritExportModel` on its own, so generated sources and
+R-class jars exist on disk after export.
 
 #### CI recipe: FIR on an unbuilt checkout
 
-With `exportGenerated = true` in the analyzed projects (for example
+`./gradlew kritCheck` runs the generators FIR needs without compiling. To run krit from
+the CLI instead, export with `exportGenerated = true` in the analyzed projects (for example
 `krit { exportGenerated = providers.environmentVariable("CI").isPresent }`):
 
 ```bash

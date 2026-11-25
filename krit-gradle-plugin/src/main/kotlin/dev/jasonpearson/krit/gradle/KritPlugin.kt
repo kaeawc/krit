@@ -338,6 +338,12 @@ class KritPlugin : Plugin<Project> {
         val compileTask: String,
         /** Project paths the compilation depends on beyond [configuration]'s project dependencies. */
         val extraProjectDeps: List<String> = emptyList(),
+        /** Source roots read when the export runs (generated roots plugins register late), merged into [dirs]. */
+        val lateDirs: Provider<List<String>>? = null,
+        /** The compilation's source roots with their producer tasks; set for production compilations only. */
+        val producers: FileCollection? = null,
+        /** True when [producers] covers the Kotlin roots, so KSP needs no task-name fallback. */
+        val kotlinRootsKnown: Boolean = false,
     )
 
     private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
@@ -366,9 +372,14 @@ class KritPlugin : Plugin<Project> {
                 if (name == "main") JavaPlugin.COMPILE_CLASSPATH_CONFIGURATION_NAME
                 else "${name}CompileClasspath",
             ) ?: return@mapNotNull null
+            val kotlinSets = KotlinGeneratedSources.jvmSourceSet(project, name)
+                ?.let(KotlinGeneratedSources::directorySets).orEmpty()
             ModelSpec(name, name, "jvm", "",
                 sourceSets.getByName(name).allSource.srcDirs.map(::modelPath), empty, config,
-                if (name == "main") "compileKotlin" else "compile${name.replaceFirstChar(Char::uppercase)}Kotlin")
+                if (name == "main") "compileKotlin" else "compile${name.replaceFirstChar(Char::uppercase)}Kotlin",
+                lateDirs = kotlinSets.takeIf { it.isNotEmpty() }?.let { KotlinGeneratedSources.paths(project, it) },
+                producers = if (name == "main") KotlinGeneratedSources.producers(project, kotlinSets, name) else null,
+                kotlinRootsKnown = kotlinSets.isNotEmpty())
         }
     }
 
@@ -564,8 +575,12 @@ class KritPlugin : Plugin<Project> {
                     val compileTask = runCatching {
                         reflect(compilation, "getCompileKotlinTaskName").toString()
                     }.getOrDefault("compileKotlin${name.replaceFirstChar(Char::uppercase)}")
+                    val kotlinSets = sourceSets.filterNotNull().flatMap(KotlinGeneratedSources::directorySets)
                     targetSpecs += ModelSpec(name, kind, platform, variant ?: name, dirs,
-                        boot, configuration, compileTask)
+                        boot, configuration, compileTask,
+                        lateDirs = KotlinGeneratedSources.paths(project, kotlinSets),
+                        producers = if (kind == "main") KotlinGeneratedSources.producers(project, kotlinSets) else null,
+                        kotlinRootsKnown = kotlinSets.isNotEmpty())
                 }
                 specs += targetSpecs
             } catch (error: Exception) {
@@ -787,12 +802,13 @@ class KritPlugin : Plugin<Project> {
                 kind.set(spec.kind)
                 platform.set(spec.platform)
                 variant.set(spec.variant)
-                // AGP's Variant API adds the generated roots (and any source directory a plugin
-                // registered); the export task files those under the build directory as
+                // Roots plugins register (AGP's Variant API, KGP's source sets), generated ones
+                // included; the export task files those under the build directory as
                 // generatedSourceDirs.
-                if (spec.platform == "android" && variantSources.has(spec.name)) {
+                val late = lateDirs(spec, variantSources)
+                if (late != null) {
                     val declared = spec.dirs
-                    sourceDirs.set(variantSources.paths(spec.name).map { (declared + it).distinct().sorted() })
+                    sourceDirs.set(late.map { (declared + it).distinct().sorted() })
                 } else {
                     sourceDirs.set(spec.dirs)
                 }
@@ -843,48 +859,15 @@ class KritPlugin : Plugin<Project> {
                 project.objects.named(Category::class.java, KRIT_GRADLE_MODEL_CATEGORY))
             outgoing.artifact(export.flatMap { it.outputFile })
         }
-        if (extension.exportGenerated.get()) {
-            val variantNames = specs.filter { it.platform == "android" }.map { it.variant }
-                .filter { it.isNotEmpty() }.distinct()
-            val androidNames = variantNames.flatMap { variant ->
-                val suffix = variant.replaceFirstChar(Char::uppercase)
-                listOf("generate${suffix}RFile", "process${suffix}Resources")
-            }
-            // Source sets whose generated roots come from the Variant API need no KSP/kapt
-            // name matching; the rest (JVM, KMP, older AGP) keep it.
-            val byName = specs.filterNot { it.platform == "android" && variantSources.has(it.name) }
-            val relevant = byName.map { it.name.lowercase() } +
-                byName.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +
-                byName.mapNotNull { spec ->
-                    Regex("^[a-z0-9]+(?=[A-Z])").find(spec.name)?.value?.lowercase()
-                } +
-                byName.filter { it.name == "main" }.map { "kotlin" }
-            val hasKsp = project.plugins.hasPlugin("com.google.devtools.ksp")
-            val hasKapt = project.plugins.hasPlugin("org.jetbrains.kotlin.kapt") ||
-                project.plugins.hasPlugin("kotlin-kapt")
-            val generators = project.tasks.names.filter { taskName ->
-                val lower = taskName.lowercase()
-                taskName in androidNames ||
-                    (((hasKsp && lower.startsWith("ksp")) ||
-                        (hasKapt && lower.startsWith("kapt"))) &&
-                        (lower.contains("kotlin") || lower.contains("generatestubs")) &&
-                        relevant.any { lower.contains(it) })
-            }
-            // Every Java/Kotlin root the Variant API reports carries its producer tasks (view
-            // binding, BuildConfig, SQLDelight, Wire, KSP, ...); depending on the roots runs them.
-            // Only the production component: a test component's KSP/kapt needs the tested
-            // classes, which would compile the project. Test roots are recorded, not produced.
-            val variantProducers = specs.filter { it.platform == "android" && it.kind == "main" && variantSources.has(it.name) }
-                .map { variantSources.producers(it.name) }
-            export.configure {
-                dependsOn(generators)
-                variantProducers.forEach { dependsOn(it) }
-            }
-        }
+        val generators = generatorDependencies(project, specs, variantSources)
+        if (extension.exportGenerated.get()) export.configure { dependsOn(generators) }
         project.tasks.named("kritCheck") {
             dependsOn(extension.exportModel.map { enabled ->
                 if (enabled) listOf(export) else emptyList<Any>()
             })
+            // FIR compiles the model's generated roots, so they must exist when it runs: with FIR on,
+            // kritCheck runs the generators (never a compile), whether or not exportGenerated is set.
+            dependsOn(extension.fir.map { enabled -> if (enabled) generators else emptyList() })
             // A whole-directory input would read other projects' outputs and break
             // isolated configuration. Cache invalidation is project-local here;
             // export all models first when relying on cross-project model changes.
@@ -893,6 +876,61 @@ class KritPlugin : Plugin<Project> {
                 else emptyList<Any>()
             })
         }
+    }
+
+    private fun lateDirs(spec: ModelSpec, variantSources: AndroidVariantSources): Provider<List<String>>? =
+        spec.lateDirs ?: if (spec.platform == "android" && variantSources.has(spec.name)) variantSources.paths(spec.name) else null
+
+    private fun producers(spec: ModelSpec, variantSources: AndroidVariantSources): FileCollection? =
+        spec.producers ?: if (spec.platform == "android" && spec.kind == "main" && variantSources.has(spec.name))
+            variantSources.producers(spec.name) else null
+
+    /**
+     * What must run so the model's generated sources and R jars exist on disk, without compiling:
+     *
+     * - every production compilation's source roots, which carry their producer tasks (AGP's Variant
+     *   API for Android; KGP's `kotlin`/`generatedKotlin` source sets for JVM and KMP). That covers
+     *   view binding, BuildConfig, AIDL, SQLDelight, Wire, KSP and any generator that registers its
+     *   output with the build, without task names. Test compilations' roots are recorded but not
+     *   produced: their KSP/kapt runs against the compiled production classes.
+     * - Android R-class tasks (`generate<Variant>RFile`, `process<Variant>Resources`) by name: AGP
+     *   has no public artifact for the R jar. They already depend on every registered resource
+     *   producer (`variant.sources.res`), so generated resources need no wiring of their own.
+     * - kapt stub and kapt tasks, and KSP tasks for compilations with no roots provider, by name.
+     */
+    private fun generatorDependencies(
+        project: Project, specs: List<ModelSpec>, variantSources: AndroidVariantSources,
+    ): List<Any> {
+        val main = specs.filter { it.kind == "main" }
+        val androidNames = specs.filter { it.platform == "android" }.map { it.variant }
+            .filter { it.isNotEmpty() }.distinct().flatMap { variant ->
+                val suffix = variant.replaceFirstChar(Char::uppercase)
+                listOf("generate${suffix}RFile", "process${suffix}Resources")
+            }
+        val providers = main.mapNotNull { producers(it, variantSources) }
+        fun relevant(of: List<ModelSpec>) = of.map { it.name.lowercase() } +
+            of.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +
+            // A KMP compilation's target prefix (`jvm` of `jvmMain`), as in `kspKotlinJvm`.
+            of.mapNotNull { Regex("^[a-z0-9]+(?=[A-Z])").find(it.name)?.value?.lowercase() } +
+            of.filter { it.name == "main" }.map { "kotlin" }
+        val kspRelevant = relevant(main.filterNot {
+            it.kotlinRootsKnown || (it.platform == "android" && variantSources.has(it.name))
+        })
+        val kaptRelevant = relevant(main)
+        val hasKsp = project.plugins.hasPlugin("com.google.devtools.ksp")
+        val hasKapt = project.plugins.hasPlugin("org.jetbrains.kotlin.kapt") || project.plugins.hasPlugin("kotlin-kapt")
+        // A test compilation's tasks contain its production one's name (kspDebugUnitTestKotlin), so
+        // they are excluded by their `Test` segment (kspTestKotlin, kaptGenerateStubsTestKotlin,
+        // kspDebugAndroidTestKotlin, kspTestKotlinJvm, ...).
+        val testTask = Regex("Test(Fixtures)?(Kotlin|$)")
+        val byName = project.tasks.names.filter { taskName ->
+            val lower = taskName.lowercase()
+            val generator = (lower.contains("kotlin") || lower.contains("generatestubs")) && !testTask.containsMatchIn(taskName)
+            taskName in androidNames ||
+                (generator && hasKsp && lower.startsWith("ksp") && kspRelevant.any { lower.contains(it) }) ||
+                (generator && hasKapt && lower.startsWith("kapt") && kaptRelevant.any { lower.contains(it) })
+        }
+        return byName + providers
     }
 
     /**

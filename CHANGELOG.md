@@ -195,6 +195,14 @@ All notable changes to Krit will be documented in this file.
   as assigning. `RememberSaveableSaverParameter` reports a `Saver` passed as the only vararg `inputs` argument, with a
   semantic autofix that names it `saver =` (or `stateSaver =` when the calculation returns a `MutableState`)
   (#1474, #1475, #1477, #1483).
+- `RetainUnitType`, `RetainRememberObserver`, `RetainingDoNotRetainType` and `RetainLeaksContext`, ported from
+  `androidx.compose.runtime:runtime-retain-android` 1.12.1 under their Lint IDs and checked against the Lint CLI on the
+  same inputs. For each `retain` call they report a calculation that returns `Unit`, a retained value implementing
+  `RememberObserver` but not `RetainObserver`, a retained value or key whose class (or direct supertype) is
+  `@DoNotRetain` (with the annotation's explanation), and a retained value or key that is a `Context`, `View`, `Window`,
+  `Resources`, `Fragment` or `Dialog` (including `LocalContext.current` and `LocalView.current`), with Lint's messages
+  and canonical type names. Retained containers such as `listOf<Context>()` are not checked yet (#1479, #1480, #1481,
+  #1482).
 - `UseAndroidAlpha`, `UseAppTint`, `UseSwitchCompatOrMaterialXml`, `UseCompatTextViewDrawableXml` and
   `UsingOnClickInXml`, ported from the Lint checks bundled in `androidx.appcompat:appcompat` 1.8.0 and checked
   against that AAR's `lint.jar` through the Lint CLI on the same files. They run only when the project declares

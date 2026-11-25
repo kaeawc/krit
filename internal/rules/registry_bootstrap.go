@@ -70,6 +70,7 @@ func init() {
 	registerAndroidxComposeUIConfigurationRules()
 	registerAndroidxComposeRuntimeStateTypeRules()
 	registerAndroidxComposeRuntimeRememberArgRules()
+	registerAndroidxComposeRuntimeRetainRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

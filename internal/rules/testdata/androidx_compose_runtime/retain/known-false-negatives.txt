@@ -1,0 +1,1 @@
+t/Retain.kt:62:5: RetainLeaksContext: Retaining java.util.List<? extends android.content.Context> will leak a Context reference. # generic containers would need the Java-mapped canonical type text (java.util.List<? extends ...>), which source evidence does not reproduce

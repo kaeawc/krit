@@ -66,6 +66,7 @@ def _krit_model_aspect_impl(target, ctx):
             }],
         }, indent = "  ") + "\n",
     )
+
     # The jars and srcjars the model names are built with it, so the paths
     # exist when krit reads them.
     return [OutputGroupInfo(krit_model = depset([out], transitive = [model.inputs]))]

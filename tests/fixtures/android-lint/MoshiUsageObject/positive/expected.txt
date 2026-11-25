@@ -1,0 +1,2 @@
+src/main/java/com/example/Objects.kt:5:1: MoshiUsageObject: Object types cannot be annotated with @JsonClass.
+src/main/java/com/example/Objects.kt:9:3: MoshiUsageObject: Object types cannot be annotated with @JsonClass.

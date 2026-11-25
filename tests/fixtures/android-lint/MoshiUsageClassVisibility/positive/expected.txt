@@ -1,0 +1,2 @@
+src/main/java/com/example/Visibility.kt:10:3: MoshiUsageClassVisibility: @JsonClass-annotated types must be public, package-private, or internal.
+src/main/java/com/example/Visibility.kt:6:1: MoshiUsageClassVisibility: @JsonClass-annotated types must be public, package-private, or internal.

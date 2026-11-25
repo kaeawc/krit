@@ -1,0 +1,6 @@
+src/main/java/com/example/NoPrimary.kt:11:7: MoshiUsageMissingPrimary: @JsonClass-annotated types must have a primary constructor or be sealed.
+src/main/java/com/example/NoPrimary.kt:11:7: MoshiUsageUseData: Model classes should be immutable data classes.
+src/main/java/com/example/NoPrimary.kt:16:13: MoshiUsageMissingPrimary: @JsonClass-annotated types must have a primary constructor or be sealed.
+src/main/java/com/example/NoPrimary.kt:16:13: MoshiUsageUseData: Model classes should be immutable data classes.
+src/main/java/com/example/NoPrimary.kt:6:7: MoshiUsageMissingPrimary: @JsonClass-annotated types must have a primary constructor or be sealed.
+src/main/java/com/example/NoPrimary.kt:6:7: MoshiUsageUseData: Model classes should be immutable data classes.

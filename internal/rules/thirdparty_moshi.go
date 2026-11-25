@@ -112,8 +112,17 @@ func (a *moshiAnalyzer) reportIssue(rule string, file *scanner.File, node uint32
 
 func (a *moshiAnalyzer) analyzeFile(file *scanner.File) {
 	file.FlatWalkAllNodes(0, func(idx uint32) {
-		if decl, ok := moshiClassDecl(file, idx); ok && decl.isEnum {
+		decl, ok := moshiClassDecl(file, idx)
+		if !ok {
+			return
+		}
+		// Enums get checked in both languages; the remaining class checks are Kotlin-only.
+		if decl.isEnum {
 			a.checkEnum(decl)
+			return
+		}
+		if file.Language == scanner.LangKotlin {
+			a.checkKotlinClass(decl)
 		}
 	})
 }
@@ -126,6 +135,12 @@ type moshiClass struct {
 	isEnum    bool
 	anns      []moshiAnnotation
 	constants []moshiEnumConstant
+
+	// Kotlin-only facts.
+	isObject    bool
+	isInterface bool
+	visibility  uint32 // visibility_modifier node, or 0 for the public default
+	primary     uint32 // primary_constructor node, or 0
 }
 
 // moshiEnumConstant is one enum entry (Kotlin) or enum constant (Java).
@@ -154,11 +169,21 @@ func moshiClassDecl(file *scanner.File, idx uint32) (moshiClass, bool) {
 		switch file.FlatType(idx) {
 		case "class_declaration":
 			c.isEnum = file.FlatHasChildOfType(idx, "enum")
-		case "object_declaration":
+		case "object_declaration", "companion_object":
+			c.isObject = true
 		default:
 			return c, false
 		}
 		c.nameNode, _ = file.FlatFindChild(idx, "type_identifier")
+		if c.nameNode == 0 && c.isObject {
+			// An unnamed companion object: report at its `object` keyword.
+			c.nameNode, _ = file.FlatFindChild(idx, "object")
+		}
+		c.isInterface = file.FlatHasChildOfType(idx, "interface")
+		if mods, ok := file.FlatFindChild(idx, "modifiers"); ok {
+			c.visibility, _ = file.FlatFindChild(mods, "visibility_modifier")
+		}
+		c.primary, _ = file.FlatFindChild(idx, "primary_constructor")
 	}
 	if c.nameNode == 0 {
 		return c, false
@@ -293,4 +318,100 @@ func moshiScreamingSnakeCase(s string) string {
 		}
 	}
 	return b.String()
+}
+
+const fqcnMoshixAdaptedBy = "dev.zacsweers.moshix.adapters.AdaptedBy"
+
+// moshiHasModifier reports whether the Kotlin declaration has the soft-keyword
+// modifier (data, sealed, abstract, inner, value, inline, annotation, ...).
+func moshiHasModifier(c moshiClass, modifier string) bool {
+	return c.file.FlatHasModifier(c.node, modifier)
+}
+
+// moshiVisibilityAllowed reports whether a Kotlin visibility modifier node is
+// one Moshi can reach: absent (public), public, or internal.
+func moshiVisibilityAllowed(file *scanner.File, visibility uint32) bool {
+	if visibility == 0 {
+		return true
+	}
+	text := strings.TrimSpace(file.FlatNodeText(visibility))
+	return text == "public" || text == "internal"
+}
+
+// checkKotlinClass ports the Kotlin class path of MoshiUsageDetector.visitClass.
+func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
+	file := c.file
+	adaptedBy := moshiFindAnnotation(file, c.anns, fqcnMoshixAdaptedBy)
+	jsonClass := moshiFindAnnotation(file, c.anns, fqcnMoshiJSONClass)
+	if adaptedBy != nil {
+		if jsonClass != nil {
+			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, adaptedBy.node)
+			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, jsonClass.node)
+		}
+		return
+	}
+
+	if jsonClass == nil {
+		return
+	}
+
+	if !moshiVisibilityAllowed(file, c.visibility) {
+		a.reportIssue("MoshiUsageClassVisibility", file, c.visibility)
+	}
+
+	// Only a declared generator counts. A blank one is an error; any other value
+	// means a custom generator owns the type.
+	usesCustomGenerator := false
+	if expr := moshiAnnotationArg(file, *jsonClass, "generator", 1); expr != 0 {
+		generator, ok := moshiStringLiteral(file, expr)
+		if !ok {
+			return
+		}
+		if strings.TrimSpace(generator) == "" {
+			a.reportIssue("MoshiUsageBlankGenerator", file, expr)
+		} else {
+			usesCustomGenerator = true
+		}
+	}
+
+	generateAdapterExpr := moshiAnnotationArg(file, *jsonClass, "generateAdapter", 0)
+	generateAdapter, ok := moshiBooleanLiteral(file, generateAdapterExpr)
+	if !ok {
+		return
+	}
+	isData := moshiHasModifier(c, "data")
+	if !generateAdapter {
+		// generateAdapter = false is fine (it may be there for R8), except on a
+		// data class, where it is probably a mistake.
+		if isData {
+			a.reportIssue("MoshiUsageGenerateAdapterShouldBeTrue", file, generateAdapterExpr)
+		}
+		return
+	}
+
+	if usesCustomGenerator {
+		return
+	}
+
+	if c.isObject {
+		a.reportIssue("MoshiUsageObject", file, jsonClass.node)
+		return
+	}
+	// Lint's abstract check includes sealed types.
+	if moshiHasModifier(c, "annotation") || c.isInterface || moshiHasModifier(c, "inner") ||
+		moshiHasModifier(c, "abstract") || moshiHasModifier(c, "sealed") {
+		a.reportIssue("MoshiUsageUnsupportedType", file, jsonClass.node)
+		return
+	}
+
+	if !isData {
+		a.reportIssue("MoshiUsageUseData", file, c.nameNode)
+	}
+
+	// UAST does not model a value (or inline) class's constructor as a
+	// KtPrimaryConstructor, so Lint reports those as missing one too.
+	if c.primary == 0 || moshiHasModifier(c, "value") || moshiHasModifier(c, "inline") {
+		a.reportIssue("MoshiUsageMissingPrimary", file, c.nameNode)
+		return
+	}
 }

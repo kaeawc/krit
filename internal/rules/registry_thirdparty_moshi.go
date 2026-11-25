@@ -17,11 +17,19 @@ type moshiIssue struct {
 // NonMoshiClassInternal and NonMoshiClassExternal are not ported: they split on whether the type is in
 // Slack's own `slack.*` packages.
 var moshiIssues = []moshiIssue{
+	{"MoshiUsageBlankGenerator", api.SeverityError, "Don't use blank JsonClass.generator values."},
+	{"MoshiUsageClassVisibility", api.SeverityError, "@JsonClass-annotated types must be public, package-private, or internal."},
+	{"MoshiUsageDoubleClassAnnotation", api.SeverityError, "Only use one of @AdaptedBy or @JsonClass."},
 	{"MoshiUsageEnumAnnotatedUnknown", api.SeverityError, "UNKNOWN members in @JsonClass-annotated enums should not be annotated with @Json"},
 	{"MoshiUsageEnumCasing", api.SeverityWarning, "Consider using @Json(name = ...) rather than lower casing."},
 	{"MoshiUsageEnumJsonClassGenerated", api.SeverityError, "Enums annotated with @JsonClass must not set generateAdapter to true."},
 	{"MoshiUsageEnumMissingJsonClass", api.SeverityError, "Enums serialized with Moshi should be annotated with @JsonClass."},
 	{"MoshiUsageEnumMissingUnknown", api.SeverityError, "Enums serialized with Moshi must reserve the first member as UNKNOWN."},
+	{"MoshiUsageGenerateAdapterShouldBeTrue", api.SeverityError, "JsonClass.generateAdapter must be true in order for Moshi code gen to run."},
+	{"MoshiUsageMissingPrimary", api.SeverityError, "@JsonClass-annotated types must have a primary constructor or be sealed."},
+	{"MoshiUsageObject", api.SeverityError, "Object types cannot be annotated with @JsonClass."},
+	{"MoshiUsageUnsupportedType", api.SeverityError, "This type cannot be annotated with @JsonClass."},
+	{"MoshiUsageUseData", api.SeverityError, "Model classes should be immutable data classes."},
 }
 
 // moshiIssueMessage returns the Lint message for a MoshiUsage issue ID.

@@ -10,6 +10,7 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.IgnoreEmptyDirectories
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
@@ -53,9 +54,11 @@ abstract class KritCheckAllTask @Inject constructor(
     @get:Internal
     abstract val binaryResolver: Property<KritBinaryResolver>
 
-    /** Every project's `kritExportModel` output; they all live in `<root>/.krit/gradle-model`. */
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    /**
+     * Every project's `kritExportModel` output; they all live in `<root>/.krit/gradle-model`.
+     * Keyed through [normalizedModel] and [modelClasspath], not by file (see KritModelInputs).
+     */
+    @get:Internal
     abstract val modelFiles: ConfigurableFileCollection
 
     /**
@@ -84,8 +87,9 @@ abstract class KritCheckAllTask @Inject constructor(
 
     @get:Input abstract val allRules: Property<Boolean>
     @get:Input abstract val ignoreFailures: Property<Boolean>
-    @get:Input abstract val parallel: Property<Int>
-    @get:Input abstract val noCache: Property<Boolean>
+    // Neither changes the findings; parallel defaults to the CPU count (see KritCheckTask).
+    @get:Internal abstract val parallel: Property<Int>
+    @get:Internal abstract val noCache: Property<Boolean>
     @get:Input abstract val typeInference: Property<Boolean>
     @get:Input abstract val fir: Property<Boolean>
 
@@ -111,7 +115,30 @@ abstract class KritCheckAllTask @Inject constructor(
     @get:Input abstract val checkstyleRequired: Property<Boolean>
     @get:OutputFile @get:Optional abstract val checkstyleOutput: RegularFileProperty
 
+    /**
+     * The krit-fir jar krit runs, from `KRIT_FIR_JAR`; empty when FIR is off or krit
+     * resolves the jar matching its own version (then keyed by the binary).
+     */
+    @get:Classpath
+    @get:Optional
+    abstract val firJar: ConfigurableFileCollection
+
+    /** The model JSON with root-relative paths and classpath entries by name. */
+    @get:Input
+    abstract val normalizedModel: Property<String>
+
+    /** The jars the model lists, by content: a re-published jar at the same path is a change. */
+    @get:Classpath
+    abstract val modelClasspath: org.gradle.api.file.ConfigurableFileCollection
+
     init {
+        // modelFile is @Internal; keep the dependency on the task that writes it. Both
+        // keys are derived from the model files' elements, so they are read when the
+        // task runs, after the export, and never at configuration time.
+        dependsOn(modelFiles)
+        val models = modelFiles.elements.map { files -> files.map { it.asFile } }
+        normalizedModel.set(models.map(KritModelInputs::normalized))
+        modelClasspath.from(models.map(KritModelInputs::classpath))
         group = LifecycleBasePlugin.VERIFICATION_GROUP
         description = "Run one krit analysis over the whole build with every project's Gradle model"
     }
@@ -138,6 +165,7 @@ abstract class KritCheckAllTask @Inject constructor(
                 workingDir = root
                 moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
                 args(scanArgs(batch, root))
+                firJar.singleOrNull()?.let { environment("KRIT_FIR_JAR", it.absolutePath) }
                 errorOutput = stderr
                 isIgnoreExitValue = true
             }

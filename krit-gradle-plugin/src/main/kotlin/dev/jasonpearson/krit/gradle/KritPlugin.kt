@@ -122,6 +122,11 @@ class KritPlugin : Plugin<Project> {
         }
 
         val advanced = extension.advanced
+        // KRIT_FIR_JAR selects the krit-fir jar krit runs; tracked as a task input while FIR is on.
+        val firJarEnv = project.providers.environmentVariable("KRIT_FIR_JAR")
+        val firJarInput = extension.fir.zip(firJarEnv.orElse("")) { enabled, path ->
+            if (enabled && path.isNotBlank()) listOf(File(path)) else emptyList()
+        }.orElse(emptyList())
         // With an explicit binary the tool version is not used, so it must not be an
         // input: bumping the plugin would otherwise rerun every task.
         val toolVersionInput = advanced.binary.map { "" }.orElse(advanced.toolVersion)
@@ -140,6 +145,7 @@ class KritPlugin : Plugin<Project> {
             noCache.convention(advanced.noCache)
             typeInference.convention(advanced.typeInference)
             fir.convention(extension.fir)
+            firJar.from(firJarInput)
             customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
             sarifRequired.convention(extension.reports.sarif.required)
@@ -168,6 +174,7 @@ class KritPlugin : Plugin<Project> {
             typeInference.convention(advanced.typeInference)
             fir.convention(extension.fir)
             moduleShards.convention(advanced.moduleShards)
+            firJar.from(firJarInput)
             customRuleJars.from(extension.customRuleJars)
             sarifRequired.convention(extension.reports.sarif.required)
             jsonRequired.convention(extension.reports.json.required)

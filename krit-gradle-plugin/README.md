@@ -277,6 +277,23 @@ krit {
 own properties, and every location, such as the default SARIF report, is wired at
 configuration time.
 
+## Build cache
+
+`kritCheck` and `kritCheckAll` are cacheable, and their cache keys are relocatable:
+the same build checked out at another path (another CI agent, a developer machine)
+reuses their entries. The exported model is keyed with paths under the build root
+made relative, and the jars it lists are keyed by content, so a dependency
+re-published at the same path, such as a SNAPSHOT, reruns the check. With FIR on,
+the `KRIT_FIR_JAR` jar is an input too. `advanced.parallel` and `advanced.noCache`
+are not inputs because they don't change the findings. Report paths are relative
+to the project directory (the build root for `kritCheckAll`), so a replayed
+report is valid in the new checkout.
+
+Not keyed yet: the JDK krit runs FIR on, and, for per-project `kritCheck`,
+upstream projects' sources and models. A per-project check reads the whole
+`.krit/gradle-model` directory. Clean these entries when either changes, or use
+`kritCheckAll`, whose key covers every project's model and sources.
+
 ## Binary Resolution
 
 The plugin downloads the correct platform-specific krit binary from GitHub Releases and caches it in `~/.gradle/krit/`. Supported platforms: `darwin-arm64`, `darwin-amd64`, `linux-arm64`, `linux-amd64`, `windows-amd64`. To skip the download and use a local binary, set `advanced.binary` (see [Advanced / escape hatches](#advanced--escape-hatches) above).

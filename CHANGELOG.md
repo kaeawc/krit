@@ -373,6 +373,10 @@ All notable changes to Krit will be documented in this file.
 - Gradle: `kritCheck` with several reports enabled writes them all from one krit run (`--report FORMAT=PATH`)
   instead of rerunning the scan per format; one report still uses `-o`, and custom-rule scans keep one run per
   report (#1578).
+- Gradle: `kritCheck` and `kritCheckAll` cache keys are relocatable and track content. The exported model is keyed
+  with root-relative paths and its jars by content, so checkouts at different paths share entries and a jar
+  re-published at the same path reruns the check. `KRIT_FIR_JAR` is an input while FIR is on; `parallel` and `noCache`
+  no longer are (#1584).
 - Gradle: `kritBaseline` writes the baseline to the configured file; it passed `--create-baseline --baseline <file>`,
   so krit wrote a file named `--baseline` in the working directory. It now also skips missing default source roots
   (krit rejected them with exit 2), honors `fir = false`, and passes the project directory as `--base-path`, as

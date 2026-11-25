@@ -23,7 +23,6 @@ func TestRegisterComposeRules_AllRulesPresent(t *testing.T) {
 		"ComposeStringResourceInsideLambda",
 		"ComposeRememberWithoutKey",
 		"ComposeLaunchedEffectWithoutKeys",
-		"ComposeMutableStateInComposition",
 		"ComposeStatefulDefaultParameter",
 		"ComposePreviewWithBackingState",
 		"ComposeDisposableEffectMissingDispose",

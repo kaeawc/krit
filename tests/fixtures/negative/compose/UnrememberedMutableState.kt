@@ -2,9 +2,11 @@ package fixtures.compose
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 class TodoViewModel {
     val items = mutableStateListOf<String>()
@@ -22,4 +24,10 @@ fun mutableStateListOfLookalike() = Local.mutableStateListOf()
 
 object Local {
     fun mutableStateListOf(): List<String> = emptyList()
+}
+
+@Composable
+fun DelegatedCounter(show: (Int) -> Unit) {
+    var count by remember { mutableStateOf(0) }
+    show(count)
 }

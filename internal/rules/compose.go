@@ -273,21 +273,6 @@ type ComposeStatefulDefaultParameterRule struct {
 // produce a false match. Classified per roadmap/17.
 func (r *ComposeStatefulDefaultParameterRule) Confidence() float64 { return api.ConfidenceMedium }
 
-// ComposeMutableStateInCompositionRule flags `val count = mutableStateOf(0)`
-// as a local property inside a @Composable function. Without a surrounding
-// `remember { }`, the state is reconstructed on every recomposition and
-// silently discards any updates.
-type ComposeMutableStateInCompositionRule struct {
-	FlatDispatchBase
-	BaseRule
-}
-
-// Confidence reports a tier-2 (medium) base confidence. Compose rule. Detection relies on call-name token matching (e.g.
-// 'verticalScroll', 'LazyColumn', 'rememberSaveable') rather than type
-// resolution, so any project symbol with a matching name or token can
-// produce a false match. Classified per roadmap/17.
-func (r *ComposeMutableStateInCompositionRule) Confidence() float64 { return api.ConfidenceMedium }
-
 // ComposeStringResourceInsideLambdaRule flags `stringResource(...)` calls
 // nested inside a callback-style named-argument lambda (e.g. `onClick = {
 // ... stringResource(R.string.X) ... }`). `stringResource` is composition-

@@ -703,6 +703,8 @@ var legacyRuleIDs = map[string]string{
 	// AppIndexingError and AppIndexingWarning are old Lint names of the Google App Indexing checks.
 	"AppIndexingErrorManifest":   "GoogleAppIndexingDeepLinkErrorManifest",
 	"AppIndexingWarningManifest": "GoogleAppIndexingWarningManifest",
+	// Retired for the Compose runtime Lint port, which reports every case it did.
+	"ComposeMutableStateInComposition": "UnrememberedMutableState",
 }
 
 // legacyRuleIDsByCurrent inverts legacyRuleIDs.

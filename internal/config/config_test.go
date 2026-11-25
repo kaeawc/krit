@@ -1870,3 +1870,17 @@ func TestLegacyRuleIDsFallBackToTheReplacementRule(t *testing.T) {
 		t.Fatalf("unrelated rules are unaffected, got %v", got)
 	}
 }
+
+func TestLegacyComposeMutableStateInCompositionConfiguresUnrememberedMutableState(t *testing.T) {
+	cfg := NewConfigFromData(map[string]interface{}{
+		"compose": map[string]interface{}{
+			"ComposeMutableStateInComposition": map[string]interface{}{"active": false, "severity": "info"},
+		},
+	})
+	if got := cfg.IsRuleActive("compose", "UnrememberedMutableState"); got == nil || *got {
+		t.Fatalf("expected the retired ComposeMutableStateInComposition block to deactivate UnrememberedMutableState, got %v", got)
+	}
+	if got := cfg.GetString("compose", "UnrememberedMutableState", "severity", ""); got != "info" {
+		t.Fatalf("expected the retired block's severity to apply, got %q", got)
+	}
+}

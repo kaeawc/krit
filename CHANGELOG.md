@@ -63,9 +63,17 @@ All notable changes to Krit will be documented in this file.
   `firstVisibleItemIndex`/`firstVisibleItemScrollOffset`/`layoutInfo`, `ScrollState.value`,
   `PagerState.currentPageOffsetFraction`, `AnchoredDraggableState` offsets and similar on proven receivers). The
   retired Lint IDs `UnrememberedAnimatable`, `UnrememberedMutableInteractionSource` and
-  `FrequentlyChangedStateReadInComposition` still suppress the matching rule. Until `ComposeMutableStateInComposition`
-  is retired, `UnrememberedMutableState` leaves the plain `val x = mutableStateOf(...)` locals that rule already
-  reports to it (#1472, #1476, #1478).
+  `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
+
+### Changed
+- `ComposeMutableStateInComposition` is retired: `UnrememberedMutableState` (the Lint port) reports everything it did,
+  plus state created in any expression position, `mutableStateSetOf`, `derivedStateOf`, `@StateFactoryMarker`
+  functions and `State` subclasses. The old ID keeps working: `@Suppress("ComposeMutableStateInComposition")`
+  suppresses the new rule, a `compose: ComposeMutableStateInComposition:` block in `krit.yml` configures it (with a
+  validation warning naming the new ID) when the new rule has no block of its own, and baseline entries recorded under
+  the old ID silence one `UnrememberedMutableState` finding each in the same file. **Severity change:** these findings
+  are now errors (the old rule reported warnings), matching Lint; a `severity` set under the old ID still applies
+  (#1478).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

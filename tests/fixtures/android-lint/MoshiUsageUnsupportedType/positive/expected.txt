@@ -1,0 +1,5 @@
+src/main/java/com/example/Unsupported.kt:11:1: MoshiUsageUnsupportedType: This type cannot be annotated with @JsonClass.
+src/main/java/com/example/Unsupported.kt:14:1: MoshiUsageUnsupportedType: This type cannot be annotated with @JsonClass.
+src/main/java/com/example/Unsupported.kt:18:3: MoshiUsageUnsupportedType: This type cannot be annotated with @JsonClass.
+src/main/java/com/example/Unsupported.kt:5:1: MoshiUsageUnsupportedType: This type cannot be annotated with @JsonClass.
+src/main/java/com/example/Unsupported.kt:8:1: MoshiUsageUnsupportedType: This type cannot be annotated with @JsonClass.

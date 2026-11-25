@@ -259,6 +259,10 @@ All notable changes to Krit will be documented in this file.
   import `androidx.wear`). `NonObservableLocale` reports `Locale.getDefault()`, `LocaleList.getAdjustedDefault()` and
   `LocaleListCompat.getAdjustedDefault()` in composition; reads inside stdlib inline lambdas other than the scope
   functions (such as `forEach`) are a known false negative (#1487, #1488, #1489, #1490, #1491).
+- `slack-lint` gains `MoshiUsageDetector`'s class-level `@JsonClass` checks for Kotlin: `MoshiUsageDoubleClassAnnotation`,
+  `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
+  `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
+  #1419, #1420, #1422).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

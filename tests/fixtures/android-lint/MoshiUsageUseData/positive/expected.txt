@@ -1,0 +1,2 @@
+src/main/java/com/example/NotData.kt:6:7: MoshiUsageUseData: Model classes should be immutable data classes.
+src/main/java/com/example/NotData.kt:9:12: MoshiUsageUseData: Model classes should be immutable data classes.

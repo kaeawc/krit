@@ -288,6 +288,14 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 	if failDegraded {
 		closeCode = 2
 	}
+	// The coverage line and --min-fir-coverage are decided before the
+	// report closes too, so a coverage failure discards it as in-process.
+	var coverage strings.Builder
+	coverageCode := 0
+	if !failDegraded {
+		coverageCode = reportFirCoverage(&coverage, f, res.Stats.FirCoverage, res.Stats.FirDegraded != nil)
+		closeCode = max(closeCode, coverageCode)
+	}
 	if err := closer(closeCode); err != nil {
 		fmt.Fprintf(os.Stderr, "error: close output: %v\n", err)
 		return 2
@@ -306,6 +314,10 @@ func writeDaemonFindings(f *scanFlags, res daemon.AnalyzeProjectResult, start ti
 			return 2
 		}
 		fmt.Fprintf(os.Stderr, "warning: %s\n", msg)
+	}
+	fmt.Fprint(os.Stderr, coverage.String())
+	if coverageCode != 0 {
+		return coverageCode
 	}
 	return finalScanExit(os.Stderr, res.Stats.FindingsCount, time.Since(start), *f.Quiet)
 }
@@ -707,6 +719,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	// The daemon renders a single report per request; several --report
 	// FORMAT=PATH files are written in-process from one result set.
 	if len(f.Reports) > 0 {
+		return false
+	}
+	// The daemon's delta and fix render paths carry no coverage gate, so a
+	// --min-fir-coverage scan runs in-process.
+	if f.MinFirCoverage != nil && *f.MinFirCoverage > 0 {
 		return false
 	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;

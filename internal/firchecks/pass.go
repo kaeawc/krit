@@ -18,6 +18,7 @@ import (
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/fileignore"
 	"github.com/kaeawc/krit/internal/oracle"
+	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/perf"
 	"github.com/kaeawc/krit/internal/rules"
 	api "github.com/kaeawc/krit/internal/rules/api"
@@ -72,6 +73,9 @@ type PassOptions struct {
 	// differ from the merged session's, one session per settings group, before
 	// the Isolator runs.
 	SettingsSplitter SettingsSplitter
+	// OnCoverage, when set, receives the pass's coverage once its verdict is
+	// applied (not called when the checker failed).
+	OnCoverage func(output.FirCoverage)
 }
 
 // PendingPass owns an in-flight check. Check is not interruptible through the
@@ -278,6 +282,10 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	}
 	base = excludeGeneratedFindings(base, opts.GeneratedSourceDirs)
 	if p.done == nil {
+		// No FIR rule is active or no file needs the checker: nothing is gated.
+		if opts.OnCoverage != nil {
+			opts.OnCoverage(output.FirCoverage{})
+		}
 		return base, nil
 	}
 	var outcome checkOutcome
@@ -318,6 +326,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		DisplayPath: p.targets.display,
 		Suppressed:  newSuppressor(p.targets.files).suppressed,
 	})
+	if opts.OnCoverage != nil {
+		opts.OnCoverage(Coverage(stats, p.targets.files))
+	}
 	if verbose {
 		if outcome.incrementalDiagnostic != "" {
 			fmt.Fprintf(opts.VerboseOut, "verbose: %s\n", outcome.incrementalDiagnostic)

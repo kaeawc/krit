@@ -104,6 +104,8 @@ type runner struct {
 	pendingFIR  pipeline.PendingFindingsPass
 	// firDegraded is set when the FIR checker fails mid-scan.
 	firDegraded *output.FirDegraded
+	// firCoverage is the FIR pass's coverage, set once its verdict is applied.
+	firCoverage *output.FirCoverage
 	// preparse is the background parse started while the oracle runs, or nil.
 	preparse *pipeline.PreparseFuture
 	// parseCachesReady is set once setupParseCaches has run.
@@ -872,6 +874,7 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 		VerboseOut:          os.Stderr,
 		Thorough:            r.depthPreset == DepthThorough,
 		OnDegraded:          r.markFirDegraded,
+		OnCoverage:          func(c output.FirCoverage) { r.firCoverage = &c },
 	}
 	if enabled {
 		checker := r.productionFIRChecker()
@@ -1230,6 +1233,7 @@ func (r *runner) outputPhase() int {
 		Reports:            r.reportWriters(),
 		BaselineSuppressed: r.baselineSuppressed,
 		FirDegraded:        r.currentFirDegraded(),
+		FirCoverage:        r.firCoverage,
 		Format:             r.effectiveFormat,
 		BasePath:           r.basePath,
 		AbsolutePaths:      *r.f.AbsolutePaths,
@@ -1256,6 +1260,9 @@ func (r *runner) outputPhase() int {
 	if d := r.currentFirDegraded(); d != nil && *r.f.FailOnDegraded {
 		fmt.Fprintf(os.Stderr, "error: %s\n", degradedMessage(d))
 		return 2
+	}
+	if code := reportFirCoverage(os.Stderr, r.f, r.firCoverage, r.currentFirDegraded() != nil); code != 0 {
+		return code
 	}
 	return finalScanExit(os.Stderr, r.allColumns.Len(), time.Since(r.start), *r.f.Quiet)
 }

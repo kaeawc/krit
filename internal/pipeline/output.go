@@ -148,7 +148,7 @@ func writeReport(w io.Writer, format string, compact bool, reported *scanner.Fin
 			in.CacheStats,
 			in.Caches,
 			in.CacheBudget,
-			output.JSONOptions{Compact: compact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, Reproducible: in.Reproducible},
+			output.JSONOptions{Compact: compact, BaselineSuppressed: in.BaselineSuppressed, FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage, Reproducible: in.Reproducible},
 			in.PerfRuleStats,
 		); err != nil {
 			return fmt.Errorf("format json: %w", err)
@@ -156,7 +156,7 @@ func writeReport(w io.Writer, format string, compact bool, reported *scanner.Fin
 	case "plain":
 		output.FormatPlainColumns(w, reported)
 	case "sarif":
-		if err := output.FormatSARIFColumnsDegraded(w, reported, in.Version, in.FirDegraded); err != nil {
+		if err := output.FormatSARIFColumnsReport(w, reported, in.Version, output.SARIFOptions{FirDegraded: in.FirDegraded, FirCoverage: in.FirCoverage}); err != nil {
 			return fmt.Errorf("format sarif: %w", err)
 		}
 	case "checkstyle":

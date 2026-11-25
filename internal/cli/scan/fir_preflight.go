@@ -55,8 +55,8 @@ func warnStaleGradleModel(dir string, paths []string, out io.Writer) {
 	if err != nil {
 		return
 	}
-	_, missing := model.ClasspathWithMissing()
-	if msg := missingClasspathWarning(dir, missing); msg != "" {
+	present, missing := model.ClasspathWithMissing()
+	if msg := missingClasspathWarning(dir, missing, len(present)+len(missing)); msg != "" {
 		fmt.Fprintln(out, msg)
 	}
 	newest := newestModelTime(dir)
@@ -112,10 +112,16 @@ func explicitRoot(path string) string {
 	return filepath.Dir(path)
 }
 
+// mostlyMissingShare is the share of missing model classpath entries from
+// which the stale-model warning predicts mostly gated FIR results.
+const mostlyMissingShare = 0.25
+
 // missingClasspathWarning splits missing entries into module build outputs
 // (fixed by building) and other files (fixed by re-exporting the model), so
 // the warning says which action applies.
-func missingClasspathWarning(dir string, missing []string) string {
+// When at least mostlyMissingShare of the entries are missing, FIR will gate
+// most files on unresolved references, and the warning says so.
+func missingClasspathWarning(dir string, missing []string, total int) string {
 	if len(missing) == 0 {
 		return ""
 	}
@@ -133,5 +139,9 @@ func missingClasspathWarning(dir string, missing []string) string {
 	if other > 0 {
 		parts = append(parts, fmt.Sprintf("%d other files (rerun kritExportModel)", other))
 	}
-	return fmt.Sprintf("warning: gradle model %s lists %d classpath entries missing on disk: %s; types from them resolve as unknown", dir, len(missing), strings.Join(parts, " and "))
+	msg := fmt.Sprintf("warning: gradle model %s lists %d classpath entries missing on disk: %s; types from them resolve as unknown", dir, len(missing), strings.Join(parts, " and "))
+	if total > 0 && float64(len(missing)) >= mostlyMissingShare*float64(total) {
+		msg += fmt.Sprintf(". That is %d of %d entries (%.0f%%): FIR results will be mostly gated; build the project and rerun kritExportModel", len(missing), total, 100*float64(len(missing))/float64(total))
+	}
+	return msg
 }

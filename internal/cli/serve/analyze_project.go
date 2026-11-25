@@ -299,6 +299,9 @@ func (r *streamingAnalyzeResponse) WriteRawResponse(ctx context.Context, w io.Wr
 			stats.FirDegraded = &daemon.FirDegradedStats{Reason: d.Reason, FallbackRules: d.FallbackRules}
 		}
 	}
+	if r.in.Host.FirCoverage != nil {
+		stats.FirCoverage = r.in.Host.FirCoverage()
+	}
 	// CreateBaseline ships a sorted+deduped baseline-ID list so the
 	// CLI can write the XML locally — daemon never writes user
 	// files. See scanner.CollectBaselineIDs / WriteBaselineIDsXML.
@@ -695,7 +698,9 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	}
 	var firDegraded atomic.Pointer[output.FirDegraded]
 	in.Host.FirDegraded = firDegraded.Load
-	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter, firDegraded.Store)
+	var firCoverage atomic.Pointer[output.FirCoverage]
+	in.Host.FirCoverage = firCoverage.Load
+	in.Host.StartFindingsPass = firStartFindingsPass(args, paths, cfg, in.Host.FIRCheckBroker, oracleDaemonMatcher(oracleDaemon), in.Host.Tracker, in.Host.Reporter, firDegraded.Store, func(c output.FirCoverage) { firCoverage.Store(&c) })
 	return in, nil
 }
 
@@ -714,7 +719,7 @@ func applyOracleModelArgs(args daemon.AnalyzeProjectArgs, projectArgs *pipeline.
 // for a delegated `krit --fir` scan, or nil when FIR is off. It is the same
 // pass (and compile context) the in-process scan runs in firCheckAndCollect.
 // recordDegraded receives the degraded state when the checker fails.
-func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker, reporter *diag.Reporter, recordDegraded func(*output.FirDegraded)) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
+func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *config.Config, broker *firchecks.Broker, matchOracle firchecks.ContextMatcher, tracker perf.Tracker, reporter *diag.Reporter, recordDegraded func(*output.FirDegraded), recordCoverage func(output.FirCoverage)) func(context.Context, pipeline.ParseResult) (pipeline.PendingFindingsPass, error) {
 	if !args.Fir {
 		return nil
 	}
@@ -750,6 +755,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 					recordDegraded(scan.CheckerFailureDegraded(err, parsed.ActiveRules))
 				}
 			},
+			OnCoverage: recordCoverage,
 		}
 		// Offer the pass's check to the oracle compile before the pass starts:
 		// the pass waits on the broker whenever it has files to compile.

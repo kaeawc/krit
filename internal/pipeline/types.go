@@ -495,6 +495,9 @@ type OutputInput struct {
 	BaselineSuppressed *int
 	// FirDegraded, when non-nil, marks the report as produced without the FIR pass.
 	FirDegraded *output.FirDegraded
+	// FirCoverage, when non-nil, is the FIR pass's coverage: summary.fir in
+	// JSON, runs[0].properties.fir in SARIF.
+	FirCoverage *output.FirCoverage
 	// DiffRef, when non-empty, is a git ref (e.g. "main",
 	// "origin/main") used to restrict findings to files changed
 	// since that ref.

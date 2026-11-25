@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/output"
 )
 
 // Request names a verb and carries its arguments as opaque JSON.
@@ -488,6 +489,9 @@ type AnalyzeProjectStats struct {
 	// the findings fell back to the Go rules. The CLI warns on it and
 	// enforces --fail-on-degraded.
 	FirDegraded *FirDegradedStats `json:"fir_degraded,omitempty"`
+	// FirCoverage is the FIR pass's coverage when it ran. The CLI prints the
+	// coverage summary from it and enforces --min-fir-coverage.
+	FirCoverage *output.FirCoverage `json:"fir_coverage,omitempty"`
 	// BaselineIDs is populated only when AnalyzeProjectArgs.CreateBaseline
 	// is true. The slice is sorted and deduplicated so the CLI can
 	// hand it directly to scanner.WriteBaselineIDsXML (no further

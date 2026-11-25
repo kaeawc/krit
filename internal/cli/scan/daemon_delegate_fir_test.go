@@ -217,3 +217,30 @@ func TestRunDaemonAnalyzeFailOnDegradedKeepsPreviousReport(t *testing.T) {
 		t.Fatalf("report = %q, want the previous report kept", got)
 	}
 }
+
+// A daemon-served scan prints the FIR coverage line from the wire, as the
+// in-process scan does (#1573).
+func TestRunDaemonAnalyzeReportsFirCoverage(t *testing.T) {
+	client := &verboseDaemonClient{result: daemon.AnalyzeProjectResult{
+		Findings: []byte(`{"rules":[],"line":[]}`),
+		Stats: daemon.AnalyzeProjectStats{FirCoverage: &output.FirCoverage{
+			Authoritative: 9, Gated: 1, TopCauses: []output.FirGatingCause{{Cause: "Unresolved reference 'dagger'", Count: 1}},
+		}},
+	}}
+	f := freshScanFlags(t)
+	redirectStdout(t)
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Stderr = original; _ = reader.Close(); _ = writer.Close() })
+	os.Stderr = writer
+	handled, code := runDaemonAnalyze(client, f, []string{newRoot(t)})
+	_ = writer.Close()
+	stderr, _ := io.ReadAll(reader)
+	want := "info: FIR analyzed 9 of 10 files (90%); 1 gated by compile errors, so Go-only findings stand for them (top causes: Unresolved reference 'dagger' x1)"
+	if !handled || code != 0 || !strings.Contains(string(stderr), want) {
+		t.Fatalf("handled=%v code=%d stderr=%q", handled, code, stderr)
+	}
+}

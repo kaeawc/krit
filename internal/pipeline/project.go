@@ -198,6 +198,10 @@ type ProjectHostState struct {
 	// FirDegraded, when set, reports whether the pass StartFindingsPass
 	// started lost its FIR checker; the report then carries the marker.
 	FirDegraded func() *output.FirDegraded
+	// FirCoverage, when set, returns the coverage of the pass
+	// StartFindingsPass started, nil when it did not finish; the report then
+	// carries summary.fir.
+	FirCoverage func() *output.FirCoverage
 	// FIRCheckBroker, when non-nil, is the rendezvous between the oracle and
 	// the pass StartFindingsPass starts, so a --fir scan compiles the module
 	// once for both (#810). The pass registers its check with it; the oracle
@@ -723,10 +727,15 @@ func RunProjectStreaming(ctx context.Context, in ProjectInput, out io.Writer) (P
 	if host.FirDegraded != nil {
 		firDegraded = host.FirDegraded()
 	}
+	var firCoverage *output.FirCoverage
+	if host.FirCoverage != nil {
+		firCoverage = host.FirCoverage()
+	}
 	outputStart := time.Now()
 	outResult, err := OutputPhase{}.Run(ctx, OutputInput{
 		FixupResult:      fixupView,
 		FirDegraded:      firDegraded,
+		FirCoverage:      firCoverage,
 		Reporter:         host.Reporter,
 		Writer:           out,
 		Format:           format,

@@ -88,6 +88,7 @@ type scanFlags struct {
 	firPreflightPassed       bool
 	firDegraded              *output.FirDegraded
 	FailOnDegraded           *bool
+	MinFirCoverage           *float64
 	NoCrossFileCache         *bool
 	CustomRuleJars           *string
 	Daemon                   *bool
@@ -217,6 +218,7 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.Fir = fs.Bool("fir", true, "Enable FIR checker pass (krit-fir JVM subprocess; default on)")
 	f.NoFir = fs.Bool("no-fir", false, "Disable the default-on FIR checker pass")
 	f.FailOnDegraded = fs.Bool("fail-on-degraded", false, "Exit 2 when the FIR pass is unavailable or fails instead of falling back to Go rules with a warning")
+	f.MinFirCoverage = fs.Float64("min-fir-coverage", 0, "Exit 2, like --fail-on-degraded, when FIR analyzed less than this share (0-1) of the files it checked, e.g. 0.8; a scan whose FIR pass did not run fails too")
 	f.NoFirDaemon = fs.Bool("no-fir-daemon", false, "Run the FIR checker and type-oracle cache misses one-shot; with --no-daemon, no krit-fir daemon outlives the scan (useful for hermetic CI runners)")
 	f.FixBinary = fs.Bool("fix-binary", false, "Apply binary file fixes (image conversion, optimization, file operations)")
 	f.WarningsAsErrors = fs.Bool("warnings-as-errors", false, "Treat warnings as errors (exit code 1)")

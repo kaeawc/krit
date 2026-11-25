@@ -14,7 +14,7 @@ Each module covers a case that has broken FIR coverage before:
 | `:model` | `//model` | kotlinx-serialization compiler plugin; module-wide `-opt-in` | #1571, #1577 |
 | `:proto` | `//proto` | Wire-generated Kotlin (Bazel: Wire CLI into a `.srcjar`) | #1574, #1586, #1588 |
 | `:data` | `//data` | KSP (Moshi codegen) | #1574, #1586 |
-| `:app` | `//app` | `com.android.application` with view binding (Bazel: generated into a `.srcjar` by `tools/viewbinding`) | #1574, #1626 |
+| `:app` | `//app` | `com.android.application` with view binding (Bazel: generated into a `.srcjar` by `tools/viewbinding`), and Kotlin calling same-module Java | #1574, #1626 |
 | `:benchmark` | `//benchmark` | `com.android.test` module targeting `:app` | #1572 |
 
 Versions: AGP 9.5.3 (built-in Kotlin), Kotlin 2.4.21, KSP 2.3.14, Wire 7.2.2,

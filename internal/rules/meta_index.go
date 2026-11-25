@@ -674,6 +674,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*UnsafeNativeCodeLocationRule)(nil),
 		(*JavascriptInterfaceRule)(nil),
 		(*UnsanitizedFilenameFromContentProviderRule)(nil),
+		(*MutableImplicitPendingIntentRule)(nil),
 		(*UnsafeDynamicallyLoadedCodeRule)(nil),
 		(*BadHostnameVerifierRule)(nil),
 		(*HardwareIDsRule)(nil),

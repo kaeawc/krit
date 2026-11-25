@@ -11,6 +11,13 @@ All notable changes to Krit will be documented in this file.
   follow same-file helpers called from a Fragment's view lifecycle methods. Without the type oracle a LiveData whose
   type is only declared in another file (a ViewModel property) is not proven, a known false negative
   (#1443, #1444, #1445, #1449).
+- `TestManifestGradleConfiguration`, ported from `androidx.compose.ui:ui-test-manifest` 1.12.1 under its Lint ID and
+  checked against the Lint CLI on the same Groovy build file. It reports a bare-string
+  `androidx.compose.ui:ui-test-manifest` dependency on any configuration but `debugImplementation`, using Lint's
+  name test (so `testImplementation`, `androidTestImplementation` and an `ext` assignment named like a configuration
+  are reported, while `releaseImplementation` and `testDebugImplementation` are not), and its fix renames the
+  configuration to `debugImplementation`. Its ID is the Lint issue ID, so `lint.xml` and Gradle `lint { }` severities
+  apply (#1503).
 
 ### Added
 - Rule scope `manifest-source` for checks that join Kotlin/Java source with `AndroidManifest.xml`. A rule declaring

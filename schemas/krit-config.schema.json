@@ -16509,6 +16509,39 @@
             }
           }
         },
+        "TestManifestGradleConfiguration": {
+          "description": "Detects androidx.compose.ui:ui-test-manifest declared on a configuration other than debugImplementation. [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]\nCaveat: As in Lint, only a bare string coordinate is read: version-catalog accessors, platform(...), map notation and declarations with a configuration closure are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TestManifestGradleConfiguration (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnrememberedMutableState": {
           "description": "Detects state objects created during composition without remember, which are recreated and lose their value on recomposition. [precision: ast-backed] [noisiness: normal]\nCaveat: User @StateFactoryMarker functions and State subclasses are recognized only when declared in the same file.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).",
           "type": "object",

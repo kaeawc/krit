@@ -109,6 +109,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*MissingColorAlphaChannelRule)(nil),
 		(*InvalidColorHexValueRule)(nil),
 		(*InvalidLanguageTagDelimiterRule)(nil),
+		(*TestManifestGradleConfigurationRule)(nil),
 		(*CoroutineCreationDuringCompositionRule)(nil),
 		(*FlowOperatorInvokedInCompositionRule)(nil),
 		(*StateFlowValueCalledInCompositionRule)(nil),

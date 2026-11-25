@@ -252,3 +252,13 @@ library is present; Compose Multiplatform code is checked too, although Lint doe
   argument, in Kotlin and Java. Tags are evaluated from literals (raw strings included), `+` concatenation, parentheses
   and same-file `val`s and constants; string templates are not constant, as in Lint. A constant declared in another
   file is a known false negative. The fix rewrites a literal tag only.
+
+`androidx.compose.ui:ui-test-manifest` 1.12.1 (Gradle):
+
+- `TestManifestGradleConfiguration` reports a statement whose value is a bare string starting with
+  `androidx.compose.ui:ui-test-manifest` and whose name, lowercased, contains `implementation`, `api`, `compileonly`,
+  `runtimeonly`, `annotationprocessor`, `lintchecks` or `lintpublish` but not `debugimplementation`, and starts with one
+  of them or with `test` or `android`. As in Lint, the enclosing block does not matter, so an `ext` property named like a
+  configuration is reported too; catalog accessors, `platform(...)`, map notation and declarations with a closure are
+  not read. The fix renames the configuration to `debugImplementation`. The Lint CLI cannot run Gradle checks on Kotlin
+  scripts, so the `.kts` behavior follows the detector's source.

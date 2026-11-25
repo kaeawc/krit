@@ -2,6 +2,7 @@ package dev.jasonpearson.krit.gradle
 
 import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
 import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendReportArgs
+import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.runReports
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
@@ -130,21 +131,21 @@ abstract class KritCheckAllTask @Inject constructor(
 
         val executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
         val root = scanRoot.get().asFile
-        val stderr = ByteArrayOutputStream()
-        val result = execOps.exec {
-            this.executable = executable
-            workingDir = root
-            moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
-            args(scanArgs(reports, root))
-            errorOutput = stderr
-            isIgnoreExitValue = true
+        val exitValue = runReports(reports, logger) { batch ->
+            val stderr = ByteArrayOutputStream()
+            val result = execOps.exec {
+                this.executable = executable
+                workingDir = root
+                moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
+                args(scanArgs(batch, root))
+                errorOutput = stderr
+                isIgnoreExitValue = true
+            }
+            result.exitValue to stderr.toString()
         }
-        if (result.exitValue == 2) {
-            throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
-        }
-        if (result.exitValue != 0 && !ignoreFailures.get()) {
+        if (exitValue != 0 && !ignoreFailures.get()) {
             throw GradleException(
-                "krit analysis found issues (exit code ${result.exitValue}). " +
+                "krit analysis found issues (exit code $exitValue). " +
                     "See reports at: ${reports.joinToString(", ") { it.second.absolutePath }}"
             )
         }

@@ -293,6 +293,33 @@ abstract class KritCheckTask @Inject constructor(
 
     companion object {
         /**
+         * Runs one krit scan that writes every report in [reports] and returns its exit
+         * code; [scan] runs krit for a list of reports and returns the exit code and
+         * stderr. A krit release without `--report FORMAT=PATH` (0.5.0 and earlier)
+         * rejects several reports with "unknown format" (exit 2), so the reports then get
+         * one scan each. Any other exit 2 is a configuration or preflight error.
+         */
+        internal fun runReports(
+            reports: List<Pair<String, File>>,
+            logger: org.gradle.api.logging.Logger,
+            scan: (List<Pair<String, File>>) -> Pair<Int, String>,
+        ): Int {
+            val (exit, stderr) = scan(reports)
+            if (exit == 2 && reports.size > 1 && stderr.contains("unknown format:")) {
+                logger.info("krit does not support --report FORMAT=PATH; running one scan per report")
+                var first = 0
+                reports.forEach { report ->
+                    val (single, singleErr) = scan(listOf(report))
+                    if (single == 2) throw GradleException("krit configuration/preflight error: ${singleErr.trim()}")
+                    if (first == 0) first = single
+                }
+                return first
+            }
+            if (exit == 2) throw GradleException("krit configuration/preflight error: ${stderr.trim()}")
+            return exit
+        }
+
+        /**
          * One report is `--format F -o PATH`, which every krit release understands. Several
          * are one `--report F=PATH` each, written from a single analysis run (krit releases after 0.5.0).
          */

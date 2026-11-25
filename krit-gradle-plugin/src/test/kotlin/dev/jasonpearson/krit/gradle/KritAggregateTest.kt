@@ -145,6 +145,22 @@ class KritAggregateTest {
         assertFalse(call.contains(" -o "), call)
     }
 
+    // krit 0.5.0 and earlier reject --report FORMAT=PATH ("unknown format", exit 2).
+    @Test
+    fun `several reports fall back to one run each on a krit without --report`() {
+        val root = fixture(extraRoot = "reports { json.required = true }")
+        val binary = File(root, "fake-krit")
+        binary.writeText(binary.readText().replaceFirst("\n", "\n" +
+            "case \"${'$'}*\" in *--report*) echo 'error: unknown format: sarif=x' >&2; exit 2;; esac\n"))
+        run(root, "kritCheckAll")
+        val calls = invocations(root)
+        // The rejected --report run exits before the fake logs it.
+        assertEquals(2, calls.size, calls.joinToString("\n"))
+        assertTrue(calls[0].contains("--format=sarif") && calls[1].contains("--format=json"), calls.joinToString("\n"))
+        assertTrue(File(root, "build/reports/krit/all/krit.sarif").isFile)
+        assertTrue(File(root, "build/reports/krit/all/krit.json").isFile)
+    }
+
     @Test
     fun `findings fail the build unless ignoreFailures is set`() {
         val root = fixture()

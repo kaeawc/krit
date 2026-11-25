@@ -1,0 +1,4 @@
+src/main/java/com/example/JavaTargets.java:14:3: MoshiUsageQualifierTarget: JsonQualifiers must include FIELD targeting.
+src/main/java/com/example/JavaTargets.java:19:3: MoshiUsageQualifierTarget: JsonQualifiers must include FIELD targeting.
+src/main/java/com/example/Targets.kt:10:1: MoshiUsageQualifierTarget: JsonQualifiers must include FIELD targeting.
+src/main/java/com/example/Targets.kt:6:1: MoshiUsageQualifierTarget: JsonQualifiers must include FIELD targeting.

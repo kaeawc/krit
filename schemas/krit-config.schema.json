@@ -30011,6 +30011,72 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "MoshiUsageAdaptedByRequiresAdapter": {
+          "description": "@AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageAdaptedByRequiresAdapter (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageAdaptedByRequiresKeep": {
+          "description": "Adapters targeted by @AdaptedBy must have @Keep. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageAdaptedByRequiresKeep (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MoshiUsageBlankGenerator": {
           "description": "Don't use blank JsonClass.generator values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
           "type": "object",
@@ -30678,6 +30744,72 @@
           "properties": {
             "active": {
               "description": "Enable MoshiUsagePrivateConstructorProperty (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageQualifierRetention": {
+          "description": "JsonQualifiers must have RUNTIME retention. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageQualifierRetention (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MoshiUsageQualifierTarget": {
+          "description": "JsonQualifiers must include FIELD targeting. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MoshiUsageQualifierTarget (default: false).",
               "type": "boolean",
               "default": false
             },

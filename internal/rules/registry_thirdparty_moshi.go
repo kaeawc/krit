@@ -17,6 +17,8 @@ type moshiIssue struct {
 // NonMoshiClassInternal and NonMoshiClassExternal are not ported: they split on whether the type is in
 // Slack's own `slack.*` packages.
 var moshiIssues = []moshiIssue{
+	{"MoshiUsageAdaptedByRequiresAdapter", api.SeverityError, "@AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory."},
+	{"MoshiUsageAdaptedByRequiresKeep", api.SeverityError, "Adapters targeted by @AdaptedBy must have @Keep."},
 	{"MoshiUsageBlankGenerator", api.SeverityError, "Don't use blank JsonClass.generator values."},
 	{"MoshiUsageBlankJsonName", api.SeverityError, "Don't use blank names in @Json."},
 	{"MoshiUsageBlankTypeLabel", api.SeverityError, "Moshi-sealed requires a type label specified after the 'sealed:' prefix."},
@@ -38,6 +40,8 @@ var moshiIssues = []moshiIssue{
 	{"MoshiUsageParamNeedsInit", api.SeverityError, "Constructor non-property parameters in Moshi classes must have default values."},
 	{"MoshiUsagePrivateConstructor", api.SeverityError, "Constructors in Moshi classes cannot be private."},
 	{"MoshiUsagePrivateConstructorProperty", api.SeverityError, "Constructor parameter properties in Moshi classes cannot be private."},
+	{"MoshiUsageQualifierRetention", api.SeverityError, "JsonQualifiers must have RUNTIME retention."},
+	{"MoshiUsageQualifierTarget", api.SeverityError, "JsonQualifiers must include FIELD targeting."},
 	{"MoshiUsageRedundantJsonName", api.SeverityWarning, "Json.name with the same value as the property/enum member name is redundant."},
 	{"MoshiUsageRedundantSiteTarget", api.SeverityError, "Use of site-targets on @Json are redundant."},
 	{"MoshiUsageSealedMustBeSealed", api.SeverityError, "Moshi-sealed can only be applied to 'sealed' types."},

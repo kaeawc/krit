@@ -1,0 +1,4 @@
+# moshix's @AdaptedBy targets CLASS, PROPERTY and FIELD, so on a constructor property Kotlin applies
+# it to the property and Lint 9.4.0's UParameter.findAnnotation no longer sees it. The detector
+# validates property adapters too, so krit does.
++ src/main/java/com/example/Adapted.kt:14:29: MoshiUsageAdaptedByRequiresAdapter: @AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory.

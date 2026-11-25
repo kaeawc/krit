@@ -1,0 +1,4 @@
+src/main/java/com/example/JavaQualifiers.java:12:3: MoshiUsageQualifierRetention: JsonQualifiers must have RUNTIME retention.
+src/main/java/com/example/JavaQualifiers.java:9:14: MoshiUsageQualifierRetention: JsonQualifiers must have RUNTIME retention.
+src/main/java/com/example/Qualifiers.kt:10:1: MoshiUsageQualifierRetention: JsonQualifiers must have RUNTIME retention.
+src/main/java/com/example/Qualifiers.kt:6:1: MoshiUsageQualifierRetention: JsonQualifiers must have RUNTIME retention.

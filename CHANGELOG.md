@@ -277,6 +277,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSerializedName`, `MoshiUsageRedundantSiteTarget` and `MoshiUsageSnakeCase`. Unlike Lint 9.4, krit
   reports `@SerializedName` on a constructor property and does not report `@Json(ignore = true)` members as
   duplicates of Moshi's unset name (#1386, #1390, #1401, #1414, #1416, #1417).
+- `slack-lint` gains `MoshiUsageAdaptedByRequiresAdapter` and `MoshiUsageAdaptedByRequiresKeep` for moshix
+  `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
+  `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
+  classes (#1382, #1383, #1405, #1406).
 
 ### Fixed
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than

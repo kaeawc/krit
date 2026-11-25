@@ -1,0 +1,2 @@
+src/main/java/com/example/Adapted.kt:10:22: MoshiUsageAdaptedByRequiresAdapter: @AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory.
+src/main/java/com/example/Adapted.kt:7:12: MoshiUsageAdaptedByRequiresAdapter: @AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory.

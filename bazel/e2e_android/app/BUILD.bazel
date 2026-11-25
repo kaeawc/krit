@@ -1,4 +1,4 @@
-load("@krit//:defs.bzl", "krit_test")
+load("@krit//:defs.bzl", "krit_project_report", "krit_test")
 load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//:krit_report_test.bzl", "krit_report_test")
@@ -24,10 +24,30 @@ _EXPECT = [
     "MissingApplicationIconManifest",
 ]
 
+# krit_aspect runs the file-scope rules per target (the FIR finding); the
+# Android manifest and resource rules are project-scope, so
+# krit_project_report runs them over the target and its dependencies.
 krit_report_test(
     name = "greeter_aspect_report_test",
-    expect = _EXPECT,
+    expect = _EXPECT[:2],
     target = ":greeter",
+)
+
+krit_project_report(
+    name = "greeter_project_report",
+    config = "//:krit.yml",
+    fail_on_findings = "false",
+    deps = [":greeter"],
+)
+
+sh_test(
+    name = "greeter_project_report_test",
+    srcs = ["report_contains_test.sh"],
+    args = [
+        "$(rootpaths :greeter_project_report)",
+        "--",
+    ] + _EXPECT[2:],
+    data = [":greeter_project_report"],
 )
 
 krit_test(

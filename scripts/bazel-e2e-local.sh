@@ -8,7 +8,8 @@
 # tests are deterministic and carry no machine-specific inputs, so a remote
 # cache can share them. Then builds krit_aspect's output group over
 # //typed/... the same way (every Krit action of the second build must be a
-# cache hit), and checks that --@krit//:fail_on_findings fails the build
+# cache hit), checks that per-target actions leave project-scope rules to
+# krit_project_report, and checks that --@krit//:fail_on_findings fails the build
 # through a validation action on a target with findings, and only there,
 # and that the rules_kotlin settings (kotlinc_opts, compiler plugins) reach
 # krit-fir: without them //kotlin_settings's sources do not compile.
@@ -175,6 +176,30 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
   esac
 done
 echo "OK: krit_aspect"
+
+# Project-scope rules: per target, krit_aspect runs only the file-scope
+# rules (--@krit//:scope=file). With --@krit//:scope=all an action over
+# //project/lib alone calls usedApi dead code although //project/app calls
+# it; the default does not, and //project:project_report_test (above)
+# checks the whole-build report has only unusedApi.
+echo "== --@krit//:scope: per-target actions skip project-scope rules"
+lib_report() {
+  build "${extra[@]}" --@krit//:config=//project:krit.yml "$@" //project/lib > /dev/null 2>&1 || {
+    build "${extra[@]}" --@krit//:config=//project:krit.yml "$@" //project/lib
+    return 1
+  }
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/project/lib/lib.krit.txt"
+}
+lib_report --@krit//:scope=all | grep -q "DeadCode.*'usedApi'" || {
+  echo "ERROR: --@krit//:scope=all did not run DeadCode per target" >&2
+  exit 1
+}
+if lib_report | grep -q DeadCode; then
+  echo "ERROR: the default per-target action ran the project-scope DeadCode rule" >&2
+  exit 1
+fi
+echo "OK: scope"
 
 # Persistent worker: the Krit actions above ran on a multiplex worker that
 # keeps one krit-fir JVM warm. It must still analyze each request from its

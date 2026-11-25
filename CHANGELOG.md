@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_aspect`'s per-target actions run only file-scope rules (`--only-scope file`; `--@krit//:scope=all`
+  restores every rule), so project-scope rules no longer report cross-target false positives such as DeadCode on a
+  function another target calls. The new `krit_project_report` rule runs the project-scope rules (cross-file, Android
+  manifest and resource rules) in one cacheable Go-only action over the main-repository sources, manifests and
+  resources of its deps' transitive graph (#1593).
 - Bazel: `krit_aspect`'s Krit actions run `krit bazel-worker`, a Bazel persistent worker (JSON protocol) that keeps one
   krit-fir JVM warm across the actions it serves; each action is still a fresh krit process with its own empty state
   and incremental FIR off. Re-analyzing a target with an unchanged classpath drops from about 4.6 s to 0.6 s per action

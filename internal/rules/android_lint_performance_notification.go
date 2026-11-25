@@ -515,7 +515,7 @@ func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, name string)
 			if f == nil || f.FlatTree == nil {
 				continue
 			}
-			pkg := sourceFilePackage(f)
+			pkg := sourcePackageName(f)
 			for _, kind := range []string{"class_declaration", "object_declaration"} {
 				f.FlatWalkNodes(0, kind, func(decl uint32) {
 					n := lintClassNameNode(f, decl)
@@ -546,7 +546,7 @@ func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, name string)
 	}
 	if imported, ok := lintImportsOf(file).bySimple[simple]; ok {
 		candidates = append([]string{imported + strings.TrimPrefix(name, simple)}, candidates...)
-	} else if pkg := sourceFilePackage(file); pkg != "" {
+	} else if pkg := sourcePackageName(file); pkg != "" {
 		candidates = append([]string{pkg + "." + name}, candidates...)
 	}
 	for _, c := range candidates {
@@ -555,25 +555,6 @@ func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, name string)
 		}
 	}
 	return javaClassRef{}
-}
-
-// sourceFilePackage returns the package a Kotlin or Java file declares, or "".
-func sourceFilePackage(file *scanner.File) string {
-	for _, kind := range []string{"package_header", "package_declaration"} {
-		var pkg string
-		file.FlatWalkNodes(0, kind, func(n uint32) {
-			if pkg != "" {
-				return
-			}
-			text := strings.TrimSpace(file.FlatNodeText(n))
-			text = strings.TrimSuffix(strings.TrimPrefix(text, "package"), ";")
-			pkg = strings.TrimSpace(text)
-		})
-		if pkg != "" {
-			return pkg
-		}
-	}
-	return ""
 }
 
 // javaDeclaredMethod returns the method of a Java class (not of its supertypes) with the given name and parameter

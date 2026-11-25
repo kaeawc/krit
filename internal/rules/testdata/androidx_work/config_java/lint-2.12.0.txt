@@ -1,0 +1,1 @@
+src/com/example/JApp.java:0:0: BadConfigurationProvider: Expected Application subtype to implement Configuration.Provider

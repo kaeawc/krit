@@ -478,3 +478,22 @@ release's `lint.jar` (`internal/rules/testdata/androidx_work/`):
 - `UseRxSetProgress2` reports `setProgress(...)` resolved to `androidx.work.RxWorker` (RxJava 2), not the RxJava 3
   `androidx.work.rxjava3.RxWorker` or `CoroutineWorker.setProgress`. When the call is a statement of its own, the fix
   renames it to `setCompletableProgress` (Lint's quick fix); a call whose `Single` result is used is not rewritten.
+
+`androidx.work:work-runtime` 2.12.0 project checks (Kotlin and Java), which, like Lint's `afterCheckRootProject`,
+look at every main-source file of the scan:
+
+- `BadConfigurationProvider` reports when a concrete class implements `androidx.work.Configuration.Provider` but no
+  concrete `Application` subclass does. Lint reports the whole file of the last `Application` it visited; krit anchors
+  that finding at the file's first line.
+- `SpecifyJobSchedulerIdRange` reports the first `android.app.job.JobService` subclass (other than WorkManager's
+  `SystemJobService`) when nothing calls `setJobSchedulerJobIdRange`. A JobService alone does not mean the project uses
+  WorkManager, so krit also needs an `androidx.work` dependency or import, where Lint needs the work `lint.jar` on the
+  classpath.
+- `WorkerHasAPublicModifier` reports each concrete `ListenableWorker` subclass that does not compile to a public class
+  (Kotlin `private` or `protected`, Java without `public`; Kotlin `internal` is public in bytecode, as Lint sees it),
+  unless the project calls `setWorkerFactory`.
+
+Class hierarchies are followed through the project's own classes in any file and the androidx.work worker classes
+(`Worker`, `CoroutineWorker`, `RxWorker`, `RemoteListenableWorker`), `MultiDexApplication` and `SystemJobService`.
+Krit counts any `setJobSchedulerJobIdRange` / `setWorkerFactory` call without proving that its receiver is a
+`Configuration.Builder`, so a builder it cannot trace never leads to a report.

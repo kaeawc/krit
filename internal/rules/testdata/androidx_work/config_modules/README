@@ -1,0 +1,2 @@
+Lint was run once per module here (app/ and lib/ separately), as a Gradle build lints each module unless
+checkDependencies is set; lint-2.12.0.txt is the union of the two runs.

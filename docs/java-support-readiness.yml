@@ -658,6 +658,18 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_work_parity_test.go
+  BadConfigurationProvider:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  SpecifyJobSchedulerIdRange:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  WorkerHasAPublicModifier:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
   UsableSpace:
     status: supported
     fixtures:

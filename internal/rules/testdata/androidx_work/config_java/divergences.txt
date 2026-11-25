@@ -1,0 +1,2 @@
+- src/com/example/JApp.java:0:0: BadConfigurationProvider: Expected Application subtype to implement Configuration.Provider # Lint reports the whole file (no line); krit anchors a file-level finding at its first line
++ src/com/example/JApp.java:1:1: BadConfigurationProvider: Expected Application subtype to implement Configuration.Provider # the same finding, at the file's first line

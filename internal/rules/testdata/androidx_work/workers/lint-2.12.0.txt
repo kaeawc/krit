@@ -1,0 +1,7 @@
+src/com/example/JWorkers.java:15:26: WorkerHasAPublicModifier: com.example.JPackageWorker.JPrivateNested needs to be public
+src/com/example/JWorkers.java:8:7: WorkerHasAPublicModifier: com.example.JPackageWorker needs to be public
+src/com/example/Other.kt:6:15: WorkerHasAPublicModifier: com.example.CrossFileChild needs to be public
+src/com/example/Workers.kt:17:15: WorkerHasAPublicModifier: com.example.PrivateWorker needs to be public
+src/com/example/Workers.kt:26:19: WorkerHasAPublicModifier: com.example.Outer.PrivateNestedWorker needs to be public
+src/com/example/Workers.kt:30:21: WorkerHasAPublicModifier: com.example.Outer.ProtectedNestedWorker needs to be public
+src/com/example/Workers.kt:37:15: WorkerHasAPublicModifier: com.example.ChildWorker needs to be public

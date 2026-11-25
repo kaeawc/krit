@@ -1,0 +1,1 @@
+- src/com/example/JJobs.java:6:14: SpecifyJobSchedulerIdRange: Specify a valid range of job id's for `WorkManager` to use. # nothing in this project shows it uses WorkManager (no androidx.work import or dependency); Lint only runs the check when work-runtime brings its lint.jar, and krit needs that evidence before reporting a plain JobService

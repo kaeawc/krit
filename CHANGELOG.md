@@ -322,6 +322,13 @@ All notable changes to Krit will be documented in this file.
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).
+- The Gradle plugin records each Android source set's generated roots from AGP's Variant API (view binding,
+  BuildConfig, SQLDelight, Wire, KSP and any other generator registered with the build), and `exportGenerated` runs
+  their producer tasks instead of only R and KSP/kapt tasks found by name (#1574).
+- The Gradle plugin exports models for `com.android.test` (instrumentation, benchmark and baseline-profile) and
+  `com.android.dynamic-feature` modules, and the settings plugin auto-applies krit to them. A test module records its
+  `targetProjectPath` as a project dependency. Before, these modules wrote no model and FIR gated their files on
+  unresolved dependencies (#1572).
 - `InvalidFragmentVersionForActivityResult` finds the module build file for a source file in a package more than
   a dozen directories deep, instead of falling back to the project profile.
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

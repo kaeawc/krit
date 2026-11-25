@@ -16320,6 +16320,72 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AutoboxingStateCreation": {
+          "description": "Detects mutableStateOf holding a non-null Int, Long, Float or Double, where mutableIntStateOf and friends avoid autoboxing. [precision: ast-backed] [noisiness: normal]\nCaveat: The state type is taken from an explicit type argument, the declared type of the property it initializes, or a literal or same-file typed argument; other inferred types are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AutoboxingStateCreation (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "AutoboxingStateValueProperty": {
+          "description": "Detects the generic value property of IntState, LongState, FloatState or DoubleState, which autoboxes; use intValue and friends. [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]\nCaveat: The receiver must be proven to be IntState/LongState/FloatState/DoubleState (or the Mutable variants) by a same-file declaration or initializer (mutableIntStateOf, remember { mutableIntStateOf(...) }, asIntState(), ...).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AutoboxingStateValueProperty (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposableLambdaParameterNaming": {
           "description": "Detects the only composable lambda parameter of a @Composable function not being named content. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -17560,6 +17626,39 @@
           "properties": {
             "active": {
               "description": "Enable MultipleAwaitPointerEventScopes (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MutableCollectionMutableState": {
+          "description": "Detects mutableStateOf holding a mutable collection, whose in-place changes the state does not observe. [precision: ast-backed] [noisiness: normal]\nCaveat: The collection type is taken from an explicit type argument, the declared type of the property it initializes, or a mutable-collection factory, constructor or same-file declaration passed as the value.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MutableCollectionMutableState (default: true).",
               "type": "boolean",
               "default": true
             },

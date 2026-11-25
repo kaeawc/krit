@@ -1,0 +1,38 @@
+s/Autobox.kt:21:17: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:22:9: AutoboxingStateValueProperty: Assigning `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:24:9: AutoboxingStateValueProperty: Assigning `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:25:18: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:26:17: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `doubleValue` to avoid unnecessary allocations.
+s/Autobox.kt:30:7: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `longValue` to avoid unnecessary allocations.
+s/Autobox.kt:31:37: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `floatValue` to avoid unnecessary allocations.
+s/Autobox.kt:32:34: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:38:11: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:46:15: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:47:20: AutoboxingStateValueProperty: Reading `value` will cause an autoboxing operation. Use `intValue` to avoid unnecessary allocations.
+s/Autobox.kt:52:13: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:53:13: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:54:13: AutoboxingStateCreation: Prefer `mutableLongStateOf` instead of `mutableStateOf`
+s/Autobox.kt:55:13: AutoboxingStateCreation: Prefer `mutableFloatStateOf` instead of `mutableStateOf`
+s/Autobox.kt:56:13: AutoboxingStateCreation: Prefer `mutableDoubleStateOf` instead of `mutableStateOf`
+s/Autobox.kt:57:13: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:58:13: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:62:32: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:63:14: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:65:13: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:69:25: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Autobox.kt:71:9: AutoboxingStateCreation: Prefer `mutableIntStateOf` instead of `mutableStateOf`
+s/Collections.kt:10:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:11:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:12:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:13:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:15:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:16:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:17:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:18:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:19:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:22:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:24:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:26:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:27:52: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:28:13: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type
+s/Collections.kt:35:24: MutableCollectionMutableState: Creating a MutableState object with a mutable collection type

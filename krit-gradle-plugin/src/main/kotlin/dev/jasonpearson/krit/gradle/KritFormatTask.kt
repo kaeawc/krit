@@ -82,6 +82,14 @@ abstract class KritFormatTask @Inject constructor(
     @get:Optional
     abstract val javaLauncher: Property<org.gradle.jvm.toolchain.JavaLauncher>
 
+    /** Shared warm FIR JVMs; absent when FIR is off. */
+    @get:Internal
+    abstract val firDaemonPool: Property<KritFirDaemonPool>
+
+    /** `fir { maxHeap }`: does not change the findings, so not an input. */
+    @get:Internal
+    abstract val firMaxHeap: Property<String>
+
     init {
         group = BasePlugin.BUILD_GROUP
         description = "Apply krit auto-fixes to Kotlin sources"
@@ -113,11 +121,13 @@ abstract class KritFormatTask @Inject constructor(
             sourceFiles.forEach { add(it.absolutePath) }
         }
 
-        val result = execOps.exec {
-            executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
-            args(args)
-            kritFirEnvironment(firJar, javaLauncher)
-            isIgnoreExitValue = true
+        val result = withFirDaemonSlot(firDaemonPool) { slot ->
+            execOps.exec {
+                executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
+                args(args)
+                kritFirEnvironment(firJar, javaLauncher, slot, firMaxHeap)
+                isIgnoreExitValue = true
+            }
         }
 
         if (result.exitValue != 0) {

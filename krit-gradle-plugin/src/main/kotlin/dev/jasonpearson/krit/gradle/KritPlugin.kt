@@ -185,6 +185,34 @@ class KritPlugin : Plugin<Project> {
             }
         }
 
+        // Warm FIR JVMs shared by the build's krit tasks (and later builds of this root).
+        extension.firOptions.maxDaemons.convention(2)
+        val maxWorkers = project.gradle.startParameter.maxWorkerCount
+        val poolSlots = extension.firOptions.maxDaemons.map { it.coerceIn(1, maxOf(1, maxWorkers)) }
+        val poolName = "gradle-" + hashutilSha256(modelPath(project.rootDir)).take(12)
+        val firPoolService = project.gradle.sharedServices.registerIfAbsent(
+            KritFirDaemonPool.SERVICE_NAME,
+            KritFirDaemonPool::class.java,
+        ) {
+            maxParallelUsages.set(poolSlots)
+            parameters.poolName.set(poolName)
+            parameters.slots.set(poolSlots)
+        }
+        // usesService must be declared while the task is configured, before a build script's
+        // own `fir = ...` on the task applies, so the declaration (which caps how many krit
+        // tasks run at once) follows the extension; Go-only builds stay unthrottled. The slot
+        // lease follows the task's own fir. A task that turns FIR on against the extension
+        // gets no pool and falls back to krit's own per-project daemon.
+        val poolDeclared = { extension.fir.getOrElse(true) }
+        val firPool = { taskFir: Provider<Boolean> ->
+            taskFir.flatMap { enabled ->
+                if (enabled && poolDeclared()) firPoolService else project.provider<KritFirDaemonPool> { null }
+            }
+        }
+        val usePool: org.gradle.api.Task.() -> Unit = {
+            if (poolDeclared()) usesService(firPoolService)
+        }
+
         // Wire task defaults for all KritCheckTask instances
         project.tasks.withType(KritCheckTask::class.java).configureEach {
             kritBinary.convention(advanced.binary)
@@ -193,6 +221,9 @@ class KritPlugin : Plugin<Project> {
             usesService(binaryResolver)
             firJar.from(firJarInput(fir))
             javaLauncher.convention(firLauncher(fir))
+            firDaemonPool.convention(firPool(fir))
+            firMaxHeap.convention(extension.firOptions.maxHeap)
+            usePool()
             allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
@@ -222,6 +253,9 @@ class KritPlugin : Plugin<Project> {
             usesService(binaryResolver)
             firJar.from(firJarInput(fir))
             javaLauncher.convention(firLauncher(fir))
+            firDaemonPool.convention(firPool(fir))
+            firMaxHeap.convention(extension.firOptions.maxHeap)
+            usePool()
             allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
@@ -247,6 +281,9 @@ class KritPlugin : Plugin<Project> {
             // kritFormat has no fir switch of its own; it follows the extension.
             firJar.from(firJarInput(extension.fir))
             javaLauncher.convention(firLauncher(extension.fir))
+            firDaemonPool.convention(firPool(extension.fir))
+            firMaxHeap.convention(extension.firOptions.maxHeap)
+            usePool()
             config.convention(extension.config)
             fixLevel.convention(advanced.fixLevel)
             parallel.convention(advanced.parallel)
@@ -262,6 +299,9 @@ class KritPlugin : Plugin<Project> {
             usesService(binaryResolver)
             firJar.from(firJarInput(fir))
             javaLauncher.convention(firLauncher(fir))
+            firDaemonPool.convention(firPool(fir))
+            firMaxHeap.convention(extension.firOptions.maxHeap)
+            usePool()
             config.convention(extension.config)
             allRules.convention(advanced.allRules)
             parallel.convention(advanced.parallel)
@@ -1118,6 +1158,10 @@ class KritPlugin : Plugin<Project> {
             }
         }
     }
+
+    private fun hashutilSha256(text: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
+            .joinToString("") { "%02x".format(it) }
 
     companion object {
         /** krit release downloaded when `advanced.toolVersion` is unset: the plugin's own version. */

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
@@ -19,6 +20,15 @@ func TestGradleProjectOutputsForceInProcessScan(t *testing.T) {
 	}
 	if daemonCompatibleFlags(f) {
 		t.Fatal("--gradle-project-outputs must run in-process: the daemon wire does not carry it")
+	}
+}
+
+func TestFirDaemonPoolForcesInProcessScan(t *testing.T) {
+	fs := flag.NewFlagSet("krit", flag.ContinueOnError)
+	f := registerScanFlags(fs)
+	t.Setenv(firchecks.FirDaemonPoolEnv, "build-0")
+	if daemonCompatibleFlags(f) {
+		t.Fatal("KRIT_FIR_DAEMON_POOL must run in-process: a delegated scan would not see it")
 	}
 }
 

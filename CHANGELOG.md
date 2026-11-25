@@ -401,6 +401,10 @@ All notable changes to Krit will be documented in this file.
   from their compiled classes, built through Gradle, instead of krit compiling their sources with every dependent
   project. The classes are an ABI-normalized input. The new `--gradle-project-outputs FILE` scan flag carries them:
   a project listed there goes on the classpath and is not compiled as source context (#1581).
+- Gradle: the krit tasks of a build share a pool of warm FIR JVMs (`krit { fir { maxDaemons = 2; maxHeap = "4g" } }`)
+  through a build service, instead of krit starting and keeping one per project. Each krit run leases a pool slot
+  through the new `KRIT_FIR_DAEMON_POOL` environment variable, which keys krit's FIR check daemon by slot; every
+  check request retargets that JVM to its project (#1582).
 - Gradle: `kritBaseline` writes the baseline to the configured file; it passed `--create-baseline --baseline <file>`,
   so krit wrote a file named `--baseline` in the working directory. It now also skips missing default source roots
   (krit rejected them with exit 2), honors `fir = false`, and passes the project directory as `--base-path`, as

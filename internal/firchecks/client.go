@@ -499,7 +499,7 @@ func connectOrStartFirDaemon(role, jarPath string, sourceDirs, classpath []strin
 		_ = d.conn.Close()
 		rejected = d.aotPID
 	}
-	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, compile), sourceDirs, srcHash, len(classpath) > 0, verbose)
+	retireSupersededFirDaemons(firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, compile), sourceDirs, srcHash, len(classpath) > 0 && firDaemonPool(role) == "", verbose)
 	if rejected != 0 {
 		stopFirDaemonIf(srcHash, rejected, verbose)
 	}
@@ -1398,8 +1398,28 @@ func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string, tar
 	return firRegistryPrefix(role, jarPath, sourceDirs, classpath, target...) + oracle.JarIdentity(jarPath)
 }
 
+// FirDaemonPoolEnv names a pool slot that FIR check daemons are shared by. A build
+// tool that runs krit once per project (the Gradle plugin's BuildService) sets it
+// to "<pool>-<slot>", so every run in that slot reuses one warm JVM instead of
+// starting a daemon per source-dir set. Sharing is safe for the check role only:
+// every check request carries its source dirs, classpath, JVM target and Kotlin
+// settings, and krit-fir rebuilds its session when they differ. Oracle requests do
+// not, so the oracle role keeps its per-project key.
+const FirDaemonPoolEnv = "KRIT_FIR_DAEMON_POOL"
+
+// firDaemonPool returns the pool slot for a role's daemon, or "" when unpooled.
+func firDaemonPool(role string) string {
+	if role != firCheckRole {
+		return ""
+	}
+	return strings.TrimSpace(os.Getenv(FirDaemonPoolEnv))
+}
+
 func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
 	key := firRegistryFamilyPrefix(role, jarPath, sourceDirs, classpath, target...)
+	if firDaemonPool(role) != "" {
+		return key + "@"
+	}
 	if len(classpath) > 0 {
 		key += "-" + gradlemodel.ClasspathFingerprint(oracle.AbsolutePaths(classpath))[:8]
 	}
@@ -1407,6 +1427,10 @@ func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, tar
 }
 
 func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
+	if pool := firDaemonPool(role); pool != "" {
+		// One daemon per pool slot and jar; requests retarget its session.
+		return role + "-pool-" + hashutil.HashHex([]byte(pool))[:16] + "-" + oracle.JarPathTag(jarPath)
+	}
 	key := hashFirSources(sourceDirs)
 	// The JVM target and the Kotlin settings both change what the compiler
 	// reports, so a daemon started for one never answers for another.

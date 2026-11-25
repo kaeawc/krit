@@ -35,6 +35,16 @@ interface KritFirOptions {
      * krit that supports `--gradle-project-outputs` (after 0.5.0). Default: false.
      */
     val useBuiltDependencies: Property<Boolean>
+
+    /**
+     * How many warm FIR JVMs the build's krit tasks share (see [KritFirDaemonPool]).
+     * Also the most krit tasks with FIR that run at once; capped by `--max-workers`.
+     * Read from the first project that applies the plugin. Default: 2.
+     */
+    val maxDaemons: Property<Int>
+
+    /** Heap cap of each FIR JVM, such as "4g" (krit's `KRIT_FIR_XMX`). Default: a quarter of memory. */
+    val maxHeap: Property<String>
 }
 
 abstract class DefaultKritFirOptions : KritFirOptions
@@ -49,6 +59,8 @@ internal const val KRIT_FIR_MODULE = "dev.jasonpearson.krit:krit-fir"
 internal fun org.gradle.process.ExecSpec.kritFirEnvironment(
     firJar: org.gradle.api.file.FileCollection,
     javaLauncher: Property<JavaLauncher>,
+    poolSlot: String? = null,
+    maxHeap: Property<String>? = null,
 ) {
     val jars = firJar.files
     if (jars.size > 1) {
@@ -59,4 +71,15 @@ internal fun org.gradle.process.ExecSpec.kritFirEnvironment(
     }
     jars.singleOrNull()?.let { environment("KRIT_FIR_JAR", it.absolutePath) }
     javaLauncher.orNull?.let { environment("JAVA_HOME", it.metadata.installationPath.asFile.absolutePath) }
+    poolSlot?.let { environment(KritFirDaemonPool.POOL_ENV, it) }
+    maxHeap?.orNull?.let { heap ->
+        if (!Regex("[0-9]+[kKmMgG]").matches(heap)) {
+            throw org.gradle.api.GradleException("krit fir.maxHeap must look like 4g or 2048m, not '$heap'")
+        }
+        environment(KritFirDaemonPool.HEAP_ENV, heap)
+    }
 }
+
+/** Runs [block] with a leased FIR daemon pool slot when [pool] is set (FIR on), else with none. */
+internal fun <T> withFirDaemonSlot(pool: Property<KritFirDaemonPool>, block: (String?) -> T): T =
+    pool.orNull?.withSlot { slot -> block(slot) } ?: block(null)

@@ -760,6 +760,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*BadConfigurationProviderRule)(nil),
 		(*SpecifyJobSchedulerIDRangeRule)(nil),
 		(*WorkerHasAPublicModifierRule)(nil),
+		(*RemoveWorkManagerInitializerRule)(nil),
+		(*SpecifyForegroundServiceTypeRule)(nil),
 		(*FragmentBackPressedCallbackRule)(nil),
 		(*FragmentAddMenuProviderRule)(nil),
 		(*UnsafeRepeatOnLifecycleDetectorRule)(nil),

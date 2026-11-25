@@ -224,6 +224,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"BadConfigurationProvider":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"SpecifyJobSchedulerIdRange":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 		"WorkerHasAPublicModifier":                {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"RemoveWorkManagerInitializer":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
+		"SpecifyForegroundServiceType":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_work_parity_test.go"}},
 	},
 }
 

@@ -46,6 +46,29 @@ func registerAndroidXWorkProjectChecks() {
 	registerWorkProjectRule(workers.AndroidRule, workers, workers.Confidence(), workers.check)
 }
 
+// registerAndroidXWorkManifestChecks registers the androidx.work:work-runtime 2.12.0 checks that join source with
+// the manifests.
+func registerAndroidXWorkManifestChecks() {
+	initializer := &RemoveWorkManagerInitializerRule{AndroidRule: lintAndroidRule("RemoveWorkManagerInitializer",
+		"Remove androidx.work.WorkManagerInitializer from your AndroidManifest.xml when using on-demand initialization.",
+		ALCCorrectness, ALSFatal, 5)}
+	registerWorkManifestRule(initializer.AndroidRule, initializer, initializer.Confidence(), initializer.check)
+
+	foreground := &SpecifyForegroundServiceTypeRule{AndroidRule: lintAndroidRule("SpecifyForegroundServiceType",
+		"Specify foreground service type", ALCCorrectness, ALSFatal, 5)}
+	registerWorkManifestRule(foreground.AndroidRule, foreground, foreground.Confidence(), foreground.check)
+}
+
+// registerWorkManifestRule registers a WorkManager Lint port in the manifest-source scope.
+func registerWorkManifestRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context)) {
+	api.Register(&api.Rule{
+		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
+		Needs: api.NeedsManifest | api.NeedsParsedFiles, AndroidDeps: uint32(AndroidDepManifest),
+		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Confidence: confidence, Implementation: impl, NeedsLibraryFacts: true, Check: check,
+	})
+}
+
 // registerWorkProjectRule registers a WorkManager Lint port that runs once over every parsed Kotlin and Java file.
 func registerWorkProjectRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context)) {
 	api.Register(&api.Rule{

@@ -670,6 +670,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_work_parity_test.go
+  RemoveWorkManagerInitializer:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
+  SpecifyForegroundServiceType:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_work_parity_test.go
   UsableSpace:
     status: supported
     fixtures:

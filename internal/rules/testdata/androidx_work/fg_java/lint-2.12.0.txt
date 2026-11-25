@@ -1,0 +1,3 @@
+src/com/example/JFg.java:11:9: SpecifyForegroundServiceType: Missing location foregroundServiceType in the AndroidManifest.xml
+src/com/example/JFg.java:12:9: SpecifyForegroundServiceType: Missing phoneCall foregroundServiceType in the AndroidManifest.xml
+src/com/example/JFg.java:13:9: SpecifyForegroundServiceType: Missing mediaPlayback foregroundServiceType in the AndroidManifest.xml

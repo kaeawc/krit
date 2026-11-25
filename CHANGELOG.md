@@ -5,6 +5,10 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_aspect` runs krit with FIR as one cacheable, remotely executable action per Kotlin/Java target
+  (`bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit`), against the deps' compile jars,
+  writing `<target>.krit.sarif` and `.krit.txt`. `--@krit//:config`, `--@krit//:baseline`, `--@krit//:fir` and
+  `--@krit//:fail_on_findings` (a validation action that fails the build on findings) configure it (#1587).
 - Bazel: `krit_test(type_aware = True)` runs the FIR checker and type oracle against each target's Bazel compile
   classpath (`JavaInfo.transitive_compile_time_jars`, including the rules_kotlin stdlib), with Bazel's Java runtime
   toolchain as `JAVA_HOME`, the release's checksum-verified `krit-fir` jar (a lazily fetched repository) and

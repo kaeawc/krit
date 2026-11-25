@@ -1,3 +1,5 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+
 # `bazel run @krit//:krit -- <args>` runs the prebuilt binary for the host.
 alias(
     name = "krit",
@@ -27,4 +29,35 @@ alias(
     name = "krit_fir_jar",
     actual = "@krit_fir//:krit-fir.jar",
     visibility = ["//visibility:public"],
+)
+
+# Settings of krit_aspect (see private/krit_aspect.bzl), e.g.
+#   --@krit//:config=//:krit.yml --@krit//:fail_on_findings
+label_flag(
+    name = "config",
+    build_setting_default = ":no_file",
+    visibility = ["//visibility:public"],
+)
+
+label_flag(
+    name = "baseline",
+    build_setting_default = ":no_file",
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "fail_on_findings",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "fir",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "no_file",
+    srcs = [],
 )

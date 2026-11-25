@@ -1,3 +1,6 @@
-# Type-aware krit_test runs krit-fir on Bazel's Java runtime; pin a hermetic
-# JDK 21 (krit-fir's minimum) instead of whichever JDK the machine has.
+# Type-aware krit_test (a test, target configuration) and krit_aspect (an
+# action, exec configuration) run krit-fir on Bazel's Java runtime; pin a
+# hermetic JDK 21 (krit-fir's minimum) for both instead of whichever JDK the
+# machine has or Bazel's older exec default.
 common --java_runtime_version=remotejdk_21
+common --tool_java_runtime_version=remotejdk_21

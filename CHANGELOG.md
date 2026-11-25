@@ -170,6 +170,16 @@ All notable changes to Krit will be documented in this file.
   collection parameters and same-file subclasses). Both take the state type from an explicit type argument, the
   declared type of the property or delegate it initializes, or the value argument when nothing else constrains it
   (#1463, #1464, #1473).
+- `RememberReturnType`, `OpaqueUnitKey`, `ProduceStateDoesNotAssignValue` (from `runtime-android` 1.12.1) and
+  `RememberSaveableSaverParameter` (from `runtime-saveable-android` 1.12.1), ported under their Lint IDs and checked
+  against the Lint CLI on the same inputs. `RememberReturnType` reports `remember` calls whose calculation returns
+  `Unit` (`remember<Unit>`, an empty or Unit-valued calculation, or a `() -> Unit` value). `OpaqueUnitKey` reports keys
+  of `remember`, `LaunchedEffect`, `DisposableEffect`, `produceState`, `ReusableContent` and `key` that always evaluate
+  to `Unit`, naming the parameter (`key1`, `key2`, `keys`, `key`) as Lint does. `ProduceStateDoesNotAssignValue`
+  reports producers that never assign `value`; calls that might receive the producer scope or a `MutableState` count
+  as assigning. `RememberSaveableSaverParameter` reports a `Saver` passed as the only vararg `inputs` argument, with a
+  semantic autofix that names it `saver =` (or `stateSaver =` when the calculation returns a `MutableState`)
+  (#1474, #1475, #1477, #1483).
 - `UseAndroidAlpha`, `UseAppTint`, `UseSwitchCompatOrMaterialXml`, `UseCompatTextViewDrawableXml` and
   `UsingOnClickInXml`, ported from the Lint checks bundled in `androidx.appcompat:appcompat` 1.8.0 and checked
   against that AAR's `lint.jar` through the Lint CLI on the same files. They run only when the project declares

@@ -685,39 +685,6 @@
             }
           }
         },
-        "AnimatorKeep": {
-          "description": "Missing `@Keep` for Animated Properties [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable AnimatorKeep (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "AnnotationProcessorOnCompilePath": {
           "description": "Annotation Processor on Compile Classpath [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
           "type": "object",
@@ -982,72 +949,6 @@
             }
           }
         },
-        "AssertionSideEffect": {
-          "description": "Assertions with Side Effects [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable AssertionSideEffect (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "AuthLeak": {
-          "description": "Code might contain an auth leak [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable AuthLeak (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "BackButtonResource": {
           "description": "Explicit back button in layout [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -1121,39 +1022,6 @@
           "properties": {
             "active": {
               "description": "Enable BadHostnameVerifier (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "BidiSpoofing": {
-          "description": "Bidirectional text spoofing [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable BidiSpoofing (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -2533,39 +2401,6 @@
             }
           }
         },
-        "DuplicateDivider": {
-          "description": "Unnecessary Divider Copy [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DuplicateDivider (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "DuplicateIdsResource": {
           "description": "Duplicate android:id in layout [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -2639,39 +2474,6 @@
           "properties": {
             "active": {
               "description": "Enable DuplicatePlatformClasses (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "DuplicateStrings": {
-          "description": "Duplicate Strings [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DuplicateStrings (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -2872,39 +2674,6 @@
               "description": "Enable ExactAlarm (default: true).",
               "type": "boolean",
               "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ExpensiveAssertion": {
-          "description": "Expensive Assertions [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ExpensiveAssertion (default: false).",
-              "type": "boolean",
-              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -5877,72 +5646,6 @@
             }
           }
         },
-        "JavascriptInterface": {
-          "description": "Missing @JavascriptInterface on methods [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, oracle:supertypes, resolver]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable JavascriptInterface (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "KaptUsageInsteadOfKsp": {
-          "description": "Kapt usage should be replaced with KSP [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable KaptUsageInsteadOfKsp (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "KeyboardInaccessibleWidget": {
           "description": "Keyboard inaccessible widget [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -6016,39 +5719,6 @@
           "properties": {
             "active": {
               "description": "Enable LabelForResource (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "LaunchActivityFromNotification": {
-          "description": "Notification Launches Services or BroadcastReceivers [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable LaunchActivityFromNotification (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -6315,39 +5985,6 @@
               "description": "Enable LibraryCustomView (default: false).",
               "type": "boolean",
               "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "LifecycleAnnotationProcessorWithJava8": {
-          "description": "Lifecycle Annotation Processor with Java 8 Compile Option [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable LifecycleAnnotationProcessorWithJava8 (default: true).",
-              "type": "boolean",
-              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -7498,39 +7135,6 @@
             }
           }
         },
-        "MutableImplicitPendingIntent": {
-          "description": "Mutable Implicit PendingIntent is disallowed [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MutableImplicitPendingIntent (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "MutatingSharedPrefs": {
           "description": "Mutating an Immutable SharedPrefs Set [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]",
           "type": "object",
@@ -7973,39 +7577,6 @@
             }
           }
         },
-        "NotShrinkingResources": {
-          "description": "Use resource shrinking to optimize your resources [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable NotShrinkingResources (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "NotSiblingResource": {
           "description": "RelativeLayout Invalid Constraints [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -8046,39 +7617,6 @@
           "properties": {
             "active": {
               "description": "Enable NotificationId0 (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "NotificationTrampoline": {
-          "description": "Notification Trampolines [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable NotificationTrampoline (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -8868,39 +8406,6 @@
             }
           }
         },
-        "ProguardAndroidTxtUsage": {
-          "description": "Use proguard-android-optimize.txt to enable optimizations [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ProguardAndroidTxtUsage (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "ProguardSplit": {
           "description": "Proguard config should be split [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: line-pass]",
           "type": "object",
@@ -8976,39 +8481,6 @@
               "description": "Enable ProtectedPermissionsManifest (default: false).",
               "type": "boolean",
               "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ProviderReadPermissionOnly": {
-          "description": "Provider with readPermission only and implemented write APIs [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ProviderReadPermissionOnly (default: true).",
-              "type": "boolean",
-              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -10098,39 +9570,6 @@
               "description": "Enable SdCardPath (default: false).",
               "type": "boolean",
               "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "SecretInSource": {
-          "description": "Secret in source code [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable SecretInSource (default: true).",
-              "type": "boolean",
-              "default": true
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -11310,39 +10749,6 @@
             }
           }
         },
-        "SyntheticAccessor": {
-          "description": "Synthetic Accessor [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable SyntheticAccessor (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "SystemPermission": {
           "description": "Using system app permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -11515,39 +10921,6 @@
           "properties": {
             "active": {
               "description": "Enable TextViewEditsResource (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "TileProviderPermissions": {
-          "description": "TileProvider does not set permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable TileProviderPermissions (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -12036,39 +11409,6 @@
             }
           }
         },
-        "UnnecessaryArrayInit": {
-          "description": "Unnecessary array initialization [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnnecessaryArrayInit (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "UnnecessaryRequiredFeature": {
           "description": "Unnecessary required feature [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -12201,105 +11541,6 @@
             }
           }
         },
-        "UnsafeImplicitIntentLaunch": {
-          "description": "Implicit intent matches an internal non-exported component [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnsafeImplicitIntentLaunch (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "UnsafeIntentLaunch": {
-          "description": "Launched Unsafe Intent [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnsafeIntentLaunch (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "UnsafeNativeCodeLocation": {
-          "description": "Native code outside library directory [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnsafeNativeCodeLocation (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "UnsafeProtectedBroadcastReceiverManifest": {
           "description": "Exported receiver for protected broadcast without permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -12340,39 +11581,6 @@
           "properties": {
             "active": {
               "description": "Enable UnsafeRepeatOnLifecycleDetector (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "UnsanitizedFilenameFromContentProvider": {
-          "description": "Trusting ContentProvider filenames without any sanitization [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnsanitizedFilenameFromContentProvider (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -13950,39 +13158,6 @@
             }
           }
         },
-        "WearableBindListener": {
-          "description": "Usage of Android Wear BIND_LISTENER is deprecated [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable WearableBindListener (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "WebViewAllowContentAccess": {
           "description": "WebSettings.allowContentAccess explicitly enabled [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -14770,6 +13945,18 @@
       "properties": {
         "enabled": {
           "description": "Set false to stop krit reading lint.xml and Gradle lint { disable } blocks. When enabled, krit's ports of Android Lint issues the project ignores stay off unless a rule's active is set here.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "ktlintEditorConfig": {
+      "description": "Import of the project's ktlint and line-length .editorconfig settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_<rule> = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.",
           "type": "boolean",
           "default": true
         }
@@ -17124,39 +16311,6 @@
             }
           }
         },
-        "ConfigurationScreenWidthHeight": {
-          "description": "Detects Configuration.screenWidthDp/screenHeightDp read in composition instead of LocalWindowInfo.current.containerSize. [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]\nCaveat: The receiver must be shown to be a Configuration (LocalConfiguration.current, resources.configuration, or a parameter or val declared or initialized as one).\nCaveat: Runs only in projects with an AndroidManifest.xml, which it needs for Lint's Wear OS exemption.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ConfigurationScreenWidthHeight (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "CoroutineCreationDuringComposition": {
           "description": "Detects launch, async and launchIn calls made directly in composition instead of inside a LaunchedEffect. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -17256,402 +16410,6 @@
             }
           }
         },
-        "InvalidColorHexValue": {
-          "description": "Detects Compose Color(0x...) hex values that are neither 6 nor 8 hex digits long. [precision: ast-backed] [noisiness: normal]\nCaveat: Only Color(...) calls whose Color name the file binds to androidx.compose.ui.graphics are checked.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable InvalidColorHexValue (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "InvalidLanguageTagDelimiter": {
-          "description": "Detects Compose Locale and LocaleList language tags that use _ instead of - between subtags. [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Language tags are evaluated from string literals, + concatenation and same-file vals and constants; constants declared in other files are not followed.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable InvalidLanguageTagDelimiter (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "LocalContextConfigurationRead": {
-          "description": "Detects LocalContext.current.resources.configuration reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable LocalContextConfigurationRead (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "LocalContextGetResourceValueCall": {
-          "description": "Detects LocalContext.current.getString/getColor/getDrawable/... calls, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable LocalContextGetResourceValueCall (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "LocalContextResourcesRead": {
-          "description": "Detects LocalContext.current.resources reads, which are not updated when the Configuration changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A Context or Resources value is followed only through same-file vals and properties initialized to LocalContext.current (or its resources).",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable LocalContextResourcesRead (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MissingColorAlphaChannel": {
-          "description": "Detects Compose Color(0xRRGGBB) hex values without an alpha channel, which are fully transparent. [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Only Color(...) calls whose Color name the file binds to androidx.compose.ui.graphics are checked.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MissingColorAlphaChannel (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ModifierFactoryExtensionFunction": {
-          "description": "Detects functions returning a Modifier that are not extensions on Modifier, so they cannot be chained. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ModifierFactoryExtensionFunction (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ModifierFactoryReturnType": {
-          "description": "Detects Modifier factory functions that return a Modifier subtype instead of Modifier. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ModifierFactoryReturnType (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ModifierFactoryUnreferencedReceiver": {
-          "description": "Detects Modifier extension factories whose body never uses the receiver Modifier. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.\nCaveat: An unqualified call that may bind the receiver implicitly (any lowercase function not known to be top-level) counts as a use, so receivers used only through such calls are not reported.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ModifierFactoryUnreferencedReceiver (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ModifierNodeInspectableProperties": {
-          "description": "Detects ModifierNodeElement classes that do not override inspectableProperties() for the layout inspector. [precision: ast-backed] [noisiness: normal]\nCaveat: A class whose superclass chain leaves the file before reaching ModifierNodeElement is not checked.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ModifierNodeInspectableProperties (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "ModifierParameter": {
-          "description": "Detects Modifier parameters of @Composable functions that are not named modifier, typed Modifier, defaulted to Modifier, or the first optional parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: Expression-bodied @Composable functions without a declared return type are only checked when the body is Unit or a same-file function call: otherwise their return type needs type inference.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable ModifierParameter (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MultipleAwaitPointerEventScopes": {
-          "description": "Detects several awaitPointerEventScope blocks in one pointerInput or declaration, which can drop input events. [precision: ast-backed] [noisiness: normal]\nCaveat: A pointerInput call bounds the count, as Lint's Modifier-typed expression does; other Modifier-typed expressions between the call and its declaration are not recognized.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MultipleAwaitPointerEventScopes (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "MutableCollectionMutableState": {
           "description": "Detects mutableStateOf holding a mutable collection, whose in-place changes the state does not observe. [precision: ast-backed] [noisiness: normal]\nCaveat: The collection type is taken from an explicit type argument, the declared type of the property it initializes, or a mutable-collection factory, constructor or same-file declaration passed as the value.",
           "type": "object",
@@ -17685,13 +16443,46 @@
             }
           }
         },
-        "NonObservableLocale": {
-          "description": "Detects Locale.getDefault()/LocaleList.getAdjustedDefault() in composition, which does not observe locale changes. [precision: ast-backed] [noisiness: normal]\nCaveat: Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions, the stdlib scope functions and forEach/forEachIndexed/find/sumOf, but sees through map, filter, fold and the other collection operations only when the receiver is proven to be an Iterable, Array or Map.",
+        "OpaqueUnitKey": {
+          "description": "Detects remember/LaunchedEffect/DisposableEffect/produceState/ReusableContent/key keys that always evaluate to Unit. [precision: ast-backed] [noisiness: normal]\nCaveat: A key counts as Unit only when it is a call of a same-file Unit function, println, a same-file Unit property or an if/when whose branches all are.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable NonObservableLocale (default: true).",
+              "description": "Enable OpaqueUnitKey (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ProduceStateDoesNotAssignValue": {
+          "description": "Detects produceState producers that never assign value, so the state never changes. [precision: ast-backed] [noisiness: normal]\nCaveat: A producer that calls a function which might receive the ProduceStateScope or a MutableState (an implicit-receiver call krit cannot resolve, or one passed `this` or a value of unknown type) is treated as assigning value.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ProduceStateDoesNotAssignValue (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -17751,13 +16542,46 @@
             }
           }
         },
-        "ReturnFromAwaitPointerEventScope": {
-          "description": "Detects results of awaitPointerEventScope that are returned or stored, which can drop input events. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as a PointerInputScope handler only through a declared suspend PointerInputScope receiver type on its variable or parameter, or an enclosing pointerInput/coroutineScope call.",
+        "RememberReturnType": {
+          "description": "Detects remember calls whose calculation returns Unit, which remembers nothing; use SideEffect or a MutableState instead. [precision: ast-backed] [noisiness: normal]\nCaveat: The calculation's Unit type is proven only from `remember\u003cUnit\u003e`, assignments and loops, `Unit`, println, same-file Unit functions and `() -\u003e Unit` values; library calls returning Unit are not recognized.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable ReturnFromAwaitPointerEventScope (default: true).",
+              "description": "Enable RememberReturnType (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RememberSaveableSaverParameter": {
+          "description": "Detects a Saver passed to rememberSaveable's vararg inputs instead of the saver parameter. [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: The argument must be proven to be a Saver: Saver(...), listSaver, mapSaver, autoSaver, an object : Saver, or a same-file declaration of a Saver type.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RememberSaveableSaverParameter (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -17791,138 +16615,6 @@
           "properties": {
             "active": {
               "description": "Enable StateFlowValueCalledInComposition (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "SuspiciousCompositionLocalModifierRead": {
-          "description": "Detects CompositionLocal reads in Modifier.Node onAttach/onDetach, constructors or lazy blocks. [precision: ast-backed] [noisiness: normal]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable SuspiciousCompositionLocalModifierRead (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "SuspiciousModifierThen": {
-          "description": "Detects Modifier.then(factory()) where the factory chains on the implicit receiver, adding it twice. [precision: ast-backed] [noisiness: normal]\nCaveat: Only implicit-receiver factories declared in the same file or known Compose Modifier factories are recognized; calls inside a lambda in the then() argument are not checked.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable SuspiciousModifierThen (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "TestManifestGradleConfiguration": {
-          "description": "Detects androidx.compose.ui:ui-test-manifest declared on a configuration other than debugImplementation. [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]\nCaveat: As in Lint, only a bare string coordinate is read: version-catalog accessors, platform(...), map notation and declarations with a configuration closure are not checked.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable TestManifestGradleConfiguration (default: true).",
-              "type": "boolean",
-              "default": true
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "UnnecessaryComposedModifier": {
-          "description": "Detects Modifier.composed factories that call no @Composable function, which only adds cost. [precision: ast-backed] [noisiness: normal]\nCaveat: A factory that calls a function declared in another file (other than known Compose Modifier factories and Kotlin stdlib functions), reads `.current`, or reads a property of an object other than Modifier, Color, Alignment or Arrangement is assumed to call a @Composable function, so it is not reported.",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable UnnecessaryComposedModifier (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -22291,18 +20983,6 @@
         }
       }
     },
-    "ktlintEditorConfig": {
-      "description": "Import of the project's ktlint and line-length .editorconfig settings.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "description": "Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_\u003crule\u003e = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.",
-          "type": "boolean",
-          "default": true
-        }
-      }
-    },
     "libraries": {
       "description": "Configuration for the libraries ruleset.",
       "type": "object",
@@ -25299,7 +23979,7 @@
           }
         },
         "DoubleMutabilityForCollection": {
-          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: ast-backed] [noisiness: normal]",
+          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -26527,7 +25207,7 @@
           }
         },
         "UnsafeCallOnNullableType": {
-          "description": "Detects usage of the !! not-null assertion operator which may throw NullPointerException. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: oracle:expr-type, oracle:members, oracle:supertypes, resolver]",
+          "description": "Detects usage of the !! not-null assertion operator which may throw NullPointerException. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -29287,7 +27967,7 @@
           }
         },
         "HardcodedSecretKey": {
-          "description": "SecretKeySpec uses literal key bytes in production source [precision: ast-backed] [noisiness: normal]",
+          "description": "SecretKeySpec uses literal key bytes [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -29821,7 +28501,7 @@
           }
         },
         "StaticIv": {
-          "description": "Static IV literal in production source [precision: ast-backed] [noisiness: normal]",
+          "description": "Static IV literal [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -30086,1385 +28766,6 @@
         },
         "active": {
           "description": "Enable or disable the entire security ruleset.",
-          "type": "boolean",
-          "default": true
-        },
-        "excludes": {
-          "description": "Glob patterns for paths to exclude from every rule in the ruleset.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "includes": {
-          "description": "Glob patterns every rule in the ruleset is limited to.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "slack-lint": {
-      "description": "Configuration for the slack-lint ruleset.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "MoshiUsageAdaptedByRequiresAdapter": {
-          "description": "@AdaptedBy.adapter must be a JsonAdapter or JsonAdapter.Factory. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageAdaptedByRequiresAdapter (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageAdaptedByRequiresKeep": {
-          "description": "Adapters targeted by @AdaptedBy must have @Keep. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageAdaptedByRequiresKeep (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageArray": {
-          "description": "Prefer List over Array. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageArray (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageBlankGenerator": {
-          "description": "Don't use blank JsonClass.generator values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageBlankGenerator (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageBlankJsonName": {
-          "description": "Don't use blank names in @Json. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageBlankJsonName (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageBlankTypeLabel": {
-          "description": "Moshi-sealed requires a type label specified after the 'sealed:' prefix. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageBlankTypeLabel (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageClassVisibility": {
-          "description": "@JsonClass-annotated types must be public, package-private, or internal. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageClassVisibility (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageDoubleClassAnnotation": {
-          "description": "Only use one of @AdaptedBy or @JsonClass. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageDoubleClassAnnotation (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageDoubleTypeLabel": {
-          "description": "Only use one of @TypeLabel or @DefaultObject. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageDoubleTypeLabel (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageDuplicateJsonName": {
-          "description": "Duplicate JSON names are errors as JSON does not allow duplicate keys in objects. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageDuplicateJsonName (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumAnnotatedUnknown": {
-          "description": "UNKNOWN members in @JsonClass-annotated enums should not be annotated with @Json [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumAnnotatedUnknown (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumCasing": {
-          "description": "Consider using @Json(name = ...) rather than lower casing. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumCasing (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumJsonClassGenerated": {
-          "description": "Enums annotated with @JsonClass must not set generateAdapter to true. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumJsonClassGenerated (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumMissingJsonClass": {
-          "description": "Enums serialized with Moshi should be annotated with @JsonClass. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumMissingJsonClass (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumMissingUnknown": {
-          "description": "Enums serialized with Moshi must reserve the first member as UNKNOWN. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumMissingUnknown (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumPropertyCouldBeMoshi": {
-          "description": "Consider making enum properties also use Moshi. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumPropertyCouldBeMoshi (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageEnumPropertyDefaultUnknown": {
-          "description": "Suspicious default value to 'UNKNOWN' for a Moshi enum. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageEnumPropertyDefaultUnknown (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageGenerateAdapterShouldBeTrue": {
-          "description": "JsonClass.generateAdapter must be true in order for Moshi code gen to run. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageGenerateAdapterShouldBeTrue (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageGenericSealedSubtype": {
-          "description": "Sealed subtypes used with moshi-sealed cannot be generic. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageGenericSealedSubtype (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageInappropriateTypeLabel": {
-          "description": "Inappropriate @TypeLabel or @DefaultObject annotation. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageInappropriateTypeLabel (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageMissingPrimary": {
-          "description": "@JsonClass-annotated types must have a primary constructor or be sealed. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageMissingPrimary (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageMissingTypeLabel": {
-          "description": "Sealed Moshi subtypes must be annotated with @TypeLabel or @DefaultObject. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageMissingTypeLabel (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageMutableCollections": {
-          "description": "Use immutable collections rather than mutable versions. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageMutableCollections (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageNonMoshiClassCollection": {
-          "description": "Concrete Collection type is not natively supported by Moshi. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageNonMoshiClassCollection (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageNonMoshiClassMap": {
-          "description": "Concrete Map type is not natively supported by Moshi. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageNonMoshiClassMap (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageNonMoshiClassPlatform": {
-          "description": "Platform type is not natively supported by Moshi. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageNonMoshiClassPlatform (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageObject": {
-          "description": "Object types cannot be annotated with @JsonClass. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageObject (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageParamNeedsInit": {
-          "description": "Constructor non-property parameters in Moshi classes must have default values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageParamNeedsInit (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsagePrivateConstructor": {
-          "description": "Constructors in Moshi classes cannot be private. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsagePrivateConstructor (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsagePrivateConstructorProperty": {
-          "description": "Constructor parameter properties in Moshi classes cannot be private. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsagePrivateConstructorProperty (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageQualifierRetention": {
-          "description": "JsonQualifiers must have RUNTIME retention. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageQualifierRetention (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageQualifierTarget": {
-          "description": "JsonQualifiers must include FIELD targeting. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageQualifierTarget (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageRedundantJsonName": {
-          "description": "Json.name with the same value as the property/enum member name is redundant. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageRedundantJsonName (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageRedundantSiteTarget": {
-          "description": "Use of site-targets on @Json are redundant. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageRedundantSiteTarget (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageSealedMustBeSealed": {
-          "description": "Moshi-sealed can only be applied to 'sealed' types. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageSealedMustBeSealed (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageSerializedName": {
-          "description": "Use Moshi's @Json rather than Gson's @SerializedName. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageSerializedName (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageSnakeCase": {
-          "description": "Consider using @Json(name = ...) rather than direct snake casing. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageSnakeCase (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageTransientNeedsInit": {
-          "description": "Transient constructor properties must have default values. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageTransientNeedsInit (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageUnsupportedType": {
-          "description": "This type cannot be annotated with @JsonClass. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageUnsupportedType (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageUseData": {
-          "description": "Model classes should be immutable data classes. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageUseData (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "MoshiUsageVarProperty": {
-          "description": "Moshi properties should be immutable. [precision: project-structure-aware] [noisiness: normal] [capabilities: parsed-files]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable MoshiUsageVarProperty (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "active": {
-          "description": "Enable or disable the entire slack-lint ruleset.",
           "type": "boolean",
           "default": true
         },
@@ -35233,7 +32534,7 @@
           }
         },
         "UselessCallOnNotNull": {
-          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, oracle:members, oracle:supertypes, resolver]",
+          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

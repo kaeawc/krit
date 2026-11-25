@@ -63,6 +63,11 @@ func (r *defaultResolver) buildScopesFlat(idx uint32, file *scanner.File, scope 
 
 func (r *defaultResolver) buildExecutableScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	if t := file.FlatType(idx); t == "getter" || t == "setter" {
+		if prop := flatAccessorProperty(file, idx); prop != 0 {
+			r.declareExtensionReceiverFlat(prop, file, childScope, it)
+		}
+	}
 	flatForEachRelevantScopeChild(file, idx, func(child uint32) {
 		r.buildScopesFlat(child, file, childScope, it)
 	})
@@ -99,6 +104,7 @@ func (r *defaultResolver) buildFunctionDeclScopeFlat(idx uint32, file *scanner.F
 		r.declareParamsFlat(ctxParams, file, scope, it)
 	}
 	childScope := scope.NewScopeForNode(span)
+	r.declareExtensionReceiverFlat(idx, file, childScope, it)
 	r.indexFunctionParamsFlat(idx, file, childScope, it)
 	if bodyIdx := flatFindNamedChildOfType(file, idx, "function_body"); bodyIdx != 0 {
 		flatForEachRelevantScopeChild(file, bodyIdx, func(child uint32) {
@@ -107,8 +113,67 @@ func (r *defaultResolver) buildFunctionDeclScopeFlat(idx uint32, file *scanner.F
 	}
 }
 
+// declareExtensionReceiverFlat declares `this` as the extension receiver of a function or property
+// declaration, so inside `fun Config?.f()` it is a `Config?` rather than the enclosing class.
+func (r *defaultResolver) declareExtensionReceiverFlat(decl uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
+	recv := flatExtensionReceiverTypeNode(file, decl)
+	if recv == 0 {
+		return
+	}
+	typ := r.resolveTypeNodeFlat(recv, file, it)
+	if typ == nil {
+		typ = UnknownType()
+	}
+	if file.FlatType(recv) == "nullable_type" {
+		typ.Nullable = true
+	}
+	scope.Declare("this", typ)
+	scope.Declare(implicitReceiverEntry, typ)
+}
+
+// flatAccessorProperty returns the property a getter or setter belongs to, or 0. An accessor on its own
+// line parses as a sibling that follows the property_declaration rather than as its child.
+func flatAccessorProperty(file *scanner.File, accessor uint32) uint32 {
+	if parent, ok := file.FlatParent(accessor); ok && file.FlatType(parent) == "property_declaration" {
+		return parent
+	}
+	for prev, ok := file.FlatPrevSibling(accessor); ok; prev, ok = file.FlatPrevSibling(prev) {
+		switch file.FlatType(prev) {
+		case "property_declaration":
+			return prev
+		case "getter", "setter":
+			continue
+		}
+		if file.FlatIsNamed(prev) {
+			return 0
+		}
+	}
+	return 0
+}
+
+// flatExtensionReceiverTypeNode returns the receiver type node of an extension function or property, or 0.
+// The grammar has no receiver node: the receiver is the type child directly followed by `.`, before the name.
+func flatExtensionReceiverTypeNode(file *scanner.File, decl uint32) uint32 {
+	for child := file.FlatFirstChild(decl); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "simple_identifier", "variable_declaration", "multi_variable_declaration", "function_value_parameters":
+			return 0
+		case "user_type", "nullable_type", "function_type", "parenthesized_type", "type_identifier":
+			if next := file.FlatNextSib(child); next != 0 && file.FlatType(next) == "." {
+				return child
+			}
+		}
+	}
+	return 0
+}
+
 func (r *defaultResolver) buildLambdaScopeFlat(idx uint32, file *scanner.File, scope *ScopeTable, it *ImportTable) {
 	childScope := scope.NewScopeForNode(flatScopeSpan{start: file.FlatStartByte(idx), end: file.FlatEndByte(idx)})
+	// Only `this` changes: unlike a declared extension, the lambda keeps resolving bare names outward,
+	// because the receiver's members are rarely known and shadowing every outer name loses real findings.
+	if recv := r.scopeFunctionReceiverFlat(idx, file, scope); recv != nil {
+		childScope.Declare("this", recv)
+	}
 	if params := flatFindNamedChildOfType(file, idx, "lambda_parameters"); params != 0 {
 		r.indexLambdaParamsFlat(params, file, childScope, it)
 	} else {
@@ -266,7 +331,8 @@ func (r *defaultResolver) buildIfExpressionScopesFlat(idx uint32, file *scanner.
 				if fromPrefix[name] && !alwaysExits {
 					continue
 				}
-				scope.SetSmartCastType(name, typ)
+				// The guard narrows x only after the if-statement, not for earlier uses in the scope.
+				scope.SetSmartCastTypeAfter(name, typ, file.FlatEndByte(idx))
 			}
 		}
 		if elseBody != 0 {
@@ -498,8 +564,36 @@ func (r *defaultResolver) extractNullCheckFromIfFlatByIdx(ifIdx uint32, file *sc
 		return "", false, false, false
 	}
 
-	condNode := flatFirstDescendantOfType(file, condRoot, "equality_expression")
-	if condNode == 0 || file.FlatChildCount(condNode) < 3 {
+	// `x != null` narrows the then-branch only when it is the whole condition: under `||`, `!` or a call
+	// argument it proves nothing. Each `x == null` operand of a top-level `||` is false when the condition
+	// is, so it still narrows x after an early exit.
+	condNode := astflat.UnwrapParenExpr(file, condRoot)
+	if file.FlatType(condNode) == "disjunction_expression" {
+		return flatDisjunctionEqualsNullOperand(file, condNode), false, true, true
+	}
+	return flatNullCheckOperand(file, condNode)
+}
+
+// flatDisjunctionEqualsNullOperand returns the first `x == null` operand of a `||` chain, or "".
+func flatDisjunctionEqualsNullOperand(file *scanner.File, disj uint32) string {
+	for i := 0; i < file.FlatNamedChildCount(disj); i++ {
+		operand := astflat.UnwrapParenExpr(file, file.FlatNamedChild(disj, i))
+		if file.FlatType(operand) == "disjunction_expression" {
+			if name := flatDisjunctionEqualsNullOperand(file, operand); name != "" {
+				return name
+			}
+			continue
+		}
+		if name, _, isNull, ok := flatNullCheckOperand(file, operand); ok && isNull {
+			return name
+		}
+	}
+	return ""
+}
+
+// flatNullCheckOperand reads `x != null` / `x == null` (either operand order) from an equality_expression.
+func flatNullCheckOperand(file *scanner.File, condNode uint32) (string, bool, bool, bool) {
+	if condNode == 0 || file.FlatType(condNode) != "equality_expression" || file.FlatChildCount(condNode) < 3 {
 		return "", false, false, false
 	}
 
@@ -925,6 +1019,18 @@ func (r *defaultResolver) indexLambdaParamsFlat(paramsIdx uint32, file *scanner.
 			continue
 		}
 		switch file.FlatType(param) {
+		case "multi_variable_declaration":
+			// `{ (items, count) -> }`: each component shadows outer names; its type is not tracked.
+			for j := 0; j < file.FlatNamedChildCount(param); j++ {
+				component := file.FlatNamedChild(param, j)
+				if file.FlatType(component) != "variable_declaration" {
+					continue
+				}
+				if name := flatFirstIdentifierText(file, component); name != "" && name != "_" {
+					scope.Declare(name, r.resolveParamTypeFlat(component, file, it))
+					handled = true
+				}
+			}
 		case "variable_declaration", "simple_identifier":
 			nameIdx := flatFirstDescendantOfType(file, param, "simple_identifier")
 			var name string
@@ -1027,7 +1133,10 @@ func flatForEachRelevantScopeChild(file *scanner.File, idx uint32, fn func(child
 			"control_structure_body", "statements", "function_body",
 			"catch_block", "finally_block", "binary_expression",
 			"conjunction_expression", "disjunction_expression",
-			"call_suffix", "lambda_argument", "annotated_lambda":
+			"call_suffix", "lambda_argument", "annotated_lambda",
+			// Lambdas also sit in returned values, call chains, parenthesized arguments and assignments.
+			"jump_expression", "navigation_expression", "value_arguments", "value_argument",
+			"parenthesized_expression", "assignment", "infix_expression":
 			fn(child)
 		}
 	}
@@ -1137,9 +1246,91 @@ func (r *defaultResolver) inferImplicitItTypeFlat(lambdaIdx uint32, file *scanne
 			Name:     receiverType.TypeArgs[0].Name,
 			FQN:      receiverType.TypeArgs[0].FQN,
 			Kind:     receiverType.TypeArgs[0].Kind,
+			Nullable: receiverType.TypeArgs[0].Nullable,
 			Resolved: receiverType.TypeArgs[0].Resolved,
 		})
 	}
+}
+
+// flatLambdaCall returns the call a trailing lambda belongs to (`x.run { }`, `with(x) { }`), or 0.
+func flatLambdaCall(file *scanner.File, lambda uint32) uint32 {
+	for current, ok := file.FlatParent(lambda); ok; current, ok = file.FlatParent(current) {
+		switch file.FlatType(current) {
+		case "annotated_lambda", "call_suffix":
+			continue
+		case "call_expression":
+			return current
+		}
+		return 0
+	}
+	return 0
+}
+
+// scopeFunctionReceiverFlat returns the type `this` has inside a `with(x) { }`, `x.run { }` or
+// `x.apply { }` lambda: x's type, non-null after `x?.run`, and unknown when x cannot be resolved yet. It
+// returns nil for any other lambda.
+func (r *defaultResolver) scopeFunctionReceiverFlat(lambda uint32, file *scanner.File, scope *ScopeTable) *ResolvedType {
+	call := flatLambdaCall(file, lambda)
+	if call == 0 {
+		return nil
+	}
+	callee := file.FlatChild(call, 0)
+	var recv uint32
+	safeCall := false
+	switch file.FlatType(callee) {
+	case "call_expression":
+		// `with(x) { }` parses as a call of the call `with(x)`.
+		if name := file.FlatChild(callee, 0); file.FlatType(name) != "simple_identifier" || file.FlatNodeText(name) != "with" {
+			return nil
+		}
+		suffix := flatFindNamedChildOfType(file, callee, "call_suffix")
+		args := flatFindNamedChildOfType(file, suffix, "value_arguments")
+		if suffix == 0 || args == 0 || file.FlatNamedChildCount(args) != 1 {
+			return UnknownType()
+		}
+		arg := file.FlatNamedChild(args, 0)
+		if file.FlatNamedChildCount(arg) != 1 {
+			return UnknownType()
+		}
+		recv = file.FlatNamedChild(arg, 0)
+	case "navigation_expression":
+		switch flatLastIdentifierText(file, callee) {
+		case "run", "apply":
+		default:
+			return nil
+		}
+		recv = flatNavigationReceiver(file, callee)
+		suffix := astflat.LastNamedChild(file, callee)
+		safeCall = file.FlatType(suffix) == "navigation_suffix" && file.FlatHasChildOfType(suffix, "?.")
+	default:
+		return nil
+	}
+	typ := r.resolveDuringScopeBuildFlat(recv, file, scope)
+	if typ == nil || typ.Kind == TypeUnknown {
+		return UnknownType()
+	}
+	result := *typ
+	if safeCall && result.Nullable {
+		result.Nullable = false
+		if result.Kind == TypeNullable {
+			result.Kind = TypeClass
+		}
+	}
+	return &result
+}
+
+// resolveDuringScopeBuildFlat resolves expr while its file's scopes are still being built: a bare name
+// is looked up in the partial scope chain, anything else through the resolver.
+func (r *defaultResolver) resolveDuringScopeBuildFlat(expr uint32, file *scanner.File, scope *ScopeTable) *ResolvedType {
+	if expr == 0 {
+		return nil
+	}
+	if file.FlatType(expr) == "simple_identifier" {
+		if typ := scope.LookupAt(file.FlatNodeText(expr), file.FlatStartByte(expr)); typ != nil {
+			return typ
+		}
+	}
+	return r.ResolveFlatNode(expr, file)
 }
 
 func (r *defaultResolver) inferPairTripleArgsFlat(callIdx uint32, file *scanner.File, it *ImportTable) []*ResolvedType {

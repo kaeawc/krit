@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 15, 21, 25, 45, 55, 61, 65, 74, 80, 84, 88
+// go-lines: 15, 21, 25, 45, 55, 61, 65, 74, 84, 88
 // The compared operand's type decides, whatever the expression's shape. Go
 // skips a non-nullable operand only when it can resolve it as a plain name;
 // FIR reads the operand's resolved type.
@@ -74,8 +74,8 @@ fun String?.nullableReceiver() {
     <!UseRequireNotNull!>require(this != null)<!>
 }
 
-// Divergence: Go reports this because it does not resolve `this`; the
-// receiver is a non-null String.
+// Both skip: Go types an extension's `this` as its receiver, a non-null
+// String.
 fun String.nonNullReceiver() {
     require(this != null)
 }

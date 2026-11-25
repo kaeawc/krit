@@ -183,6 +183,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"IntentReset":                             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
 		"IntentWithNullActionLaunch":              {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_intent_reset_test.go"}},
 		"BinderGetCallingInMainThread":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
+		"ComposableNaming":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_compose_runtime_parity_test.go"}},
+		"CompositionLocalNaming":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_compose_runtime_parity_test.go"}},
 		"MutatingSharedPrefs":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_parcel_binder_test.go"}},
 		"ObsoleteSdkInt":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_obsolete_sdk_int_test.go"}},
 		"ConstantLocale":                          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_source_hygiene_test.go"}},
@@ -199,6 +201,11 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"UnspecifiedRegisterReceiverFlag":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_register_receiver_test.go"}},
 		"SSLCertificateSocketFactoryGetInsecure":  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_calls_test.go"}},
 		"SSLCertificateSocketFactoryCreateSocket": {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_calls_test.go"}},
+		"UseSupportActionBar":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatLoadingForColorStateLists":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatLoadingForDrawables":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatTextViewDrawableApis":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseSwitchCompatOrMaterialCode":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
 	},
 }
 

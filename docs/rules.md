@@ -147,3 +147,59 @@ guidance.
   into FIR helper facts when source analysis is not enough.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.
+
+## AndroidX Library Lint Checks
+
+Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of
+them run only when the project declares the library (or one that brings it, such as Material for appcompat, or
+appcompat or Material for fragment); a library declared through buildSrc constants or a convention plugin, or that
+arrives only transitively, is not seen, so those checks stay silent there.
+
+`androidx.appcompat:appcompat` 1.8.0:
+
+- `UseAndroidAlpha` reports `app:alpha` on a `<selector>` `<item>` that has `android:color` but no `android:alpha`,
+  in any resource folder. Lint reports an item of a nested `<selector>` once per enclosing selector at the same
+  position; krit reports it once.
+- `UseAppTint`, `UseSwitchCompatOrMaterialXml` and `UseCompatTextViewDrawableXml` match the exact layout tags
+  `ImageView`/`ImageButton`, `Switch` and `TextView`, as Lint does, so `android.widget.Switch` or
+  `AppCompatTextView` tags are not reported. Attributes are matched by namespace URI, not by prefix.
+- `UsingOnClickInXml` reports an `onClick` attribute in any namespace whose value is not a data binding expression,
+  when minSdk is below 23. When the build does not show minSdk (for example, a convention plugin sets it), Lint
+  assumes API 1 and reports; krit abstains.
+
+`androidx.fragment` 1.9.1 and `androidx.activity:activity` 1.13.0:
+
+- `FragmentGradleConfiguration` reports a bare string dependency on `androidx.fragment:fragment-testing` or
+  `fragment-testing-manifest` declared on any configuration but `debugImplementation`, at the statement. Both testing
+  artifacts register this ID, so Lint reports a `fragment-testing-manifest` line twice; krit reports it once. Lint's
+  detector also reports any other assignment of such a string (an `ext` constant, a local variable, a
+  `testInstrumentationRunner` value with the same prefix); krit only reads the `dependencies` closure.
+- `FragmentTagUsage` reports the tag name of each `<fragment>` in a layout. Navigation graph destinations are not
+  layouts and are not reported.
+- `InvalidFragmentVersionForActivityResult` reports each `registerForActivityResult(...)` call (Lint matches the name
+  only) in a module whose `androidx.fragment:fragment` dependency is older than 1.3.0. Krit reads the module's build
+  file and its version catalog; a fragment version that only arrives transitively is a known false negative until
+  dependency artifacts are analyzed (#1120). Lint compares versions as strings, so it reports `1.10.0` as older than
+  `1.3.0`; krit compares the numbers. Lint reports a call once per old declaration; krit once.
+- `InvalidUseOfOnBackPressed` reports `onBackPressed()` inside a method named `handledOnBackPressed`, exactly as Lint
+  does. `OnBackPressedCallback`'s method is `handleOnBackPressed`, so the shipped detector does not fire inside a real
+  callback; krit keeps Lint's verdicts rather than reporting what Lint does not.
+
+`androidx.appcompat:appcompat` 1.8.0 source checks (Kotlin and Java):
+
+- `UseSupportActionBar` reports `setActionBar(toolbar)` whose receiver (explicit, `this`, or the enclosing class)
+  extends `AppCompatActivity`.
+- `UseCompatLoadingForColorStateLists` reports `Resources.getColorStateList(int)`. The message names
+  `ContextCompat.getColorStateList()` from minSdk 24 and `AppCompatResources.getColorStateList()` below it, or when
+  minSdk is unknown, as Lint does. `Context.getColorStateList(int)` is not reported.
+- `UseCompatLoadingForDrawables` reports `Context.getDrawable(int)`, `Resources.getDrawable(int)` and
+  `Resources.getDrawable(int, Theme)`.
+- `UseCompatTextViewDrawableApis` reports `setCompoundDrawableTintList` / `setCompoundDrawableTintMode` on a `TextView`
+  and the Kotlin property assignments `compoundDrawableTintList = …` / `compoundDrawableTintMode = …` that call them.
+- `UseSwitchCompatOrMaterialCode` reports properties, locals, fields and parameters of type `android.widget.Switch`
+  (declared, constructed, cast or from `findViewById<Switch>`) and classes that extend it.
+
+Receivers are proven from declarations, imports, constructor calls, the resolver's class hierarchy, Java facts and the
+type oracle when it runs. Where Lint's compiler resolution sees further, krit abstains: an implicit receiver inside
+`apply`/`run`/`with` whose subject type is not proven (for example `holder.label.apply { … }`, or a call that Kotlin
+resolves past the subject to the enclosing class) is not reported.

@@ -18,9 +18,11 @@ Krit ships from `v*` tags:
   release is created as a draft, each asset upload is retried up to three
   times, and the draft is published only after the uploaded asset list is
   checked (`internal/devtools/releaseassets`).
-- **Package managers** — stable `vX.Y.Z` tags only. `release.yml` pushes
+- **Package managers** — stable `vX.Y.Z` tags only, and Homebrew/Scoop only
+  while the repository variable `KRIT_PACKAGE_MANAGERS` is `true` (see
+  [Homebrew and Scoop](#homebrew-and-scoop)). `release.yml` then pushes
   the Homebrew cask (`scripts/release/update-brew-tap.sh`) and Scoop
-  manifest (`scripts/release/update-scoop-bucket.sh`), and renders winget
+  manifest (`scripts/release/update-scoop-bucket.sh`). It always renders winget
   manifests (`scripts/release/render-winget-manifests.sh`) that its
   `winget` job submits to microsoft/winget-pkgs.
 - **Maven Central** — stable `vX.Y.Z` tags only.
@@ -74,18 +76,20 @@ nightlies are `v0.4.0-nightly.<date>`).
    default in `krit-gradle-plugin/build.gradle.kts` and the version
    examples in the plugin READMEs. Merge it.
 3. Check the publishing credentials (see
-   [Required repository secrets](#required-repository-secrets)): the
-   GitHub App is installed on `kaeawc/homebrew-tap` and `kaeawc/scoop-krit`,
-   or the PAT fallbacks are current.
+   [Required repository secrets](#required-repository-secrets)). With
+   `KRIT_PACKAGE_MANAGERS=true`, the GitHub App is installed on
+   `kaeawc/homebrew-tap` and `kaeawc/scoop-krit`, or the PAT fallbacks are
+   current.
 4. Tag the merge commit and push the tag:
    `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
 5. Watch `Release` and `Publish to Maven Central`. The GitHub release is
    published (with provenance attestation) before the package-manager
-   steps; if the Homebrew or Scoop push fails, the job fails at
+   steps; with `KRIT_PACKAGE_MANAGERS=true`, if the Homebrew or Scoop push
+   fails, the job fails at
    "Check package-manager publishing" with the reason, and re-running the
    `release` job after fixing access reuses the published release.
-6. Confirm `brew install kaeawc/tap/krit` and `scoop install krit` pick up
-   the new version, and submit `winget-manifests` by hand if no
+6. With package managers on, confirm `brew install kaeawc/tap/krit` and
+   `scoop install krit` pick up the new version. Submit `winget-manifests` by hand if no
    `WINGET_TOKEN` is configured.
 
 This page focuses on the Maven Central piece. The binary release flow
@@ -140,6 +144,17 @@ shows to the `jasonpearson.dev` DNS zone.
 When any of the four is missing, a tag push skips the publish with a
 warning naming them (the tag's other workflows are unaffected); a manual
 dispatch fails instead.
+
+### Homebrew and Scoop
+
+Pushing the Homebrew cask and the Scoop manifest is opt-in. Set the
+repository variable `KRIT_PACKAGE_MANAGERS` to `true` (**Settings → Secrets
+and variables → Actions → Variables**) once the credentials below work.
+Without it, a stable release skips both pushes with a notice, so a missing
+tap or bucket credential neither fails the release nor holds back the Bazel
+Central Registry publish, which runs only after a successful release.
+Re-running an older tag's release job uses that tag's copy of
+`release.yml`.
 
 `release.yml` uses these for the package-manager steps:
 

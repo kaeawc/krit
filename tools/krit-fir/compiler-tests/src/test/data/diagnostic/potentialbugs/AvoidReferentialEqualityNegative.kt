@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 36
+// go-lines: none
 package test
 
 class TreeNode
@@ -27,7 +27,7 @@ fun compare(a: String, b: String): Int {
     return a.compareTo(b)
 }
 
-// Go's source resolver binds the outer String; FIR binds the shadowing Any.
+// Go's source resolver and FIR both bind the shadowing Any inside run {}.
 // The resolverless Go fallback is conservative and does not report this.
 fun shadowed(candidate: Any): Boolean {
     val text: String = "a"

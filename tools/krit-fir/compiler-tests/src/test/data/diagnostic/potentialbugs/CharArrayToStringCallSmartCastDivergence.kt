@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 32, 42, 50
+// go-lines: 42, 50
 // Where Go's name-keyed smart casts and the value K2 proves disagree.
 package test
 
@@ -26,8 +26,8 @@ fun elseBranch(value: Any): String = if (value is CharArray) "" else value.toStr
 // value can be anything.
 fun disjunction(value: Any, flag: Boolean): String = if (flag || value is CharArray) value.toString() else ""
 
-// Go reports this: it applies the narrowing of `if (x !is CharArray) return`
-// to its whole scope, including the statements before the check.
+// Go and FIR agree: the narrowing of `if (x !is CharArray) return` applies
+// only after the check, not to the statements before it (#1520).
 fun beforeEarlyReturn(value: Any): String {
     val before = value.toString()
     if (value !is CharArray) return before

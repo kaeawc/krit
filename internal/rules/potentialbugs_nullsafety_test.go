@@ -142,7 +142,8 @@ func runRuleByNameWithAnalyzedOracle(t *testing.T, ruleName string, code string)
 	return nil
 }
 
-// The shadowing local `n` is a String, but the name-based resolver types it as the Int property of the same name.
+// The shadowing local `n` is a String. The source resolver once typed it as the Int property of the same
+// name, because the `run` lambda under `return` got no scope (#1117).
 const unsafeCastShadowedLocal = `
 package test
 class Holder(val n: Int) {
@@ -153,14 +154,29 @@ class Holder(val n: Int) {
 }
 `
 
+// An Int local cast to String: the source fallback reports it.
+const unsafeCastNeverSucceeds = `
+package test
+fun text(): String {
+    val n = 1
+    return n as String
+}
+`
+
+func TestUnsafeCast_SourceFallbackHonorsShadowingLocal(t *testing.T) {
+	if findings := runRuleByNameWithEmptyOracle(t, "UnsafeCast", unsafeCastShadowedLocal); len(findings) != 0 {
+		t.Fatalf("the shadowing local `n` is a String, so the cast can succeed, got %d findings: %+v", len(findings), findings)
+	}
+}
+
 func TestUnsafeCast_CompilerAnalyzedFileWithoutDiagnosticIsClean(t *testing.T) {
-	if findings := runRuleByNameWithAnalyzedOracle(t, "UnsafeCast", unsafeCastShadowedLocal); len(findings) != 0 {
+	if findings := runRuleByNameWithAnalyzedOracle(t, "UnsafeCast", unsafeCastNeverSucceeds); len(findings) != 0 {
 		t.Fatalf("the compiler analyzed the file and reported no CAST_NEVER_SUCCEEDS, got %d findings: %+v", len(findings), findings)
 	}
 }
 
 func TestUnsafeCast_SourceFallbackRunsWithoutCompilerFacts(t *testing.T) {
-	if findings := runRuleByNameWithEmptyOracle(t, "UnsafeCast", unsafeCastShadowedLocal); len(findings) != 1 {
+	if findings := runRuleByNameWithEmptyOracle(t, "UnsafeCast", unsafeCastNeverSucceeds); len(findings) != 1 {
 		t.Fatalf("without compiler facts the source fallback must still run, got %d findings: %+v", len(findings), findings)
 	}
 }

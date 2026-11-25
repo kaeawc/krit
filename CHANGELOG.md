@@ -4,6 +4,61 @@ All notable changes to Krit will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
+  `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
+  their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs
+  (`internal/rules/testdata/androidx_compose_runtime/`). They match Lint's messages, locations, severities and
+  defaults: the two lambda-parameter checks are opt-in, as in Lint, and test sources are analyzed. Local functions
+  and overrides are skipped as Lint skips them. Shadowing member or local functions and same-file declarations are
+  respected. `ComposableNaming` and `CompositionLocalNaming` also check Java. An expression-bodied `@Composable`
+  function without a declared return type is only checked when its body is `Unit` or a call to a same-file function;
+  otherwise its return type needs type inference, and it is a known false negative. Lint's rename quick fixes are
+  not ported, because they leave call sites unchanged (#1467, #1468, #1469, #1471).
+- `CoroutineCreationDuringComposition`, `FlowOperatorInvokedInComposition` and `StateFlowValueCalledInComposition`,
+  ported from `androidx.compose.runtime:runtime-android` 1.12.1 under their Lint IDs and checked against the Lint CLI
+  on the same inputs. They report `launch`/`async`/`launchIn`, Flow operators (`map`, `filter`, `stateIn`, ...,
+  and same-file `Flow` extensions returning a `Flow`) and `StateFlow.value` reads and writes made in composition. A
+  shared composition-context walk mirrors Lint's `isInvokedWithinComposable`: it sees through local properties,
+  anonymous objects and lambdas inlined into their caller (same-file `inline` functions, `let`/`run`/`apply`/...),
+  and stops at functions, accessors and other lambdas. A lambda counts as composition when it is annotated or typed
+  `@Composable`, when it is passed to a same-file parameter typed `@Composable`, or when it is passed to a known
+  Compose content parameter (`Column`, `Box`, `Scaffold` slots, `CompositionLocalProvider`, `key`, lazy `item`/`items`,
+  ...). Receivers must be proven to be a `CoroutineScope`, `Flow` or `StateFlow` by same-file declarations or
+  initializers, which rules out lookalike members such as `ActivityResultLauncher.launch` (#1465, #1466, #1470).
+- `UseAndroidAlpha`, `UseAppTint`, `UseSwitchCompatOrMaterialXml`, `UseCompatTextViewDrawableXml` and
+  `UsingOnClickInXml`, ported from the Lint checks bundled in `androidx.appcompat:appcompat` 1.8.0 and checked
+  against that AAR's `lint.jar` through the Lint CLI on the same files. They run only when the project declares
+  appcompat (or Material, which brings it), as Lint only loads them from that AAR. `UsingOnClickInXml` abstains when
+  minSdk cannot be read from the build, where Lint would assume API 1 (#1320, #1323, #1325, #1327, #1328).
+- `FragmentGradleConfiguration` and `FragmentTagUsage` (from the Lint checks bundled in `androidx.fragment` 1.9.1) and
+  `InvalidFragmentVersionForActivityResult` and `InvalidUseOfOnBackPressed` (from `androidx.activity:activity` 1.13.0),
+  checked against those AARs' `lint.jar` through the Lint CLI on the same files. `InvalidFragmentVersionForActivityResult`
+  reads the module's declared and version-catalog `androidx.fragment:fragment` version; a version that arrives only
+  transitively is not seen yet (#1120). `InvalidUseOfOnBackPressed` keeps Lint's verdicts, which only match a method
+  named `handledOnBackPressed` (#1305, #1306, #1441, #1442).
+- `UseSupportActionBar`, `UseCompatLoadingForColorStateLists`, `UseCompatLoadingForDrawables`,
+  `UseCompatTextViewDrawableApis` and `UseSwitchCompatOrMaterialCode`, ported from the Lint checks bundled in
+  `androidx.appcompat:appcompat` 1.8.0 for Kotlin and Java and checked against that AAR's `lint.jar` through the Lint
+  CLI on the same sources. They run only when the project declares appcompat (or Material). Receivers are proven from
+  declarations, imports, the resolver hierarchy and Java facts; an implicit receiver inside `apply`/`run`/`with` whose
+  subject is not proven abstains (#1319, #1321, #1322, #1324, #1326).
+- `UnrememberedMutableState`, `RememberInComposition` and `FrequentlyChangingValue`, ported from
+  `androidx.compose.runtime:runtime-android` 1.12.1 under their Lint IDs and checked against the Lint CLI on the same
+  inputs. `UnrememberedMutableState` reports state factories (`mutableStateOf`, the primitive variants,
+  `mutableStateListOf`/`MapOf`/`SetOf`, `derivedStateOf`, same-file `@StateFactoryMarker` functions), constructors of
+  same-file `State` classes and `object : MutableState` literals created in composition outside `remember { }`.
+  `RememberInComposition` does the same for `@RememberInComposition` APIs: same-file declarations and the annotated
+  Compose 1.12.1 / material3 1.5.0 APIs (`Animatable`, `MutableInteractionSource`, `FocusRequester`,
+  `BringIntoViewRequester`, `SliderState`, `movableContentOf`, ...). `FrequentlyChangingValue` reports reads of
+  `@FrequentlyChangingValue` values in composition (same-file declarations, and `LazyListState`/`LazyGridState`
+  `firstVisibleItemIndex`/`firstVisibleItemScrollOffset`/`layoutInfo`, `ScrollState.value`,
+  `PagerState.currentPageOffsetFraction`, `AnchoredDraggableState` offsets and similar on proven receivers). The
+  retired Lint IDs `UnrememberedAnimatable`, `UnrememberedMutableInteractionSource` and
+  `FrequentlyChangedStateReadInComposition` still suppress the matching rule. Until `ComposeMutableStateInComposition`
+  is retired, `UnrememberedMutableState` leaves the plain `val x = mutableStateOf(...)` locals that rule already
+  reports to it (#1472, #1476, #1478).
+
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do
   succeed: an explicitly imported type is no longer checked against an
@@ -17,6 +72,21 @@ All notable changes to Krit will be documented in this file.
   exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
   recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
   directories, up to 16 sets per scan (#1023).
+- Source-level smart casts from an early-exit guard (`if (x !is String) return`) apply only after the guard:
+  a use of `x` earlier in the same scope keeps its declared type (#1520).
+- `UselessElvisOnNonNull` and `UnnecessarySafeCall` (Go path) no longer report operands that can be null. Source
+  type inference narrows on `x != null` only when it is the whole `if` condition, not an operand of `||`, `!` or a
+  call argument. Inside an extension function or property accessor, `this` is the receiver type rather than the
+  enclosing class, and a bare name that may be a receiver member no longer resolves to an enclosing declaration
+  of the same name. `first()`, `single()` and other element-returning stdlib calls keep a nullable element type
+  (`Flow<T?>.first()` is `T?`) and abstain when the receiver's type arguments are unknown, instead of returning a
+  non-null `Any`; `listOf(a, b)` and `mapOf(k to v)` infer their type arguments from arguments that share one type.
+  `UnnecessarySafeCall`'s same-file fallback reads only the nearest declaration in scope, so a local no longer
+  borrows the non-null type of a property or parameter it shadows (#1116).
+- `UnnecessarySafeCall` (Go path) no longer reports `this?.` inside `with(x) { }`, `x.run { }` or `x.apply { }`
+  when `x` is nullable: source type inference types the lambda's `this` as `x`. A destructured lambda parameter
+  (`{ (items) -> }`) shadows an outer declaration of the same name, and lambdas inside `return` values, call
+  chains, parenthesized arguments and assignments get their own scopes (#1117).
 
 ## [0.5.0] - 2026-11-24
 

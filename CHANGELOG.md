@@ -56,6 +56,16 @@ All notable changes to Krit will be documented in this file.
   on a local variable before the call. Intents that reach other code first, and intents of unknown origin, are not
   reported, as in Lint. Below targetSdk 23 nothing is reported; below 34 the finding is a warning about Android 14
   (#1232).
+- `AnimatorKeep`, ported from Android Lint 32.4.1's `ObjectAnimatorDetector` under its Lint ID for Kotlin and Java,
+  as a project-scope check over the parsed files. It reports the setter an `ObjectAnimator.ofInt/ofFloat/ofArgb/
+  ofMulti*/ofObject` (or a `PropertyValuesHolder` passed to `ofPropertyValuesHolder`) reaches by its string property
+  name. That is a Java method, a Kotlin `fun setX`, or a Kotlin `var`, in the project's sources, with the expected
+  parameter type and without `@Keep` on the setter (`@set:Keep` for a property) or an enclosing class. It reports
+  once per setter. It only checks modules that shrink: the project profile now records `minifyEnabled true` /
+  `isMinifyEnabled = true` (profile cache version 4). It is opt-in, because Lint also accepts a ProGuard/R8 keep rule,
+  which krit does not read. It was checked against the Lint CLI, which matches same-file setters exactly. For setters
+  in another file, Lint reports the same setters at positions computed against the wrong file; krit reports them at
+  their declarations (#1227).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

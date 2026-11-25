@@ -737,6 +737,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*LifecycleAnnotationProcessorWithJava8Rule)(nil),
 		(*WearableBindListenerRule)(nil),
 		(*DuplicateStringsRule)(nil),
+		(*AnimatorKeepRule)(nil),
 		(*FragmentLiveDataObserveRule)(nil),
 		(*FragmentBackPressedCallbackRule)(nil),
 		(*FragmentAddMenuProviderRule)(nil),

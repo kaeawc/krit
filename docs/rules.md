@@ -203,3 +203,17 @@ Receivers are proven from declarations, imports, constructor calls, the resolver
 type oracle when it runs. Where Lint's compiler resolution sees further, krit abstains: an implicit receiver inside
 `apply`/`run`/`with` whose subject type is not proven (for example `holder.label.apply { … }`, or a call that Kotlin
 resolves past the subject to the enclosing class) is not reported.
+`androidx.fragment` 1.9.1 lifecycle-owner checks (Kotlin and Java):
+
+- `FragmentLiveDataObserve`, `FragmentBackPressedCallback` and `FragmentAddMenuProvider` report the Fragment itself
+  passed as the `LifecycleOwner` of `LiveData.observe`, `OnBackPressedDispatcher.addCallback(owner, callback)` or
+  `MenuHost.addMenuProvider` from `onCreateView`, `onViewCreated`, `onActivityCreated` or `onViewStateRestored` of a
+  Fragment that is not a `DialogFragment`. As in Lint, calls are followed into same-file helpers (Lint follows them
+  into other files too), an owner that is the enclosing class is reported at the argument, and one that is a Fragment
+  of another class at the call ("Unsafe call to …"). The Kotlin `addCallback(owner) { }` extension is not reported,
+  as Lint's owner check does not match it. An `observe` receiver must be proven to be `LiveData` from this file or by
+  the type oracle, so a ViewModel property declared in another file is a known false negative of the Go path.
+- `UnsafeRepeatOnLifecycleDetector` reports `repeatOnLifecycle` in those methods of such a Fragment unless the
+  enclosing launch call has a receiver and `viewLifecycleOwner` appears, case-insensitively, in that receiver or any
+  enclosing expression up to the method body. As in Lint, a mention anywhere in the method body (a comment included)
+  passes.

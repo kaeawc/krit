@@ -9000,6 +9000,39 @@
             }
           }
         },
+        "ProviderReadPermissionOnly": {
+          "description": "Provider with readPermission only and implemented write APIs [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ProviderReadPermissionOnly (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ProxyPassword": {
           "description": "Proxy Password in Cleartext [precision: project-structure-aware] [noisiness: normal] [capabilities: module-index]",
           "type": "object",
@@ -12142,6 +12175,72 @@
           "properties": {
             "active": {
               "description": "Enable UnsafeDynamicallyLoadedCode (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeImplicitIntentLaunch": {
+          "description": "Implicit intent matches an internal non-exported component [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeImplicitIntentLaunch (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeIntentLaunch": {
+          "description": "Launched Unsafe Intent [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest, parsed-files]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeIntentLaunch (default: true).",
               "type": "boolean",
               "default": true
             },

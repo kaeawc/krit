@@ -1,0 +1,26 @@
+package com.example.app
+
+import android.content.ContentProvider
+import android.content.ContentValues
+import android.database.Cursor
+import android.net.Uri
+
+class NotesProvider : ContentProvider() {
+    private val notes = mutableMapOf<Long, ContentValues>()
+
+    override fun onCreate() = true
+
+    override fun query(uri: Uri, projection: Array<String>?, selection: String?, args: Array<String>?, sort: String?): Cursor? = null
+
+    override fun getType(uri: Uri): String? = null
+
+    override fun insert(uri: Uri, values: ContentValues?): Uri? {
+        val id = notes.size.toLong()
+        notes[id] = values ?: ContentValues()
+        return Uri.withAppendedPath(uri, id.toString())
+    }
+
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<String>?): Int = 0
+
+    override fun delete(uri: Uri, selection: String?, args: Array<String>?): Int = notes.size.also { notes.clear() }
+}

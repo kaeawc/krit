@@ -5,6 +5,20 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `ProviderReadPermissionOnly`, `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch`, ported from Android Lint
+  32.4.1's `ProviderPermissionDetector`, `UnsafeImplicitIntentDetector` and `UnsafeIntentLaunchDetector` under their
+  Lint IDs, for Kotlin and Java, on the manifest-source scope. Each was checked against the Lint CLI on the same
+  projects. `ProviderReadPermissionOnly` reports, at the manifest `android:readPermission`, a `<provider>` without
+  `android:permission` or `android:writePermission` whose ContentProvider class implements `insert`, `update` or
+  `delete` with a real body (not a lone throw, literal return, `TODO()` or `error()`). `UnsafeImplicitIntentLaunch`
+  reports an implicit intent started with `startActivity` or sent with `sendBroadcast`/`sendBroadcastAsUser` in the
+  same function whose constant action matches an intent filter of a non-exported activity, activity alias or
+  receiver, or of a receiver registered with `RECEIVER_NOT_EXPORTED`. `UnsafeIntentLaunch` reports an untrusted intent
+  (`getIntent()`/`intent`, `getParcelableExtra`, `getParcelable`, `Intent.parseUri` of a string extra, or the intent
+  parameter of a component callback) that an exported, unprotected activity, service or receiver passes to a Context,
+  Activity, BroadcastReceiver or PendingIntent launch method, following locals, builder chains, `let`/`also`/`apply`
+  and same-file helpers up to three calls deep, with Lint's protected-broadcast `if`/`when` exemption in `onReceive`
+  (#1242, #1283, #1284).
 - `TileProviderPermissions` and `UnsafeNativeCodeLocation`, ported from Android Lint 32.4.1's `TileProviderDetector`
   and `UnsafeNativeCodeDetector` under their Lint IDs and checked against the Lint CLI on the same inputs.
   `TileProviderPermissions` reports a manifest `<service>` with a `BIND_TILE_PROVIDER` tiles action whose

@@ -251,6 +251,6 @@ jobs:
           merge-multiple: true
       - name: Coverage table and thresholds
         run: |
-          python3 "$SAMPLE/ci/fir_coverage.py" report "$SAMPLE/ci/fir-coverage-thresholds.json" \
-            $(find results -name '*.result.json' | sort) $(find results -name '*.check.json' | sort) \
+          mapfile -t files < <(find results \( -name '*.result.json' -o -name '*.check.json' \) | sort)
+          python3 "$SAMPLE/ci/fir_coverage.py" report "$SAMPLE/ci/fir-coverage-thresholds.json" "${files[@]}" \
             | tee -a "$GITHUB_STEP_SUMMARY"

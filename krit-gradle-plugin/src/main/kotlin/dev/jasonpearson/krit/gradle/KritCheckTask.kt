@@ -292,6 +292,20 @@ abstract class KritCheckTask @Inject constructor(
     }
 
     companion object {
+        /**
+         * One report is `--format F -o PATH`, which every krit release understands. Several
+         * are one `--report F=PATH` each, written from a single analysis run (krit releases after 0.5.0).
+         */
+        internal fun MutableList<String>.appendReportArgs(reports: List<Pair<String, File>>) {
+            val single = reports.singleOrNull()
+            if (single != null) {
+                add("--format=${single.first}")
+                add("-o"); add(single.second.absolutePath)
+            } else {
+                reports.forEach { (format, file) -> add("--report"); add("$format=${file.absolutePath}") }
+            }
+        }
+
         // Forces --daemon on when jars are present: the CLI hard-errors otherwise
         // (see internal/pipeline/custom_kotlin_rules.go).
         internal fun MutableList<String>.appendCustomRuleJarArgs(jarPaths: Collection<String>) {

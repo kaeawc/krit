@@ -1,6 +1,7 @@
 package dev.jasonpearson.krit.gradle
 
 import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendCustomRuleJarArgs
+import dev.jasonpearson.krit.gradle.KritCheckTask.Companion.appendReportArgs
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
@@ -129,26 +130,21 @@ abstract class KritCheckAllTask @Inject constructor(
 
         val executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
         val root = scanRoot.get().asFile
-        var findingsExit = 0
-        // One scan per format until the CLI can write several formats from one run.
-        reports.forEach { (format, output) ->
-            val stderr = ByteArrayOutputStream()
-            val result = execOps.exec {
-                this.executable = executable
-                workingDir = root
-                moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
-                args(scanArgs(format, output, root))
-                errorOutput = stderr
-                isIgnoreExitValue = true
-            }
-            if (result.exitValue == 2) {
-                throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
-            }
-            if (findingsExit == 0) findingsExit = result.exitValue
+        val stderr = ByteArrayOutputStream()
+        val result = execOps.exec {
+            this.executable = executable
+            workingDir = root
+            moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
+            args(scanArgs(reports, root))
+            errorOutput = stderr
+            isIgnoreExitValue = true
         }
-        if (findingsExit != 0 && !ignoreFailures.get()) {
+        if (result.exitValue == 2) {
+            throw GradleException("krit configuration/preflight error: ${stderr.toString().trim()}")
+        }
+        if (result.exitValue != 0 && !ignoreFailures.get()) {
             throw GradleException(
-                "krit analysis found issues (exit code $findingsExit). " +
+                "krit analysis found issues (exit code ${result.exitValue}). " +
                     "See reports at: ${reports.joinToString(", ") { it.second.absolutePath }}"
             )
         }
@@ -157,9 +153,8 @@ abstract class KritCheckAllTask @Inject constructor(
     private fun report(format: String, required: Property<Boolean>, output: RegularFileProperty): Pair<String, File>? =
         if (required.getOrElse(false)) output.orNull?.let { format to it.asFile } else null
 
-    private fun scanArgs(format: String, output: File, root: File): List<String> = buildList {
-        add("--format=$format")
-        add("-o"); add(output.absolutePath)
+    private fun scanArgs(reports: List<Pair<String, File>>, root: File): List<String> = buildList {
+        appendReportArgs(reports)
         add("-j"); add(parallel.get().toString())
         if (allRules.get()) add("--all-rules")
         if (config.isPresent) { add("--config"); add(config.get().asFile.absolutePath) }

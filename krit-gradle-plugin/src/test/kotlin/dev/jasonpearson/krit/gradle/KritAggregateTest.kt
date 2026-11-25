@@ -32,6 +32,7 @@ class KritAggregateTest {
             previous=""
             for arg in "${'$'}@"; do
               if [ "${'$'}previous" = "-o" ]; then printf '{}\n' > "${'$'}arg"; fi
+              if [ "${'$'}previous" = "--report" ]; then printf '{}\n' > "${'$'}{arg#*=}"; fi
               previous="${'$'}arg"
             done
             """.trimIndent() + "\n"
@@ -132,11 +133,16 @@ class KritAggregateTest {
     }
 
     @Test
-    fun `each enabled report format is written`() {
+    fun `several report formats come from one krit run`() {
         val root = fixture(extraRoot = "reports { json.required = true }")
         run(root, "kritCheckAll")
-        assertTrue(File(root, "build/reports/krit/all/krit.sarif").isFile)
-        assertTrue(File(root, "build/reports/krit/all/krit.json").isFile)
+        val sarif = File(root, "build/reports/krit/all/krit.sarif")
+        val json = File(root, "build/reports/krit/all/krit.json")
+        assertTrue(sarif.isFile)
+        assertTrue(json.isFile)
+        val call = invocations(root).single()
+        assertTrue(call.contains("--report sarif=${sarif.absolutePath} --report json=${json.absolutePath}"), call)
+        assertFalse(call.contains(" -o "), call)
     }
 
     @Test

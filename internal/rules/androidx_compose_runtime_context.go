@@ -242,7 +242,112 @@ func acrLambdaIsInlinedIntoCaller(file *scanner.File, fn uint32) bool {
 		return param != 0 && !acrParameterHasModifier(file, param, "noinline") &&
 			!acrParameterHasModifier(file, param, "crossinline")
 	}
-	return acrStdlibInlineScopeFunctions[name] && !acrFileDeclaresAnyFunction(file, name) && arg.Trailing
+	if !arg.Trailing || acrFileDeclaresAnyFunction(file, name) {
+		return false
+	}
+	if acrStdlibInlineScopeFunctions[name] {
+		return true
+	}
+	_, _, hasReceiver := acrCallCallee(file, arg.Call)
+	if !hasReceiver {
+		return false
+	}
+	if acrStdlibAnyReceiverInline[name] {
+		// Map.forEach { k, v -> } is java.util.Map's BiConsumer overload, which is not inline.
+		return name != "forEach" || acrLambdaParameterCount(file, fn) != 2
+	}
+	if acrStdlibCollectionInline[name] {
+		receiver := file.FlatFirstChild(acrCalleeExpression(file, arg.Call))
+		return acrExprIsStdlibCollection(file, receiver, 0)
+	}
+	return false
+}
+
+// acrStdlibAnyReceiverInline are kotlin.collections functions that are inline (lambda neither noinline nor
+// crossinline) on Iterable, Array, Map and Sequence alike, and that kotlinx.coroutines.flow does not define.
+var acrStdlibAnyReceiverInline = map[string]bool{
+	"forEach": true, "forEachIndexed": true, "find": true, "sumOf": true,
+}
+
+// acrStdlibCollectionInline are inline on Iterable, Array and Map, but lazy (non-inline) on Sequence or also defined
+// on Flow with a crossinline or suspend lambda, so they are seen through only for a proven collection receiver.
+var acrStdlibCollectionInline = map[string]bool{
+	"map": true, "mapIndexed": true, "mapNotNull": true, "filter": true, "filterNot": true, "filterIndexed": true,
+	"flatMap": true, "onEach": true, "first": true, "firstOrNull": true, "last": true, "lastOrNull": true,
+	"fold": true, "reduce": true, "any": true, "all": true, "none": true, "count": true, "associate": true,
+	"associateBy": true, "associateWith": true, "groupBy": true, "sortedBy": true, "sortedByDescending": true,
+	"maxByOrNull": true, "minByOrNull": true, "partition": true, "takeWhile": true, "dropWhile": true,
+	"distinctBy": true,
+}
+
+// acrStdlibCollectionTypes are the default-imported collection and array types.
+var acrStdlibCollectionTypes = map[string]bool{
+	"Iterable": true, "Collection": true, "List": true, "Set": true, "Map": true, "MutableIterable": true,
+	"MutableCollection": true, "MutableList": true, "MutableSet": true, "MutableMap": true, "ArrayList": true,
+	"HashMap": true, "HashSet": true, "LinkedHashMap": true, "LinkedHashSet": true, "Array": true, "IntArray": true,
+	"LongArray": true, "FloatArray": true, "DoubleArray": true, "BooleanArray": true, "CharArray": true,
+	"ByteArray": true, "ShortArray": true,
+}
+
+// acrStdlibCollectionFactories are default-imported functions returning a collection or array.
+var acrStdlibCollectionFactories = map[string]bool{
+	"listOf": true, "mutableListOf": true, "arrayListOf": true, "emptyList": true, "listOfNotNull": true,
+	"setOf": true, "mutableSetOf": true, "emptySet": true, "mapOf": true, "mutableMapOf": true, "emptyMap": true,
+	"arrayOf": true, "intArrayOf": true, "buildList": true, "buildSet": true, "buildMap": true,
+}
+
+// acrExprIsStdlibCollection proves an expression is an Iterable, Array or Map (not a Sequence or Flow): a declared
+// collection type, a collection factory, a same-file function returning one, or a collection operation on one.
+func acrExprIsStdlibCollection(file *scanner.File, expr uint32, depth int) bool {
+	expr = acrUnwrapParens(file, expr)
+	if expr == 0 || depth > 4 {
+		return false
+	}
+	switch file.FlatType(expr) {
+	case "simple_identifier", "navigation_expression":
+		decl := acrExprDeclaration(file, expr)
+		if decl == 0 {
+			return false
+		}
+		if t := acrDeclaredType(file, decl); t != 0 {
+			return acrTypeIsStdlibCollection(file, t)
+		}
+		return acrExprIsStdlibCollection(file, acrInitializer(file, decl), depth+1)
+	case "call_expression":
+		name, _, hasReceiver := acrCallCallee(file, expr)
+		if name == "" || acrFileDeclaresAnyFunction(file, name) && acrSameFileFunction(file, name) == 0 {
+			return false
+		}
+		if fn := acrSameFileFunction(file, name); fn != 0 {
+			return !hasReceiver && acrTypeIsStdlibCollection(file, acrFunctionReturnType(file, fn))
+		}
+		if !hasReceiver {
+			return acrStdlibCollectionFactories[name] && acrDefaultImported(file, name)
+		}
+		if acrStdlibCollectionInline[name] || name == "toList" || name == "toMutableList" || name == "sorted" {
+			return acrExprIsStdlibCollection(file, file.FlatFirstChild(acrCalleeExpression(file, expr)), depth+1)
+		}
+	}
+	return false
+}
+
+// acrTypeIsStdlibCollection reports whether a declared type is a default-imported collection or array type.
+func acrTypeIsStdlibCollection(file *scanner.File, typeNode uint32) bool {
+	name := acrTypeNodeName(file, typeNode)
+	short := strings.TrimPrefix(strings.TrimPrefix(name, "kotlin.collections."), "kotlin.")
+	if !acrStdlibCollectionTypes[short] {
+		return false
+	}
+	return name != short || acrDefaultImported(file, short)
+}
+
+// acrLambdaParameterCount returns the number of declared lambda parameters (a destructuring entry counts as one).
+func acrLambdaParameterCount(file *scanner.File, lambda uint32) int {
+	params, ok := file.FlatFindChild(lambda, "lambda_parameters")
+	if !ok {
+		return 0
+	}
+	return file.FlatNamedChildCount(params)
 }
 
 // acrLambdaIsComposable mirrors ULambdaExpression.isComposable: a lambda passed to a call is composable when the

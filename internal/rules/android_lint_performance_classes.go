@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"strings"
+
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -45,7 +47,8 @@ func (r *DuplicateDividerRule) check(ctx *api.Context) {
 	if _, nested := flatEnclosingAncestor(file, ctx.Idx, "class_body"); !nested && sourcePackageName(file) == "android.support.v7.widget" {
 		return
 	}
-	if !lintClassExtends(ctx, ctx.Idx, supportItemDecoration, nil) {
+	// A class of the file named RecyclerView shadows the support-library import.
+	if lintSameFileClass(file, "RecyclerView") != 0 || !lintClassExtends(ctx, ctx.Idx, supportItemDecoration, nil) {
 		return
 	}
 	ctx.EmitAt(file.FlatRow(name)+1, file.FlatCol(name)+1, "Replace with `android.support.v7.widget.DividerItemDecoration`?")
@@ -54,21 +57,21 @@ func (r *DuplicateDividerRule) check(ctx *api.Context) {
 // classDeclaresField reports whether a class declares a field called name: a Java field, or a Kotlin property of the
 // class or of its companion object (which compiles to a static field of the class).
 func classDeclaresField(file *scanner.File, cls uint32, name string) bool {
-	body, ok := file.FlatFindChild(cls, "class_body")
-	if !ok {
-		return false
-	}
 	found := false
 	var scan func(container uint32)
 	scan = func(container uint32) {
 		for c := file.FlatFirstChild(container); c != 0 && !found; c = file.FlatNextSib(c) {
 			switch file.FlatType(c) {
 			case "field_declaration":
-				file.FlatWalkNodes(c, "variable_declarator", func(d uint32) {
+				// Only the field's own declarators: an anonymous class in the initializer declares its own fields.
+				for d := file.FlatFirstChild(c); d != 0; d = file.FlatNextSib(d) {
+					if file.FlatType(d) != "variable_declarator" {
+						continue
+					}
 					if id, ok := file.FlatFindChild(d, "identifier"); ok && file.FlatNodeText(id) == name {
 						found = true
 					}
-				})
+				}
 			case "property_declaration":
 				if vd, ok := file.FlatFindChild(c, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
 					found = true
@@ -80,13 +83,16 @@ func classDeclaresField(file *scanner.File, cls uint32, name string) bool {
 			}
 		}
 	}
-	scan(body)
+	// A Kotlin class may have no body and declare its fields in the primary constructor.
+	if body, ok := file.FlatFindChild(cls, "class_body"); ok {
+		scan(body)
+	}
 	if !found && file.Language == scanner.LangKotlin {
 		// Primary-constructor `val`/`var` parameters are fields too.
 		if ctor, ok := file.FlatFindChild(cls, "primary_constructor"); ok {
 			file.FlatWalkNodes(ctor, "class_parameter", func(p uint32) {
 				if id, ok := file.FlatFindChild(p, "simple_identifier"); ok && file.FlatNodeText(id) == name &&
-					(perfHasToken(file, p, "val") || perfHasToken(file, p, "var")) {
+					kotlinClassParameterIsProperty(file, p) {
 					found = true
 				}
 			})
@@ -103,4 +109,13 @@ func (r *DuplicateDividerRule) Meta() api.RuleDescriptor {
 func (r *SyntheticAccessorRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "SyntheticAccessor", RuleSet: "android-lint", DefaultActive: false,
 		OptInReason: api.OptInReasonProjectPolicy}
+}
+
+// kotlinClassParameterIsProperty reports a constructor parameter declared with val or var, which is a property.
+func kotlinClassParameterIsProperty(file *scanner.File, p uint32) bool {
+	if kind, ok := file.FlatFindChild(p, "binding_pattern_kind"); ok {
+		k := strings.TrimSpace(file.FlatNodeText(kind))
+		return k == "val" || k == "var"
+	}
+	return perfHasToken(file, p, "val") || perfHasToken(file, p, "var")
 }

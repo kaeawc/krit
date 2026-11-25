@@ -147,10 +147,11 @@ func parseJavaSource(t *testing.T, name, src string) *scanner.File {
 }
 
 // Regressions from comparing the port with Lint on kotlinx.coroutines, leakcanary and element-x (and this source
-// with the Lint CLI): a companion object's call to a private constructor is skipped like its method calls; past a
-// class that extends a class from another file, a distinctive camelCase name still resolves outward while a
-// framework-like one does not; a private extension (generic or not) is resolved from the receiver's declared type,
-// also when that type is a class of the file without such a member.
+// with the Lint CLI): a companion object's call to a private constructor is skipped like its method calls; a
+// private extension is resolved when the receiver's declared type is a class of the file without such a member
+// (generic or not). Lint also reports addClamping, computeDeadlineMillis and start (past the AtomicLong
+// superclass, whose members krit cannot see) and drained (on java.util.PriorityQueue, an external type that could
+// declare the name); krit abstains on those.
 func TestSyntheticAccessor_CorpusRegressions(t *testing.T) {
 	src := `package p
 
@@ -184,11 +185,7 @@ class User {
 		got = append(got, f.Message)
 	}
 	sort.Strings(got)
-	// Lint also reports addClamping and start here; krit stops at the AtomicLong supertype for names starting like
-	// framework members (add..., start), which a superclass from elsewhere could declare.
 	want := []string{
-		"Access to `private` method `computeDeadlineMillis` of class `SchedKt` requires synthetic accessor",
-		"Access to `private` method `drained` of class `SchedKt` requires synthetic accessor",
 		"Access to `private` method `none` of class `SchedKt` requires synthetic accessor",
 		"Access to `private` method `total` of class `SchedKt` requires synthetic accessor",
 	}

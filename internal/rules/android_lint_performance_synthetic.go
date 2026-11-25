@@ -139,6 +139,19 @@ func kotlinJvmFileName(file *scanner.File) string {
 	return ""
 }
 
+// syntheticDeclName returns the name node of a class or object declaration.
+func syntheticDeclName(file *scanner.File, decl uint32) uint32 {
+	if n := lintClassNameNode(file, decl); n != 0 {
+		return n
+	}
+	for _, kind := range []string{"type_identifier", "simple_identifier", "identifier"} {
+		if n, ok := file.FlatFindChild(decl, kind); ok {
+			return n
+		}
+	}
+	return 0
+}
+
 // syntheticIsClass reports whether a node opens a JVM class: Kotlin classes, objects, companions, object
 // expressions and enum entries with a body; Java classes, interfaces, enums, records and anonymous classes.
 func syntheticIsClass(file *scanner.File, idx uint32) bool {
@@ -158,21 +171,35 @@ func syntheticIsClass(file *scanner.File, idx uint32) bool {
 
 // ownerClass is the innermost class around idx (not idx itself), or 0 for Kotlin top-level code.
 func (s *syntheticScan) ownerClass(idx uint32) uint32 {
+	prev := idx
 	for cur, ok := s.file.FlatParent(idx); ok; cur, ok = s.file.FlatParent(cur) {
-		if syntheticIsClass(s.file, cur) {
+		if syntheticIsClass(s.file, cur) && syntheticInClassBody(s.file, cur, prev) {
 			return cur
 		}
+		prev = cur
 	}
 	return 0
+}
+
+// syntheticInClassBody reports whether child (a direct child of cls on the path to a reference) is in the class's
+// body. An anonymous class's constructor arguments run in the surrounding class, not in the anonymous one.
+func syntheticInClassBody(file *scanner.File, cls, child uint32) bool {
+	switch file.FlatType(cls) {
+	case "object_creation_expression", "object_literal":
+		return file.FlatType(child) == "class_body"
+	}
+	return true
 }
 
 // enclosingClasses lists the classes around idx, innermost first, ending with 0 (the Kotlin file class) for Kotlin.
 func (s *syntheticScan) enclosingClasses(idx uint32) []uint32 {
 	var out []uint32
+	prev := idx
 	for cur, ok := s.file.FlatParent(idx); ok; cur, ok = s.file.FlatParent(cur) {
-		if syntheticIsClass(s.file, cur) {
+		if syntheticIsClass(s.file, cur) && syntheticInClassBody(s.file, cur, prev) {
 			out = append(out, cur)
 		}
+		prev = cur
 	}
 	if s.file.Language == scanner.LangKotlin {
 		out = append(out, 0)
@@ -189,7 +216,7 @@ func (s *syntheticScan) indexKotlin() {
 	file.FlatWalkAllNodes(0, func(idx uint32) {
 		switch file.FlatType(idx) {
 		case "class_declaration", "object_declaration":
-			if n := lintClassNameNode(file, idx); n != 0 {
+			if n := syntheticDeclName(file, idx); n != 0 {
 				name := file.FlatNodeText(n)
 				s.classes[name] = append(s.classes[name], idx)
 			}
@@ -262,13 +289,21 @@ func kotlinParamCounts(file *scanner.File, decl uint32, listType, paramType stri
 		}
 		list = l
 	}
-	pendingDefault := false
+	pendingDefault, vararg := false, false
 	for c := file.FlatFirstChild(list); c != 0; c = file.FlatNextSib(c) {
 		switch {
+		case file.FlatType(c) == "parameter_modifiers" && strings.Contains(file.FlatNodeText(c), "vararg"):
+			vararg = true
 		case file.FlatType(c) == paramType:
 			total++
 			required++
 			pendingDefault = true
+			if strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(c)), "vararg") || vararg {
+				// A vararg parameter takes any number of arguments, including none.
+				required--
+				total += syntheticVarargMax
+				vararg = false
+			}
 			if perfHasToken(file, c, "=") {
 				required--
 				pendingDefault = false
@@ -366,7 +401,8 @@ func (s *syntheticScan) kotlinUnqualified(idx uint32, name string, args int) (*s
 					return nil, false
 				}
 			}
-			if s.kotlinHasForeignClassSupertype(cls) && !syntheticDistinctiveName(name) {
+			// A superclass from elsewhere, or a same-file superclass declaring the name, can supply it first.
+			if s.kotlinHasForeignClassSupertype(cls) || s.inheritsMember(cls, name, "method", 0) {
 				return nil, false
 			}
 		}
@@ -407,7 +443,10 @@ func (s *syntheticScan) kotlinReceiverClass(at uint32, recv *perfExpr) (uint32, 
 		}
 		return 0, false
 	case perfName:
-		if decls := s.classes[recv.name]; len(decls) == 1 && recv.name[0] >= 'A' && recv.name[0] <= 'Z' {
+		// A local, parameter or property of that name is a value receiver; its type decides, not a class name.
+		isValue := lintNameIsParameterAt(file, at, recv.name) || lintDeclaredTypeText(file, at, recv.name) != "" ||
+			lintInitializerOf(file, at, recv.name, true) != 0
+		if decls := s.classes[recv.name]; !isValue && len(decls) == 1 && recv.name[0] >= 'A' && recv.name[0] <= 'Z' {
 			// `Outer.f()` reaches Outer's companion (or the object itself).
 			if file.FlatType(decls[0]) == "object_declaration" {
 				return decls[0], true
@@ -531,8 +570,11 @@ func (s *syntheticScan) indexJava() {
 			}
 			m := syntheticMember{decl: idx, kind: "method", private: file.FlatHasModifier(idx, "private"), class: cls,
 				static: file.FlatHasModifier(idx, "static")}
-			n := syntheticJavaParamCount(file, idx)
+			n, vararg := syntheticJavaParamCount(file, idx)
 			m.params, m.minArgs = n, n
+			if vararg {
+				m.minArgs, m.params = n-1, n-1+syntheticVarargMax
+			}
 			if file.FlatType(idx) == "constructor_declaration" {
 				m.kind = "constructor"
 			} else if id, ok := file.FlatFindChild(idx, "identifier"); ok {
@@ -705,7 +747,11 @@ func (s *syntheticScan) javaFieldRef(idx uint32) {
 // javaIdentifierIsExpression reports whether an identifier is used as a value, not declared, called or labeled.
 func javaIdentifierIsExpression(file *scanner.File, idx, parent uint32) bool {
 	switch file.FlatType(parent) {
-	case "variable_declarator", "formal_parameter", "catch_formal_parameter", "spread_parameter", "method_declaration",
+	case "variable_declarator":
+		// The declared name is the declarator's first identifier; the initializer's names are reads.
+		first, _ := file.FlatFindChild(parent, "identifier")
+		return first != idx
+	case "formal_parameter", "catch_formal_parameter", "spread_parameter", "method_declaration",
 		"constructor_declaration", "class_declaration", "interface_declaration", "enum_declaration", "record_declaration",
 		"enum_constant", "labeled_statement", "break_statement", "continue_statement", "annotation", "marker_annotation",
 		"element_value_pair", "scoped_identifier", "inferred_parameters", "lambda_expression", "resource",
@@ -732,7 +778,7 @@ func (s *syntheticScan) javaUnqualified(idx uint32, name, kind string) (uint32, 
 			if s.hasMember(cur, name, kind) {
 				return cur, true
 			}
-			if s.javaExtendsForeignClass(cur) && !syntheticDistinctiveName(name) {
+			if s.javaExtendsForeignClass(cur) || s.inheritsMember(cur, name, kind, 0) {
 				return 0, false
 			}
 		}
@@ -807,9 +853,14 @@ func (s *syntheticScan) javaExtendsForeignClass(cls uint32) bool {
 	}
 	file := s.file
 	if file.FlatType(cls) == "object_creation_expression" {
-		// An anonymous class of a type from elsewhere: Lint resolves members of the supertype first, and an
-		// interface (the common case, such as Runnable) has none that matter here.
-		return false
+		// An anonymous class inherits its supertype's members first. Only a class of the file or a well-known
+		// interface has a known member set; any other supertype could declare the name.
+		c, ok := lintCallAt(file, cls)
+		if !ok {
+			return true
+		}
+		simple := c.Name
+		return len(s.classes[simple]) == 0 && !syntheticKnownInterfaces[simple]
 	}
 	sc, ok := file.FlatFindChild(cls, "superclass")
 	if !ok {
@@ -945,18 +996,26 @@ func syntheticLambdaOwner(file *scanner.File, lambda uint32) uint32 {
 }
 
 // syntheticJavaParamCount counts the formal parameters of a Java method or constructor.
-func syntheticJavaParamCount(file *scanner.File, method uint32) int {
+// syntheticVarargMax stands for the unbounded argument count a variable-arity parameter accepts.
+const syntheticVarargMax = 1 << 20
+
+// syntheticJavaParamCount counts the formal parameters of a Java method or constructor and reports a trailing
+// variable-arity parameter.
+func syntheticJavaParamCount(file *scanner.File, method uint32) (n int, vararg bool) {
 	params, ok := file.FlatFindChild(method, "formal_parameters")
 	if !ok {
-		return 0
+		return 0, false
 	}
-	n := 0
 	for c := file.FlatFirstChild(params); c != 0; c = file.FlatNextSib(c) {
-		if t := file.FlatType(c); t == "formal_parameter" || t == "spread_parameter" {
+		switch file.FlatType(c) {
+		case "formal_parameter":
 			n++
+		case "spread_parameter":
+			n++
+			vararg = true
 		}
 	}
-	return n
+	return n, vararg
 }
 
 // kotlinExtensionReceiver returns the receiver type written on an extension function (`fun String.f()`), or "".
@@ -979,11 +1038,17 @@ func (s *syntheticScan) kotlinExtensionTarget(idx uint32, call *perfExpr) *synth
 	recvType := ""
 	switch call.recv.kind {
 	case perfLiteral, perfBinary:
-		if call.recv.node != 0 && file.FlatType(call.recv.node) == "string_literal" {
+		// A String has members of its own; only a name none of them uses can be the extension.
+		if call.recv.node != 0 && file.FlatType(call.recv.node) == "string_literal" && !syntheticStringMembers[call.name] {
 			recvType = "String"
 		}
 	case perfName:
-		recvType = lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(lintDeclaredTypeText(file, idx, call.recv.name)), "?"))
+		// The receiver's declared type must be a class of the file, whose members are known (kotlinCall routes here
+		// only when that class has no member of the name). A type from elsewhere may declare the member.
+		typ := lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(lintDeclaredTypeText(file, idx, call.recv.name)), "?"))
+		if typ != "" && len(s.classes[typ[strings.LastIndex(typ, ".")+1:]]) == 1 {
+			recvType = typ
+		}
 	}
 	if recvType == "" {
 		return nil
@@ -1006,24 +1071,40 @@ func (s *syntheticScan) kotlinExtensionTarget(idx uint32, call *perfExpr) *synth
 	return match
 }
 
-// syntheticFrameworkPrefixes start the member names that framework and library superclasses commonly declare.
-var syntheticFrameworkPrefixes = []string{"get", "set", "is", "has", "on", "find", "require", "start", "stop", "post",
-	"run", "show", "hide", "create", "add", "remove", "update", "invalidate", "request", "notify", "dispatch", "finish",
-	"bind", "unbind", "init", "load", "save", "register", "unregister", "send", "handle", "perform", "apply", "check",
-	"clear", "close", "open", "read", "write", "draw", "measure", "layout", "attach", "detach", "invoke", "resume",
-	"pause", "destroy", "cancel", "submit", "execute", "to", "as", "with", "copy", "equals", "hash", "compare"}
+// syntheticStringMembers are member names of kotlin.String (and Any/CharSequence/Comparable), which win over an
+// extension of the same name.
+var syntheticStringMembers = map[string]bool{
+	"toString": true, "equals": true, "hashCode": true, "length": true, "get": true, "subSequence": true,
+	"compareTo": true, "plus": true,
+}
 
-// syntheticDistinctiveName reports whether a name is unlikely to be declared by a superclass from elsewhere: a
-// camelCase name of several words that does not start like a common framework member. Past a class that extends a
-// class krit cannot see, only such names are resolved to an outer declaration.
-func syntheticDistinctiveName(name string) bool {
-	if strings.ToLower(name) == name {
+// inheritsMember reports whether a same-file superclass (or interface) of cls declares a non-private member of that
+// kind and name, which the class inherits before any outer declaration is reached.
+func (s *syntheticScan) inheritsMember(cls uint32, name, kind string, depth int) bool {
+	if cls == 0 || depth > 6 {
 		return false
 	}
-	for _, p := range syntheticFrameworkPrefixes {
-		if strings.HasPrefix(name, p) && len(name) > len(p) && name[len(p)] >= 'A' && name[len(p)] <= 'Z' {
-			return false
+	for _, ref := range lintDirectSupertypeRefs(s.file, cls) {
+		decls := s.classes[ref.simple]
+		if len(decls) != 1 {
+			continue
+		}
+		for _, m := range s.members[decls[0]] {
+			if m.kind == kind && m.name == name && !m.private {
+				return true
+			}
+		}
+		if s.inheritsMember(decls[0], name, kind, depth+1) {
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+// syntheticKnownInterfaces are interfaces whose members an anonymous class implements in its own body, so an
+// unqualified name the body does not declare reaches the surrounding class.
+var syntheticKnownInterfaces = map[string]bool{
+	"Runnable": true, "Callable": true, "Comparator": true, "OnClickListener": true, "OnLongClickListener": true,
+	"OnTouchListener": true, "OnCheckedChangeListener": true, "Supplier": true, "Consumer": true, "Function": true,
+	"Predicate": true,
 }

@@ -605,7 +605,13 @@ func appendDaemonJarArgsKT(args []string, jarPath string, sourceDirs, classpath 
 
 // EphemeralDaemonArgs scopes a newly spawned daemon to this client process.
 // Normal CLI invocations leave the switch unset and retain shareable daemons.
+// KRIT_DAEMON_PARENT_PID scopes it to another process instead, one that runs
+// many krit scans and shares their daemon (`krit bazel-worker`): the daemon
+// outlives each scan and stops when that process exits.
 func EphemeralDaemonArgs(args ...string) []string {
+	if pid, err := strconv.Atoi(os.Getenv("KRIT_DAEMON_PARENT_PID")); err == nil && pid > 0 {
+		return append(args, "--parent-pid", strconv.Itoa(pid))
+	}
 	if os.Getenv("KRIT_EPHEMERAL_DAEMONS") == "1" {
 		return append(args, "--parent-pid", strconv.Itoa(os.Getpid()))
 	}

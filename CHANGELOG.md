@@ -5,6 +5,12 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_aspect`'s Krit actions run `krit bazel-worker`, a Bazel persistent worker (JSON protocol) that keeps one
+  krit-fir JVM warm across the actions it serves; each action is still a fresh krit process with its own empty state
+  and incremental FIR off. Re-analyzing a target with an unchanged classpath drops from about 4.6 s to 0.6 s per action
+  on a 24-target benchmark (`scripts/bazel-worker-bench.sh`). Each worker holds at most one JVM, tied to the worker's
+  PID through the new `KRIT_DAEMON_PARENT_PID`; without workers (`--@krit//:worker=false`, remote execution) the verb
+  runs one-shot (#1591).
 - Bazel: `bazel run @krit//:export_model -- //...` exports a krit model of the build graph (`krit_model_aspect`, one
   project per target: label, deps, source dirs, compile classpath, srcjars, Kotlin settings, Android inputs) into
   `.krit/bazel-model/`, which krit, `krit-lsp` and `krit-mcp` now discover like `.krit/gradle-model/`, so FIR scans

@@ -176,6 +176,52 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
 done
 echo "OK: krit_aspect"
 
+# Persistent worker: the Krit actions above ran on a multiplex worker that
+# keeps one krit-fir JVM warm. It must still analyze each request from its
+# own inputs only: fix //typed/app's finding, and the warm worker's report
+# must lose it; restore it, and the report must have it again.
+echo "== persistent worker: Krit actions run on the worker and see each edit"
+consumer="typed/app/Consumer.kt"
+cp "$consumer" "$work/Consumer.kt.orig"
+restore_consumer() { cp "$work/Consumer.kt.orig" "$consumer"; }
+trap 'restore_consumer; rm -rf "$work"' EXIT
+report() {
+  build "${extra[@]}" --execution_log_json_file="$log" //typed/app > /dev/null 2>&1 || {
+    build "${extra[@]}" //typed/app
+    return 1
+  }
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/typed/app/app.krit.txt"
+}
+sed -i.bak 's/upstream.name?.length/upstream.name.length/' "$consumer" && rm -f "$consumer.bak"
+if report | grep -q UnnecessarySafeCall; then
+  echo "ERROR: the worker reported a finding the edited source no longer has" >&2
+  exit 1
+fi
+# The edited source is new to every cache, so this Krit action executed.
+cp "$log" "$work/edited-exec.json"
+restore_consumer
+report | grep -q "typed/app/Consumer.kt:5:57: .*UnnecessarySafeCall" || {
+  echo "ERROR: the worker lost //typed/app's finding after the source was restored" >&2
+  exit 1
+}
+python3 - "$work/edited-exec.json" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, runners = json.JSONDecoder(), 0, []
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == "Krit":
+        runners.append(entry.get("runner", ""))
+if not runners or any("worker" not in r for r in runners):
+    sys.exit("ERROR: Krit actions did not run on the persistent worker: %s" % runners)
+print("OK: persistent worker (%s)" % ", ".join(runners))
+PY
+
 # export_model: a krit model of the Bazel graph for scans outside Bazel. A
 # plain krit run in the workspace then finds .krit/bazel-model and gets the
 # targets' classpath and Kotlin settings: the FIR-only findings of //typed/app

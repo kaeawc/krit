@@ -349,3 +349,26 @@ Ports of Android Lint 32.4.1's built-in Performance detectors, under their Lint 
   members of `kotlin.*` types (`MutableList.add`) are not side effects, and Java calls are not followed. Lint
   resolves receiver types the compiler knows; krit reports only receivers whose type is declared or constructed in
   the file.
+
+## Android Lint Performance Checks (Gradle)
+
+Ports of Android Lint 32.4.1's Gradle-scope Performance detectors, under their Lint IDs. Lint reads these from its
+Gradle model; krit reads the build script, the version catalog, and the project's AGP version.
+
+- `ProguardAndroidTxtUsage` reports `getDefaultProguardFile(...)` whose argument names `proguard-android.txt`, in an
+  app module. It is a warning before AGP 9 and an error from AGP 9 (or when the AGP version is unknown), as the
+  Lint command line reports it. The fix switches to `proguard-android-optimize.txt`.
+- `NotShrinkingResources` reports, in an app module, `shrinkResources false` (`isShrinkResources = false` in Kotlin
+  scripts) in a block whose name matches a block with `minifyEnabled true`. When the script never sets
+  `shrinkResources`, it also reports the last `minifyEnabled true`, until AGP 10. Like Lint, blocks are matched by name, so
+  `getByName("debug")` and `getByName("release")` count as one block. The fixes set the value to `true` or add the
+  missing line.
+- `KaptUsageInsteadOfKsp` reports `kapt` dependencies (the `kapt` configuration only, not `kaptTest`) on the
+  processors Lint lists as having a KSP version: Glide, Room, Moshi codegen, RxHttp, Kotshi, LINE savedstate,
+  EasyAdapter, DeepLinkDispatch, Epoxy and Paris. Version catalog references are resolved. krit's broader `KaptUsage`
+  rule stays separate: it also reports the kapt plugin and every other processor.
+- `LifecycleAnnotationProcessorWithJava8` reports a dependency on `androidx.lifecycle:lifecycle-compiler` (or
+  `android.arch.lifecycle:compiler`) in any configuration when the module compiles Java 8 or later. That comes from
+  `sourceCompatibility`, `jvmToolchain`/`JavaLanguageVersion`, or else AGP 4.2 or later, whose default is Java 8. With
+  no declaration and no known AGP version, krit does not report, because Lint treats an unknown level as Java 7.
+

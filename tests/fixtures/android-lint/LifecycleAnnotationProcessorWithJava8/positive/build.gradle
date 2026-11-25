@@ -1,0 +1,14 @@
+plugins {
+    id 'com.android.application' version '8.5.0'
+}
+
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    annotationProcessor 'androidx.lifecycle:lifecycle-compiler:2.6.2'
+}

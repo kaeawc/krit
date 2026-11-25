@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application' version '8.5.0'
+}
+
+android {
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+        }
+        debug {
+            // No minification here, so turning shrinking off is fine.
+            shrinkResources false
+        }
+    }
+}

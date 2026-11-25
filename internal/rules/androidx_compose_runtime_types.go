@@ -52,13 +52,9 @@ func acrValueDeclaration(file *scanner.File, ref uint32, name string) uint32 {
 				}
 			}
 		case "class_declaration":
-			if ctor, ok := file.FlatFindChild(p, "primary_constructor"); ok {
-				if params, ok := file.FlatFindChild(ctor, "class_parameters"); ok {
-					for _, cp := range flatDirectChildrenOfType(file, params, "class_parameter") {
-						if file.FlatChildTextOrEmpty(cp, "simple_identifier") == name {
-							return cp
-						}
-					}
+			for _, cp := range acrClassParameters(file, p) {
+				if file.FlatChildTextOrEmpty(cp, "simple_identifier") == name {
+					return cp
 				}
 			}
 		case "source_file":
@@ -272,17 +268,25 @@ func acrClassMember(file *scanner.File, class uint32, name string) uint32 {
 			}
 		}
 	}
-	if ctor, ok := file.FlatFindChild(class, "primary_constructor"); ok {
-		if params, ok := file.FlatFindChild(ctor, "class_parameters"); ok {
-			for _, cp := range flatDirectChildrenOfType(file, params, "class_parameter") {
-				if file.FlatChildTextOrEmpty(cp, "simple_identifier") == name &&
-					(file.FlatHasChildOfType(cp, "binding_pattern_kind")) {
-					return cp
-				}
-			}
+	for _, cp := range acrClassParameters(file, class) {
+		if file.FlatChildTextOrEmpty(cp, "simple_identifier") == name && file.FlatHasChildOfType(cp, "binding_pattern_kind") {
+			return cp
 		}
 	}
 	return 0
+}
+
+// acrClassParameters returns a class's primary-constructor parameters. tree-sitter-kotlin puts them directly under
+// primary_constructor (older grammars wrap them in class_parameters).
+func acrClassParameters(file *scanner.File, class uint32) []uint32 {
+	ctor, ok := file.FlatFindChild(class, "primary_constructor")
+	if !ok {
+		return nil
+	}
+	if params, ok := file.FlatFindChild(ctor, "class_parameters"); ok {
+		ctor = params
+	}
+	return flatDirectChildrenOfType(file, ctor, "class_parameter")
 }
 
 // acrCallTargets reports whether call is a call of pkg.name: a simple callee resolving to it, or a fully

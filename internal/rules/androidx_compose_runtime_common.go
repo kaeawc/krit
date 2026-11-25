@@ -22,7 +22,8 @@ const (
 
 // registerAcrRule registers a Compose runtime Lint port. Lint's scope for these issues includes test sources, so
 // unlike the AOSP Lint ports they also run on tests. The confidence is high unless impl declares Confidence(), and
-// an impl declaring fileMentions() only runs on files whose text contains every listed string.
+// an impl declaring fileMentions() only runs on files whose text contains every listed string, and one declaring
+// fixLevel() registers that autofix tier.
 func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []scanner.Language, check func(*api.Context),
 	aliases ...string) {
 	confidence := api.ConfidenceHigh
@@ -41,10 +42,14 @@ func registerAcrRule(rule BaseRule, impl any, nodeTypes []string, languages []sc
 			return true
 		}
 	}
+	fix := api.FixNone
+	if f, ok := impl.(interface{ fixLevel() api.FixLevel }); ok {
+		fix = f.fixLevel()
+	}
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Implementation: impl, Check: check,
-		FileGate: gate, Aliases: aliases,
+		FileGate: gate, Aliases: aliases, Fix: fix,
 	})
 }
 

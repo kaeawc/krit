@@ -159,6 +159,17 @@ All notable changes to Krit will be documented in this file.
   Compose content parameter (`Column`, `Box`, `Scaffold` slots, `CompositionLocalProvider`, `key`, lazy `item`/`items`,
   ...). Receivers must be proven to be a `CoroutineScope`, `Flow` or `StateFlow` by same-file declarations or
   initializers, which rules out lookalike members such as `ActivityResultLauncher.launch` (#1465, #1466, #1470).
+- `AutoboxingStateValueProperty`, `AutoboxingStateCreation` and `MutableCollectionMutableState`, ported from
+  `androidx.compose.runtime:runtime-android` 1.12.1 under their Lint IDs and checked against the Lint CLI on the same
+  inputs. `AutoboxingStateValueProperty` reports reads and plain assignments of `value` on a proven
+  `IntState`/`LongState`/`FloatState`/`DoubleState` (or the `Mutable` variants, including `remember { mutableIntStateOf(0) }`
+  and `asIntState()`), with an idiomatic autofix to `intValue`/`longValue`/`floatValue`/`doubleValue`; like Lint it
+  skips compound assignments (`+=`). `AutoboxingStateCreation` (informational) reports `mutableStateOf` of a non-null
+  `Int`, `Long`, `Float` or `Double` with the default policy. `MutableCollectionMutableState` reports `mutableStateOf`
+  holding a mutable collection (`mutableListOf`, `ArrayList()`, `java.util` collections, `toMutableList()`, mutable
+  collection parameters and same-file subclasses). Both take the state type from an explicit type argument, the
+  declared type of the property or delegate it initializes, or the value argument when nothing else constrains it
+  (#1463, #1464, #1473).
 - `UseAndroidAlpha`, `UseAppTint`, `UseSwitchCompatOrMaterialXml`, `UseCompatTextViewDrawableXml` and
   `UsingOnClickInXml`, ported from the Lint checks bundled in `androidx.appcompat:appcompat` 1.8.0 and checked
   against that AAR's `lint.jar` through the Lint CLI on the same files. They run only when the project declares

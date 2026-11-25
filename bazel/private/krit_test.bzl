@@ -67,10 +67,15 @@ export JAVA_HOME="$scratch/no-jdk"
 mkdir -p "$JAVA_HOME"
 """
 
-# Type-aware: the JDK of Bazel's Java runtime toolchain and the pinned
-# krit-fir jar, both from runfiles; the model names the compile classpath.
+# Type-aware: the JDK of Bazel's Java runtime toolchain (in runfiles, or an
+# absolute path for a java_runtime with an absolute java_home) and the pinned
+# krit-fir jar from runfiles; the model names the compile classpath.
 _TYPE_AWARE_SETUP = """\
-export JAVA_HOME="$PWD/"{java_home}
+java_home={java_home}
+case "$java_home" in
+  /*) export JAVA_HOME="$java_home" ;;
+  *) export JAVA_HOME="$PWD/$java_home" ;;
+esac
 export KRIT_FIR_JAR="$PWD/"{fir_jar}
 """
 

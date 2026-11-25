@@ -111,6 +111,17 @@ All notable changes to Krit will be documented in this file.
   expression body, or a lambda's last expression) outside `pointerInput`, `PointerInputEventHandler`, `coroutineScope`
   or a lambda declared `suspend PointerInputScope.() -> ...`; as in Lint, a qualified `scope.awaitPointerEventScope`
   is never reported (#1497, #1498).
+- `ModifierFactoryExtensionFunction`, `ModifierFactoryReturnType`, `ModifierFactoryUnreferencedReceiver` and
+  `ModifierParameter`, ported from `androidx.compose.ui:ui-android` 1.12.1 under their Lint IDs and checked against the
+  Lint CLI on the same inputs. A declaration is checked when its declared type, or an expression body rooted at
+  `Modifier` (or a same-file Modifier subtype constructor or object literal), proves it returns a Modifier; members,
+  interface functions and overrides are checked as in Lint, local functions and class properties are not, and
+  `ParentDataModifier` factories are exempt. The receiver counts as used through `this` or any unqualified call that
+  may bind it. Lint reports every extension-property getter as not using its receiver; krit only reports getters that
+  really do not. An expression-bodied `@Composable` without a declared return type is a known `ModifierParameter`
+  false negative unless its body proves `Unit`. The Compose UI ports, `MissingColorAlphaChannel`,
+  `InvalidColorHexValue` and `InvalidLanguageTagDelimiter` included, are marked as Lint issues, so `lint.xml` and
+  Gradle `lint { }` severities apply to them (#1492, #1493, #1494, #1496).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

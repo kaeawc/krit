@@ -240,7 +240,8 @@ resolves past the subject to the enclosing class) is not reported.
 `androidx.compose.ui` 1.12.1 (`ui-graphics-android`, `ui-text-android`), Kotlin and Java:
 
 These Compose checks run on any file that imports the Compose API they check, since the import already proves the
-library is present; Compose Multiplatform code is checked too, although Lint does not run there.
+library is present; Compose Multiplatform code is checked too, although Lint does not run there. Their IDs are the Lint issue
+IDs, so `@SuppressLint`, `tools:ignore`, `lint.xml` and Gradle `lint { }` severities apply to them.
 
 - `MissingColorAlphaChannel` and `InvalidColorHexValue` report the literal passed to a one-argument Compose
   `Color(...)` (imported, star-imported, aliased or fully qualified, and not shadowed by a same-file `Color`). Lint
@@ -274,3 +275,19 @@ library is present; Compose Multiplatform code is checked too, although Lint doe
   enclosing call named `pointerInput`, `PointerInputEventHandler` or `coroutineScope` and no enclosing lambda declared as
   `suspend PointerInputScope.() -> ...` on its property or parameter. Lint looks at the call's direct parent, so a
   qualified `scope.awaitPointerEventScope { }` is never reported; krit keeps that verdict.
+`androidx.compose.ui:ui-android` 1.12.1 Modifier declarations (Kotlin):
+
+- `ModifierFactoryExtensionFunction`, `ModifierFactoryReturnType` and `ModifierFactoryUnreferencedReceiver` check
+  functions (members, interface functions and overrides included, local functions excluded) and top-level `val`
+  getters that return a Modifier other than a `ParentDataModifier`. The return type must be declared as
+  `androidx.compose.ui.Modifier`, `Modifier.Element`, a public Compose Modifier interface (`LayoutModifier`,
+  `DrawModifier`, `ModifierNodeElement`, ...) or a same-file class implementing one, or be shown by an expression body
+  (`Modifier`, a `Modifier.padding(...)...` chain of known factories, an object literal or a same-file constructor).
+  Other inferred return types need type resolution and are not checked.
+- `ModifierFactoryUnreferencedReceiver` treats any `this` and any unqualified call that may bind the receiver
+  implicitly as a use; calls to constructors, Kotlin top-level functions such as `listOf` and `TODO`, function-typed
+  locals and same-file top-level functions are not. Lint reports every extension-property getter, because its check
+  only matches named functions; krit reports only getters that do not use the receiver.
+- `ModifierParameter` checks the first Modifier-typed parameter of a `@Composable` function returning `Unit`: it should
+  be named `modifier`, typed `Modifier`, default to the bare `Modifier` and be the first optional parameter. Lint's
+  rename and retype quick fixes are not ported, because they would leave call sites and the body unchanged.

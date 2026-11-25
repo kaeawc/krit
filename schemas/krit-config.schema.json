@@ -16443,6 +16443,138 @@
             }
           }
         },
+        "ModifierFactoryExtensionFunction": {
+          "description": "Detects functions returning a Modifier that are not extensions on Modifier, so they cannot be chained. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ModifierFactoryExtensionFunction (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ModifierFactoryReturnType": {
+          "description": "Detects Modifier factory functions that return a Modifier subtype instead of Modifier. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ModifierFactoryReturnType (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ModifierFactoryUnreferencedReceiver": {
+          "description": "Detects Modifier extension factories whose body never uses the receiver Modifier. [precision: ast-backed] [noisiness: normal]\nCaveat: A declaration is only checked when its declared type, or the expression body, proves it returns a Modifier.\nCaveat: Only Kotlin declarations are checked, as Lint only reports Kotlin sources.\nCaveat: An unqualified call that may bind the receiver implicitly (any lowercase function not known to be top-level) counts as a use, so receivers used only through such calls are not reported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ModifierFactoryUnreferencedReceiver (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ModifierParameter": {
+          "description": "Detects Modifier parameters of @Composable functions that are not named modifier, typed Modifier, defaulted to Modifier, or the first optional parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: Expression-bodied @Composable functions without a declared return type are only checked when the body is Unit or a same-file function call: otherwise their return type needs type inference.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ModifierParameter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MultipleAwaitPointerEventScopes": {
           "description": "Detects several awaitPointerEventScope blocks in one pointerInput or declaration, which can drop input events. [precision: ast-backed] [noisiness: normal]\nCaveat: A pointerInput call bounds the count, as Lint's Modifier-typed expression does; other Modifier-typed expressions between the call and its declaration are not recognized.",
           "type": "object",

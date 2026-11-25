@@ -1,0 +1,14 @@
+p/Params.kt:20:29: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:25:15: ModifierParameter: Modifier parameter should have a type of Modifier
+p/Params.kt:29:18: ModifierParameter: Optional Modifier parameter should have a default value of `Modifier`
+p/Params.kt:34:47: ModifierParameter: Modifier parameter should be the first optional parameter
+p/Params.kt:39:41: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:39:41: ModifierParameter: Modifier parameter should be the first optional parameter
+p/Params.kt:39:41: ModifierParameter: Modifier parameter should have a type of Modifier
+p/Params.kt:39:41: ModifierParameter: Optional Modifier parameter should have a default value of `Modifier`
+p/Params.kt:43:22: ModifierParameter: Optional Modifier parameter should have a default value of `Modifier`
+p/Params.kt:47:18: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:54:18: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:58:20: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:65:16: ModifierParameter: Modifier parameter should be named modifier
+p/Params.kt:81:16: ModifierParameter: Optional Modifier parameter should have a default value of `Modifier`

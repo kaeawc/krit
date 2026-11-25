@@ -67,6 +67,7 @@ func (r *InvalidLanguageTagDelimiterRule) Meta() api.RuleDescriptor {
 
 // registerAcuiRule registers a Compose UI Lint port. Like the Compose runtime ports, these run on test sources too
 // (Lint's scope includes TEST_SOURCES), and an impl declaring fileMentions() only runs on files mentioning them.
+// The rule ID is the Lint issue ID, so LintIssue lets lint.xml and Gradle `lint { }` severities reach it.
 func registerAcuiRule(rule BaseRule, impl any, nodeTypes []string, languages []scanner.Language, fix api.FixLevel,
 	check func(*api.Context)) {
 	confidence := api.ConfidenceHigh
@@ -88,7 +89,7 @@ func registerAcuiRule(rule BaseRule, impl any, nodeTypes []string, languages []s
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Desc, Sev: api.Severity(rule.Sev),
 		NodeTypes: nodeTypes, Languages: languages, Confidence: confidence, Fix: fix, Implementation: impl,
-		Check: check, FileGate: gate,
+		Check: check, FileGate: gate, LintIssue: true,
 	})
 }
 

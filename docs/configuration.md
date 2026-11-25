@@ -363,3 +363,20 @@ Schema 2 models also carry each source set's Kotlin compiler settings
 the embedded compiler so a project is analyzed under its own language level, and
 includes them in cache identities; see
 [Kotlin compiler settings](kotlin-compiler-settings.md).
+
+### Generated-source jars (`.srcjar`)
+
+Build systems that package generated code as source jars (Bazel's KSP, kapt,
+Wire/protobuf, SQLDelight and view-binding outputs) pass them with
+`--generated-srcjar PATH`, repeated once per archive, or list them per source
+set in the model as `generatedSourceJars`. Each srcjar is treated like a
+`generatedSourceDirs` entry: its `.kt` and `.java` files are compiled as FIR
+checker and type-oracle context, so code that uses a generated type is not
+gated, and nothing in it is reported. Other entries are ignored.
+
+The Kotlin compiler only reads sources from disk, so krit unpacks each srcjar
+once into `$KRIT_HOME/srcjars/<sha256 of the archive>/` (default
+`~/.krit/srcjars/`) and reuses that directory while the archive is unchanged.
+Hermetic runners such as Bazel actions should point `KRIT_HOME` at a
+directory they own. A srcjar that cannot be read is a warning and the scan
+continues without it.

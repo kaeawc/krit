@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/srcjar"
 
 	"github.com/kaeawc/krit/internal/config"
 )
@@ -253,4 +254,22 @@ func maxJvmTarget(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// withGeneratedSrcjars unpacks the --generated-srcjar archives and adds each
+// root to the compile context and to the generated roots, so the FIR checker
+// and the type oracle compile them while nothing under them is reported. An
+// unreadable srcjar is a warning; the scan goes on without it.
+func withGeneratedSrcjars(sourceDirs, generated, jars []string, verbose bool, out io.Writer) ([]string, []string) {
+	if len(jars) == 0 {
+		return sourceDirs, generated
+	}
+	dirs, warnings := srcjar.ExtractAll(jars)
+	for _, warning := range warnings {
+		fmt.Fprintf(out, "warning: generated srcjar: %s\n", warning)
+	}
+	if verbose {
+		fmt.Fprintf(out, "generated srcjars: %d of %d unpacked as generated source roots\n", len(dirs), len(jars))
+	}
+	return dedupePreservingOrder(append(sourceDirs, dirs...)), dedupePreservingOrder(append(generated, dirs...))
 }

@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/kaeawc/krit/internal/hashutil"
+	"github.com/kaeawc/krit/internal/srcjar"
 )
 
 // Model contains valid projects from all readable model files.
@@ -34,6 +36,11 @@ type SourceSet struct {
 	Variant             string   `json:"variant"`
 	SourceDirs          []string `json:"sourceDirs"`
 	GeneratedSourceDirs []string `json:"generatedSourceDirs"`
+	// GeneratedSourceJars are .srcjar archives of generated sources (KSP, kapt,
+	// Wire, SQLDelight, view binding). Load unpacks each one (internal/srcjar)
+	// and appends the resulting root to GeneratedSourceDirs, so every consumer
+	// treats them like generated source directories: compiled, never reported.
+	GeneratedSourceJars []string `json:"generatedSourceJars,omitempty"`
 	ClasspathEntries    []string `json:"classpath"`
 	GeneratedClasspath  []string `json:"generatedClasspath"`
 	BootClasspath       []string `json:"bootClasspath"`
@@ -82,11 +89,35 @@ func Load(dir string) (*Model, []string, error) {
 				continue
 			}
 			project.SchemaVersion = file.Schema
+			warnings = append(warnings, expandGeneratedSourceJars(&project, path)...)
 			model.Projects = append(model.Projects, project)
 		}
 	}
 	sort.SliceStable(model.Projects, func(i, j int) bool { return model.Projects[i].Path < model.Projects[j].Path })
 	return model, warnings, nil
+}
+
+// expandGeneratedSourceJars appends the unpacked root of every srcjar a
+// source set lists to its GeneratedSourceDirs. An unreadable srcjar is a
+// warning: its types resolve as unknown, as they do without it.
+func expandGeneratedSourceJars(project *Project, modelPath string) []string {
+	var warnings []string
+	for i := range project.SourceSets {
+		set := &project.SourceSets[i]
+		if len(set.GeneratedSourceJars) == 0 {
+			continue
+		}
+		dirs, problems := srcjar.ExtractAll(set.GeneratedSourceJars)
+		for _, dir := range dirs {
+			if !slices.Contains(set.GeneratedSourceDirs, dir) {
+				set.GeneratedSourceDirs = append(set.GeneratedSourceDirs, dir)
+			}
+		}
+		for _, problem := range problems {
+			warnings = append(warnings, fmt.Sprintf("%s: project %s source set %s: %s", modelPath, project.Path, set.Name, problem))
+		}
+	}
+	return warnings
 }
 
 // Classpath returns existing boot entries followed by existing ordinary entries,

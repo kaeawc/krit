@@ -3,6 +3,7 @@ package scan
 import (
 	"flag"
 
+	"github.com/kaeawc/krit/internal/cli/clishared"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/output"
 	"github.com/kaeawc/krit/internal/sysres"
@@ -23,57 +24,60 @@ type scanFlags struct {
 	Reports []reportTarget
 	// skipPrimary is set when only --report FORMAT=PATH files were asked
 	// for: stdout (or -o) then gets no report.
-	skipPrimary              bool
-	Perf                     *bool
-	PerfRules                *bool
-	CPUProfile               *string
-	MemProfile               *string
-	ProfileDispatch          *bool
-	IncludeGenerated         *bool
-	Output                   *string
-	Jobs                     *int
-	Quiet                    *bool
-	Verbose                  *bool
-	Fix                      *bool
-	FixSuffix                *string
-	FixLevel                 *string
-	FixFindingID             *string
-	DryRun                   *bool
-	AllRules                 *bool
-	Experimental             *bool
-	Maturity                 *string
-	Strict                   *bool
-	Baseline                 *string
-	CreateBaseline           *string
-	DetektConfig             *string
-	NoDetektConfig           *bool
-	BasePath                 *string
-	AbsolutePaths            *bool
-	EditorConfig             *bool
-	Version                  *bool
-	NoCache                  *bool
-	NoParseCache             *bool
-	ParseCacheCapMB          *int
-	NoResourceCache          *bool
-	ClearCache               *bool
-	NoMatrixCache            *bool
-	ClearMatrixCache         *bool
-	CacheDir                 *string
-	StoreDir                 *string
-	Config                   *string
-	List                     *bool
-	ListRulesCWE             *string
-	NoTypeInfer              *bool
-	ValidateConfig           *bool
-	GenerateSchema           *bool
-	InputTypes               *string
-	OutputTypes              *string
-	DumpOracleDiagnostics    *bool
-	NoTypeOracle             *bool
-	OracleBackend            *string
-	NoCacheOracle            *bool
-	GradleModel              *string
-	NoGradleModel            *bool
+	skipPrimary           bool
+	Perf                  *bool
+	PerfRules             *bool
+	CPUProfile            *string
+	MemProfile            *string
+	ProfileDispatch       *bool
+	IncludeGenerated      *bool
+	Output                *string
+	Jobs                  *int
+	Quiet                 *bool
+	Verbose               *bool
+	Fix                   *bool
+	FixSuffix             *string
+	FixLevel              *string
+	FixFindingID          *string
+	DryRun                *bool
+	AllRules              *bool
+	Experimental          *bool
+	Maturity              *string
+	Strict                *bool
+	Baseline              *string
+	CreateBaseline        *string
+	DetektConfig          *string
+	NoDetektConfig        *bool
+	BasePath              *string
+	AbsolutePaths         *bool
+	EditorConfig          *bool
+	Version               *bool
+	NoCache               *bool
+	NoParseCache          *bool
+	ParseCacheCapMB       *int
+	NoResourceCache       *bool
+	ClearCache            *bool
+	NoMatrixCache         *bool
+	ClearMatrixCache      *bool
+	CacheDir              *string
+	StoreDir              *string
+	Config                *string
+	List                  *bool
+	ListRulesCWE          *string
+	NoTypeInfer           *bool
+	ValidateConfig        *bool
+	GenerateSchema        *bool
+	InputTypes            *string
+	OutputTypes           *string
+	DumpOracleDiagnostics *bool
+	NoTypeOracle          *bool
+	OracleBackend         *string
+	NoCacheOracle         *bool
+	GradleModel           *string
+	NoGradleModel         *bool
+	// GeneratedSrcjars are --generated-srcjar archives: generated sources
+	// compiled as FIR and oracle context and never reported on.
+	GeneratedSrcjars         *clishared.MultiString
 	modelClasspath           []string
 	modelSourceDirs          []string
 	modelGeneratedSourceDirs []string
@@ -203,6 +207,8 @@ func registerScanFlags(fs *flag.FlagSet) *scanFlags {
 	f.NoCacheOracle = fs.Bool("no-cache-oracle", false, "Disable the on-disk incremental oracle cache (forces a full JVM run)")
 	f.GradleModel = fs.String("gradle-model", "", "Read exported Gradle model from DIR (overrides --no-gradle-model)")
 	f.NoGradleModel = fs.Bool("no-gradle-model", false, "Disable automatic Gradle model discovery")
+	f.GeneratedSrcjars = &clishared.MultiString{}
+	fs.Var(f.GeneratedSrcjars, "generated-srcjar", "Generated-source jar (.srcjar, e.g. KSP, kapt, Wire, SQLDelight or view-binding output) compiled as FIR and type-oracle context, never reported on; repeatable")
 	f.NoCrossFileCache = fs.Bool("no-cross-file-cache", false, "Disable the on-disk cross-file index cache (forces a full crossFileAnalysis rebuild)")
 	f.CustomRuleJars = fs.String("custom-rule-jars", "", "Comma-separated Kotlin custom-rule jars to load through the krit-fir daemon (experimental)")
 	f.Daemon = fs.Bool("daemon", false, "Use long-lived krit-fir oracle daemon instead of one-shot invocation")

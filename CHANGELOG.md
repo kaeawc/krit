@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bazel: `krit_test(type_aware = True)` runs the FIR checker and type oracle against each target's Bazel compile
+  classpath (`JavaInfo.transitive_compile_time_jars`, including the rules_kotlin stdlib), with Bazel's Java runtime
+  toolchain as `JAVA_HOME`, the release's checksum-verified `krit-fir` jar (a lazily fetched repository) and
+  `--fail-on-degraded`, so no hand-maintained `oracle.classpath` is needed. `KRIT_BAZEL_LOCAL_DIST` points the module
+  at a local krit build (#1550).
 - FIR coverage is visible without `-v`: when the FIR pass gates files on compiler errors, the scan prints `FIR analyzed
   N of M files ...` with the top causes (unresolved references grouped by import package prefix), JSON reports carry
   `summary.fir` and SARIF reports `runs[0].properties.fir` (`authoritative`, `gated`, `excluded`, `topCauses`).

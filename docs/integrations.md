@@ -71,10 +71,11 @@ krit_test(
 | `format` | Report format printed to the test log (default `plain`). |
 | `args`, `data` | Extra krit flags, placed before the files, and files they refer to (`$(rootpath ...)`). |
 
-The test runs Go-only and in-process: no daemon, no incremental cache, no
-FIR checker, no type oracle and no Java facts helper. It needs no JDK or
-network and reports the same findings on every machine. Rules that rely on
-the JVM fall back to their source-level checks, as with `--no-fir`. Rules that
+By default the test runs Go-only and in-process: no daemon, no incremental
+cache, no FIR checker, no type oracle and no Java facts helper. It needs no
+JDK or network and reports the same findings on every machine. Rules that
+rely on the JVM fall back to their source-level checks, as with `--no-fir`.
+For FIR, see [Type-aware krit_test](#type-aware-krit_test). Rules that
 look across modules (dead code, unused resources) only see the test's
 sources; run those as a whole-repository `bazel run @krit//:krit` step (see
 [Sharding rules by scope](hermetic-builds.md#sharding-rules-by-scope)).
@@ -85,6 +86,49 @@ krit skips files under test-data and test-resource directories
 `krit_test` whose sources are all skipped fails instead of passing without
 checking anything. `krit_test` is a shell script, so it runs on Linux and
 macOS, not Windows.
+
+#### Type-aware krit_test
+
+`type_aware = True` also runs krit's FIR checker and type oracle, with what
+Bazel already knows instead of a hand-maintained `oracle.classpath`:
+
+```starlark
+krit_test(
+    name = "lib_krit",
+    targets = [":lib"],
+    type_aware = True,
+)
+```
+
+- **Classpath.** Each target's compile classpath, its
+  `JavaInfo.transitive_compile_time_jars` without the target's own jars:
+  the deps' (and their exports') header or ABI jars and, for rules_kotlin
+  targets, the Kotlin stdlib the toolchain adds. For `srcs` outside any
+  target, list the libraries they use in `deps`. krit reads the classpath
+  from a generated model in the [Gradle model](configuration.md) format
+  (`--gradle-model`).
+- **JDK.** Bazel's Java runtime toolchain
+  (`@bazel_tools//tools/jdk:current_java_runtime`) is `JAVA_HOME`. krit-fir
+  needs Java 21 or newer, so pin a hermetic runtime in `.bazelrc`:
+  `common --java_runtime_version=remotejdk_21`.
+- **krit-fir.** The `krit-fir-vX.Y.Z.jar` of the same release, verified
+  against its `checksums.txt` (or a `krit.toolchain(sha256 = ...)` entry).
+  It is a repository of its own, fetched only when a type-aware test is
+  built. krit downloads nothing at test time (`KRIT_NO_JAR_DOWNLOAD=1`).
+- **No silent fallback.** The test passes `--fail-on-degraded`, so a FIR
+  pass that cannot run fails the test instead of caching a Go-only result.
+
+Every input is declared, so Bazel caches the test (locally or remotely)
+until a source, a dependency's ABI, the config, the JDK or krit changes.
+Each run starts a cold JVM (no daemon), which adds a few seconds per test.
+A `krit_test` sees only its targets: rules that look across modules still
+need a whole-repository run.
+
+To test an unreleased checkout of the module, point `KRIT_BAZEL_LOCAL_DIST`
+at a directory with a locally built `krit` and `krit-fir.jar`; it replaces
+the release download. `scripts/bazel-e2e-local.sh` does that for
+`bazel/e2e`, and checks that a second run after `bazel clean` is served
+entirely from the disk cache.
 
 ## GitHub Actions
 

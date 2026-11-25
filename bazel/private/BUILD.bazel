@@ -1,4 +1,5 @@
 exports_files([
     "krit_binary.bzl",
     "krit_test.bzl",
+    "model.bzl",
 ])

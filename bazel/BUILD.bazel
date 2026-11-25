@@ -21,3 +21,10 @@ exports_files([
     "defs.bzl",
     "extensions.bzl",
 ])
+
+# The krit-fir jar of the same release, for type-aware rules.
+alias(
+    name = "krit_fir_jar",
+    actual = "@krit_fir//:krit-fir.jar",
+    visibility = ["//visibility:public"],
+)

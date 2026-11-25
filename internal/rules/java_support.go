@@ -201,6 +201,11 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"UnspecifiedRegisterReceiverFlag":         {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_register_receiver_test.go"}},
 		"SSLCertificateSocketFactoryGetInsecure":  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_calls_test.go"}},
 		"SSLCertificateSocketFactoryCreateSocket": {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_security_calls_test.go"}},
+		"UseSupportActionBar":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatLoadingForColorStateLists":      {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatLoadingForDrawables":            {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseCompatTextViewDrawableApis":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
+		"UseSwitchCompatOrMaterialCode":           {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_appcompat_calls_test.go"}},
 	},
 }
 

@@ -37,6 +37,12 @@ All notable changes to Krit will be documented in this file.
   reads the module's declared and version-catalog `androidx.fragment:fragment` version; a version that arrives only
   transitively is not seen yet (#1120). `InvalidUseOfOnBackPressed` keeps Lint's verdicts, which only match a method
   named `handledOnBackPressed` (#1305, #1306, #1441, #1442).
+- `UseSupportActionBar`, `UseCompatLoadingForColorStateLists`, `UseCompatLoadingForDrawables`,
+  `UseCompatTextViewDrawableApis` and `UseSwitchCompatOrMaterialCode`, ported from the Lint checks bundled in
+  `androidx.appcompat:appcompat` 1.8.0 for Kotlin and Java and checked against that AAR's `lint.jar` through the Lint
+  CLI on the same sources. They run only when the project declares appcompat (or Material). Receivers are proven from
+  declarations, imports, the resolver hierarchy and Java facts; an implicit receiver inside `apply`/`run`/`with` whose
+  subject is not proven abstains (#1319, #1321, #1322, #1324, #1326).
 
 ### Fixed
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an

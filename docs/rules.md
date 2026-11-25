@@ -184,3 +184,22 @@ arrives only transitively, is not seen, so those checks stay silent there.
 - `InvalidUseOfOnBackPressed` reports `onBackPressed()` inside a method named `handledOnBackPressed`, exactly as Lint
   does. `OnBackPressedCallback`'s method is `handleOnBackPressed`, so the shipped detector does not fire inside a real
   callback; krit keeps Lint's verdicts rather than reporting what Lint does not.
+
+`androidx.appcompat:appcompat` 1.8.0 source checks (Kotlin and Java):
+
+- `UseSupportActionBar` reports `setActionBar(toolbar)` whose receiver (explicit, `this`, or the enclosing class)
+  extends `AppCompatActivity`.
+- `UseCompatLoadingForColorStateLists` reports `Resources.getColorStateList(int)`. The message names
+  `ContextCompat.getColorStateList()` from minSdk 24 and `AppCompatResources.getColorStateList()` below it, or when
+  minSdk is unknown, as Lint does. `Context.getColorStateList(int)` is not reported.
+- `UseCompatLoadingForDrawables` reports `Context.getDrawable(int)`, `Resources.getDrawable(int)` and
+  `Resources.getDrawable(int, Theme)`.
+- `UseCompatTextViewDrawableApis` reports `setCompoundDrawableTintList` / `setCompoundDrawableTintMode` on a `TextView`
+  and the Kotlin property assignments `compoundDrawableTintList = …` / `compoundDrawableTintMode = …` that call them.
+- `UseSwitchCompatOrMaterialCode` reports properties, locals, fields and parameters of type `android.widget.Switch`
+  (declared, constructed, cast or from `findViewById<Switch>`) and classes that extend it.
+
+Receivers are proven from declarations, imports, constructor calls, the resolver's class hierarchy, Java facts and the
+type oracle when it runs. Where Lint's compiler resolution sees further, krit abstains: an implicit receiver inside
+`apply`/`run`/`with` whose subject type is not proven (for example `holder.label.apply { … }`, or a call that Kotlin
+resolves past the subject to the enclosing class) is not reported.

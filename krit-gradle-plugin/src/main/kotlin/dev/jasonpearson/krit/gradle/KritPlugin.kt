@@ -1,5 +1,6 @@
 package dev.jasonpearson.krit.gradle
 
+import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.attributes.Category
@@ -14,6 +15,9 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaLauncher
+import org.gradle.jvm.toolchain.JavaToolchainService
 import java.io.File
 
 /**
@@ -122,17 +126,62 @@ class KritPlugin : Plugin<Project> {
         }
 
         val advanced = extension.advanced
-        // KRIT_FIR_JAR selects the krit-fir jar krit runs; tracked as a task input while FIR is on.
-        val firJarEnv = project.providers.environmentVariable("KRIT_FIR_JAR")
-        // Gated on each task's own fir property, which a task can set apart from the extension.
-        val firJarInput = { taskFir: Provider<Boolean> ->
-            taskFir.zip(firJarEnv.orElse("")) { enabled, path ->
-                if (enabled && path.isNotBlank()) listOf(File(path)) else emptyList()
-            }.orElse(emptyList())
-        }
         // With an explicit binary the tool version is not used, so it must not be an
         // input: bumping the plugin would otherwise rerun every task.
         val toolVersionInput = advanced.binary.map { "" }.orElse(advanced.toolVersion)
+
+        // krit-fir jar: KRIT_FIR_JAR when set (a local or dev jar), else the kritFir
+        // configuration. Declared kritFir dependencies resolve through the project's
+        // repositories, so offline builds, mirrors and dependency verification apply, and
+        // fail the build when they cannot resolve. With none declared, kritFir defaults to
+        // the krit-fir release matching the krit version, resolved leniently: a project
+        // without a repository that has it keeps krit's own download (GitHub, Maven
+        // Central or KRIT_JAR_REPOSITORY). An explicit binary has no known version, and
+        // KRIT_JAR_REPOSITORY names krit's own mirror, so neither gets the default.
+        val jarRepositoryEnv = project.providers.environmentVariable("KRIT_JAR_REPOSITORY")
+        val kritFir = project.configurations.create(KRIT_FIR_CONFIGURATION) {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            isTransitive = false
+            description = "The krit-fir jar krit runs FIR with."
+        }
+        val defaultFirVersion = toolVersionInput.map { KritBinaryResolver.normalizeVersion(it) }
+            .zip(jarRepositoryEnv.orElse("")) { version, mirror -> if (mirror.isBlank()) version else "" }
+        val defaultFir = project.configurations.create("kritFirDefault") {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            isTransitive = false
+            description = "The krit-fir release matching the krit version, when kritFir declares none."
+            defaultDependencies {
+                val version = defaultFirVersion.get()
+                if (version.isNotEmpty()) add(project.dependencies.create("$KRIT_FIR_MODULE:$version"))
+            }
+        }
+        val defaultFirFiles = defaultFir.incoming.artifactView { lenient(true) }.files
+        val firJarEnv = project.providers.environmentVariable("KRIT_FIR_JAR")
+        // Gated on each task's own fir property, which a task can set apart from the extension.
+        val firJarInput = { taskFir: Provider<Boolean> ->
+            project.files(taskFir.map { enabled ->
+                when {
+                    !enabled -> emptyList<Any>()
+                    !firJarEnv.orNull.isNullOrBlank() -> listOf(File(firJarEnv.get()))
+                    kritFir.dependencies.isNotEmpty() -> listOf(kritFir)
+                    else -> listOf(defaultFirFiles)
+                }
+            })
+        }
+
+        // FIR JDK: Java toolchains, so FIR does not depend on the JDK the daemon has.
+        project.pluginManager.apply(org.gradle.api.plugins.JvmToolchainsPlugin::class.java)
+        val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
+        extension.firOptions.javaLauncher.convention(toolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(maxOf(FIR_MIN_JAVA, JavaVersion.current().majorVersion.toInt())))
+        })
+        val firLauncher = { taskFir: Provider<Boolean> ->
+            taskFir.flatMap { enabled ->
+                if (enabled) extension.firOptions.javaLauncher else project.provider<JavaLauncher> { null }
+            }
+        }
 
         // Wire task defaults for all KritCheckTask instances
         project.tasks.withType(KritCheckTask::class.java).configureEach {
@@ -140,6 +189,8 @@ class KritPlugin : Plugin<Project> {
             toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
+            firJar.from(firJarInput(fir))
+            javaLauncher.convention(firLauncher(fir))
             allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
@@ -148,7 +199,6 @@ class KritPlugin : Plugin<Project> {
             noCache.convention(advanced.noCache)
             typeInference.convention(advanced.typeInference)
             fir.convention(extension.fir)
-            firJar.from(firJarInput(fir))
             customRuleJars.from(extension.customRuleJars)
             // Wire reports from extension
             sarifRequired.convention(extension.reports.sarif.required)
@@ -168,6 +218,8 @@ class KritPlugin : Plugin<Project> {
             toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
+            firJar.from(firJarInput(fir))
+            javaLauncher.convention(firLauncher(fir))
             allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
@@ -177,7 +229,6 @@ class KritPlugin : Plugin<Project> {
             typeInference.convention(advanced.typeInference)
             fir.convention(extension.fir)
             moduleShards.convention(advanced.moduleShards)
-            firJar.from(firJarInput(fir))
             customRuleJars.from(extension.customRuleJars)
             sarifRequired.convention(extension.reports.sarif.required)
             jsonRequired.convention(extension.reports.json.required)
@@ -191,6 +242,9 @@ class KritPlugin : Plugin<Project> {
             toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
+            // kritFormat has no fir switch of its own; it follows the extension.
+            firJar.from(firJarInput(extension.fir))
+            javaLauncher.convention(firLauncher(extension.fir))
             config.convention(extension.config)
             fixLevel.convention(advanced.fixLevel)
             parallel.convention(advanced.parallel)
@@ -204,6 +258,8 @@ class KritPlugin : Plugin<Project> {
             toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
+            firJar.from(firJarInput(fir))
+            javaLauncher.convention(firLauncher(fir))
             config.convention(extension.config)
             allRules.convention(advanced.allRules)
             parallel.convention(advanced.parallel)
@@ -1020,6 +1076,12 @@ class KritPlugin : Plugin<Project> {
         const val KRIT_MODEL_ELEMENTS = "kritModelElements"
 
         internal const val BINARY_RESOLVER_SERVICE = "kritBinaryResolver"
+
+        /** Resolvable configuration holding the krit-fir jar (see [KritFirOptions]). */
+        const val KRIT_FIR_CONFIGURATION = "kritFir"
+
+        /** FIR needs Java 21 or newer. */
+        internal const val FIR_MIN_JAVA = 21
 
         const val KOTLIN_JVM_PLUGIN_ID = "org.jetbrains.kotlin.jvm"
         const val KOTLIN_MULTIPLATFORM_PLUGIN_ID = "org.jetbrains.kotlin.multiplatform"

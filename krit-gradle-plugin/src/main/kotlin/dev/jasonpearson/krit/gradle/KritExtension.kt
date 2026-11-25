@@ -61,6 +61,14 @@ abstract class KritExtension @Inject constructor(objects: ObjectFactory) {
     /** Run the FIR checker pass during kritCheck. Default: true. */
     abstract val fir: Property<Boolean>
 
+    /** How FIR runs: its JDK. The krit-fir jar comes from the `kritFir` configuration. */
+    val firOptions: KritFirOptions = objects.newInstance(DefaultKritFirOptions::class.java)
+
+    /** Configure FIR via `fir { javaLauncher = ... }`; `fir = false` still turns FIR off. */
+    fun fir(action: Action<KritFirOptions>) {
+        action.execute(firOptions)
+    }
+
     /** Run registered code generation tasks before model export. Default: false. */
     abstract val exportGenerated: Property<Boolean>
 

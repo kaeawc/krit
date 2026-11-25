@@ -1,0 +1,20 @@
+t/Retain.kt:44:5: RetainUnitType: `retain` calls must not return `Unit`.
+t/Retain.kt:45:5: RetainUnitType: `retain` calls must not return `Unit`.
+t/Retain.kt:46:5: RetainUnitType: `retain` calls must not return `Unit`.
+t/Retain.kt:49:5: RetainRememberObserver: Declared retained type `t.Observer` implements `RememberObserver` but not `RetainObserver`.
+t/Retain.kt:51:5: RetainingDoNotRetainType: t.Marked is annotated as `@DoNotRetain`: Unretainable for testing
+t/Retain.kt:52:5: RetainingDoNotRetainType: t.MarkedNoReason is annotated as `@DoNotRetain`
+t/Retain.kt:53:5: RetainingDoNotRetainType: t.MarkedChild is annotated as `@DoNotRetain`: base
+t/Retain.kt:54:5: RetainLeaksContext: Retaining android.content.Context will leak a Context reference.
+t/Retain.kt:55:5: RetainLeaksContext: Retaining android.app.Activity will leak a Context reference.
+t/Retain.kt:56:5: RetainLeaksContext: Retaining android.view.View will leak a Context reference.
+t/Retain.kt:57:5: RetainLeaksContext: Retaining android.content.res.Resources will leak a Context reference.
+t/Retain.kt:58:5: RetainLeaksContext: Retaining android.widget.TextView will leak a Context reference.
+t/Retain.kt:59:5: RetainLeaksContext: Retaining a key of type android.content.Context will leak a Context reference.
+t/Retain.kt:60:5: RetainLeaksContext: Retaining a key of type android.view.View will leak a Context reference.
+t/Retain.kt:61:5: RetainingDoNotRetainType: Key type t.Marked is annotated as `@DoNotRetain`: Unretainable for testing
+t/Retain.kt:62:5: RetainLeaksContext: Retaining java.util.List<? extends android.content.Context> will leak a Context reference.
+v/Local.kt:13:5: RetainLeaksContext: Retaining android.content.Context will leak a Context reference.
+v/Local.kt:14:5: RetainLeaksContext: Retaining android.view.View will leak a Context reference.
+v/Local.kt:15:5: RetainLeaksContext: Retaining android.content.Context will leak a Context reference.
+v/Local.kt:17:5: RetainLeaksContext: Retaining a key of type android.content.Context will leak a Context reference.

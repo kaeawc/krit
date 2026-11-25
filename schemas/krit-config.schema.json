@@ -18015,6 +18015,138 @@
             }
           }
         },
+        "RetainLeaksContext": {
+          "description": "Detects retained values or keys that are a Context, View, Window, Resources, Fragment or Dialog, which leak a Context. [precision: ast-backed] [noisiness: normal]\nCaveat: The retained value's type is proven from same-file classes, declared types of parameters and properties, Android constructors and LocalContext/LocalView; values typed only by inference across files, and containers such as listOf\u003cContext\u003e(), are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RetainLeaksContext (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RetainRememberObserver": {
+          "description": "Detects retained values implementing RememberObserver but not RetainObserver. [precision: ast-backed] [noisiness: normal]\nCaveat: The retained value's type is proven from same-file classes, declared types of parameters and properties, Android constructors and LocalContext/LocalView; values typed only by inference across files, and containers such as listOf\u003cContext\u003e(), are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RetainRememberObserver (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RetainUnitType": {
+          "description": "Detects retain calls whose calculation returns Unit; use SideEffect or RetainedEffect instead. [precision: ast-backed] [noisiness: normal]\nCaveat: The calculation's Unit type is proven only from `retain\u003cUnit\u003e`, assignments and loops, `Unit`, println, same-file Unit functions and `() -\u003e Unit` values.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RetainUnitType (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "RetainingDoNotRetainType": {
+          "description": "Detects retained values or keys whose type is annotated @DoNotRetain. [precision: ast-backed] [noisiness: normal]\nCaveat: Only same-file @DoNotRetain classes are recognized.\nCaveat: The retained value's type is proven from same-file classes, declared types of parameters and properties, Android constructors and LocalContext/LocalView; values typed only by inference across files, and containers such as listOf\u003cContext\u003e(), are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable RetainingDoNotRetainType (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ReturnFromAwaitPointerEventScope": {
           "description": "Detects results of awaitPointerEventScope that are returned or stored, which can drop input events. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as a PointerInputScope handler only through a declared suspend PointerInputScope receiver type on its variable or parameter, or an enclosing pointerInput/coroutineScope call.",
           "type": "object",

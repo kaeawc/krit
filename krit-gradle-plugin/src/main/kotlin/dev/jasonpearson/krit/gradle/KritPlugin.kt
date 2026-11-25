@@ -131,20 +131,33 @@ class KritPlugin : Plugin<Project> {
         val toolVersionInput = advanced.binary.map { "" }.orElse(advanced.toolVersion)
 
         // krit-fir jar: KRIT_FIR_JAR when set (a local or dev jar), else the kritFir
-        // configuration, which defaults to the krit-fir release matching the krit
-        // version and resolves through the project's repositories (offline, mirrors and
-        // dependency verification then apply). An explicit binary has no known version,
-        // so it gets no default and krit locates its own jar unless kritFir is declared.
+        // configuration. Declared kritFir dependencies resolve through the project's
+        // repositories, so offline builds, mirrors and dependency verification apply, and
+        // fail the build when they cannot resolve. With none declared, kritFir defaults to
+        // the krit-fir release matching the krit version, resolved leniently: a project
+        // without a repository that has it keeps krit's own download (GitHub, Maven
+        // Central or KRIT_JAR_REPOSITORY). An explicit binary has no known version, and
+        // KRIT_JAR_REPOSITORY names krit's own mirror, so neither gets the default.
+        val jarRepositoryEnv = project.providers.environmentVariable("KRIT_JAR_REPOSITORY")
         val kritFir = project.configurations.create(KRIT_FIR_CONFIGURATION) {
             isCanBeConsumed = false
             isCanBeResolved = true
             isTransitive = false
             description = "The krit-fir jar krit runs FIR with."
+        }
+        val defaultFirVersion = toolVersionInput.map { KritBinaryResolver.normalizeVersion(it) }
+            .zip(jarRepositoryEnv.orElse("")) { version, mirror -> if (mirror.isBlank()) version else "" }
+        val defaultFir = project.configurations.create("kritFirDefault") {
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            isTransitive = false
+            description = "The krit-fir release matching the krit version, when kritFir declares none."
             defaultDependencies {
-                val version = toolVersionInput.get()
+                val version = defaultFirVersion.get()
                 if (version.isNotEmpty()) add(project.dependencies.create("$KRIT_FIR_MODULE:$version"))
             }
         }
+        val defaultFirFiles = defaultFir.incoming.artifactView { lenient(true) }.files
         val firJarEnv = project.providers.environmentVariable("KRIT_FIR_JAR")
         // Gated on each task's own fir property, which a task can set apart from the extension.
         val firJarInput = { taskFir: Provider<Boolean> ->
@@ -152,7 +165,8 @@ class KritPlugin : Plugin<Project> {
                 when {
                     !enabled -> emptyList<Any>()
                     !firJarEnv.orNull.isNullOrBlank() -> listOf(File(firJarEnv.get()))
-                    else -> listOf(kritFir)
+                    kritFir.dependencies.isNotEmpty() -> listOf(kritFir)
+                    else -> listOf(defaultFirFiles)
                 }
             })
         }

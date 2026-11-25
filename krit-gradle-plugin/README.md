@@ -291,16 +291,23 @@ krit {
 }
 ```
 
-The krit-fir jar is a normal Gradle dependency in the `kritFir` configuration. It
-defaults to `dev.jasonpearson.krit:krit-fir:<krit version>` from the project's
-repositories, so offline builds, enterprise mirrors and
+The krit-fir jar can be a normal Gradle dependency in the `kritFir` configuration.
+Declare it to pin a version: `dependencies { kritFir("dev.jasonpearson.krit:krit-fir:0.5.0") }`.
+It then resolves from the project's repositories, so offline builds, enterprise mirrors and
 [dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html)
-apply to it as to any other jar. Declare it to pin another version:
-`dependencies { kritFir("dev.jasonpearson.krit:krit-fir:0.5.0") }`. With
-`advanced.binary` set there is no default (the binary's version is unknown), and
-krit locates the jar that matches its own build. A `KRIT_FIR_JAR` environment
-variable overrides both. The jar and the JDK (its version and vendor, not its
-path) are task inputs. With `fir = false` neither is resolved.
+apply as for any other jar, and a pin that can't resolve fails the build. With
+nothing declared, the plugin resolves `dev.jasonpearson.krit:krit-fir:<krit version>`
+from the project's repositories when one of them has it. Otherwise krit downloads
+the jar itself, as before: from GitHub or Maven Central, or from the mirror
+`KRIT_JAR_REPOSITORY` names, and with that variable set the plugin leaves the
+download to krit. With `advanced.binary` set there is no default (the binary's
+version is unknown), and krit locates the jar that matches its own build. A
+`KRIT_FIR_JAR` environment variable overrides all of these. The jar and the JDK
+(its version and vendor, not its path) are task inputs. With `fir = false`,
+neither is resolved.
+
+Outside a `krit { }` block, `krit.fir` is the on/off switch; the options are
+`krit.firOptions` (for example `krit.firOptions.javaLauncher`).
 
 ## Build cache
 

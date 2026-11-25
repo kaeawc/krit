@@ -15,6 +15,9 @@ import org.gradle.jvm.toolchain.JavaLauncher
  * }
  * dependencies { kritFir("dev.jasonpearson.krit:krit-fir:<version>") }  // optional pin
  * ```
+ *
+ * Outside a `krit { }` block, `krit.fir` is the on/off property; reach these options
+ * through `krit.firOptions` (for example `krit.firOptions.javaLauncher`).
  */
 interface KritFirOptions {
     /**
@@ -38,6 +41,13 @@ internal fun org.gradle.process.ExecSpec.kritFirEnvironment(
     firJar: org.gradle.api.file.FileCollection,
     javaLauncher: Property<JavaLauncher>,
 ) {
-    firJar.singleOrNull()?.let { environment("KRIT_FIR_JAR", it.absolutePath) }
+    val jars = firJar.files
+    if (jars.size > 1) {
+        throw org.gradle.api.GradleException(
+            "krit: the kritFir configuration resolved to ${jars.size} files; declare exactly one krit-fir jar: " +
+                jars.joinToString { it.name }
+        )
+    }
+    jars.singleOrNull()?.let { environment("KRIT_FIR_JAR", it.absolutePath) }
     javaLauncher.orNull?.let { environment("JAVA_HOME", it.metadata.installationPath.asFile.absolutePath) }
 }

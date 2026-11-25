@@ -363,7 +363,7 @@
       "message": "Using `setJavaScriptEnabled` can introduce XSS vulnerabilities into your application, review carefully"
     },
     {
-      "rule": "AddJavascriptInterface",
+      "rule": "JavascriptInterface",
       "ruleSet": "android-lint",
       "file": "src/main/kotlin/com/example/app/utils/NetworkHelper.kt",
       "line": 20,

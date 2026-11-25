@@ -8,7 +8,31 @@ import (
 
 	"github.com/kaeawc/krit/internal/config"
 	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
 )
+
+func init() {
+	scanner.BaselineRuleAliases = formerRuleIDs
+}
+
+var (
+	formerRuleIDsOnce sync.Once
+	formerRuleIDsByID map[string][]string
+)
+
+// formerRuleIDs returns a rule's Rule.Aliases: IDs its findings were reported under before a rename or a move, which
+// baseline entries may still use.
+func formerRuleIDs(id string) []string {
+	formerRuleIDsOnce.Do(func() {
+		formerRuleIDsByID = make(map[string][]string)
+		for _, r := range api.Registry {
+			if r != nil && len(r.Aliases) > 0 {
+				formerRuleIDsByID[r.ID] = r.Aliases
+			}
+		}
+	})
+	return formerRuleIDsByID[id]
+}
 
 // AllSuppressionAliases returns a snapshot of every rule's suppression
 // aliases, keyed by canonical rule ID. The pipeline Parse phase passes

@@ -116,8 +116,8 @@ class MyWebView {
 			t.Fatalf("expected 0 findings for minSdk 17 without targetSdk 17 annotation check, got %d", len(findings))
 		}
 	})
-	t.Run("targetSdk 17 reports bridge without annotated methods", func(t *testing.T) {
-		findings := runAddJavascriptInterfaceProjectRule(t, 17, 17, `
+	t.Run("targetSdk 17 bridge without annotated methods is JavascriptInterface's finding", func(t *testing.T) {
+		code := `
 package test
 import android.webkit.WebView
 class Bridge {
@@ -128,9 +128,13 @@ class MyWebView {
         wv.addJavascriptInterface(Bridge(), "Android")
     }
 }
-`)
+`
+		if findings := runAddJavascriptInterfaceProjectRule(t, 17, 17, code); len(findings) != 0 {
+			t.Fatalf("AddJavascriptInterface should leave the bridge to JavascriptInterface, got %v", findings)
+		}
+		findings := runAndroidSecurityProjectRule(t, "JavascriptInterface", "Test.kt", 17, 17, code)
 		if len(findings) != 1 {
-			t.Fatalf("expected 1 finding for missing JavascriptInterface annotation, got %d", len(findings))
+			t.Fatalf("expected 1 JavascriptInterface finding for missing annotation, got %d", len(findings))
 		}
 		if !strings.Contains(findings[0].Message, "None of the methods in the added interface (Bridge)") {
 			t.Fatalf("expected missing annotation message, got %q", findings[0].Message)

@@ -13,6 +13,21 @@ All notable changes to Krit will be documented in this file.
   set's `assets` folder, with Lint's separate messages for `.so` libraries and other executables. The resource cache
   fingerprint now also covers the files directly inside `assets`, so adding or editing one there invalidates cached
   resource findings (#1274, #1285).
+- `JavascriptInterface` and `UnsanitizedFilenameFromContentProvider`, ported from Android Lint 32.4.1's
+  `JavaScriptInterfaceDetector` and `UnsafeFilenameDetector` under their Lint IDs for Kotlin and Java, and checked
+  against the Lint CLI on the same inputs. `JavascriptInterface` reports an object passed to
+  `WebView.addJavascriptInterface` (targetSdk 17 or higher) whose class, superclasses and methods carry no
+  `@android.webkit.JavascriptInterface`, naming the class as Lint does (`Object`, `String`, `null` for an anonymous
+  object). It also reports a private or protected declaration (package-private in Java) annotated with
+  `@JavascriptInterface`. The bridge class is resolved from constructor calls, `this`, string literals, anonymous
+  objects, locals and declared types in the file, and from well-known platform types; other classes are a known false
+  negative. `UnsanitizedFilenameFromContentProvider` follows a `Cursor` display-name column through
+  `getString` and local variables within one function, including lambdas and local functions, and reports the value
+  where it reaches a `java.io.File` constructor before any other call uses it.
+- `AddJavascriptInterface` no longer reports "None of the methods in the added interface ...". That finding moved to
+  `JavascriptInterface`, matching Lint's split between the two issues. `@Suppress`/`@SuppressLint`/`tools:ignore`
+  entries and baseline entries written for `AddJavascriptInterface` still silence the moved finding: a rule's
+  `Aliases` (its former IDs) now also match baseline entries (#1204, #1286).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

@@ -340,6 +340,9 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 				return false
 			}
 		}
+		if baselineMatchesRuleAlias(columns, row, baseline, basePath) {
+			return false
+		}
 		if budget != nil {
 			key := detektKey{columns.RuleAt(row), filepath.Base(columns.FileAt(row))}
 			if budget[key] > 0 {
@@ -349,6 +352,28 @@ func FilterColumnsByBaseline(columns *FindingColumns, baseline *Baseline, basePa
 		}
 		return true
 	})
+}
+
+// BaselineRuleAliases, when set, returns the former IDs of a rule. A baseline entry recorded under a former ID keeps
+// silencing the finding after the rule is renamed or the finding moves to another rule. The rules package installs
+// it.
+var BaselineRuleAliases func(rule string) []string
+
+// baselineMatchesRuleAlias reports whether the baseline holds the row's finding under one of its rule's former IDs.
+func baselineMatchesRuleAlias(columns *FindingColumns, row int, baseline *Baseline, basePath string) bool {
+	if BaselineRuleAliases == nil {
+		return false
+	}
+	file, message := columns.FileAt(row), columns.MessageAt(row)
+	for _, alias := range BaselineRuleAliases(columns.RuleAt(row)) {
+		if baseline.Contains(baselineIDParts(file, alias, message, "", basePath)) {
+			return true
+		}
+		if basePath != "" && baseline.Contains(baselineIDParts(file, alias, message, "", "")) {
+			return true
+		}
+	}
+	return false
 }
 
 // FindingSignature extracts a signature for a finding based on the source line.

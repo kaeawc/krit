@@ -5778,6 +5778,39 @@
             }
           }
         },
+        "JavascriptInterface": {
+          "description": "Missing @JavascriptInterface on methods [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, oracle:supertypes, resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable JavascriptInterface (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "KeyboardInaccessibleWidget": {
           "description": "Keyboard inaccessible widget [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -11845,6 +11878,39 @@
           "properties": {
             "active": {
               "description": "Enable UnsafeRepeatOnLifecycleDetector (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsanitizedFilenameFromContentProvider": {
+          "description": "Trusting ContentProvider filenames without any sanitization [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsanitizedFilenameFromContentProvider (default: true).",
               "type": "boolean",
               "default": true
             },

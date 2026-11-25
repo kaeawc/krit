@@ -16,6 +16,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
@@ -116,12 +117,18 @@ abstract class KritCheckAllTask @Inject constructor(
     @get:OutputFile @get:Optional abstract val checkstyleOutput: RegularFileProperty
 
     /**
-     * The krit-fir jar krit runs, from `KRIT_FIR_JAR`; empty when FIR is off or krit
-     * resolves the jar matching its own version (then keyed by the binary).
+     * The krit-fir jar krit runs: `KRIT_FIR_JAR` when set, else the `kritFir` configuration.
+     * Empty when FIR is off, or with an explicit binary and no `kritFir` dependency (krit then
+     * locates the jar matching its own build, keyed by the binary).
      */
     @get:Classpath
     @get:Optional
     abstract val firJar: ConfigurableFileCollection
+
+    /** The JDK FIR runs on, passed to krit as `JAVA_HOME`; absent when FIR is off. */
+    @get:Nested
+    @get:Optional
+    abstract val javaLauncher: Property<org.gradle.jvm.toolchain.JavaLauncher>
 
     /** The model JSON with location-independent paths (see KritModelInputs). */
     @get:Input
@@ -165,7 +172,7 @@ abstract class KritCheckAllTask @Inject constructor(
                 workingDir = root
                 moduleShards.orNull?.takeIf { it.isNotBlank() }?.let { environment("KRIT_MODULE_SHARDS", it) }
                 args(scanArgs(batch, root))
-                firJar.singleOrNull()?.let { environment("KRIT_FIR_JAR", it.absolutePath) }
+                kritFirEnvironment(firJar, javaLauncher)
                 errorOutput = stderr
                 isIgnoreExitValue = true
             }

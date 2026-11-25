@@ -277,6 +277,31 @@ krit {
 own properties, and every location, such as the default SARIF report, is wired at
 configuration time.
 
+## FIR: JDK and krit-fir jar
+
+FIR runs on a [Java toolchain](https://docs.gradle.org/current/userguide/toolchains.html),
+not on whatever `JAVA_HOME` the Gradle daemon has. The default is a toolchain for
+the newer of Java 21 (FIR's minimum) and the JVM Gradle runs on. A build whose
+Gradle runs on JDK 17 then gets a JDK 21 from Gradle's toolchain detection or
+provisioning. Pick another one with:
+
+```kotlin
+krit {
+    fir { javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) } }
+}
+```
+
+The krit-fir jar is a normal Gradle dependency in the `kritFir` configuration. It
+defaults to `dev.jasonpearson.krit:krit-fir:<krit version>` from the project's
+repositories, so offline builds, enterprise mirrors and
+[dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html)
+apply to it as to any other jar. Declare it to pin another version:
+`dependencies { kritFir("dev.jasonpearson.krit:krit-fir:0.5.0") }`. With
+`advanced.binary` set there is no default (the binary's version is unknown), and
+krit locates the jar that matches its own build. A `KRIT_FIR_JAR` environment
+variable overrides both. The jar and the JDK (its version and vendor, not its
+path) are task inputs. With `fir = false` neither is resolved.
+
 ## Build cache
 
 `kritCheck` and `kritCheckAll` are cacheable, and their cache keys are relocatable:
@@ -285,19 +310,15 @@ reuses their entries. The exported model is keyed with its paths made location
 independent (relative to the build root or the Gradle caches), so each source
 set's classpath keeps its identity, and the jars it lists are keyed by content. A
 dependency re-published at the same path, such as a SNAPSHOT, reruns the check. With FIR on,
-the `KRIT_FIR_JAR` jar is an input too. `advanced.parallel` and `advanced.noCache`
+the krit-fir jar and the FIR JDK are inputs too. `advanced.parallel` and `advanced.noCache`
 are not inputs because they don't change the findings. Report paths are relative
 to the project directory (the build root for `kritCheckAll`), so a replayed
 report is valid in the new checkout.
 
-Not keyed yet:
-
-- The JDK krit runs FIR on. Clean the entries (for example `--rerun-tasks`) after
-  changing it.
-- For per-project `kritCheck`, upstream projects' sources and models: a
-  per-project check reads the whole `.krit/gradle-model` directory. Use
-  `kritCheckAll`, whose key covers every project's model and sources, or clean the
-  entries when an upstream project changes.
+Not keyed yet: for per-project `kritCheck`, upstream projects' sources and models.
+A per-project check reads the whole `.krit/gradle-model` directory. Use
+`kritCheckAll`, whose key covers every project's model and sources, or clean the
+entries when an upstream project changes.
 
 ## Binary Resolution
 
@@ -306,4 +327,4 @@ The plugin downloads the correct platform-specific krit binary from GitHub Relea
 ## Requirements
 
 - Gradle 8.0+
-- JDK 17+ for the plugin's JVM 17 bytecode. Default FIR-enabled `kritCheck` scans need Java 21+ at runtime; set `fir = false` in the `krit` extension for Go-only analysis on JDK 17.
+- JDK 17+ for the plugin's JVM 17 bytecode. FIR runs on a Java 21+ toolchain (see [FIR: JDK and krit-fir jar](#fir-jdk-and-krit-fir-jar)); set `fir = false` for Go-only analysis.

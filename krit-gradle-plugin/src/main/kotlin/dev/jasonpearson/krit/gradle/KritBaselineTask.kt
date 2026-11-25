@@ -7,7 +7,9 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
@@ -85,6 +87,16 @@ abstract class KritBaselineTask @Inject constructor(
     @get:Internal
     abstract val basePath: org.gradle.api.file.DirectoryProperty
 
+    /** The krit-fir jar and FIR JDK, as for `kritCheck`. */
+    @get:Classpath
+    @get:Optional
+    abstract val firJar: ConfigurableFileCollection
+
+    /** The JDK FIR runs on, passed to krit as `JAVA_HOME`; absent when FIR is off. */
+    @get:Nested
+    @get:Optional
+    abstract val javaLauncher: Property<org.gradle.jvm.toolchain.JavaLauncher>
+
     init {
         group = BasePlugin.BUILD_GROUP
         description = "Create a krit baseline file from current findings"
@@ -122,6 +134,7 @@ abstract class KritBaselineTask @Inject constructor(
         val result = execOps.exec {
             executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
             args(args)
+            kritFirEnvironment(firJar, javaLauncher)
             isIgnoreExitValue = true
         }
 

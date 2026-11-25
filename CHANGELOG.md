@@ -385,6 +385,10 @@ All notable changes to Krit will be documented in this file.
   with location-independent paths (relative to the build root or the Gradle caches) and its jars by content, so
   checkouts at different paths share entries and a jar re-published at the same path reruns the check. `KRIT_FIR_JAR`
   is an input while the task runs FIR; `parallel` and `noCache` no longer are (#1584).
+- Gradle: FIR runs on a Java toolchain (`krit { fir { javaLauncher = ... } }`, default the newer of Java 21 and
+  Gradle's JVM), passed to krit as `JAVA_HOME`, and the krit-fir jar resolves through a `kritFir` configuration that
+  defaults to `dev.jasonpearson.krit:krit-fir:<krit version>` from the project's repositories. Both are task
+  inputs; `KRIT_FIR_JAR` still overrides the jar (#1585).
 - Gradle: `kritBaseline` writes the baseline to the configured file; it passed `--create-baseline --baseline <file>`,
   so krit wrote a file named `--baseline` in the working directory. It now also skips missing default source roots
   (krit rejected them with exit 2), honors `fir = false`, and passes the project directory as `--base-path`, as

@@ -20,6 +20,9 @@
 #                 it once per source hash)
 #   BAZEL         Bazel launcher (default bazel; bazelisk honours
 #                 bazel/e2e/.bazelversion and USE_BAZEL_VERSION)
+#   KRIT_E2E_ANDROID  set to 1 to also test bazel/e2e_android (rules_android
+#                 targets; needs ANDROID_HOME with platform android-35 and
+#                 build-tools 35.0.0)
 #   DIST          directory for the local dist; Bazel's krit repositories
 #                 link to its files, so it outlives the run (default:
 #                 ~/.cache/krit/bazel-e2e-dist)
@@ -172,3 +175,26 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
   esac
 done
 echo "OK: krit_aspect"
+
+if [ "${KRIT_E2E_ANDROID:-}" = 1 ]; then
+  if [ -z "${ANDROID_HOME:-}" ]; then
+    echo "ERROR: KRIT_E2E_ANDROID=1 needs ANDROID_HOME" >&2
+    exit 1
+  fi
+  cd "$repo_root/bazel/e2e_android"
+  echo "== bazel/e2e_android: bazel test (first run)"
+  run "${extra[@]}"
+  # shellcheck disable=SC2086
+  $BAZEL clean
+  echo "== bazel/e2e_android: bazel test (second run after bazel clean: every test must be cached)"
+  out="$(run "${extra[@]}" 2>&1)" || {
+    printf '%s\n' "$out"
+    exit 1
+  }
+  printf '%s\n' "$out"
+  if printf '%s\n' "$out" | grep -E '^//[^ ]+ +.*(PASSED|FAILED|NO STATUS)' | grep -v '(cached)'; then
+    echo "ERROR: bazel/e2e_android re-ran tests that should have been cache hits" >&2
+    exit 1
+  fi
+  echo "OK: bazel/e2e_android"
+fi

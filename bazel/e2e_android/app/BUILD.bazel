@@ -1,0 +1,46 @@
+load("@krit//:defs.bzl", "krit_test")
+load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("//:krit_report_test.bzl", "krit_report_test")
+
+kt_android_library(
+    name = "greeter",
+    srcs = ["Greeter.kt"],
+    custom_package = "e2e.android",
+    manifest = "AndroidManifest.xml",
+    resource_files = glob(["res/**"]),
+)
+
+_EXPECT = [
+    # FIR resolves Context through android.jar and R through the R class
+    # jar, and reports the FIR-only finding.
+    "app/Greeter.kt:10:37: ",
+    "UnnecessarySafeCall",
+    # The resource rules see res/ (the layout's hardcoded text) ...
+    "app/res/layout/greeting.xml:5:5: ",
+    "HardcodedValuesResource",
+    # ... and the manifest rules the manifest.
+    "app/AndroidManifest.xml:7:5: ",
+    "MissingApplicationIconManifest",
+]
+
+krit_report_test(
+    name = "greeter_aspect_report_test",
+    expect = _EXPECT,
+    target = ":greeter",
+)
+
+krit_test(
+    name = "greeter_type_aware_krit_test",
+    config = "//:krit.yml",
+    tags = ["manual"],
+    targets = [":greeter"],
+    type_aware = True,
+)
+
+sh_test(
+    name = "greeter_type_aware_finding_test",
+    srcs = ["expect_findings_test.sh"],
+    args = ["$(rootpath :greeter_type_aware_krit_test)"] + _EXPECT,
+    data = [":greeter_type_aware_krit_test"],
+)

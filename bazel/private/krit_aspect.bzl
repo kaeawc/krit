@@ -10,6 +10,7 @@ the build when a target has findings.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java/common:java_common.bzl", "java_common")
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load(":android.bzl", "android_inputs", "krit_android_sdk_aspect", "resource_dirs_build_file")
 load(":kotlin.bzl", "KT_TOOLCHAIN")
 load(":model.bzl", "krit_model_json", "label_name", "target_source_set")
 
@@ -79,9 +80,15 @@ def _krit_aspect_impl(target, ctx):
     if "no-krit" in getattr(ctx.rule.attr, "tags", []):
         return []
     srcs = [f for f in ctx.rule.files.srcs if f.extension in _SOURCE_EXTENSIONS]
-    if not srcs:
-        return []
     srcjars = [f for f in ctx.rule.files.srcs if f.extension == "srcjar"]
+
+    # The target's own manifest and resources, for krit's Android rules.
+    android = android_inputs(ctx, target)
+    android_files = list(android.resource_files)
+    if android.manifest:
+        android_files.append(android.manifest)
+    if not srcs and not android_files:
+        return []
 
     name = target.label.name
     sarif = ctx.actions.declare_file(name + ".krit.sarif")
@@ -135,10 +142,23 @@ def _krit_aspect_impl(target, ctx):
         krit_args += ["--baseline", baseline[0].path]
         inputs += baseline
 
+    scan = list(srcs)
+    if android.manifest:
+        scan.append(android.manifest)
+    inputs += android_files
+    if android.resource_files:
+        build_file = ctx.actions.declare_file(name + ".krit-android/BUILD.bazel")
+        ctx.actions.write(
+            output = build_file,
+            content = resource_dirs_build_file(build_file.path, android.resource_files, path = _exec_path),
+        )
+        inputs.append(build_file)
+        scan.append(build_file)
+
     args.add(ctx.executable._krit)
     args.add_all(krit_args)
     args.add("--")
-    args.add_all(srcs)
+    args.add_all(scan)
 
     ctx.actions.run_shell(
         command = _RUN,
@@ -175,8 +195,11 @@ krit_aspect = aspect(
     bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit
 
 Applies to every target with `JavaInfo` and `.kt`, `.kts` or `.java` files in
-`srcs` (kt_jvm_library, kt_android_library, java_library, android_library,
-their test variants, ...); a target tagged `no-krit` is skipped. It does not
+`srcs`, or with a manifest or resource files of its own (kt_jvm_library,
+kt_android_library, java_library, android_library, their test variants, ...);
+a target tagged `no-krit` is skipped. Android targets compile against the
+Android SDK toolchain's android.jar and their R class jars, and their manifest
+and resources are scanned too. It does not
 propagate to dependencies: each target is analyzed once, against its deps'
 compile jars (header or ABI jars) rather than their sources, so a change
 below re-runs only the targets whose classpath changed. `.srcjar` files in
@@ -198,6 +221,7 @@ Flags:
 - `--@krit//:fir=false`: Go-only analysis, without the JDK or krit-fir.
 """,
     toolchains = [KT_TOOLCHAIN],
+    requires = [krit_android_sdk_aspect],
     attrs = {
         "_krit": attr.label(
             default = Label("//:krit"),

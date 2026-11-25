@@ -119,6 +119,16 @@ krit_test(
   systems reject the same flags. Plugin options that name the compile
   action's own directories (`{generatedClasses}`, `{temp}`, ...) are left
   out.
+- **Android.** For rules_android and rules_kotlin Android targets
+  (`android_library`, `kt_android_library`, `android_binary`): the Android
+  SDK toolchain's `android.jar` (`AndroidSdkInfo`) as the boot classpath,
+  the R class jars (`AndroidLibraryResourceClassJarProvider`,
+  `AndroidIdeInfo.resource_jar`) so `R.string.x` resolves, and the target's
+  own `manifest` and `resource_files`, so krit's manifest and resource rules
+  run on them (they are opt-in: enable them in `krit.yml`). The res/
+  directories reach krit through a generated BUILD file whose
+  `resource_files` globs name them. minSdk and targetSdk come from the
+  manifest's `<uses-sdk>` when it sits next to or above the sources.
 - **JDK.** Bazel's Java runtime toolchain
   (`@bazel_tools//tools/jdk:current_java_runtime`) is `JAVA_HOME`. krit-fir
   needs Java 21 or newer, so pin a hermetic runtime in `.bazelrc`:
@@ -164,8 +174,11 @@ whose classpath changed. `.srcjar` files in `srcs` are compiled as
 generated-source context and not reported on.
 
 The action compiles each target with its rules_kotlin settings (language
-and API version, `kotlinc_opts`, compiler plugins, KSP/kapt sources), as
-[type-aware krit_test](#type-aware-krit_test) does. It reads only declared
+and API version, `kotlinc_opts`, compiler plugins, KSP/kapt sources) and,
+for Android targets, `android.jar`, the R class jars, the manifest and the
+resources, as [type-aware krit_test](#type-aware-krit_test) does. A target
+with only a manifest or resources (an `android_library` without `srcs`) is
+analyzed too. It reads only declared
 inputs (sources, classpath, plugin jars, krit, the krit-fir jar, the Java
 runtime, `krit.yml`, the baseline), runs no daemon,
 uses a scratch `$HOME` and never downloads anything. A FIR pass that cannot

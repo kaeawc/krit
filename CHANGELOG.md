@@ -26,6 +26,11 @@ All notable changes to Krit will be documented in this file.
   Compose content parameter (`Column`, `Box`, `Scaffold` slots, `CompositionLocalProvider`, `key`, lazy `item`/`items`,
   ...). Receivers must be proven to be a `CoroutineScope`, `Flow` or `StateFlow` by same-file declarations or
   initializers, which rules out lookalike members such as `ActivityResultLauncher.launch` (#1465, #1466, #1470).
+- `UseAndroidAlpha`, `UseAppTint`, `UseSwitchCompatOrMaterialXml`, `UseCompatTextViewDrawableXml` and
+  `UsingOnClickInXml`, ported from the Lint checks bundled in `androidx.appcompat:appcompat` 1.8.0 and checked
+  against that AAR's `lint.jar` through the Lint CLI on the same files. They run only when the project declares
+  appcompat (or Material, which brings it), as Lint only loads them from that AAR. `UsingOnClickInXml` abstains when
+  minSdk cannot be read from the build, where Lint would assume API 1 (#1320, #1323, #1325, #1327, #1328).
 
 ### Fixed
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an

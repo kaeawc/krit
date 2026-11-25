@@ -108,6 +108,7 @@ def _krit_aspect_impl(target, ctx):
         )
         env["JAVA_HOME"] = runtime.java_home
         env["KRIT_FIR_JAR"] = fir_jar.path
+
         # No --no-fir-daemon: `krit bazel-worker` adds it unless it runs as
         # a persistent worker, whose krit-fir daemon serves every request.
         krit_args += [

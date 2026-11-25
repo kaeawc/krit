@@ -398,3 +398,22 @@ Gradle model; krit reads the build script, the version catalog, and the project'
   Lint sorts them and adds the `android:inputType`/`android:capitalize` note when the case varies. The resource index
   spans every module krit scans, which matches Lint on an app module that checks its dependencies.
 
+- `DuplicateDivider` (Kotlin and Java) reports a class named `DividerItemDecoration` that extends
+  `android.support.v7.widget.RecyclerView.ItemDecoration` (directly, through a class of the file, or through the
+  resolver's hierarchy) and declares `HORIZONTAL_LIST` and `VERTICAL_LIST`. Fields, Kotlin properties and companion
+  properties all count. Lint registers only the support-library supertype, so an androidx `ItemDecoration` subclass is
+  not reported.
+- `SyntheticAccessor` (Kotlin and Java, opt-in as in Lint) reports a private method, constructor or Java field used
+  from a different class of the same file. That covers inner, nested, local and anonymous classes, the outer class,
+  and the Kotlin file class for a top-level `private fun` called from a class. References resolve lexically:
+  - an unqualified name binds to the innermost enclosing class declaring it (locals and local functions shadow);
+  - `this`/`this@Outer`/`Outer.this`, a class name, a constructor call or a declared variable gives the receiver's
+    class;
+  - private extension functions resolve from the receiver's declared type.
+
+  As in Lint, Kotlin properties, compile-time constants, lambdas (same class), calls from a companion object,
+  sealed-class constructors, and constructors taking a value class are not reported. krit abstains in three cases:
+  - for receivers whose type the file does not show;
+  - in `apply`/`run`/`with` lambdas;
+  - past a superclass declared elsewhere, for names a framework class could declare (single words and `get…`,
+    `set…`, `on…`, `add…`, `start…`-style names), which Lint resolves with the compiler.

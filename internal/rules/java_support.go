@@ -214,6 +214,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"AssertionSideEffect":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_assert_test.go"}},
 		"NotificationTrampoline":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_notification_test.go"}},
 		"LaunchActivityFromNotification":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_notification_test.go"}},
+		"DuplicateDivider":                        {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_classes_test.go"}},
+		"SyntheticAccessor":                       {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_classes_test.go"}},
 	},
 }
 

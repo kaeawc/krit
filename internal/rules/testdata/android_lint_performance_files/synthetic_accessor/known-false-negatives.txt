@@ -1,0 +1,2 @@
+p/A.java:31:20: SyntheticAccessor: Access to `private` method `bump` of class `A` requires synthetic accessor # the class extends a class declared elsewhere (ArrayList, Thread), whose members could supply the name; krit abstains
+p/B.kt:9:19: SyntheticAccessor: Access to `private` method `helper` of class `B` requires synthetic accessor # the class extends a class declared elsewhere (ArrayList, Thread), whose members could supply the name; krit abstains

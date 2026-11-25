@@ -1,0 +1,5 @@
+p/Dividers.kt:3:7: DuplicateDivider: Replace with `android.support.v7.widget.DividerItemDecoration`?
+p/Review.java:24:31: SyntheticAccessor: Access to `private` field `value` of class `Review` requires synthetic accessor
+p/Review.java:28:20: SyntheticAccessor: Access to `private` method `many` of class `Review` requires synthetic accessor
+p/Review.java:28:28: SyntheticAccessor: Access to `private` method `many` of class `Review` requires synthetic accessor
+p/Review.kt:6:22: SyntheticAccessor: Access to `private` method `helper` of class `Holder` requires synthetic accessor

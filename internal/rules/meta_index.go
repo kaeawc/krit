@@ -746,6 +746,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*AssertionSideEffectRule)(nil),
 		(*NotificationTrampolineRule)(nil),
 		(*LaunchActivityFromNotificationRule)(nil),
+		(*DuplicateDividerRule)(nil),
+		(*SyntheticAccessorRule)(nil),
 		(*TypographyDashesRule)(nil),
 		(*TypographyEllipsisRule)(nil),
 		(*TypographyFractionsRule)(nil),

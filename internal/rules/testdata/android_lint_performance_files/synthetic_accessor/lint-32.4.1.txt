@@ -1,0 +1,28 @@
+p/A.java:15:13: SyntheticAccessor: Access to `private` method `reset` of class `A` requires synthetic accessor
+p/A.java:16:23: SyntheticAccessor: Access to `private` field `total` of class `A` requires synthetic accessor
+p/A.java:31:20: SyntheticAccessor: Access to `private` method `bump` of class `A` requires synthetic accessor
+p/A.java:40:24: SyntheticAccessor: Access to `private` method `bump` of class `A` requires synthetic accessor
+p/A.java:46:25: SyntheticAccessor: Access to `private` method `helper` of class `Mode` requires synthetic accessor
+p/B.kt:22:23: SyntheticAccessor: Access to `private` method `helper` of class `B` requires synthetic accessor
+p/B.kt:35:19: SyntheticAccessor: Access to `private` method `overloaded` of class `B` requires synthetic accessor
+p/B.kt:42:15: SyntheticAccessor: Access to `private` method `ext` of class `BKt` requires synthetic accessor
+p/B.kt:9:19: SyntheticAccessor: Access to `private` method `helper` of class `B` requires synthetic accessor
+p/J.java:16:13: SyntheticAccessor: Access to `private` field `field` of class `J` requires synthetic accessor
+p/J.java:17:13: SyntheticAccessor: Access to `private` method `helper` of class `J` requires synthetic accessor
+p/J.java:19:13: SyntheticAccessor: Access to `private` field `counter` of class `J` requires synthetic accessor
+p/J.java:20:13: SyntheticAccessor: Access to `private` constructor of class `J` requires synthetic accessor
+p/J.java:34:19: SyntheticAccessor: Access to `private` constructor of class `Inner` requires synthetic accessor
+p/J.java:35:9: SyntheticAccessor: Access to `private` method `innerMethod` of class `Inner` requires synthetic accessor
+p/J.java:36:19: SyntheticAccessor: Access to `private` field `innerField` of class `Inner` requires synthetic accessor
+p/J.java:37:9: SyntheticAccessor: Access to `private` member of class `PrivateInner` requires synthetic accessor
+p/J.java:39:9: SyntheticAccessor: Access to `private` method `nestedMethod` of class `Nested` requires synthetic accessor
+p/J.java:41:33: SyntheticAccessor: Access to `private` method `helper` of class `J` requires synthetic accessor
+p/K.kt:15:13: SyntheticAccessor: Access to `private` method `helper` of class `K` requires synthetic accessor
+p/K.kt:17:13: SyntheticAccessor: Access to `private` constructor of class `K` requires synthetic accessor
+p/K.kt:27:31: SyntheticAccessor: Access to `private` method `helper` of class `K` requires synthetic accessor
+p/K.kt:32:9: SyntheticAccessor: Access to `private` method `innerMethod` of class `Inner` requires synthetic accessor
+p/K.kt:35:9: SyntheticAccessor: Access to `private` method `nestedMethod` of class `Nested` requires synthetic accessor
+p/K.kt:37:58: SyntheticAccessor: Access to `private` method `helper` of class `K` requires synthetic accessor
+p/K.kt:45:27: SyntheticAccessor: Access to `private` method `companionPrivate` of class `Companion` requires synthetic accessor
+p/K.kt:51:15: SyntheticAccessor: Access to `private` method `topLevelPrivate` of class `KKt` requires synthetic accessor
+p/K.kt:61:28: SyntheticAccessor: Access to `private` constructor of class `D` requires synthetic accessor

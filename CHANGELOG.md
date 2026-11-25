@@ -87,6 +87,15 @@ All notable changes to Krit will be documented in this file.
   inspected for `startActivity`. A Kotlin one is not found, which yields `LaunchActivityFromNotification` instead of
   `NotificationTrampoline` for `setContentIntent`/`setFullScreenIntent`, and no finding for `addAction`
   (#1225, #1226).
+- `DuplicateDivider` and `SyntheticAccessor`, ported from Android Lint 32.4.1's `ItemDecoratorDetector` and
+  `SyntheticAccessorDetector` under their Lint IDs for Kotlin and Java. They were checked against the Lint CLI on the
+  same sources (`internal/rules/testdata/android_lint_performance_files/`, with pinned known false negatives) and
+  compared with Lint on 24 corpus files. `DuplicateDivider` reports a support-library `RecyclerView.ItemDecoration`
+  subclass named `DividerItemDecoration` with `HORIZONTAL_LIST` and `VERTICAL_LIST` fields; as in Lint, the androidx
+  class is not matched. `SyntheticAccessor` (opt-in, as in Lint) resolves references to private members lexically
+  within the file and reports those made from another class. Like Lint it skips Kotlin properties, constants,
+  companion callers, sealed and value-class constructors. Past a superclass declared elsewhere it only resolves
+  distinctive names (#1202, #1271).
 - `UnnecessaryArrayInit`, `ExpensiveAssertion` and `AssertionSideEffect`, ported from Android Lint 32.4.1's
   `ArrayInitDetector` and `AssertDetector` under their Lint IDs and checked against the Lint CLI on the same sources.
   They follow the detectors' UAST walks, including the depth limits and Lint's quirks: qualified calls are cheap for

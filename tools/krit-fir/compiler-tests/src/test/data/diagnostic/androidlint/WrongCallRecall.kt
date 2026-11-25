@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 19, 25, 29, 33, 48, 53, 59, 91, 114, 120, 124, 132, 142
+// go-lines: 19, 25, 29, 33, 48, 53, 59, 91, 111, 112, 113, 114, 120, 124, 132, 142
 // Recall cases for WrongCall: View receivers reached through framework
 // subclasses, anonymous and inner classes, scope functions, casts, and
 // receiver expressions whose type only resolution knows. Every call below
@@ -104,9 +104,9 @@ fun <T : PublicChart> measureBound(chart: T) {
     chart.<!WrongCall!>onMeasure<!>(0, 0)
 }
 
-// Go misses the three `this` receivers: source inference does not type a
-// scope function's `this`, and outside a View subclass Go has no fallback.
-// Both report the forEach `it`, which Go types from the list's element type.
+// Both report the three `this` receivers, which source inference types as the
+// apply/with/run receiver, and the forEach `it`, which Go types from the list's
+// element type.
 fun measureScoped(chart: PublicChart, charts: List<PublicChart>) {
     chart.apply { this.<!WrongCall!>onMeasure<!>(0, 0) }
     with(chart) { this.<!WrongCall!>onMeasure<!>(0, 0) }

@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 26
+// go-lines: 26, 34
 // Go misses these; the receiver is a kotlin.CharArray.
 package test
 
@@ -29,7 +29,7 @@ fun objectGetter(input: Any): Any = object {
         }
 }
 
-// Go does not narrow the branches of an `if` that is the operand of `return`.
+// Both narrow the branches of an `if` that is the operand of `return`.
 fun returnIf(value: Any): String {
     return if (value is CharArray) <!CharArrayToStringCall!>value.toString()<!> else ""
 }

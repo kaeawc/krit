@@ -29,6 +29,8 @@ const (
 	// Bumped to 15 when file info began preserving declarations with duplicate FQNs and distinct scopes.
 	// Bumped to 16 when extension scopes gained `this` and implicit-receiver entries and `||` stopped
 	// narrowing on `x != null`.
+	// Bumped to 17 when scope-function lambdas gained `this`, destructured lambda parameters were declared,
+	// and lambdas under returns, call chains and arguments gained scopes.
 	// Bumped to 18 when scopes gained start offsets for post-guard type facts.
 	typeIndexCacheVersion = 18
 )

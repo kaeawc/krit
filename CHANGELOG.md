@@ -28,6 +28,10 @@ All notable changes to Krit will be documented in this file.
   non-null `Any`; `listOf(a, b)` and `mapOf(k to v)` infer their type arguments from arguments that share one type.
   `UnnecessarySafeCall`'s same-file fallback reads only the nearest declaration in scope, so a local no longer
   borrows the non-null type of a property or parameter it shadows (#1116).
+- `UnnecessarySafeCall` (Go path) no longer reports `this?.` inside `with(x) { }`, `x.run { }` or `x.apply { }`
+  when `x` is nullable: source type inference types the lambda's `this` as `x`. A destructured lambda parameter
+  (`{ (items) -> }`) shadows an outer declaration of the same name, and lambdas inside `return` values, call
+  chains, parenthesized arguments and assignments get their own scopes (#1117).
 
 ## [0.5.0] - 2026-11-24
 

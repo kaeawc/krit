@@ -211,7 +211,6 @@ func TestFirHostnameFixtureParity(t *testing.T) {
 // minimal: an entry must name the golden case, and an entry whose pair
 // agrees fails as stale.
 var firCrossRuleAllowlist = map[string]string{
-	"UnnecessarySafeCall|tests/fixtures/negative/style/UnnecessaryApply.kt":       "apply receiver this?.reset() resolves to the non-null Settings lambda receiver; Go's name resolver does not resolve lambda-receiver this (UnnecessarySafeCallResolution.kt lambdaReceiverApply)",
 	"HasPlatformType|tests/fixtures/positive/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
 	"HasPlatformType|tests/fixtures/negative/android-lint/FragmentConstructor.kt": "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",
 	"HasPlatformType|tests/fixtures/positive/android-lint/WorldReadableFiles.kt":  "public declaration with an inferred platform type and no java./android. identifier in the body; Go reads only that prefix (HasPlatformType.kt)",

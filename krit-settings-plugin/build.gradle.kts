@@ -1,4 +1,5 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+import org.gradle.plugin.compatibility.compatibility
 
 plugins {
     `java-gradle-plugin`
@@ -47,6 +48,8 @@ gradlePlugin {
             description = "Apply Krit static analysis to every Kotlin / Java / " +
                 "Android subproject from a single `settings.gradle.kts` block."
             tags = listOf("kotlin", "android", "lint", "static-analysis", "code-quality")
+            // Checked by the configuration-cache tests in src/test.
+            compatibility { features { configurationCache = true } }
         }
     }
 }

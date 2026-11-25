@@ -3,6 +3,7 @@ package dev.jasonpearson.krit.gradle
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileTree
+import org.gradle.api.file.ProjectLayout
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.provider.Property
@@ -34,6 +35,7 @@ import javax.inject.Inject
 @CacheableTask
 abstract class KritCheckTask @Inject constructor(
     private val execOps: ExecOperations,
+    private val layout: ProjectLayout,
 ) : SourceTask() {
 
     @get:InputFile
@@ -150,7 +152,7 @@ abstract class KritCheckTask @Inject constructor(
         if (enabledReports.isEmpty()) {
             // Fall back to SARIF if nothing is enabled (preserves old behavior)
             val fallback = sarifReport.orNull?.asFile
-                ?: project.layout.buildDirectory.file("reports/krit/krit.sarif").get().asFile
+                ?: layout.buildDirectory.file("reports/krit/krit.sarif").get().asFile
             enabledReports.add("sarif" to fallback)
         }
 

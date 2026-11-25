@@ -86,6 +86,37 @@ class KritSettingsPluginFunctionalTest {
             "expected inherited ignoreFailures=true on :lib1; got:\n${result.output}")
     }
 
+    // The plugin declares configuration-cache support on the Plugin Portal; the
+    // build it configures must store and reuse the cache without problems.
+    @Test
+    fun `configuration cache is stored and reused`() {
+        val kritGradlePluginDir = locateKritGradlePlugin() ?: return
+        writeMultiProjectBuild(kritGradlePluginDir, skipList = "\":skipped\"")
+        // Storing the cache resolves kritExportModel's compile classpath, which
+        // needs a repository for kotlin-stdlib.
+        File(projectDir, "settings.gradle.kts").appendText(
+            "\ndependencyResolutionManagement { repositories { mavenCentral() } }\n"
+        )
+        // KGP's build-metrics flow action does not survive cache reuse under
+        // TestKit's injected plugin classpath; a real consumer build is unaffected.
+        File(projectDir, "gradle.properties").writeText("kotlin.internal.collectFUSMetrics=false\n")
+
+        fun run() = GradleRunner.create()
+            .withProjectDir(projectDir)
+            .withPluginClasspath()
+            .withArguments(":lib1:kritCheck", ":lib2:kritCheck", "--dry-run",
+                "--configuration-cache", "--stacktrace")
+            .forwardOutput()
+            .build()
+
+        val first = run()
+        assertTrue("Configuration cache entry stored." in first.output,
+            "expected a stored configuration cache entry; got:\n${first.output}")
+        val second = run()
+        assertTrue("Reusing configuration cache." in second.output,
+            "expected configuration cache reuse; got:\n${second.output}")
+    }
+
     private fun writeMultiProjectBuild(kritGradlePluginDir: String, skipList: String) {
         // Escape backslashes so Windows paths survive the heredoc.
         val safePath = kritGradlePluginDir.replace("\\", "\\\\")

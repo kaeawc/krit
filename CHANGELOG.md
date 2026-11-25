@@ -72,6 +72,10 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
+  support on the Gradle Plugin Portal. `kritCheck` no longer reads `Task.project` while it runs, which broke
+  configuration-cache builds with every report disabled; `kritCheck`, `kritFormat`, `kritBaseline` and the settings
+  plugin's builds are now tested to store and reuse the configuration cache.
 - `ComposeMutableStateInComposition` is retired: `UnrememberedMutableState` (the Lint port) reports everything it did,
   plus state created in any expression position, `mutableStateSetOf`, `derivedStateOf`, `@StateFactoryMarker`
   functions and `State` subclasses. The old ID keeps working: `@Suppress("ComposeMutableStateInComposition")`

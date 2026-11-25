@@ -1,4 +1,5 @@
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
+import org.gradle.plugin.compatibility.compatibility
 
 plugins {
     `java-gradle-plugin`
@@ -40,6 +41,8 @@ gradlePlugin {
             displayName = "Krit Kotlin Lint"
             description = "Static analysis for Kotlin using tree-sitter"
             tags = listOf("kotlin", "android", "lint", "static-analysis", "code-quality")
+            // Checked by the configuration-cache tests in src/test.
+            compatibility { features { configurationCache = true } }
         }
     }
 }

@@ -42,18 +42,22 @@ def compile_classpath(target, include_own = False):
         if jar not in own
     ])
 
-def _label_name(label):
+def label_name(label):
+    """Returns a label as //pkg:name (main repository) or @repo//pkg:name."""
+
     # "//pkg:name" for the main repository, "@repo//pkg:name" otherwise; never
     # the canonical "@@" form, which varies with the module graph.
     repo = "@" + label.repo_name if label.repo_name else ""
     return "%s//%s:%s" % (repo, label.package, label.name)
 
-def krit_model_json(label, classpath, kind = "main"):
+def krit_model_json(label, classpath, generated_source_jars = [], kind = "main"):
     """Renders a one-project krit model.
 
     Args:
       label: Label of the target; it names the project.
       classpath: list of jar paths, relative to the directory krit runs in.
+      generated_source_jars: list of .srcjar paths compiled as generated
+        context and never reported on.
       kind: "main" or "test".
 
     Returns:
@@ -62,7 +66,7 @@ def krit_model_json(label, classpath, kind = "main"):
     return json.encode_indent({
         "schema": _SCHEMA,
         "projects": [{
-            "path": _label_name(label),
+            "path": label_name(label),
             "dir": ".",
             "sourceSets": [{
                 "name": label.name,
@@ -71,6 +75,7 @@ def krit_model_json(label, classpath, kind = "main"):
                 "variant": "",
                 "sourceDirs": [],
                 "generatedSourceDirs": [],
+                "generatedSourceJars": generated_source_jars,
                 "classpath": classpath,
                 "generatedClasspath": [],
                 "bootClasspath": [],

@@ -130,6 +130,53 @@ the release download. `scripts/bazel-e2e-local.sh` does that for
 `bazel/e2e`, and checks that a second run after `bazel clean` is served
 entirely from the disk cache.
 
+### krit_aspect
+
+`krit_aspect` runs krit with FIR inside `bazel build`, as one action per
+Kotlin or Java target, so a whole monorepo is analyzed without a test target
+per module and Bazel caches (locally or remotely) and can remotely execute
+every action:
+
+```bash
+bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit
+```
+
+Each target with `JavaInfo` and `.kt`, `.kts` or `.java` files in `srcs`
+(`kt_jvm_library`, `kt_android_library`, `java_library`, `android_library`,
+their test variants) gets `<target>.krit.sarif` and `<target>.krit.txt` in
+the `krit` output group, next to its other outputs in `bazel-bin`. A target
+tagged `no-krit` is skipped. The aspect does not propagate to dependencies:
+each target is analyzed once, against its deps' compile (header or ABI)
+jars and not their sources, so editing a library re-runs only the targets
+whose classpath changed. `.srcjar` files in `srcs` are compiled as
+generated-source context and not reported on.
+
+The action reads only declared inputs (sources, classpath, krit, the
+krit-fir jar, the Java runtime, `krit.yml`, the baseline), runs no daemon,
+uses a scratch `$HOME` and never downloads anything. A FIR pass that cannot
+run fails the action (`--fail-on-degraded`). The Java runtime is Bazel's
+*exec* Java runtime, so pin it to JDK 21 or newer next to the target one:
+
+```bash
+# .bazelrc
+common --java_runtime_version=remotejdk_21
+common --tool_java_runtime_version=remotejdk_21
+```
+
+| Flag | |
+| --- | --- |
+| `--@krit//:config=//:krit.yml` | `krit.yml` for every action (`--config`). |
+| `--@krit//:baseline=//:krit-baseline.xml` | Baseline of known findings (`--baseline`). |
+| `--@krit//:fail_on_findings` | Adds a [validation action](https://bazel.build/extending/rules#validation_actions) per target that fails the build when the target has findings, printing them. It runs with Bazel's default `--run_validations`. |
+| `--@krit//:fir=false` | Go-only analysis, without the JDK or krit-fir. |
+
+Put the flags in `.bazelrc` under a config, e.g.
+`build:krit --aspects=@krit//:defs.bzl%krit_aspect --output_groups=+krit`,
+then `bazel build --config=krit //...`. Other rules can read a target's
+reports through the `KritReportInfo` provider. Like `krit_test`, each action
+sees one target: cross-module rules (dead code, unused resources) need a
+whole-repository run.
+
 ## GitHub Actions
 
 The repository root is a GitHub Action. It installs a krit release, puts

@@ -1,5 +1,6 @@
 load("@krit//:defs.bzl", "krit_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load(":krit_report_test.bzl", "krit_report_test")
 
 # Type-aware krit_test: //typed/app uses a type from //typed/lib, which krit
 # sees only through Bazel's compile classpath (lib's ABI jar). FIR proves
@@ -30,4 +31,20 @@ krit_test(
     name = "lib_type_aware_krit_test",
     targets = ["//typed/lib"],
     type_aware = True,
+)
+
+# krit_aspect: one cacheable FIR action per target. //typed/app's report has
+# the finding FIR proves through lib's ABI jar; //typed/lib's is clean.
+krit_report_test(
+    name = "app_aspect_report_test",
+    expect = [
+        "typed/app/Consumer.kt:5:57: ",
+        "UnnecessarySafeCall",
+    ],
+    target = "//typed/app",
+)
+
+krit_report_test(
+    name = "lib_aspect_report_test",
+    target = "//typed/lib",
 )

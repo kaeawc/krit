@@ -6,7 +6,10 @@
 # disk cache, and `bazel clean` in between; the second run must be a full
 # cache hit (every test "(cached)"), which checks that the krit actions and
 # tests are deterministic and carry no machine-specific inputs, so a remote
-# cache can share them.
+# cache can share them. Then builds krit_aspect's output group over
+# //typed/... the same way (every Krit action of the second build must be a
+# cache hit), and checks that --@krit//:fail_on_findings fails the build
+# through a validation action on a target with findings, and only there.
 #
 # Usage: scripts/bazel-e2e-local.sh [extra bazel test args...]
 #
@@ -65,6 +68,7 @@ run() {
     "$@" //...
 }
 
+extra=("$@")
 echo "== bazel test (first run)"
 run "$@"
 
@@ -87,3 +91,60 @@ if uncached="$(printf '%s\n' "$summary" | grep -v '(cached)')"; then
   exit 1
 fi
 echo "OK: $(printf '%s\n' "$summary" | wc -l | tr -d ' ') tests, all cached on the second run"
+
+build() {
+  # shellcheck disable=SC2086
+  env -u KRIT_BAZEL_RELEASE -u KRIT_FIR_JAR $BAZEL build \
+    --lockfile_mode=off \
+    --noshow_progress \
+    --symlink_prefix=/ \
+    --disk_cache="$disk_cache" \
+    --aspects=@krit//:defs.bzl%krit_aspect \
+    --output_groups=krit \
+    "$@"
+}
+
+echo "== krit_aspect over //typed/... (first build)"
+build "${extra[@]}" //typed/...
+# shellcheck disable=SC2086
+$BAZEL clean
+echo "== krit_aspect over //typed/... (second build after bazel clean: every Krit action must be a cache hit)"
+log="$work/exec.json"
+build "${extra[@]}" --execution_log_json_file="$log" //typed/...
+python3 - "$log" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, krit = json.JSONDecoder(), 0, []
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == "Krit":
+        krit.append(entry)
+if not krit:
+    sys.exit("ERROR: the execution log has no Krit actions")
+missed = [e.get("targetLabel", "?") for e in krit if not (e.get("cacheHit") or e.get("remoteCacheHit"))]
+if missed:
+    sys.exit("ERROR: Krit actions re-ran instead of hitting the cache: " + ", ".join(missed))
+print("OK: %d Krit actions, all cache hits after bazel clean" % len(krit))
+PY
+
+echo "== --@krit//:fail_on_findings fails the build on //typed/app's finding"
+if out="$(build "${extra[@]}" --@krit//:fail_on_findings //typed/app 2>&1)"; then
+  printf '%s\n' "$out"
+  echo "ERROR: the build passed although //typed/app has a krit finding" >&2
+  exit 1
+fi
+case "$out" in
+  *"krit reported findings in //typed/app:app"*UnnecessarySafeCall*) ;;
+  *)
+    printf '%s\n' "$out"
+    echo "ERROR: the build failed without the krit validation's report" >&2
+    exit 1
+    ;;
+esac
+echo "== --@krit//:fail_on_findings passes on the clean //typed/lib"
+build "${extra[@]}" --@krit//:fail_on_findings //typed/lib
+echo "OK: krit_aspect"

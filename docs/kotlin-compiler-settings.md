@@ -7,7 +7,9 @@ annotation-target defaults, context parameters, explicit backing fields, `when`
 guards and opt-in requirements all change what the compiler reports.
 
 Krit therefore reads the project's effective Kotlin settings from the Gradle
-model, carries them per source set through the Go pipeline, applies an
+model (under Bazel, the krit module's aspect writes the same model fields from
+rules_kotlin's toolchain, `kotlinc_opts` and compiler plugins; see
+[Bazel](integrations.md#type-aware-krit_test)), carries them per source set through the Go pipeline, applies an
 allowlisted subset in `krit-fir`, and folds them into every cache identity.
 
 ## What is exported

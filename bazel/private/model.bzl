@@ -6,6 +6,7 @@ project with one source set.
 """
 
 load("@rules_java//java/common:java_info.bzl", "JavaInfo")
+load(":kotlin.bzl", "kotlin_settings")
 
 # Schema 2 is the first with Kotlin compiler settings; krit accepts 1 and 2.
 _SCHEMA = 2
@@ -50,15 +51,47 @@ def label_name(label):
     repo = "@" + label.repo_name if label.repo_name else ""
     return "%s//%s:%s" % (repo, label.package, label.name)
 
-def krit_model_json(label, classpath, generated_source_jars = [], kind = "main"):
-    """Renders a one-project krit model.
+def krit_source_set(label, classpath, generated_source_jars = [], kind = "main", kotlin = None, jvm_target = ""):
+    """Returns one source set of a krit model: one Bazel target.
 
     Args:
-      label: Label of the target; it names the project.
+      label: Label of the target; it names the source set.
       classpath: list of jar paths, relative to the directory krit runs in.
       generated_source_jars: list of .srcjar paths compiled as generated
         context and never reported on.
       kind: "main" or "test".
+      kotlin: the target's Kotlin compiler settings (the model's `kotlin`
+        object, see kotlin.bzl), or None.
+      jvm_target: the JVM target, e.g. "17".
+
+    Returns:
+      A dict in the model's sourceSets schema.
+    """
+    source_set = {
+        "name": label_name(label),
+        "kind": kind,
+        "platform": "jvm",
+        "variant": "",
+        "sourceDirs": [],
+        "generatedSourceDirs": [],
+        "generatedSourceJars": generated_source_jars,
+        "classpath": classpath,
+        "generatedClasspath": [],
+        "bootClasspath": [],
+        "projectDeps": [],
+        "jvmTarget": jvm_target,
+    }
+    if kotlin != None:
+        source_set["kotlin"] = kotlin
+    return source_set
+
+def krit_model_json(label, source_sets):
+    """Renders a one-project krit model.
+
+    Args:
+      label: Label of the rule or target the model is for; it names the
+        project.
+      source_sets: list of krit_source_set dicts.
 
     Returns:
       The model file's JSON text.
@@ -68,19 +101,42 @@ def krit_model_json(label, classpath, generated_source_jars = [], kind = "main")
         "projects": [{
             "path": label_name(label),
             "dir": ".",
-            "sourceSets": [{
-                "name": label.name,
-                "kind": kind,
-                "platform": "jvm",
-                "variant": "",
-                "sourceDirs": [],
-                "generatedSourceDirs": [],
-                "generatedSourceJars": generated_source_jars,
-                "classpath": classpath,
-                "generatedClasspath": [],
-                "bootClasspath": [],
-                "projectDeps": [],
-                "jvmTarget": "",
-            }],
+            "sourceSets": source_sets,
         }],
     }, indent = "  ") + "\n"
+
+def target_source_set(ctx, target, path, srcjars = [], classpath = None):
+    """Describes what one target compiles with, for krit's model.
+
+    Args:
+      ctx: aspect context (its toolchains include kotlin.bzl's KT_TOOLCHAIN).
+      target: the analyzed target.
+      path: function from File to the path krit sees (File.path in an
+        action, File.short_path in runfiles).
+      srcjars: the target's own .srcjar sources.
+      classpath: depset of jars; defaults to compile_classpath(target).
+
+    Returns:
+      struct(source_set, inputs): the krit_source_set dict and a depset of
+      the files it names.
+    """
+    if classpath == None:
+        classpath = compile_classpath(target)
+    kotlin = kotlin_settings(ctx, target)
+    generated = srcjars + kotlin.generated_source_jars
+    settings = None
+    if kotlin.kotlin != None:
+        settings = dict(kotlin.kotlin)
+        settings["compilerPluginClasspath"] = [path(f) for f in kotlin.plugin_jars.to_list()]
+    source_set = krit_source_set(
+        label = target.label,
+        classpath = [path(f) for f in classpath.to_list()],
+        generated_source_jars = [path(f) for f in generated],
+        kind = "test" if getattr(ctx.rule.attr, "testonly", False) else "main",
+        kotlin = settings,
+        jvm_target = kotlin.jvm_target,
+    )
+    return struct(
+        source_set = source_set,
+        inputs = depset(generated, transitive = [classpath, kotlin.plugin_jars]),
+    )

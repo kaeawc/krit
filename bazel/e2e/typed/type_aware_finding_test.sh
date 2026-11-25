@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A type-aware krit_test reports a finding only FIR can prove: the type comes
-# from another target's jar on Bazel's compile classpath.
+# from another target's jar on Bazel's compile classpath. $2 overrides the
+# expected location.
 set -euo pipefail
 if out=$("$1" 2>&1); then
   echo "$out"
@@ -9,6 +10,6 @@ if out=$("$1" 2>&1); then
 fi
 echo "$out"
 case "$out" in
-  *"typed/app/Consumer.kt:5:"*UnnecessarySafeCall*) ;;
+  *"${2:-typed/app/Consumer.kt:5:}"*UnnecessarySafeCall*) ;;
   *) echo "type-aware krit_test failed without the FIR finding" >&2; exit 1 ;;
 esac

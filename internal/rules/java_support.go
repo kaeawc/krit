@@ -211,6 +211,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"FragmentLiveDataObserve":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
 		"FragmentBackPressedCallback":             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
 		"FragmentAddMenuProvider":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
+		"AssertionSideEffect":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_assert_test.go"}},
 	},
 }
 

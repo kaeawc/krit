@@ -26,6 +26,14 @@ All notable changes to Krit will be documented in this file.
   Source findings honor `@Suppress`/`@SuppressLint`. Manifest findings honor `tools:ignore`. Results are cached on the
   content of every manifest plus the whole source set, so editing either side reruns the rules on CLI, warm and daemon
   runs.
+- `UnnecessaryArrayInit`, `ExpensiveAssertion` and `AssertionSideEffect`, ported from Android Lint 32.4.1's
+  `ArrayInitDetector` and `AssertDetector` under their Lint IDs and checked against the Lint CLI on the same sources.
+  They follow the detectors' UAST walks, including the depth limits and Lint's quirks: qualified calls are cheap for
+  `ExpensiveAssertion`, and `kotlin.collections` members are not side effects. Calls are followed into functions of
+  the same file only. A call to a function declared elsewhere, or a mutating library call whose receiver type is not
+  proven to be a JDK or Android class, is not reported. `AssertionSideEffect` also checks Java `assert` statements.
+  `ExpensiveAssertion` is opt-in, as in Lint. `UnnecessaryArrayInit` removes the lambda as an idiomatic fix (#1140,
+  #1141, #1142).
 - `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
   `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
   their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs

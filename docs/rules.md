@@ -327,3 +327,25 @@ IDs, so `@SuppressLint`, `tools:ignore`, `lint.xml` and Gradle `lint { }` severi
   `androidx.core.os.LocaleListCompat.getAdjustedDefault()` in composition, using the same composition walk as the Compose
   runtime ports: reads inside `remember { }` and other non-inline lambdas are not in composition, and reads inside
   stdlib inline lambdas other than the scope functions (`forEach`, `map`, ...) are a known false negative.
+
+## Android Lint Performance Checks
+
+Ports of Android Lint 32.4.1's built-in Performance detectors, under their Lint IDs:
+
+- `UnnecessaryArrayInit` (Kotlin) reports the initializer lambda of a `kotlin.*` primitive or unsigned array
+  constructor (`IntArray(n) { 0 }`) when its single expression folds to a numeric zero (`0`, `0L`, `0f`, `0.0`,
+  `1 - 1`, a same-file constant). `false`, chars and unsigned literals are not numbers to Lint, so those initializers
+  are left alone. The fix removes the lambda.
+- `ExpensiveAssertion` (Kotlin, opt-in) reports `assert(...)` conditions that do work Kotlin performs even with
+  assertions off. As in Lint, literals, names, `is` checks and qualified references or calls (`list.isEmpty()`,
+  `a.b()`) are cheap; unqualified library calls other than `isEmpty`/`isNotEmpty`/`contains`, constructors, `if`,
+  `when` and `?:` are expensive, and so is nesting four levels deep. An unqualified call to a function of the same
+  file is judged by its single-return body. A call to a function declared in another file is not followed and not
+  reported. Asserts inside an `if` (or `when` branch) whose condition mentions `desiredAssertionStatus` are skipped.
+- `AssertionSideEffect` (Kotlin and Java) reports increments, decrements and assignments in an assertion condition,
+  and in Kotlin, calls into same-file functions (up to three levels) that perform one. Mutating library calls (`add`,
+  `remove`, `put`, `delete`, `mkdir`, `mkdirs`, `setX`) are reported when the receiver is a JDK or Android class,
+  including the `kotlin.collections` typealiases `ArrayList`/`HashMap`/`HashSet` and `StringBuilder`. As in Lint,
+  members of `kotlin.*` types (`MutableList.add`) are not side effects, and Java calls are not followed. Lint
+  resolves receiver types the compiler knows; krit reports only receivers whose type is declared or constructed in
+  the file.

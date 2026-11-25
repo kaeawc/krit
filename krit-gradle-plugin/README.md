@@ -350,11 +350,15 @@ krit {
 }
 ```
 
-`maxDaemons` is capped by `--max-workers`. Configure it the same way in every
-project (for example from a convention plugin); the build service takes it from
-the first project that applies krit. With `fir = false`, krit tasks don't use the
-pool and run without that limit. The pool needs a krit release after 0.5.0;
-older ones ignore it.
+`maxDaemons` is capped by `--max-workers`. Projects share a JVM only when they
+agree on the JVM target, Kotlin compiler settings (including compiler plugins) and
+the JDK, so a build that mixes, say, Compose and plain modules keeps one warm JVM
+per slot and setting. `maxHeap` applies to the JVMs a run starts. Configure both the
+same way in every project (for example from a convention plugin): the build
+service takes them from the first project that applies krit. When the extension
+turns FIR off, krit tasks don't use the pool and run without its limit; a single
+task's `fir = false` skips the lease but still counts toward the limit. The pool
+needs a krit release after 0.5.0; older ones ignore it.
 
 ## Build cache
 

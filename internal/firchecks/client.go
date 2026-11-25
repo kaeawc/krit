@@ -1402,9 +1402,11 @@ func firRegistryKeyFor(role, jarPath string, sourceDirs, classpath []string, tar
 // tool that runs krit once per project (the Gradle plugin's BuildService) sets it
 // to "<pool>-<slot>", so every run in that slot reuses one warm JVM instead of
 // starting a daemon per source-dir set. Sharing is safe for the check role only:
-// every check request carries its source dirs, classpath, JVM target and Kotlin
-// settings, and krit-fir rebuilds its session when they differ. Oracle requests do
-// not, so the oracle role keeps its per-project key.
+// every check request carries its source dirs and classpath, and krit-fir rebuilds
+// its session when they differ. The JVM target, Kotlin settings (compiler plugins
+// included) and JDK stay in the pooled key, because krit-fir keeps the session's
+// values for those when a request leaves them empty. Oracle requests carry no
+// sources, so the oracle role keeps its per-project key.
 const FirDaemonPoolEnv = "KRIT_FIR_DAEMON_POOL"
 
 // firDaemonPool returns the pool slot for a role's daemon, or "" when unpooled.
@@ -1428,8 +1430,15 @@ func firRegistryPrefix(role, jarPath string, sourceDirs, classpath []string, tar
 
 func firRegistryFamilyPrefix(role, jarPath string, sourceDirs, classpath []string, target ...CompileTarget) string {
 	if pool := firDaemonPool(role); pool != "" {
-		// One daemon per pool slot and jar; requests retarget its session.
-		return role + "-pool-" + hashutil.HashHex([]byte(pool))[:16] + "-" + oracle.JarPathTag(jarPath)
+		// One daemon per pool slot, compiler settings, JDK and jar; requests retarget its
+		// session to their sources and classpath. krit-fir keeps the session's JVM target,
+		// Kotlin args and compiler plugins when a request leaves them empty, so those stay
+		// in the key: projects share a JVM only when they agree on them.
+		key := role + "-pool-" + hashutil.HashHex([]byte(pool))[:16] + firstTarget(target).registrySuffix()
+		if home := strings.TrimSpace(os.Getenv("JAVA_HOME")); home != "" {
+			key += "-jdk" + hashutil.HashHex([]byte(home))[:8]
+		}
+		return key + "-" + oracle.JarPathTag(jarPath)
 	}
 	key := hashFirSources(sourceDirs)
 	// The JVM target and the Kotlin settings both change what the compiler

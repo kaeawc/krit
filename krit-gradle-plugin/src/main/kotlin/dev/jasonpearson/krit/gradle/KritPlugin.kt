@@ -219,8 +219,7 @@ class KritPlugin : Plugin<Project> {
         val exportModel = org.gradle.api.Action<Project> {
             if (modelExported) return@Action
             val kmp = project.plugins.hasPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID)
-            val android = project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) ||
-                project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)
+            val android = hasAndroidPlugin(project)
             if (!kmp && !android && !project.plugins.hasPlugin("java")) return@Action
             modelExported = true
             warnIfAndroidAppliedLate = !android
@@ -262,20 +261,36 @@ class KritPlugin : Plugin<Project> {
                 project.afterEvaluate(exportModel)
             }
         }
-        project.pluginManager.withPlugin(ANDROID_APPLICATION_PLUGIN_ID) {
-            exportAfterEvaluateOrNow()
-        }
-        project.pluginManager.withPlugin(ANDROID_LIBRARY_PLUGIN_ID) {
-            exportAfterEvaluateOrNow()
+        // Application, library, test (instrumentation, benchmark and baseline-profile
+        // modules) and dynamic-feature modules share AGP's CommonExtension shape and
+        // export through the same Android path.
+        ANDROID_PLUGIN_IDS.forEach { id ->
+            project.pluginManager.withPlugin(id) { exportAfterEvaluateOrNow() }
         }
         // Android applied from an afterEvaluate is not supported: Android-only projects get the skipped Android model warning;
         // JVM and KMP projects keep their model and get the 'configured before Android' warning.
         project.afterEvaluate {
-            if (!modelExported && !project.plugins.hasPlugin(ANDROID_APPLICATION_PLUGIN_ID) &&
-                !project.plugins.hasPlugin(ANDROID_LIBRARY_PLUGIN_ID)) {
+            if (!modelExported && !hasAndroidPlugin(project)) {
                 exportModel.execute(project)
             }
         }
+    }
+
+    private fun hasAndroidPlugin(project: Project): Boolean =
+        ANDROID_PLUGIN_IDS.any { project.plugins.hasPlugin(it) }
+
+    /**
+     * The project a `com.android.test` module tests (`android.targetProjectPath`). The
+     * module compiles against that app's classes, which AGP provides through the tested
+     * variant rather than an ordinary project dependency, so it is recorded as one.
+     */
+    private fun androidTargetProjectPath(project: Project, android: Any): String? {
+        if (!project.plugins.hasPlugin(ANDROID_TEST_PLUGIN_ID)) return null
+        val path = runCatching { android.javaClass.getMethod("getTargetProjectPath").invoke(android) }
+            .getOrNull()?.toString()?.takeIf { it.startsWith(":") }
+        if (path == null) project.logger.warn("krit: com.android.test module ${project.path} has no android.targetProjectPath; " +
+            "its model has no dependency on the tested app")
+        return path
     }
 
     private data class KotlinCompilerOptionsModel(
@@ -291,6 +306,8 @@ class KritPlugin : Plugin<Project> {
         val name: String, val kind: String, val platform: String, val variant: String,
         val dirs: List<String>, val boot: Provider<List<String>>, val configuration: Configuration,
         val compileTask: String,
+        /** Project paths the compilation depends on beyond [configuration]'s project dependencies. */
+        val extraProjectDeps: List<String> = emptyList(),
     )
 
     private data class AndroidModelsResult(val specs: List<ModelSpec>, val skipped: Boolean = false)
@@ -340,6 +357,9 @@ class KritPlugin : Plugin<Project> {
         }
         return try {
             val boot = androidBootClasspath(project)
+            val target = listOfNotNull(androidTargetProjectPath(project, android))
+            // A com.android.test module has only `main` (no unit-test or androidTest
+            // components), so the test and androidTest entries find no configuration.
             val entries = listOf(
                 Triple(variant, "main", listOf("main", variant) + androidVariantFallbacks(variant)),
                 Triple("${variant}UnitTest", "test", androidTestSourceNames("test", variant)),
@@ -351,7 +371,8 @@ class KritPlugin : Plugin<Project> {
                 try {
                     ModelSpec(name, kind, "android", variant,
                         androidSourceDirs(project, android, sourceNames, kind == "main"),
-                        boot, config, "compile${name.replaceFirstChar(Char::uppercase)}Kotlin")
+                        boot, config, "compile${name.replaceFirstChar(Char::uppercase)}Kotlin",
+                        if (kind == "main") target else emptyList())
                 } catch (error: Exception) {
                     project.logger.warn("krit: Android model skipped source set $name in ${project.path}: ${error.message}")
                     null
@@ -754,9 +775,10 @@ class KritPlugin : Plugin<Project> {
                     componentFilter { id -> id !is ProjectComponentIdentifier }
                 }.files
                 classpath.from(externalArtifacts)
+                val extraProjectDeps = spec.extraProjectDeps
                 projectDeps.set(spec.configuration.incoming.resolutionResult.rootComponent.map { root ->
-                    root.dependencies.filterIsInstance<ResolvedDependencyResult>()
-                        .mapNotNull { (it.selected.id as? ProjectComponentIdentifier)?.projectPath }
+                    (root.dependencies.filterIsInstance<ResolvedDependencyResult>()
+                        .mapNotNull { (it.selected.id as? ProjectComponentIdentifier)?.projectPath } + extraProjectDeps)
                         .distinct().sorted()
                 })
                 generatedClasspath.set(rJars[spec.variant to spec.kind] ?: project.provider { emptyList() })
@@ -886,6 +908,16 @@ class KritPlugin : Plugin<Project> {
         const val KOTLIN_MULTIPLATFORM_PLUGIN_ID = "org.jetbrains.kotlin.multiplatform"
         const val ANDROID_APPLICATION_PLUGIN_ID = "com.android.application"
         const val ANDROID_LIBRARY_PLUGIN_ID = "com.android.library"
+        const val ANDROID_TEST_PLUGIN_ID = "com.android.test"
+        const val ANDROID_DYNAMIC_FEATURE_PLUGIN_ID = "com.android.dynamic-feature"
+
+        /** Android plugins whose modules export through the Android model path. */
+        val ANDROID_PLUGIN_IDS = listOf(
+            ANDROID_APPLICATION_PLUGIN_ID,
+            ANDROID_LIBRARY_PLUGIN_ID,
+            ANDROID_TEST_PLUGIN_ID,
+            ANDROID_DYNAMIC_FEATURE_PLUGIN_ID,
+        )
 
         /**
          * Plugin IDs that trigger krit's per-source-set / per-variant task
@@ -896,8 +928,6 @@ class KritPlugin : Plugin<Project> {
         val LANGUAGE_PLUGIN_IDS = listOf(
             KOTLIN_JVM_PLUGIN_ID,
             KOTLIN_MULTIPLATFORM_PLUGIN_ID,
-            ANDROID_APPLICATION_PLUGIN_ID,
-            ANDROID_LIBRARY_PLUGIN_ID,
-        )
+        ) + ANDROID_PLUGIN_IDS
     }
 }

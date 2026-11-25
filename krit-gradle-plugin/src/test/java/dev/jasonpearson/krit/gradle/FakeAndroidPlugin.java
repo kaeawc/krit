@@ -132,8 +132,20 @@ public class FakeAndroidPlugin implements Plugin<Project> {
 
     public static class Android {
         private final Sources sources;
-        public Android(File root) { sources = new Sources(root); }
+        private final String targetProjectPath;
+        public Android(File root, String targetProjectPath) {
+            sources = new Sources(root);
+            this.targetProjectPath = targetProjectPath;
+        }
         public Sources getSourceSets() { return sources; }
+        // Mirrors TestExtension.getTargetProjectPath() in AGP 8.x/9.x (null until configured).
+        public String getTargetProjectPath() { return targetProjectPath; }
+    }
+
+    /** True for a project listed in -PfakeTestModules: com.android.test's layout, with only main and no test components. */
+    static boolean isTestModule(Project project) {
+        Object modules = project.findProperty("fakeTestModules");
+        return modules != null && List.of(modules.toString().split(",")).contains(project.getName());
     }
 
     public static class Sdk {
@@ -155,7 +167,8 @@ public class FakeAndroidPlugin implements Plugin<Project> {
     public static class Version { public int getMajor() { return 8; } }
 
     @Override public void apply(Project project) {
-        project.getExtensions().add("android", new Android(project.getProjectDir()));
+        Object target = isTestModule(project) ? project.findProperty("fakeTargetProjectPath") : null;
+        project.getExtensions().add("android", new Android(project.getProjectDir(), target == null ? null : target.toString()));
         if (project.hasProperty("fakeKotlinOptions"))
             project.getExtensions().add("kotlin", new FakeKotlinExtension());
         if (!project.hasProperty("omitComponents"))
@@ -184,8 +197,11 @@ public class FakeAndroidPlugin implements Plugin<Project> {
 
     private void registerVariants(Project project) {
         if (project.hasProperty("omitAndroidVariants")) return;
+        // Mirrors TestApplicationTaskManager in AGP 8.x/9.x: a com.android.test module has one
+        // component per build type and no unit-test or androidTest components.
         List<String> configurations = project.hasProperty("releaseOnly")
                 ? List.of("releaseCompileClasspath")
+                : isTestModule(project) ? List.of("debugCompileClasspath", "releaseCompileClasspath")
                 : List.of("debugCompileClasspath", "releaseCompileClasspath",
                 "stagingDebugCompileClasspath",
                 "debugUnitTestCompileClasspath", "debugAndroidTestCompileClasspath",

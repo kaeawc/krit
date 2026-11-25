@@ -222,6 +222,57 @@ class KritExportModelTest {
         }
     }
 
+    // #1572: com.android.test (instrumentation, benchmark, baseline-profile) and
+    // dynamic-feature modules export through the Android path instead of writing no model.
+    @Test
+    fun `com android test and dynamic feature modules export Android models`() {
+        val root = File(directory, "android-test-module").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-test-module\"\ninclude(\"app\", \"benchmark\", \"feature\")\n")
+        File(root, "build.gradle.kts").writeText("")
+        for ((module, pluginId) in listOf("app" to "com.android.application", "benchmark" to "com.android.test",
+            "feature" to "com.android.dynamic-feature")) {
+            File(root, module).mkdirs()
+            File(root, "$module/android.jar").writeBytes(byteArrayOf())
+            File(root, "$module/build.gradle.kts").writeText("plugins { id(\"$pluginId\"); id(\"dev.jasonpearson.krit\") }\n")
+        }
+
+        val result = runWithFakePlugin(root, FakeAndroidPlugin::class.java, "com.android.test", "kritExportModel",
+            "-PfakeTestModules=benchmark", "-PfakeTargetProjectPath=:app", "--configuration-cache")
+        assertFalse(result.output.contains("zero Android source sets"), result.output)
+
+        val benchmark = sourceSets(File(root, ".krit/gradle-model/benchmark.json"))
+        assertEquals(listOf("debug"), benchmark.map { it["name"] }, "only main, compiled for the selected build type")
+        val main = benchmark.single()
+        assertEquals("main", main["kind"])
+        assertEquals("android", main["platform"])
+        assertTrue((main["bootClasspath"] as List<*>).any { it.toString().endsWith("android.jar") }, main.toString())
+        assertEquals(listOf(":app"), main["projectDeps"], "the tested app is a dependency of the test module")
+        // The classpath and R jar location are checked against a real AGP build: the fake
+        // plugin registers one class for every Android ID, so it also looks like a library.
+
+        val feature = sourceSets(File(root, ".krit/gradle-model/feature.json"))
+        assertEquals(setOf("main", "test", "androidTest"), feature.map { it["kind"] }.toSet())
+
+        val cached = runWithFakePlugin(root, FakeAndroidPlugin::class.java, "com.android.test", "kritExportModel",
+            "-PfakeTestModules=benchmark", "-PfakeTargetProjectPath=:app", "--configuration-cache")
+        assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
+    }
+
+    @Test
+    fun `com android test module without a target project warns and still exports`() {
+        val root = File(directory, "android-test-no-target").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-test-no-target\"\ninclude(\"benchmark\")\n")
+        File(root, "build.gradle.kts").writeText("")
+        File(root, "benchmark").mkdirs()
+        File(root, "benchmark/android.jar").writeBytes(byteArrayOf())
+        File(root, "benchmark/build.gradle.kts").writeText("plugins { id(\"com.android.test\"); id(\"dev.jasonpearson.krit\") }\n")
+        val result = runWithFakePlugin(root, FakeAndroidPlugin::class.java, "com.android.test", "kritExportModel",
+            "-PfakeTestModules=benchmark")
+        assertTrue(result.output.contains("com.android.test module :benchmark has no android.targetProjectPath"), result.output)
+        val main = sourceSets(File(root, ".krit/gradle-model/benchmark.json")).single()
+        assertEquals(emptyList<String>(), main["projectDeps"])
+    }
+
     @Test
     fun `Android applied inside afterEvaluate warns once instead of exporting silently`() {
         val root = File(directory, "android-late-application").also { it.mkdirs() }

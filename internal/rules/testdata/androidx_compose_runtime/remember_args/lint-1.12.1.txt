@@ -1,0 +1,34 @@
+a/ProduceLocal.kt:8:5: ProduceStateDoesNotAssignValue: produceState calls should assign `value` inside the producer lambda
+a/Remember.kt:24:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:25:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:26:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:27:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:28:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:29:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:31:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:32:13: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:33:18: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:34:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:35:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:36:5: RememberReturnType: `remember` calls must not return `Unit`
+a/Remember.kt:42:14: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:43:14: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:44:18: OpaqueUnitKey: Implicitly passing `Unit` as argument to key2
+a/Remember.kt:45:23: OpaqueUnitKey: Implicitly passing `Unit` as argument to keys
+a/Remember.kt:47:14: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:48:14: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:50:20: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:51:23: OpaqueUnitKey: Implicitly passing `Unit` as argument to key2
+a/Remember.kt:52:22: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:53:29: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:54:21: OpaqueUnitKey: Implicitly passing `Unit` as argument to key
+a/Remember.kt:55:9: OpaqueUnitKey: Implicitly passing `Unit` as argument to keys
+a/Remember.kt:56:21: OpaqueUnitKey: Implicitly passing `Unit` as argument to key1
+a/Remember.kt:62:5: ProduceStateDoesNotAssignValue: produceState calls should assign `value` inside the producer lambda
+a/Remember.kt:67:5: ProduceStateDoesNotAssignValue: produceState calls should assign `value` inside the producer lambda
+a/Remember.kt:71:5: ProduceStateDoesNotAssignValue: produceState calls should assign `value` inside the producer lambda
+a/Saveable.kt:25:30: RememberSaveableSaverParameter: Passing `Saver` instance to vararg `inputs`
+a/Saveable.kt:26:30: RememberSaveableSaverParameter: Passing `Saver` instance to vararg `inputs`
+a/Saveable.kt:27:30: RememberSaveableSaverParameter: Passing `Saver` instance to vararg `inputs`
+a/Saveable.kt:28:30: RememberSaveableSaverParameter: Passing `Saver` instance to vararg `inputs`
+a/Saveable.kt:32:30: RememberSaveableSaverParameter: Passing `Saver` instance to vararg `inputs`

@@ -7,6 +7,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.plugins.BasePlugin
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.CompileClasspath
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.IgnoreEmptyDirectories
 import org.gradle.api.tasks.Input
@@ -110,6 +111,23 @@ abstract class KritCheckTask @Inject constructor(
 
     @get:Internal
     abstract val cacheDir: DirectoryProperty
+
+    /** `krit { fir { useBuiltDependencies } }`: pass [projectOutputs] to krit. */
+    @get:Input
+    @get:Optional
+    abstract val useBuiltDependencies: Property<Boolean>
+
+    /**
+     * Compiled classes (or Android classes jars) of the project dependencies, keyed by
+     * project path; krit resolves those projects from them instead of their sources.
+     */
+    @get:Internal
+    abstract val projectOutputs: org.gradle.api.provider.MapProperty<String, List<String>>
+
+    /** The same outputs as an input, ABI-normalized: implementation-only changes do not rerun. */
+    @get:CompileClasspath
+    @get:Optional
+    abstract val dependencyClasses: org.gradle.api.file.ConfigurableFileCollection
 
     /**
      * `--base-path`: report paths and baseline IDs are relative to it (the project
@@ -254,9 +272,21 @@ abstract class KritCheckTask @Inject constructor(
         if (!fir.get()) add("--no-fir")
         if (cacheDir.isPresent) { add("--cache-dir"); add(cacheDir.get().asFile.absolutePath) }
         if (basePath.isPresent) { add("--base-path"); add(basePath.get().asFile.absolutePath) }
+        if (useBuiltDependencies.getOrElse(false) && fir.getOrElse(true)) {
+            add("--gradle-project-outputs"); add(writeProjectOutputs().absolutePath)
+        }
         addCustomRuleJarArgs()
         add("-q")
         appendScanPaths()
+    }
+
+    private fun writeProjectOutputs(): File {
+        val file = File(temporaryDir, "project-outputs.json")
+        file.writeText(groovy.json.JsonOutput.toJson(mapOf(
+            "schema" to PROJECT_OUTPUTS_SCHEMA,
+            "projects" to projectOutputs.getOrElse(emptyMap()).toSortedMap(),
+        )) + "\n")
+        return file
     }
 
     private fun buildEnabledReports(): MutableList<Pair<String, File>> {
@@ -308,6 +338,9 @@ abstract class KritCheckTask @Inject constructor(
     }
 
     companion object {
+        /** Schema of the `--gradle-project-outputs` file (gradlemodel.ProjectOutputsSchema). */
+        internal const val PROJECT_OUTPUTS_SCHEMA = 1
+
         /**
          * Runs one krit scan that writes every report in [reports] and returns its exit
          * code; [scan] runs krit for a list of reports and returns the exit code and

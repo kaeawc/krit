@@ -12,7 +12,10 @@ type compileSourceRef struct {
 }
 
 type compileSourceSelection struct {
-	model    *Model
+	model *Model
+	// built holds project paths whose compiled outputs are on the classpath; they
+	// are not compiled from source as dependency context.
+	built    map[string]bool
 	main     map[string][]compileSourceRef
 	fixtures map[string][]compileSourceRef
 	selected map[compileSourceRef]bool
@@ -27,10 +30,18 @@ func (m *Model) CompileSourceDirs(scanPaths []string) []string {
 }
 
 func (m *Model) CompileSourceContext(scanPaths []string) (dirs []string, fallback bool) {
+	return m.CompileSourceContextBuilt(scanPaths, nil)
+}
+
+// CompileSourceContextBuilt is CompileSourceContext for a scan that has the compiled
+// outputs of the projects in built (see LoadProjectOutputs): a project dependency in
+// built is resolved from those outputs instead of being compiled from its sources.
+func (m *Model) CompileSourceContextBuilt(scanPaths []string, built map[string]bool) (dirs []string, fallback bool) {
 	if m == nil {
 		return nil, false
 	}
 	selection := newCompileSourceSelection(m)
+	selection.built = built
 	selection.match(scanPaths)
 	if len(selection.queue) == 0 {
 		return m.SourceDirs(), true
@@ -133,6 +144,9 @@ func (selection *compileSourceSelection) expand() {
 			selection.includeProject(project.Path, ref.fixtures)
 		}
 		for _, dependency := range set.ProjectDeps {
+			if selection.built[dependency] {
+				continue
+			}
 			selection.includeProject(dependency, ref.fixtures)
 		}
 	}

@@ -117,6 +117,12 @@ func effectiveOracleClasspath(modelEntries []string, cfg *config.Config) []strin
 // loadGradleCompileContext supplies optional source roots and JVM target.
 // The classpath loader reports malformed model warnings separately.
 func loadGradleCompileContext(paths []string, explicit string, disabled bool, verboseOut ...io.Writer) (dirs, generated []string, target string) {
+	return loadGradleCompileContextBuilt(paths, explicit, disabled, nil, verboseOut...)
+}
+
+// loadGradleCompileContextBuilt is loadGradleCompileContext where the projects in built
+// supply compiled outputs (--gradle-project-outputs), so their sources are not context.
+func loadGradleCompileContextBuilt(paths []string, explicit string, disabled bool, built map[string]bool, verboseOut ...io.Writer) (dirs, generated []string, target string) {
 	if disabled && explicit == "" {
 		return nil, nil, ""
 	}
@@ -141,7 +147,7 @@ func loadGradleCompileContext(paths []string, explicit string, disabled bool, ve
 		if err != nil {
 			continue
 		}
-		roots, fallback := model.CompileSourceContext(paths)
+		roots, fallback := model.CompileSourceContextBuilt(paths, built)
 		if fallback && len(verboseOut) > 0 && verboseOut[0] != nil {
 			fmt.Fprintf(verboseOut[0], "gradle model: no source sets match scan paths; using all model source roots (%s)\n", modelDir)
 		}

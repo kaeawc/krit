@@ -4,6 +4,7 @@ import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.attributes.Category
+import org.gradle.api.attributes.LibraryElements
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
@@ -174,6 +175,7 @@ class KritPlugin : Plugin<Project> {
         // FIR JDK: Java toolchains, so FIR does not depend on the JDK the daemon has.
         project.pluginManager.apply(org.gradle.api.plugins.JvmToolchainsPlugin::class.java)
         val toolchains = project.extensions.getByType(JavaToolchainService::class.java)
+        extension.firOptions.useBuiltDependencies.convention(false)
         extension.firOptions.javaLauncher.convention(toolchains.launcherFor {
             languageVersion.set(JavaLanguageVersion.of(maxOf(FIR_MIN_JAVA, JavaVersion.current().majorVersion.toInt())))
         })
@@ -941,6 +943,65 @@ class KritPlugin : Plugin<Project> {
                 if (extension.exportModel.get()) export.flatMap { it.outputFile }
                 else emptyList<Any>()
             })
+        }
+        wireBuiltDependencies(project, extension, specs)
+    }
+
+    /**
+     * `krit { fir { useBuiltDependencies = true } }`: every check task of this project
+     * gets the compiled outputs of its project dependencies, read from the exported
+     * source sets' compile classpaths (jars for JVM, `android-classes-jar`
+     * for Android). Gradle wires the upstream compile tasks, so their results come from
+     * the build cache when available, and krit no longer compiles those projects'
+     * sources as context (`--gradle-project-outputs`).
+     */
+    private fun wireBuiltDependencies(project: Project, extension: KritExtension, specs: List<ModelSpec>) {
+        val enabled = extension.firOptions.useBuiltDependencies
+        // A dependency's identity is its build-tree path: an included build's `:lib` is not
+        // this build's `:lib` (Gradle 8.2+; older Gradle falls back to the project path).
+        val buildPrefix = runCatching { project.buildTreePath.removeSuffix(project.path) }.getOrDefault("")
+        val self = project.path
+        fun sameBuild(id: ProjectComponentIdentifier): Boolean = runCatching {
+            id.buildTreePath == if (id.projectPath == ":") buildPrefix.ifEmpty { ":" } else buildPrefix + id.projectPath
+        }.getOrDefault(true)
+        val views = specs.map { spec ->
+            spec.configuration.incoming.artifactView {
+                if (spec.platform == "android") {
+                    attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "android-classes-jar")
+                } else {
+                    // Jars, not class directories: krit's caches key a classpath entry by its
+                    // size and modification time, which a directory keeps when the classes in it
+                    // are recompiled in place.
+                    attributes.attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE,
+                        project.objects.named(LibraryElements::class.java, LibraryElements.JAR))
+                }
+                componentFilter { id -> id is ProjectComponentIdentifier && sameBuild(id) && id.projectPath != self }
+            }
+        }
+        // Resolved artifacts are read lazily (when the task runs), after the upstream jars.
+        var outputs: Provider<Map<String, List<String>>> = project.provider { emptyMap() }
+        views.forEach { view ->
+            outputs = outputs.zip(view.artifacts.resolvedArtifacts) { acc, artifacts ->
+                val merged = acc.mapValues { it.value.toMutableList() }.toMutableMap()
+                artifacts.forEach { artifact ->
+                    val id = artifact.id.componentIdentifier as? ProjectComponentIdentifier ?: return@forEach
+                    val files = merged.getOrPut(id.projectPath) { mutableListOf() }
+                    val path = modelPath(artifact.file)
+                    if (path !in files) files += path
+                }
+                merged
+            }
+        }
+        val upstream = views.map { it.files }
+        project.tasks.withType(KritCheckTask::class.java).configureEach {
+            useBuiltDependencies.convention(enabled)
+            // Each task's own switches decide, so a task that turns FIR or built dependencies
+            // off neither builds the upstream jars nor passes them.
+            val on = useBuiltDependencies.zip(fir) { built, firOn -> built && firOn }
+            projectOutputs.set(on.flatMap { if (it) outputs else project.provider { emptyMap() } })
+            dependencyClasses.from(project.files(java.util.concurrent.Callable {
+                if (on.getOrElse(false)) upstream else emptyList()
+            }))
         }
     }
 

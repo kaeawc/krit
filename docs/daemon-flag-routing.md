@@ -314,6 +314,11 @@ scan stays in-process.
 The daemon renders one report per request, so a scan writing several report
 files (#1578) stays in-process and renders all of them from one result set.
 
+### `--gradle-project-outputs FILE`
+
+The analyze-project wire does not carry the built outputs of project
+dependencies (#1581), so a scan that reads them stays in-process.
+
 ## Cache clears
 
 ### `--clear-cache` (now routed via daemon)

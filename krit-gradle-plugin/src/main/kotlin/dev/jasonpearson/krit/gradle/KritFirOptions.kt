@@ -26,6 +26,15 @@ interface KritFirOptions {
      * so a Gradle on JDK 17 gets a JDK 21 toolchain rather than failing.
      */
     val javaLauncher: Property<JavaLauncher>
+
+    /**
+     * Resolve project dependencies from their compiled classes (built through Gradle,
+     * so from the build cache when available) instead of letting krit compile their
+     * sources with every dependent project's check. Their classes are an ABI-normalized
+     * input: an upstream change that keeps the ABI does not rerun the check. Needs a
+     * krit that supports `--gradle-project-outputs` (after 0.5.0). Default: false.
+     */
+    val useBuiltDependencies: Property<Boolean>
 }
 
 abstract class DefaultKritFirOptions : KritFirOptions

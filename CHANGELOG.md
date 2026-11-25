@@ -395,6 +395,12 @@ All notable changes to Krit will be documented in this file.
   defaults to `dev.jasonpearson.krit:krit-fir:<krit version>` from the project's repositories when one has it
   (otherwise krit downloads the jar itself, as before). Both are task inputs; `KRIT_FIR_JAR` still overrides the jar
   (#1585).
+  defaults to `dev.jasonpearson.krit:krit-fir:<krit version>` from the project's repositories. Both are task
+  inputs; `KRIT_FIR_JAR` still overrides the jar (#1585).
+- Gradle: `krit { fir { useBuiltDependencies = true } }` makes a per-project `kritCheck` resolve project dependencies
+  from their compiled classes, built through Gradle, instead of krit compiling their sources with every dependent
+  project. The classes are an ABI-normalized input. The new `--gradle-project-outputs FILE` scan flag carries them:
+  a project listed there goes on the classpath and is not compiled as source context (#1581).
 - Gradle: `kritBaseline` writes the baseline to the configured file; it passed `--create-baseline --baseline <file>`,
   so krit wrote a file named `--baseline` in the working directory. It now also skips missing default source roots
   (krit rejected them with exit 2), honors `fir = false`, and passes the project directory as `--base-path`, as

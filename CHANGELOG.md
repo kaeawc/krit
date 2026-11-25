@@ -346,6 +346,10 @@ All notable changes to Krit will be documented in this file.
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).
+- With FIR on, `kritCheck` runs the producers of the generated sources FIR compiles, without compiling and without
+  `exportGenerated`. Producers come from AGP's Variant API and from the Kotlin plugin's `kotlin`/`generatedKotlin`
+  source sets, so JVM and Kotlin Multiplatform generators (KSP, SQLDelight, Wire) are covered too. Test source sets'
+  generators no longer run, because they need the compiled production classes (#1586).
 - The Gradle plugin records each Android source set's generated roots from AGP's Variant API (view binding,
   BuildConfig, SQLDelight, Wire, KSP and any other generator registered with the build), and `exportGenerated` runs
   their producer tasks instead of only R and KSP/kapt tasks found by name (#1574).

@@ -300,6 +300,61 @@ class KritExportModelTest {
         val cached = runWithFakeAndroid(root, "kritExportModel", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
         assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
         assertEquals(TaskOutcome.UP_TO_DATE, cached.task(":app:generateDebugFakeSources")?.outcome, cached.output)
+        // #1586: with FIR on (the default), kritCheck runs it even without exportGenerated.
+        build.writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n" +
+            "krit { advanced { binary.set(file(\"../fake-krit\")) } }\n")
+        fakeKrit(root)
+        File(root, "app/build").deleteRecursively()
+        val check = runWithFakeAndroid(root, ":app:kritCheck", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, check.task(":app:generateDebugFakeSources")?.outcome, check.output)
+        assertEquals(null, check.task(":app:compileDebugKotlin"), "generators only, never a compile")
+    }
+
+    private fun fakeKrit(root: File): File = File(root, "fake-krit").apply {
+        writeText("""#!/bin/sh
+            previous=""
+            for arg in "${'$'}@"; do
+              if [ "${'$'}previous" = "-o" ]; then printf '{}\n' > "${'$'}arg"; fi
+              previous="${'$'}arg"
+            done
+        """.trimIndent() + "\n")
+        setExecutable(true)
+    }
+
+    // #1586: kritCheck runs the producers of the generated roots FIR compiles (here a generator
+    // registered with srcDir(taskProvider), as KSP, SQLDelight and Wire do on the JVM), without
+    // exportGenerated and without naming the task; with FIR off it does not.
+    @Test
+    fun `kritCheck runs generated source producers when FIR is on`() {
+        val root = File(directory, "jvm-generated").also { it.mkdirs() }
+        fakeKrit(root)
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"jvm-generated\"\n")
+        val build = File(root, "build.gradle.kts")
+        build.writeText("""
+            plugins { `java-library`; id("dev.jasonpearson.krit") }
+            val generate = tasks.register("generateFakeSources") {
+                val out = layout.buildDirectory.dir("generated/fake/main")
+                outputs.dir(out)
+                doLast { out.get().file("com/example/Gen.java").asFile.apply { parentFile.mkdirs(); writeText("package com.example; class Gen {}") } }
+            }
+            sourceSets.named("main") { java.srcDir(generate) }
+            krit { advanced { binary.set(file("fake-krit")) } }
+        """.trimIndent() + "\n")
+        val generatedRoot = modelPath(File(root, "build/generated/fake/main"))
+
+        val export = run(root, "kritExportModel", "--configuration-cache")
+        assertEquals(null, export.task(":generateFakeSources"), "exportGenerated is off: the export only records the root")
+        val main = sourceSets(File(root, ".krit/gradle-model/_root.json")).single { it["kind"] == "main" }
+        assertEquals(listOf(generatedRoot), main["generatedSourceDirs"], main.toString())
+
+        val check = run(root, "kritCheck", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, check.task(":generateFakeSources")?.outcome, check.output)
+        assertTrue(File(generatedRoot, "com/example/Gen.java").isFile)
+
+        build.appendText("krit { fir = false }\n")
+        File(root, "build").deleteRecursively()
+        val noFir = run(root, "kritCheck", "--configuration-cache")
+        assertEquals(null, noFir.task(":generateFakeSources"), noFir.output)
     }
 
     @Test

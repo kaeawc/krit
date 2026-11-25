@@ -168,3 +168,16 @@ func TestInvalidUseOfOnBackPressedMatchesLintsMethodName(t *testing.T) {
 		t.Fatalf("without androidx.activity: got %q, want none", got)
 	}
 }
+
+// The module build file is found however deep the source file sits in its package (CodeRabbit on #1536: a search
+// bounded at 12 directories missed app/build.gradle for this path).
+func TestInvalidFragmentVersionForActivityResultFindsDeepModuleBuildFile(t *testing.T) {
+	src := "app/src/main/java/com/example/a/b/c/d/e/f/g/A.kt"
+	files := map[string]string{
+		"app/build.gradle": activityBuild(`    api "androidx.fragment:fragment:1.2.5"`),
+		src:                strings.Replace(activityResultSource, "package com.example", "package com.example.a.b.c.d.e.f.g", 1),
+	}
+	if got := activityProjectFindings(t, "InvalidFragmentVersionForActivityResult", src, files, librarymodel.ProjectProfile{}); len(got) != 2 {
+		t.Fatalf("got %q, want 2 findings", got)
+	}
+}

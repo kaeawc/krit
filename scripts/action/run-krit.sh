@@ -15,7 +15,11 @@
 set -uo pipefail
 
 : "${KRIT_SARIF:?KRIT_SARIF is required}"
-args=(--report=sarif -o "$KRIT_SARIF" --base-path "${KRIT_BASE_PATH:-${GITHUB_WORKSPACE:-$PWD}}")
+# --no-daemon: a one-shot CI scan gains nothing from a resident daemon, which
+# would outlive the step. On macOS the daemon's kqueue watcher opens a
+# descriptor per watched file and, on a large checkout, exhausts the process
+# limit; the daemon then reports zero findings instead of failing.
+args=(--no-daemon --report=sarif -o "$KRIT_SARIF" --base-path "${KRIT_BASE_PATH:-${GITHUB_WORKSPACE:-$PWD}}")
 if [ -n "${KRIT_CONFIG:-}" ]; then
   args+=(--config "$KRIT_CONFIG")
 fi

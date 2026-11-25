@@ -562,8 +562,10 @@ jobs:
           }
           jar="$(glob)"
           if [ -z "$jar" ]; then
-            echo "kotlin-stdlib not in Gradle cache; resolving krit-fir dependencies"
-            (cd tools/krit-fir && ./gradlew --no-daemon --quiet :dependencies --configuration runtimeClasspath >/dev/null 2>&1 || true)
+            echo "kotlin-stdlib not in Gradle cache; downloading it through krit-fir's copyKotlinStdlib"
+            # The `dependencies` report resolves metadata only and never
+            # downloads jars; copyKotlinStdlib resolves the jar itself.
+            (cd tools/krit-fir && ./gradlew --no-daemon --quiet copyKotlinStdlib)
             jar="$(glob)"
           fi
           if [ -z "$jar" ]; then
@@ -679,8 +681,10 @@ jobs:
           }
           jar="$(glob)"
           if [ -z "$jar" ]; then
-            echo "kotlin-stdlib not in Gradle cache; resolving krit-fir dependencies"
-            (cd tools/krit-fir && ./gradlew --no-daemon --quiet :dependencies --configuration runtimeClasspath >/dev/null 2>&1 || true)
+            echo "kotlin-stdlib not in Gradle cache; downloading it through krit-fir's copyKotlinStdlib"
+            # The `dependencies` report resolves metadata only and never
+            # downloads jars; copyKotlinStdlib resolves the jar itself.
+            (cd tools/krit-fir && ./gradlew --no-daemon --quiet copyKotlinStdlib)
             jar="$(glob)"
           fi
           if [ -z "$jar" ]; then

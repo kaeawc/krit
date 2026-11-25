@@ -104,6 +104,13 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
+  1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
+  `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)
+  or declaration. The second reports an unqualified call that initializes a local or is returned (`return`, an
+  expression body, or a lambda's last expression) outside `pointerInput`, `PointerInputEventHandler`, `coroutineScope`
+  or a lambda declared `suspend PointerInputScope.() -> ...`; as in Lint, a qualified `scope.awaitPointerEventScope`
+  is never reported (#1497, #1498).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

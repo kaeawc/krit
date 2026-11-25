@@ -212,6 +212,8 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"FragmentBackPressedCallback":             {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
 		"FragmentAddMenuProvider":                 {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/androidx_fragment_lifecycle_test.go"}},
 		"AssertionSideEffect":                     {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_assert_test.go"}},
+		"NotificationTrampoline":                  {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_notification_test.go"}},
+		"LaunchActivityFromNotification":          {Status: api.LanguageSupportSupported, Fixtures: []string{"internal/rules/android_lint_performance_notification_test.go"}},
 	},
 }
 

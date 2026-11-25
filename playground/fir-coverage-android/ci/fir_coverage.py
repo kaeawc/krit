@@ -92,6 +92,12 @@ def report(thresholds_path, paths):
 
     failures = []
     ratchets = []
+    # A threshold without a result means a run did not happen; fail rather
+    # than pass vacuously.
+    for name in sorted(set(thresholds) - {r["name"] for r in results}):
+        failures.append(f"{name}: no result")
+    for name in sorted(set(required_checks) - {c["name"] for c in checks}):
+        failures.append(f"{name}: no result")
     lines = [
         "| path | FIR runs | authoritative | gated (compile) | gated (generated) | excluded | coverage | threshold |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",

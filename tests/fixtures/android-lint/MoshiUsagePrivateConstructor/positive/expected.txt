@@ -1,0 +1,2 @@
+src/main/java/com/example/Ctor.kt:6:24: MoshiUsagePrivateConstructor: Constructors in Moshi classes cannot be private.
+src/main/java/com/example/Ctor.kt:9:26: MoshiUsagePrivateConstructor: Constructors in Moshi classes cannot be private.

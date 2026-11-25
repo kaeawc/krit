@@ -1,0 +1,1 @@
+src/main/java/com/example/Params.kt:11:7: MoshiUsageUseData: Model classes should be immutable data classes.

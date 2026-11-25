@@ -1,0 +1,2 @@
+src/main/java/com/example/Props.kt:7:3: MoshiUsagePrivateConstructorProperty: Constructor parameter properties in Moshi classes cannot be private.
+src/main/java/com/example/Props.kt:8:3: MoshiUsagePrivateConstructorProperty: Constructor parameter properties in Moshi classes cannot be private.

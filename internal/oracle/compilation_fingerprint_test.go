@@ -75,3 +75,22 @@ func TestCompilationSources_IncludesWhatCollectKtFilesPrunes(t *testing.T) {
 		t.Fatalf("CompilationSources = %v, want every .kt krit-fir compiles %v", got, want)
 	}
 }
+
+// Kotlin resolves against the Java sources under sourceDirs (#1626): editing
+// one can change a Kotlin verdict, so it must change the fingerprint.
+func TestCompilationSources_IncludesJavaSources(t *testing.T) {
+	dir := t.TempDir()
+	kt := writeTempFile(t, dir, "Use.kt", "package demo\nfun use() = Lookup.find(\"k\")\n")
+	java := writeTempFile(t, dir, "Lookup.java", "package demo;\npublic final class Lookup { public static String find(String k) { return k; } }\n")
+	writeTempFile(t, dir, "Notes.txt", "not a source\n")
+
+	sources := CompilationSources([]string{dir})
+	if want := []string{java, kt}; !reflect.DeepEqual(sources, want) {
+		t.Fatalf("CompilationSources = %v, want the .kt and .java files %v", sources, want)
+	}
+	before := CompilationFingerprint(sources, nil, "")
+	writeTempFile(t, dir, "Lookup.java", "package demo;\npublic final class Lookup { public static int find(String k) { return 1; } }\n")
+	if after := CompilationFingerprint(CompilationSources([]string{dir}), nil, ""); after == before {
+		t.Fatal("editing a Java source left the compilation fingerprint unchanged")
+	}
+}

@@ -418,11 +418,13 @@ Wire/protobuf, SQLDelight and view-binding outputs) pass them with
 set in the model as `generatedSourceJars`. Each srcjar is treated like a
 `generatedSourceDirs` entry: its Kotlin files are compiled as FIR checker and
 type-oracle context, so code that uses a generated Kotlin type is not gated,
-and nothing in it is reported. Its `.java` files are unpacked too, but FIR
-sessions do not resolve Java sources yet, so code using a generated Java
-type (view binding, Wire-Java) stays gated
-([#1630](https://github.com/kaeawc/krit/issues/1630)). Other entries are
-ignored.
+and nothing in it is reported. Its `.java` files are unpacked too and, like
+every `.java` file under a source or generated directory, given to the FIR
+compilation as Java sources: Kotlin that uses a generated Java type (view
+binding, BuildConfig, Wire-Java) resolves, and the Java itself is neither
+compiled nor checked ([#1626](https://github.com/kaeawc/krit/issues/1626)).
+An edit to a Java file invalidates the FIR caches the same way a Kotlin edit
+does. Other entries are ignored.
 
 The Kotlin compiler only reads sources from disk, so krit unpacks each srcjar
 once into `$KRIT_HOME/srcjars/<sha256 of the archive>/` (default

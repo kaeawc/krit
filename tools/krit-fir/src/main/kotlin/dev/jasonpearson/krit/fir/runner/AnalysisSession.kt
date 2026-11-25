@@ -296,12 +296,22 @@ class AnalysisSession(
     // persistent daemon outlives edits: a file added after startup would otherwise stay
     // invisible to resolution, and a deleted one would linger in freeArgs as a
     // missing-source error. The walk is negligible next to the compile itself.
-    internal fun currentSourceFiles(): List<String> =
+    internal fun currentSourceFiles(): List<String> = walkSourceDirs("kt")
+
+    /**
+     * Every `.java` file under [sourceDirs]: same-module Java, generated Java (view binding, BuildConfig, Wire-Java,
+     * kapt/KSP output) and Java in extracted srcjars. Each is handed to K2 as a Java source root of every non-module
+     * compilation, so Kotlin resolves against it without a prior `compileJava`; K2 reads them for resolution only and
+     * never compiles or checks them. Re-walked per compile like [currentSourceFiles].
+     */
+    internal fun currentJavaSourceFiles(): List<String> = walkSourceDirs("java")
+
+    private fun walkSourceDirs(extension: String): List<String> =
         sourceDirs.flatMap { dir ->
             val canonicalRoot = File(dir).canonicalFile.toPath()
             File(dir).walkTopDown()
                 .onEnter { directory -> directory.name !in prunedSourceDirectoryNames }
-                .filter { it.isFile && it.extension == "kt" }
+                .filter { it.isFile && it.extension == extension }
                 .map { file ->
                     val relative = canonicalRoot.relativize(file.canonicalFile.toPath())
                     // A symlinked file can escape the root; its walked name still
@@ -324,7 +334,7 @@ class AnalysisSession(
     /**
      * Runs the enabled FIR rule checkers over [files] in one K2 compilation of
      * the whole module: every `.kt` under [sourceDirs] plus the requested files,
-     * against [classpath] (plus the bundled stdlib), the same compilation
+     * resolving against the `.java` files under [sourceDirs] and [classpath] (plus the bundled stdlib), the same compilation
      * [analyzeFull] runs for oracle facts. [ruleConfigs], [testFiles] (the
      * requested files krit classifies as test files), [scanPaths] (the
      * scan's own spelling of each requested file) and [sdkLevels] (each
@@ -1241,7 +1251,13 @@ class AnalysisSession(
         sources: List<String>, output: File, module: ModuleCompilation? = null,
     ): K2JVMCompilerArguments = K2JVMCompilerArguments().apply {
         freeArgs = sources
-        if (module == null) MultiplatformSources.configure(this, sourceDirs, freeArgs)
+        if (module == null) {
+            MultiplatformSources.configure(this, sourceDirs, freeArgs)
+            // One root per file, not per directory: K2 indexes a single-file root by its package header, so a class
+            // whose directory does not match its package still resolves. A module compilation has its .java files
+            // among its sources already (ModuleRunner).
+            currentJavaSourceFiles().takeIf { it.isNotEmpty() }?.let { javaSourceRoots = it.toTypedArray() }
+        }
         classpath = effectiveClasspath(this@AnalysisSession.classpath).joinToString(File.pathSeparator)
         jvmTarget = compilationJvmTarget
         // Session-level settings describe the whole-repo compilation. A module
@@ -1261,8 +1277,8 @@ class AnalysisSession(
     }
 
     /**
-     * Key of the compiler facts (lookups, surfaces): the compiler and plugin builds, this session's sources,
-     * classpath (with file identity), JVM target, Kotlin settings and the project's compiler plugins (each jar's file
+     * Key of the compiler facts (lookups, surfaces): the compiler and plugin builds, this session's sources (and the
+     * content of the Java files under them), classpath (with file identity), JVM target, Kotlin settings and the project's compiler plugins (each jar's file
      * identity and every option). A different key resets [incrementalState] and files a persisted bundle elsewhere.
      */
     private fun compileKey(): String {
@@ -1271,6 +1287,9 @@ class AnalysisSession(
             .add("sourceDirs", sourceDirs.map { canonicalOrSelf(File(it)) })
             .add("jvmTarget", compilationJvmTarget)
             .add("kotlinSettings", kotlinSettings.identity)
+            // The Java sources are resolution inputs of every compile, not files the state tracks: an edit to one,
+            // or one added or removed, has to give a new key. By content, as the .kt files are hashed.
+            .add("javaSources", contentHashesOf(currentJavaSourceFiles()))
         selfJar?.let { builder.addFileIdentity("plugin", it) }
         effectivePlugins.addTo(builder)
         for (entry in effectiveClasspath(classpath)) builder.addFileIdentity("classpath", entry)

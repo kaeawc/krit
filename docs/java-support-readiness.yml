@@ -586,6 +586,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/android_lint_register_receiver_test.go
+  UseRequireInsteadOfGet:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_fragment_misc_test.go
   UseSupportActionBar:
     status: supported
     fixtures:

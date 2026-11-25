@@ -949,6 +949,39 @@
             }
           }
         },
+        "AssertionSideEffect": {
+          "description": "Assertions with Side Effects [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AssertionSideEffect (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BackButtonResource": {
           "description": "Explicit back button in layout [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -2674,6 +2707,39 @@
               "description": "Enable ExactAlarm (default: true).",
               "type": "boolean",
               "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ExpensiveAssertion": {
+          "description": "Expensive Assertions [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExpensiveAssertion (default: false).",
+              "type": "boolean",
+              "default": false
             },
             "excludes": {
               "description": "Glob patterns for paths to exclude from this rule.",
@@ -11409,6 +11475,39 @@
             }
           }
         },
+        "UnnecessaryArrayInit": {
+          "description": "Unnecessary array initialization [fixable: idiomatic] [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnnecessaryArrayInit (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "UnnecessaryRequiredFeature": {
           "description": "Unnecessary required feature [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
           "type": "object",
@@ -13945,18 +14044,6 @@
       "properties": {
         "enabled": {
           "description": "Set false to stop krit reading lint.xml and Gradle lint { disable } blocks. When enabled, krit's ports of Android Lint issues the project ignores stay off unless a rule's active is set here.",
-          "type": "boolean",
-          "default": true
-        }
-      }
-    },
-    "ktlintEditorConfig": {
-      "description": "Import of the project's ktlint and line-length .editorconfig settings.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "description": "Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_<rule> = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.",
           "type": "boolean",
           "default": true
         }
@@ -21379,6 +21466,18 @@
         }
       }
     },
+    "ktlintEditorConfig": {
+      "description": "Import of the project's ktlint and line-length .editorconfig settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set false to ignore ktlint settings in .editorconfig. When enabled, `ktlint_standard_\u003crule\u003e = disabled` turns off krit's equivalent rule, ij_kotlin_packages_to_use_import_on_demand packages are exempt from WildcardImport, and max_line_length sets MaxLineLength's limit. The detekt config and krit.yml still win.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
     "libraries": {
       "description": "Configuration for the libraries ruleset.",
       "type": "object",
@@ -24375,7 +24474,7 @@
           }
         },
         "DoubleMutabilityForCollection": {
-          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "description": "Detects var declarations with mutable collection types, creating double mutability. [fixable: semantic] [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -25603,7 +25702,7 @@
           }
         },
         "UnsafeCallOnNullableType": {
-          "description": "Detects usage of the !! not-null assertion operator which may throw NullPointerException. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: oracle:expr-type, resolver]",
+          "description": "Detects usage of the !! not-null assertion operator which may throw NullPointerException. [precision: heuristic/text-backed] [noisiness: noisy] [capabilities: oracle:expr-type, oracle:members, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -28363,7 +28462,7 @@
           }
         },
         "HardcodedSecretKey": {
-          "description": "SecretKeySpec uses literal key bytes [precision: ast-backed] [noisiness: normal]",
+          "description": "SecretKeySpec uses literal key bytes in production source [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -28897,7 +28996,7 @@
           }
         },
         "StaticIv": {
-          "description": "Static IV literal [precision: ast-backed] [noisiness: normal]",
+          "description": "Static IV literal in production source [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -33121,7 +33220,7 @@
           }
         },
         "UselessCallOnNotNull": {
-          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, resolver]",
+          "description": "Detects calls like .orEmpty() or .isNullOrEmpty() on receivers that are already non-null. [fixable: idiomatic] [precision: type-aware] [noisiness: normal] [capabilities: oracle:expr-type, oracle:members, oracle:supertypes, resolver]",
           "type": "object",
           "additionalProperties": false,
           "properties": {

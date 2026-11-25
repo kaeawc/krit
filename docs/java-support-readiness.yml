@@ -618,6 +618,10 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_fragment_lifecycle_test.go
+  AssertionSideEffect:
+    status: supported
+    fixtures:
+      - internal/rules/android_lint_performance_assert_test.go
   UsableSpace:
     status: supported
     fixtures:

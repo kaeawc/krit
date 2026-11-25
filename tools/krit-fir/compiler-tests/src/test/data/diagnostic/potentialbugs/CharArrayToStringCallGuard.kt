@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 10, 15, 32, 42
+// go-lines: 10, 15, 42
 // Early-exit guards: `if (<x is not a CharArray>) <exit>` leaves x a CharArray
 // in the statements after it.
 package test
@@ -24,16 +24,16 @@ fun continueGuard(items: List<Any>) {
     }
 }
 
-// Go reports these; the guard does not always exit when the value is not a
-// CharArray, so the value is not proven to be one and FIR drops them.
-// Under `&&`, a false flag skips the exit.
+// The guard does not always exit when the value is not a CharArray, so the
+// value is not proven to be one and FIR drops these.
+// Under `&&`, a false flag skips the exit; Go agrees.
 fun andGuard(value: Any, flag: Boolean): String {
     if (value !is CharArray && flag) return ""
     return value.toString()
 }
 
-// Go finds the nested return anywhere in the guard's body, but with a false
-// flag the body falls through.
+// Go reports this: it finds the nested return anywhere in the guard's body,
+// but with a false flag the body falls through.
 fun nestedExit(value: Any, flag: Boolean): String {
     if (value !is CharArray) {
         if (flag) return ""

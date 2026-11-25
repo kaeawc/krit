@@ -60,10 +60,20 @@ All notable changes to Krit will be documented in this file.
   reports to it (#1472, #1476, #1478).
 
 ### Fixed
+- `UnsafeCast` no longer reports "Cast can never succeed" for casts that do
+  succeed: an explicitly imported type is no longer checked against an
+  unrelated project class with the same simple name, and an `is` check in an
+  `if` condition no longer narrows the variable in the `else` branch.
+  Source-level smart casts are tighter in general: `is`, `!= null` and `&&`
+  checks narrow only the then-branch, `!is` and `!(x is T)` narrow the
+  else-branch and the code after an early exit, and `||` conditions and
+  multi-condition `when` entries no longer narrow (#1115).
 - `--fir` no longer gates files in variant directories the Gradle model did not export (`src/release` next to an
   exported debug variant, other flavors' directories) on a class each variant declares on its own. The source-set
   recheck now compiles each such set with its variant's base and combined sets, never with the exported variant's
   directories, up to 16 sets per scan (#1023).
+- Source-level smart casts from an early-exit guard (`if (x !is String) return`) apply only after the guard:
+  a use of `x` earlier in the same scope keeps its declared type (#1520).
 - `UselessElvisOnNonNull` and `UnnecessarySafeCall` (Go path) no longer report operands that can be null. Source
   type inference narrows on `x != null` only when it is the whole `if` condition, not an operand of `||`, `!` or a
   call argument. Inside an extension function or property accessor, `this` is the receiver type rather than the

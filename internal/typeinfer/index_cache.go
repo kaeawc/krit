@@ -31,7 +31,8 @@ const (
 	// narrowing on `x != null`.
 	// Bumped to 17 when scope-function lambdas gained `this`, destructured lambda parameters were declared,
 	// and lambdas under returns, call chains and arguments gained scopes.
-	typeIndexCacheVersion = 17
+	// Bumped to 18 when scopes gained start offsets for post-guard type facts.
+	typeIndexCacheVersion = 18
 )
 
 var (
@@ -103,9 +104,11 @@ type packedScope struct {
 	SmartCasts      map[string]bool
 	SmartCastStarts map[string]uint32
 	SmartCastTypes  map[string]*ResolvedType
-	StartByte       uint32
-	EndByte         uint32
-	Children        []packedScope
+	// SmartCastTypeStarts is ScopeTable.SmartCastTypeStarts.
+	SmartCastTypeStarts map[string]uint32
+	StartByte           uint32
+	EndByte             uint32
+	Children            []packedScope
 }
 
 func packFileTypeInfo(info *FileTypeInfo) packedFileTypeInfo {
@@ -136,14 +139,15 @@ func packScope(scope *ScopeTable) packedScope {
 		return packedScope{}
 	}
 	out := packedScope{
-		Entries:         scope.Entries,
-		EntryStarts:     scope.EntryStarts,
-		SmartCasts:      scope.SmartCasts,
-		SmartCastStarts: scope.SmartCastStarts,
-		SmartCastTypes:  scope.SmartCastTypes,
-		StartByte:       scope.StartByte,
-		EndByte:         scope.EndByte,
-		Children:        make([]packedScope, 0, len(scope.Children)),
+		Entries:             scope.Entries,
+		EntryStarts:         scope.EntryStarts,
+		SmartCasts:          scope.SmartCasts,
+		SmartCastStarts:     scope.SmartCastStarts,
+		SmartCastTypes:      scope.SmartCastTypes,
+		SmartCastTypeStarts: scope.SmartCastTypeStarts,
+		StartByte:           scope.StartByte,
+		EndByte:             scope.EndByte,
+		Children:            make([]packedScope, 0, len(scope.Children)),
 	}
 	for _, child := range scope.Children {
 		out.Children = append(out.Children, packScope(child))
@@ -175,15 +179,16 @@ func unpackFileTypeInfo(p packedFileTypeInfo) (*FileTypeInfo, bool) {
 
 func unpackScope(p packedScope, parent *ScopeTable) *ScopeTable {
 	scope := &ScopeTable{
-		Parent:          parent,
-		Entries:         p.Entries,
-		EntryStarts:     p.EntryStarts,
-		SmartCasts:      p.SmartCasts,
-		SmartCastStarts: p.SmartCastStarts,
-		SmartCastTypes:  p.SmartCastTypes,
-		StartByte:       p.StartByte,
-		EndByte:         p.EndByte,
-		Children:        make([]*ScopeTable, 0, len(p.Children)),
+		Parent:              parent,
+		Entries:             p.Entries,
+		EntryStarts:         p.EntryStarts,
+		SmartCasts:          p.SmartCasts,
+		SmartCastStarts:     p.SmartCastStarts,
+		SmartCastTypes:      p.SmartCastTypes,
+		SmartCastTypeStarts: p.SmartCastTypeStarts,
+		StartByte:           p.StartByte,
+		EndByte:             p.EndByte,
+		Children:            make([]*ScopeTable, 0, len(p.Children)),
 	}
 	if scope.Entries == nil {
 		scope.Entries = make(map[string]*ResolvedType)

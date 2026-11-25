@@ -1,10 +1,15 @@
 package rules_test
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // The expected findings below are what the Android Lint 32.4.1 CLI reports for the same sources (a project with
@@ -268,6 +273,118 @@ class E {
 	for _, rule := range []string{"AssertionSideEffect", "ExpensiveAssertion"} {
 		if got := appCompatSourceFindings(t, rule, "src/main/java/p/E.kt", src, librarymodel.ProjectProfile{}); len(got) != 0 {
 			t.Errorf("%s: assert { ... } is not kotlin.assert, got %q", rule, got)
+		}
+	}
+}
+
+// Regressions from review: each case was checked with the Lint 32.4.1 CLI, which reports exactly the findings below
+// (and nothing for the overflow, Float rounding, commented sign, same-file IntArray function and other-class
+// constant cases). The autofix is withheld where removing the lambda would change the array: a -0.0 element and a
+// named `init =` argument, whose label would be left behind.
+func TestUnnecessaryArrayInit_ReviewRegressions(t *testing.T) {
+	src := `package p
+
+class Arrays {
+    val negZero = DoubleArray(1) { -0.0 }
+    val named = IntArray(size = 3, init = { 0 })
+    val overflow = IntArray(1) { (2147483647 + 1) / 2 - 1073741824 }
+    val rounding = FloatArray(1) { ((16777216f + 1f) - 16777216f) - 1f }
+    val comment = IntArray(1) { - /* sign */ 1 - 1 }
+    val fine = IntArray(3) { 1 - 1 }
+    val longFine = LongArray(3) { 4000000000L - 4000000000L }
+}
+
+class A {
+    val fill = 7
+    fun a() = IntArray(1) { fill }
+}
+
+class B {
+    val fill = 0
+}
+`
+	path := filepath.Join(t.TempDir(), "Fix.kt")
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := scanner.ParseFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range runRuleByNameOnFile(t, "UnnecessaryArrayInit", file) {
+		got[fmt.Sprintf("%d:%d", f.Line, f.Col)] = f.Fix != nil
+	}
+	want := map[string]bool{"4:34": false, "5:43": false, "9:28": true, "10:33": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("findings (position -> has fix) = %v, want %v", got, want)
+	}
+
+	shadow := `package q
+
+fun IntArray(size: Int, init: (Int) -> Int): String = "custom"
+
+val x: String = IntArray(1) { 0 }
+`
+	if got := appCompatSourceFindings(t, "UnnecessaryArrayInit", "src/main/java/q/Shadow.kt", shadow, librarymodel.ProjectProfile{}); len(got) != 0 {
+		t.Fatalf("a same-file IntArray function is the call target, got %q", got)
+	}
+}
+
+// Regressions from review, checked with the Lint 32.4.1 CLI: an inapplicable `assert(String)` member does not hide
+// kotlin.assert; the condition is the argument named `value`; an overload set that arity alone cannot resolve is
+// not followed; a local of an earlier, closed block does not make a property increment local.
+func TestAssertionRules_ReviewRegressions(t *testing.T) {
+	src := `package p
+
+class Asserts {
+    var c = 0
+    var count = 0
+    var flag = true
+    fun assert(message: String) = Unit
+    fun t1() { assert(c++ > 0) }
+    fun t2() { kotlin.assert(lazyMessage = { "m" }, value = c++ > 0) }
+    fun ready(x: Int, y: Int = 0) = x > 0
+    fun ready(x: String): Boolean { c++; return true }
+    fun t3() { kotlin.assert(ready(1)) }
+    fun bump(): Boolean {
+        if (flag) {
+            var count = 0
+        }
+        count++
+        return true
+    }
+    fun t4() { kotlin.assert(bump()) }
+}
+`
+	got := appCompatSourceFindings(t, "AssertionSideEffect", "src/main/java/p/Asserts.kt", src, librarymodel.ProjectProfile{})
+	want := []string{
+		"20:30 Assertion condition has a side effect: count++",
+		"8:23 Assertion condition has a side effect: c++",
+		"9:61 Assertion condition has a side effect: c++",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("AssertionSideEffect:\n got %q\nwant %q", got, want)
+	}
+}
+
+// The Java fixtures match the Lint 32.4.1 CLI: two findings in the positive file, none in the negative one.
+func TestAssertionSideEffect_JavaFixtures(t *testing.T) {
+	root := filepath.Join("..", "..", "tests", "fixtures")
+	for _, c := range []struct {
+		kind string
+		want []string
+	}{
+		{"positive", []string{"7:16 Assertion condition has a side effect: count++", "9:17 Assertion condition has a side effect: seen = values.length"}},
+		{"negative", nil},
+	} {
+		src, err := os.ReadFile(filepath.Join(root, c.kind, "android-lint", "AssertionSideEffect.java"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := appCompatSourceFindings(t, "AssertionSideEffect", "src/main/java/com/example/Counter.java", string(src), librarymodel.ProjectProfile{})
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %q, want %q", c.kind, got, c.want)
 		}
 	}
 }

@@ -332,7 +332,17 @@ func perfKotlinPrefix(file *scanner.File, idx uint32) *perfExpr {
 		return perfNode(file, idx, perfOther)
 	}
 	operandNode := kids[len(kids)-1]
-	opText := strings.TrimSpace(string(file.Content[file.FlatStartByte(idx):file.FlatStartByte(operandNode)]))
+	// The operator is the first token; a comment between it and the operand is not part of it.
+	opText := ""
+	for c := file.FlatFirstChild(idx); c != 0 && c != operandNode; c = file.FlatNextSib(c) {
+		if !file.FlatIsNamed(c) {
+			opText = strings.TrimSpace(file.FlatNodeText(c))
+			break
+		}
+	}
+	if opText == "" {
+		opText = strings.TrimSpace(string(file.Content[file.FlatStartByte(idx):file.FlatStartByte(operandNode)]))
+	}
 	switch opText {
 	case "!", "-", "+", "++", "--":
 	default:
@@ -694,27 +704,36 @@ func perfDirectFunctions(file *scanner.File, container uint32, name string) []ui
 	return out
 }
 
-// perfResolveFunction picks the one candidate that a call with argCount arguments targets, or 0 when none or several
-// candidates match.
+// perfResolveFunction picks the one candidate that a call with argCount arguments can target, counting parameters
+// with default values as optional, or 0 when none or several are applicable (the argument types would decide).
 func perfResolveFunction(file *scanner.File, candidates []uint32, argCount int) uint32 {
-	if len(candidates) == 1 {
-		return candidates[0]
-	}
 	var match uint32
 	for _, c := range candidates {
 		params, _ := file.FlatFindChild(c, "function_value_parameters")
-		n := 0
+		total, required, vararg := 0, 0, false
+		pendingDefault := false
 		for p := file.FlatFirstChild(params); params != 0 && p != 0; p = file.FlatNextSib(p) {
-			if file.FlatType(p) == "parameter" {
-				n++
+			switch {
+			case file.FlatType(p) == "parameter":
+				total++
+				required++
+				pendingDefault = true
+			case file.FlatType(p) == "parameter_modifiers" || strings.Contains(file.FlatNodeText(p), "vararg"):
+				vararg = vararg || strings.Contains(file.FlatNodeText(p), "vararg")
+			case !file.FlatIsNamed(p) && strings.TrimSpace(file.FlatNodeText(p)) == "=" && pendingDefault:
+				required--
+				pendingDefault = false
+			case strings.TrimSpace(file.FlatNodeText(p)) == ",":
+				pendingDefault = false
 			}
 		}
-		if n == argCount {
-			if match != 0 {
-				return 0
-			}
-			match = c
+		if argCount < required || argCount > total && !vararg {
+			continue
 		}
+		if match != 0 {
+			return 0
+		}
+		match = c
 	}
 	return match
 }
@@ -758,7 +777,12 @@ func perfIsLocalName(file *scanner.File, e *perfExpr) bool {
 		if file.FlatStartByte(decl) >= file.FlatStartByte(e.node) {
 			return
 		}
-		if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok && lintDeclaredName(file, vd) == e.name {
+		vd, ok := file.FlatFindChild(decl, "variable_declaration")
+		if !ok || lintDeclaredName(file, vd) != e.name {
+			return
+		}
+		// The declaration's block must enclose the use; a local of an earlier, closed block is out of scope.
+		if block, ok := file.FlatParent(decl); ok && lintNodeContains(file, block, e.node) {
 			local = true
 		}
 	})

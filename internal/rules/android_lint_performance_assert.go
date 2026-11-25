@@ -107,12 +107,18 @@ func (r *UnnecessaryArrayInitRule) check(ctx *api.Context) {
 		value = value.kids[0]
 	}
 	n, ok := perfEvalNumber(file, value, 0)
-	if !ok || n.float() != 0 {
+	if !ok || !n.isZero() {
 		return
 	}
 	text := file.FlatNodeText(lambda)
 	start, end := int(file.FlatStartByte(lambda)), int(file.FlatEndByte(lambda))
 	f := perfFindingAt(file, start, end, "This initialization lambda (`"+text+"`) is unnecessary and is less efficient")
+	// An array starts at +0.0, so a -0.0 initializer is reported (as Lint does) but not removed; nor is the value of
+	// a named `init = { ... }` argument, whose label would be left behind.
+	if n.negativeZero() || perfLambdaIsLabeledArgument(file, lambda) {
+		ctx.Emit(f)
+		return
+	}
 	// Lint's fix deletes the lambda and the whitespace before it.
 	fixStart := start
 	for fixStart > 0 && (file.Content[fixStart-1] == ' ' || file.Content[fixStart-1] == '\t') {
@@ -128,16 +134,21 @@ func (r *UnnecessaryArrayInitRule) check(ctx *api.Context) {
 
 // perfFindingAt builds a finding of the file spanning the byte range [start,end).
 func perfFindingAt(file *scanner.File, start, end int, msg string) scanner.Finding {
-	line, col := 1, 1
-	for i := 0; i < start && i < len(file.Content); i++ {
-		if file.Content[i] == '\n' {
-			line++
-			col = 1
-		} else {
-			col++
-		}
+	row := file.RowForByte(start)
+	col := start + 1
+	if offsets := file.LineOffsets(); row < len(offsets) {
+		col = start - offsets[row] + 1
 	}
-	return scanner.Finding{File: file.Path, Line: line, Col: col, StartByte: start, EndByte: end, Message: msg}
+	return scanner.Finding{File: file.Path, Line: row + 1, Col: col, StartByte: start, EndByte: end, Message: msg}
+}
+
+// perfLambdaIsLabeledArgument reports whether a lambda is the value of a named argument (`init = { 0 }`).
+func perfLambdaIsLabeledArgument(file *scanner.File, lambda uint32) bool {
+	arg, ok := file.FlatParent(lambda)
+	if ok && file.FlatType(arg) == "annotated_lambda" {
+		arg, ok = file.FlatParent(arg)
+	}
+	return ok && file.FlatType(arg) == "value_argument" && flatValueArgumentLabel(file, arg) != ""
 }
 
 // perfKotlinNameIsBuiltin reports whether a simple type name refers to the kotlin.* class of that name: no class or
@@ -146,29 +157,55 @@ func perfKotlinNameIsBuiltin(file *scanner.File, name string) bool {
 	if lintSameFileClass(file, name) != 0 || lintSameFileTypeAlias(file, name) != "" {
 		return false
 	}
+	// A function of the file with the class's name (`fun IntArray(size: Int, init: ...)`) can be the call target.
+	shadowed := false
+	file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+		if id, ok := file.FlatFindChild(fn, "simple_identifier"); ok && file.FlatNodeText(id) == name {
+			shadowed = true
+		}
+	})
+	if shadowed {
+		return false
+	}
 	if imported, ok := lintImportsOf(file).bySimple[name]; ok && imported != "kotlin."+name {
 		return false
 	}
 	return true
 }
 
-// perfNumber is a folded numeric constant.
+// perfNumKind is the Kotlin type of a folded numeric constant.
+type perfNumKind int
+
+const (
+	perfInt perfNumKind = iota
+	perfLong
+	perfFloat
+	perfDouble
+)
+
+// perfNumber is a folded numeric constant: i for Int and Long, f for Float (held at float32 precision) and Double.
 type perfNumber struct {
-	isFloat bool
-	i       int64
-	f       float64
+	kind perfNumKind
+	i    int64
+	f    float64
 }
 
 func (n perfNumber) float() float64 {
-	if n.isFloat {
+	if n.kind >= perfFloat {
 		return n.f
 	}
 	return float64(n.i)
 }
 
+func (n perfNumber) isZero() bool { return n.float() == 0 }
+
+// negativeZero reports a floating-point -0.0, which an array's default 0.0 does not reproduce.
+func (n perfNumber) negativeZero() bool { return n.kind >= perfFloat && n.f == 0 && math.Signbit(n.f) }
+
 // perfEvalNumber folds a numeric constant expression the way Lint's evaluate() does for initializer lambdas:
-// number literals, unary and binary arithmetic, parentheses, and constants declared in the file. Booleans, chars and
-// unsigned literals are not numbers.
+// number literals, unary and binary arithmetic, parentheses, and constants of the file whose binding is certain.
+// Booleans, chars and unsigned literals are not numbers. Arithmetic follows Kotlin's types: an Int or Long result
+// that would overflow, or a division by zero, is not folded.
 func perfEvalNumber(file *scanner.File, e *perfExpr, depth int) (perfNumber, bool) {
 	if e == nil || depth > 8 {
 		return perfNumber{}, false
@@ -188,8 +225,12 @@ func perfEvalNumber(file *scanner.File, e *perfExpr, depth int) (perfNumber, boo
 		}
 		switch e.op {
 		case "-":
-			v.i, v.f = -v.i, -v.f
-			return v, true
+			if v.kind >= perfFloat {
+				// Kotlin's -0.0 is a negative zero, which 0 - x would not produce.
+				v.f = -v.f
+				return v, true
+			}
+			return perfArith("-", perfNumber{kind: v.kind}, v)
 		case "+":
 			return v, true
 		}
@@ -206,7 +247,7 @@ func perfEvalNumber(file *scanner.File, e *perfExpr, depth int) (perfNumber, boo
 		return perfArith(e.op, a, b)
 	case perfName:
 		init := lintConstantInitializer(file, e.node, e.name)
-		if init == 0 {
+		if init == 0 || !perfNameBindingCertain(file, e.node, init) {
 			return perfNumber{}, false
 		}
 		return perfEvalNumber(file, perfBuild(file, init), depth+1)
@@ -214,52 +255,117 @@ func perfEvalNumber(file *scanner.File, e *perfExpr, depth int) (perfNumber, boo
 	return perfNumber{}, false
 }
 
-func perfArith(op string, a, b perfNumber) (perfNumber, bool) {
-	if a.isFloat || b.isFloat {
-		x, y := a.float(), b.float()
-		switch op {
-		case "+":
-			return perfNumber{isFloat: true, f: x + y}, true
-		case "-":
-			return perfNumber{isFloat: true, f: x - y}, true
-		case "*":
-			return perfNumber{isFloat: true, f: x * y}, true
-		case "/":
-			return perfNumber{isFloat: true, f: x / y}, true
-		case "%":
-			return perfNumber{isFloat: true, f: math.Mod(x, y)}, true
-		}
-		return perfNumber{}, false
+// perfNameBindingCertain reports whether a name used at use is bound to the declaration that init initializes: a
+// local of the same callable, a top-level property, or a member of a class around use. A member of an unrelated
+// class of the file is not certain.
+func perfNameBindingCertain(file *scanner.File, use, init uint32) bool {
+	decl, ok := file.FlatParent(init)
+	for ok && file.FlatType(decl) != "property_declaration" && file.FlatType(decl) != "variable_declarator" {
+		decl, ok = file.FlatParent(decl)
 	}
+	if !ok {
+		return false
+	}
+	owner, ok := file.FlatParent(decl)
+	if !ok {
+		return false
+	}
+	switch file.FlatType(owner) {
+	case "source_file":
+		return true
+	case "statements":
+		// A local: its block must enclose the use.
+		return lintNodeContains(file, owner, use)
+	case "class_body":
+		return lintNodeContains(file, owner, use)
+	}
+	return false
+}
+
+func perfArith(op string, a, b perfNumber) (perfNumber, bool) {
+	switch kind := max(a.kind, b.kind); kind {
+	case perfFloat:
+		r, ok := perfArithFloat(op, float64(float32(a.float())), float64(float32(b.float())))
+		// Float arithmetic rounds each result to float32.
+		return perfNumber{kind: perfFloat, f: float64(float32(r))}, ok
+	case perfDouble:
+		r, ok := perfArithFloat(op, a.float(), b.float())
+		return perfNumber{kind: perfDouble, f: r}, ok
+	default:
+		r, ok := perfArithInt(op, a.i, b.i)
+		if !ok || kind == perfInt && (r < math.MinInt32 || r > math.MaxInt32) {
+			return perfNumber{}, false
+		}
+		return perfNumber{kind: kind, i: r}, true
+	}
+}
+
+func perfArithFloat(op string, x, y float64) (float64, bool) {
 	switch op {
 	case "+":
-		return perfNumber{i: a.i + b.i}, true
+		return x + y, true
 	case "-":
-		return perfNumber{i: a.i - b.i}, true
+		return x - y, true
 	case "*":
-		return perfNumber{i: a.i * b.i}, true
+		return x * y, true
 	case "/":
-		if b.i != 0 {
-			return perfNumber{i: a.i / b.i}, true
-		}
+		return x / y, true
 	case "%":
-		if b.i != 0 {
-			return perfNumber{i: a.i % b.i}, true
-		}
+		return math.Mod(x, y), true
 	}
-	return perfNumber{}, false
+	return 0, false
+}
+
+// perfArithInt is Long arithmetic that reports overflow and division by zero instead of wrapping.
+func perfArithInt(op string, x, y int64) (int64, bool) {
+	switch op {
+	case "+":
+		r := x + y
+		return r, y == 0 || (r > x) == (y > 0)
+	case "-":
+		r := x - y
+		return r, y == 0 || (r < x) == (y > 0)
+	case "*":
+		r := x * y
+		return r, x == 0 || r/x == y && (x != -1 || y != math.MinInt64)
+	case "/":
+		if y == 0 || x == math.MinInt64 && y == -1 {
+			return 0, false
+		}
+		return x / y, true
+	case "%":
+		if y == 0 {
+			return 0, false
+		}
+		return x % y, true
+	}
+	return 0, false
 }
 
 func perfParseNumberLiteral(kind, text string) (perfNumber, bool) {
 	text = strings.ReplaceAll(text, "_", "")
 	switch kind {
-	case "integer_literal", "long_literal", "hex_literal", "bin_literal":
+	case "integer_literal", "hex_literal", "bin_literal", "long_literal":
+		long := kind == "long_literal" || strings.HasSuffix(text, "L") || strings.HasSuffix(text, "l")
 		v, ok := parseKotlinIntegerLiteral(strings.TrimRight(text, "lL"))
-		return perfNumber{i: v}, ok
+		if !ok {
+			return perfNumber{}, false
+		}
+		if !long && (v < math.MinInt32 || v > math.MaxInt32) {
+			// An integer literal too large for Int is a Long.
+			long = true
+		}
+		if long {
+			return perfNumber{kind: perfLong, i: v}, true
+		}
+		return perfNumber{kind: perfInt, i: v}, true
 	case "real_literal":
-		t := strings.TrimRight(text, "fFdD")
-		v, err := strconv.ParseFloat(t, 64)
-		return perfNumber{isFloat: true, f: v}, err == nil
+		if strings.HasSuffix(text, "f") || strings.HasSuffix(text, "F") {
+			v, err := strconv.ParseFloat(strings.TrimRight(text, "fF"), 32)
+			return perfNumber{kind: perfFloat, f: float64(float32(v))}, err == nil
+		}
+		v, err := strconv.ParseFloat(strings.TrimRight(text, "dD"), 64)
+		return perfNumber{kind: perfDouble, f: v}, err == nil
 	}
 	return perfNumber{}, false
 }
@@ -282,9 +388,13 @@ func perfKotlinAssertCondition(file *scanner.File, idx uint32) (*perfExpr, *perf
 		return nil, nil
 	}
 	if call.recv == nil {
-		// A function of the file visible from the call, or an import of another `assert`, hides kotlin.assert.
-		if len(perfEnclosingFunctions(file, idx, "assert", false)) > 0 {
-			return nil, nil
+		// A function of the file visible from the call that could take a Boolean, or an import of another
+		// `assert`, hides kotlin.assert. An overload that cannot (`assert(message: String)`) is not applicable, and
+		// Kotlin falls back to kotlin.assert.
+		for _, fn := range perfEnclosingFunctions(file, idx, "assert", false) {
+			if perfFirstParamAcceptsBoolean(file, fn) {
+				return nil, nil
+			}
 		}
 		if imported, ok := lintImportsOf(file).bySimple["assert"]; ok && imported != "kotlin.assert" {
 			return nil, nil
@@ -297,6 +407,14 @@ func perfKotlinAssertCondition(file *scanner.File, idx uint32) (*perfExpr, *perf
 	} else if parent, ok := file.FlatParent(args[0]); !ok || file.FlatType(parent) != "value_argument" {
 		return nil, nil
 	}
+	// Kotlin binds the condition to the parameter named `value`; a call may name it out of order.
+	_, args := perfKotlinCallParts(file, idx)
+	for i, arg := range args {
+		if parent, ok := file.FlatParent(arg); ok && file.FlatType(parent) == "value_argument" &&
+			flatValueArgumentLabel(file, parent) == "value" && i < len(call.kids) {
+			return call, call.kids[i]
+		}
+	}
 	cond := call.kids[0]
 	for cond != nil && cond.kind == perfParen {
 		cond = cond.kids[0]
@@ -307,6 +425,38 @@ func perfKotlinAssertCondition(file *scanner.File, idx uint32) (*perfExpr, *perf
 		cond = call.kids[0]
 	}
 	return call, cond
+}
+
+// perfFirstParamAcceptsBoolean reports whether a function's first parameter could take a Boolean argument: a
+// Boolean, Any or type-parameter type, or a parameter whose type is not written.
+func perfFirstParamAcceptsBoolean(file *scanner.File, fn uint32) bool {
+	params, ok := file.FlatFindChild(fn, "function_value_parameters")
+	if !ok {
+		return true
+	}
+	param, ok := file.FlatFindChild(params, "parameter")
+	if !ok {
+		return false
+	}
+	typ := ""
+	for c := file.FlatFirstChild(param); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "user_type", "nullable_type", "function_type", "parenthesized_type":
+			typ = strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(c)), "?")
+		}
+	}
+	switch typ {
+	case "", "Boolean", "kotlin.Boolean", "Any", "kotlin.Any":
+		return true
+	}
+	if tps, ok := file.FlatFindChild(fn, "type_parameters"); ok {
+		found := false
+		file.FlatWalkNodes(tps, "type_identifier", func(id uint32) {
+			found = found || file.FlatNodeText(id) == typ
+		})
+		return found
+	}
+	return false
 }
 
 // ExpensiveAssertionRule mirrors Lint's ExpensiveAssertion: a Kotlin `assert` whose condition does real work, which

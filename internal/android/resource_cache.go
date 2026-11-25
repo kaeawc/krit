@@ -33,8 +33,8 @@ import (
 // Bump the version whenever a cached type (View, Layout, ...) gains a field, or a
 // cache written by an older build is reused without it.
 const (
-	resourceCacheVersion    uint32 = 20
-	resourceCacheVersionStr        = "20"
+	resourceCacheVersion    uint32 = 21
+	resourceCacheVersionStr        = "21"
 
 	resourceCacheDirName = "resource-cache"
 	resourceCacheEntries = "entries"

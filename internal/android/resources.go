@@ -191,6 +191,12 @@ type StringDefinition struct {
 	Formatted string
 	// DefaultFolder is true for the unqualified res/values folder.
 	DefaultFolder bool
+	// Translatable is the value of the translatable attribute, or "" when absent.
+	Translatable string
+	// HasElements is true when the element has child elements (markup or xliff:g).
+	HasElements bool
+	// ElementLine and ElementCol are the 1-based position of the element's `<`, where Lint reports an element.
+	ElementLine, ElementCol int
 }
 
 // StringSource records a <string> defined outside any language-qualified
@@ -327,6 +333,19 @@ const ValuesScanEvery = ValuesScanAll | ValuesScanTypography
 
 // lineAtOffset returns the 1-based line number for the given byte offset in
 // the file's content. A nil file is treated as the first line.
+// elementPosition returns the 1-based line and column of a byte offset, or zeros without line data.
+func elementPosition(file *scanner.File, offset int64) [2]int {
+	if file == nil {
+		return [2]int{}
+	}
+	row := file.RowForByte(int(offset))
+	col := int(offset) + 1
+	if offsets := file.LineOffsets(); row < len(offsets) {
+		col = int(offset) - offsets[row] + 1
+	}
+	return [2]int{row + 1, col}
+}
+
 func lineAtOffset(file *scanner.File, offset int64) int {
 	if file == nil {
 		return 1
@@ -1269,7 +1288,7 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 				idx.markStringNote(xmlAttr(t.Attr, "name"))
 			}
 			commentBefore = false
-			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, kinds, lines); err != nil {
+			if err := idx.parseResourceElementKinds(dec, t, path, elemLine, elementPosition(lines, tokenStart), kinds, lines); err != nil {
 				return fmt.Errorf("parsing XML %s: %w", path, err)
 			}
 		case xml.EndElement:
@@ -1280,10 +1299,10 @@ func (idx *ResourceIndex) parseResourcesRootKinds(dec *xml.Decoder, path string,
 	}
 }
 
-func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind, lines *scanner.File) error {
+func (idx *ResourceIndex) parseResourceElementKinds(dec *xml.Decoder, start xml.StartElement, path string, line int, pos [2]int, kinds ValuesScanKind, lines *scanner.File) error {
 	switch start.Name.Local {
 	case "string":
-		return idx.parseStringElement(dec, start, path, line, kinds)
+		return idx.parseStringElement(dec, start, path, line, pos, kinds)
 	case "color":
 		return idx.parseColorElement(dec, start, kinds)
 	case "dimen":
@@ -1340,14 +1359,14 @@ func (idx *ResourceIndex) parseAliasItemElement(dec *xml.Decoder, start xml.Star
 	return nil
 }
 
-func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartElement, path string, line int, kinds ValuesScanKind) error {
+func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartElement, path string, line int, pos [2]int, kinds ValuesScanKind) error {
 	if kinds&ValuesScanStrings == 0 {
 		return skipElement(dec, start)
 	}
 	name := xmlAttr(start.Attr, "name")
 	translatable := xmlAttr(start.Attr, "translatable")
 	formatted := xmlAttr(start.Attr, "formatted")
-	raw, text, hasMarkup, err := decodeStringElementText(dec, start)
+	raw, text, hasMarkup, hasElements, err := decodeStringElementText(dec, start)
 	if err != nil {
 		return err
 	}
@@ -1356,7 +1375,8 @@ func (idx *ResourceIndex) parseStringElement(dec *xml.Decoder, start xml.StartEl
 	}
 	idx.StringDefinitions = append(idx.StringDefinitions, StringDefinition{
 		Name: name, FilePath: path, Line: line, Text: raw, Formatted: formatted,
-		DefaultFolder: isDefaultValuesFolder(path),
+		DefaultFolder: isDefaultValuesFolder(path), Translatable: translatable, HasElements: hasElements,
+		ElementLine: pos[0], ElementCol: pos[1],
 	})
 	if IsTranslationValuesPath(path) {
 		if idx.StringTranslations == nil {
@@ -1638,33 +1658,34 @@ func decodeSimpleElementText(dec *xml.Decoder, start xml.StartElement) (string, 
 }
 
 func decodeSimpleElementTextWithRaw(dec *xml.Decoder, start xml.StartElement) (string, string, error) {
-	raw, text, _, err := decodeStringElementText(dec, start)
+	raw, text, _, _, err := decodeStringElementText(dec, start)
 	return raw, text, err
 }
 
 // decodeStringElementText also reports whether the content has a styling child element.
-func decodeStringElementText(dec *xml.Decoder, start xml.StartElement) (raw, text string, hasMarkup bool, err error) {
+func decodeStringElementText(dec *xml.Decoder, start xml.StartElement) (raw, text string, hasMarkup, hasElements bool, err error) {
 	var builder strings.Builder
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return "", "", false, err
+			return "", "", false, false, err
 		}
 		switch t := tok.(type) {
 		case xml.CharData:
 			builder.Write([]byte(t))
 		case xml.StartElement:
 			// Markup children such as <b> and <xliff:g> contribute their text to the string.
+			hasElements = true
 			if t.Name.Local != "g" {
 				hasMarkup = true
 			}
 			if err := appendElementText(dec, &builder); err != nil {
-				return "", "", false, err
+				return "", "", false, false, err
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
 				raw := builder.String()
-				return raw, strings.TrimSpace(raw), hasMarkup, nil
+				return raw, strings.TrimSpace(raw), hasMarkup, hasElements, nil
 			}
 		}
 	}

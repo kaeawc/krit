@@ -38,6 +38,15 @@ All notable changes to Krit will be documented in this file.
   (Room, Glide, Moshi, Epoxy, ...) and only the exact `kapt` configuration, so it is narrower than krit's
   `KaptUsage`, which stays as it is. `LifecycleAnnotationProcessorWithJava8` needs Java 8 or later from
   `sourceCompatibility`, a Java toolchain, or the AGP 4.2+ default (#1179, #1181, #1240, #1246).
+- `WearableBindListener` and `DuplicateStrings`, ported from Android Lint 32.4.1's `ManifestDetector` and
+  `StringCasingDetector` under their Lint IDs. They were checked against Lint on the same inputs: lint-tests'
+  `TestLintTask` with a mocked Gradle model for the manifest check, and the Lint CLI for the resource check.
+  `WearableBindListener` reports the BIND_LISTENER action of a `<service>` in a Gradle project. It says "deprecated"
+  when `play-services-wearable` 8.2.0 or later is declared, and "upgrade" from compileSdk 24 otherwise.
+  `DuplicateStrings` (opt-in, as in Lint) groups each locale's strings by case-insensitive value. It skips
+  untranslatable, marked-up and empty strings, and reports Lint's message (sorted names, case-varies note) at the
+  first definition. The resource index now records each `<string>`'s tag position, `translatable` value and whether it
+  has child elements (resource cache version 21) (#1211, #1269).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

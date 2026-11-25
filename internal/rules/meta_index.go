@@ -734,6 +734,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*NotShrinkingResourcesRule)(nil),
 		(*KaptUsageInsteadOfKspRule)(nil),
 		(*LifecycleAnnotationProcessorWithJava8Rule)(nil),
+		(*WearableBindListenerRule)(nil),
+		(*DuplicateStringsRule)(nil),
 		(*FragmentLiveDataObserveRule)(nil),
 		(*FragmentBackPressedCallbackRule)(nil),
 		(*FragmentAddMenuProviderRule)(nil),

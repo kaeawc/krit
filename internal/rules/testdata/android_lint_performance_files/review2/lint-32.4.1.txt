@@ -1,0 +1,6 @@
+p/Edge.java:21:45: SyntheticAccessor: Access to `private` method `capacity` of class `Edge` requires synthetic accessor
+p/Edge.java:26:29: SyntheticAccessor: Access to `private` field `value` of class `Edge` requires synthetic accessor
+p/Edge.java:30:38: SyntheticAccessor: Access to `private` field `values` of class `Edge` requires synthetic accessor
+p/Edge.java:37:17: SyntheticAccessor: Access to `private` method `consume` of class `Edge` requires synthetic accessor
+p/Edge.java:37:25: SyntheticAccessor: Access to `private` field `value` of class `Edge` requires synthetic accessor
+p/Sched.kt:26:15: SyntheticAccessor: Access to `private` method `helper` of class `SchedKt` requires synthetic accessor

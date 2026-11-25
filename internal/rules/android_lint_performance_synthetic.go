@@ -124,19 +124,22 @@ func (s *syntheticScan) className(cls uint32) string {
 
 // kotlinJvmFileName returns the name given by @file:JvmName("..."), or "".
 func kotlinJvmFileName(file *scanner.File) string {
-	text := string(file.Content)
-	i := strings.Index(text, "@file:JvmName(")
-	if i < 0 {
-		return ""
-	}
-	rest := text[i+len("@file:JvmName("):]
-	if q := strings.IndexByte(rest, '"'); q >= 0 {
-		rest = rest[q+1:]
-		if e := strings.IndexByte(rest, '"'); e >= 0 {
-			return rest[:e]
+	name := ""
+	file.FlatWalkNodes(0, "file_annotation", func(n uint32) {
+		text := file.FlatNodeText(n)
+		i := strings.Index(text, "JvmName(")
+		if name != "" || i < 0 {
+			return
 		}
-	}
-	return ""
+		rest := text[i+len("JvmName("):]
+		if q := strings.IndexByte(rest, '"'); q >= 0 {
+			rest = rest[q+1:]
+			if e := strings.IndexByte(rest, '"'); e >= 0 {
+				name = rest[:e]
+			}
+		}
+	})
+	return name
 }
 
 // syntheticDeclName returns the name node of a class or object declaration.
@@ -377,7 +380,8 @@ func (s *syntheticScan) kotlinUnqualified(idx uint32, name string, args int) (*s
 	file := s.file
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		if t := file.FlatType(cur); t == "statements" || t == "function_body" {
-			if len(perfDirectFunctions(file, cur, name)) > 0 {
+			if len(perfDirectFunctions(file, cur, name)) > 0 || kotlinBlockDeclaresValue(file, cur, idx, name) {
+				// A local function, or a local value of function type (`val helper = { 2 }`), is invoked.
 				return nil, false
 			}
 		}
@@ -393,6 +397,11 @@ func (s *syntheticScan) kotlinUnqualified(idx uint32, name string, args int) (*s
 			return nil, false
 		}
 		if cls != 0 {
+			// Inherited members come before the companion object: a superclass from elsewhere, an interface whose
+			// members are unknown, or a same-file supertype declaring the name can supply it.
+			if s.kotlinHasForeignClassSupertype(cls) || s.inheritsMember(cls, name, "method", 0) {
+				return nil, false
+			}
 			if comp := kotlinCompanionOf(file, cls); comp != 0 {
 				if m := s.pickMember(comp, name, "method", args); m != nil {
 					return m, true
@@ -400,10 +409,6 @@ func (s *syntheticScan) kotlinUnqualified(idx uint32, name string, args int) (*s
 				if s.hasMember(comp, name, "method") {
 					return nil, false
 				}
-			}
-			// A superclass from elsewhere, or a same-file superclass declaring the name, can supply it first.
-			if s.kotlinHasForeignClassSupertype(cls) || s.inheritsMember(cls, name, "method", 0) {
-				return nil, false
 			}
 		}
 	}
@@ -587,15 +592,19 @@ func (s *syntheticScan) indexJava() {
 				return
 			}
 			private, final := file.FlatHasModifier(idx, "private"), file.FlatHasModifier(idx, "final")
-			file.FlatWalkNodes(idx, "variable_declarator", func(d uint32) {
+			// Only the field's own declarators: locals of an anonymous class in the initializer are not fields.
+			for d := file.FlatFirstChild(idx); d != 0; d = file.FlatNextSib(d) {
+				if file.FlatType(d) != "variable_declarator" {
+					continue
+				}
 				id, ok := file.FlatFindChild(d, "identifier")
 				if !ok {
-					return
+					continue
 				}
 				init := lintInitializerAfterEquals(file, d)
 				s.members[cls] = append(s.members[cls], syntheticMember{decl: d, name: file.FlatNodeText(id), kind: "field",
 					private: private, class: cls, constant: final && init != 0 && javaIsConstantExpression(file, init)})
-			})
+			}
 		}
 	})
 }
@@ -747,8 +756,9 @@ func (s *syntheticScan) javaFieldRef(idx uint32) {
 // javaIdentifierIsExpression reports whether an identifier is used as a value, not declared, called or labeled.
 func javaIdentifierIsExpression(file *scanner.File, idx, parent uint32) bool {
 	switch file.FlatType(parent) {
-	case "variable_declarator":
-		// The declared name is the declarator's first identifier; the initializer's names are reads.
+	case "variable_declarator", "enhanced_for_statement":
+		// The declared name (a declarator's, or an enhanced for's loop variable) is the first identifier; later
+		// ones (an initializer, the iterable) are reads.
 		first, _ := file.FlatFindChild(parent, "identifier")
 		return first != idx
 	case "formal_parameter", "catch_formal_parameter", "spread_parameter", "method_declaration",
@@ -770,18 +780,21 @@ func javaIdentifierIsExpression(file *scanner.File, idx, parent uint32) bool {
 // past a class that extends a class declared elsewhere, whose inherited members could supply the name.
 func (s *syntheticScan) javaUnqualified(idx uint32, name, kind string) (uint32, bool) {
 	file := s.file
+	prev := idx
 	for cur, ok := file.FlatParent(idx); ok; cur, ok = file.FlatParent(cur) {
 		if kind == "field" && javaScopeDeclaresLocal(file, cur, idx, name) {
 			return 0, false
 		}
-		if syntheticIsClass(file, cur) {
+		// An anonymous class's constructor arguments are code of the surrounding class.
+		if syntheticIsClass(file, cur) && syntheticInClassBody(file, cur, prev) {
 			if s.hasMember(cur, name, kind) {
 				return cur, true
 			}
-			if s.javaExtendsForeignClass(cur) || s.inheritsMember(cur, name, kind, 0) {
+			if s.javaExtendsForeignClass(cur) || s.hasUnknownInterface(cur) || s.inheritsMember(cur, name, kind, 0) {
 				return 0, false
 			}
 		}
+		prev = cur
 	}
 	return 0, false
 }
@@ -789,59 +802,96 @@ func (s *syntheticScan) javaUnqualified(idx uint32, name, kind string) (uint32, 
 // javaScopeDeclaresLocal reports whether scope itself declares a parameter, lambda parameter or local variable
 // called name that is visible at idx.
 func javaScopeDeclaresLocal(file *scanner.File, scope, idx uint32, name string) bool {
-	found := false
-	direct := func(container uint32, kind string, check func(uint32)) {
-		for c := file.FlatFirstChild(container); c != 0; c = file.FlatNextSib(c) {
-			if file.FlatType(c) == kind {
-				check(c)
-			}
-		}
-	}
-	declarator := func(d uint32) {
-		if id, ok := file.FlatFindChild(d, "identifier"); ok && file.FlatNodeText(id) == name &&
-			file.FlatStartByte(d) < file.FlatStartByte(idx) {
-			found = true
-		}
-	}
 	switch file.FlatType(scope) {
 	case "method_declaration", "constructor_declaration":
-		if params, ok := file.FlatFindChild(scope, "formal_parameters"); ok {
-			direct(params, "formal_parameter", func(p uint32) {
-				if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
-					found = true
-				}
-			})
-		}
+		return javaParamsDeclare(file, scope, name)
 	case "lambda_expression":
-		for c := file.FlatFirstChild(scope); c != 0 && file.FlatType(c) != "->"; c = file.FlatNextSib(c) {
-			switch file.FlatType(c) {
-			case "identifier":
-				found = found || file.FlatNodeText(c) == name
-			case "inferred_parameters", "formal_parameters":
-				file.FlatWalkNodes(c, "identifier", func(p uint32) { found = found || file.FlatNodeText(p) == name })
+		return javaLambdaDeclares(file, scope, name)
+	case "block", "switch_block_statement_group":
+		return javaLocalsDeclare(file, scope, idx, name)
+	case "for_statement", "try_with_resources_statement":
+		if javaLocalsDeclare(file, scope, idx, name) {
+			return true
+		}
+		return javaInTryResourceScope(file, scope, idx) && javaResourcesDeclare(file, scope, idx, name)
+	case "enhanced_for_statement", "catch_clause":
+		return javaLoopOrCatchDeclares(file, scope, idx, name)
+	}
+	return false
+}
+
+func javaParamsDeclare(file *scanner.File, method uint32, name string) bool {
+	params, ok := file.FlatFindChild(method, "formal_parameters")
+	if !ok {
+		return false
+	}
+	for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+		if file.FlatType(p) != "formal_parameter" && file.FlatType(p) != "spread_parameter" {
+			continue
+		}
+		if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func javaLambdaDeclares(file *scanner.File, lambda uint32, name string) bool {
+	found := false
+	for c := file.FlatFirstChild(lambda); c != 0 && file.FlatType(c) != "->"; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "identifier":
+			found = found || file.FlatNodeText(c) == name
+		case "inferred_parameters", "formal_parameters":
+			file.FlatWalkNodes(c, "identifier", func(p uint32) { found = found || file.FlatNodeText(p) == name })
+		}
+	}
+	return found
+}
+
+// javaLocalsDeclare reports a local variable of the scope (its own declarations, not nested blocks') declared
+// before idx.
+func javaLocalsDeclare(file *scanner.File, scope, idx uint32, name string) bool {
+	for decl := file.FlatFirstChild(scope); decl != 0; decl = file.FlatNextSib(decl) {
+		if file.FlatType(decl) != "local_variable_declaration" {
+			continue
+		}
+		for d := file.FlatFirstChild(decl); d != 0; d = file.FlatNextSib(d) {
+			if file.FlatType(d) != "variable_declarator" || file.FlatStartByte(d) >= file.FlatStartByte(idx) {
+				continue
+			}
+			if id, ok := file.FlatFindChild(d, "identifier"); ok && file.FlatNodeText(id) == name {
+				return true
 			}
 		}
-	case "block", "switch_block_statement_group":
-		direct(scope, "local_variable_declaration", func(decl uint32) { direct(decl, "variable_declarator", declarator) })
-	case "for_statement", "try_with_resources_statement":
-		file.FlatWalkNodes(scope, "local_variable_declaration", func(decl uint32) {
-			if p, ok := file.FlatParent(decl); ok && p == scope {
-				direct(decl, "variable_declarator", declarator)
-			}
-		})
-		file.FlatWalkNodes(scope, "resource", func(r uint32) {
-			if id, ok := file.FlatFindChild(r, "identifier"); ok && file.FlatNodeText(id) == name {
-				found = true
-			}
-		})
-	case "enhanced_for_statement", "catch_clause":
-		file.FlatWalkNodes(scope, "identifier", func(id uint32) {
-			if p, ok := file.FlatParent(id); ok && (p == scope || file.FlatType(p) == "catch_formal_parameter") &&
-				file.FlatNodeText(id) == name && file.FlatStartByte(id) < file.FlatStartByte(idx) {
-				found = true
-			}
-		})
 	}
+	return false
+}
+
+func javaResourcesDeclare(file *scanner.File, stmt, idx uint32, name string) bool {
+	found := false
+	file.FlatWalkNodes(stmt, "resource", func(r uint32) {
+		if id, ok := file.FlatFindChild(r, "identifier"); ok && file.FlatNodeText(id) == name &&
+			file.FlatStartByte(r) < file.FlatStartByte(idx) {
+			found = true
+		}
+	})
+	return found
+}
+
+// javaLoopOrCatchDeclares reports an enhanced-for loop variable or a caught exception, which is visible in the body
+// only, not in the iterable expression.
+func javaLoopOrCatchDeclares(file *scanner.File, scope, idx uint32, name string) bool {
+	if body := javaLastNamedChild(file, scope); body == 0 || !lintNodeContains(file, body, idx) {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(scope, "identifier", func(id uint32) {
+		if p, ok := file.FlatParent(id); ok && (p == scope || file.FlatType(p) == "catch_formal_parameter") &&
+			file.FlatNodeText(id) == name && file.FlatStartByte(id) < file.FlatStartByte(idx) {
+			found = true
+		}
+	})
 	return found
 }
 
@@ -1046,7 +1096,8 @@ func (s *syntheticScan) kotlinExtensionTarget(idx uint32, call *perfExpr) *synth
 		// The receiver's declared type must be a class of the file, whose members are known (kotlinCall routes here
 		// only when that class has no member of the name). A type from elsewhere may declare the member.
 		typ := lintTrimGenerics(strings.TrimSuffix(strings.TrimSpace(lintDeclaredTypeText(file, idx, call.recv.name)), "?"))
-		if typ != "" && len(s.classes[typ[strings.LastIndex(typ, ".")+1:]]) == 1 {
+		// A qualified type (`other.Heap`) is not the file's Heap.
+		if typ != "" && !strings.Contains(typ, ".") && len(s.classes[typ]) == 1 {
 			recvType = typ
 		}
 	}
@@ -1084,8 +1135,8 @@ func (s *syntheticScan) inheritsMember(cls uint32, name, kind string, depth int)
 	if cls == 0 || depth > 6 {
 		return false
 	}
-	for _, ref := range lintDirectSupertypeRefs(s.file, cls) {
-		decls := s.classes[ref.simple]
+	for _, simple := range s.supertypeNames(cls) {
+		decls := s.classes[simple]
 		if len(decls) != 1 {
 			continue
 		}
@@ -1107,4 +1158,82 @@ var syntheticKnownInterfaces = map[string]bool{
 	"Runnable": true, "Callable": true, "Comparator": true, "OnClickListener": true, "OnLongClickListener": true,
 	"OnTouchListener": true, "OnCheckedChangeListener": true, "Supplier": true, "Consumer": true, "Function": true,
 	"Predicate": true,
+}
+
+// kotlinBlockDeclaresValue reports a local property called name declared in the block before idx.
+func kotlinBlockDeclaresValue(file *scanner.File, block, idx uint32, name string) bool {
+	for c := file.FlatFirstChild(block); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) != "property_declaration" || file.FlatStartByte(c) >= file.FlatStartByte(idx) {
+			continue
+		}
+		if vd, ok := file.FlatFindChild(c, "variable_declaration"); ok && lintDeclaredName(file, vd) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// javaInTryResourceScope reports whether idx is in the resource specification or the try block of a
+// try-with-resources statement, where its resources are visible.
+func javaInTryResourceScope(file *scanner.File, stmt, idx uint32) bool {
+	for c := file.FlatFirstChild(stmt); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "resource_specification":
+			if lintNodeContains(file, c, idx) {
+				return true
+			}
+		case "block":
+			// The first block is the try block; catch and finally blocks are nested in their own clauses.
+			return lintNodeContains(file, c, idx)
+		}
+	}
+	return false
+}
+
+func javaLastNamedChild(file *scanner.File, n uint32) uint32 {
+	var last uint32
+	for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatIsNamed(c) {
+			last = c
+		}
+	}
+	return last
+}
+
+// hasUnknownInterface reports whether a Java class implements an interface the file does not declare and whose
+// members are not known (a default method could supply the name). Well-known functional interfaces do not count.
+func (s *syntheticScan) hasUnknownInterface(cls uint32) bool {
+	file := s.file
+	if file.Language != scanner.LangJava {
+		return false
+	}
+	ifaces, ok := file.FlatFindChild(cls, "super_interfaces")
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(ifaces, "type_identifier", func(t uint32) {
+		name := file.FlatNodeText(t)
+		if len(s.classes[name]) == 0 && !syntheticKnownInterfaces[name] {
+			found = true
+		}
+	})
+	return found
+}
+
+// supertypeNames lists the simple names of a class's direct supertypes, Java `implements` clauses included.
+func (s *syntheticScan) supertypeNames(cls uint32) []string {
+	file := s.file
+	var out []string
+	for _, ref := range lintDirectSupertypeRefs(file, cls) {
+		out = append(out, ref.simple)
+	}
+	if file.Language == scanner.LangJava {
+		if ifaces, ok := file.FlatFindChild(cls, "super_interfaces"); ok {
+			file.FlatWalkNodes(ifaces, "type_identifier", func(t uint32) {
+				out = append(out, file.FlatNodeText(t))
+			})
+		}
+	}
+	return out
 }

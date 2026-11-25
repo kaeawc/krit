@@ -51,6 +51,7 @@ func TestAndroidLintPerformanceFileParity(t *testing.T) {
 				}
 			}
 			got := runParityChecks(t, dir, checks)
+			sort.Strings(want)
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {
 				t.Errorf("krit findings differ from Lint 32.4.1 (minus known false negatives)\n--- want\n%s\n--- got\n%s",
 					strings.Join(want, "\n"), strings.Join(got, "\n"))

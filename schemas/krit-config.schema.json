@@ -11112,6 +11112,39 @@
             }
           }
         },
+        "TileProviderPermissions": {
+          "description": "TileProvider does not set permission [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TileProviderPermissions (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "TooDeepLayoutResource": {
           "description": "Layout nesting too deep [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -11713,6 +11746,39 @@
           "properties": {
             "active": {
               "description": "Enable UnsafeDynamicallyLoadedCode (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnsafeNativeCodeLocation": {
+          "description": "Native code outside library directory [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnsafeNativeCodeLocation (default: true).",
               "type": "boolean",
               "default": true
             },

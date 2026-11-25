@@ -311,13 +311,16 @@ func (a *notificationAnalysis) javaHelperReturn(file *scanner.File, call lintCal
 		return nil, 0
 	}
 	var method uint32
+	matches := 0
 	file.FlatWalkNodes(class, "method_declaration", func(m uint32) {
 		if id, ok := file.FlatFindChild(m, "identifier"); ok && file.FlatNodeText(id) == call.Name &&
 			len(javaMethodParams(file, m)) == len(call.Args) {
 			method = m
+			matches++
 		}
 	})
-	if method == 0 {
+	// Several overloads of that arity: the argument types decide, which krit does not resolve.
+	if matches != 1 {
 		return nil, 0
 	}
 	var found uint32
@@ -380,6 +383,12 @@ func notificationLastAssignment(file *scanner.File, name string, at uint32) uint
 		if value == 0 || file.FlatStartByte(stmt) >= before {
 			return
 		}
+		// A declaration in a block that does not enclose `at` (a lambda or an inner scope) is another binding.
+		if t := file.FlatType(stmt); t == "property_declaration" || t == "variable_declarator" {
+			if block := notificationDeclarationBlock(file, stmt); block != 0 && !lintNodeContains(file, block, at) {
+				return
+			}
+		}
 		if s := file.FlatStartByte(stmt); best == 0 || s > bestStart {
 			best, bestStart = value, s
 		}
@@ -412,6 +421,17 @@ func notificationLastAssignment(file *scanner.File, name string, at uint32) uint
 		return best
 	}
 	return lintInitializerOf(file, at, name, true)
+}
+
+// notificationDeclarationBlock returns the block a local declaration belongs to, or 0.
+func notificationDeclarationBlock(file *scanner.File, decl uint32) uint32 {
+	for cur, ok := file.FlatParent(decl); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "statements", "block", "lambda_literal", "function_body", "method_declaration", "constructor_declaration":
+			return cur
+		}
+	}
+	return 0
 }
 
 // checkNonActivityIntent mirrors Lint's checkNonActivityIntent. It reports trampolines and returns whether the
@@ -447,7 +467,7 @@ func (a *notificationAnalysis) checkNonActivityIntent(setFile *scanner.File, set
 	if className == "" {
 		return false
 	}
-	target := a.resolveJavaClass(pfile, className)
+	target := a.resolveJavaClass(pfile, classArg, className)
 	if target.file == nil || !target.java {
 		return false
 	}
@@ -508,7 +528,7 @@ func notificationClassLiteralName(file *scanner.File, idx uint32) string {
 
 // resolveJavaClass resolves a class name written in file to a source class of the project: a qualified name, an
 // import, or a class of the same package.
-func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, name string) javaClassRef {
+func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, at uint32, name string) javaClassRef {
 	if a.javaIndex == nil {
 		a.javaIndex = map[string][]javaClassRef{}
 		for _, f := range a.files {
@@ -546,8 +566,18 @@ func (a *notificationAnalysis) resolveJavaClass(file *scanner.File, name string)
 	}
 	if imported, ok := lintImportsOf(file).bySimple[simple]; ok {
 		candidates = append([]string{imported + strings.TrimPrefix(name, simple)}, candidates...)
-	} else if pkg := sourcePackageName(file); pkg != "" {
-		candidates = append([]string{pkg + "." + name}, candidates...)
+	} else {
+		pkg := sourcePackageName(file)
+		prefix := ""
+		if pkg != "" {
+			prefix = pkg + "."
+		}
+		var scoped []string
+		// Inside class Outer, a simple name can be a member class: try Outer.Name, innermost class first.
+		for _, outer := range a.enclosingClassNames(file, at) {
+			scoped = append(scoped, prefix+outer+"."+name)
+		}
+		candidates = append(append(scoped, prefix+name), candidates...)
 	}
 	for _, c := range candidates {
 		if refs := a.javaIndex[c]; len(refs) == 1 {
@@ -603,4 +633,26 @@ func (r *NotificationTrampolineRule) Meta() api.RuleDescriptor {
 
 func (r *LaunchActivityFromNotificationRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "LaunchActivityFromNotification", RuleSet: "android-lint", DefaultActive: true}
+}
+
+// enclosingClassNames returns the dotted names of the classes around at, innermost first ("Outer.Inner", "Outer").
+func (a *notificationAnalysis) enclosingClassNames(file *scanner.File, at uint32) []string {
+	var chain []string
+	for cur, ok := file.FlatParent(at); ok; cur, ok = file.FlatParent(cur) {
+		switch file.FlatType(cur) {
+		case "class_declaration", "object_declaration", "interface_declaration", "enum_declaration":
+			if n := lintClassNameNode(file, cur); n != 0 {
+				chain = append(chain, file.FlatNodeText(n))
+			}
+		}
+	}
+	var out []string
+	for i := range chain {
+		parts := make([]string, 0, len(chain)-i)
+		for j := len(chain) - 1; j >= i; j-- {
+			parts = append(parts, chain[j])
+		}
+		out = append(out, strings.Join(parts, "."))
+	}
+	return out
 }

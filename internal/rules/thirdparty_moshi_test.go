@@ -447,3 +447,24 @@ func TestMoshiSnakeToCamel(t *testing.T) {
 		}
 	}
 }
+
+// An @AdaptedBy target whose supertype chain leaves the project cannot be
+// proven a non-adapter (the library base may extend JsonAdapter), so the
+// pass abstains. With the library on its classpath Lint resolves the chain.
+func TestMoshiUsageAdaptedByAbstainsOnLibrarySupertype(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Adapted.kt": `package com.example
+
+import com.example.library.LibraryAdapterBase
+import dev.zacsweers.moshix.adapters.AdaptedBy
+
+@AdaptedBy(FromLibrary::class)
+data class Adapted(val a: Int)
+
+class FromLibrary : LibraryAdapterBase<Adapted>()
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}

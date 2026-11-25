@@ -79,8 +79,9 @@ func emitMoshiFindings(ctx *api.Context) {
 
 // moshiAnalyzer accumulates findings over one project.
 type moshiAnalyzer struct {
-	result *moshiResult
-	sealed *moshiSealedIndex
+	result  *moshiResult
+	sealed  *moshiSealedIndex
+	classes *moshiClassIndex // built on first use by projectClasses
 }
 
 func analyzeMoshiProject(files []*scanner.File) *moshiResult {
@@ -128,6 +129,9 @@ func (a *moshiAnalyzer) analyzeFile(file *scanner.File) {
 		if decl.isEnum {
 			a.checkEnum(decl)
 			return
+		}
+		if moshiIsAnnotationType(decl) {
+			a.checkJSONQualifier(decl)
 		}
 		if file.Language == scanner.LangKotlin {
 			a.checkKotlinClass(decl)
@@ -371,6 +375,7 @@ func (a *moshiAnalyzer) checkKotlinClass(c moshiClass) {
 			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, adaptedBy.node)
 			a.reportIssue("MoshiUsageDoubleClassAnnotation", file, jsonClass.node)
 		}
+		a.validateAdaptedBy(file, c.node, *adaptedBy)
 		return
 	}
 
@@ -552,6 +557,9 @@ func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
 		}
 		if !moshiVisibilityAllowed(file, p.visibility) {
 			a.reportIssue("MoshiUsagePrivateConstructorProperty", file, p.visibility)
+		}
+		if adaptedBy := moshiFindAnnotation(file, p.anns, fqcnMoshixAdaptedBy); adaptedBy != nil {
+			a.validateAdaptedBy(file, c.node, *adaptedBy)
 		}
 		a.checkPropertyJSONName(file, p, jsonNames)
 	}

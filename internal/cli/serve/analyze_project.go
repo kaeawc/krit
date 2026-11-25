@@ -744,6 +744,7 @@ func firStartFindingsPass(args daemon.AnalyzeProjectArgs, paths []string, cfg *c
 			Classpath:           checker.Classpath,
 			Tracker:             tracker,
 			Isolator:            scan.SourceSetIsolator(paths, args.GradleModel, args.NoGradleModel, args.NoCache, verboseIfEnabled(args.Verbose, verboseOut)),
+			SettingsSplitter:    scan.SettingsSplitter(paths, args.GradleModel, args.NoGradleModel, args.NoCache, verboseIfEnabled(args.Verbose, verboseOut)),
 			OnDegraded: func(err error) {
 				if recordDegraded != nil {
 					recordDegraded(scan.CheckerFailureDegraded(err, parsed.ActiveRules))

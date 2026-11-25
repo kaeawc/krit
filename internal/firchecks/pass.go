@@ -67,6 +67,11 @@ type PassOptions struct {
 	// merged compile of main, test and androidTest reports a class declared in
 	// two of them as a redeclaration that the real build never sees.
 	Isolator SourceSetIsolator
+	// SettingsSplitter, when set, rechecks the files of source sets whose
+	// Kotlin compiler settings (plugins, plugin options, opt-ins, flags)
+	// differ from the merged session's, one session per settings group, before
+	// the Isolator runs.
+	SettingsSplitter SettingsSplitter
 }
 
 // PendingPass owns an in-flight check. Check is not interruptible through the
@@ -89,6 +94,7 @@ type checkOutcome struct {
 	duration              time.Duration
 	incrementalDiagnostic string
 	isolation             isolationOutcome
+	split                 splitOutcome
 }
 
 // Cancel abandons a pending verdict without waiting for a JVM check.
@@ -166,6 +172,19 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 		checkStart := time.Now()
 		result, err := opts.Checker.Check(requested, sourceDirs, classpath, ruleNames, configs, facts)
 		duration := time.Since(checkStart)
+		var split splitOutcome
+		if err == nil && result != nil && opts.SettingsSplitter != nil {
+			split = splitSettings(p.ctx, opts, requested, sourceDirs, classpath, ruleNames, configs, facts, result)
+			if split.ran {
+				perf.AddEntryDetails(sub, "firSettingsSplit", split.duration, map[string]int64{
+					"rechecked":          int64(split.rechecked),
+					"replaced":           int64(split.replaced),
+					"newlyAuthoritative": int64(split.newlyAuthoritative),
+					"newlyGated":         int64(split.newlyGated),
+					"kept":               int64(split.kept),
+				}, nil)
+			}
+		}
 		var isolation isolationOutcome
 		if err == nil && result != nil && opts.Isolator != nil {
 			isolation = isolateSourceSets(p.ctx, opts, requested, sourceDirs, classpath, ruleNames, configs, facts, result)
@@ -210,7 +229,7 @@ func StartPass(ctx context.Context, opts PassOptions) *PendingPass {
 			"rules": int64(len(ruleNames)),
 		}, details)
 		sub.End()
-		p.done <- checkOutcome{result: result, err: err, duration: duration, incrementalDiagnostic: incrementalDiagnostic, isolation: isolation}
+		p.done <- checkOutcome{result: result, err: err, duration: duration, incrementalDiagnostic: incrementalDiagnostic, isolation: isolation, split: split}
 	}()
 	return p
 }
@@ -302,6 +321,9 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 	if verbose {
 		if outcome.incrementalDiagnostic != "" {
 			fmt.Fprintf(opts.VerboseOut, "verbose: %s\n", outcome.incrementalDiagnostic)
+		}
+		if outcome.split.ran || outcome.split.err != nil {
+			writeSplitOutcome(opts.VerboseOut, outcome.split)
 		}
 		if outcome.isolation.gated > 0 {
 			writeIsolationOutcome(opts.VerboseOut, outcome.isolation)

@@ -124,7 +124,7 @@ func CheckIsolated(ctx context.Context, in Input, gated []string) ([]byte, []str
 	if err != nil {
 		return nil, nil, err
 	}
-	prune(in.CacheDir, keys, pruneAge)
+	prune(in.CacheDir, keys)
 	return resp, rechecked, nil
 }
 

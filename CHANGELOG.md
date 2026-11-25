@@ -5,6 +5,11 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `--fir` splits the FIR check into one session per group of source sets that share their Kotlin compiler settings
+  (compiler arguments, compiler plugin jars and options, JVM target) when a group's settings differ from the merged
+  whole-repository session's. A file gated only because the merged session dropped a flag or plugin option becomes
+  authoritative, and a missing opt-in the merged opt-in union hid is reported. `-v` reports the session count and the
+  grouping key; `KRIT_MODULE_SHARDS=merged` keeps the single session (#1577).
 - `--generated-srcjar PATH` (repeatable) and the model field `generatedSourceJars` accept generated-source jars
   (Bazel's KSP, kapt, Wire, SQLDelight and view-binding outputs). Like `generatedSourceDirs`, their Kotlin files are
   compiled as FIR checker and type-oracle context and never reported, so code using a generated Kotlin type is no

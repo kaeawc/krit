@@ -62,6 +62,7 @@ func init() {
 	registerAndroidxComposeRuntimeNamingRules()
 	registerAndroidxComposeRuntimeCompositionCallRules()
 	registerAndroidxComposeRuntimeRememberRules()
+	registerAndroidxComposeUILiteralRules()
 	registerCoroutinesRules()
 	registerDatabaseRules()
 	registerDeadcodeRules()

@@ -16344,6 +16344,105 @@
             }
           }
         },
+        "InvalidColorHexValue": {
+          "description": "Detects Compose Color(0x...) hex values that are neither 6 nor 8 hex digits long. [precision: ast-backed] [noisiness: normal]\nCaveat: Only Color(...) calls whose Color name the file binds to androidx.compose.ui.graphics are checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidColorHexValue (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "InvalidLanguageTagDelimiter": {
+          "description": "Detects Compose Locale and LocaleList language tags that use _ instead of - between subtags. [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Language tags are evaluated from string literals, + concatenation and same-file vals and constants; constants declared in other files are not followed.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InvalidLanguageTagDelimiter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MissingColorAlphaChannel": {
+          "description": "Detects Compose Color(0xRRGGBB) hex values without an alpha channel, which are fully transparent. [fixable: semantic] [precision: ast-backed] [noisiness: normal]\nCaveat: Only Color(...) calls whose Color name the file binds to androidx.compose.ui.graphics are checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MissingColorAlphaChannel (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "RememberInComposition": {
           "description": "Detects @RememberInComposition APIs such as Animatable or MutableInteractionSource called during composition without remember. [precision: ast-backed] [noisiness: normal]\nCaveat: Annotated declarations are recognized in the same file and for the Compose 1.12.1 / material3 1.5.0 APIs (Animatable, MutableInteractionSource, FocusRequester, TextFieldState, SliderState, movableContentOf, ...).\nCaveat: The retired IDs UnrememberedAnimatable and UnrememberedMutableInteractionSource suppress every finding of this rule in their scope, not only Animatable and MutableInteractionSource calls.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).",
           "type": "object",

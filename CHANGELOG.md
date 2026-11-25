@@ -74,6 +74,16 @@ All notable changes to Krit will be documented in this file.
   the old ID silence one `UnrememberedMutableState` finding each in the same file. **Severity change:** these findings
   are now errors (the old rule reported warnings), matching Lint; a `severity` set under the old ID still applies
   (#1478).
+  `FrequentlyChangedStateReadInComposition` still suppress the matching rule. Until `ComposeMutableStateInComposition`
+  is retired, `UnrememberedMutableState` leaves the plain `val x = mutableStateOf(...)` locals that rule already
+  reports to it (#1472, #1476, #1478).
+- `MissingColorAlphaChannel` and `InvalidColorHexValue` (from `androidx.compose.ui:ui-graphics-android` 1.12.1) and
+  `InvalidLanguageTagDelimiter` (from `androidx.compose.ui:ui-text-android` 1.12.1), ported under their Lint IDs and
+  checked against the Lint CLI running those releases' `lint.jar` on the same inputs
+  (`internal/rules/testdata/androidx_compose_ui/`). The Color checks count the hex digits of a literal passed to
+  Compose `Color(...)` as Lint does; `MissingColorAlphaChannel` adds the `FF` alpha channel as a fix.
+  `InvalidLanguageTagDelimiter` evaluates the tag passed to Compose `Locale`/`LocaleList` (literals, `+`, same-file
+  vals and constants), checks Java too, and fixes a literal tag by replacing `_` with `-` (#1501, #1502, #1504).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

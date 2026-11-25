@@ -1,0 +1,15 @@
+p/Fqn.kt:4:50: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/JavaTags.java:10:31: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/JavaTags.java:11:39: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/JavaTags.java:12:31: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:10:20: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:11:34: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:12:24: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:13:39: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:14:20: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:15:20: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:16:21: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:19:36: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:21:27: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:24:22: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag
+p/Tags.kt:25:41: InvalidLanguageTagDelimiter: A hyphen (-), not an underscore (_) delimiter should be used in a language tag

@@ -1,0 +1,17 @@
+p/Lambdas.kt:11:25: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Lambdas.kt:16:44: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Lambdas.kt:20:20: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Lambdas.kt:7:11: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Params.kt:14:48: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:11:5: MultipleAwaitPointerEventScopes: Suspicious use of multiple awaitPointerEventScope blocks. Using multiple awaitPointerEventScope blocks may cause some input events to be dropped.
+p/Pointer.kt:12:5: MultipleAwaitPointerEventScopes: Suspicious use of multiple awaitPointerEventScope blocks. Using multiple awaitPointerEventScope blocks may cause some input events to be dropped.
+p/Pointer.kt:36:5: MultipleAwaitPointerEventScopes: Suspicious use of multiple awaitPointerEventScope blocks. Using multiple awaitPointerEventScope blocks may cause some input events to be dropped.
+p/Pointer.kt:37:5: MultipleAwaitPointerEventScopes: Suspicious use of multiple awaitPointerEventScope blocks. Using multiple awaitPointerEventScope blocks may cause some input events to be dropped.
+p/Pointer.kt:44:58: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:47:12: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:51:17: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:56:17: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:74:64: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Pointer.kt:82:43: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Qualified.kt:13:23: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped
+p/Qualified.kt:23:15: ReturnFromAwaitPointerEventScope: Returning from awaitPointerEventScope may cause some input events to be dropped

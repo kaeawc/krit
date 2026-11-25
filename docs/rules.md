@@ -262,3 +262,15 @@ library is present; Compose Multiplatform code is checked too, although Lint doe
   configuration is reported too; catalog accessors, `platform(...)`, map notation and declarations with a closure are
   not read. The fix renames the configuration to `debugImplementation`. The Lint CLI cannot run Gradle checks on Kotlin
   scripts, so the `.kts` behavior follows the detector's source.
+`androidx.compose.ui:ui-android` 1.12.1 pointer input (Kotlin):
+
+- `awaitPointerEventScope` is a `PointerInputScope` member, so it needs no import; the checks require the file to import
+  from `androidx.compose.ui.input.pointer` and not to declare a function of that name.
+- `MultipleAwaitPointerEventScopes` counts the calls within the nearest enclosing `pointerInput` call (Lint's first
+  Modifier-typed ancestor; only its own arguments and trailing lambda, not the receiver chain) or, failing that, the
+  containing declaration (a local `val` counts as one, as in Lint), and reports each call when there is more than one.
+- `ReturnFromAwaitPointerEventScope` reports an unqualified call that initializes a local variable, or that is returned
+  (`return`, an expression body, or the last expression of any lambda, which UAST treats as an implicit return) with no
+  enclosing call named `pointerInput`, `PointerInputEventHandler` or `coroutineScope` and no enclosing lambda declared as
+  `suspend PointerInputScope.() -> ...` on its property or parameter. Lint looks at the call's direct parent, so a
+  qualified `scope.awaitPointerEventScope { }` is never reported; krit keeps that verdict.

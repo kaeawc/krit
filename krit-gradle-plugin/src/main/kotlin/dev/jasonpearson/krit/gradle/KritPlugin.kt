@@ -122,16 +122,14 @@ class KritPlugin : Plugin<Project> {
             maxParallelUsages.set(1)
         }
 
-        // Shared convention for resolving the krit binary
-        val kritBinaryFile = extension.advanced.binary.orElse(
-            project.layout.file(project.provider { binaryResolver.get().resolve() })
-        )
-
         val advanced = extension.advanced
 
         // Wire task defaults for all KritCheckTask instances
         project.tasks.withType(KritCheckTask::class.java).configureEach {
-            kritBinary.convention(kritBinaryFile)
+            kritBinary.convention(advanced.binary)
+            toolVersion.convention(advanced.toolVersion)
+            this.binaryResolver.convention(binaryResolver)
+            usesService(binaryResolver)
             allRules.convention(advanced.allRules)
             ignoreFailures.convention(extension.ignoreFailures)
             config.convention(extension.config)
@@ -154,7 +152,10 @@ class KritPlugin : Plugin<Project> {
 
         // Wire task defaults for all KritFormatTask instances
         project.tasks.withType(KritFormatTask::class.java).configureEach {
-            kritBinary.convention(kritBinaryFile)
+            kritBinary.convention(advanced.binary)
+            toolVersion.convention(advanced.toolVersion)
+            this.binaryResolver.convention(binaryResolver)
+            usesService(binaryResolver)
             config.convention(extension.config)
             fixLevel.convention(advanced.fixLevel)
             parallel.convention(advanced.parallel)
@@ -164,7 +165,10 @@ class KritPlugin : Plugin<Project> {
 
         // Wire task defaults for all KritBaselineTask instances
         project.tasks.withType(KritBaselineTask::class.java).configureEach {
-            kritBinary.convention(kritBinaryFile)
+            kritBinary.convention(advanced.binary)
+            toolVersion.convention(advanced.toolVersion)
+            this.binaryResolver.convention(binaryResolver)
+            usesService(binaryResolver)
             config.convention(extension.config)
             allRules.convention(advanced.allRules)
             parallel.convention(advanced.parallel)

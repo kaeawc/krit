@@ -37,8 +37,8 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
      * Resolve the krit binary, downloading it if not already cached.
      * Returns the path to the executable binary.
      */
-    fun resolve(): File {
-        val version = normalizeVersion(parameters.version.get())
+    fun resolve(requestedVersion: String = parameters.version.get()): File {
+        val version = normalizeVersion(requestedVersion)
         val platform = detectPlatform()
         val cacheDir = parameters.cacheDir.get().asFile
         val binaryDir = File(cacheDir, "krit/$version/${platform.id}")
@@ -227,3 +227,10 @@ abstract class KritBinaryResolver : BuildService<KritBinaryResolver.Params> {
         }
     }
 }
+
+/** The executable a krit task runs: [explicit] when set, else [resolver]'s binary for [version]. */
+internal fun resolveKritExecutable(
+    explicit: org.gradle.api.file.RegularFileProperty,
+    resolver: Property<KritBinaryResolver>,
+    version: Property<String>,
+): String = (explicit.orNull?.asFile ?: resolver.get().resolve(version.get())).absolutePath

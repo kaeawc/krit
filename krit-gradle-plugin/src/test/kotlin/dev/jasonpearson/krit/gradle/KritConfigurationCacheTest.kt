@@ -69,6 +69,26 @@ class KritConfigurationCacheTest {
         assertStoredThenReused(fixture(), task)
     }
 
+    // Without an explicit binary the plugin resolves (and downloads) krit through a
+    // build service. That must wait until a task runs: resolving while the cache
+    // entry is stored makes the cached binary's existence a configuration input, so
+    // the build after a first download could not reuse the cache.
+    @Test
+    fun `binary resolution is deferred to task execution`() {
+        val root = fixture()
+        val build = File(root, "build.gradle.kts")
+        build.writeText(
+            build.readText().replace(
+                "advanced { binary.set(file(\"fake-krit\")) }",
+                "advanced { toolVersion = \"0.0.0-unreleased.1\" }",
+            )
+        )
+        val first = run(root, "kritCheck", "kritFormat", "kritBaseline", "--dry-run")
+        assertTrue(first.output.contains("Configuration cache entry stored."), first.output)
+        val second = run(root, "kritCheck", "kritFormat", "kritBaseline", "--dry-run")
+        assertTrue(second.output.contains("Reusing configuration cache."), second.output)
+    }
+
     // With every report disabled, kritCheck falls back to a SARIF file under the
     // build directory, resolved while the task runs.
     @Test

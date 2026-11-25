@@ -73,9 +73,12 @@ All notable changes to Krit will be documented in this file.
 
 ### Changed
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
-  support on the Gradle Plugin Portal. `kritCheck` no longer reads `Task.project` while it runs, which broke
-  configuration-cache builds with every report disabled; `kritCheck`, `kritFormat`, `kritBaseline` and the settings
-  plugin's builds are now tested to store and reuse the configuration cache.
+  support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
+  krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
+  the build after a first download reuses the configuration cache. Their up-to-date input is the tool version
+  rather than the binary's contents; an explicit `advanced.binary` is still tracked as a file. `kritCheck` no longer
+  reads `Task.project` while it runs, which broke configuration-cache builds with every report disabled. These
+  tasks and the settings plugin's builds are now tested to store and reuse the configuration cache.
 - `ComposeMutableStateInComposition` is retired: `UnrememberedMutableState` (the Lint port) reports everything it did,
   plus state created in any expression position, `mutableStateSetOf`, `derivedStateOf`, `@StateFactoryMarker`
   functions and `State` subclasses. The old ID keeps working: `@Suppress("ComposeMutableStateInComposition")`

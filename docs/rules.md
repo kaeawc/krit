@@ -382,3 +382,19 @@ Gradle model; krit reads the build script, the version catalog, and the project'
   lookup does not find Kotlin classes, so a Kotlin receiver gets `LaunchActivityFromNotification`. Kotlin helper
   functions and qualified calls into other classes are not followed, as in Lint. `android.app.Notification.Builder`
   and the support-library `NotificationCompat` are not checked.
+
+## Android Lint Performance Checks (manifest and resources)
+
+- `WearableBindListener` (fatal) reports `com.google.android.gms.wearable.BIND_LISTENER` in an intent filter of a
+  `<service>`, only in Gradle projects, as Lint does. With `com.google.android.gms:play-services-wearable` 8.2.0 or
+  later declared (or declared without a readable version), the message is "The ... action is deprecated". Otherwise,
+  from compileSdk 24, it asks to upgrade to 8.2.0 or later. Lint's variant naming the newest version installed in
+  the SDK's Maven repository is not reproduced. Activities and other components are not checked.
+- `DuplicateStrings` (opt-in, as in Lint) compares the `<string>` values of every values folder. Folders are grouped
+  by locale (language and region); qualifiers such as `-night` share the default locale. Values are compared
+  case-insensitively after Lint's quote stripping, so leading or trailing whitespace keeps two strings apart.
+  `translatable="false"` strings, strings with child elements (markup or `xliff:g`) and empty strings are skipped.
+  Each group is reported once, at the first definition in Lint's folder order. The message lists the names sorted as
+  Lint sorts them and adds the `android:inputType`/`android:capitalize` note when the case varies. The resource index
+  spans every module krit scans, which matches Lint on an app module that checks its dependencies.
+

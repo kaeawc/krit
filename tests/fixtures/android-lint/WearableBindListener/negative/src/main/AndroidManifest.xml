@@ -1,0 +1,17 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Filtered listeners replace BIND_LISTENER. -->
+        <service android:name=".DataLayerListenerService" android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
+                <data android:scheme="wear" android:host="*" android:pathPrefix="/sync" />
+            </intent-filter>
+        </service>
+        <!-- Lint only checks services. -->
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.BIND_LISTENER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

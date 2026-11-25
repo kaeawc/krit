@@ -1,0 +1,4 @@
+<resources>
+    <!-- Another locale is compared separately. -->
+    <string name="save">Save</string>
+</resources>

@@ -1,0 +1,7 @@
+<resources>
+    <string name="save">Save</string>
+    <!-- Untranslatable, marked-up and differently spaced strings are not compared. -->
+    <string name="save_id" translatable="false">Save</string>
+    <string name="save_bold"><b>Save</b></string>
+    <string name="save_spaced"> Save</string>
+</resources>

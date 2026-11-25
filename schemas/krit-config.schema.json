@@ -16542,6 +16542,39 @@
             }
           }
         },
+        "ModifierNodeInspectableProperties": {
+          "description": "Detects ModifierNodeElement classes that do not override inspectableProperties() for the layout inspector. [precision: ast-backed] [noisiness: normal]\nCaveat: A class whose superclass chain leaves the file before reaching ModifierNodeElement is not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ModifierNodeInspectableProperties (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ModifierParameter": {
           "description": "Detects Modifier parameters of @Composable functions that are not named modifier, typed Modifier, defaulted to Modifier, or the first optional parameter. [precision: ast-backed] [noisiness: normal]\nCaveat: Expression-bodied @Composable functions without a declared return type are only checked when the body is Unit or a same-file function call: otherwise their return type needs type inference.",
           "type": "object",
@@ -16707,6 +16740,72 @@
             }
           }
         },
+        "SuspiciousCompositionLocalModifierRead": {
+          "description": "Detects CompositionLocal reads in Modifier.Node onAttach/onDetach, constructors or lazy blocks. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SuspiciousCompositionLocalModifierRead (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SuspiciousModifierThen": {
+          "description": "Detects Modifier.then(factory()) where the factory chains on the implicit receiver, adding it twice. [precision: ast-backed] [noisiness: normal]\nCaveat: Only implicit-receiver factories declared in the same file or known Compose Modifier factories are recognized; calls inside a lambda in the then() argument are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SuspiciousModifierThen (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "TestManifestGradleConfiguration": {
           "description": "Detects androidx.compose.ui:ui-test-manifest declared on a configuration other than debugImplementation. [fixable: semantic] [precision: project-structure-aware] [noisiness: normal] [capabilities: gradle]\nCaveat: As in Lint, only a bare string coordinate is read: version-catalog accessors, platform(...), map notation and declarations with a configuration closure are not checked.",
           "type": "object",
@@ -16714,6 +16813,39 @@
           "properties": {
             "active": {
               "description": "Enable TestManifestGradleConfiguration (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "UnnecessaryComposedModifier": {
+          "description": "Detects Modifier.composed factories that call no @Composable function, which only adds cost. [precision: ast-backed] [noisiness: normal]\nCaveat: A factory that calls a function declared in another file (other than known Compose Modifier factories and Kotlin stdlib functions), reads `.current`, or reads a property of an object other than Modifier, Color, Alignment or Arrangement is assumed to call a @Composable function, so it is not reported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable UnnecessaryComposedModifier (default: true).",
               "type": "boolean",
               "default": true
             },

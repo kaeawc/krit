@@ -1,0 +1,1 @@
+p/CrossFile.kt:5:43: SuspiciousModifierThen: Using Modifier.then with a Modifier factory function with an implicit receiver # otherFactory() is declared in another file: proving it is a Modifier extension needs its resolved declaration (FIR)

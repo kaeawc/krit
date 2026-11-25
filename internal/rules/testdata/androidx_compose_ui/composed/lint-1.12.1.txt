@@ -1,0 +1,7 @@
+p/Composed.kt:14:41: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/Composed.kt:15:55: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/Composed.kt:26:42: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/Composed.kt:27:41: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/Composed.kt:28:40: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/Composed.kt:29:34: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed
+p/CrossFile.kt:6:44: UnnecessaryComposedModifier: Unnecessary use of Modifier.composed

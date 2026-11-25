@@ -107,6 +107,17 @@ class KritFirToolchainTest {
         assertEquals("", env(root).getValue("KRIT_FIR_JAR"))
     }
 
+    // The launcher and jar follow the task's own fir switch, not the extension's.
+    @Test
+    fun `a task that turns FIR on gets the toolchain`() {
+        val root = fixture("$explicitBinary\n    fir = false")
+        File(root, "build.gradle.kts").appendText(
+            "tasks.named<dev.jasonpearson.krit.gradle.KritCheckTask>(\"kritCheck\") { fir = true }\n"
+        )
+        run(root, "kritCheck")
+        assertTrue(env(root).getValue("JAVA_HOME") != marker, "the task runs FIR, so it gets the toolchain JDK")
+    }
+
     @Test
     fun `a pinned kritFir dependency is passed as KRIT_FIR_JAR and tracked by content`() {
         val root = fixture(explicitBinary)

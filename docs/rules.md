@@ -217,3 +217,19 @@ resolves past the subject to the enclosing class) is not reported.
   enclosing launch call has a receiver and `viewLifecycleOwner` appears, case-insensitively, in that receiver or any
   enclosing expression up to the method body. As in Lint, a mention anywhere in the method body (a comment included)
   passes.
+
+`androidx.compose.ui` 1.12.1 (`ui-graphics-android`, `ui-text-android`), Kotlin and Java:
+
+These Compose checks run on any file that imports the Compose API they check, since the import already proves the
+library is present; Compose Multiplatform code is checked too, although Lint does not run there.
+
+- `MissingColorAlphaChannel` and `InvalidColorHexValue` report the literal passed to a one-argument Compose
+  `Color(...)` (imported, star-imported, aliased or fully qualified, and not shadowed by a same-file `Color`). Lint
+  counts the digits after `0x` with `_` and `L` removed: 6 digits misses the alpha channel (the fix prepends `FF`, or
+  `ff` when the first letter digit is lowercase), 8 is valid, and any other count is invalid. Parenthesized,
+  negated or computed arguments are not literals and are skipped, as in Lint. Lint cannot resolve `Color(0x...u)`
+  (there is no `UInt` overload), so neither check reports it.
+- `InvalidLanguageTagDelimiter` reports a Compose `Locale` / `LocaleList` language tag containing `_`, at the
+  argument, in Kotlin and Java. Tags are evaluated from literals (raw strings included), `+` concatenation, parentheses
+  and same-file `val`s and constants; string templates are not constant, as in Lint. A constant declared in another
+  file is a known false negative. The fix rewrites a literal tag only.

@@ -1,0 +1,14 @@
+p/Alias.kt:5:29: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:10:34: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:11:53: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:15:26: InvalidColorHexValue: Invalid Color hex value
+p/Colors.kt:16:25: InvalidColorHexValue: Invalid Color hex value
+p/Colors.kt:17:25: InvalidColorHexValue: Invalid Color hex value
+p/Colors.kt:18:24: InvalidColorHexValue: Invalid Color hex value
+p/Colors.kt:27:23: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:5:21: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:6:26: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:7:32: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:8:32: MissingColorAlphaChannel: Missing Color alpha channel
+p/Colors.kt:9:25: MissingColorAlphaChannel: Missing Color alpha channel
+p/Star.kt:5:21: MissingColorAlphaChannel: Missing Color alpha channel

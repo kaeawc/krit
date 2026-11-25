@@ -216,6 +216,7 @@ class KritPlugin : Plugin<Project> {
     private fun registerModelExport(project: Project, extension: KritExtension) {
         var modelExported = false
         var warnIfAndroidAppliedLate = false
+        val variantSources = AndroidVariantSources(project)
         val exportModel = org.gradle.api.Action<Project> {
             if (modelExported) return@Action
             val kmp = project.plugins.hasPlugin(KOTLIN_MULTIPLATFORM_PLUGIN_ID)
@@ -244,7 +245,7 @@ class KritPlugin : Plugin<Project> {
                 project.logger.warn("krit: kritExportModel for ${project.path} is exporting zero Android source sets; " +
                     "check Android variant configuration and krit.androidVariant (requested '${extension.androidVariant.orNull ?: "debug"}')")
             }
-            registerProjectModel(project, extension, specs)
+            registerProjectModel(project, extension, specs, variantSources)
         }
         fun exportAfterEvaluateOrNow() {
             if (modelExported) {
@@ -265,7 +266,11 @@ class KritPlugin : Plugin<Project> {
         // modules) and dynamic-feature modules share AGP's CommonExtension shape and
         // export through the same Android path.
         ANDROID_PLUGIN_IDS.forEach { id ->
-            project.pluginManager.withPlugin(id) { exportAfterEvaluateOrNow() }
+            project.pluginManager.withPlugin(id) {
+                // onVariants callbacks must exist before AGP creates its variants.
+                variantSources.register()
+                exportAfterEvaluateOrNow()
+            }
         }
         // Android applied from an afterEvaluate is not supported: Android-only projects get the skipped Android model warning;
         // JVM and KMP projects keep their model and get the 'configured before Android' warning.
@@ -730,7 +735,9 @@ class KritPlugin : Plugin<Project> {
         }
     }
 
-    private fun registerProjectModel(project: Project, extension: KritExtension, specs: List<ModelSpec>) {
+    private fun registerProjectModel(
+        project: Project, extension: KritExtension, specs: List<ModelSpec>, variantSources: AndroidVariantSources,
+    ) {
         val path = project.path
         val fileName = if (path == ":") "_root" else path.removePrefix(":").replace(":", "__")
         val rootPath = modelPath(project.rootDir)
@@ -755,7 +762,15 @@ class KritPlugin : Plugin<Project> {
                 kind.set(spec.kind)
                 platform.set(spec.platform)
                 variant.set(spec.variant)
-                sourceDirs.set(spec.dirs)
+                // AGP's Variant API adds the generated roots (and any source directory a plugin
+                // registered); the export task files those under the build directory as
+                // generatedSourceDirs.
+                if (spec.platform == "android" && variantSources.has(spec.name)) {
+                    val declared = spec.dirs
+                    sourceDirs.set(variantSources.paths(spec.name).map { (declared + it).distinct().sorted() })
+                } else {
+                    sourceDirs.set(spec.dirs)
+                }
                 bootClasspath.set(spec.boot)
                 jvmTarget.set(jvmTarget(project, spec.compileTask, spec.kind))
                 kotlinPresent.set(project.tasks.names.contains(spec.compileTask))
@@ -801,12 +816,15 @@ class KritPlugin : Plugin<Project> {
                 val suffix = variant.replaceFirstChar(Char::uppercase)
                 listOf("generate${suffix}RFile", "process${suffix}Resources")
             }
-            val relevant = specs.map { it.name.lowercase() } +
-                variantNames.map { it.lowercase() } +
-                specs.mapNotNull { spec ->
+            // Source sets whose generated roots come from the Variant API need no KSP/kapt
+            // name matching; the rest (JVM, KMP, older AGP) keep it.
+            val byName = specs.filterNot { it.platform == "android" && variantSources.has(it.name) }
+            val relevant = byName.map { it.name.lowercase() } +
+                byName.filter { it.platform == "android" }.map { it.variant.lowercase() }.filter { it.isNotEmpty() } +
+                byName.mapNotNull { spec ->
                     Regex("^[a-z0-9]+(?=[A-Z])").find(spec.name)?.value?.lowercase()
                 } +
-                specs.filter { it.name == "main" }.map { "kotlin" }
+                byName.filter { it.name == "main" }.map { "kotlin" }
             val hasKsp = project.plugins.hasPlugin("com.google.devtools.ksp")
             val hasKapt = project.plugins.hasPlugin("org.jetbrains.kotlin.kapt") ||
                 project.plugins.hasPlugin("kotlin-kapt")
@@ -818,7 +836,16 @@ class KritPlugin : Plugin<Project> {
                         (lower.contains("kotlin") || lower.contains("generatestubs")) &&
                         relevant.any { lower.contains(it) })
             }
-            export.configure { dependsOn(generators) }
+            // Every Java/Kotlin root the Variant API reports carries its producer tasks (view
+            // binding, BuildConfig, SQLDelight, Wire, KSP, ...); depending on the roots runs them.
+            // Only the production component: a test component's KSP/kapt needs the tested
+            // classes, which would compile the project. Test roots are recorded, not produced.
+            val variantProducers = specs.filter { it.platform == "android" && it.kind == "main" && variantSources.has(it.name) }
+                .map { variantSources.producers(it.name) }
+            export.configure {
+                dependsOn(generators)
+                variantProducers.forEach { dependsOn(it) }
+            }
         }
         project.tasks.named("kritCheck") {
             dependsOn(extension.exportModel.map { enabled ->

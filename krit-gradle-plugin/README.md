@@ -166,9 +166,31 @@ krit {
 Set `exportModel = false` to run `kritCheck` without generating the model.
 The task can still be run explicitly.
 Set `fir = false` to pass `--no-fir` to `kritCheck` when FIR is unavailable.
-Set `exportGenerated = true` to depend on available Android source/resource generation
-and KSP/kapt stub tasks. This makes generated sources and R-class jars more likely
-to exist on disk after export, but makes model export slower.
+For Android source sets, `sourceDirs` and `generatedSourceDirs` come from AGP's Variant
+API (`variant.sources.java.all` and `variant.sources.kotlin.all`, AGP 8.0+). Those
+include every root a generator registered with the build, such as view binding and
+data binding, BuildConfig, AIDL, SQLDelight, Wire and KSP, so the model lists generated
+roots even before they exist.
+
+Set `exportGenerated = true` to also run the tasks that produce those roots, plus the
+Android R-class tasks and kapt stub tasks. Generated sources and R-class jars then exist
+on disk after export, without compiling the project; export takes longer.
+
+#### CI recipe: FIR on an unbuilt checkout
+
+With `exportGenerated = true` in the analyzed projects (for example
+`krit { exportGenerated = providers.environmentVariable("CI").isPresent }`):
+
+```bash
+./gradlew kritExportModel          # runs generators only; no compile tasks
+krit --fir -v . 2>&1 | grep -E 'FIR verdict|FIR gated'
+```
+
+The `FIR verdict` line counts authoritative and gated files, and each `FIR gated` line
+names a file's first compile error. An `Unresolved reference` to a generated package
+(`databinding`, a SQLDelight database package, `BuildConfig`) that remains means a
+generator that registers its output outside the Variant API, or one that writes Java
+sources, which the FIR check does not compile yet (#1626).
 
 ### `kritCheck`
 

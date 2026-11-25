@@ -273,6 +273,35 @@ class KritExportModelTest {
         assertEquals(emptyList<String>(), main["projectDeps"])
     }
 
+    // #1574: generated roots come from AGP's Variant API (variant.sources.java/kotlin.all), so the
+    // model records them, and exportGenerated runs their producers, whatever plugin registered them.
+    @Test
+    fun `Android Variant API generated roots are recorded and exportGenerated runs their producers`() {
+        val root = File(directory, "android-generated").also { it.mkdirs() }
+        File(root, "settings.gradle.kts").writeText("rootProject.name = \"android-generated\"\ninclude(\"app\")\n")
+        File(root, "build.gradle.kts").writeText("")
+        File(root, "app").mkdirs()
+        File(root, "app/android.jar").writeBytes(byteArrayOf())
+        val build = File(root, "app/build.gradle.kts")
+        build.writeText("plugins { id(\"com.android.library\"); id(\"dev.jasonpearson.krit\") }\n")
+        val generatedRoot = modelPath(File(root, "app/build/generated/source/fake/debug"))
+
+        val declared = runWithFakeAndroid(root, "kritExportModel", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        val main = sourceSets(File(root, ".krit/gradle-model/app.json")).single { it["kind"] == "main" }
+        assertEquals(listOf(generatedRoot), main["generatedSourceDirs"], main.toString())
+        assertTrue((main["sourceDirs"] as List<*>).any { it.toString().endsWith("app/src/main/java") }, main.toString())
+        assertEquals(null, declared.task(":app:generateDebugFakeSources"), "without exportGenerated no generator runs")
+        assertFalse(File(generatedRoot).exists())
+
+        build.appendText("krit { exportGenerated = true }\n")
+        val generated = runWithFakeAndroid(root, "kritExportModel", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, generated.task(":app:generateDebugFakeSources")?.outcome, generated.output)
+        assertTrue(File(generatedRoot, "com/example/Generated.kt").isFile)
+        val cached = runWithFakeAndroid(root, "kritExportModel", "-PfakeGeneratedSources", "-PdeferAndroidVariants", "--configuration-cache")
+        assertTrue(cached.output.contains("Reusing configuration cache."), cached.output)
+        assertEquals(TaskOutcome.UP_TO_DATE, cached.task(":app:generateDebugFakeSources")?.outcome, cached.output)
+    }
+
     @Test
     fun `Android applied inside afterEvaluate warns once instead of exporting silently`() {
         val root = File(directory, "android-late-application").also { it.mkdirs() }

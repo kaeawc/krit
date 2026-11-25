@@ -5,7 +5,13 @@ import java.util.List;
 import java.util.Set;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.Action;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.Directory;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
@@ -157,10 +163,55 @@ public class FakeAndroidPlugin implements Plugin<Project> {
         public Provider<List<RegularFile>> getBootClasspath() { return boot; }
     }
 
+    /** Mirrors VariantSelector in AGP 8.x/9.x. */
+    public static class Selector { public Selector all() { return this; } }
+
+    /** Mirrors SourceDirectories.Flat: getAll() is every root, generated ones with their producer tasks. */
+    public static class Directories {
+        private final Provider<List<Directory>> all;
+        public Directories(Provider<List<Directory>> all) { this.all = all; }
+        public Provider<List<Directory>> getAll() { return all; }
+    }
+    /** Mirrors com.android.build.api.variant.Sources (java and kotlin are nullable). */
+    public static class VariantSources {
+        private final Directories java;
+        private final Directories kotlin;
+        public VariantSources(Directories java, Directories kotlin) { this.java = java; this.kotlin = kotlin; }
+        public Directories getJava() { return java; }
+        public Directories getKotlin() { return kotlin; }
+    }
+    /** Mirrors a Variant or test Component: getName(), getSources(), and for variants getUnitTest(). */
+    public static class Component {
+        private final String name;
+        private final VariantSources sources;
+        private final Component unitTest;
+        public Component(String name, VariantSources sources, Component unitTest) {
+            this.name = name; this.sources = sources; this.unitTest = unitTest;
+        }
+        public String getName() { return name; }
+        public VariantSources getSources() { return sources; }
+        public Component getUnitTest() { return unitTest; }
+    }
+
+    /** A source generator registered the way SQLDelight, Wire or KSP register theirs: an output directory. */
+    public abstract static class FakeSourceGenerator extends DefaultTask {
+        @OutputDirectory public abstract DirectoryProperty getOutputDir();
+        @TaskAction public void generate() throws java.io.IOException {
+            File dir = new File(getOutputDir().get().getAsFile(), "com/example");
+            dir.mkdirs();
+            java.nio.file.Files.writeString(new File(dir, "Generated.kt").toPath(), "package com.example\nclass Generated\n");
+        }
+    }
+
     public static class Components {
         private final Sdk sdk;
+        private final List<Action<Object>> variantActions = new java.util.ArrayList<>();
         public Components(Project project) { sdk = new Sdk(project); }
         public Sdk getSdkComponents() { return sdk; }
+        // Mirrors AndroidComponentsExtension.selector() and onVariants(VariantSelector, Action) in AGP 8.x/9.x.
+        public Selector selector() { return new Selector(); }
+        public void onVariants(Selector selector, Action<Object> action) { variantActions.add(action); }
+        void runVariantActions(Object variant) { variantActions.forEach(action -> action.execute(variant)); }
         // Mirrors AndroidComponents.getPluginVersion().getMajor() in AGP 8.8.0-alpha09.
         public Version getPluginVersion() { return new Version(); }
     }
@@ -213,5 +264,24 @@ public class FakeAndroidPlugin implements Plugin<Project> {
         for (String name : List.of("generateDebugRFile", "processDebugResources"))
             project.getTasks().register(name);
         project.getTasks().register("compileDebugKotlin", CompileKotlin.class);
+        Object components = project.getExtensions().findByName("androidComponents");
+        if (project.hasProperty("fakeGeneratedSources") && components instanceof Components) {
+            TaskProvider<FakeSourceGenerator> generator = project.getTasks().register(
+                    "generateDebugFakeSources", FakeSourceGenerator.class,
+                    task -> task.getOutputDir().set(project.getLayout().getBuildDirectory().dir("generated/source/fake/debug")));
+            // Like AGP's providers, these capture directories, never the Project (configuration cache).
+            Directory mainJava = project.getLayout().getProjectDirectory().dir("src/main/java");
+            Directory mainKotlin = project.getLayout().getProjectDirectory().dir("src/main/kotlin");
+            // Shaped like AGP's flat source directories: a list property whose generated element is the
+            // producer's output property, readable as a location and carrying the task dependency.
+            ListProperty<Directory> main = project.getObjects().listProperty(Directory.class);
+            main.add(mainJava);
+            main.add(generator.flatMap(FakeSourceGenerator::getOutputDir));
+            Provider<List<Directory>> kotlin = project.provider(() -> List.of(mainKotlin));
+            Component unitTest = new Component("debugUnitTest", new VariantSources(null, null), null);
+            // AGP runs onVariants callbacks while it creates each variant.
+            ((Components) components).runVariantActions(
+                    new Component("debug", new VariantSources(new Directories(main), new Directories(kotlin)), unitTest));
+        }
     }
 }

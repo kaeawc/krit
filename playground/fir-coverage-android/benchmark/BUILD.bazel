@@ -7,6 +7,7 @@ kt_android_library(
     srcs = glob(["src/main/kotlin/**/*.kt"]),
     custom_package = "dev.krit.firsample.benchmark",
     manifest = "src/main/AndroidManifest.xml",
+    visibility = ["//visibility:public"],
     deps = [
         "//app:app_lib",
         "@maven//:androidx_test_core",

@@ -309,6 +309,11 @@ The daemon renders the JSON envelope, with its own duration and cache
 statistics, and the wire has no switch to drop them, so a `--reproducible`
 scan stays in-process.
 
+### `--report FORMAT=PATH`
+
+The daemon renders one report per request, so a scan writing several report
+files (#1578) stays in-process and renders all of them from one result set.
+
 ## Cache clears
 
 ### `--clear-cache` (now routed via daemon)

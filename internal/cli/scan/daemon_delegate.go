@@ -704,6 +704,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if *f.Reproducible {
 		return false
 	}
+	// The daemon renders a single report per request; several --report
+	// FORMAT=PATH files are written in-process from one result set.
+	if len(f.Reports) > 0 {
+		return false
+	}
 	// `--oracle-backend` is forwarded verbatim by buildDaemonAnalyzeArgs;
 	// the serve handler validates it, so it never forces in-process.
 	return true

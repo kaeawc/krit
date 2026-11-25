@@ -166,6 +166,24 @@ Set `fir: 'false'` to run with `--no-fir`.
 | JSON       | Custom processing (default) | `--format json` |
 | Plain      | Human-readable logs         | `--format plain` |
 
+### Several reports from one run
+
+`--report FORMAT=PATH`, repeated, writes one file per report from a single
+analysis run, so enabling SARIF and JSON does not scan twice:
+
+```bash
+krit --report sarif=build/krit.sarif --report json=build/krit.json src/
+```
+
+Every report renders the same final findings (after baseline, `--diff`,
+`--warnings-as-errors` and `--min-confidence`). Like `-o`, each file is staged
+next to its target and only replaces it once the run produced a complete
+report; a run that exits with code 2 leaves the previous files in place. With
+only `FORMAT=PATH` reports, stdout gets no report (the summary still goes to
+stderr); add `-f`/`--format` or `-o` to also write the usual output. A bare
+`--report FORMAT` keeps its old meaning, an alias for `-f`. Such scans run
+in-process rather than through the daemon.
+
 ### Finding paths
 
 Every format reports each finding's file path the same way, whatever form the

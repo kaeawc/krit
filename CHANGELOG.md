@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `--report FORMAT=PATH`, repeatable, writes several report formats (json, sarif, checkstyle, plain) from one analysis
+  run instead of one scan per format. Each file is published atomically like `-o`; with only such reports stdout gets
+  no report. A bare `--report FORMAT` is still an alias for `-f` (#1578).
 - `ProviderReadPermissionOnly`, `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch`, ported from Android Lint
   32.4.1's `ProviderPermissionDetector`, `UnsafeImplicitIntentDetector` and `UnsafeIntentLaunchDetector` under their
   Lint IDs, for Kotlin and Java, on the manifest-source scope. Each was checked against the Lint CLI on the same

@@ -47,6 +47,15 @@ All notable changes to Krit will be documented in this file.
   untranslatable, marked-up and empty strings, and reports Lint's message (sorted names, case-varies note) at the
   first definition. The resource index now records each `<string>`'s tag position, `translatable` value and whether it
   has child elements (resource cache version 21) (#1211, #1269).
+- `MutableImplicitPendingIntent`, ported from Android Lint 32.4.1's `PendingIntentMutableImplicitDetector` under its
+  Lint ID for Kotlin and Java, and checked against the Lint CLI on the same inputs. It reports
+  `PendingIntent.getActivity`/`getActivities`/`getBroadcast`/`getService` calls whose constant flags include
+  `FLAG_MUTABLE` but neither `FLAG_NO_CREATE` nor `FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT`, when the intent is proven
+  implicit: built with an implicit `Intent` constructor (including copies), with no `setPackage`, `setComponent`,
+  `setClass` or `setClassName` (or `package`/`component` property) applied in a call chain, an `apply`/`also` block, or
+  on a local variable before the call. Intents that reach other code first, and intents of unknown origin, are not
+  reported, as in Lint. Below targetSdk 23 nothing is reported; below 34 the finding is a warning about Android 14
+  (#1232).
 - `FragmentLiveDataObserve`, `FragmentBackPressedCallback`, `FragmentAddMenuProvider` and
   `UnsafeRepeatOnLifecycleDetector`, ported from the Lint checks bundled in `androidx.fragment` 1.9.1 for Kotlin and
   Java and checked against that AAR's `lint.jar` through the Lint CLI on the same sources. Like Lint, the first three

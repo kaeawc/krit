@@ -103,11 +103,12 @@ jobs:
           path: dist/
           retention-days: 3
 
-  # Gradle plugin path, on a clean checkout:
-  #  1. kritExportModel (with exportGenerated, so generators run) and then the
-  #     whole-build CLI scan the plugin README's CI recipe describes;
-  #  2. kritCheck in every project, with the configuration cache;
-  #  3. kritCheck again, which should reuse the configuration cache.
+  # Gradle plugin path, each from a clean checkout:
+  #  1. kritExportModel (with exportGenerated, so generators run), then the
+  #     whole-build CLI scan from the plugin README's CI recipe;
+  #  2. the root aggregate kritCheckAll, then again: configuration cache
+  #     reuse and an up-to-date task;
+  #  3. per-project kritCheck.
   gradle:
     needs: krit
     runs-on: ubuntu-latest
@@ -144,25 +145,42 @@ jobs:
           grep -E 'FIR verdict:|FIR gated|error' "$RUNNER_TEMP/fir/gradle-model-cli.log" || true
           python3 ci/fir_coverage.py measure gradle-model-cli "$RUNNER_TEMP/fir/gradle-model-cli.result.json" \
             "$RUNNER_TEMP/fir/gradle-model-cli.log"
-      - name: kritCheck (configuration cache)
+      # The CI entry point the plugin README recommends: one whole-build scan.
+      # --no-build-cache: a task restored from the build cache runs no krit.
+      - name: kritCheckAll (clean checkout, configuration cache)
         working-directory: ${{ env.SAMPLE }}
         run: |
-          rm -rf .krit build ./*/build
-          # --no-build-cache: a cached kritCheck would not run krit at all.
-          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
-            | tee "$RUNNER_TEMP/fir/kritcheck-gradle.log"
-          cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritcheck.log"
-          grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritcheck.log" || true
-          python3 ci/fir_coverage.py measure gradle-kritCheck "$RUNNER_TEMP/fir/gradle-kritCheck.result.json" \
-            "$RUNNER_TEMP/fir/gradle-kritcheck.log"
-      - name: kritCheck again (configuration cache reuse)
-        working-directory: ${{ env.SAMPLE }}
-        run: |
-          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
-            | tee "$RUNNER_TEMP/fir/kritcheck-gradle-rerun.log"
-          if grep -q 'Reusing configuration cache' "$RUNNER_TEMP/fir/kritcheck-gradle-rerun.log"; then reused=true; else reused=false; fi
-          echo "{\"name\": \"gradle-configuration-cache\", \"passed\": $reused}" > "$RUNNER_TEMP/fir/gradle-configuration-cache.check.json"
+          rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll.gradle.log"
+          cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
+          grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheckAll.log" || true
+          python3 ci/fir_coverage.py measure gradle-kritCheckAll "$RUNNER_TEMP/fir/gradle-kritCheckAll.result.json" \
+            "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
           cp -R .krit/gradle-model "$RUNNER_TEMP/fir/gradle-model"
+      # Nothing changed, so the second run must reuse the configuration cache
+      # and find kritCheckAll up to date (no krit process).
+      - name: kritCheckAll again (configuration cache reuse, up to date)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rm -f .krit-bin/kritcheck-*.log
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"
+          if grep -q 'Reusing configuration cache' "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"; then reused=true; else reused=false; fi
+          if compgen -G '.krit-bin/kritcheck-*.log' > /dev/null; then upToDate=false; else upToDate=true; fi
+          echo "{\"name\": \"gradle-configuration-cache\", \"passed\": $reused}" > "$RUNNER_TEMP/fir/gradle-configuration-cache.check.json"
+          echo "{\"name\": \"gradle-up-to-date\", \"passed\": $upToDate}" > "$RUNNER_TEMP/fir/gradle-up-to-date.check.json"
+      # Per-project kritCheck: one krit process per project.
+      - name: kritCheck (per project)
+        working-directory: ${{ env.SAMPLE }}
+        run: |
+          rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
+          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+            | tee "$RUNNER_TEMP/fir/gradle-kritCheck.gradle.log"
+          cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheck.log"
+          grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheck.log" || true
+          python3 ci/fir_coverage.py measure gradle-kritCheck "$RUNNER_TEMP/fir/gradle-kritCheck.result.json" \
+            "$RUNNER_TEMP/fir/gradle-kritCheck.log"
       - uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8 # v4.6.2
         if: always()
         with:

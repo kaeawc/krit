@@ -27,10 +27,16 @@ the same library versions.
 | Result | How |
 | --- | --- |
 | `gradle-model-cli` | `./gradlew kritExportModel`, then `krit --fir -v .` over the whole build: the plugin README's "FIR on an unbuilt checkout" recipe. |
-| `gradle-kritCheck` | `./gradlew kritCheck --configuration-cache` on a clean checkout. Each project's `kritCheck` scans that project; the krit binary is `ci/krit-verbose.sh`, which runs krit with `-v` to capture the `FIR verdict` line. |
+| `gradle-kritCheckAll` | `./gradlew kritCheckAll --configuration-cache` on a clean checkout: the root aggregate task, one krit scan of the whole build (#1580). |
+| `gradle-kritCheck` | `./gradlew kritCheck --configuration-cache` on a clean checkout: one krit scan per project. |
 | `bazel` | `bazel build //...` and `bazel test //:krit_test`. `krit_test` is Go-only today, so this reports no FIR runs until the FIR aspect lands (#1587). |
-| `gradle-configuration-cache` | A second `kritCheck` reuses the configuration cache. |
+| `gradle-configuration-cache` | A second `kritCheckAll` reuses the configuration cache. |
+| `gradle-up-to-date` | That second `kritCheckAll` is up to date: krit does not run. |
 | `bazel-action-cache` | A second `bazel build //...` runs no actions. |
+
+The Gradle runs use `ci/krit-verbose.sh` as the krit binary. The plugin runs
+krit with `-q`; the wrapper runs it with `-v` instead, to capture the `FIR verdict`
+line.
 
 `ci/fir_coverage.py` sums the verbose `FIR verdict` lines, writes the table to
 the job summary, and fails the `report` job when a result is below its entry

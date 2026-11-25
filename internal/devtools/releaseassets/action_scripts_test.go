@@ -198,7 +198,7 @@ exit %d
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(args), tc.wantArgsFrom) || !strings.Contains(string(args), "--base-path "+root) || !strings.HasSuffix(strings.TrimSpace(string(args)), "app lib") {
+			if !strings.Contains(string(args), tc.wantArgsFrom) || !strings.Contains(string(args), "--no-daemon") || !strings.Contains(string(args), "--base-path "+root) || !strings.HasSuffix(strings.TrimSpace(string(args)), "app lib") {
 				t.Fatalf("krit args = %q", args)
 			}
 		})

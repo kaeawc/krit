@@ -473,7 +473,9 @@ func kotlinAnimatorProperty(file *scanner.File, decl uint32, prop string, owner 
 		}
 		nameNode, _ = file.FlatFindChild(vd, "simple_identifier")
 	case "class_parameter":
-		if !perfHasToken(file, decl, "var") {
+		// The val/var keyword sits in a binding_pattern_kind child.
+		kind, ok := file.FlatFindChild(decl, "binding_pattern_kind")
+		if !ok || strings.TrimSpace(file.FlatNodeText(kind)) != "var" {
 			return animatorSetter{}, false
 		}
 		id, ok := file.FlatFindChild(decl, "simple_identifier")

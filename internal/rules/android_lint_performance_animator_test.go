@@ -104,3 +104,12 @@ func parseParityDirFiles(t *testing.T, dir string) []*scanner.File {
 	}
 	return files
 }
+
+// A constructor `var` compiles to a setter and is reported at its name, as the Lint 32.4.1 CLI does; a `val` has no
+// setter.
+func TestAnimatorKeep_ConstructorProperty(t *testing.T) {
+	got := animatorKeepFindings(t, filepath.Join("testdata", "android_lint_performance_animator", "ctor"), nil)
+	if want := []string{"Ctor.kt:7:35"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

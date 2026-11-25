@@ -119,15 +119,17 @@ class KritPlugin : Plugin<Project> {
                     }
                 )
             )
-            maxParallelUsages.set(1)
         }
 
         val advanced = extension.advanced
+        // With an explicit binary the tool version is not used, so it must not be an
+        // input: bumping the plugin would otherwise rerun every task.
+        val toolVersionInput = advanced.binary.map { "" }.orElse(advanced.toolVersion)
 
         // Wire task defaults for all KritCheckTask instances
         project.tasks.withType(KritCheckTask::class.java).configureEach {
             kritBinary.convention(advanced.binary)
-            toolVersion.convention(advanced.toolVersion)
+            toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
             allRules.convention(advanced.allRules)
@@ -153,7 +155,7 @@ class KritPlugin : Plugin<Project> {
         // Wire task defaults for all KritFormatTask instances
         project.tasks.withType(KritFormatTask::class.java).configureEach {
             kritBinary.convention(advanced.binary)
-            toolVersion.convention(advanced.toolVersion)
+            toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
             config.convention(extension.config)
@@ -166,7 +168,7 @@ class KritPlugin : Plugin<Project> {
         // Wire task defaults for all KritBaselineTask instances
         project.tasks.withType(KritBaselineTask::class.java).configureEach {
             kritBinary.convention(advanced.binary)
-            toolVersion.convention(advanced.toolVersion)
+            toolVersion.convention(toolVersionInput)
             this.binaryResolver.convention(binaryResolver)
             usesService(binaryResolver)
             config.convention(extension.config)

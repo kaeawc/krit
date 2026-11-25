@@ -45,7 +45,7 @@ abstract class KritBaselineTask @Inject constructor(
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val kritBinary: RegularFileProperty
 
-    /** The krit release resolved when [kritBinary] is absent. */
+    /** The krit release resolved when [kritBinary] is absent; empty when it is set. */
     @get:Input
     abstract val toolVersion: Property<String>
 

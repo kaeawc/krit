@@ -57,8 +57,11 @@ func TestJavaSupportFixtures_MixedAndroidApp(t *testing.T) {
 	if report.kotlinFindingsByRule()["UnusedVariable"] == 0 {
 		t.Fatalf("expected UnusedVariable to target Kotlin in mixed fixture; byRule=%v", report.Summary.ByRule)
 	}
-	if !report.hasPerfPath("ruleExecution/topRuleExecution/AddJavascriptInterface") {
-		t.Fatalf("expected AddJavascriptInterface perf rule path, got %v", report.perfPaths())
+	// The two WebView bridge rules share the receiver check; the timing list keeps only the slowest rules, so either
+	// one can be the one listed.
+	if !report.hasPerfPath("ruleExecution/topRuleExecution/AddJavascriptInterface") &&
+		!report.hasPerfPath("ruleExecution/topRuleExecution/JavascriptInterface") {
+		t.Fatalf("expected AddJavascriptInterface or JavascriptInterface perf rule path, got %v", report.perfPaths())
 	}
 }
 

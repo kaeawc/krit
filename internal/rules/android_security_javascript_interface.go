@@ -2,9 +2,9 @@ package rules
 
 // Security rule: AddJavascriptInterface. Detects
 // WebView.addJavascriptInterface() calls vulnerable to remote code
-// execution on older Android versions or missing the
-// @JavascriptInterface annotation on injected objects targeting
-// Android 17+.
+// execution on older Android versions. A bridge object without
+// @JavascriptInterface methods is Lint's separate JavascriptInterface
+// issue (android_lint_security_javascript.go).
 //
 // Extracted from android_security.go as part of the god-file split.
 // All helpers in this file are prefixed addJavascriptInterface* and
@@ -44,12 +44,6 @@ func (r *AddJavascriptInterfaceRule) check(ctx *api.Context) {
 	if sdk.minSdk < 17 {
 		f := r.Finding(file, line, col,
 			"`WebView.addJavascriptInterface` should not be called with minSdkVersion < 17 for security reasons: JavaScript can use reflection to manipulate application")
-		f.Confidence = confidence
-		ctx.Emit(f)
-	}
-	if bridge := addJavascriptInterfaceBridgeMissingAnnotation(file, ctx.Idx); sdk.targetSdk >= 17 && bridge != "" {
-		f := r.Finding(file, line, col,
-			"None of the methods in the added interface ("+bridge+") have been annotated with `@android.webkit.JavascriptInterface`; they will not be visible in API 17")
 		f.Confidence = confidence
 		ctx.Emit(f)
 	}
@@ -107,84 +101,6 @@ func addJavascriptInterfaceSDKContextForFile(file *scanner.File) addJavascriptIn
 		levels := androidproject.ResolveSDKLevels(file.Path)
 		return addJavascriptInterfaceSDKContext{minSdk: levels.MinSdk, targetSdk: levels.TargetSdk}
 	})
-}
-
-// addJavascriptInterfaceBridgeMissingAnnotation returns the name of the injected class when none of its methods carry
-// @JavascriptInterface, or "" otherwise.
-func addJavascriptInterfaceBridgeMissingAnnotation(file *scanner.File, call uint32) string {
-	_, args := flatCallExpressionParts(file, call)
-	if args == 0 {
-		return ""
-	}
-	arg := flatPositionalValueArgument(file, args, 0)
-	if arg == 0 {
-		arg = flatNamedValueArgument(file, args, "object")
-	}
-	if arg == 0 {
-		arg = flatNamedValueArgument(file, args, "obj")
-	}
-	expr := flatValueArgumentExpression(file, arg)
-	className := addJavascriptInterfaceConstructedClassName(file, expr)
-	if className == "" {
-		return ""
-	}
-	classDecl := addJavascriptInterfaceSameFileClass(file, className)
-	if classDecl != 0 && !addJavascriptInterfaceClassHasAnnotatedMethod(file, classDecl) {
-		return className
-	}
-	return ""
-}
-
-func addJavascriptInterfaceConstructedClassName(file *scanner.File, expr uint32) string {
-	if file == nil || expr == 0 {
-		return ""
-	}
-	expr = flatUnwrapParenExpr(file, expr)
-	if file.FlatType(expr) == "call_expression" {
-		if name := flatCallExpressionName(file, expr); name != "" {
-			return name
-		}
-	}
-	var name string
-	file.FlatWalkNodes(expr, "type_identifier", func(idx uint32) {
-		if name == "" {
-			name = file.FlatNodeText(idx)
-		}
-	})
-	return name
-}
-
-func addJavascriptInterfaceSameFileClass(file *scanner.File, name string) uint32 {
-	var classDecl uint32
-	file.FlatWalkNodes(0, "class_declaration", func(candidate uint32) {
-		if classDecl == 0 && extractIdentifierFlat(file, candidate) == name {
-			classDecl = candidate
-		}
-	})
-	return classDecl
-}
-
-func addJavascriptInterfaceClassHasAnnotatedMethod(file *scanner.File, classDecl uint32) bool {
-	found := false
-	file.FlatWalkNodes(classDecl, "function_declaration", func(fn uint32) {
-		if found {
-			return
-		}
-		owner, ok := flatEnclosingAncestor(file, fn, "class_declaration")
-		if ok && owner == classDecl && hasAnnotationNamed(file, fn, "JavascriptInterface") {
-			found = true
-		}
-	})
-	file.FlatWalkNodes(classDecl, "method_declaration", func(method uint32) {
-		if found {
-			return
-		}
-		owner, ok := flatEnclosingAncestor(file, method, "class_declaration")
-		if ok && owner == classDecl && strings.Contains(file.FlatNodeText(method), "@JavascriptInterface") {
-			found = true
-		}
-	})
-	return found
 }
 
 func addJavascriptInterfaceReceiverConfidence(ctx *api.Context, receiverExpr uint32) (float64, bool) {

@@ -17686,7 +17686,7 @@
           }
         },
         "NonObservableLocale": {
-          "description": "Detects Locale.getDefault()/LocaleList.getAdjustedDefault() in composition, which does not observe locale changes. [precision: ast-backed] [noisiness: normal]\nCaveat: Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions and let/run/apply/also/with/takeIf/takeUnless/repeat but not other stdlib inline lambdas such as forEach.",
+          "description": "Detects Locale.getDefault()/LocaleList.getAdjustedDefault() in composition, which does not observe locale changes. [precision: ast-backed] [noisiness: normal]\nCaveat: Composition is decided by the shared Compose runtime walk, which sees through same-file inline functions, the stdlib scope functions and forEach/forEachIndexed/find/sumOf, but sees through map, filter, fold and the other collection operations only when the receiver is proven to be an Iterable, Array or Map.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

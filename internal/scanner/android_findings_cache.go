@@ -42,6 +42,7 @@ const (
 	AndroidFindingsKindResourceSource       AndroidFindingsKind = "resource-source"
 	AndroidFindingsKindResourceSourceBundle AndroidFindingsKind = "resource-source-bundle"
 	AndroidFindingsKindProject              AndroidFindingsKind = "project"
+	AndroidFindingsKindManifestSource       AndroidFindingsKind = "manifest-source"
 )
 
 var (

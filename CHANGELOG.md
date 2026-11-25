@@ -13,6 +13,12 @@ All notable changes to Krit will be documented in this file.
   (#1443, #1444, #1445, #1449).
 
 ### Added
+- Rule scope `manifest-source` for checks that join Kotlin/Java source with `AndroidManifest.xml`. A rule declaring
+  `NeedsManifest` together with `NeedsParsedFiles` runs once per project in the Android phase. It sees every parsed
+  project manifest (`ctx.Manifests`) and every Kotlin and Java file (`ctx.ParsedFiles`), and may report into either.
+  Source findings honor `@Suppress`/`@SuppressLint`. Manifest findings honor `tools:ignore`. Results are cached on the
+  content of every manifest plus the whole source set, so editing either side reruns the rules on CLI, warm and daemon
+  runs.
 - `ComposableNaming`, `ComposableLambdaParameterNaming`, `ComposableLambdaParameterPosition` and
   `CompositionLocalNaming`, ported from the Lint checks in `androidx.compose.runtime:runtime-android` 1.12.1 under
   their Lint IDs and checked against the Lint CLI running that release's `lint.jar` on the same inputs

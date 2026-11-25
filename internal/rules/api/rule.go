@@ -215,6 +215,16 @@ const (
 	// ScopeGradle runs once per parsed Gradle build script; the rule
 	// receives ctx.GradleConfig.
 	ScopeGradle
+	// ScopeManifestSource joins Kotlin/Java source with the manifests. A
+	// rule lands here by declaring NeedsManifest together with
+	// NeedsParsedFiles. It runs once per project in the Android phase,
+	// after the manifest loop, and receives ctx.Manifests (every parsed
+	// project manifest) and ctx.ParsedFiles. It may report into source
+	// files or into manifests. Results are cached on every manifest's
+	// content plus the whole source set; on a cache miss the pass parses any
+	// source file the parse phase skipped as a findings-cache hit, so a miss
+	// can cost a parse of the whole project.
+	ScopeManifestSource
 )
 
 // String returns a human-readable label for the Scope, used in
@@ -245,6 +255,8 @@ func (s Scope) String() string {
 		return "icons"
 	case ScopeGradle:
 		return "gradle"
+	case ScopeManifestSource:
+		return "manifest-source"
 	default:
 		return "unset"
 	}
@@ -1060,6 +1072,10 @@ type Context struct {
 	// internal/manifest package, so v2 can import it without creating a
 	// cycle through internal/rules.
 	Manifest *manifest.Manifest
+
+	// Populated only for ScopeManifestSource rules (NeedsManifest together
+	// with NeedsParsedFiles): every parsed project manifest, sorted by path.
+	Manifests []*manifest.Manifest
 
 	// Populated only when the rule declares NeedsResources:
 	ResourceIndex *android.ResourceIndex

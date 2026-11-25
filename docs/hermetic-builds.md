@@ -81,8 +81,8 @@ Both flags take a comma-separated list. The groups are:
 
 The individual dispatcher scopes are also accepted: `per-file-node`,
 `per-file-all-nodes`, `line-pass`, `aggregate`, `cross-file`,
-`module-index`, `parsed-files`, `manifest`, `resource`, `resource-source`,
-`icons` and `gradle`. An unknown value exits with status 2. When both flags are
+`module-index`, `parsed-files`, `manifest`, `manifest-source`, `resource`,
+`resource-source`, `icons` and `gradle`. An unknown value exits with status 2. When both flags are
 set, `--only-scope` selects and `--exclude-scope` then removes. The two groups
 partition the rule set, so a `file` run and a `project` run over the same tree
 report the same findings as one unfiltered run.

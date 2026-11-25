@@ -40,6 +40,7 @@ var projectScopes = []api.Scope{
 	api.ScopeResourceSource,
 	api.ScopeIcons,
 	api.ScopeGradle,
+	api.ScopeManifestSource,
 }
 
 // ScopeSet is a set of dispatcher scopes. FilterByScope treats a nil set as

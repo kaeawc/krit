@@ -737,6 +737,11 @@ func TestRuleScope_DerivesFromNeedsAndNodeTypes(t *testing.T) {
 			want: api.ScopeManifest,
 		},
 		{
+			name: "manifest with parsed files joins source",
+			rule: &api.Rule{ID: "x", Description: "x", Needs: api.NeedsManifest | api.NeedsParsedFiles, Check: func(*api.Context) {}},
+			want: api.ScopeManifestSource,
+		},
+		{
 			name: "resource (xml)",
 			rule: &api.Rule{ID: "x", Description: "x", Needs: api.NeedsResources, Check: func(*api.Context) {}},
 			want: api.ScopeResource,

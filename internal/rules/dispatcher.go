@@ -104,6 +104,9 @@ type Dispatcher struct {
 	iconRules           []*api.Rule
 	gradleRules         []*api.Rule
 	aggregateRules      []*api.Rule
+	// manifestSourceRules join parsed source with every project manifest;
+	// the Android phase invokes them once per project via RunManifestSource.
+	manifestSourceRules []*api.Rule
 	// nodeDispatchRules are rules with non-empty NodeTypes. They live in
 	// flatTypeRules indexed by FlatNode.Type, but scanner.NodeTypeTable
 	// is populated lazily as files are parsed — so at construction time
@@ -183,6 +186,8 @@ func NewDispatcher(rules []*api.Rule, resolver typeinfer.TypeResolver) *Dispatch
 			d.moduleAwareRules = append(d.moduleAwareRules, r)
 		case api.ScopeManifest:
 			d.manifestRules = append(d.manifestRules, r)
+		case api.ScopeManifestSource:
+			d.manifestSourceRules = append(d.manifestSourceRules, r)
 		case api.ScopeResourceSource:
 			d.resourceSourceRules = append(d.resourceSourceRules, r)
 		case api.ScopeResource:
@@ -371,6 +376,8 @@ func RuleScope(r *api.Rule) api.Scope {
 		return api.ScopeCrossFile
 	case r.Needs.Has(api.NeedsModuleIndex):
 		return api.ScopeModuleIndex
+	case r.Needs.Has(api.NeedsManifest) && r.Needs.Has(api.NeedsParsedFiles):
+		return api.ScopeManifestSource
 	case r.Needs.Has(api.NeedsManifest):
 		return api.ScopeManifest
 	case isResourceBackedSourceRule(r):
@@ -875,7 +882,7 @@ func (d *Dispatcher) buildExcludedSet(filePath string) map[string]bool {
 // collectAllRules returns every rule the dispatcher knows about, used
 // when rebuilding the flat-type index after NodeTypeTable grows.
 func (d *Dispatcher) collectAllRules() []*api.Rule {
-	out := make([]*api.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules)+len(d.manifestRules)+len(d.resourceRules)+len(d.resourceSourceRules)+len(d.iconRules)+len(d.gradleRules)+len(d.aggregateRules))
+	out := make([]*api.Rule, 0, len(d.nodeDispatchRules)+len(d.allNodeRules)+len(d.lineRules)+len(d.crossFileRules)+len(d.moduleAwareRules)+len(d.manifestRules)+len(d.resourceRules)+len(d.resourceSourceRules)+len(d.iconRules)+len(d.gradleRules)+len(d.aggregateRules)+len(d.manifestSourceRules))
 	seen := make(map[*api.Rule]bool)
 	addAll := func(rs []*api.Rule) {
 		for _, r := range rs {
@@ -903,6 +910,7 @@ func (d *Dispatcher) collectAllRules() []*api.Rule {
 	addAll(d.iconRules)
 	addAll(d.gradleRules)
 	addAll(d.aggregateRules)
+	addAll(d.manifestSourceRules)
 	return out
 }
 
@@ -1010,6 +1018,10 @@ func (d *Dispatcher) GradleRules() []*api.Rule { return d.gradleRules }
 
 // ManifestRules returns the manifest rules stored on this dispatcher.
 func (d *Dispatcher) ManifestRules() []*api.Rule { return d.manifestRules }
+
+// ManifestSourceRules returns the rules that join parsed source with the
+// project's manifests. The Android phase invokes these via RunManifestSource.
+func (d *Dispatcher) ManifestSourceRules() []*api.Rule { return d.manifestSourceRules }
 
 // ResourceRules returns the resource rules stored on this dispatcher.
 func (d *Dispatcher) ResourceRules() []*api.Rule { return d.resourceRules }

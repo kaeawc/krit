@@ -119,6 +119,13 @@ All notable changes to Krit will be documented in this file.
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
   classes (#1382, #1383, #1405, #1406).
+- `slack-lint` gains `MoshiUsageDetector`'s constructor-property type checks for Kotlin: `MoshiUsageArray`,
+  `MoshiUsageMutableCollections`, `MoshiUsageNonMoshiClassCollection`, `MoshiUsageNonMoshiClassMap`,
+  `MoshiUsageNonMoshiClassPlatform`, `MoshiUsageEnumPropertyCouldBeMoshi` and `MoshiUsageEnumPropertyDefaultUnknown`.
+  Type arguments are checked where Kotlin passes them to Java without a wildcard, as Lint sees them; types that
+  cannot be classified from source (star imports, typealiases, unresolved annotations that may be qualifiers) are
+  skipped. This completes the `MoshiUsageDetector` port except for Slack's package-specific
+  `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
 - `UnsafeCast` no longer reports "Cast can never succeed" for casts that do

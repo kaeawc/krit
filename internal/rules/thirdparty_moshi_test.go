@@ -427,7 +427,10 @@ data class LambdaTypeNames(
 class NullDefault(val id: String, plain: String? = null)
 `,
 	})
-	want := []string{"Lambdas.kt:12:7: MoshiUsageUseData: Model classes should be immutable data classes."}
+	want := []string{
+		"Lambdas.kt:12:7: MoshiUsageUseData: Model classes should be immutable data classes.",
+		"Lambdas.kt:8:26: MoshiUsageNonMoshiClassPlatform: Platform type 'Function1' is not natively supported by Moshi.",
+	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got:\n  %s\nwant:\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
 	}
@@ -462,6 +465,76 @@ import dev.zacsweers.moshix.adapters.AdaptedBy
 data class Adapted(val a: Int)
 
 class FromLibrary : LibraryAdapterBase<Adapted>()
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// Property type checks are skipped where an adapter or qualifier owns the
+// type, and abstain where the type cannot be classified from source. Lint
+// 9.4.0 agrees except on two properties, where it reports "Platform type
+// 'Date'": unresolvedAnnotation (Lint cannot resolve the annotation either and
+// so does not treat it as a qualifier; krit abstains, a known false negative)
+// and adapted (Lint's UParameter no longer sees the property-targeted
+// @AdaptedBy, the divergence pinned in the AdaptedByRequiresAdapter fixture).
+func TestMoshiUsagePropertyTypeSkipsAndAbstains(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Model.kt": `package com.example
+
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonClass
+import com.squareup.moshi.JsonQualifier
+import com.example.library.*
+import dev.zacsweers.moshix.adapters.AdaptedBy
+import java.util.Date
+import androidx.annotation.Keep
+
+@JsonQualifier
+annotation class Epoch
+
+typealias Stamp = Date
+
+@JsonClass(generateAdapter = true)
+data class Model(
+  // A project JsonQualifier takes over the type.
+  @Epoch val qualified: Date,
+  // An annotation krit cannot resolve may be a library JsonQualifier.
+  @LibraryQualifier val unresolvedAnnotation: Date,
+  // A property adapter takes over the type.
+  @AdaptedBy(DateAdapter::class) val adapted: Date,
+  // A star-imported simple name may be any class.
+  val fromStar: LibraryType,
+  // A project typealias is not expanded.
+  val aliased: Stamp,
+)
+
+@Keep
+abstract class DateAdapter : JsonAdapter<Date>()
+`,
+	})
+	if len(got) != 0 {
+		t.Fatalf("expected no findings, got:\n  %s", strings.Join(got, "\n  "))
+	}
+}
+
+// @JvmSuppressWildcards / @JvmWildcard change which type arguments Kotlin
+// passes as wildcards; krit abstains on covariant arguments there. Lint
+// reports nothing on MapOfStringToArrayCodegen (from moshi's
+// KotlinJsonAdapterTest), where suppress = false forces the wildcard.
+func TestMoshiUsagePropertyTypeAbstainsUnderWildcardControl(t *testing.T) {
+	got := moshiFindingsForSources(t, map[string]string{
+		"Wildcards.kt": `package com.example
+
+import com.squareup.moshi.JsonClass
+
+@JsonClass(generateAdapter = true)
+@JvmSuppressWildcards(suppress = false)
+data class MapOfStringToArrayCodegen(val map: Map<String, Array<Int>> = mapOf())
+
+@JsonClass(generateAdapter = true)
+data class OnProperty(val list: List<@JvmWildcard Array<Int>>)
 `,
 	})
 	if len(got) != 0 {

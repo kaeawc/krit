@@ -1,0 +1,2 @@
+src/main/java/com/example/Defaults.kt:10:40: MoshiUsageEnumPropertyDefaultUnknown: Suspicious default value to 'UNKNOWN' for a Moshi enum.
+src/main/java/com/example/Defaults.kt:10:79: MoshiUsageEnumPropertyDefaultUnknown: Suspicious default value to 'UNKNOWN' for a Moshi enum.

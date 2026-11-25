@@ -1,0 +1,4 @@
+src/main/java/com/example/Concrete.kt:10:15: MoshiUsageNonMoshiClassCollection: Concrete Collection type 'LinkedList' is not natively supported by Moshi.
+src/main/java/com/example/Concrete.kt:11:15: MoshiUsageNonMoshiClassCollection: Concrete Collection type 'Names' is not natively supported by Moshi.
+src/main/java/com/example/Concrete.kt:8:13: MoshiUsageNonMoshiClassCollection: Concrete Collection type 'ArrayList' is not natively supported by Moshi.
+src/main/java/com/example/Concrete.kt:9:12: MoshiUsageNonMoshiClassCollection: Concrete Collection type 'LinkedHashSet' is not natively supported by Moshi.

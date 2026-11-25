@@ -538,6 +538,13 @@ func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
 		}
 	}
 	jsonNames := map[string]moshiMember{}
+	scope := moshiTypeScope{a: a, file: file, pkg: moshiFilePackage(file), class: c.node, typeParams: moshiTypeParamNames(file, c.node)}
+	if mods, ok := file.FlatFindChild(c.node, "modifiers"); ok && moshiMentionsWildcardControl(file.FlatNodeText(mods)) {
+		scope.wildcardsOverridden = true
+	}
+	if moshiMentionsWildcardControl(moshiFileAnnotationsText(file)) {
+		scope.wildcardsOverridden = true
+	}
 	for _, p := range moshiParams(file, c.primary) {
 		hasDefault := p.defaultVal != 0
 		for _, ann := range p.anns {
@@ -558,8 +565,15 @@ func (a *moshiAnalyzer) checkPrimaryConstructor(c moshiClass) {
 		if !moshiVisibilityAllowed(file, p.visibility) {
 			a.reportIssue("MoshiUsagePrivateConstructorProperty", file, p.visibility)
 		}
-		if adaptedBy := moshiFindAnnotation(file, p.anns, fqcnMoshixAdaptedBy); adaptedBy != nil {
+		adaptedBy := moshiFindAnnotation(file, p.anns, fqcnMoshixAdaptedBy)
+		if adaptedBy != nil {
 			a.validateAdaptedBy(file, c.node, *adaptedBy)
+		}
+		// An adapter or a JsonQualifier takes over the property's type.
+		if adaptedBy == nil && p.typeNode != 0 && !scope.moshiPropertyHasQualifier(p.anns) {
+			propScope := scope
+			propScope.wildcardsOverridden = scope.wildcardsOverridden || moshiMentionsWildcardControl(file.FlatNodeText(p.node))
+			propScope.checkPropertyType(p.typeNode, p.typeNode, p.defaultVal, false)
 		}
 		a.checkPropertyJSONName(file, p, jsonNames)
 	}

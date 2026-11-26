@@ -88,12 +88,15 @@ func jsonSafe(v any) any {
 // from build.gradle(.kts) / AndroidManifest.xml files that are not part of the
 // compilation, so editing a targetSdk changes verdicts without changing any
 // hashed source). Stat avoids
-// hashing the large fat jar. encoding/json sorts map keys, so the options
+// hashing the large fat jar, except within hashutil.RacyWindow of its mtime. encoding/json sorts map keys, so the options
 // encoding is deterministic regardless of map iteration order.
 func FirInvocationFingerprint(classpath []string, jarPath string, rules []string, ruleConfigs RuleConfigs, facts FileFacts, target ...CompileTarget) string {
 	jarIdentity := jarPath + ":" + buildid.JarToken(jarPath)
 	if info, err := os.Stat(jarPath); err == nil {
 		jarIdentity = fmt.Sprintf("%s:%d:%d:%s", jarPath, info.Size(), info.ModTime().UnixNano(), buildid.JarToken(jarPath))
+		if token := hashutil.RacyContentToken(jarPath, info); token != "" {
+			jarIdentity += ":" + token
+		}
 	}
 	ids := slices.Clone(rules)
 	slices.Sort(ids)

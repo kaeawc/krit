@@ -5,12 +5,14 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Memo memoizes file content hashes for the duration of a single run.
 // The cache is keyed by (path, size, mtime); a file whose stat fingerprint
-// changes is re-hashed on the next lookup. A Memo is safe for concurrent
-// use.
+// changes is re-hashed on the next lookup, and a file modified within
+// RacyWindow of the lookup is never memoized. A Memo is safe for
+// concurrent use.
 //
 // Memo is deliberately scoped to a single invocation — callers build one,
 // pass it to every subsystem that would otherwise hash the same file
@@ -43,10 +45,13 @@ func NewMemo() *Memo {
 // HashFile returns the lowercase hex digest of the file at path using
 // the active ContentHasher. The returned digest is memoized against the
 // file's (size, mtime); a later call for the same unchanged file hits
-// the cache. If provider is non-nil and a hash actually needs to be
-// computed, it is invoked to obtain the bytes instead of re-reading
-// from disk — useful for callers that already have the file content in
-// memory (e.g. the parse / cross-file caches).
+// the cache. A file whose mtime is within RacyWindow of the stat is
+// hashed on every call and never memoized, since a same-size rewrite in
+// the same timestamp tick would keep its stat. If provider is non-nil
+// and a hash actually needs to be computed, it is invoked to obtain the
+// bytes instead of re-reading from disk — useful for callers that
+// already have the file content in memory (e.g. the parse / cross-file
+// caches).
 //
 // A nil *Memo falls through to an unmemoized hash.
 func (m *Memo) HashFile(path string, provider func() ([]byte, error)) (string, error) {
@@ -60,49 +65,8 @@ func (m *Memo) HashFile(path string, provider func() ([]byte, error)) (string, e
 		}
 		return HashFile(path)
 	}
-
-	info, err := os.Stat(path)
-	var size, modNano int64
-	statOK := err == nil
-	if statOK {
-		size = info.Size()
-		modNano = info.ModTime().UnixNano()
-
-		m.mu.Lock()
-		if e, ok := m.entries[path]; ok && e.size == size && e.modNano == modNano && e.hex != "" {
-			m.mu.Unlock()
-			m.hits.Add(1)
-			return e.hex, nil
-		}
-		m.mu.Unlock()
-	}
-
-	m.misses.Add(1)
-
-	var raw [32]byte
-	var hx string
-	if provider != nil {
-		b, perr := provider()
-		if perr != nil {
-			return "", perr
-		}
-		raw = activeHasher.Sum(b)
-		hx = hex.EncodeToString(raw[:])
-	} else {
-		hx, err = HashFile(path)
-		if err != nil {
-			return "", err
-		}
-		b, _ := hex.DecodeString(hx)
-		copy(raw[:], b)
-	}
-
-	if statOK {
-		m.mu.Lock()
-		m.entries[path] = memoEntry{size: size, modNano: modNano, hex: hx, raw: raw}
-		m.mu.Unlock()
-	}
-	return hx, nil
+	e, err := m.hash(path, provider)
+	return e.hex, err
 }
 
 // HashFileRaw is like HashFile but returns the raw 32-byte digest.
@@ -119,54 +83,75 @@ func (m *Memo) HashFileRaw(path string, provider func() ([]byte, error)) ([32]by
 		if err != nil {
 			return [32]byte{}, err
 		}
-		var out [32]byte
-		b, _ := hex.DecodeString(hx)
-		copy(out[:], b)
-		return out, nil
+		return rawOf(hx), nil
 	}
+	e, err := m.hash(path, provider)
+	return e.raw, err
+}
 
-	info, err := os.Stat(path)
-	var size, modNano int64
-	statOK := err == nil
-	if statOK {
-		size = info.Size()
-		modNano = info.ModTime().UnixNano()
-
-		m.mu.Lock()
-		if e, ok := m.entries[path]; ok && e.size == size && e.modNano == modNano && e.hex != "" {
-			m.mu.Unlock()
-			m.hits.Add(1)
-			return e.raw, nil
-		}
-		m.mu.Unlock()
+// hash serves HashFile and HashFileRaw for a non-nil Memo.
+func (m *Memo) hash(path string, provider func() ([]byte, error)) (memoEntry, error) {
+	key, memoizable := m.statKey(path)
+	if e, ok := m.lookup(path, key, memoizable); ok {
+		return e, nil
 	}
-
 	m.misses.Add(1)
 
-	var raw [32]byte
-	var hx string
+	var e memoEntry
 	if provider != nil {
-		b, perr := provider()
-		if perr != nil {
-			return [32]byte{}, perr
-		}
-		raw = activeHasher.Sum(b)
-		hx = hex.EncodeToString(raw[:])
-	} else {
-		hx, err = HashFile(path)
+		b, err := provider()
 		if err != nil {
-			return [32]byte{}, err
+			return memoEntry{}, err
 		}
-		b, _ := hex.DecodeString(hx)
-		copy(raw[:], b)
+		e.raw = activeHasher.Sum(b)
+		e.hex = hex.EncodeToString(e.raw[:])
+	} else {
+		hx, err := HashFile(path)
+		if err != nil {
+			return memoEntry{}, err
+		}
+		e.hex, e.raw = hx, rawOf(hx)
 	}
+	m.store(path, key, memoizable, e)
+	return e, nil
+}
 
-	if statOK {
-		m.mu.Lock()
-		m.entries[path] = memoEntry{size: size, modNano: modNano, hex: hx, raw: raw}
-		m.mu.Unlock()
+// statKey stats path and reports whether a memo entry may be served or
+// stored for it: the stat must succeed and be old enough to prove the
+// content (see StatTrusted).
+func (m *Memo) statKey(path string) (memoEntry, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return memoEntry{}, false
 	}
-	return raw, nil
+	key := memoEntry{size: info.Size(), modNano: info.ModTime().UnixNano()}
+	return key, StatTrusted(info.ModTime(), time.Now())
+}
+
+// lookup returns the memoized digest for path when its entry matches key.
+func (m *Memo) lookup(path string, key memoEntry, memoizable bool) (memoEntry, bool) {
+	if !memoizable {
+		return memoEntry{}, false
+	}
+	m.mu.Lock()
+	e, ok := m.entries[path]
+	m.mu.Unlock()
+	if !ok || e.size != key.size || e.modNano != key.modNano || e.hex == "" {
+		return memoEntry{}, false
+	}
+	m.hits.Add(1)
+	return e, true
+}
+
+// store memoizes digest e for path under key, unless key cannot prove the content.
+func (m *Memo) store(path string, key memoEntry, memoizable bool, e memoEntry) {
+	if !memoizable {
+		return
+	}
+	e.size, e.modNano = key.size, key.modNano
+	m.mu.Lock()
+	m.entries[path] = e
+	m.mu.Unlock()
 }
 
 // HashContent returns the hex digest of content under the active
@@ -179,36 +164,17 @@ func (m *Memo) HashContent(path string, content []byte) string {
 	if m == nil || path == "" {
 		return HashHex(content)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return HashHex(content)
-	}
-	size := info.Size()
-	modNano := info.ModTime().UnixNano()
-
-	// Stat-first lookup: a hit returns the prior hex without ever
-	// re-hashing the content. On a large repo that turns
-	// resolverFingerprint's per-file SHA-256 into a per-file stat
-	// (10x cheaper). Mismatch granularity is bounded by mtime — fsnotify
-	// edits flip mtime, so a stale entry can only survive content-only
-	// rewrites that don't touch mtime (rare; same risk class as parse
-	// cache).
-	m.mu.Lock()
-	if e, ok := m.entries[path]; ok && e.size == size && e.modNano == modNano && e.hex != "" {
-		m.mu.Unlock()
-		m.hits.Add(1)
+	key, memoizable := m.statKey(path)
+	if e, ok := m.lookup(path, key, memoizable); ok {
+		// Stat-first lookup: a hit returns the prior hex without ever
+		// re-hashing the content. On a large repo that turns
+		// resolverFingerprint's per-file SHA-256 into a per-file stat
+		// (10x cheaper). Only stats older than RacyWindow are memoized,
+		// so a same-size rewrite inside one mtime tick is re-hashed.
 		return e.hex
 	}
-	m.mu.Unlock()
-
 	hx := HashHex(content)
-	var raw [32]byte
-	b, _ := hex.DecodeString(hx)
-	copy(raw[:], b)
-
-	m.mu.Lock()
-	m.entries[path] = memoEntry{size: size, modNano: modNano, hex: hx, raw: raw}
-	m.mu.Unlock()
+	m.store(path, key, memoizable, memoEntry{hex: hx, raw: rawOf(hx)})
 	m.misses.Add(1)
 	return hx
 }

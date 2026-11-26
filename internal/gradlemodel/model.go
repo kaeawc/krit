@@ -367,7 +367,9 @@ func (m *Model) Fingerprint() string {
 	return ClasspathFingerprint(entries)
 }
 
-// ClasspathFingerprint hashes paths, sizes, and modification times in order.
+// ClasspathFingerprint hashes paths, sizes, and modification times in order,
+// plus the content hash of a file modified too recently for its stat to
+// identify it (hashutil.RacyContentToken).
 // Missing paths retain a marker so removing an existing entry changes the key.
 // Directory entries are only stat'd at the top level and relative entries
 // resolve against the working directory; both can only cause a miss, never a
@@ -381,6 +383,10 @@ func ClasspathFingerprint(entries []string) string {
 			b.WriteString(strconv.FormatInt(info.Size(), 10))
 			b.WriteByte(0)
 			b.WriteString(strconv.FormatInt(info.ModTime().UnixNano(), 10))
+			if token := hashutil.RacyContentToken(entry, info); token != "" {
+				b.WriteByte(0)
+				b.WriteString(token)
+			}
 		} else {
 			b.WriteString("missing")
 		}

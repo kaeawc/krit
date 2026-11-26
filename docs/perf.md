@@ -313,6 +313,17 @@ none of which change the layout's own hash. The Android phase hashes the
 module SDK levels and the RTL main-project facts into its rule hash, and the
 per-file analysis cache adds the SDK levels and the Gradle library facts.
 
+Some keys identify a file by its size and modification time instead of its
+content (classpath and `krit-fir` jars, the per-file analysis cache's fast path,
+directory listings, the in-process hash memo). Filesystems stamp mtimes from a
+coarse clock (4 ms on ext4, a second on HFS+, 2 s on FAT), so a same-size
+rewrite in the same tick keeps the stat. Krit applies git's racy-clean rule
+with a 2 s window (`hashutil.RacyWindow`): a stat whose mtime is not at least
+2 s older than the moment it was taken is never trusted on its own. Such a
+file is keyed by its content hash as well, or its cache entry is recorded with
+an mtime no file has, so the next run checks the content. Files older than the
+window keep their stat-only keys, so warm runs do not hash them.
+
 If a scan with the default cache disagrees with `--no-cache`, that is a bug in
 a key: run `krit --clear-cache` to recover, then report which cache held the
 stale data (move cache directories aside one at a time to find it).

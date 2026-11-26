@@ -40,7 +40,9 @@ func CompilationSources(sourceDirs []string) []string {
 
 // CompilationFingerprint identifies the inputs a whole-compilation backend's
 // facts depend on: every source path with its content hash, and each
-// classpath entry and the backend jar by path, size, and modification time.
+// classpath entry and the backend jar by path, size, and modification time
+// (and content, while that mtime is too recent to trust; see
+// hashutil.RacyContentToken).
 // Adding, deleting, or editing a source, or changing the classpath or the jar,
 // changes the fingerprint. An unreadable source contributes a marker rather
 // than failing, the same way classification skips it, so one bad file cannot
@@ -67,6 +69,10 @@ func CompilationFingerprint(sources, classpath []string, jarPath string) string 
 			_, _ = h.Write([]byte(strconv.FormatInt(fi.Size(), 10)))
 			_, _ = h.Write([]byte{0})
 			_, _ = h.Write([]byte(strconv.FormatInt(fi.ModTime().UnixNano(), 10)))
+			if token := hashutil.RacyContentToken(entry, fi); token != "" {
+				_, _ = h.Write([]byte{0})
+				_, _ = h.Write([]byte(token))
+			}
 		}
 		_, _ = h.Write([]byte{0})
 	}

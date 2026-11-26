@@ -23,6 +23,7 @@ import (
 	"github.com/kaeawc/krit/internal/firchecks"
 	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/jvmaot"
 	"github.com/kaeawc/krit/internal/oracle"
 	"github.com/kaeawc/krit/internal/sysres"
@@ -573,7 +574,8 @@ func merge(in Input, units []Unit, keys []string) (map[string]bool, error) {
 	return covered, os.Rename(tmp, in.OutputPath)
 }
 
-// identities memoizes file identities (size and modification time) across many units.
+// identities memoizes file identities (size and modification time, plus the content hash when the
+// mtime is too recent to vouch for the content; see hashutil.RacyContentToken) across many units.
 type identities struct {
 	mu   sync.Mutex
 	seen map[string]string
@@ -593,6 +595,9 @@ func (c *identities) of(path string) string {
 			v = dirIdentity(path)
 		} else {
 			v = fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())
+			if token := hashutil.RacyContentToken(path, info); token != "" {
+				v += "|" + token
+			}
 		}
 	}
 	c.seen[path] = v
@@ -614,13 +619,18 @@ func dirIdentity(root string) string {
 	return fmt.Sprintf("%s|dir|%x", root, h.Sum(nil)[:12])
 }
 
-// hashDirEntry writes the relative path, size and modification time of d to h, skipping it when its info is unreadable.
+// hashDirEntry writes the relative path, size and modification time of d to h (and its content
+// hash when the mtime is racy), skipping it when its info is unreadable.
 func hashDirEntry(h io.Writer, root, p string, d fs.DirEntry) {
 	info, err := d.Info()
 	if err != nil {
 		return
 	}
 	rel, _ := filepath.Rel(root, p)
+	if token := hashutil.RacyContentToken(p, info); token != "" {
+		fmt.Fprintf(h, "%s|%d|%d|%s;", rel, info.Size(), info.ModTime().UnixNano(), token)
+		return
+	}
 	fmt.Fprintf(h, "%s|%d|%d;", rel, info.Size(), info.ModTime().UnixNano())
 }
 

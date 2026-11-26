@@ -425,9 +425,9 @@ func newBaselineIDs(basePath string) *baselineIDs {
 
 func (b *baselineIDs) id(file, rule, message, signature string) string {
 	if signature == "" {
-		signature = fmt.Sprintf("$%s$%s", rule, message)
+		signature = "$" + rule + "$" + message
 	}
-	return fmt.Sprintf("%s:%s:%s", rule, b.fileName(file), signature)
+	return rule + ":" + b.fileName(file) + ":" + signature
 }
 
 // fileName is file's path relative to the base, or its base name when no

@@ -185,6 +185,8 @@ type File struct {
 	// callNames is the call-expression name memo published by the rule
 	// dispatcher while it runs this file. See CallNameMemo.
 	callNames atomic.Pointer[CallNameMemo]
+	// passMemo holds rule facts for the dispatch pass running this file. See PassMemo.
+	passMemo atomic.Pointer[PassMemo]
 }
 
 // LineOffsets returns the byte offset of each line start, computed lazily

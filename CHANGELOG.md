@@ -434,6 +434,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
+  for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
+  element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

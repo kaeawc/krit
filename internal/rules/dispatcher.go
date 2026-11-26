@@ -573,6 +573,9 @@ func (d *Dispatcher) RunColumnsWithStats(file *scanner.File) (scanner.FindingCol
 			file.SetCallNameMemo(memo)
 			defer file.SetCallNameMemo(nil)
 		}
+		// Facts helpers such as lintCallAt derive per node, shared by this pass's rules.
+		file.SetPassMemo(scanner.NewPassMemo())
+		defer file.SetPassMemo(nil)
 		if len(d.allNodeRules) == 0 {
 			// Posting-list path.
 			//

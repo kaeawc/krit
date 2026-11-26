@@ -18,6 +18,8 @@ import org.jetbrains.kotlin.fir.types.canBeNull
 @OptIn(UnresolvedExpressionTypeAccess::class)
 context(context: CheckerContext)
 fun FirExpression.isDefinitelyNonNullOperand(): Boolean {
+    // A local inferred non-null through another module's property is nullable in that module's own build (#1672).
+    if (reliesOnCrossModuleSmartCast()) return false
     val operand = nonNullEvidenceOperand()
     val type = operand.coneTypeOrNull ?: return false
     return type !is ConeFlexibleType && !operand.hasErrorType() && !type.canBeNull(context.session)

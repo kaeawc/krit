@@ -142,7 +142,7 @@ func composeLintsLocation(line string) string {
 	return line
 }
 
-// applyComposeLintsOptions applies the string-list options in a case's krit-options.txt to the registered rules and
+// applyComposeLintsOptions applies the string and string-list options in a case's krit-options.txt to the registered rules and
 // resets them to empty lists when the test ends.
 func applyComposeLintsOptions(t *testing.T, dir string) {
 	t.Helper()
@@ -180,12 +180,17 @@ func applyComposeLintsOptions(t *testing.T, dir string) {
 	})
 }
 
-// composeLintsOptions is an api.ConfigSource holding `RuleID.option` string lists.
+// composeLintsOptions is an api.ConfigSource holding `RuleID.option` values; a string option reads the first.
 type composeLintsOptions map[string][]string
 
-func (c composeLintsOptions) GetInt(_, _, _ string, def int) int         { return def }
-func (c composeLintsOptions) GetBool(_, _, _ string, def bool) bool      { return def }
-func (c composeLintsOptions) GetString(_, _, _, def string) string       { return def }
+func (c composeLintsOptions) GetInt(_, _, _ string, def int) int    { return def }
+func (c composeLintsOptions) GetBool(_, _, _ string, def bool) bool { return def }
+func (c composeLintsOptions) GetString(_, rule, key, def string) string {
+	if v := c[rule+"."+key]; len(v) > 0 {
+		return v[0]
+	}
+	return def
+}
 func (c composeLintsOptions) IsRuleActive(_, _ string) *bool             { return nil }
 func (c composeLintsOptions) IsRuleSetActive(_ string) *bool             { return nil }
 func (c composeLintsOptions) GetStringList(_, rule, key string) []string { return c[rule+"."+key] }

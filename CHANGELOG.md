@@ -35,11 +35,6 @@ All notable changes to Krit will be documented in this file.
   `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
   longer recognizes (#1505, #1506, #1507).
 
-- `CastingViewContextToActivity`, `ArgInFormattedQuantityStringRes` and `SpanMarkPointMissingMask`, slack-lints 0.11.1's
-  Android source checks, in the opt-in `slack-lint` rule set for Kotlin and Java. Findings match the Lint CLI with
-  `android.jar` on the classpath (`internal/rules/testdata/slack_lint/android_ui/`), except that a mask inside
-  parentheses, `(flags & Spanned.SPAN_POINT_MARK_MASK) == ...` (the only form Java allows), is not reported
-  (#1356, #1357, #1424).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

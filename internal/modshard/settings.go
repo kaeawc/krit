@@ -221,12 +221,16 @@ func SettingsSplitter(scanPaths []string, modelDir string, modelDisabled, noCach
 		return nil
 	}
 	scanPaths = append([]string(nil), scanPaths...)
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
 	return func(ctx context.Context, jarPath string, _ []string, request []byte) ([]byte, []string, error) {
 		if jarPath == "" {
 			return nil, nil, nil
 		}
 		javaPath, err := oracle.JavaPath()
 		if err != nil {
+			logf("verbose: FIR settings: not split: %v\n", err)
 			return nil, nil, nil
 		}
 		var cacheDir string
@@ -238,6 +242,7 @@ func SettingsSplitter(scanPaths []string, modelDir string, modelDisabled, noCach
 		} else {
 			repoDir := oracle.FindRepoDir(scanPaths)
 			if repoDir == "" {
+				logf("verbose: FIR settings: not split: no project root above the scan paths for the cache\n")
 				return nil, nil, nil
 			}
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), "module-facts", "settings-groups")
@@ -275,8 +280,9 @@ func CheckSettingsGroups(ctx context.Context, in Input) ([]byte, []string, Split
 	if check == nil {
 		return nil, nil, split, nil
 	}
-	model, repoRoot := isolationModel(in)
+	model, repoRoot, reason := isolationModel(in)
 	if model == nil {
+		logf("verbose: FIR settings: not split: %s\n", reason)
 		return nil, nil, split, nil
 	}
 	units, split := planSettingsSessions(in, model, repoRoot, check, logf)
@@ -321,9 +327,14 @@ func planSettingsSessions(in Input, model *gradlemodel.Model, repoRoot string, c
 	}
 	all, _ := Plan(model, repoRoot, in.ScanPaths, in.ProjectOutputs)
 	addUserClasspath(all, model, check.classpath)
+	if len(all) == 0 {
+		logf("verbose: FIR settings: not split: no Gradle source set under the scan paths %s\n", strings.Join(in.ScanPaths, ", "))
+		return nil, split
+	}
 	groups, left := groupBySettings(all)
 	split.Groups = len(groups)
 	if len(groups) == 0 {
+		logf("verbose: FIR settings: 1 session (every scanned source set is multiplatform or context-limited)\n")
 		return nil, split
 	}
 	// Even one scanned group can differ from the merged session, whose

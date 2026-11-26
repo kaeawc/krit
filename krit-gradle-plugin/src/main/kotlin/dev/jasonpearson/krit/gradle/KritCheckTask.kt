@@ -240,26 +240,21 @@ abstract class KritCheckTask @Inject constructor(
         // Ensure parent directories exist for all report files
         enabledReports.forEach { (_, file) -> file.parentFile.mkdirs() }
 
-        // One krit run writes every report (--report FORMAT=PATH, #1578). Custom rules
-        // need the krit daemon, which renders one report per request, so with custom
-        // rule jars each report keeps its own run.
-        val batches = if (customRuleJars.isEmpty) listOf(enabledReports) else enabledReports.map { listOf(it) }
-        var exitValue = 0
-        batches.forEach { reports ->
-            val batchExit = runReports(reports, logger) { batch ->
-                val stderr = ByteArrayOutputStream()
-                val result = withFirDaemonSlot(firDaemonPool) { slot ->
-                    execOps.exec {
-                        executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
-                        args(scanArgs(batch))
-                        kritFirEnvironment(firJar, javaLauncher, slot, firMaxHeap)
-                        errorOutput = stderr
-                        isIgnoreExitValue = true
-                    }
+        // One krit run writes every report (--report FORMAT=PATH, #1578), custom rules
+        // included: krit runs a --report scan in-process, where the custom-rule JVM is
+        // started for the run (#1634).
+        val exitValue = runReports(enabledReports, logger) { batch ->
+            val stderr = ByteArrayOutputStream()
+            val result = withFirDaemonSlot(firDaemonPool) { slot ->
+                execOps.exec {
+                    executable = resolveKritExecutable(kritBinary, binaryResolver, toolVersion)
+                    args(scanArgs(batch))
+                    kritFirEnvironment(firJar, javaLauncher, slot, firMaxHeap)
+                    errorOutput = stderr
+                    isIgnoreExitValue = true
                 }
-                result.exitValue to stderr.toString()
             }
-            if (exitValue == 0) exitValue = batchExit
+            result.exitValue to stderr.toString()
         }
 
         if (exitValue != 0 && !ignoreFailures.get()) {

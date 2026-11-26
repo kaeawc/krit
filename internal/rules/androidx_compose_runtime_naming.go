@@ -1,17 +1,25 @@
 package rules
 
 import (
+	"regexp"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
 // ComposableNamingRule ports runtime-lint's ComposableNaming: a @Composable function that returns Unit should
-// start with an uppercase letter, and one that returns a value should start with a lowercase letter.
+// start with an uppercase letter, and one that returns a value should start with a lowercase letter. compose-lints'
+// ComposeNamingUppercase and ComposeNamingLowercase report the same casing, one direction each, so
+// @Suppress/@SuppressLint of either ID silences the findings of its direction (see composeNamingSuppressed). They are
+// not general aliases: a lint.xml that ignores a compose-lints ID leaves this AndroidX check on, as in Lint.
 type ComposableNamingRule struct {
 	FlatDispatchBase
 	BaseRule
+	// AllowedNames are anchored patterns for function names the rule never reports (compose-lints'
+	// `allowed-composable-function-names` option).
+	AllowedNames []*regexp.Regexp
 }
 
 // ComposableLambdaParameterNamingRule ports runtime-lint's ComposableLambdaParameterNaming: the only composable
@@ -58,6 +66,22 @@ func (r *ComposableNamingRule) Meta() api.RuleDescriptor {
 		KnownLimitations: []string{
 			"Expression-bodied functions without a declared return type are skipped: their return type needs type inference.",
 			"Only Kotlin declarations are checked.",
+			"Under the compose-lints aliases, krit also reports a lowercase Unit composable with a receiver (ComposeNamingUppercase exempts it) and casing on expression-bodied functions with a provable return type (compose-lints skips every expression body), and it skips overrides, which compose-lints reports.",
+		},
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposableNamingRule]{
+				Name: "allowedComposableFunctionNames",
+				Description: "Regexes matched against the whole function name; matching composables are not reported " +
+					"(compose-lints `allowed-composable-function-names`).",
+				Apply: func(r *ComposableNamingRule, v []string) {
+					r.AllowedNames = r.AllowedNames[:0]
+					for _, p := range v {
+						if re := api.CompileAnchoredPattern(r.RuleName, "allowedComposableFunctionNames", p); re != nil {
+							r.AllowedNames = append(r.AllowedNames, re)
+						}
+					}
+				},
+			}),
 		}}
 }
 
@@ -116,20 +140,38 @@ func (r *ComposableNamingRule) check(ctx *api.Context) {
 		return
 	}
 	name := strings.Trim(file.FlatNodeText(nameNode), "`")
-	if name == "" {
+	if name == "" || r.nameAllowed(name) {
 		return
 	}
 	upper := acrFirstRuneIsUpper(name)
 	switch acrFunctionReturnKind(file, fn) {
 	case acrReturnUnit:
-		if !upper {
+		if !upper && !composeNamingSuppressed(file, nameNode, "ComposeNamingUppercase") {
 			ctx.EmitAtNode(nameNode, "Composable functions that return Unit should start with an uppercase letter")
 		}
 	case acrReturnValue:
-		if upper {
+		if upper && !composeNamingSuppressed(file, nameNode, "ComposeNamingLowercase") {
 			ctx.EmitAtNode(nameNode, "Composable functions with a return type should start with a lowercase letter")
 		}
 	}
+}
+
+// slotComposeNamingSuppressions caches a file's @Suppress/@SuppressLint index for composeNamingSuppressed.
+const slotComposeNamingSuppressions = "composeNamingSuppressions"
+
+// composeNamingSuppressed reports whether an @Suppress or @SuppressLint covering node names the compose-lints issue
+// for this casing direction.
+func composeNamingSuppressed(file *scanner.File, node uint32, lintID string) bool {
+	var idx *scanner.SuppressionIndex
+	if file.Suppression != nil {
+		idx = file.Suppression.Annotations()
+	}
+	if idx == nil {
+		idx = filefacts.FileFact(fileFactsCache(), file, slotComposeNamingSuppressions, func() *scanner.SuppressionIndex {
+			return scanner.BuildSuppressionIndexFlat(file.FlatTree, file.Content)
+		})
+	}
+	return idx != nil && idx.IsSuppressed(int(file.FlatStartByte(node)), lintID, "")
 }
 
 // checkJava applies the rule to a Java method annotated @Composable; `void` methods count as returning Unit.
@@ -161,6 +203,9 @@ func (r *ComposableNamingRule) checkJava(ctx *api.Context) {
 	if !composable || nameNode == 0 {
 		return
 	}
+	if r.nameAllowed(file.FlatNodeText(nameNode)) {
+		return
+	}
 	returnsUnit := file.FlatHasChildOfType(method, "void_type")
 	upper := acrFirstRuneIsUpper(file.FlatNodeText(nameNode))
 	switch {
@@ -169,6 +214,16 @@ func (r *ComposableNamingRule) checkJava(ctx *api.Context) {
 	case !returnsUnit && upper:
 		ctx.EmitAtNode(nameNode, "Composable functions with a return type should start with a lowercase letter")
 	}
+}
+
+// nameAllowed reports whether a configured allowedComposableFunctionNames pattern matches the whole name.
+func (r *ComposableNamingRule) nameAllowed(name string) bool {
+	for _, re := range r.AllowedNames {
+		if re.MatchString(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // acrComposableLambdaParameter returns the single composable function-type parameter of a Unit @Composable

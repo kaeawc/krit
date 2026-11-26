@@ -2,9 +2,9 @@
 # Fast local gate that mirrors the cheap CI jobs (.github/workflows/ci.yml)
 # for the files a branch changes. .githooks/pre-push runs it on every push;
 # `make prepush` runs it by hand. Install the hook once per clone (worktrees
-# share the setting):
+# share it; hooks already installed keep running):
 #
-#   make hooks            # git config core.hooksPath .githooks
+#   make hooks            # scripts/install-hooks.sh
 #
 # Checks, each only when the changed files make it relevant:
 #
@@ -26,6 +26,10 @@
 #             mkdocs is installed (Documentation workflow)
 #   winvet    GOOS=windows go vet ./... when x86_64-w64-mingw32-gcc is on
 #             PATH (CI: windows-vet)
+#   warmclean the FIR warm-versus-clean mutation matrix rows (CI:
+#             warm-clean-matrix 1/2, ~150 s) for cache, hashing, oracle and
+#             FIR changes, when java and a krit-fir jar built from the
+#             current sources (make fir-jar) are available (#1708)
 #
 # JVM, Gradle and Bazel jobs are too slow for a push hook; the script names
 # the CI job to watch when those trees change.
@@ -108,6 +112,11 @@ plan_checks() {
 	if [ "$go_changed" = 1 ] && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
 		PLAN+=(winvet)
 	fi
+	# Stale-warm cache bugs only show up across the whole shard (timing
+	# within the racy-stat window), not in one row (#1708).
+	if has_match '^internal/(hashutil|cache|firchecks|oracle|gradlemodel|fsutil|cacheutil)/|^tools/krit-fir/'; then
+		PLAN+=(warmclean)
+	fi
 	local skip name kept=()
 	skip=",${KRIT_PREPUSH_SKIP:-},"
 	for name in "${PLAN[@]}"; do
@@ -122,7 +131,18 @@ plan_checks() {
 # test_targets prints `go test` arguments for the test check, one package
 # per line; non-package lines are `-run` filters handled by run_test.
 test_targets() {
-	changed_packages <<<"$CHANGED"
+	# tests/parity holds many slow FIR/daemon tests (CI runs selected ones
+	# with -timeout 30m); run only the Test functions in changed files.
+	changed_packages <<<"$CHANGED" | grep -vx './tests/parity' || true
+	if has_match '^tests/parity/'; then
+		local names
+		names=$(parity_test_names)
+		if [ -n "$names" ]; then
+			printf 'parity:%s\n' $names
+		else
+			echo parity-all
+		fi
+	fi
 	if has_match '^tests/fixtures/|^internal/rules/'; then
 		echo ./internal/rules
 	fi
@@ -131,6 +151,15 @@ test_targets() {
 	if has_match '^tests/fixtures/|^internal/rules/|^tools/krit-fir/compiler-tests/'; then
 		echo 'parity:TestFirGoldenGoLines'
 	fi
+}
+
+# parity_test_names prints the Test functions declared in changed
+# tests/parity/*_test.go files that still exist.
+parity_test_names() {
+	local f
+	grep -E '^tests/parity/[^/]+_test\.go$' <<<"$CHANGED" | while IFS= read -r f; do
+		[ -f "$f" ] && grep -oE '^func Test[A-Za-z0-9_]+\(t \*testing\.T\)' "$f" | sed -E 's/^func (Test[A-Za-z0-9_]+).*/\1/'
+	done | sort -u
 }
 
 # --- running ----------------------------------------------------------------
@@ -172,6 +201,12 @@ run_merge() {
 		echo "merges cleanly"
 	elif ! (cd "$tmp/tree" && go build ./... && go vet ./...); then
 		fail merge "your branch builds, but not merged with origin/main (another PR changed an API you use). Rebase onto origin/main and fix the build."
+		rc=1
+	elif has_match '^internal/(rules|schema|config)/|^schemas/|^cmd/krit/' &&
+		! (cd "$tmp/tree" && go run ./cmd/krit --generate-schema | diff -q - schemas/krit-config.schema.json >/dev/null); then
+		# Generated from every rule's metadata, so a rule change and another
+		# PR's schema change can each be fresh alone and stale together.
+		fail merge "schemas/krit-config.schema.json is stale once merged with origin/main. Merge or rebase onto origin/main, run make schema, and commit it."
 		rc=1
 	else
 		echo "merged tree builds and vets clean"
@@ -249,22 +284,26 @@ run_gomod() {
 
 run_test() {
 	step "go test (changed packages)"
-	local targets pkgs=() runs=() t
+	local targets pkgs=() runs=() t parity_all=0
 	targets=$(test_targets | sort -u)
 	while IFS= read -r t; do
 		[ -n "$t" ] || continue
 		case "$t" in
 			parity:*) runs+=("${t#parity:}") ;;
+			parity-all) parity_all=1 ;;
 			*) [ -n "$(find "${t#./}" -maxdepth 1 -name '*_test.go' -print -quit)" ] && pkgs+=("$t") ;;
 		esac
 	done <<<"$targets"
 	if [ "${#pkgs[@]}" -gt 0 ]; then
 		bash scripts/go-test.sh "${pkgs[@]}" || fail test "Fix the failing tests above."
 	fi
-	for t in "${runs[@]+"${runs[@]}"}"; do
-		bash scripts/go-test.sh ./tests/parity -run "^${t}\$" -count=1 ||
-			fail test "$t failed; if the Go rule change is intended, regenerate with KRIT_UPDATE_GO_LINES=1."
-	done
+	if [ "$parity_all" = 1 ]; then
+		bash scripts/go-test.sh ./tests/parity -count=1 -timeout 30m || fail test "tests/parity failed."
+	elif [ "${#runs[@]}" -gt 0 ]; then
+		local IFS='|'
+		bash scripts/go-test.sh ./tests/parity -run "^(${runs[*]})\$" -count=1 -timeout 30m ||
+			fail test "tests/parity (${runs[*]}) failed; for TestFirGoldenGoLines, if the Go rule change is intended, regenerate with KRIT_UPDATE_GO_LINES=1."
+	fi
 }
 
 run_actions() {
@@ -287,6 +326,50 @@ run_winvet() {
 	step "go vet for windows/amd64"
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ go vet ./... ||
 		fail winvet "Unix-only APIs need a build tag or a windows variant."
+}
+
+# fir_jar prints a krit-fir jar built from the current sources: KRIT_FIR_JAR
+# when set, else make fir-jar's cache entry for this source hash. A jar
+# from other sources would test the wrong checker, so none is used then.
+fir_jar() {
+	if [ -n "${KRIT_FIR_JAR:-}" ]; then
+		[ -f "$KRIT_FIR_JAR" ] && printf '%s\n' "$KRIT_FIR_JAR"
+		return 0
+	fi
+	local hash jar
+	hash=$(go run ./cmd/krit-dev-jar-hash krit-fir 2>/dev/null) || return 0
+	jar="${KRIT_DEV_JAR_DIR:-$HOME/.krit/jars/dev}/$hash/krit-fir.jar"
+	[ -f "$jar" ] && printf '%s\n' "$jar"
+	return 0
+}
+
+kotlin_stdlib_jar() {
+	if [ -n "${KOTLIN_STDLIB_JAR:-}" ]; then
+		printf '%s\n' "$KOTLIN_STDLIB_JAR"
+		return 0
+	fi
+	local f found=()
+	for f in "$HOME"/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/*/*/kotlin-stdlib-*.jar; do
+		[ -f "$f" ] || continue
+		case "$f" in *sources*|*javadoc*) continue ;; esac
+		found+=("$f")
+	done
+	[ "${#found[@]}" -gt 0 ] && printf '%s\n' "${found[@]}" | sort | tail -1
+	return 0
+}
+
+run_warmclean() {
+	step "warm-versus-clean FIR matrix (CI: warm-clean-matrix 1/2)"
+	local jar stdlib
+	jar=$(fir_jar)
+	stdlib=$(kotlin_stdlib_jar)
+	if ! command -v java >/dev/null 2>&1 || [ -z "$jar" ] || [ -z "$stdlib" ]; then
+		echo "skipped: needs java, a krit-fir jar for these sources (make fir-jar) and kotlin-stdlib in the Gradle cache. CI's warm-clean-matrix job runs it."
+		return 0
+	fi
+	KRIT_WARM_CLEAN_MATRIX=1 KRIT_FIR_JAR="$jar" KOTLIN_STDLIB_JAR="$stdlib" \
+		bash scripts/go-test.sh ./tests/parity/ -count=1 -timeout 30m -run 'TestWarmCleanMutationFIR//^abs$' ||
+		fail warmclean "A warm (cached/daemon) result differs from a clean run: a cache key misses an input. See tests/parity/warm_clean_*_test.go."
 }
 
 jvm_notes() {

@@ -93,7 +93,7 @@ func TestPlanHonorsSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if got, want := strings.Join(trimLines(string(out)), " "), "gofmt build vet oraclefp"; got != want {
+	if got, want := strings.Join(trimLines(string(out)), " "), "gofmt build vet oraclefp warmclean"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

@@ -22,8 +22,10 @@ can opt into JVM-backed FIR helper facts (`tools/krit-fir/`,
   CI enforces. Skipping it just causes a CI round-trip. It's especially
   easy to forget after a refactor or deletion that leaves orphan helpers;
   make it part of every validation pass.
-- **Install the hooks once per clone: `make hooks`** (sets
-  `core.hooksPath .githooks`; worktrees share it). Every `git push` then
+- **Install the hooks once per clone: `make hooks`**
+  (`scripts/install-hooks.sh`; worktrees share it). Don't set
+  `core.hooksPath` instead: that silently disables hooks already in
+  `.git/hooks`, such as tool-installed commit-trailer hooks. Every `git push` then
   runs `scripts/pre-push.sh` (or run `make prepush`): a merged-with-
   `origin/main` build, gofmt, build, vet, golangci-lint on changed packages,
   rule gates, oracle fingerprints, schema freshness, changed-package tests,

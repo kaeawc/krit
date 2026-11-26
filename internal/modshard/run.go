@@ -94,7 +94,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		res.Reason = "incomplete input"
 		return res, nil
 	}
-	model, repoRoot, reason := loadModel(in.ScanPaths[0])
+	model, repoRoot, reason := loadModel(in.ScanPaths)
 	if model == nil {
 		res.Reason = reason
 		return res, nil
@@ -214,9 +214,10 @@ func coverageAcceptable(in Input, required, uncovered int) bool {
 	return required == 0 || float64(uncovered) <= maxUncovered*float64(required)
 }
 
-// loadModel finds and loads the Gradle model for the scan root, and the repository root it sits in.
-func loadModel(scanRoot string) (model *gradlemodel.Model, repoRoot, reason string) {
-	dir := gradlemodel.Discover(scanRoot)
+// loadModel finds and loads the Gradle model for the first scan path, and the repository root it sits
+// in. The model's directories are spelled like the scan paths (alignModelPaths).
+func loadModel(scanPaths []string) (model *gradlemodel.Model, repoRoot, reason string) {
+	dir := gradlemodel.Discover(scanPaths[0])
 	if dir == "" {
 		return nil, "", "no Gradle model"
 	}
@@ -224,6 +225,7 @@ func loadModel(scanRoot string) (model *gradlemodel.Model, repoRoot, reason stri
 	if err != nil || model == nil {
 		return nil, "", "Gradle model not loadable"
 	}
+	alignModelPaths(model, scanPaths)
 	return model, filepath.Dir(filepath.Dir(dir)), "" // <repo>/.krit/gradle-model
 }
 
@@ -708,7 +710,14 @@ func defaultWorkers() int { return max(2, min(sysres.CPUs()/2, 8)) }
 func sourceFiles(roots []string) []string {
 	var files []string
 	for _, root := range roots {
-		_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		walkRoot := root
+		if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			// Walk does not descend into a root that is itself a symlink (one
+			// alignModelPaths respelled to a symlinked scan path) unless it ends
+			// in a separator; it joins file paths onto it, keeping its spelling.
+			walkRoot = root + string(filepath.Separator)
+		}
+		_ = filepath.Walk(walkRoot, func(p string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && (strings.HasSuffix(p, ".kt") || strings.HasSuffix(p, ".java") || strings.HasSuffix(p, ".kts")) {
 				files = append(files, p)
 			}

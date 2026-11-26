@@ -43,7 +43,8 @@ const (
 	// v12: pre-parse rewrites (kotlin_rewrite.go) change Kotlin trees.
 	// v13: call-chain assignments that span lines are parenthesized.
 	// v14: a line that starts with `+` or `-` ends the statement above.
-	parseCacheVersion uint32 = 14
+	// v15: misparsed top-level annotated accessors become getter/setter nodes.
+	parseCacheVersion uint32 = 15
 
 	// Files below this threshold parse in under a millisecond; the gob
 	// serialization + filesystem round-trip dominates the savings.

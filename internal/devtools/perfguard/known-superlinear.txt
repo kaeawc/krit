@@ -1,0 +1,6 @@
+# Metrics already known to scale super-linearly on the synthetic corpus,
+# each with the issue that fixes it. `perfguard scale` reports them without
+# failing. This list only shrinks: the fix must delete its line, and the
+# guard fails until it does.
+#
+# <phase:perfTiming/path | rule:RuleName> #<issue>

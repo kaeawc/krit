@@ -43,12 +43,13 @@ sh_test(
     data = [":unsafe_krit_test"],
 )
 
-# krit skips test-data directories, so this analyzes nothing and must fail
+# krit skips files in tool and cache directories such as .krit-types/ even
+# when they are named explicitly, so this analyzes nothing and must fail
 # rather than pass vacuously; run only through
 # krit_test_rejects_empty_scan_test.
 krit_test(
     name = "skipped_krit_test",
-    srcs = ["testdata/Skipped.kt"],
+    srcs = [".krit-types/Skipped.kt"],
     tags = ["manual"],
 )
 

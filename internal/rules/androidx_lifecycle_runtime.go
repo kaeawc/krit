@@ -45,8 +45,11 @@ func (r *NullSafeMutableLiveDataRule) Meta() api.RuleDescriptor {
 			"The LiveData's type argument comes from a same-file declaration (declared type, MutableLiveData<T>() " +
 				"initializer, or a same-file subclass); a nullable value is a name declared nullable, or a call of a " +
 				"same-file function with a nullable return type.",
-			"A nullable name is skipped when the enclosing function null-checks it anywhere (`!= null`, `?:`, " +
-				"`!!`, requireNotNull, ...), where Lint follows the exact smart cast.",
+			"A nullable name is skipped when a smart cast may apply: an enclosing if/when condition testing it " +
+				"(`!= null`, `is`), the lambda of a safe call on it, or an earlier statement in an enclosing block " +
+				"(`!!`, `?: return`, requireNotNull/require(x != null), `if (x == null || ...) return`, isNullOrEmpty " +
+				"exits, a when entry `x == null -> return`). Lint follows the exact smart cast, so a proof outside " +
+				"these shapes is reported.",
 			"Lint's quick fixes are not ported.",
 		}}
 }
@@ -54,7 +57,9 @@ func (r *NullSafeMutableLiveDataRule) Meta() api.RuleDescriptor {
 func (r *UnsafeLifecycleWhenUsageRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "UnsafeLifecycleWhenUsage", RuleSet: "android-lint", DefaultActive: true,
 		KnownLimitations: []string{
-			"Suspend calls are calls of same-file suspend functions and of the kotlinx.coroutines suspend functions; " +
+			"Suspend calls are calls of same-file suspend functions, of the kotlinx.coroutines top-level suspend " +
+				"functions, and of suspend members (await, first, collect, send, ...) on a value declared as a " +
+				"kotlinx.coroutines Flow, Channel, Deferred or Job; " +
 				"View access is a call or property on a value declared as an android.view.View subclass. Calls are " +
 				"followed into same-file functions three levels deep, as Lint does.",
 			"As in the detector, only finally blocks are checked, and a Lifecycle.State.isAtLeast guard does not " +
@@ -137,18 +142,7 @@ func axlLiveDataTypeArgument(file *scanner.File, receiver uint32) (string, bool)
 			return axlSingleTypeArgument(file, file.FlatNodeText(t))
 		}
 		if class := acrSameFileClass(file, t); class != 0 {
-			found, arg := "", false
-			file.FlatWalkNodes(class, "delegation_specifier", func(spec uint32) {
-				if arg {
-					return
-				}
-				text := strings.Join(strings.Fields(file.FlatNodeText(spec)), "")
-				if base, _, _ := strings.Cut(text, "<"); base == "MutableLiveData" || base == "LiveData" ||
-					base == "MediatorLiveData" {
-					found, arg = axlSingleTypeArgument(file, strings.TrimSuffix(text, "()"))
-				}
-			})
-			return found, arg
+			return axlLiveDataSupertypeArgument(file, class)
 		}
 		return "", false
 	}
@@ -157,11 +151,26 @@ func axlLiveDataTypeArgument(file *scanner.File, receiver uint32) (string, bool)
 		return "", false
 	}
 	name, _, hasReceiver := acrCallCallee(file, init)
-	if hasReceiver || (name != "MutableLiveData" && name != "MediatorLiveData") ||
-		!acrNameResolvesTo(file, axlLivedataPackage, name) {
+	if hasReceiver || (!acrSimpleNameRefersTo(file, name, axlLivedataPackage, "MutableLiveData") &&
+		!acrSimpleNameRefersTo(file, name, axlLivedataPackage, "MediatorLiveData")) {
 		return "", false
 	}
 	return axlSingleTypeArgument(file, file.FlatNodeText(acrCalleeExpression(file, init))+recyclerCallTypeArgumentText(file, init))
+}
+
+// axlLiveDataSupertypeArgument returns the type argument of a same-file class's direct androidx.lifecycle LiveData
+// supertype (not a nested class's).
+func axlLiveDataSupertypeArgument(file *scanner.File, class uint32) (string, bool) {
+	for child := file.FlatFirstChild(class); child != 0; child = file.FlatNextSib(child) {
+		if file.FlatType(child) != "delegation_specifier" {
+			continue
+		}
+		if t := acrDelegationSpecifierType(file, child); acrTypeNameIs(file, t, axlLivedataPackage, "LiveData",
+			"MutableLiveData", "MediatorLiveData") {
+			return axlSingleTypeArgument(file, file.FlatNodeText(t))
+		}
+	}
+	return "", false
 }
 
 // recyclerCallTypeArgumentText returns `<T>` for a call with one explicit type argument, or "".
@@ -241,33 +250,33 @@ func axlExprIsNullable(file *scanner.File, expr uint32) bool {
 }
 
 // axlNameNullChecked reports whether a smart cast may make name non-null at node: an enclosing if (or when branch)
-// whose condition tests it against null or with `is`, or an earlier statement of an enclosing block that proves it
-// non-null (`name!!`, `name ?: return`, requireNotNull/checkNotNull(name), `if (name == null) return`).
+// whose condition tests it against null or with `is`, the lambda of a safe call on it (`name?.let { }`), or an
+// earlier statement of an enclosing block that proves it non-null (see axlStatementProvesNonNull).
 func axlNameNullChecked(file *scanner.File, node uint32, name string) bool {
 	guard := []string{name + "!=null", "null!=" + name, name + "is", "requireNotNull(" + name, "checkNotNull(" + name}
-	proof := []string{name + "!!", name + "?:return", name + "?:throw", "requireNotNull(" + name, "checkNotNull(" + name,
-		name + "==null)return", name + "==null)throw", name + "==null){return", name + "==null){throw"}
-	compact := func(n uint32) string { return strings.Join(strings.Fields(file.FlatNodeText(n)), "") }
 	child := node
 	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
 		case "if_expression", "when_entry":
 			// The condition is the first named child; a guard counts for the branches after it.
 			if cond := flatFirstNamedChild(file, p); cond != 0 && cond != child {
-				text := compact(cond)
+				text := axlCompactText(file, cond)
 				for _, g := range guard {
 					if strings.Contains(text, g) {
 						return true
 					}
 				}
 			}
+		case "lambda_literal":
+			// The lambda of `name?.f { }` only runs when name is non-null.
+			if arg, ok := acrLambdaArgumentOf(file, p); ok &&
+				strings.HasPrefix(axlCompactText(file, acrCalleeExpression(file, arg.Call)), name+"?.") {
+				return true
+			}
 		case "statements":
 			for st := file.FlatFirstChild(p); st != 0 && st != child; st = file.FlatNextSib(st) {
-				text := compact(st)
-				for _, pr := range proof {
-					if strings.Contains(text, pr) {
-						return true
-					}
+				if axlStatementProvesNonNull(file, st, name) {
+					return true
 				}
 			}
 		case "function_declaration", "class_body", "source_file":
@@ -276,6 +285,78 @@ func axlNameNullChecked(file *scanner.File, node uint32, name string) bool {
 		child = p
 	}
 	return false
+}
+
+// axlStatementProvesNonNull reports whether name is non-null after a statement: `name!!`, `name ?: return|throw`,
+// requireNotNull/checkNotNull(name), require/check(name != null), or an early exit taken when name is null:
+// `if (name == null || ...) return` (also `name.isNullOrEmpty()`/`isNullOrBlank()`), or a subject-less when whose
+// entries up to a `name == null -> return` entry all exit.
+func axlStatementProvesNonNull(file *scanner.File, st uint32, name string) bool {
+	text := axlCompactText(file, st)
+	for _, proof := range []string{name + "!!", name + "?:return", name + "?:throw", "requireNotNull(" + name,
+		"checkNotNull(" + name, "require(" + name + "!=null", "require(null!=" + name, "check(" + name + "!=null",
+		"check(null!=" + name} {
+		if strings.Contains(text, proof) {
+			return true
+		}
+	}
+	switch file.FlatType(st) {
+	case "if_expression":
+		cond := flatFirstNamedChild(file, st)
+		body, _ := file.FlatFindChild(st, "control_structure_body")
+		return axlNullTestDisjunction(file, cond, name) && axlBodyExits(file, body)
+	case "when_expression":
+		if _, hasSubject := file.FlatFindChild(st, "when_subject"); hasSubject {
+			return false
+		}
+		for entry := file.FlatFirstChild(st); entry != 0; entry = file.FlatNextSib(entry) {
+			if file.FlatType(entry) != "when_entry" {
+				continue
+			}
+			body, _ := file.FlatFindChild(entry, "control_structure_body")
+			if !axlBodyExits(file, body) {
+				return false
+			}
+			if cond, ok := file.FlatFindChild(entry, "when_condition"); ok && axlNullTestDisjunction(file, cond, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// axlNullTestDisjunction reports whether a condition is true whenever name is null: one of its top-level `||` terms
+// is `name == null`, `null == name`, `name.isNullOrEmpty()` or `name.isNullOrBlank()`.
+func axlNullTestDisjunction(file *scanner.File, cond uint32, name string) bool {
+	if cond == 0 {
+		return false
+	}
+	for _, term := range strings.Split(axlCompactText(file, cond), "||") {
+		switch term {
+		case name + "==null", "null==" + name, name + ".isNullOrEmpty()", name + ".isNullOrBlank()":
+			return true
+		}
+	}
+	return false
+}
+
+// axlBodyExits reports whether an if/when body ends in return, throw, break or continue.
+func axlBodyExits(file *scanner.File, body uint32) bool {
+	if body == 0 {
+		return false
+	}
+	last := flatFirstNamedChild(file, body)
+	if file.FlatType(last) == "statements" {
+		last = flatLastNamedChild(file, last)
+	}
+	return last != 0 && file.FlatType(last) == "jump_expression"
+}
+
+func axlCompactText(file *scanner.File, n uint32) string {
+	if n == 0 {
+		return ""
+	}
+	return strings.Join(strings.Fields(file.FlatNodeText(n)), "")
 }
 
 // axlLastChild returns the last child of a node, named or not (a `null` literal is an unnamed keyword).
@@ -287,26 +368,54 @@ func axlLastChild(file *scanner.File, node uint32) uint32 {
 	return last
 }
 
-// axlLifecycleWhenMethods are the Lifecycle.whenX extensions of PausingDispatcher.
-var axlLifecycleWhenMethods = map[string]bool{"whenCreated": true, "whenStarted": true, "whenResumed": true}
+// axlTopLevelSuspendFunctions are the top-level suspend functions a receiverless call is proven to call, by package.
+var axlTopLevelSuspendFunctions = map[string]string{
+	"delay": "kotlinx.coroutines", "withContext": "kotlinx.coroutines", "yield": "kotlinx.coroutines",
+	"coroutineScope": "kotlinx.coroutines", "supervisorScope": "kotlinx.coroutines", "withTimeout": "kotlinx.coroutines",
+	"withTimeoutOrNull": "kotlinx.coroutines", "suspendCancellableCoroutine": "kotlinx.coroutines",
+	"awaitAll": "kotlinx.coroutines", "joinAll": "kotlinx.coroutines", "suspendCoroutine": "kotlin.coroutines",
+}
 
-// axlKnownSuspendFunctions are kotlinx.coroutines suspend functions (top-level or members) by name.
-var axlKnownSuspendFunctions = map[string]bool{
-	"delay": true, "withContext": true, "yield": true, "await": true, "awaitAll": true, "join": true,
-	"joinAll": true, "withTimeout": true, "withTimeoutOrNull": true, "coroutineScope": true,
-	"supervisorScope": true, "suspendCoroutine": true, "suspendCancellableCoroutine": true, "collect": true,
-	"first": true, "single": true, "toList": true, "emit": true, "send": true, "receive": true,
+// axlSuspendMembers are suspend members and extensions of the kotlinx.coroutines types in axlCoroutineTypes. The
+// names are also ordinary List/Sequence/Thread APIs, so a call counts only on a receiver declared as one of those types.
+var axlSuspendMembers = map[string]bool{
+	"await": true, "join": true, "collect": true, "collectLatest": true, "first": true, "firstOrNull": true,
+	"single": true, "singleOrNull": true, "toList": true, "emit": true, "send": true, "receive": true,
+}
+
+// axlCoroutineTypes are the kotlinx.coroutines types whose axlSuspendMembers suspend, by package.
+var axlCoroutineTypes = map[string][]string{
+	"kotlinx.coroutines":          {"Deferred", "Job", "CompletableDeferred", "CompletableJob"},
+	"kotlinx.coroutines.flow":     {"Flow", "StateFlow", "SharedFlow", "MutableStateFlow", "MutableSharedFlow", "FlowCollector"},
+	"kotlinx.coroutines.channels": {"Channel", "SendChannel", "ReceiveChannel"},
+}
+
+// axlSuspendLambdaFunctions take a suspend lambda, which LifecycleWhenVisitor does not enter.
+var axlSuspendLambdaFunctions = map[string]bool{
+	"launch": true, "async": true, "coroutineScope": true, "supervisorScope": true, "withContext": true,
+	"withTimeout": true, "withTimeoutOrNull": true, "flow": true, "channelFlow": true, "callbackFlow": true,
+	"produce": true, "runBlocking": true, "whenCreated": true, "whenStarted": true, "whenResumed": true,
 }
 
 // check mirrors LifecycleWhenChecks on `lifecycle.whenStarted { }` (one lambda argument, an androidx.lifecycle
-// import): a try whose block makes a suspend call has its finally block checked for View access, at the call.
+// import, possibly aliased): a try whose try clause makes a suspend call has its finally block checked for View
+// access, at the call. Like LifecycleWhenVisitor, the search skips suspend lambdas and nested declarations.
 func (r *UnsafeLifecycleWhenUsageRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
 	if scanner.IsTestFile(file.Path) || acrIsInnerCallOfTrailingLambda(file, node) {
 		return
 	}
-	name, _, hasReceiver := acrCallCallee(file, node)
-	if !axlLifecycleWhenMethods[name] || !hasReceiver || !acrNameResolvesTo(file, axlLivedataPackage, name) {
+	written, _, hasReceiver := acrCallCallee(file, node)
+	if !hasReceiver {
+		return
+	}
+	name := ""
+	for _, method := range []string{"whenCreated", "whenStarted", "whenResumed"} {
+		if acrSimpleNameRefersTo(file, written, axlLivedataPackage, method) {
+			name = method
+		}
+	}
+	if name == "" {
 		return
 	}
 	lambda := axlCallTrailingLambda(file, node)
@@ -315,7 +424,7 @@ func (r *UnsafeLifecycleWhenUsageRule) check(ctx *api.Context) {
 	}
 	msg := "Unsafe View access from finally/catch block inside of `Lifecycle." + name + "` scope"
 	file.FlatWalkNodes(lambda, "try_expression", func(try uint32) {
-		if axlInNestedDeclaration(file, try, lambda) {
+		if axlInSuspendLambdaOrDeclaration(file, try, lambda) {
 			return
 		}
 		block, finally := uint32(0), uint32(0)
@@ -329,53 +438,94 @@ func (r *UnsafeLifecycleWhenUsageRule) check(ctx *api.Context) {
 				finally = c
 			}
 		}
-		if finally == 0 || !axlBlockSuspends(ctx, try, finally) {
+		if block == 0 || finally == 0 || !axlBlockSuspends(ctx, block) {
 			return
 		}
 		file.FlatWalkNodes(finally, "call_expression", func(call uint32) {
-			if axlCallAccessesView(ctx, call, 0, map[uint32]bool{}) {
+			if !axlInSuspendLambdaOrDeclaration(file, call, finally) && axlCallAccessesView(ctx, call, 0, map[uint32]bool{}) {
 				ctx.EmitAtNode(call, msg)
 			}
 		})
 		file.FlatWalkNodes(finally, "assignment", func(a uint32) {
-			if axlAssignmentAccessesView(ctx, a) {
+			if !axlInSuspendLambdaOrDeclaration(file, a, finally) && axlAssignmentAccessesView(ctx, a) {
 				ctx.EmitAtNode(a, msg)
 			}
 		})
 	})
 }
 
-// axlInNestedDeclaration reports whether node sits in a function or class declared inside root.
-func axlInNestedDeclaration(file *scanner.File, node, root uint32) bool {
+// axlInSuspendLambdaOrDeclaration reports whether node sits, below root, in what LifecycleWhenVisitor does not
+// enter: a suspend lambda (the lambda of a coroutine builder or a nested whenX), or a declaration (its
+// visitDeclaration skips functions, classes and local variables with their initializers).
+func axlInSuspendLambdaOrDeclaration(file *scanner.File, node, root uint32) bool {
 	for p, ok := file.FlatParent(node); ok && p != root; p, ok = file.FlatParent(p) {
 		switch file.FlatType(p) {
-		case "function_declaration", "class_declaration", "object_literal", "anonymous_function":
+		case "function_declaration", "class_declaration", "object_literal", "anonymous_function",
+			"property_declaration":
 			return true
+		case "lambda_literal":
+			if arg, ok := acrLambdaArgumentOf(file, p); ok {
+				if name, _, _ := acrCallCallee(file, arg.Call); axlSuspendLambdaFunctions[name] {
+					return true
+				}
+			}
 		}
 	}
 	return false
 }
 
-// axlBlockSuspends reports whether the try block (everything in try before finally) calls a suspend function.
-func axlBlockSuspends(ctx *api.Context, try, finally uint32) bool {
+// axlBlockSuspends reports whether a try clause calls a suspend function outside suspend lambdas and nested
+// declarations: a same-file suspend function, a kotlinx.coroutines top-level suspend function, or a suspend member
+// on a value declared as a kotlinx.coroutines type.
+func axlBlockSuspends(ctx *api.Context, block uint32) bool {
 	file := ctx.File
 	found := false
-	file.FlatWalkNodes(try, "call_expression", func(call uint32) {
-		if found || file.FlatStartByte(call) >= file.FlatStartByte(finally) {
+	file.FlatWalkNodes(block, "call_expression", func(call uint32) {
+		if found || acrIsInnerCallOfTrailingLambda(file, call) || axlInSuspendLambdaOrDeclaration(file, call, block) {
 			return
 		}
-		name, _, _ := acrCallCallee(file, call)
-		if axlKnownSuspendFunctions[name] && len(acrFunctionDecls(file, name)) == 0 {
-			found = true
-			return
-		}
-		for _, fn := range acrFunctionDecls(file, name) {
+		name, _, hasReceiver := acrCallCallee(file, call)
+		decls := acrFunctionDecls(file, name)
+		for _, fn := range decls {
 			if acrFunctionHasModifier(file, fn, "suspend") {
 				found = true
+				return
 			}
 		}
+		if len(decls) > 0 {
+			return
+		}
+		if !hasReceiver {
+			if pkg, ok := axlTopLevelSuspendFunctions[name]; ok && acrNameResolvesTo(file, pkg, name) {
+				found = true
+			}
+			return
+		}
+		found = axlSuspendMembers[name] && axlExprIsCoroutineType(file, file.FlatFirstChild(acrCalleeExpression(file, call)))
 	})
 	return found
+}
+
+// axlExprIsCoroutineType reports whether a name is declared as one of axlCoroutineTypes.
+func axlExprIsCoroutineType(file *scanner.File, expr uint32) bool {
+	expr = acrUnwrapParens(file, expr)
+	if expr == 0 || file.FlatType(expr) != "simple_identifier" {
+		return false
+	}
+	decl := acrValueDeclaration(file, expr, file.FlatNodeText(expr))
+	if decl == 0 {
+		return false
+	}
+	t := acrDeclaredType(file, decl)
+	if t == 0 {
+		return false
+	}
+	for pkg, names := range axlCoroutineTypes {
+		if acrTypeNameIs(file, t, pkg, names...) {
+			return true
+		}
+	}
+	return false
 }
 
 // axlCallAccessesView mirrors CheckAccessUiVisitor on a call: its receiver is a View, or it calls a same-file

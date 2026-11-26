@@ -13,4 +13,17 @@ class ProfileViewModel {
         }
         name.value = input ?: "anonymous"
     }
+
+    // Smart casts Lint follows: a safe-call lambda, early exits, require/check and a when exit.
+    fun smartCasts(a: String?, b: String?, c: String?, d: String?) {
+        a?.let { name.value = a }
+        if (b.isNullOrEmpty()) return
+        name.value = b
+        require(c != null)
+        name.value = c
+        when {
+            d == null -> return
+        }
+        name.value = d
+    }
 }

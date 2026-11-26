@@ -53,12 +53,17 @@ import, as it does in Kotlin.
   `null`"), or a nullable value ("Expected non-nullable value"), at the value. The type argument comes from the
   receiver's same-file declaration (its declared `LiveData`/`MutableLiveData`/`MediatorLiveData` type, a
   `MutableLiveData<T>()` initializer, or the supertype of a same-file subclass). A nullable value is a name declared
-  with a nullable type, unless an enclosing `if`/`when` condition null-checks it or an earlier statement proves it
-  non-null (`!!`, `?: return`, `requireNotNull`, `if (x == null) return`), or a call of a same-file function with a
+  with a nullable type, unless an enclosing `if`/`when` condition null-checks it, it is inside the lambda of a safe
+  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, `requireNotNull`,
+  `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
+  subject-less `when` whose entries up to `x == null -> return` all exit), or a call of a same-file function with a
   nullable return type.
 - `UnsafeLifecycleWhenUsage` reports View access in the `finally` block of a `try` that makes a suspend call, inside
-  `lifecycle.whenStarted { }`, `whenCreated` or `whenResumed`, at the access. Suspend calls are same-file `suspend`
-  functions and kotlinx.coroutines suspend functions; View access is a call or property on a value declared as an
-  `android.view.View` subclass, followed into same-file functions three levels deep. As in the detector, only
+  `lifecycle.whenStarted { }`, `whenCreated` or `whenResumed` (aliases resolved), at the access. Only the `try`
+  clause is searched for suspend calls: same-file `suspend` functions, kotlinx.coroutines top-level suspend
+  functions, and suspend members such as `first`/`await`/`send` on a value declared as a kotlinx.coroutines `Flow`,
+  `Channel`, `Deferred` or `Job`. View access is a call or property on a value declared as an `android.view.View`
+  subclass, followed into same-file functions three levels deep. Like the detector's visitor, both searches skip
+  suspend lambdas (`launch { }`, `coroutineScope { }`, …) and declarations, local variables included. Only
   `finally` is checked and a `lifecycle.currentState.isAtLeast(…)` guard does not count (the detector looks for an
   `isAtLeast` on `Lifecycle` itself, which `Lifecycle.State` declares instead).

@@ -8370,7 +8370,7 @@
           }
         },
         "NullSafeMutableLiveData": {
-          "description": "Detects null or nullable values set on a LiveData whose type argument is non-nullable. [precision: ast-backed] [noisiness: normal]\nCaveat: The LiveData's type argument comes from a same-file declaration (declared type, MutableLiveData\u003cT\u003e() initializer, or a same-file subclass); a nullable value is a name declared nullable, or a call of a same-file function with a nullable return type.\nCaveat: A nullable name is skipped when the enclosing function null-checks it anywhere (`!= null`, `?:`, `!!`, requireNotNull, ...), where Lint follows the exact smart cast.\nCaveat: Lint's quick fixes are not ported.",
+          "description": "Detects null or nullable values set on a LiveData whose type argument is non-nullable. [precision: ast-backed] [noisiness: normal]\nCaveat: The LiveData's type argument comes from a same-file declaration (declared type, MutableLiveData\u003cT\u003e() initializer, or a same-file subclass); a nullable value is a name declared nullable, or a call of a same-file function with a nullable return type.\nCaveat: A nullable name is skipped when a smart cast may apply: an enclosing if/when condition testing it (`!= null`, `is`), the lambda of a safe call on it, or an earlier statement in an enclosing block (`!!`, `?: return`, requireNotNull/require(x != null), `if (x == null || ...) return`, isNullOrEmpty exits, a when entry `x == null -\u003e return`). Lint follows the exact smart cast, so a proof outside these shapes is reported.\nCaveat: Lint's quick fixes are not ported.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -12664,7 +12664,7 @@
           }
         },
         "UnsafeLifecycleWhenUsage": {
-          "description": "Detects View access in the finally block of a suspending try inside Lifecycle.whenStarted and similar. [precision: ast-backed] [noisiness: normal]\nCaveat: Suspend calls are calls of same-file suspend functions and of the kotlinx.coroutines suspend functions; View access is a call or property on a value declared as an android.view.View subclass. Calls are followed into same-file functions three levels deep, as Lint does.\nCaveat: As in the detector, only finally blocks are checked, and a Lifecycle.State.isAtLeast guard does not count (the detector looks for an isAtLeast on Lifecycle itself).",
+          "description": "Detects View access in the finally block of a suspending try inside Lifecycle.whenStarted and similar. [precision: ast-backed] [noisiness: normal]\nCaveat: Suspend calls are calls of same-file suspend functions, of the kotlinx.coroutines top-level suspend functions, and of suspend members (await, first, collect, send, ...) on a value declared as a kotlinx.coroutines Flow, Channel, Deferred or Job; View access is a call or property on a value declared as an android.view.View subclass. Calls are followed into same-file functions three levels deep, as Lint does.\nCaveat: As in the detector, only finally blocks are checked, and a Lifecycle.State.isAtLeast guard does not count (the detector looks for an isAtLeast on Lifecycle itself).",
           "type": "object",
           "additionalProperties": false,
           "properties": {

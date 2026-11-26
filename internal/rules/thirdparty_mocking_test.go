@@ -460,3 +460,34 @@ class ScopeTest {
 		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// Review of #1789 (P3): a Java record mocked from Java or Kotlin is reported as a record, through its
+// record_declaration rather than a Kotlin @JvmRecord.
+func TestDoNotMockJavaRecord(t *testing.T) {
+	got := mockFindings(t, []string{"DoNotMockRecordClass"}, map[string]string{
+		"src/main/java/com/example/Range.java": "package com.example;\n\nrecord Range(int start, int end) {}\n",
+		"src/test/java/com/example/RangeTest.java": `package com.example;
+
+import static org.mockito.Mockito.mock;
+
+class RangeTest {
+  Range range = mock(Range.class);
+}
+`,
+		"src/test/java/com/example/RangeKtTest.kt": `package com.example
+
+import org.mockito.kotlin.mock
+
+class RangeKtTest {
+  val range = mock<Range>()
+}
+`,
+	})
+	want := []string{
+		"src/test/java/com/example/RangeKtTest.kt:6: DoNotMockRecordClass: 'com.example.Range' is a record class, so mocking it should not be necessary",
+		"src/test/java/com/example/RangeTest.java:6: DoNotMockRecordClass: 'com.example.Range' is a record class, so mocking it should not be necessary",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

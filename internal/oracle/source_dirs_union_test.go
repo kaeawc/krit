@@ -30,33 +30,25 @@ func TestUnionSourceDirsDedupesSpellingsOfOneRoot(t *testing.T) {
 	}
 }
 
-func TestSameSourceDirSetIgnoresSpellingOrderAndDuplicates(t *testing.T) {
+// SamePaths ignores spelling only: krit-fir compares source roots and classpaths in order,
+// repeats included, before it shares a compile.
+func TestSamePathsIgnoresSpellingOnly(t *testing.T) {
 	t.Chdir(t.TempDir())
 	wd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := []string{"app/src/main/kotlin", "lib/src/main/kotlin", filepath.Join(wd, "app/src/main/kotlin")}
-	b := []string{filepath.Join(wd, "lib/src/main/kotlin"), "./app/src/main/kotlin/"}
-	if !SameSourceDirSet(a, b) {
-		t.Fatalf("SameSourceDirSet(%v, %v) = false", a, b)
+	a := []string{"app/src/main/kotlin", "lib/src/main/kotlin"}
+	if !SamePaths(a, []string{filepath.Join(wd, "app/src/main/kotlin"), "./lib/src/main/kotlin/"}) {
+		t.Fatal("another spelling of the same paths compared unequal")
 	}
-	if SameSourceDirSet(a, b[:1]) {
-		t.Fatal("a missing root compared equal")
-	}
-}
-
-func TestSameClasspathKeepsOrder(t *testing.T) {
-	t.Chdir(t.TempDir())
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := []string{"libs/a.jar", "libs/b.jar", filepath.Join(wd, "libs/a.jar")}
-	if !SameClasspath(a, []string{filepath.Join(wd, "libs/a.jar"), "./libs/b.jar"}) {
-		t.Fatal("a repeated entry changed the classpath")
-	}
-	if SameClasspath(a, []string{"libs/b.jar", "libs/a.jar"}) {
-		t.Fatal("reordered classpath compared equal; the first entry declaring a class wins")
+	for name, b := range map[string][]string{
+		"reordered": {"lib/src/main/kotlin", "app/src/main/kotlin"},
+		"repeated":  {"app/src/main/kotlin", "lib/src/main/kotlin", "app/src/main/kotlin"},
+		"missing":   {"app/src/main/kotlin"},
+	} {
+		if SamePaths(a, b) {
+			t.Fatalf("%s paths compared equal", name)
+		}
 	}
 }

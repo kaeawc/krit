@@ -120,9 +120,10 @@ no AOT launch is trusted until a canary passes:
   launch only with that mark, so the pass otherwise checks on its own behind
   its own canary. A check rides only on an oracle compilation of the pass's
   own compile context: the same jar and compile target, the same source roots
-  compared as a set of absolute, cleaned paths (so `krit .` with a Gradle
-  model, whose convention and model roots are spelled differently, still
-  matches, #1659), and the same classpath in order. `-v` prints
+  and classpath in the same order, compared as absolute, cleaned paths (so
+  `krit .` with a Gradle model, whose convention and model roots are spelled
+  differently, still matches, #1659), as krit-fir requires before it shares
+  the compile. `-v` prints
   `fir check: reusing the oracle compilation's check` when it rides.
 
 Registry rules: an AOT-launched daemon, in either role, is not registered

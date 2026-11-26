@@ -36,41 +36,10 @@ func SourceDirKey(dir string) string {
 	return filepath.Clean(AbsolutePath(dir))
 }
 
-// SameSourceDirSet reports whether a and b name the same source roots,
-// ignoring spelling, order and duplicates: krit-fir compiles every file under
-// its roots as one module, so neither is semantic.
-func SameSourceDirSet(a, b []string) bool {
-	return slices.Equal(sourceDirKeySet(a), sourceDirKeySet(b))
-}
-
-// SameClasspath reports whether a and b resolve the same classpath: entries
-// are compared by SourceDirKey in order, since the first entry declaring a
-// class wins, and a repeated entry adds nothing after its first occurrence.
-func SameClasspath(a, b []string) bool {
-	return slices.Equal(classpathKeys(a), classpathKeys(b))
-}
-
-func sourceDirKeySet(dirs []string) []string {
-	keys := make([]string, 0, len(dirs))
-	for _, dir := range dirs {
-		if dir != "" {
-			keys = append(keys, SourceDirKey(dir))
-		}
-	}
-	slices.Sort(keys)
-	return slices.Compact(keys)
-}
-
-func classpathKeys(entries []string) []string {
-	seen := make(map[string]bool, len(entries))
-	keys := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		key := SourceDirKey(entry)
-		if entry == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		keys = append(keys, key)
-	}
-	return keys
+// SamePaths reports whether a and b list the same paths in the same order, ignoring only how each
+// is spelled (relative or absolute, unclean). krit-fir shares one compile between the oracle and
+// a check only when their source roots and classpaths are equal in order, repeats included
+// (AnalysisSession.sharesCompileContext), so this agrees with it.
+func SamePaths(a, b []string) bool {
+	return slices.EqualFunc(a, b, func(x, y string) bool { return SourceDirKey(x) == SourceDirKey(y) })
 }

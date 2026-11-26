@@ -31,6 +31,7 @@ const (
 	slotFunctionDecl                = "fundecl"
 	slotClassDecl                   = "classdecl"
 	slotClassLikeDeclsByName        = "classLikeDeclsByName"
+	slotLintSourceFileClasses       = "lintSourceFileClasses"
 	slotJumpMetrics                 = "jumpmetrics"
 	slotScopeReassignments          = "scopeReassignments"
 	slotRangeSummary                = "rangesummary"

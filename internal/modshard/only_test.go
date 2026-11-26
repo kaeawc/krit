@@ -83,7 +83,7 @@ func TestRunOnlyDeclinesAModuleWithoutItsFullContext(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")); err != nil {
 		t.Fatal(err)
 	}
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	for i := range units {
 		units[i].ContextDropped = units[i].Spec.ID == ":app:release"
 	}
@@ -116,7 +116,7 @@ func TestRunOnlyCompilesAChangedDependencyFromSource(t *testing.T) {
 		t.Fatal("no :app:release unit")
 		return Unit{}
 	}
-	unchanged, _ := planWith(model, root, []string{root}, projectsHolding(model, []string{app}))
+	unchanged, _ := planWith(model, root, []string{root}, nil, projectsHolding(model, []string{app}))
 	before := appUnit(unchanged)
 	if !slices.Contains(before.Spec.Classpath, jar) || len(before.Spec.ContextSourceRoots) != 0 {
 		t.Fatalf("an unchanged dependency uses its built jar: %+v", before.Spec)
@@ -124,9 +124,33 @@ func TestRunOnlyCompilesAChangedDependencyFromSource(t *testing.T) {
 	if stale := projectsHolding(model, []string{app, lib}); !stale[":lib"] || !stale[":app"] || len(stale) != 2 {
 		t.Fatalf("projectsHolding = %v", stale)
 	}
-	changed, _ := planWith(model, root, []string{root}, projectsHolding(model, []string{app, lib}))
+	changed, _ := planWith(model, root, []string{root}, nil, projectsHolding(model, []string{app, lib}))
 	after := appUnit(changed)
 	if slices.Contains(after.Spec.Classpath, jar) || !slices.Contains(after.Spec.ContextSourceRoots, filepath.Dir(lib)) {
 		t.Fatalf("a changed dependency should compile from source: classpath %v context %v", after.Spec.Classpath, after.Spec.ContextSourceRoots)
 	}
+}
+
+// A changed dependency's passed output (--gradle-project-outputs, #1681) was compiled from the
+// current sources by this build, so it stays on the classpath; only the conventional jar is stale.
+func TestPlanUsesPassedOutputOfAChangedDependency(t *testing.T) {
+	model, root := fixtureModel(t)
+	lib := filepath.Join(root, "lib", "src", "main", "kotlin", "L.kt")
+	app := filepath.Join(root, "app", "src", "main", "kotlin", "A.kt")
+	conventional := filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")
+	fresh := filepath.Join(root, "lib", "build", "fresh.jar")
+	if err := os.WriteFile(fresh, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	units, _ := planWith(model, root, []string{root}, map[string][]string{":lib": {fresh}}, projectsHolding(model, []string{app, lib}))
+	for _, u := range units {
+		if u.Spec.ID != ":app:release" {
+			continue
+		}
+		if !slices.Contains(u.Spec.Classpath, fresh) || slices.Contains(u.Spec.Classpath, conventional) || len(u.Spec.ContextSourceRoots) != 0 {
+			t.Fatalf("want the passed output, no conventional jar, no context: classpath %v context %v", u.Spec.Classpath, u.Spec.ContextSourceRoots)
+		}
+		return
+	}
+	t.Fatal("no :app:release unit")
 }

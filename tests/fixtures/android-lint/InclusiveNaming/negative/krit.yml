@@ -1,0 +1,6 @@
+slack-lint:
+  InclusiveNaming:
+    active: true
+    blockList:
+      - master
+      - whitelist

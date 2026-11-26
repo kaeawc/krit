@@ -1,0 +1,12 @@
+package fixtures
+
+fun clean(s: String, maybe: String?): List<String?> =
+    listOf(
+        s.trim(),
+        s.trim(),
+        s.trim(),
+        maybe?.trim(),
+        s.trim().lowercase(),
+        s.trim(),
+        s.trim(),
+    )

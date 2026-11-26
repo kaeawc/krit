@@ -27,25 +27,27 @@ func runFIRCheckerPass(opts firCheckerOpts, base []scanner.Finding) []scanner.Fi
 // compile reports a duplicate declaration between source sets, or nil when
 // KRIT_MODULE_SHARDS=merged turns it off or the scan reads no Gradle model.
 // modelDir and modelDisabled are the scan's --gradle-model and
-// --no-gradle-model. Verbose progress goes to verboseOut.
-func SourceSetIsolator(paths []string, modelDir string, modelDisabled, noCache bool, verboseOut io.Writer) firchecks.SourceSetIsolator {
+// --no-gradle-model, and outputs its --gradle-project-outputs (nil without):
+// the recheck puts those projects on the classpath as their built jars (#1681).
+// Verbose progress goes to verboseOut.
+func SourceSetIsolator(paths []string, modelDir string, modelDisabled, noCache bool, outputs map[string][]string, verboseOut io.Writer) firchecks.SourceSetIsolator {
 	var logf func(string, ...any)
 	if verboseOut != nil {
 		logf = func(format string, args ...any) { fmt.Fprintf(verboseOut, format, args...) }
 	}
-	return modshard.Isolator(paths, modelDir, modelDisabled, noCache, logf)
+	return modshard.Isolator(paths, modelDir, modelDisabled, noCache, outputs, logf)
 }
 
 // SettingsSplitter returns the --fir pass's recheck of the source sets whose
 // Kotlin compiler settings differ from the merged session's, one session per
 // settings group (#1577), or nil when KRIT_MODULE_SHARDS=merged turns it off
 // or the scan reads no Gradle model. Arguments are those of SourceSetIsolator.
-func SettingsSplitter(paths []string, modelDir string, modelDisabled, noCache bool, verboseOut io.Writer) firchecks.SettingsSplitter {
+func SettingsSplitter(paths []string, modelDir string, modelDisabled, noCache bool, outputs map[string][]string, verboseOut io.Writer) firchecks.SettingsSplitter {
 	var logf func(string, ...any)
 	if verboseOut != nil {
 		logf = func(format string, args ...any) { fmt.Fprintf(verboseOut, format, args...) }
 	}
-	return modshard.SettingsSplitter(paths, modelDir, modelDisabled, noCache, logf)
+	return modshard.SettingsSplitter(paths, modelDir, modelDisabled, noCache, outputs, logf)
 }
 
 // FIRCompileContext returns the compile context the --fir pass checks

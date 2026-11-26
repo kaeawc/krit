@@ -82,6 +82,11 @@ func appendFindingJSON(dst []byte, f JSONFinding) []byte {
 		dst = append(dst, raw...)
 	}
 
+	if f.Project != "" {
+		dst = append(dst, `,"project":`...)
+		dst = appendJSONString(dst, f.Project)
+	}
+
 	dst = append(dst, '}')
 	return dst
 }

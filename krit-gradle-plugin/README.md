@@ -252,7 +252,18 @@ variant, and `kritCheckAll` resolves them through these project dependencies.
 That way it never reads another project's state, and it stays configuration
 cache and Isolated Projects safe. A listed project without the krit plugin is
 skipped. The root `krit { }` block configures the scan (config, baseline, FIR,
-binary, reports). Reports go to `build/reports/krit/all/`.
+binary, reports). Reports go to `build/reports/krit/all/`. Each finding in the JSON
+and SARIF reports names its project (`project`, `properties.project`), and the
+reports count findings per project (`byProject`, see
+[configuration](../docs/configuration.md)). `kritCheckAll` logs those
+counts:
+
+```
+krit: findings by project
+  :feature:login           3 (1 error, 2 warnings)
+  :app                     1 (0 errors, 1 warning)
+  (outside every project)  1 (0 errors, 1 warning)
+```
 
 The task is up to date until a model, or a Kotlin, Java, XML, Gradle, TOML or
 `krit.yml` file under the root (outside `build/`, `.gradle/` and `.krit/`), changes.
@@ -350,6 +361,9 @@ ABI-normalized input: an upstream change that keeps the ABI, such as a method bo
 does not rerun the check. Projects of included builds are left to krit as
 before. The classpath is the one Gradle compiles with, so
 upstream implementation dependencies are not visible, as in a normal compile.
+The extra FIR sessions krit splits off use the same outputs: the source-set
+isolation recheck and the per-settings-group sessions. They take those jars ahead
+of a `build/libs` or release `classes.jar` left by an older build.
 This needs a krit release after 0.5.0.
 
 ### Shared FIR JVMs

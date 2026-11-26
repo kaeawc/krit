@@ -53,7 +53,7 @@ func appFile(root, rel string) string {
 
 func TestVariantUnitsCompileEachUnexportedSetWithItsVariantsBase(t *testing.T) {
 	model, root := variantModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	dir := func(set, lang string) string { return filepath.Join(root, "app", "src", set, lang) }
 	gated := []string{
 		appFile(root, "release/kotlin/Flags.kt"), appFile(root, "freeRelease/java/FreeRelease.java"),
@@ -97,7 +97,7 @@ func TestVariantUnitsCompileEachUnexportedSetWithItsVariantsBase(t *testing.T) {
 
 func TestVariantUnitsSkipProjectsThatKeepMergedVerdicts(t *testing.T) {
 	model, root := variantModel(t)
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	gated := []string{appFile(root, "release/kotlin/Flags.kt")}
 	if got, _ := variantUnits(model, units, []string{":app"}, gated); len(got) != 0 {
 		t.Fatalf("a skipped project's variant sets keep their merged verdicts: %+v", got)
@@ -122,7 +122,7 @@ func TestVariantUnitsStopAtTheLimit(t *testing.T) {
 	for _, rel := range extra {
 		gated = append(gated, filepath.Join(root, "app", filepath.FromSlash(rel)))
 	}
-	units, _ := Plan(model, root, []string{root})
+	units, _ := Plan(model, root, []string{root}, nil)
 	got, beyond := variantUnits(model, units, nil, gated)
 	if len(got) != maxVariantUnits || len(beyond) != 2 || !strings.Contains(beyond[0], filepath.Join("src", "flavor16")) || !strings.HasSuffix(beyond[0], "(1 gated files)") {
 		t.Fatalf("variant sets beyond the limit are listed, not compiled: %d units, beyond %v", len(got), beyond)

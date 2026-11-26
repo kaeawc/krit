@@ -49,7 +49,7 @@ func TestBundleHit_SkipsLoadOnFormatCacheHit(t *testing.T) {
 	var buf strings.Builder
 	res, ok, err := serveBundleHitFromOutputCache(
 		nil, fp, nil, nil, args, host, &buf,
-		time.Time{}, nil, nil, nil)
+		time.Time{}, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("serveBundleHitFromOutputCache: %v", err)
 	}

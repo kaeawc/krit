@@ -63,32 +63,53 @@ func projectOf(moduleID string) string {
 // not built; beyond it the dependency stays unresolved (and the module's files non-authoritative).
 const maxContextFiles = 3000
 
+// projectJars returns the built outputs of the project at projectPath: the jars the Gradle plugin
+// passed for it (--gradle-project-outputs, which come from this build's own compile tasks), else the
+// conventional build/libs or release classes.jar. An outputs entry wins even over a jar at a
+// conventional path, which may be left from an older build. A stale project (sources changed since
+// the build, #1660) gets no conventional jar, which predates the change; its passed outputs were
+// compiled from the current sources and still count. Only files that exist count.
+func projectJars(repoRoot, projectPath string, outputs map[string][]string, stale bool) []string {
+	var jars []string
+	for _, jar := range outputs[projectPath] {
+		if info, err := os.Stat(jar); err == nil && !info.IsDir() {
+			jars = append(jars, jar)
+		}
+	}
+	if len(jars) > 0 || stale {
+		return jars
+	}
+	if jar := builtJar(repoRoot, projectPath); jar != "" {
+		return []string{jar}
+	}
+	return nil
+}
+
 // Plan turns the model's modules into independent units. Project dependencies become built jars on
 // the classpath (transitively), a test module also sees its project's main jar as a friend, and
 // module edges are dropped. Only modules with a source root under one of scanPaths are returned.
-// missing counts the dependency projects whose built jar is absent.
-func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string) (units []Unit, missing int) {
-	return planWith(model, repoRoot, scanPaths, nil)
+// outputs are the projects' built outputs the Gradle plugin passed (--gradle-project-outputs), used
+// before the conventional jar paths (see projectJars). missing counts the dependency projects with no
+// built jar.
+func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string, outputs map[string][]string) (units []Unit, missing int) {
+	return planWith(model, repoRoot, scanPaths, outputs, nil)
 }
 
 // planWith is Plan with the projects whose built jar is stale: their sources changed since the
 // build (PR mode's changed files, #1660), so a module depending on them compiles their sources as
-// context instead of a jar that predates the change.
-func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, stale map[string]bool) (units []Unit, missing int) {
+// context instead of a jar that predates the change, unless outputs has a jar for them.
+func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, outputs map[string][]string, stale map[string]bool) (units []Unit, missing int) {
 	specs := firchecks.ModuleSpecsFromModel(model)
 	byID := make(map[string]*firchecks.ModuleSpec, len(specs))
 	for i := range specs {
 		byID[specs[i].ID] = &specs[i]
 	}
-	jars := map[string]string{}
-	jarOf := func(project string) string {
+	jars := map[string][]string{}
+	jarsOf := func(project string) []string {
 		if j, ok := jars[project]; ok {
 			return j
 		}
-		j := ""
-		if !stale[project] {
-			j = builtJar(repoRoot, project)
-		}
+		j := projectJars(repoRoot, project, outputs, stale[project])
 		jars[project] = j
 		return j
 	}
@@ -112,8 +133,8 @@ func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, sta
 		contextBudget := maxContextFiles
 		contextDropped := false
 		for _, dep := range closures(spec.ID) {
-			jar := jarOf(projectOf(dep))
-			if jar == "" {
+			depJars := jarsOf(projectOf(dep))
+			if len(depJars) == 0 {
 				missingProjects[projectOf(dep)] = true
 				// No build output: compile the dependency's sources with this module instead.
 				if d := byID[dep]; d != nil {
@@ -126,13 +147,17 @@ func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, sta
 					}
 				}
 			}
-			add(jar)
+			for _, jar := range depJars {
+				add(jar)
+			}
 		}
 		spec.Friends = []string{}
 		if spec.Kind != "main" {
-			if jar := jarOf(projectOf(spec.ID)); jar != "" {
-				add(jar)
-				spec.Friends = []string{jar}
+			if own := jarsOf(projectOf(spec.ID)); len(own) > 0 {
+				for _, jar := range own {
+					add(jar)
+				}
+				spec.Friends = append([]string(nil), own...)
 			}
 		}
 		spec.DependsOn = []string{}

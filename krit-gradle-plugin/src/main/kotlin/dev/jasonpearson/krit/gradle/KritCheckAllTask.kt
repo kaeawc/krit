@@ -188,12 +188,33 @@ abstract class KritCheckAllTask @Inject constructor(
             }
             result.exitValue to stderr.toString()
         }
+        projectSummary(reports)?.let { logger.lifecycle(it) }
         if (exitValue != 0 && !ignoreFailures.get()) {
             throw GradleException(
                 "krit analysis found issues (exit code $exitValue). " +
                     "See reports at: ${reports.joinToString(", ") { it.second.absolutePath }}"
             )
         }
+    }
+
+    /**
+     * The findings per Gradle project of the whole-build report (#1651), read from the
+     * report's `byProject` counts: JSON `summary.byProject`, else SARIF
+     * `runs[0].properties.byProject` (krit after 0.5.0 writes them when it loads the model).
+     * Null when no report has them, or nothing was found.
+     */
+    private fun projectSummary(reports: List<Pair<String, File>>): String? {
+        val byProject = reports.firstNotNullOfOrNull { (format, file) ->
+            if (!file.isFile) return@firstNotNullOfOrNull null
+            val parsed = runCatching { groovy.json.JsonSlurper().parse(file) as? Map<*, *> }.getOrNull()
+            when (format) {
+                "json" -> (parsed?.get("summary") as? Map<*, *>)?.get("byProject")
+                "sarif" -> ((parsed?.get("runs") as? List<*>)?.firstOrNull() as? Map<*, *>)
+                    ?.let { (it["properties"] as? Map<*, *>)?.get("byProject") }
+                else -> null
+            } as? Map<*, *>
+        } ?: return null
+        return formatProjectSummary(byProject)
     }
 
     private fun report(format: String, required: Property<Boolean>, output: RegularFileProperty): Pair<String, File>? =
@@ -215,6 +236,27 @@ abstract class KritCheckAllTask @Inject constructor(
     }
 
     internal companion object {
+        /**
+         * One line per project with findings, most findings first, as
+         * `  :app  3 (1 error, 2 warnings)`; findings outside every project are listed last.
+         */
+        fun formatProjectSummary(byProject: Map<*, *>): String? {
+            data class Row(val project: String, val findings: Int, val errors: Int, val warnings: Int)
+            fun count(entry: Any?, key: String) = ((entry as? Map<*, *>)?.get(key) as? Number)?.toInt() ?: 0
+            val rows = byProject.map { (project, counts) ->
+                Row(project.toString(), count(counts, "findings"), count(counts, "errors"), count(counts, "warnings"))
+            }.filter { it.findings > 0 }
+                .sortedWith(compareBy<Row> { it.project.isEmpty() }.thenByDescending { it.findings }.thenBy { it.project })
+            if (rows.isEmpty()) return null
+            val label = { row: Row -> row.project.ifEmpty { "(outside every project)" } }
+            val width = rows.maxOf { label(it).length }
+            fun plural(n: Int, word: String) = "$n $word" + if (n == 1) "" else "s"
+            return "krit: findings by project\n" + rows.joinToString("\n") { row ->
+                val counts = "${plural(row.errors, "error")}, ${plural(row.warnings, "warning")}"
+                "  ${label(row).padEnd(width)}  ${row.findings} ($counts)"
+            }
+        }
+
         /** Files under the build root that a whole-build scan reads. */
         val SOURCE_INCLUDES = listOf(
             "**/*.kt", "**/*.kts", "**/*.java", "**/*.xml", "**/*.toml", "**/*.gradle",

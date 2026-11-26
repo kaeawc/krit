@@ -186,6 +186,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	// scripts that set --no-type-oracle directly continue to win.
 	depthPreset := resolveDepthPreset(*f.Depth, cfg, os.Stderr)
 	applyDepthPreset(depthPreset, f, flag.CommandLine)
+	applyNoCache(f)
 
 	runValidateConfigFlag(*f.ValidateConfig, cfg)
 
@@ -444,7 +445,7 @@ func (r *runner) collectFiles() (int, error) {
 	r.tracker.TrackVoid("collectFiles", func() {
 		repoDir := oracle.FindRepoDir(r.paths)
 		cacheDir := ""
-		if repoDir != "" {
+		if repoDir != "" && (r.f == nil || r.f.NoCache == nil || !*r.f.NoCache) {
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), filewalkCacheDirName)
 		}
 		filters := FilewalkFilters{
@@ -887,8 +888,8 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 	if enabled {
 		checker := r.productionFIRChecker()
 		opts.Checker, opts.SourceDirs, opts.Classpath = checker, checker.SourceDirs, checker.Classpath
-		opts.Isolator = SourceSetIsolator(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, verboseWriter(*r.f.Verbose))
-		opts.SettingsSplitter = SettingsSplitter(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, verboseWriter(*r.f.Verbose))
+		opts.Isolator = SourceSetIsolator(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, r.f.projectOutputs, verboseWriter(*r.f.Verbose))
+		opts.SettingsSplitter = SettingsSplitter(r.paths, *r.f.GradleModel, *r.f.NoGradleModel, *r.f.NoCache, r.f.projectOutputs, verboseWriter(*r.f.Verbose))
 	}
 	return opts
 }
@@ -1242,6 +1243,7 @@ func (r *runner) outputPhase() int {
 		BaselineSuppressed: r.baselineSuppressed,
 		FirDegraded:        r.currentFirDegraded(),
 		FirCoverage:        r.firCoverage,
+		GradleProjects:     pipeline.GradleProjectIndex(*r.f.GradleModel, *r.f.NoGradleModel, firstScanPath(r.paths), nil),
 		Format:             r.effectiveFormat,
 		BasePath:           r.basePath,
 		AbsolutePaths:      *r.f.AbsolutePaths,
@@ -1273,6 +1275,15 @@ func (r *runner) outputPhase() int {
 		return code
 	}
 	return finalScanExit(os.Stderr, r.allColumns.Len(), time.Since(r.start), *r.f.Quiet)
+}
+
+// firstScanPath is the path a scan discovers its Gradle model from, as the
+// pipeline's index phase does.
+func firstScanPath(paths []string) string {
+	if len(paths) == 0 {
+		return "."
+	}
+	return paths[0]
 }
 
 // prModeFiles returns the changed Kotlin files a --diff scan analyzes with

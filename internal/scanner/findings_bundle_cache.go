@@ -123,14 +123,16 @@ func ApplyDelta(previous *FindingColumns, replacement *FindingColumns, affected 
 		}
 		return replacement.Clone()
 	}
-	affectedSet := make(map[string]bool, len(affected))
+	// Match by the file a row names, not its spelling: a prior row written by
+	// the CLI (absolute) and a replay in the daemon (relative) name the same
+	// file differently, and a row left behind duplicates the new one (#1832).
+	affectedSet := newFilePathSet(len(affected))
 	for _, path := range affected {
-		if path != "" {
-			affectedSet[path] = true
-		}
+		affectedSet.add(path)
 	}
+	replacedFile := affectedSet.fileTableMatches(previous.Files)
 	base := previous.FilterRows(func(row int) bool {
-		return !affectedSet[previous.FileAt(row)]
+		return !replacedFile[previous.FileIdx[row]]
 	})
 	collector := NewFindingCollector(base.Len())
 	collector.AppendColumns(&base)

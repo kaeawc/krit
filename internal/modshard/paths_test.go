@@ -64,11 +64,11 @@ func loadForTest(t *testing.T, modelDir string) *gradlemodel.Model {
 func TestPlanMatchesAScanPathThatIsASymlinkOfTheModelRoot(t *testing.T) {
 	resolvedRoot, link, modelDir := writeSymlinkedModel(t, false)
 	model := loadForTest(t, modelDir)
-	if units, _ := Plan(model, resolvedRoot, []string{link}); len(units) != 0 {
+	if units, _ := Plan(model, resolvedRoot, []string{link}, nil); len(units) != 0 {
 		t.Fatalf("an unaligned model matched the symlinked scan path (%d units); the test no longer covers #1674", len(units))
 	}
 	alignModelPaths(model, []string{link})
-	units, _ := Plan(model, link, []string{link})
+	units, _ := Plan(model, link, []string{link}, nil)
 	if len(units) != 2 {
 		t.Fatalf("got %d units, want :app:main and :lib:main", len(units))
 	}
@@ -88,7 +88,7 @@ func TestAlignModelPathsRespellsASymlinkedModelForAResolvedScan(t *testing.T) {
 	resolvedRoot, _, modelDir := writeSymlinkedModel(t, true)
 	model := loadForTest(t, modelDir)
 	alignModelPaths(model, []string{resolvedRoot})
-	if units, _ := Plan(model, resolvedRoot, []string{resolvedRoot}); len(units) != 2 {
+	if units, _ := Plan(model, resolvedRoot, []string{resolvedRoot}, nil); len(units) != 2 {
 		t.Fatalf("got %d units, want 2", len(units))
 	}
 	if got := model.Projects[0].Dir; got != filepath.Join(resolvedRoot, "app") {
@@ -103,7 +103,7 @@ func TestAlignModelPathsForAScanBelowTheRoot(t *testing.T) {
 	model := loadForTest(t, modelDir)
 	scan := filepath.Join(link, "lib")
 	alignModelPaths(model, []string{scan})
-	units, _ := Plan(model, link, []string{scan})
+	units, _ := Plan(model, link, []string{scan}, nil)
 	if len(units) != 1 || units[0].Spec.ID != ":lib:main" || !strings.HasPrefix(units[0].Sources[0], scan) {
 		t.Fatalf("units %+v, want only :lib:main spelled under %s", units, scan)
 	}
@@ -122,7 +122,7 @@ func TestAlignModelPathsRespellsAProjectAboveTheScanPath(t *testing.T) {
 	if got := model.Projects[0].Dir; got != filepath.Join(link, "app") {
 		t.Fatalf("project dir %s, want %s", got, filepath.Join(link, "app"))
 	}
-	if units, _ := Plan(model, link, []string{scan}); len(units) != 1 || units[0].Spec.ID != ":app:main" {
+	if units, _ := Plan(model, link, []string{scan}, nil); len(units) != 1 || units[0].Spec.ID != ":app:main" {
 		t.Fatalf("units %+v, want only :app:main", units)
 	}
 }
@@ -199,7 +199,7 @@ func TestPlanListsTheSourcesOfASymlinkedSourceRoot(t *testing.T) {
 	}
 	model := loadForTest(t, modelDir)
 	alignModelPaths(model, []string{link})
-	units, _ := Plan(model, resolvedRoot, []string{link})
+	units, _ := Plan(model, resolvedRoot, []string{link}, nil)
 	if len(units) != 1 || len(units[0].Sources) != 1 || units[0].Sources[0] != filepath.Join(link, "APP.kt") {
 		t.Fatalf("units %+v, want :app:main with %s", units, filepath.Join(link, "APP.kt"))
 	}

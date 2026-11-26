@@ -171,6 +171,12 @@ All notable changes to Krit will be documented in this file.
   suggestions in the messages. `UseRequireInsteadOfGet` does not report a parameter that shadows a Fragment getter,
   which Lint does (#1446, #1447, #1448, #1450).
 
+### Fixed
+- Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
+  `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
+  configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
+  (#1645).
+
 ### Added
 - `IdleBatteryChargingConstraints`, `InvalidPeriodicWorkRequestInterval`, `BadPeriodicWorkRequestEnqueue` and
   `UseRxSetProgress2`, ported from the Lint checks bundled in `androidx.work:work-runtime` 2.12.0 for Kotlin and Java

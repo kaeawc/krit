@@ -22,6 +22,14 @@ can opt into JVM-backed FIR helper facts (`tools/krit-fir/`,
   CI enforces. Skipping it just causes a CI round-trip. It's especially
   easy to forget after a refactor or deletion that leaves orphan helpers;
   make it part of every validation pass.
+- **Install the hooks once per clone: `make hooks`** (sets
+  `core.hooksPath .githooks`; worktrees share it). Every `git push` then
+  runs `scripts/pre-push.sh` (or run `make prepush`): a merged-with-
+  `origin/main` build, gofmt, build, vet, golangci-lint on changed packages,
+  rule gates, oracle fingerprints, schema freshness, changed-package tests,
+  actionlint and docs nav, each only when the changed files need it. When CI
+  catches something it missed, file a `prepush-gap` issue (see
+  CONTRIBUTING.md "Pre-push Hook").
 - **After editing `.github/workflows/*.yml`, run `scripts/lint-actions.sh`.**
   `actionlint` catches GitHub Actions semantic errors that plain YAML
   parsers (including `yamllint`) accept — most importantly, function-call

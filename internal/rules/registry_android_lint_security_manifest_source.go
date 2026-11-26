@@ -20,11 +20,11 @@ func registerAndroidLintSecurityManifestSourcePorts() {
 }
 
 // registerLintManifestSourceRule registers a Lint port that reads every project manifest and every parsed Kotlin and
-// Java file.
+// Java file. The ports keep their indexes per run and only read the phase inputs, so they run concurrently.
 func registerLintManifestSourceRule(rule AndroidRule, impl any, confidence float64, check func(*api.Context)) {
 	api.Register(&api.Rule{
 		ID: rule.RuleName, Category: rule.RuleSetName, Description: rule.Description(), Sev: api.Severity(rule.Sev),
-		Needs:      api.NeedsManifest | api.NeedsParsedFiles,
+		Needs:      api.NeedsManifest | api.NeedsParsedFiles | api.NeedsConcurrent,
 		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		Confidence: confidence, Implementation: impl, Check: check, NeedsLibraryFacts: true,
 	})

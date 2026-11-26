@@ -6,6 +6,7 @@
 make build          # Build krit, krit-lsp, krit-mcp
 make test           # Run all tests
 make ci             # Full CI: build + vet + test + integration + regression
+make hooks          # Install the git hooks (pre-commit, pre-push) once per clone
 ```
 
 ## Build
@@ -25,6 +26,39 @@ make regression     # Verify playground regression expectations
 make bench          # Performance benchmarks
 make watch          # Re-run tests on file changes (requires fswatch)
 ```
+
+## Pre-push Hook
+
+`make hooks` sets `git config core.hooksPath .githooks`. Worktrees share the
+setting, so one run covers every worktree of a clone. After that, every
+`git push` runs `scripts/pre-push.sh`. You can also run it any time with
+`make prepush`. It checks the files your branch changes since its merge-base
+with `origin/main`. Each check mirrors a CI job and runs only when the
+changed files make it relevant:
+
+| Check | Runs when | CI job it mirrors |
+|---|---|---|
+| `merge`: origin/main merges cleanly; the merged tree passes `go build` + `go vet` | always (build only for Go changes) | every Go job, after both PRs land |
+| `gofmt`, `build` (`go build ./...`), `vet` (`go vet ./...`, compiles every `_test.go`) | Go files or go.mod change | build-verify, golangci-lint |
+| `lint`: `golangci-lint run` on changed packages | Go files change | golangci-lint |
+| `rules`: `make lint-rules` | `internal/rules/`, `internal/ruleslinter/` | build-verify |
+| `oraclefp`: `go run ./internal/devtools/oraclefpcheck` | rules, oracle, FIR checks, type inference, playground | build-verify |
+| `schema`: `schemas/krit-config.schema.json` matches `krit --generate-schema` | rules, schema, config, `cmd/krit/` | (generated file) |
+| `gomod`: `go mod tidy -diff` | go.mod / go.sum | build |
+| `test`: changed packages through `scripts/go-test.sh`, plus `./internal/rules` and `TestFirGoldenGoLines` for fixture edits | Go files, fixtures, testdata | test |
+| `actions`: `scripts/lint-actions.sh` | `.github/` | actionlint |
+| `docs`: `scripts/validate_mkdocs_nav.sh`, `mkdocs build --strict` if installed | docs, mkdocs.yml, docgen | Documentation |
+| `winvet`: `GOOS=windows go vet ./...` | Go files change and mingw-w64 is on PATH | windows-vet |
+
+JVM, Gradle and Bazel jobs are too slow for a hook. When those trees change,
+the hook names the CI job to watch. Skip a check with
+`KRIT_PREPUSH_SKIP=lint,test git push`. Bypass the whole hook once with
+`git push --no-verify`. `scripts/pre-push.sh --dry-run` prints the plan.
+
+When CI catches something the hook missed, open an issue labeled
+`prepush-gap` with the failing job, the error line, and the local command
+that would have caught it. Add the check to `scripts/pre-push.sh`, with a
+fixture in `internal/devtools/prepush/testdata/plans/`.
 
 ## Adding a New Rule
 
@@ -100,5 +134,6 @@ effective stability is `StabilityEvolving`.
 - Keep PRs focused on a single change.
 - Include positive and negative test fixtures for new rules.
 - Run `make ci` before submitting (build + vet + test + integration + regression).
+  The pre-push hook (`make hooks`) runs the cheap subset on every push.
 - Use clear, descriptive commit messages.
 - New rules must use the v2 registry and the appropriate local base.

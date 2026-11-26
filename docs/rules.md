@@ -161,7 +161,12 @@ guidance.
 - **Line-pass rules** — declare `NeedsLinePass` and scan file lines in a single pass.
 - **Project-scope rules** — declare capabilities such as cross-file, module,
   manifest, resource, Gradle, resolver, or oracle data and run after the needed
-  indexes are available.
+  indexes are available. A project-scope rule sees every file at once, so it
+  builds its indexes once per run and answers each query with a lookup; a
+  helper that scans or copies every project class per query makes the rule
+  quadratic (#1658). A rule that only reads the phase inputs declares
+  `NeedsConcurrent`, and the cross-file and manifest-source phases then run it
+  beside the other rules.
 - **JVM-backed rules** — use source inference first where possible and can opt
   into FIR helper facts when source analysis is not enough.
 

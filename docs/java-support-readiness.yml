@@ -159,6 +159,14 @@ rules:
     status: supported
     fixtures:
       - internal/rules/androidx_compose_ui_parity_test.go
+  MissingOnRenderProcessGone:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
+  CrossOriginIsolatedAllowlist:
+    status: supported
+    fixtures:
+      - internal/rules/androidx_lint_parity_test.go
   UsingMaterialAndMaterial3Libraries:
     status: supported
     fixtures:

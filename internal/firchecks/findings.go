@@ -44,6 +44,11 @@ type CheckResponse struct {
 	// unsupported JVM target, or Kotlin compiler settings outside its
 	// allowlist or beyond the embedded compiler. Empty when nothing was dropped.
 	Warning string `json:"warning,omitempty"`
+	// Scope is "modules" when the verdicts come from per-module compiles
+	// (PR mode, module sharding) instead of one compile of the whole source
+	// set. They can differ where module boundaries matter, so they are never
+	// cached under the whole compile's fingerprint (#1660).
+	Scope string `json:"scope,omitempty"`
 	// Incremental is how krit-fir's incremental planner served the check
 	// (KRIT_FIR_INCREMENTAL); nil when the planner did not run.
 	Incremental *IncrementalPlan `json:"incremental,omitempty"`
@@ -61,6 +66,10 @@ type IncrementalPlan struct {
 	Detail     string `json:"detail,omitempty"`
 	DirtyFiles int    `json:"dirtyFiles"`
 	TotalMs    int64  `json:"totalMs"`
+	// Snapshot is, for a full check, what it left the next check (#1599):
+	// "built", "built without N files with compiler errors", or "none: "
+	// and why. Empty from a krit-fir that does not report it.
+	Snapshot string `json:"snapshot,omitempty"`
 }
 
 // String is the plan as one perf detail: "incremental", "full (cold)", or

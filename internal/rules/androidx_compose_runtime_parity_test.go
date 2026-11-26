@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/librarymodel"
+	"github.com/kaeawc/krit/internal/rules"
+	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
 
@@ -64,6 +67,7 @@ func TestAndroidxComposeRuntimeLintParity(t *testing.T) {
 
 func runParityChecks(t *testing.T, dir string, checks []string) []string {
 	t.Helper()
+	deps := parityDependencies(t, dir)
 	var out []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -83,7 +87,7 @@ func runParityChecks(t *testing.T, dir string, checks []string) []string {
 		}
 		rel, _ := filepath.Rel(dir, path)
 		for _, check := range checks {
-			for _, f := range runRuleByNameOnFile(t, check, file) {
+			for _, f := range runParityRule(t, check, file, deps) {
 				out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", filepath.ToSlash(rel), f.Line, f.Col, f.Rule, f.Message))
 			}
 		}
@@ -94,6 +98,37 @@ func runParityChecks(t *testing.T, dir string, checks []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// parityDependencies reads dependencies.txt, when present: the `group:name` artifacts the case's project declares,
+// for checks that, like Lint, run only when the artifact shipping them is a dependency.
+func parityDependencies(t *testing.T, dir string) []librarymodel.Dependency {
+	t.Helper()
+	var deps []librarymodel.Dependency
+	for _, line := range parityLines(readOptionalParityFile(t, filepath.Join(dir, "dependencies.txt"))) {
+		group, name, ok := strings.Cut(line, ":")
+		if !ok {
+			t.Fatalf("dependencies.txt line %q must be group:name", line)
+		}
+		deps = append(deps, librarymodel.Dependency{Group: group, Name: name})
+	}
+	return deps
+}
+
+// runParityRule runs one rule on file, with library facts declaring deps when there are any.
+func runParityRule(t *testing.T, ruleID string, file *scanner.File, deps []librarymodel.Dependency) []scanner.Finding {
+	t.Helper()
+	if len(deps) == 0 {
+		return runRuleByNameOnFile(t, ruleID, file)
+	}
+	rule := buildRuleIndex()[ruleID]
+	if rule == nil {
+		t.Fatalf("rule %q not found in registry", ruleID)
+	}
+	d := rules.NewDispatcher([]*api.Rule{rule}, nil)
+	d.SetLibraryFacts(librarymodel.FactsForProfile(librarymodel.ProjectProfile{Dependencies: deps}))
+	cols := d.Run(file)
+	return cols.Findings()
 }
 
 func readParityFile(t *testing.T, path string) string {

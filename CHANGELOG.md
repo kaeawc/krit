@@ -5,6 +5,13 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
+  `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
+  `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
+  path and content. A CI job caches `.krit/gradle-model` under it and skips Gradle on a hit. `--write` stamps the key and
+  its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
+  loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
+  source sets (#1663).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

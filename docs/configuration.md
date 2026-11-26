@@ -431,6 +431,14 @@ are set. Existing boot classpath entries come first, then model classpath
 entries, `oracle.classpath` from `krit.yml`, and finally the `CLASSPATH`
 environment variable. Duplicate paths keep their first position.
 
+A model read from `<root>/.krit/gradle-model` that was exported under another
+build root or Gradle user home (restored from a CI cache) has its paths rebased
+onto the current ones. `krit gradle-model key` prints a hash of the build files
+that can change the model, for keying such a cache, and
+`krit gradle-model key --write` stamps it in the model so a later scan warns when
+the build no longer matches. See the Gradle plugin README's
+[CI recipe](https://github.com/kaeawc/krit/blob/main/krit-gradle-plugin/README.md#ci-recipe-skip-gradle-when-the-build-has-not-changed).
+
 A scan of one project compiles the sources of the projects it depends on as
 context. `--gradle-project-outputs FILE` names their built outputs instead, as
 `{"schema": 1, "projects": {":lib": ["/repo/lib/build/libs/lib.jar"]}}`.

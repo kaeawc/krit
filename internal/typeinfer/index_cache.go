@@ -32,7 +32,8 @@ const (
 	// Bumped to 17 when scope-function lambdas gained `this`, destructured lambda parameters were declared,
 	// and lambdas under returns, call chains and arguments gained scopes.
 	// Bumped to 18 when scopes gained start offsets for post-guard type facts.
-	typeIndexCacheVersion = 18
+	// Bumped to 19 when class bodies gained initializer scopes for primary-constructor parameters (#1673).
+	typeIndexCacheVersion = 19
 )
 
 var (

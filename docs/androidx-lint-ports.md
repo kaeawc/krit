@@ -52,7 +52,9 @@ statement scans skip, so the port skips it too: a `linkTo` (or a `constrain { }`
 not looked at.
 
 - `IncorrectReferencesDeclaration` reports `val (a, b) = createRefsFor("a", "b", "c")` when the number of string ids
-  differs from the destructured variables, at `createRefsFor`. A spread array or a non-string id is not counted.
+  differs from the destructured variables, at `createRefsFor`, when its implicit receiver is a `ConstraintSetScope` or
+  `MotionSceneScope` (inside `ConstraintSet { }` / `MotionScene { }`, or an extension on the scope), as Lint
+  requires. A spread array or a non-string id is not counted.
 - `IncorrectMatchParentUsage` reports `width = Dimension.matchParent` (or `height`) in a `constrain(ref) { }` block
   that also links the same axis to something other than the matching parent anchor (`start.linkTo(button.end)`,
   `centerHorizontallyTo(button)`), at `Dimension.matchParent`.

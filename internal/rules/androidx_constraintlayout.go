@@ -49,8 +49,10 @@ func (r *IncorrectChainMarginsUsageRule) fileMentions() []string {
 func (r *IncorrectReferencesDeclarationRule) Meta() api.RuleDescriptor {
 	return api.RuleDescriptor{ID: "IncorrectReferencesDeclaration", RuleSet: "compose", DefaultActive: true,
 		KnownLimitations: []string{
-			"createRefsFor must be called without an explicit receiver inside a ConstraintSet or MotionScene lambda, " +
-				"and every argument must be a string literal or template, as Lint requires String arguments.",
+			"createRefsFor must be called without an explicit receiver, with a ConstraintSetScope or MotionSceneScope " +
+				"implicit receiver proven by the nearest receiver lambda (ConstraintSet { } or MotionScene { }) or by " +
+				"an extension function on the scope, and every argument must be a string literal or template, as Lint " +
+				"requires String arguments.",
 		}}
 }
 
@@ -69,8 +71,9 @@ func (r *IncorrectChainMarginsUsageRule) Meta() api.RuleDescriptor {
 		}}
 }
 
-// axlCLScopeCall reports whether call is an unqualified call named name inside a ConstraintSet { } / MotionScene { }
-// / ConstraintLayout(...) { } lambda in a file that uses androidx.constraintlayout.compose.
+// axlCLScopeCall reports whether call is an unqualified call named name, with no same-file function of that name,
+// in a file that imports from androidx.constraintlayout.compose. It does not prove the implicit receiver; see
+// axlCLCreateRefsForOwner for the check that does.
 func axlCLScopeCall(file *scanner.File, call uint32, name string) bool {
 	callee, _, hasReceiver := acrCallCallee(file, call)
 	if callee != name || hasReceiver || len(acrFunctionDecls(file, name)) > 0 {
@@ -82,7 +85,8 @@ func axlCLScopeCall(file *scanner.File, call uint32, name string) bool {
 // check mirrors detectCreateRefsForUsage on `val (a, b) = createRefsFor(...)`.
 func (r *IncorrectReferencesDeclarationRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
-	if acrIsInnerCallOfTrailingLambda(file, node) || !axlCLScopeCall(file, node, "createRefsFor") {
+	if acrIsInnerCallOfTrailingLambda(file, node) || !axlCLScopeCall(file, node, "createRefsFor") ||
+		!axlCLCreateRefsForOwner(file, node) {
 		return
 	}
 	parent, ok := file.FlatParent(node)
@@ -106,6 +110,36 @@ func (r *IncorrectReferencesDeclarationRule) check(ctx *api.Context) {
 	_, nameNode, _ := acrCallCallee(file, node)
 	ctx.EmitAtNode(nameNode, "Arguments of `createRefsFor` ("+strconv.Itoa(len(call.Args))+") do not match assigned variables ("+
 		strconv.Itoa(vars)+")")
+}
+
+// axlCLCreateRefsForOwner mirrors the detector's knownOwnersOfCreateRefsFor: the implicit receiver of the call is a
+// ConstraintSetScope or MotionSceneScope. The nearest lambda that brings a receiver is a ConstraintSet { } or
+// MotionScene { } lambda (with/apply/run bring another receiver), or the enclosing function is an extension on one of
+// the scopes.
+func axlCLCreateRefsForOwner(file *scanner.File, call uint32) bool {
+	for p, ok := file.FlatParent(call); ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "lambda_literal":
+			arg, ok := acrLambdaArgumentOf(file, p)
+			if !ok {
+				continue
+			}
+			name, _, hasReceiver := acrCallCallee(file, arg.Call)
+			switch {
+			case !hasReceiver && (acrSimpleNameRefersTo(file, name, axlConstraintLayoutPackage, "ConstraintSet") ||
+				acrSimpleNameRefersTo(file, name, axlConstraintLayoutPackage, "MotionScene")):
+				return true
+			case name == "with" && !hasReceiver, (name == "apply" || name == "run") && hasReceiver:
+				return false
+			}
+		case "function_declaration":
+			t := acrFunctionReceiverType(file, p)
+			return t != 0 && acrTypeNameIs(file, t, axlConstraintLayoutPackage, "ConstraintSetScope", "MotionSceneScope")
+		case "class_body", "source_file":
+			return false
+		}
+	}
+	return false
 }
 
 var (

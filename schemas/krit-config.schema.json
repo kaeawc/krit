@@ -18096,7 +18096,7 @@
           }
         },
         "IncorrectReferencesDeclaration": {
-          "description": "Detects val (a, b) = createRefsFor(...) whose argument count differs from the destructured variables. [precision: ast-backed] [noisiness: normal]\nCaveat: createRefsFor must be called without an explicit receiver inside a ConstraintSet or MotionScene lambda, and every argument must be a string literal or template, as Lint requires String arguments.",
+          "description": "Detects val (a, b) = createRefsFor(...) whose argument count differs from the destructured variables. [precision: ast-backed] [noisiness: normal]\nCaveat: createRefsFor must be called without an explicit receiver, with a ConstraintSetScope or MotionSceneScope implicit receiver proven by the nearest receiver lambda (ConstraintSet { } or MotionScene { }) or by an extension function on the scope, and every argument must be a string literal or template, as Lint requires String arguments.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

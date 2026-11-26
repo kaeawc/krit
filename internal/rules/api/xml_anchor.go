@@ -5,23 +5,51 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
-// xmlLineCache holds the lines of XML files that have findings without a
-// precise column, so repeated findings in one file read it once.
-var xmlLineCache sync.Map // path -> [][]byte
+// xmlLineCache holds the lines of XML and Gradle files that have findings
+// without a precise column, so repeated findings in one file read it once.
+// It lives as long as the process, which in the daemon, LSP and MCP spans
+// many scans, so each entry records the size and mtime it was read at and is
+// reused only while the file still has them (#1852).
+var xmlLineCache sync.Map // path -> *xmlLinesEntry
 
-// xmlLines returns the cached lines of path, or nil when it cannot be read.
+type xmlLinesEntry struct {
+	size  int64
+	mtime time.Time
+	lines [][]byte
+}
+
+// xmlLines returns the lines of path, or nil when it cannot be read.
 func xmlLines(path string) [][]byte {
+	info, err := os.Stat(path)
+	if err != nil {
+		xmlLineCache.Delete(path)
+		return nil
+	}
 	if v, ok := xmlLineCache.Load(path); ok {
-		return v.([][]byte)
+		if e := v.(*xmlLinesEntry); e.size == info.Size() && e.mtime.Equal(info.ModTime()) {
+			return e.lines
+		}
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		xmlLineCache.Delete(path)
 		return nil
 	}
 	lines := bytes.Split(data, []byte("\n"))
-	xmlLineCache.Store(path, lines)
+	// A file written within the filesystem's mtime granularity can change
+	// again without its size or mtime moving, so only a file that was
+	// already older than that when it was stat'd is cached. The stat comes
+	// before the read, so the cached lines are never older than it.
+	if hashutil.StatTrustedNow(info) {
+		xmlLineCache.Store(path, &xmlLinesEntry{size: info.Size(), mtime: info.ModTime(), lines: lines})
+	} else {
+		xmlLineCache.Delete(path)
+	}
 	return lines
 }
 

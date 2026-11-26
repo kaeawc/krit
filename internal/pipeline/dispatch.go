@@ -111,6 +111,10 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 		}
 		return
 	}
+	var infos fileTypeInfoProvider
+	if rulesReadResolver(in.ActiveRules) {
+		infos = resolverFileInfos(in.Resolver)
+	}
 	for _, pf := range in.SourceFiles() {
 		if in.CacheResult == nil || !in.CacheResult.CachedPaths[pf.Path] {
 			fileColumns := findingsByFile[pf.Path]
@@ -118,7 +122,7 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 			if in.OracleBlobHash != nil {
 				blobHash = in.OracleBlobHash(pf.Path)
 			}
-			in.Cache.UpdateEntryFromContent(pf.Path, pf.Content, &fileColumns, blobHash)
+			in.Cache.UpdateEntryFromContent(pf.Path, pf.Content, &fileColumns, blobHash, declFactsFor(infos, pf.Path))
 		}
 	}
 	in.Cache.SetHeader(in.Version, in.RuleHash, in.CacheScanPaths)

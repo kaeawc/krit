@@ -27,7 +27,7 @@ func TestIncrementalFIRDiagnostic(t *testing.T) {
 	}{
 		{name: "nil response"},
 		{name: "all files served from cache", result: &Result{ErrorFiles: gated}},
-		{name: "compiler errors", result: &Result{ErrorFiles: gated, incrementalErrorFiles: 2, Incremental: &IncrementalPlan{Path: "full", Reason: "cold"}},
+		{name: "compiler errors, from a krit-fir that does not report its snapshot", result: &Result{ErrorFiles: gated, incrementalErrorFiles: 2, Incremental: &IncrementalPlan{Path: "full", Reason: "cold"}},
 			want: "incremental FIR off: 2 requested files gated by compiler errors, no snapshot"},
 		{name: "older helper without planner telemetry", result: &Result{responseApplied: true, ErrorFiles: gated, incrementalErrorFiles: 2},
 			want: "incremental FIR: 2 requested files gated by compiler errors (planner telemetry unavailable)"},
@@ -36,6 +36,14 @@ func TestIncrementalFIRDiagnostic(t *testing.T) {
 			"Other.kt": "krit-fir: not compiled; the file's source set is not part of the JVM compilation"}}},
 		{name: "incremental despite gated files", result: &Result{ErrorFiles: gated, Incremental: &IncrementalPlan{Path: "incremental"}}},
 		{name: "cold compile", result: &Result{Incremental: &IncrementalPlan{Path: "full", Reason: "cold"}}, want: "incremental FIR: full (cold)"},
+		// #1599: krit-fir reports what the full check left; the error count is no longer taken for the cause.
+		{name: "snapshot built around gated files", result: &Result{ErrorFiles: gated, incrementalErrorFiles: 2, Incremental: &IncrementalPlan{Path: "full", Reason: "cold", Snapshot: "built without 2 files with compiler errors"}},
+			want: "incremental FIR: full (cold); snapshot built without 2 files with compiler errors"},
+		{name: "snapshot built", result: &Result{Incremental: &IncrementalPlan{Path: "full", Reason: "cold", Snapshot: "built"}}, want: "incremental FIR: full (cold); snapshot built"},
+		{name: "no snapshot past the bound", result: &Result{ErrorFiles: gated, incrementalErrorFiles: 2, Incremental: &IncrementalPlan{Path: "full", Reason: "cold", Snapshot: "none: compile errors in 20 files, more than the 15 a snapshot leaves out"}},
+			want: "incremental FIR off: full (cold); no snapshot: compile errors in 20 files, more than the 15 a snapshot leaves out"},
+		{name: "snapshot build failed", result: &Result{Incremental: &IncrementalPlan{Path: "full", Reason: "cold", Snapshot: "none: building it failed: IllegalStateException: snapshot backend exited with INTERNAL_ERROR"}},
+			want: "incremental FIR off: full (cold); no snapshot: building it failed: IllegalStateException: snapshot backend exited with INTERNAL_ERROR"},
 		{name: "cached gates do not describe current compile", result: &Result{ErrorFiles: gated, Incremental: &IncrementalPlan{Path: "full", Reason: "cold"}}, want: "incremental FIR: full (cold)"},
 		{name: "module fallback detail", result: &Result{Incremental: &IncrementalPlan{Path: "full", Reason: "slice_unavailable", Detail: "COMPILE_ERRORS: compile errors in 6 files"}},
 			want: "incremental FIR: full (slice_unavailable: COMPILE_ERRORS: compile errors in 6 files)"},

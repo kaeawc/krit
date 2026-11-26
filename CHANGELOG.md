@@ -20,6 +20,12 @@ All notable changes to Krit will be documented in this file.
   repository; every other file keeps Go's verdict. It falls back to the whole-repository compile when a module would
   lose dependency context or the model is missing, and `--no-pr-mode` turns it off. The FIR summary line and
   `summary.fir.outsidePr` say how many files stayed with Go.
+- `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
+  `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
+  the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
+  `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
+  `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
+  longer recognizes (#1505, #1506, #1507).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -43,6 +49,11 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Compose lint parity, second batch of compose-lints 1.6.1 ports: `ComposePreviewPublic`, `ComposePreviewNaming`
+  (cross-file, so multipreview annotations from other files count), `ComposeM2Api` (with `allowedM2Apis`),
+  `ComposeItemKeyHashCode` and `ComposeModifierComposed`, under their Lint IDs, messages and severities, experimental and
+  off by default. On nowinandroid and compose-samples their findings match the Lint CLI exactly (#1337, #1341, #1346,
+  #1347, #1354).
 - Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
   producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
   longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
@@ -508,6 +519,15 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
@@ -541,6 +561,10 @@ All notable changes to Krit will be documented in this file.
   another file (#1624).
 - `--diff` run from a subdirectory of the repository reported no findings: git's repository-relative paths were
   resolved against the working directory.
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
   for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
   from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.

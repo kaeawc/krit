@@ -66,6 +66,10 @@ type IncrementalPlan struct {
 	Detail     string `json:"detail,omitempty"`
 	DirtyFiles int    `json:"dirtyFiles"`
 	TotalMs    int64  `json:"totalMs"`
+	// Snapshot is, for a full check, what it left the next check (#1599):
+	// "built", "built without N files with compiler errors", or "none: "
+	// and why. Empty from a krit-fir that does not report it.
+	Snapshot string `json:"snapshot,omitempty"`
 }
 
 // String is the plan as one perf detail: "incremental", "full (cold)", or

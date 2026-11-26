@@ -1,10 +1,18 @@
 package rules_test
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/rules"
+	api "github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/typeinfer"
 )
 
 // TestSlackLintParity checks the slack-lints 0.11.1 ports outside MoshiUsage against the real detectors.
@@ -33,7 +41,7 @@ func TestSlackLintParity(t *testing.T) {
 		t.Run(c.Name(), func(t *testing.T) {
 			checks := strings.Split(strings.TrimSpace(readParityFile(t, filepath.Join(dir, "checks.txt"))), ",")
 			want := slackParityExpected(t, dir)
-			got := runWorkParityChecks(t, dir, checks)
+			got := runSlackParityChecks(t, dir, checks)
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {
 				t.Errorf("krit findings differ from slack-lints 0.11.1 (with divergences.txt applied)\n--- want\n%s\n--- got\n%s",
 					strings.Join(want, "\n"), strings.Join(got, "\n"))
@@ -81,4 +89,68 @@ func slackParityExpected(t *testing.T, dir string) []string {
 		}
 	}
 	return parityLines(strings.Join(append(want, added...), "\n"))
+}
+
+// runSlackParityChecks runs the checks over every Kotlin and Java file of the case directory as one project:
+// per-file rules through the dispatcher with a source type resolver indexed over all the files (as the pipeline
+// gives rules that need type information), and project rules once over the parsed files.
+func runSlackParityChecks(t *testing.T, dir string, checks []string) []string {
+	t.Helper()
+	var files []*scanner.File
+	var rels []string
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		var file *scanner.File
+		switch filepath.Ext(path) {
+		case ".kt":
+			file, err = scanner.ParseFile(context.Background(), path)
+		case ".java":
+			file, err = scanner.ParseJavaFile(context.Background(), path)
+		default:
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		files = append(files, file)
+		rels = append(rels, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := typeinfer.NewResolver()
+	resolver.IndexFilesParallel(files, 1)
+	var out []string
+	var project []string
+	for _, check := range checks {
+		var rule *api.Rule
+		for _, r := range api.Registry {
+			if r.ID == check {
+				rule = r
+			}
+		}
+		if rule == nil {
+			t.Fatalf("rule %q not registered", check)
+		}
+		if !rule.Needs.IsPerFile() {
+			project = append(project, check)
+			continue
+		}
+		d := rules.NewDispatcher([]*api.Rule{rule}, resolver)
+		for i, file := range files {
+			cols := d.Run(file)
+			for _, f := range cols.Findings() {
+				out = append(out, fmt.Sprintf("%s:%d:%d: %s: %s", rels[i], f.Line, f.Col, f.Rule, f.Message))
+			}
+		}
+	}
+	if len(project) > 0 {
+		out = append(out, runWorkParityChecks(t, dir, project)...)
+	}
+	sort.Strings(out)
+	return out
 }

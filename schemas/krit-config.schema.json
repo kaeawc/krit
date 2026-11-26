@@ -32334,6 +32334,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "ArgInFormattedQuantityStringRes": {
+          "description": "Count value in formatted string resource. [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ArgInFormattedQuantityStringRes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "AvoidUsingNotNullOperator": {
           "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32440,6 +32473,39 @@
           "properties": {
             "active": {
               "description": "Enable BindsMustBeAbstract (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "CastingViewContextToActivity": {
+          "description": "Unsafe cast of `Context` to `Activity` [precision: type-aware] [noisiness: normal] [capabilities: resolver]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable CastingViewContextToActivity (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -34288,6 +34354,39 @@
           "properties": {
             "active": {
               "description": "Enable RxObservableDoesNotEmit (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "SpanMarkPointMissingMask": {
+          "description": "Check that Span flags use the bitwise mask SPAN_POINT_MARK_MASK when being compared to. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SpanMarkPointMissingMask (default: false).",
               "type": "boolean",
               "default": false
             },

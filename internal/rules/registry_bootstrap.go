@@ -139,6 +139,7 @@ func init() {
 	registerStyleUnnecessaryRules()
 	registerStyleUnusedRules()
 	registerSupplyChainRules()
+	registerThirdPartyAndroidUIRules()
 	registerGradleKotlinRules()
 	registerTestingQualityRules()
 	registerThirdPartyMoshiRules()

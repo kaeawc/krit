@@ -12,6 +12,11 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
+  `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
+  the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
+  `androidx_uiautomator/`). `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which
+  the shipped detector no longer recognizes (#1505, #1506, #1507).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's

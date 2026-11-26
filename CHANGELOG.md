@@ -15,15 +15,6 @@ All notable changes to Krit will be documented in this file.
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
-- `BindsTypeMismatch` and `DoNotCallProviders`, the cross-file slack-lints 0.11.1 Dagger checks, in the opt-in
-  `slack-lint` rule set for Kotlin and Java: a `@Binds` parameter that cannot be assigned to its return type, and a
-  user-code call to a `@Binds`/`@Provides`/`@Produces` method. Findings match the Lint CLI on
-  `internal/rules/testdata/slack_lint_crossfile/dagger/` (#1358, #1366).
-- `TestParameterSiteTarget`, `MustUseNamedParams` and `RestrictCallsTo`, slack-lints 0.11.1's annotation-driven
-  checks, in the opt-in `slack-lint` rule set. `MustUseNamedParams` and `RestrictCallsTo` resolve Kotlin calls to
-  project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
-  through imports, packages and receiver types (overrides included), and match the Lint CLI on
-  `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
@@ -266,6 +257,10 @@ All notable changes to Krit will be documented in this file.
   negative. `UnsanitizedFilenameFromContentProvider` follows a `Cursor` display-name column through
   `getString` and local variables within one function, including lambdas and local functions, and reports the value
   where it reaches a `java.io.File` constructor before any other call uses it.
+- `BindsTypeMismatch` and `DoNotCallProviders`, the cross-file slack-lints 0.11.1 Dagger checks, in the opt-in
+  `slack-lint` rule set for Kotlin and Java: a `@Binds` parameter that cannot be assigned to its return type, and a
+  user-code call to a `@Binds`/`@Provides`/`@Produces` method. Findings match the Lint CLI on
+  `internal/rules/testdata/slack_lint_crossfile/dagger/` (#1358, #1366).
 - `AddJavascriptInterface` no longer reports "None of the methods in the added interface ...". That finding moved to
   `JavascriptInterface`, matching Lint's split between the two issues. `@Suppress`/`@SuppressLint`/`tools:ignore`
   entries and baseline entries written for `AddJavascriptInterface` still silence the moved finding: a rule's

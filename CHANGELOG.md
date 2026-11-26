@@ -587,6 +587,12 @@ All notable changes to Krit will be documented in this file.
   project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
   through imports, packages and receiver types (overrides included), and match the Lint CLI on
   `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
+- `JavaOnlyDetector`, slack-lints 0.11.1's `@JavaOnly`/`@KotlinOnly` check, in the opt-in `slack-lint` rule set: in
+  Kotlin sources, a class or function annotated with both, a subclass or override of an annotated type or function
+  that does not repeat the annotation, an anonymous object or SAM lambda of a `@JavaOnly` type, and calls and
+  callable references to `@JavaOnly` functions or members of `@JavaOnly` classes, with Java declarations indexed.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint_crossfile/javaonly/`, except that a finding on
+  a class is reported at the declaration rather than its KDoc (#1369).
 
 ### Fixed
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a

@@ -139,6 +139,17 @@ declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites a
 negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
 inner or anonymous class inside a subclass, and annotated extension functions.
 
+`JavaOnlyDetector` ports `JavaOnlyDetector` for slack-lint-annotations' `@JavaOnly` and `@KotlinOnly`. As in Lint,
+it checks Kotlin sources only (Lint leaves Java to an ErrorProne check) and reads Java declarations for them. It
+reports a class or function annotated with both; a class whose direct superclass or interface, or a function whose
+overridden function, is annotated but which does not repeat the annotation (`@KotlinOnly` is checked before
+`@JavaOnly`); an object expression or a SAM-constructor lambda of a `@JavaOnly` Java type, unless returned from a
+`@JavaOnly` function; and a call or callable reference to a `@JavaOnly` function or to any member of a `@JavaOnly`
+class, with the annotation's `reason` in the message. Calls are matched like `MustUseNamedParams` above. A finding on
+a class sits at the declaration, where Lint starts it at the KDoc above. Not checked: annotated library
+declarations, a lambda passed where a `@JavaOnly` interface is expected without its SAM constructor, and Lint's
+package-level `@KotlinOnly` lookup.
+
 The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
 Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.
 

@@ -147,6 +147,7 @@ func init() {
 	registerThirdPartyResourceAliasRules()
 	registerThirdPartyAnnotationRules()
 	registerThirdPartyMockingRules()
+	registerThirdPartyJavaOnlyRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
 	registerThirdPartyRxRules()

@@ -174,6 +174,36 @@ func (f FileFacts) forFiles(files []string) FileFacts {
 	return out
 }
 
+// keyedUnder returns f with every path spelled relative to root for a cache
+// key (see firCacheStore); f itself is what krit-fir receives. root ""
+// returns f unchanged.
+func (f FileFacts) keyedUnder(root string) FileFacts {
+	if root == "" {
+		return f
+	}
+	key := func(p string) string { return fsutil.RelSlash(root, p) }
+	out := FileFacts{}
+	for _, p := range f.TestFiles {
+		out.TestFiles = append(out.TestFiles, key(p))
+	}
+	if len(f.ScanPaths) > 0 {
+		out.ScanPaths = make(map[string]string, len(f.ScanPaths))
+		for p, spelling := range f.ScanPaths {
+			if filepath.IsAbs(spelling) {
+				spelling = key(spelling)
+			}
+			out.ScanPaths[key(p)] = spelling
+		}
+	}
+	if len(f.SDKLevels) > 0 {
+		out.SDKLevels = make(map[string]android.SDKLevels, len(f.SDKLevels))
+		for p, levels := range f.SDKLevels {
+			out.SDKLevels[key(p)] = levels
+		}
+	}
+	return out
+}
+
 // fileRef is a file path + content hash sent in check requests.
 type fileRef struct {
 	Path        string `json:"path"`

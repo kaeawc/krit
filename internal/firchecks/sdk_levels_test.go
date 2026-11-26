@@ -148,7 +148,7 @@ func TestInvokeCached_TargetSdkChangeMisses(t *testing.T) {
 	cacheDir, _ := CacheDir(tmp)
 	if err := WriteCacheEntry(cacheDir, &FirCacheEntry{
 		V: FirCacheVersion, ContentHash: hash, FilePath: ktFile, Rules: rules,
-		ClosureFingerprint: CheckCacheFingerprint(nil, files, nil, "", rules, nil, facts),
+		ClosureFingerprint: CheckCacheFingerprint(tmp, nil, files, nil, "", rules, nil, facts),
 	}); err != nil {
 		t.Fatal(err)
 	}

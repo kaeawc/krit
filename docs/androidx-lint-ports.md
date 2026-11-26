@@ -82,3 +82,24 @@ checks share the Scaffold checks' reference and shadowing rules above, and resol
   `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
   `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
   every `animate*` call on a resolved `Transition`.
+
+## WebKit and UiAutomator
+
+`androidx.webkit:webkit` 1.18.0 (Kotlin and Java) and `androidx.test.uiautomator:uiautomator` 2.4.1 (Kotlin),
+production sources only, as Lint's `JAVA_FILE_SCOPE`. The checks ship in those AARs, so, as in Lint, each rule runs
+only when the project declares its artifact:
+
+- `MissingOnRenderProcessGone` reports a concrete class or object literal extending `WebViewClient` or
+  `WebViewClientCompat` (abstract and sealed classes excepted) with no two-parameter `onRenderProcessGone` in itself
+  or a same-file superclass, at its name,
+  and a direct `WebViewClient()` / `WebViewClientCompat()` construction, at the call. A superclass declared in
+  another file is not followed (the per-file cache is keyed by the file's content, #1778), so such a class is not
+  reported. Lint reports a construction inside a Kotlin property assignment twice; krit reports it once.
+- `CrossOriginIsolatedAllowlist` reports `setCrossOriginIsolatedAllowlist(…)` (or the Kotlin property assignment) on
+  an `androidx.webkit.Profile`, proven by its declaration, a `with(profile)`/`apply`/`run` block, or a
+  `getOrCreateProfile`/`getProfile` call.
+- `DontUseAccessibilityNodeInfoGetText` reports `text` read on the `AccessibilityNodeInfo` of a UiAutomator element
+  predicate (`onElement { text == "Ok" }`, implicitly or through `this`), or on a value declared as one, at `text`;
+  a named-argument label such as `matches(text = "Ok")` is not a read.
+  The shipped detector matches only the pre-release names `onView`, `onViews` and `onViewOrNull`, which the released
+  2.4 API renamed to `onElement`, `onElements` and `onElementOrNull`, so it no longer fires; krit checks both sets.

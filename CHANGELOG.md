@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
+  component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
+  their producers, as plain Android modules already did (#1643).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
@@ -12,6 +15,12 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
+  `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
+  the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
+  `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
+  `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
+  longer recognizes (#1505, #1506, #1507).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -38,6 +47,11 @@ All notable changes to Krit will be documented in this file.
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Compose lint parity, second batch of compose-lints 1.6.1 ports: `ComposePreviewPublic`, `ComposePreviewNaming`
+  (cross-file, so multipreview annotations from other files count), `ComposeM2Api` (with `allowedM2Apis`),
+  `ComposeItemKeyHashCode` and `ComposeModifierComposed`, under their Lint IDs, messages and severities, experimental and
+  off by default. On nowinandroid and compose-samples their findings match the Lint CLI exactly (#1337, #1341, #1346,
+  #1347, #1354).
 - Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
   producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
   longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
@@ -383,6 +397,12 @@ All notable changes to Krit will be documented in this file.
 - The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
   only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
   Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
+- Module workers compile several modules at a time on threads of one JVM instead of one JVM per concurrent module
+  (#1656): they share the JIT-compiled compiler and heap. On a 4-core machine the `--fir` source-set recheck of 24
+  sets went from about 32s to 25s with the same results; module sharding, PR mode and settings-group sessions use the
+  same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module). Each
+  concurrent compile keeps the heap a JVM per module had, and an out-of-memory error in one stops that JVM's
+  remaining modules.
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -482,6 +502,12 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
+  intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
+  constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
+  blocks whose every statement is an Intent method call on `it` or the receiver. Any other use of the intent or the
+  array before the `PendingIntent` call, including a write in a nested lambda, still makes the rule abstain
+  (#1622).
 - The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
   version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
   buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
@@ -491,6 +517,15 @@ All notable changes to Krit will be documented in this file.
   `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
@@ -522,6 +557,10 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
   for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
   from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.

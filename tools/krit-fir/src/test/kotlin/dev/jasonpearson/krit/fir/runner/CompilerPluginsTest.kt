@@ -252,21 +252,28 @@ class CompilerPluginsTest {
         val dir = sourceDir("Model.kt" to SERIALIZABLE, "Use.kt" to USES_SERIALIZER)
         // Without the plugin Use.kt has an error: a snapshot leaves it out and the module stays incremental (#971).
         val few = session(dir, planning = true)
-        assertEquals("cold", few.checkAll(dir).plan?.reason)
+        val cold = assertNotNull(few.checkAll(dir).plan)
+        assertEquals("cold", cold.reason)
+        // The full check says what it left the next one (#1599).
+        assertEquals("built without 1 file with compiler errors", cold.snapshot)
         assertEquals("incremental", few.checkAll(dir).plan?.path)
 
         // Past the bound of files a snapshot leaves out, there is none, and the planner says why.
         val s = session(dir, planning = true)
         s.plannerLimits = s.plannerLimits.copy(staleFraction = 0.0, staleMinFiles = 1)
-        assertEquals("cold", s.checkAll(dir).plan?.reason)
+        val past = assertNotNull(s.checkAll(dir).plan)
+        assertEquals("cold", past.reason)
+        assertEquals("none: compile errors in 1 file, more than the 0 a snapshot leaves out", past.snapshot)
         val warm = assertNotNull(s.checkAll(dir).plan)
         assertEquals("full", warm.path)
         assertEquals("slice_unavailable", warm.reason)
-        assertEquals("COMPILE_ERRORS: compile errors in 1 file", warm.detail)
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file, more than the 0 a snapshot leaves out", warm.detail)
 
         // With the plugin the module is clean: it is snapshotted and the next check is served incrementally.
         val clean = session(dir, serialization(), planning = true)
-        assertEquals("cold", clean.checkAll(dir).plan?.reason)
+        val built = assertNotNull(clean.checkAll(dir).plan)
+        assertEquals("cold", built.reason)
+        assertEquals("built", built.snapshot)
         File(dir, "Use.kt").writeText(USES_SERIALIZER + "\nfun more() = 1\n")
         assertEquals("incremental", clean.checkAll(dir).plan?.path)
     }

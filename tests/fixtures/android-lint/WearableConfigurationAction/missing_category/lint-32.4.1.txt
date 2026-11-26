@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:14:17: WearableConfigurationAction: Watch face configuration tag is required

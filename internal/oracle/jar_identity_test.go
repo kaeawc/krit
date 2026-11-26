@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/gradlemodel"
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 // connectExistingDaemon connects to a resident daemon launched with no Kotlin
@@ -110,13 +111,10 @@ func TestDaemonRegistryKeyAndRetirementTrackClasspathJar(t *testing.T) {
 	if err := writePIDFile(99999999, 1, oldKey); err != nil {
 		t.Fatal(err)
 	}
-	stamp := time.Now().Add(5 * time.Second)
-	if err := os.Chtimes(dep, stamp, stamp); err != nil {
-		t.Fatal(err)
-	}
+	testutil.RewriteKeepingStat(t, dep, "BEFORE")
 	newKey := daemonRegistryKey(jar, sources, dep)
 	if oldKey == newKey {
-		t.Fatal("classpath mtime change kept daemon registry key")
+		t.Fatal("a same-size, same-mtime classpath jar rebuild kept the daemon registry key")
 	}
 	retireSupersededDaemons(jar, sources, []string{dep}, false)
 	if _, err := os.Stat(daemonPIDPathForSlot(oldKey, 0)); !os.IsNotExist(err) {

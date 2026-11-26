@@ -17,7 +17,7 @@ The Gradle plugins resolve from Maven Central: apply
 Krit prints one actionable stderr error and stops before analysis if any of
 these are missing. `krit --no-fir .` runs Go-only. See
 [configuration](configuration.md#fir-scan-requirements) for Maven/Bazel recipes
-and `fir.goAuthoritativeRules`.
+`fir.goAuthoritativeRules` and `fir.requireAuthoritativeRules`.
 
 ## Output formats
 

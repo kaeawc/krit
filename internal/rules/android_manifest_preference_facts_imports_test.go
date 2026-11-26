@@ -18,6 +18,22 @@ func sourceImportSubmatches(content string) [][]string {
 	return out
 }
 
+func lintImportSubmatches(content string) [][]string {
+	var out [][]string
+	for _, m := range lintImportRe.FindAllStringSubmatch(content, -1) {
+		out = append(out, m[1:])
+	}
+	return out
+}
+
+func fastLintImportSubmatches(content string) [][]string {
+	var out [][]string
+	for _, m := range findImportMatches(content, lintImportTailRe) {
+		out = append(out, m[1:])
+	}
+	return out
+}
+
 func fastSourceImportSubmatches(content string) [][]string {
 	var out [][]string
 	for _, m := range findSourceImports(content) {
@@ -42,7 +58,7 @@ func TestFindSourceImportsMatchesRegex(t *testing.T) {
 		"import a.B // trailing\nimport c.D",
 	}
 	rng := rand.New(rand.NewPCG(7, 11))
-	tokens := []string{"import", "import ", " ", "\n", "\t", "\r\n", "\f", "a", "b.", ".", ".*", " as ", "as", ";", "static ", "B", "x", "\"", "//"}
+	tokens := []string{"import", "import ", " ", "\n", "\t", "\r\n", "\f", "a", "b.", ".", ".*", " as ", "as", ";", "static ", "B", "x", "\"", "//", "_", "1", "(", "@", "é"}
 	for i := 0; i < 5000; i++ {
 		var b strings.Builder
 		for n := rng.IntN(30); n >= 0; n-- {
@@ -53,6 +69,9 @@ func TestFindSourceImportsMatchesRegex(t *testing.T) {
 	for _, c := range cases {
 		if got, want := fastSourceImportSubmatches(c), sourceImportSubmatches(c); !reflect.DeepEqual(got, want) {
 			t.Fatalf("content %q:\n got %q\nwant %q", c, got, want)
+		}
+		if got, want := fastLintImportSubmatches(c), lintImportSubmatches(c); !reflect.DeepEqual(got, want) {
+			t.Fatalf("lint imports, content %q:\n got %q\nwant %q", c, got, want)
 		}
 	}
 }
@@ -74,6 +93,9 @@ func TestFindSourceImportsMatchesRegexOnFixtures(t *testing.T) {
 		n++
 		if got, want := fastSourceImportSubmatches(string(data)), sourceImportSubmatches(string(data)); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s:\n got %q\nwant %q", path, got, want)
+		}
+		if got, want := fastLintImportSubmatches(string(data)), lintImportSubmatches(string(data)); !reflect.DeepEqual(got, want) {
+			t.Errorf("lint imports, %s:\n got %q\nwant %q", path, got, want)
 		}
 		return nil
 	})

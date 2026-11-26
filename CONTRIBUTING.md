@@ -45,6 +45,7 @@ changed files make it relevant:
 | `merge`: origin/main merges cleanly; the merged tree passes `go build` + `go vet` | always (build only for Go changes) | every Go job, after both PRs land |
 | `gofmt`, `build` (`go build ./...`), `vet` (`go vet ./...`, compiles every `_test.go`) | Go files or go.mod change | build-verify, golangci-lint |
 | `lint`: `golangci-lint run` on changed packages | Go files change | golangci-lint |
+| `gosec`: the standalone `gosec` binary on changed packages, with `ci.yml`'s `-exclude` list. It ignores `//nolint:gosec`; annotate with `// #nosec G<id> -- reason` (install: `go install github.com/securego/gosec/v2/cmd/gosec@latest`) | Go files change | golangci-lint ("Run gosec") |
 | `rules`: `make lint-rules` | `internal/rules/`, `internal/ruleslinter/` | build-verify |
 | `oraclefp`: `go run ./internal/devtools/oraclefpcheck` | rules, oracle, FIR checks, type inference, playground | build-verify |
 | `schema`: `schemas/krit-config.schema.json` matches `krit --generate-schema` | rules, schema, config, `cmd/krit/` | (generated file) |
@@ -53,6 +54,8 @@ changed files make it relevant:
 | `actions`: `scripts/lint-actions.sh` | `.github/` | actionlint |
 | `docs`: `scripts/validate_mkdocs_nav.sh`, `mkdocs build --strict` if installed | docs, mkdocs.yml, docgen | Documentation |
 | `winvet`: `GOOS=windows go vet ./...` | Go files change and mingw-w64 is on PATH | windows-vet |
+| `bazele2e`: `scripts/bazel-e2e-local.sh` | `bazel/`, `scripts/bazel-*`, FIR verdict merging (`internal/firchecks/{verdict,pass,coverage}`, `internal/output/fir_coverage.go`), when bazel or bazelisk, java and a krit-fir jar are present; otherwise it names the CI job | bazel-e2e |
+| `jvme2e`: `tests/externalrule` + `tests/playgroundrules` | custom-rule inputs (`tests/externalrule/`, `examples/external-rule/`, `tools/krit-rule-api/`, `krit-custom-rule-plugin/`) — runs when `java`, krit-rule-api in `~/.m2` and a krit-fir jar exist, otherwise prints a loud SKIPPED line (these tests `t.Skip` silently) | external-rule-example, playground-rules |
 | `warmclean`: the FIR warm-versus-clean mutation rows (`TestWarmCleanMutationFIR//^abs$`, ~150s) | cache, hashing, oracle, FIR checks, Gradle model, `tools/krit-fir/` — when `java`, a krit-fir jar for the current sources (`make fir-jar`) and kotlin-stdlib are available; skipped otherwise | warm-clean-matrix (1/2) |
 
 JVM, Gradle and Bazel jobs are too slow for a hook. When those trees change,
@@ -64,6 +67,29 @@ When CI catches something the hook missed, open an issue labeled
 `prepush-gap` with the failing job, the error line, and the local command
 that would have caught it. Add the check to `scripts/pre-push.sh`, with a
 fixture in `internal/devtools/prepush/testdata/plans/`.
+
+## Maven Central in CI
+
+GitHub runners share IP addresses, and Maven Central often answers them with
+429 Too Many Requests. CI therefore tries
+[Google's mirror of Maven Central](https://storage-download.googleapis.com/maven-central/index.html)
+first:
+
+- Gradle jobs use `./.github/actions/maven-mirror` after `setup-java` (and
+  after `setup-gradle` when the job has it). It installs an init script that
+  puts the mirror in front of the first Maven Central or plugin portal
+  repository. `mavenLocal()` and included builds still win, and an artifact
+  the mirror has not synced yet falls through to Maven Central on its 404.
+  Add the action to any new job that runs Gradle. Release and publish
+  workflows don't use it, so published artifacts resolve from Maven Central.
+- Bazel jobs pass `--downloader_config=scripts/bazel-ci-downloader.cfg`,
+  which tries the mirror first for every Maven Central URL Bazel downloads.
+- rules_jvm_external's coursier resolution of unpinned `maven.install`
+  repositories (bazel_worker_java's `bazel_worker_maven`, rules_android's
+  `android_ide_common_*`) goes to Maven Central directly, and can still hit
+  429. A coursier mirror (`COURSIER_MIRRORS`) does not work there:
+  rules_jvm_external requires each downloaded URL to start with one of the
+  install's declared repositories.
 
 ## Adding a New Rule
 

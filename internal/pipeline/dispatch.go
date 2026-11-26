@@ -118,7 +118,7 @@ func (DispatchPhase) writeCacheBack(in IndexResult, findingsByFile map[string]sc
 			if in.OracleBlobHash != nil {
 				blobHash = in.OracleBlobHash(pf.Path)
 			}
-			in.Cache.UpdateEntryColumnsWithOracle(pf.Path, &fileColumns, blobHash)
+			in.Cache.UpdateEntryFromContent(pf.Path, pf.Content, &fileColumns, blobHash)
 		}
 	}
 	in.Cache.SetHeader(in.Version, in.RuleHash, in.CacheScanPaths)

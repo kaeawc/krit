@@ -175,7 +175,154 @@ for case in "settings_without_kotlinc_opts:'when' expression must be exhaustive"
       ;;
   esac
 done
+# A target whose srcs include a generated srcjar (#1688, #1632): its own
+# file, in a Gradle-style src/main/kotlin, compiles against the srcjar's
+# sources, so the action is not degraded and FIR reports the finding.
+echo "== krit_aspect on //srcjar (a generated srcjar in srcs)"
+build "${extra[@]}" //srcjar/... > /dev/null 2>&1 || build "${extra[@]}" //srcjar/...
+# shellcheck disable=SC2086
+grep -q "srcjar/src/main/kotlin/d/UsesGen.kt:5:.*UnnecessarySafeCall" \
+  "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" || {
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/srcjar/srcjar.krit.txt" >&2
+  echo "ERROR: krit_aspect did not report //srcjar's FIR finding through the srcjar" >&2
+  exit 1
+}
+# A minSdk set only by the build (#1682): with --@krit//:min_sdk_version=24
+# the SDK_INT >= 21 check of //sdk is obsolete; without it the level is
+# unknown and krit reports nothing.
+echo "== --@krit//:min_sdk_version reaches krit_aspect's actions"
+sdk_report() {
+  build "${extra[@]}" "$@" //sdk > /dev/null 2>&1 || build "${extra[@]}" "$@" //sdk
+  # shellcheck disable=SC2086
+  cat "$($BAZEL info "${extra[@]}" bazel-bin 2> /dev/null)/sdk/sdk.krit.txt"
+}
+if sdk_report | grep -q ObsoleteSdkInt; then
+  echo "ERROR: //sdk reported ObsoleteSdkInt without a minSdk" >&2
+  exit 1
+fi
+sdk_report --@krit//:min_sdk_version=24 | grep -q "sdk/Levels.kt:5:.*ObsoleteSdkInt.*always >= 24" || {
+  sdk_report --@krit//:min_sdk_version=24 >&2
+  echo "ERROR: --@krit//:min_sdk_version=24 did not reach //sdk's Krit action" >&2
+  exit 1
+}
 echo "OK: krit_aspect"
+
+# A remote cache shares a Krit action between machines only if its key
+# names no machine-specific path: the command line, the params file, the
+# environment and the model.json the action reads must all be relative to
+# the execution root.
+echo "== krit_aspect action keys carry no absolute paths"
+# shellcheck disable=SC2086
+env -u KRIT_BAZEL_RELEASE -u KRIT_FIR_JAR $BAZEL aquery \
+  --lockfile_mode=off \
+  --noshow_progress \
+  --symlink_prefix=/ \
+  --aspects=@krit//:defs.bzl%krit_aspect \
+  --output_groups=krit \
+  --include_param_files \
+  --include_file_write_contents \
+  --output=jsonproto \
+  "${extra[@]}" 'mnemonic("^(Krit|FileWrite)$", //typed/... + //kotlin_settings/...)' > "$work/aquery.json"
+python3 - "$work/aquery.json" << 'PY'
+import json, re, sys
+graph = json.load(open(sys.argv[1]))
+# An absolute path at the start of a value or after "=", ":", "," or a quote;
+# "//pkg:name" labels are not paths.
+absolute = re.compile(r'(?:^|[=:,"\s])/(?!/)')
+krit, models, bad = 0, 0, []
+for action in graph.get("actions", []):
+    values = []
+    if action.get("mnemonic") == "Krit":
+        krit += 1
+        values += action.get("arguments", [])
+        values += [v.get("value", "") for v in action.get("environmentVariables", [])]
+        for params in action.get("paramFiles", []):
+            values += params.get("arguments", [])
+    elif '"sourceSets"' in action.get("fileContents", ""):
+        models += 1
+        values.append(action["fileContents"])
+    for value in values:
+        for line in value.splitlines():
+            if absolute.search(line):
+                bad.append(line.strip())
+if not krit or not models:
+    sys.exit("ERROR: aquery found %d Krit actions and %d models" % (krit, models))
+if bad:
+    sys.exit("ERROR: Krit action keys name absolute paths:\n  " + "\n  ".join(sorted(set(bad))))
+print("OK: %d Krit actions and %d models, no absolute paths" % (krit, models))
+PY
+
+# Compile avoidance: with rules_kotlin's ABI jars an implementation-only
+# edit of //typed/lib leaves its compile jar, and so //typed/app's Krit
+# action key, unchanged; only //typed/lib's own Krit action re-runs.
+echo "== an implementation-only edit of //typed/lib re-runs only its own Krit action"
+upstream="$repo_root/bazel/e2e/typed/lib/Upstream.kt"
+cp "$upstream" "$work/Upstream.kt.orig"
+trap 'cp "$work/Upstream.kt.orig" "$upstream"; rm -rf "$work"' EXIT
+abi=(--define=experimental_use_abi_jars=1)
+build "${extra[@]}" "${abi[@]}" //typed/... > /dev/null 2>&1 || build "${extra[@]}" "${abi[@]}" //typed/...
+sed -i.bak 's/"upstream"/"upstream, edited"/' "$upstream" && rm -f "$upstream.bak"
+build "${extra[@]}" "${abi[@]}" --execution_log_json_file="$log" //typed/... > /dev/null 2>&1 ||
+  build "${extra[@]}" "${abi[@]}" //typed/...
+cp "$work/Upstream.kt.orig" "$upstream"
+trap 'rm -rf "$work"' EXIT
+python3 - "$log" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, ran = json.JSONDecoder(), 0, []
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == "Krit" and not (entry.get("cacheHit") or entry.get("remoteCacheHit")):
+        ran.append(entry.get("targetLabel", "?"))
+if not any(label.endswith("//typed/lib:lib") for label in ran):
+    sys.exit("ERROR: //typed/lib's Krit action did not re-run after its source changed: %s" % ran)
+if any(label.endswith("//typed/app:app") for label in ran):
+    sys.exit("ERROR: an implementation-only edit of //typed/lib re-ran //typed/app's Krit action")
+print("OK: compile avoidance (re-ran: %s)" % ", ".join(ran))
+PY
+
+# Large targets' actions run in the krit_large exec group, and an
+# execution platform's krit_large.<key> exec_properties reach them only.
+# //:krit_large_test_platform adds krit-e2e-large=1 that way; the property
+# is part of the cache key, so these actions execute (in the group, with
+# the large resource estimate) instead of hitting the disk cache.
+echo "== krit_large exec group: a platform's krit_large.* properties reach large Krit actions only"
+large=(--extra_execution_platforms=//:krit_large_test_platform --@krit//:worker=false)
+build "${extra[@]}" "${large[@]}" --@krit//:large_target_sources=1 --execution_log_json_file="$log" //typed/lib > /dev/null 2>&1 ||
+  build "${extra[@]}" "${large[@]}" --@krit//:large_target_sources=1 //typed/lib
+cp "$log" "$work/large.json"
+build "${extra[@]}" "${large[@]}" --execution_log_json_file="$log" //typed/app > /dev/null 2>&1 ||
+  build "${extra[@]}" "${large[@]}" //typed/app
+python3 - "$work/large.json" "$log" << 'PY'
+import json, sys
+def krit_spawns(path):
+    text = open(path).read()
+    decoder, pos, out = json.JSONDecoder(), 0, []
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+        entry, pos = decoder.raw_decode(text, pos)
+        if entry.get("mnemonic") == "Krit":
+            props = {p.get("name"): p.get("value") for p in entry.get("platform", {}).get("properties", [])}
+            out.append((entry.get("targetLabel", "?"), bool(entry.get("cacheHit") or entry.get("remoteCacheHit")), props))
+    return out
+large, small = krit_spawns(sys.argv[1]), krit_spawns(sys.argv[2])
+ran = [s for s in large if not s[1]]
+if not ran:
+    sys.exit("ERROR: no Krit action executed in the krit_large exec group: %s" % large)
+if any(s[2].get("krit-e2e-large") != "1" for s in ran):
+    sys.exit("ERROR: a large Krit action ran without the platform's krit_large property: %s" % ran)
+if not small or any("krit-e2e-large" in s[2] for s in small):
+    sys.exit("ERROR: a Krit action below large_target_sources got the krit_large property: %s" % small)
+print("OK: krit_large (%d large Krit actions ran with the property, %d other without)" % (len(ran), len(small)))
+PY
 
 # Project-scope rules: per target, krit_aspect runs only the file-scope
 # rules (--@krit//:scope=file). With --@krit//:scope=all an action over
@@ -251,6 +398,11 @@ if not runners or any("worker" not in r for r in runners):
 print("OK: persistent worker (%s)" % ", ".join(runners))
 PY
 
+# One worker JVM serves every target (#1666): its reports must match one
+# JVM per action on targets that share file and declaration names.
+echo "== persistent worker: one JVM for every target, the same reports as one-shot"
+BAZEL="$BAZEL" bash "$repo_root/scripts/bazel-worker-parity.sh" ${extra[@]+"${extra[@]}"}
+
 # export_model: a krit model of the Bazel graph for scans outside Bazel. A
 # plain krit run in the workspace then finds .krit/bazel-model and gets the
 # targets' classpath and Kotlin settings: the FIR-only findings of //typed/app
@@ -273,11 +425,18 @@ if grep -l '@@WORKSPACE@@\|@@EXECROOT@@' "${models[@]}"; then
 fi
 scan_home="$work/scan-home"
 mkdir -p "$scan_home"
+# Outside Bazel, Settings.kt is gated: :settings shares kotlin_settings/ with
+# :annotation, so no settings-group session applies its kotlinc_opts (#1775).
+# Its line-32 finding is then Go's, which fir.requireAuthoritativeRules
+# withholds by default (#1675); keep it until #1775 makes the file compile.
+scan_config="$work/export-model-krit.yml"
+cat krit.yml > "$scan_config"
+printf 'fir:\n  requireAuthoritativeRules: []\n' >> "$scan_config"
 rc=0
 scan="$(env -u KRIT_BAZEL_LOCAL_DIST HOME="$scan_home" KRIT_FIR_JAR="$DIST/krit-fir.jar" \
   KRIT_NO_JAR_DOWNLOAD=1 KRIT_NO_DAEMON_AUTOSTART=1 \
   "$DIST/krit" --no-daemon --no-cache --no-fir-daemon --fail-on-degraded -f plain --base-path . \
-  typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
+  --config "$scan_config" typed/app/Consumer.kt kotlin_settings/Settings.kt 2>&1)" || rc=$?
 printf '%s\n' "$scan"
 if [ "$rc" != 1 ]; then
   echo "ERROR: krit exited $rc; want 1 (findings)" >&2

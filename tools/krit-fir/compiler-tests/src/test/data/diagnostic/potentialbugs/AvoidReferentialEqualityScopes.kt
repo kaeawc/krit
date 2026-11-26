@@ -1,5 +1,5 @@
 // RENDER_DIAGNOSTICS_FULL_TEXT
-// go-lines: 33, 46, 49, 56
+// go-lines: 33, 35, 36, 46, 49, 56
 package test
 
 val label = "default"

@@ -755,7 +755,65 @@ func (r *defaultResolver) parameterInfoFlat(parameterIdx uint32, file *scanner.F
 	if typ == nil {
 		typ = UnknownType()
 	}
-	return ParamInfo{Name: name, Type: typ, HasDefault: flatParameterHasDefault(file, parameterIdx)}
+	annotations, vararg := flatParameterModifiers(file, parameterIdx)
+	return ParamInfo{Name: name, Type: typ, HasDefault: flatParameterHasDefault(file, parameterIdx),
+		Vararg: vararg, Annotations: annotations}
+}
+
+// flatParameterModifiers returns the annotation simple names and the vararg
+// flag from the parameter_modifiers before a parameter.
+func flatParameterModifiers(file *scanner.File, parameterIdx uint32) (annotations []string, vararg bool) {
+	mods, ok := file.FlatPrevSibling(parameterIdx)
+	if !ok || file.FlatType(mods) != "parameter_modifiers" {
+		return nil, false
+	}
+	for m := file.FlatFirstChild(mods); m != 0; m = file.FlatNextSib(m) {
+		switch file.FlatType(m) {
+		case "annotation":
+			if name := flatAnnotationSimpleName(file, m); name != "" {
+				annotations = append(annotations, name)
+			}
+		case "parameter_modifier":
+			if strings.TrimSpace(file.FlatNodeText(m)) == "vararg" {
+				vararg = true
+			}
+		}
+	}
+	return annotations, vararg
+}
+
+// flatAnnotationSimpleName returns the last identifier of an annotation's
+// type: "CompileTimeConstant" for `@com.google.errorprone.annotations.CompileTimeConstant`.
+func flatAnnotationSimpleName(file *scanner.File, ann uint32) string {
+	typ := flatFindNamedChildOfType(file, ann, "user_type")
+	if typ == 0 {
+		if call := flatFindNamedChildOfType(file, ann, "constructor_invocation"); call != 0 {
+			typ = flatFindNamedChildOfType(file, call, "user_type")
+		}
+	}
+	if typ == 0 {
+		return ""
+	}
+	text := strings.TrimSpace(file.FlatNodeText(typ))
+	if cut := strings.IndexByte(text, '<'); cut >= 0 {
+		text = text[:cut]
+	}
+	return text[strings.LastIndexByte(text, '.')+1:]
+}
+
+// flatFunctionHasAnnotatedParam reports whether any value parameter of the
+// function at funcIdx carries an annotation, without resolving parameter types.
+func flatFunctionHasAnnotatedParam(file *scanner.File, funcIdx uint32) bool {
+	params := flatFindNamedChildOfType(file, funcIdx, "function_value_parameters")
+	if params == 0 {
+		return false
+	}
+	for c := file.FlatFirstChild(params); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "parameter_modifiers" && flatFindNamedChildOfType(file, c, "annotation") != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func flatParameterNameAndType(file *scanner.File, parameterIdx uint32) (name string, typeNode uint32) {

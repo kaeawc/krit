@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/librarymodel"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -61,7 +62,7 @@ func (r *InvalidFragmentVersionForActivityResultRule) check(ctx *api.Context) {
 // androidx.fragment:fragment older than 1.3.0, directly or through the version catalog. Without a module build file it
 // falls back to the project profile. A fragment version that arrives only transitively is not seen (#1120).
 func activityModuleHasOldFragment(ctx *api.Context) bool {
-	profile, found := activityModuleProfile(ctx.File.Path)
+	profile, found := activityModuleProfile(ctx.Facts, ctx.File.Path)
 	if !found {
 		profile = librarymodel.EnsureFacts(ctx.LibraryFacts).Profile
 	}
@@ -79,7 +80,7 @@ func activityModuleHasOldFragment(ctx *api.Context) bool {
 }
 
 // activityModuleProfile reads the nearest build.gradle(.kts) above path, with its version catalog.
-func activityModuleProfile(path string) (librarymodel.ProjectProfile, bool) {
+func activityModuleProfile(facts *filefacts.Cache, path string) (librarymodel.ProjectProfile, bool) {
 	// The walk ends at the filesystem root, so a source file in a deep package still finds its module.
 	for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
 		for _, name := range []string{"build.gradle.kts", "build.gradle"} {
@@ -88,7 +89,7 @@ func activityModuleProfile(path string) (librarymodel.ProjectProfile, bool) {
 			if err != nil {
 				continue
 			}
-			catalog, _ := librarymodel.LoadVersionCatalogForGradlePath(build)
+			catalog, _ := loadGradleVersionCatalog(facts, build)
 			return librarymodel.ProfileFromGradleContentWithCatalog(build, string(content), catalog), true
 		}
 		if parent := filepath.Dir(dir); parent == dir {

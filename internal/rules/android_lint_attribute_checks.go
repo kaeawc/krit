@@ -65,8 +65,7 @@ func (r *InvalidManifestAttributeRule) check(ctx *api.Context) {
 }
 
 func (r *EllipsizeMaxLinesRule) check(ctx *api.Context) {
-	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
-	if facts != nil && facts.Profile.MinSdkVersion >= 23 {
+	if profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts)) >= 23 {
 		return
 	}
 	for _, layout := range ctx.ResourceIndex.AllLayouts() {

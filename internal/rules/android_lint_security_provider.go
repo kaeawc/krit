@@ -156,6 +156,14 @@ func (idx *lintSourceIndex) resolve(file *scanner.File, typ string) (string, *li
 		first := typ[:strings.Index(typ, ".")]
 		if imported, ok := scope.imports[first]; ok {
 			candidates = append(candidates, imported+typ[len(first):])
+		} else {
+			// Outer.Nested names a nested class of Outer from the file's package or a wildcard import.
+			if scope.pkg != "" {
+				candidates = append(candidates, scope.pkg+"."+typ)
+			}
+			for _, wildcard := range scope.wildcards {
+				candidates = append(candidates, wildcard+"."+typ)
+			}
 		}
 		candidates = append(candidates, typ)
 	} else {

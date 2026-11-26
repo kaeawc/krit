@@ -79,7 +79,7 @@ func lintFindingAtNodeIn(file *scanner.File, idx uint32, msg string) scanner.Fin
 // implicitIntentNonExportedComponents maps "<action> (used to ...)" to the sorted names of the non-exported
 // activities, activity aliases and receivers whose intent filters declare the action. A component without
 // android:exported="true" counts as non-exported, as in Lint.
-func implicitIntentNonExportedComponents(manifests []*manifest.Manifest, classes map[string]*lintSourceClass) map[string][]string {
+func implicitIntentNonExportedComponents(manifests []*manifest.Manifest, classes *lintSourceIndex) map[string][]string {
 	sets := map[string]map[string]bool{}
 	for _, m := range manifests {
 		if m == nil || m.Root == nil || scanner.IsTestFile(m.Path) {

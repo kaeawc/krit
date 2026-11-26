@@ -421,6 +421,10 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
+  `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
+  index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase
+  went from 343s to 1.2s, with the same findings (#1658).
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).

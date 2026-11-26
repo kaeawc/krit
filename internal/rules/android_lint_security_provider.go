@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -38,33 +39,80 @@ type lintSourceClass struct {
 	idx  uint32
 }
 
+// lintSourceIndex indexes the classes declared in project sources for one rule run. Every lookup is a map access:
+// the manifest-source rules query it once per component, class and intent reference, so nothing here may scan the
+// whole project per call (#1658).
+type lintSourceIndex struct {
+	classes map[string]*lintSourceClass
+	// byFQN holds the same classes as the preferenceClassDecl map resolvePreferenceSuper takes.
+	byFQN map[string]*preferenceClassDecl
+	// bySimple maps a class's simple name to the FQNs that end with it, for manifests without a package.
+	bySimple map[string][]string
+	// scopes caches each file's package and imports.
+	scopes map[*scanner.File]*preferenceFileScope
+	// extends memoizes extendsTarget by class and target set.
+	extends map[lintExtendsKey]bool
+}
+
+// lintExtendsKey identifies one extends query: a class FQN and a target set, by map identity. The target sets are
+// package-level, so their identity is stable for the whole run.
+type lintExtendsKey struct {
+	fqn     string
+	targets uintptr
+}
+
 // lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots).
-func lintSourceClasses(files []*scanner.File) map[string]*lintSourceClass {
-	out := map[string]*lintSourceClass{}
+func lintSourceClasses(files []*scanner.File) *lintSourceIndex {
+	idx := &lintSourceIndex{classes: map[string]*lintSourceClass{}, byFQN: map[string]*preferenceClassDecl{},
+		bySimple: map[string][]string{}, scopes: make(map[*scanner.File]*preferenceFileScope, len(files)),
+		extends: map[lintExtendsKey]bool{}}
 	for _, file := range files {
 		if file == nil {
 			continue
 		}
-		scope := newPreferenceFileScope(string(file.Content))
-		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
-			name := extractIdentifierFlat(file, idx)
+		scope := idx.scope(file)
+		file.FlatWalkNodes(0, "class_declaration", func(n uint32) {
+			name := extractIdentifierFlat(file, n)
 			if name == "" {
 				return
 			}
-			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, idx, name, scope.pkg),
-				supers: preferenceDirectSupers(file, idx), file: scope}
-			out[d.fqn] = &lintSourceClass{decl: d, file: file, idx: idx}
+			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, n, name, scope.pkg),
+				supers: preferenceDirectSupers(file, n), file: scope}
+			if idx.classes[d.fqn] == nil {
+				idx.bySimple[name] = append(idx.bySimple[name], d.fqn)
+			}
+			idx.classes[d.fqn] = &lintSourceClass{decl: d, file: file, idx: n}
+			idx.byFQN[d.fqn] = d
 		})
 	}
-	return out
+	return idx
 }
 
-// lintSourceClassExtends reports whether the class's superclass chain, followed through project sources, reaches one
-// of the targets.
-func lintSourceClassExtends(c *lintSourceClass, classes map[string]*lintSourceClass, targets map[string]bool) bool {
-	byFQN := make(map[string]*preferenceClassDecl, len(classes))
-	for fqn, cls := range classes {
-		byFQN[fqn] = cls.decl
+// scope returns the file's package and imports, parsed once per file.
+func (idx *lintSourceIndex) scope(file *scanner.File) *preferenceFileScope {
+	if s := idx.scopes[file]; s != nil {
+		return s
+	}
+	s := newPreferenceFileScope(string(file.Content))
+	idx.scopes[file] = s
+	return s
+}
+
+// classAt returns the indexed class declared at a class_declaration node, or nil.
+func (idx *lintSourceIndex) classAt(file *scanner.File, n uint32) *lintSourceClass {
+	name := extractIdentifierFlat(file, n)
+	if name == "" {
+		return nil
+	}
+	return idx.classes[preferenceClassFQN(file, n, name, idx.scope(file).pkg)]
+}
+
+// extendsTarget reports whether the class's superclass chain, followed through project sources, reaches one of the
+// targets.
+func (idx *lintSourceIndex) extendsTarget(c *lintSourceClass, targets map[string]bool) bool {
+	key := lintExtendsKey{fqn: c.decl.fqn, targets: reflect.ValueOf(targets).Pointer()}
+	if v, ok := idx.extends[key]; ok {
+		return v
 	}
 	seen := map[string]bool{}
 	var reaches func(d *preferenceClassDecl) bool
@@ -74,25 +122,27 @@ func lintSourceClassExtends(c *lintSourceClass, classes map[string]*lintSourceCl
 		}
 		seen[d.fqn] = true
 		for _, super := range d.supers {
-			fqn := resolvePreferenceSuper(d, super, byFQN)
+			fqn := resolvePreferenceSuper(d, super, idx.byFQN)
 			if targets[fqn] {
 				return true
 			}
-			if next := byFQN[fqn]; next != nil && reaches(next) {
+			if next := idx.byFQN[fqn]; next != nil && reaches(next) {
 				return true
 			}
 		}
 		return false
 	}
-	return reaches(c.decl)
+	v := reaches(c.decl)
+	idx.extends[key] = v
+	return v
 }
 
 // lintManifestClass finds the project class a manifest component name refers to: the name resolved against the
 // manifest package, or, when the manifest has no package (the Gradle namespace supplies it), the only class whose
 // FQN ends with a relative name.
-func lintManifestClass(m *manifest.Manifest, name string, classes map[string]*lintSourceClass) (string, *lintSourceClass) {
+func lintManifestClass(m *manifest.Manifest, name string, classes *lintSourceIndex) (string, *lintSourceClass) {
 	fqn := manifestClassFQN(m.Package, name)
-	if c := classes[fqn]; c != nil {
+	if c := classes.classes[fqn]; c != nil {
 		return fqn, c
 	}
 	if m.Package != "" || (!strings.HasPrefix(name, ".") && strings.Contains(name, ".")) {
@@ -102,14 +152,15 @@ func lintManifestClass(m *manifest.Manifest, name string, classes map[string]*li
 	if !strings.HasPrefix(suffix, ".") {
 		suffix = "." + suffix
 	}
+	// Every FQN ending with the suffix ends with its last segment, the class's simple name.
 	var found *lintSourceClass
 	foundFQN := ""
-	for candidate, c := range classes {
+	for _, candidate := range classes.bySimple[suffix[strings.LastIndex(suffix, ".")+1:]] {
 		if strings.HasSuffix(candidate, suffix) {
 			if found != nil {
 				return fqn, nil
 			}
-			found, foundFQN = c, candidate
+			found, foundFQN = classes.classes[candidate], candidate
 		}
 	}
 	return foundFQN, found
@@ -130,7 +181,7 @@ func (r *ProviderReadPermissionOnlyRule) check(ctx *api.Context) {
 }
 
 func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *manifest.Manifest, provider *manifest.Node,
-	classes map[string]*lintSourceClass) {
+	classes *lintSourceIndex) {
 	read, ok := provider.Attr("android:readPermission")
 	if !ok {
 		return
@@ -142,7 +193,7 @@ func (r *ProviderReadPermissionOnlyRule) checkProvider(ctx *api.Context, m *mani
 		return
 	}
 	fqn, cls := lintManifestClass(m, provider.AttrValue("android:name"), classes)
-	if cls == nil || scanner.IsTestFile(cls.file.Path) || !lintSourceClassExtends(cls, classes, contentProviderClasses) {
+	if cls == nil || scanner.IsTestFile(cls.file.Path) || !classes.extendsTarget(cls, contentProviderClasses) {
 		return
 	}
 	methods := providerImplementedWriteMethods(cls.file, cls.idx)

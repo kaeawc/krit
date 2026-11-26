@@ -18333,6 +18333,39 @@
             }
           }
         },
+        "ContextCastToActivity": {
+          "description": "Detects LocalContext.current cast to an Activity; use LocalActivity instead. [precision: ast-backed] [noisiness: normal]\nCaveat: The cast type counts as an Activity when it is a known Activity class (android.app.Activity, ComponentActivity, FragmentActivity, AppCompatActivity), a same-file subclass of one, or another class whose name ends in Activity.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ContextCastToActivity (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "CoroutineCreationDuringComposition": {
           "description": "Detects launch, async and launchIn calls made directly in composition instead of inside a LaunchedEffect. [precision: ast-backed] [noisiness: normal]\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
           "type": "object",
@@ -18472,6 +18505,39 @@
           "properties": {
             "active": {
               "description": "Enable InvalidLanguageTagDelimiter (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "LaunchDuringComposition": {
+          "description": "Detects ManagedActivityResultLauncher.launch called during composition instead of inside a SideEffect. [precision: ast-backed] [noisiness: normal]\nCaveat: The launcher must be proven to be a ManagedActivityResultLauncher: a variable declared as one or initialized by rememberLauncherForActivityResult.\nCaveat: As in Lint, only launch(input, options) is ManagedActivityResultLauncher's own method; launch(input) is ActivityResultLauncher's and is not reported.\nCaveat: A lambda counts as composition only when the file proves its parameter is @Composable: a same-file declaration, a @Composable-annotated or -typed variable, or a known Compose content API (Column, Box, Scaffold, CompositionLocalProvider, lazy item content, ...).\nCaveat: Receivers must be proven by a same-file declaration or initializer; values typed only by inference across files are not checked.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable LaunchDuringComposition (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -18835,6 +18901,39 @@
           "properties": {
             "active": {
               "description": "Enable MutableCollectionMutableState (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NoCollectCallFound": {
+          "description": "Detects PredictiveBackHandler onBack lambdas that never collect the back progress Flow. [precision: ast-backed] [noisiness: normal]\nCaveat: As in Lint, any name collect, collectLatest or collectIndexed in the onBack lambda counts as collecting.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NoCollectCallFound (default: true).",
               "type": "boolean",
               "default": true
             },

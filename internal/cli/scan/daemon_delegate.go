@@ -712,6 +712,11 @@ func daemonCompatibleFlags(f *scanFlags) bool {
 	if scopeFlagsSet(f) || strings.TrimSpace(*f.MaxCost) != "" {
 		return false
 	}
+	// PR mode compiles only the changed files' modules in-process (#1660);
+	// the analyze-project wire carries no changed-file list.
+	if *f.Diff != "" && !*f.NoPRMode {
+		return false
+	}
 	// The daemon renders the JSON envelope with its own timings and cache
 	// statistics, and the wire has no reproducible switch.
 	if *f.Reproducible {

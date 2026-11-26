@@ -1,0 +1,5 @@
+src/com/example/Back.kt:11:27: NoCollectCallFound: You must call collect() on Flow it
+src/com/example/Back.kt:12:29: NoCollectCallFound: You must call collect() on Flow progress
+src/com/example/Back.kt:16:41: NoCollectCallFound: You must call collect() on Flow null
+src/com/example/Back.kt:17:50: NoCollectCallFound: You must call collect() on Flow null
+src/com/example/Back.kt:19:29: NoCollectCallFound: You must call collect() on Flow _

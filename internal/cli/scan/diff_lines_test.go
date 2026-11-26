@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -19,11 +21,11 @@ index 1111111..2222222 100644
 -val old = 1
 +val changed = 2
 `
-	changed, err := parseChangedLineIntervals(diff)
+	changed, err := parseChangedLineIntervals(diff, func(p string) string { return filepath.Join("/repo", p) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, _ := filepath.Abs("src/A.kt")
+	path := filepath.Join("/repo", "src/A.kt")
 	intervals := changed[path]
 	if len(intervals) != 2 {
 		t.Fatalf("intervals = %+v, want 2", intervals)
@@ -33,6 +35,55 @@ index 1111111..2222222 100644
 	}
 	if intervals[1] != (changedLineInterval{start: 32, end: 32}) {
 		t.Fatalf("second interval = %+v", intervals[1])
+	}
+}
+
+// git prints changed paths relative to the repository root. A scan run from a
+// subdirectory must still resolve them to its own files; filepath.Abs from
+// the working directory doubled the subdirectory and --diff dropped every
+// finding.
+func TestChangedFilesResolveFromASubdirectory(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.email=k@example.com", "-c", "user.name=k"}, args...)...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	file := filepath.Join(root, "app", "src", "main", "kotlin", "A.kt")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("package a\n\nfun f() = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("init", "-q")
+	git("add", "-A")
+	git("commit", "-qm", "init")
+	if err := os.WriteFile(file, []byte("package a\n\nfun f() = 1\n\nfun g() = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(root, "app"))
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(wd, "src", "main", "kotlin", "A.kt")
+	files, err := getChangedFiles("HEAD", []string{wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !files[want] || len(files) != 1 {
+		t.Fatalf("changed files = %v, want %s", files, want)
+	}
+	lines, err := getChangedLineIntervals("HEAD", []string{wd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lines[want]; len(got) != 1 || got[0] != (changedLineInterval{start: 4, end: 5}) {
+		t.Fatalf("changed lines = %v", lines)
 	}
 }
 

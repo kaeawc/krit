@@ -27,10 +27,33 @@ func getChangedLineIntervals(ref string, scanPaths []string) (map[string][]chang
 	if err != nil {
 		return nil, fmt.Errorf("git diff %s: %w", ref, err)
 	}
-	return parseChangedLineIntervals(string(out))
+	return parseChangedLineIntervals(string(out), gitRootResolver())
 }
 
-func parseChangedLineIntervals(diff string) (map[string][]changedLineInterval, error) {
+// gitRootResolver returns a function that makes a path git prints, relative
+// to the repository root as `git diff --name-only` and `+++ b/` headers spell
+// it, absolute and spelled from the working directory. filepath.Abs alone
+// resolved it against the working directory, so a scan run from a
+// subdirectory matched none of its own files and --diff dropped every
+// finding. `--show-cdup` keeps the working directory's spelling of the root
+// (a symlinked checkout), which `--show-toplevel` would resolve.
+func gitRootResolver() func(string) string {
+	cdup := ""
+	if out, err := exec.CommandContext(context.Background(), "git", "rev-parse", "--show-cdup").Output(); err == nil {
+		cdup = strings.TrimSpace(string(out))
+	}
+	return func(path string) string {
+		abs, err := filepath.Abs(filepath.Join(cdup, path))
+		if err != nil {
+			return ""
+		}
+		return abs
+	}
+}
+
+// parseChangedLineIntervals reads `git diff --unified=0` output; resolve makes
+// each file path git prints absolute (gitRootResolver).
+func parseChangedLineIntervals(diff string, resolve func(string) string) (map[string][]changedLineInterval, error) {
 	result := make(map[string][]changedLineInterval)
 	var currentFile string
 	for _, line := range strings.Split(diff, "\n") {
@@ -40,10 +63,7 @@ func parseChangedLineIntervals(diff string) (map[string][]changedLineInterval, e
 				currentFile = ""
 				continue
 			}
-			currentFile = strings.TrimPrefix(path, "b/")
-			if abs, err := filepath.Abs(currentFile); err == nil {
-				currentFile = abs
-			}
+			currentFile = resolve(strings.TrimPrefix(path, "b/"))
 			continue
 		}
 		m := diffHunkRe.FindStringSubmatch(line)

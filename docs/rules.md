@@ -131,8 +131,13 @@ Three checks read annotations:
 
 Both call checks match only what the source shows: a top-level function through its import, package or a star
 import; a constructor through its class; a member through the receiver's resolved or declared type (walking project
-supertypes as each declaring file names them), or through the enclosing class for an unqualified call. Annotated
-declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites are not checked.
+supertypes as each declaring file names them), or through the enclosing class for an unqualified call. A local
+function or a member of an enclosing class (or of its project supertypes) with the same name wins over a top-level
+function, as in Kotlin. When the annotated declaration has same-named overloads in its file (or its class has other
+constructors), the call must fit its argument count and no overload's; otherwise krit abstains. Annotated
+declarations in libraries are not seen, and as in Lint 0.11.1, Java call sites are not checked. Known false
+negatives: a call through an import alias (`import com.example.f as g`), an unqualified member call from a nested,
+inner or anonymous class inside a subclass, and annotated extension functions.
 
 The R class import-alias checks (Kotlin only, as import aliases are a Kotlin feature) read the `importAliases` option,
 Lint's `import-aliases`: entries such as `slack.l10n.R as L10nR`.

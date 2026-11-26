@@ -72,7 +72,17 @@ type slackAnnotatedDecl struct {
 	pkg        string
 	file       *scanner.File
 	ctor       bool
+	// arity is the declaration's argument count range; overloads are the ranges of same-named declarations of the
+	// same owner in the same file (constructors: the class's other constructors).
+	arity     slackArity
+	overloads []slackArity
 }
+
+// slackArity is the number of arguments a function or constructor accepts: min (parameters without a default or
+// vararg) to max (-1 with a vararg).
+type slackArity struct{ min, max int }
+
+func (a slackArity) accepts(n int) bool { return n >= a.min && (a.max < 0 || n <= a.max) }
 
 type slackAnnotatedResult struct {
 	index  *scanner.CodeIndex
@@ -183,7 +193,8 @@ func slackCollectAnnotatedDecls(file *scanner.File) []slackAnnotatedDecl {
 				continue
 			}
 			if moshiFindAnnotation(file, anns, fqn) != nil {
-				out = append(out, slackAnnotatedDecl{annotation: fqn, name: name, owner: owner, pkg: pkg, file: file, ctor: ctor})
+				out = append(out, slackAnnotatedDecl{annotation: fqn, name: name, owner: owner, pkg: pkg, file: file, ctor: ctor,
+					arity: slackArityOf(file, decl), overloads: slackOverloadArities(file, decl, name, ctor)})
 			}
 		}
 	}
@@ -253,15 +264,23 @@ func slackDeclOwner(file *scanner.File, decl uint32, pkg string) (string, bool) 
 
 // slackCallTargets reports whether a Kotlin call resolves to the annotated declaration.
 func slackCallTargets(file *scanner.File, call lintCall, d slackAnnotatedDecl, index *scanner.CodeIndex, resolver typeinfer.TypeResolver) bool {
+	if !slackArityPicks(file, call, d) {
+		return false
+	}
 	switch {
 	case d.ctor:
 		if call.ReceiverText != "" {
-			return call.ReceiverText+"."+call.Name == d.owner
+			// `pkg.Outer.Inner(...)`, or `Outer.Inner(...)` with Outer imported.
+			return call.ReceiverText+"."+call.Name == d.owner || slackClassFQN(index, file, call.ReceiverText+"."+call.Name) == d.owner
 		}
 		return slackClassFQN(index, file, call.Name) == d.owner
 	case d.owner == "":
 		if call.ReceiverText != "" {
 			return call.ReceiverText == d.pkg
+		}
+		// A local function, a member of an enclosing class or of its project supertypes wins over any import.
+		if slackCallShadowedByMember(file, call, index) {
+			return false
 		}
 		imp := lintImportsOf(file)
 		if full, ok := imp.bySimple[call.Name]; ok {
@@ -528,4 +547,193 @@ func slackAllArgumentsNamed(call lintCall) bool {
 // slackSameFile mirrors Lint's file comparison: the same package and the same file name.
 func slackSameFile(a, b *scanner.File) bool {
 	return moshiFilePackage(a) == moshiFilePackage(b) && filepath.Base(a.Path) == filepath.Base(b.Path)
+}
+
+// slackArityPicks reports whether the call's argument count fits the declaration and no same-named overload of it,
+// so Kotlin and Lint resolve the call to this declaration; with an overload that also fits, krit abstains.
+func slackArityPicks(file *scanner.File, call lintCall, d slackAnnotatedDecl) bool {
+	n := len(call.Args)
+	if file.Language == scanner.LangKotlin {
+		// A trailing lambda is an argument too; `f(x) { }` puts it on the call wrapping this one.
+		if slackHasTrailingLambda(file, call.Idx) {
+			n++
+		}
+		if parent, ok := file.FlatParent(call.Idx); ok && file.FlatType(parent) == "call_expression" && file.FlatFirstChild(parent) == call.Idx &&
+			slackHasTrailingLambda(file, parent) {
+			n++
+		}
+	}
+	if !d.arity.accepts(n) {
+		return false
+	}
+	for _, o := range d.overloads {
+		if o.accepts(n) {
+			return false
+		}
+	}
+	return true
+}
+
+// slackArityOf returns the argument count range of a Kotlin function, secondary or primary constructor, or a Java
+// method or constructor.
+func slackArityOf(file *scanner.File, decl uint32) slackArity {
+	list := decl
+	for c := file.FlatFirstChild(decl); c != 0; c = file.FlatNextSib(c) {
+		if t := file.FlatType(c); t == "function_value_parameters" || t == "formal_parameters" || t == "class_parameters" {
+			list = c
+		}
+	}
+	a := slackArity{}
+	pendingVararg := false
+	for c := file.FlatFirstChild(list); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "parameter_modifiers":
+			pendingVararg = strings.Contains(file.FlatNodeText(c), "vararg")
+		case "parameter", "class_parameter", "formal_parameter", "spread_parameter":
+			vararg := pendingVararg || file.FlatType(c) == "spread_parameter" || strings.HasPrefix(strings.TrimSpace(file.FlatNodeText(c)), "vararg")
+			pendingVararg = false
+			_, inlineDefault := file.FlatFindChild(c, "=")
+			next, _ := file.FlatNextSibling(c)
+			hasDefault := inlineDefault || file.FlatType(next) == "="
+			if vararg {
+				a.max = -1
+				continue
+			}
+			if a.max >= 0 {
+				a.max++
+			}
+			if !hasDefault {
+				a.min++
+			}
+		}
+	}
+	return a
+}
+
+// slackOverloadArities returns the argument count ranges of decl's same-named siblings: the other functions or
+// methods of the same class body or file, or for a constructor the class's other constructors.
+func slackOverloadArities(file *scanner.File, decl uint32, name string, ctor bool) []slackArity {
+	var out []slackArity
+	if ctor {
+		class := decl
+		for class != 0 && file.FlatType(class) != "class_declaration" {
+			class, _ = file.FlatParent(class)
+		}
+		if class == 0 {
+			return nil
+		}
+		if pc, ok := file.FlatFindChild(class, "primary_constructor"); ok && pc != decl {
+			out = append(out, slackArityOf(file, pc))
+		}
+		if body, ok := file.FlatFindChild(class, "class_body"); ok {
+			for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+				if (file.FlatType(m) == "secondary_constructor" || file.FlatType(m) == "constructor_declaration") && m != decl {
+					out = append(out, slackArityOf(file, m))
+				}
+			}
+		}
+		return out
+	}
+	parent, ok := file.FlatParent(decl)
+	if !ok {
+		return nil
+	}
+	for m := file.FlatFirstChild(parent); m != 0; m = file.FlatNextSib(m) {
+		if m == decl || file.FlatType(m) != file.FlatType(decl) {
+			continue
+		}
+		other := extractIdentifierFlat(file, m)
+		if file.FlatType(m) == "method_declaration" {
+			if id, ok := file.FlatFindChild(m, "identifier"); ok {
+				other = file.FlatNodeText(id)
+			}
+		}
+		if other == name {
+			out = append(out, slackArityOf(file, m))
+		}
+	}
+	return out
+}
+
+// slackCallShadowedByMember reports whether an unqualified Kotlin call's name is a local function in scope, a member
+// function of an enclosing class, or a member of one of that class's project supertypes, any of which Kotlin
+// resolves before a top-level function.
+func slackCallShadowedByMember(file *scanner.File, call lintCall, index *scanner.CodeIndex) bool {
+	child := call.Idx
+	for parent, ok := file.FlatParent(call.Idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "statements":
+			for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
+				if file.FlatType(sib) == "function_declaration" && extractIdentifierFlat(file, sib) == call.Name {
+					return true
+				}
+			}
+		case "class_declaration", "object_declaration":
+			if slackClassDeclaresFunction(file, parent, call.Name) {
+				return true
+			}
+			owner, _ := slackDeclOwner(file, parent, moshiFilePackage(file))
+			self := extractIdentifierFlat(file, parent)
+			if owner != "" {
+				self = owner + "." + self
+			} else if pkg := moshiFilePackage(file); pkg != "" {
+				self = pkg + "." + self
+			}
+			if slackSupertypeDeclaresFunction(index, self, call.Name, map[string]bool{}) {
+				return true
+			}
+		}
+		child = parent
+	}
+	return false
+}
+
+func slackClassDeclaresFunction(file *scanner.File, class uint32, name string) bool {
+	body, ok := file.FlatFindChild(class, "class_body")
+	if !ok {
+		return false
+	}
+	for m := file.FlatFirstChild(body); m != 0; m = file.FlatNextSib(m) {
+		if file.FlatType(m) == "function_declaration" && extractIdentifierFlat(file, m) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// slackSupertypeDeclaresFunction reports whether a project supertype of the class fqn declares a function called
+// name.
+func slackSupertypeDeclaresFunction(index *scanner.CodeIndex, fqn, name string, seen map[string]bool) bool {
+	for _, super := range slackDirectSupertypes(index, fqn) {
+		if seen[super] {
+			continue
+		}
+		seen[super] = true
+		sym, ok := index.SymbolByFQN(super)
+		if !ok {
+			continue
+		}
+		for _, f := range index.Files {
+			if f == nil || f.Path != sym.File || f.FlatTree == nil {
+				continue
+			}
+			if decl, ok := f.FlatNamedDescendantForByteRange(uint32(sym.StartByte), uint32(sym.EndByte)); ok && slackClassDeclaresFunction(f, decl, name) {
+				return true
+			}
+		}
+		if slackSupertypeDeclaresFunction(index, super, name, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+// slackHasTrailingLambda reports whether a Kotlin call passes a lambda after its parentheses.
+func slackHasTrailingLambda(file *scanner.File, call uint32) bool {
+	suffix, ok := file.FlatFindChild(call, "call_suffix")
+	if !ok {
+		return false
+	}
+	_, ok = file.FlatFindChild(suffix, "annotated_lambda")
+	return ok
 }

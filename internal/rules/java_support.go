@@ -58,6 +58,7 @@ var javaSupportReadiness = JavaSupportMatrix{
 		"release-engineering": {Status: api.LanguageSupportPartial, Reason: "Literal URL checks and project-shape checks have Java support; remaining source rules need Java parity review."},
 		"resource-cost":       {Status: api.LanguageSupportPartial, Reason: "High-value Java resource-cost rules are supported, but remaining rules need per-rule parity review."},
 		"security":            {Status: api.LanguageSupportPartial, Reason: "High-value Android security and literal credential Java rules are supported; remaining source rules need Java parity review."},
+		"slack-lint":          {Status: api.LanguageSupportPartial, Reason: "slack-lints ports run on the languages their detectors check; Kotlin-only detectors (MoshiUsage, import aliases, MustUseNamedParams) do not run on Java, and each Java-capable port is checked against the Lint CLI on Java inputs."},
 		"style":               {Status: api.LanguageSupportPartial, Reason: "detekt-ported style rules are Kotlin-only because detekt does not analyze Java; the remaining style rules encode Kotlin syntax or ktlint behavior and require explicit per-rule review."},
 		"supply-chain":        {Status: api.LanguageSupportSupported, Evidence: []string{"Supply-chain checks are project and dependency based rather than Kotlin-source specific."}},
 		"testing":             {Status: api.LanguageSupportPending, Reason: "Test-source rules need Java test-framework and syntax coverage before being counted as supported."},

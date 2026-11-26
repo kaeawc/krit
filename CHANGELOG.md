@@ -12,11 +12,6 @@ All notable changes to Krit will be documented in this file.
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
-- `TestParameterSiteTarget`, `MustUseNamedParams` and `RestrictCallsTo`, slack-lints 0.11.1's annotation-driven
-  checks, in the opt-in `slack-lint` rule set. `MustUseNamedParams` and `RestrictCallsTo` resolve Kotlin calls to
-  project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
-  through imports, packages and receiver types (overrides included), and match the Lint CLI on
-  `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
@@ -565,6 +560,11 @@ All notable changes to Krit will be documented in this file.
   cannot be classified from source (star imports, typealiases, unresolved annotations that may be qualifiers) are
   skipped. This completes the `MoshiUsageDetector` port except for Slack's package-specific
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
+- `TestParameterSiteTarget`, `MustUseNamedParams` and `RestrictCallsTo`, slack-lints 0.11.1's annotation-driven
+  checks, in the opt-in `slack-lint` rule set. `MustUseNamedParams` and `RestrictCallsTo` resolve Kotlin calls to
+  project functions and constructors annotated with slack-lint-annotations' `@MustUseNamedParams`/`@RestrictCallsTo`
+  through imports, packages and receiver types (overrides included), and match the Lint CLI on
+  `internal/rules/testdata/slack_lint_crossfile/annotations/` (#1423, #1432, #1433).
 
 ### Fixed
 - `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a

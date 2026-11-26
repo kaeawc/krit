@@ -122,3 +122,104 @@ func runSlackCrossFileChecks(t *testing.T, dir string, checks []string) []string
 	sort.Strings(out)
 	return out
 }
+
+// runSlackAnnotationRule writes the Kotlin sources under a temporary project and runs the cross-file rule id over
+// them, returning "file:line" for each finding, sorted.
+func runSlackAnnotationRule(t *testing.T, id string, sources map[string]string) []string {
+	t.Helper()
+	dir := t.TempDir()
+	var files []*scanner.File
+	for name, src := range sources {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		file, err := scanner.ParseFile(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	for _, r := range api.Registry {
+		if r.ID == id {
+			var out []string
+			for _, f := range runCrossFileRuleOnFiles(r, files...) {
+				out = append(out, fmt.Sprintf("%s:%d", filepath.Base(f.File), f.Line))
+			}
+			sort.Strings(out)
+			return out
+		}
+	}
+	t.Fatalf("rule %s not registered", id)
+	return nil
+}
+
+const slackNamedParamsAPI = `package com.example
+
+import slack.lint.annotations.MustUseNamedParams
+
+@MustUseNamedParams
+fun overloaded(a: Int, b: Int) = a + b
+
+fun overloaded(s: String) = s
+
+@MustUseNamedParams
+fun shadowed(a: Int, b: Int) = a + b
+
+class Builder @MustUseNamedParams constructor(val a: Int, val b: Int) {
+  constructor(s: String) : this(1, 2)
+}
+
+class Outer {
+  class Inner @MustUseNamedParams constructor(val a: Int, val b: Int)
+}
+`
+
+// Review of #1812 (P2): a call that fits only an unannotated overload resolves to it; (P2) a member or local
+// function of the same name wins over the imported top-level one; (P3) `Outer.Inner(...)` with Outer imported.
+func TestMustUseNamedParamsOverloadsShadowingAndNestedClasses(t *testing.T) {
+	got := runSlackAnnotationRule(t, "MustUseNamedParams", map[string]string{
+		"Api.kt": slackNamedParamsAPI,
+		"Caller.kt": `package other
+
+import com.example.Builder
+import com.example.Outer
+import com.example.overloaded
+import com.example.shadowed
+
+open class Base {
+  fun shadowed(a: Int, b: Int) = a - b
+}
+
+class Shadow {
+  fun shadowed(a: Int, b: Int) = a * b
+  fun m() = shadowed(1, 2)
+}
+
+class Inherits : Base() {
+  fun m() = shadowed(1, 2)
+}
+
+fun local(): Int {
+  fun shadowed(a: Int, b: Int) = a
+  return shadowed(1, 2)
+}
+
+fun calls() {
+  overloaded("x")
+  Builder("s")
+  overloaded(1, 2)
+  Builder(1, 2)
+  Outer.Inner(1, 2)
+  shadowed(1, 2)
+}
+`,
+	})
+	want := []string{"Caller.kt:29", "Caller.kt:30", "Caller.kt:31", "Caller.kt:32"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

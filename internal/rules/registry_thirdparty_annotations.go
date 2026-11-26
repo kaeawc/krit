@@ -36,7 +36,7 @@ func registerThirdPartyAnnotationRules() {
 			Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 			LanguageSupport: map[string]api.LanguageSupport{JavaLanguageSupportKey: {
 				Status:   api.LanguageSupportPartial,
-				Evidence: []string{"internal/rules/testdata/slack_lint/annotations"},
+				Evidence: []string{"internal/rules/testdata/slack_lint_crossfile/annotations"},
 			}},
 			Confidence: r.Confidence(), Implementation: r, Check: emitSlackAnnotatedCalls,
 			LintIssue: true, DefaultActive: false, OptInReason: api.OptInReasonDomainSpecific, Maturity: api.MaturityExperimental,

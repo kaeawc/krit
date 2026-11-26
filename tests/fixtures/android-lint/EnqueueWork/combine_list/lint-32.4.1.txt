@@ -1,0 +1,2 @@
+src/main/java/com/example/Work.kt:10:14: EnqueueWork: WorkContinuation `c1` not enqueued: did you forget to call `enqueue()`?
+src/main/java/com/example/Work.kt:11:14: EnqueueWork: WorkContinuation `c2` not enqueued: did you forget to call `enqueue()`?

@@ -590,6 +590,21 @@ Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtu
   application plugin; commented-out plugins and other strings, such as a `project(":core-application")` dependency,
   don't count.
 
+## Android Lint API Usage Checks (WebView, WorkManager, shortcuts)
+
+Ports of Android Lint 32.4.1 checks with recorded Lint output under `tests/fixtures/android-lint/<RuleID>/`:
+
+- `WebViewApiAvailability` (warning, Kotlin and Java) reports a call to a `WebView` method added in API 23-27 that
+  `androidx.webkit.WebViewCompat` also offers (`getWebChromeClient`, `postWebMessage`, `startSafeBrowsing`, ...),
+  when an enclosing `if` on `Build.VERSION.SDK_INT` already guards it for that level. Early returns do not count.
+- `EnqueueWork` (warning, Kotlin and Java) reports a `beginWith`, `beginUniqueWork`, `then` or `combine` result that
+  never reaches `enqueue()`, `enqueueSync()`, `then` or `combine` through chained calls, locals and lists in the
+  function, unless the function returns a `WorkContinuation`. Like Lint, `combine(listOf(a, b))` does not count as
+  enqueuing `a` and `b`.
+- `ReportShortcutUsage` (info) reports `setDynamicShortcuts` / `addDynamicShortcuts` on `ShortcutManager` or
+  `ShortcutManagerCompat` when the scan never calls `pushDynamicShortcut` or `reportShortcutUsed`; a scan of library
+  modules only is skipped.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

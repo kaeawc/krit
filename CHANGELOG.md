@@ -98,6 +98,9 @@ All notable changes to Krit will be documented in this file.
   with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
   Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
   `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
+- `WebViewApiAvailability`, `EnqueueWork` and `ReportShortcutUsage`, ports of Android Lint 32.4.1's
+  `WebViewApiAvailabilityDetector`, `WorkManagerDetector` and `ShortcutUsageDetector` (Kotlin and Java). Findings
+  match Lint on 8 recorded project fixtures (#1296, #1298, #1264).
 - `ReturnThis`, `UseSdkSuppress` and `AnnotateVersionCheck`, ports of Android Lint 32.4.1's `ReturnThisDetector`,
   `SdkSuppressDetector` and `SdkIntDetector` (Kotlin and Java), and `VisibleForTests` as a Lint alias of
   `VisibleForTestingCallerInNonTest` (so `@SuppressLint`, baselines and a lint.xml `ignore` for `VisibleForTests`

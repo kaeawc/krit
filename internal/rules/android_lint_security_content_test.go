@@ -742,3 +742,81 @@ func TestUnsanitizedFilenameFromContentProviderResolverQueries(t *testing.T) {
 	findings := runRuleByName(t, "UnsanitizedFilenameFromContentProvider", unsanitizedFilenameResolverSource)
 	assertReportLines(t, findings, unsanitizedFilenameResolverSource)
 }
+
+// #1620: a Kotlin property (or primary-constructor property) annotated @get:/@set:JavascriptInterface, or with an
+// annotated accessor, has an annotated getter or setter method, as UAST sees it. @field: does not, and neither does a
+// @JvmField or const property, or a private property whose annotated accessor has no body: none of them has that
+// accessor to annotate. Lines marked `// report` are expected.
+const javascriptInterfaceAccessorSource = `package com.example
+
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+
+class GetterBridge { @get:JavascriptInterface val name: String = "x" }
+class SetterBridge { @set:JavascriptInterface var name: String = "x" }
+class AccessorBridge {
+    val name: String
+        @JavascriptInterface get() = "x"
+}
+class CtorBridge(@get:JavascriptInterface val name: String)
+class ArrayBridge { @get:[Deprecated("x") JavascriptInterface] val name: String = "x" }
+class FieldBridge { @field:JavascriptInterface val name: String = "x" }
+class PrivateBridge { @get:JavascriptInterface private val secret: String = "x" }
+class JvmFieldBridge { @JvmField @get:JavascriptInterface val name: String = "x" }
+class ProtectedGetter {
+    @get:JavascriptInterface protected val secret: String = "x" // report
+    @JavascriptInterface fun ok() = Unit
+}
+open class ProtectedCtor(@get:JavascriptInterface protected val secret: String) { // report
+    @JavascriptInterface fun ok() = Unit
+}
+class PrivateBodylessGetter {
+    private val secret = "x"
+        @JavascriptInterface get
+}
+class PrivateSetterBodyOnly {
+    @get:JavascriptInterface private var secret = "x"
+        set(v) { field = v }
+}
+class PrivateCustomGetter {
+    @get:JavascriptInterface private val secret: String // report
+        get() = "x"
+}
+class PrivateCustomSetter {
+    @set:JavascriptInterface private var secret = "x" // report
+        set(v) { field = v }
+}
+
+fun add(web: WebView) {
+    web.addJavascriptInterface(GetterBridge(), "a")
+    web.addJavascriptInterface(SetterBridge(), "b")
+    web.addJavascriptInterface(AccessorBridge(), "c")
+    web.addJavascriptInterface(CtorBridge("n"), "d")
+    web.addJavascriptInterface(ArrayBridge(), "e")
+    web.addJavascriptInterface(FieldBridge(), "f") // report
+    web.addJavascriptInterface(PrivateBridge(), "g") // report
+    web.addJavascriptInterface(JvmFieldBridge(), "h") // report
+    web.addJavascriptInterface(PrivateBodylessGetter(), "i") // report
+    web.addJavascriptInterface(PrivateSetterBodyOnly(), "j") // report
+    web.addJavascriptInterface(PrivateCustomGetter(), "k")
+    web.addJavascriptInterface(PrivateCustomSetter(), "l")
+}
+`
+
+func TestJavascriptInterfaceReadsAccessorUseSiteTargets(t *testing.T) {
+	findings := runAndroidSecurityProjectRule(t, "JavascriptInterface", "K.kt", 21, 34, javascriptInterfaceAccessorSource)
+	var want []int
+	for i, line := range strings.Split(javascriptInterfaceAccessorSource, "\n") {
+		if strings.HasSuffix(line, "// report") {
+			want = append(want, i+1)
+		}
+	}
+	var got []int
+	for _, f := range findings {
+		got = append(got, f.Line)
+	}
+	sort.Ints(got)
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("finding lines %v, want %v (%v)", got, want, findings)
+	}
+}

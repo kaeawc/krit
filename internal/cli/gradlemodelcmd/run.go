@@ -16,13 +16,15 @@ const usage = `usage: krit gradle-model key [--root DIR] [--write] [--list]
 Prints the Gradle model inputs key: a hash of the files that can change what
 kritExportModel writes (settings and build scripts, version catalogs, lockfiles,
 gradle/verification-metadata.xml, gradle.properties, local.properties, the
-wrapper's Gradle version, buildSrc and build-logic sources), by root-relative
+wrapper's Gradle version, and the sources of buildSrc and of every build
+nested under the root, such as an included build-logic), by root-relative
 path and content. Cache .krit/gradle-model under this key to skip Gradle when
 the build has not changed.
 
   --root DIR  build root (default: the nearest directory with a settings file)
-  --write     also stamp the key in DIR/.krit/gradle-model/inputs.key, so krit
-              warns when the build no longer matches the model
+  --write     also stamp the key and its inputs' hashes in
+              DIR/.krit/gradle-model/inputs.key, so krit warns when the build no
+              longer matches the model (kritExportModel removes the stamp)
   --list      print the files the key covers instead of the key
 `
 
@@ -65,21 +67,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	key, err := gradlemodel.InputsKey(root)
-	if err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return 1
-	}
+	var key string
+	var err error
 	if *write {
 		dir := filepath.Join(root, ".krit", "gradle-model")
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
 			fmt.Fprintf(stderr, "error: no Gradle model at %s; run kritExportModel first\n", dir)
 			return 1
 		}
-		if err := gradlemodel.WriteInputsKey(dir, key); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
+		key, err = gradlemodel.WriteInputsStamp(dir, root)
+	} else {
+		key, err = gradlemodel.InputsKey(root)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
 	}
 	fmt.Fprintln(stdout, key)
 	return 0

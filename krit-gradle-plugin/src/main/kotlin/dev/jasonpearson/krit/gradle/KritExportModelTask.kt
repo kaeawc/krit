@@ -55,6 +55,9 @@ abstract class KritModelSourceSet {
     @get:Input abstract val kotlinCompilerPluginOptions: ListProperty<String>
 }
 
+/** The stamp `krit gradle-model key --write` leaves next to the models (gradlemodel.InputsKeyFile). */
+internal const val INPUTS_STAMP = "inputs.key"
+
 /** Model schema written by [KritExportModelTask]. Schema 1 had no `kotlin` object. */
 internal const val MODEL_SCHEMA = 2
 
@@ -115,7 +118,10 @@ abstract class KritExportModelTask : DefaultTask() {
             "dir" to projectDir.get(),
             "sourceSets" to entries,
         )
-        writeJson(outputFile.get().asFile, linkedMapOf(
+        val output = outputFile.get().asFile
+        // The model changes, so a `krit gradle-model key --write` stamp no longer describes it.
+        File(output.parentFile, INPUTS_STAMP).delete()
+        writeJson(output, linkedMapOf(
             "schema" to MODEL_SCHEMA,
             "generatedBy" to generatedBy.get(),
             "rootDir" to rootDir.get(),

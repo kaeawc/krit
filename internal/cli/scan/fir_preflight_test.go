@@ -171,11 +171,7 @@ func TestFIRPreflightStampedModelIsCheckedByInputsKey(t *testing.T) {
 	if err := os.WriteFile(model, []byte(`{"schema":2,"projects":[{"path":":","dir":"`+filepath.ToSlash(root)+`","sourceSets":[]}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	key, err := gradlemodel.InputsKey(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := gradlemodel.WriteInputsKey(dir, key); err != nil {
+	if _, err := gradlemodel.WriteInputsStamp(dir, root); err != nil {
 		t.Fatal(err)
 	}
 	// Restored from a CI cache: the model is older than the build script, but the key matches.
@@ -198,7 +194,7 @@ func TestFIRPreflightStampedModelIsCheckedByInputsKey(t *testing.T) {
 	}
 	warnings.Reset()
 	warnStaleGradleModel(dir, []string{root}, &warnings)
-	if !strings.Contains(warnings.String(), "is stale: it was exported for build inputs "+key) {
+	if !strings.Contains(warnings.String(), "is stale: settings.gradle.kts changed since it was exported") {
 		t.Fatalf("changed inputs key did not warn: %q", warnings.String())
 	}
 }

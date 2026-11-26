@@ -60,14 +60,16 @@ func warnStaleGradleModel(dir string, paths []string, out io.Writer) {
 		fmt.Fprintln(out, msg)
 	}
 	// A stamped model (`krit gradle-model key --write`) is checked by content: a
-	// model restored from a CI cache has fresh modification times either way.
-	if stamped := gradlemodel.ReadInputsKey(dir); stamped != "" {
-		current, err := gradlemodel.InputsKey(gradlemodel.ModelRoot(dir, paths))
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "warning: gradle model %s: cannot check its inputs key: %v\n", dir, err)
-		case current != stamped:
-			fmt.Fprintf(out, "warning: gradle model %s is stale: it was exported for build inputs %s, the build is now %s; rerun kritExportModel, then krit gradle-model key --write\n", dir, stamped, current)
+	// model restored from a CI cache has fresh modification times either way. Only
+	// the inputs the stamp lists are re-hashed, so the check walks no tree.
+	stamped, changed, err := gradlemodel.CheckInputsStamp(dir, gradlemodel.ModelRoot(dir, paths))
+	if err != nil {
+		fmt.Fprintf(out, "warning: gradle model %s: cannot check its inputs stamp: %v\n", dir, err)
+		return
+	}
+	if stamped {
+		if changed != "" {
+			fmt.Fprintf(out, "warning: gradle model %s is stale: %s changed since it was exported; rerun kritExportModel, then krit gradle-model key --write\n", dir, changed)
 		}
 		return
 	}

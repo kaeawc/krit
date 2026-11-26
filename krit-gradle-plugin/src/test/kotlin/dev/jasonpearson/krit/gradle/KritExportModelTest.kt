@@ -65,6 +65,19 @@ class KritExportModelTest {
             defaults.output)
     }
 
+    // #1663: a re-exported model invalidates `krit gradle-model key --write`'s stamp; an
+    // up-to-date export leaves it.
+    @Test
+    fun `re-exporting a model removes the inputs stamp`() {
+        val root = fixture()
+        val stamp = File(root, ".krit/gradle-model/inputs.key").apply { parentFile.mkdirs(); writeText("gm1-old\n") }
+        run(root, ":lib:kritExportModel")
+        assertFalse(stamp.exists(), "the export rewrote the model")
+        stamp.writeText("gm1-new\n")
+        assertEquals(TaskOutcome.UP_TO_DATE, run(root, ":lib:kritExportModel").task(":lib:kritExportModel")?.outcome)
+        assertTrue(stamp.isFile, "an up-to-date export keeps the stamp")
+    }
+
     @Test
     fun `model records the Gradle user home its jars come from`() {
         val root = fixture()

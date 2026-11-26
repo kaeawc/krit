@@ -128,6 +128,13 @@ func relocateProject(project *Project, rewrites []relocation) {
 		all(set.BootClasspath)
 		if set.Kotlin != nil {
 			all(set.Kotlin.CompilerPluginClasspath)
+			// `plugin:<id>:<key>=<value>`: a file option (KGP's FilesSubpluginOption, such
+			// as Compose's stabilityConfigurationPath) holds an absolute path.
+			for i, option := range set.Kotlin.CompilerPluginOptions {
+				if name, value, ok := strings.Cut(option, "="); ok {
+					set.Kotlin.CompilerPluginOptions[i] = name + "=" + one(value)
+				}
+			}
 		}
 	}
 }

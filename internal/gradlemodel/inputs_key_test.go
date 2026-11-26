@@ -35,6 +35,12 @@ func writeBuild(t *testing.T, root string) {
 		"buildSrc/build.gradle.kts":                "",
 		"buildSrc/src/main/kotlin/Conventions.kt":  "object Conventions",
 		"build-logic/src/main/kotlin/A.kt":         "",
+		// An included build under another name: found by its settings file.
+		"gradle/plugins/settings.gradle.kts":                "",
+		"gradle/plugins/convention/build.gradle.kts":        "",
+		"gradle/plugins/convention/src/main/kotlin/Conv.kt": "object Conv",
+		"buildSrc/src/main/kotlin/com/acme/build/Deps.kt":   "object Deps",
+		"buildSrc/src/main/kotlin/com/acme/out/Out.kt":      "object Out",
 		// Not inputs: sources, outputs, caches, VCS, other Gradle files.
 		"app/src/main/kotlin/Main.kt":                    "fun main() {}",
 		"app/build/tmp/build.gradle.kts":                 "",
@@ -64,9 +70,14 @@ func TestModelInputsListsBuildConfigurationOnly(t *testing.T) {
 		"build.gradle.kts",
 		"buildSrc/build.gradle.kts",
 		"buildSrc/src/main/kotlin/Conventions.kt",
+		"buildSrc/src/main/kotlin/com/acme/build/Deps.kt",
+		"buildSrc/src/main/kotlin/com/acme/out/Out.kt",
 		"gradle.properties",
 		"gradle/init.gradle",
 		"gradle/libs.versions.toml",
+		"gradle/plugins/convention/build.gradle.kts",
+		"gradle/plugins/convention/src/main/kotlin/Conv.kt",
+		"gradle/plugins/settings.gradle.kts",
 		"gradle/verification-metadata.xml",
 		"gradle/wrapper/gradle-wrapper.properties",
 		"local.properties",
@@ -119,20 +130,64 @@ func TestInputsKeyIsRelocatableAndContentSensitive(t *testing.T) {
 	}
 }
 
-func TestInputsKeyStampRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	if got := ReadInputsKey(dir); got != "" {
-		t.Fatalf("no stamp read as %q", got)
+func TestInputsStampChecksListedInputs(t *testing.T) {
+	root := t.TempDir()
+	writeBuild(t, root)
+	dir := filepath.Join(root, ".krit", "gradle-model")
+	if stamped, _, err := CheckInputsStamp(dir, root); stamped || err != nil {
+		t.Fatalf("no stamp: stamped=%v err=%v", stamped, err)
 	}
-	if err := WriteInputsKey(dir, "gm1-abc"); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := ReadInputsKey(dir); got != "gm1-abc" {
-		t.Fatalf("stamp = %q", got)
+	key, err := WriteInputsStamp(dir, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := InputsKey(root); key != want || ReadInputsKey(dir) != want {
+		t.Fatalf("stamp key %q / %q, want %q", key, ReadInputsKey(dir), want)
+	}
+	if stamped, changed, err := CheckInputsStamp(dir, root); !stamped || changed != "" || err != nil {
+		t.Fatalf("fresh stamp: stamped=%v changed=%q err=%v", stamped, changed, err)
 	}
 	// The stamp is not a model file.
 	if _, _, err := Load(dir); err != nil {
 		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "gradle/plugins/convention/src/main/kotlin/Conv.kt"), "object Conv { val dep = 1 }")
+	if _, changed, _ := CheckInputsStamp(dir, root); changed != "gradle/plugins/convention/src/main/kotlin/Conv.kt" {
+		t.Fatalf("convention plugin edit: changed = %q", changed)
+	}
+	write(t, filepath.Join(root, "gradle/plugins/convention/src/main/kotlin/Conv.kt"), "object Conv")
+	if err := os.Remove(filepath.Join(root, "app/gradle.lockfile")); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, _ := CheckInputsStamp(dir, root); changed != "app/gradle.lockfile" {
+		t.Fatalf("removed lockfile: changed = %q", changed)
+	}
+	write(t, filepath.Join(dir, InputsKeyFile), "gm0-old\n")
+	if _, changed, _ := CheckInputsStamp(dir, root); !strings.Contains(changed, "another krit version") {
+		t.Fatalf("old stamp: changed = %q", changed)
+	}
+}
+
+func TestModelInputsFollowsSymlinkedBuildFiles(t *testing.T) {
+	root := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "libs.versions.toml")
+	write(t, shared, "[versions]")
+	write(t, filepath.Join(root, "settings.gradle.kts"), "")
+	if err := os.MkdirAll(filepath.Join(root, "gradle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(root, "gradle", "libs.versions.toml")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	got, err := ModelInputs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"gradle/libs.versions.toml", "settings.gradle.kts"}) {
+		t.Fatalf("ModelInputs = %v", got)
 	}
 }
 

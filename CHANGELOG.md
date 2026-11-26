@@ -7,9 +7,9 @@ All notable changes to Krit will be documented in this file.
 ### Added
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
-  `gradle.properties`, the wrapper version, buildSrc/build-logic sources) by root-relative path and content. A CI job
-  caches `.krit/gradle-model` under it and skips Gradle on a hit. `--write` stamps the key in the model, and krit warns
-  when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
+  `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
+  path and content. A CI job caches `.krit/gradle-model` under it and skips Gradle on a hit. `--write` stamps the key and
+  its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and

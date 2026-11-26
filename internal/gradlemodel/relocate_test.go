@@ -24,7 +24,10 @@ func writeRelocatedModel(t *testing.T, newRoot, oldRoot, oldHome string) string 
 				"classpath":           []string{jar, "/opt/sdk/platforms/android-36/android.jar"},
 				"generatedClasspath":  []string{oldRoot + "/app/build/R.jar"},
 				"bootClasspath":       []string{oldRoot + "-other/android.jar"},
-				"kotlin":              map[string]any{"compilerPluginClasspath": []string{jar}},
+				"kotlin": map[string]any{"compilerPluginClasspath": []string{jar}, "compilerPluginOptions": []string{
+					"plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=" + oldRoot + "/compose.conf",
+					"plugin:androidx.compose.compiler.plugins.kotlin:generateFunctionKeyMetaClasses=false",
+				}},
 			}},
 		}},
 	})
@@ -59,6 +62,7 @@ func TestLoadRelocatesModelRestoredUnderAnotherRoot(t *testing.T) {
 		"dir": project.Dir, "sourceDirs": set.SourceDirs, "generatedSourceDirs": set.GeneratedSourceDirs,
 		"classpath": set.ClasspathEntries, "generatedClasspath": set.GeneratedClasspath,
 		"bootClasspath": set.BootClasspath, "compilerPluginClasspath": set.Kotlin.CompilerPluginClasspath,
+		"compilerPluginOptions": set.Kotlin.CompilerPluginOptions,
 	}
 	want := map[string]any{
 		"dir":                     r + "/app",
@@ -68,6 +72,10 @@ func TestLoadRelocatesModelRestoredUnderAnotherRoot(t *testing.T) {
 		"generatedClasspath":      []string{r + "/app/build/R.jar"},
 		"bootClasspath":           []string{"/agent/1/work/repo-other/android.jar"},
 		"compilerPluginClasspath": []string{jar},
+		"compilerPluginOptions": []string{
+			"plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=" + r + "/compose.conf",
+			"plugin:androidx.compose.compiler.plugins.kotlin:generateFunctionKeyMetaClasses=false",
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("relocated model:\n got  %v\n want %v", got, want)

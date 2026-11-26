@@ -183,10 +183,16 @@ Kotlin Multiplatform. Those include every root a generator registered with the b
 such as view binding and data binding, BuildConfig, AIDL, SQLDelight, Wire and KSP, so
 the model lists generated roots even before they exist.
 
-The roots carry the tasks that produce them. With `fir = true` (the default), `kritCheck`
+The roots carry the tasks that produce them. With `fir = true` (the default), every check
+task (`kritCheck`, `kritCheck<Variant>`, `kritCheck<SourceSet>`, each by its own `fir`)
 depends on the producers of each production source set's roots, plus the Android R-class
 tasks and kapt stub tasks, so FIR compiles against generated code on an unbuilt checkout.
-These are generators only, never a compile. Test source sets' generated roots are
+`kritCheckAll` runs them too when its own FIR is on: it then selects each project's model as
+built by that project's producers, and the root project's own producers run before the root
+scan. A `kritCheckAll` with FIR off runs none. `kritBaseline` runs them like `kritCheck`. The
+tasks are generators, not the compile of the analyzed source set. KSP and kapt take their
+compilation's classpath as an input, though, so in a multi-module build they can still bring in
+the compiles of upstream projects. Test source sets' generated roots are
 recorded but not produced, because their KSP/kapt runs against the compiled production
 classes. Generated Android resources need no wiring of their own: AGP's R-class tasks
 already depend on every `variant.sources.res` producer. Set `exportGenerated = true` to

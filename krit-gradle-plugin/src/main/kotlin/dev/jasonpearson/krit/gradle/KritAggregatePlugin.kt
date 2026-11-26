@@ -48,12 +48,19 @@ class KritAggregatePlugin : Plugin<Project> {
         }
         // Lenient: an included project without the krit plugin (a plain parent
         // directory, a skipped or non-JVM project) has no model variant to select.
-        val dependencyModels = models.incoming.artifactView { lenient(true) }.files
+        // With FIR on, the view selects the model built by each project's generated-source
+        // producers too (KritPlugin.KRIT_GENERATED_ATTRIBUTE), so FIR finds the roots it compiles.
+        fun modelsView(generated: Boolean) = models.incoming.artifactView {
+            lenient(true)
+            attributes { attribute(KritPlugin.KRIT_GENERATED_ATTRIBUTE, generated) }
+        }.files
+        val plainModels = modelsView(false)
+        val generatedModels = modelsView(true)
 
         val reportsDir = extension.advanced.reportsDir.map { it.dir("all") }
         val rootDir = project.layout.projectDirectory
         project.tasks.register("kritCheckAll", KritCheckAllTask::class.java) {
-            modelFiles.from(dependencyModels)
+            modelFiles.from(fir.map { enabled -> if (enabled) generatedModels else plainModels })
             // The root project's own model, when it is a JVM / Android / KMP project.
             modelFiles.from(project.tasks.withType(KritExportModelTask::class.java))
             sources.from(rootDir.asFileTree.matching {

@@ -490,17 +490,20 @@ All notable changes to Krit will be documented in this file.
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
 - `ProviderReadPermissionOnly` attributes providers declared in a library module's manifest the way Lint's merged
   manifest does: they are reported only when the scan holds an application module that depends on the library,
-  directly or through other modules, by non-test project dependencies in the Gradle module graph. They are not
-  reported when every such app removes the entry (`tools:node="remove"`) or ignores the rule on it, on its
-  `<application>` or on its `<manifest>` (`tools:ignore`), in any of its source-set manifests. Relative names resolve
-  against the module's Gradle `namespace`. A library-only scan no longer reports them; a library outside any known
-  module graph is still reported (#1625).
+  directly or through other modules, by project dependencies in the Gradle module graph that merge a manifest (not test,
+  `compileOnly`, `lintChecks`, `kapt`, `ksp` or `annotationProcessor` ones). They are not reported when every such
+  app removes the entry (`tools:node="remove"`) or ignores the rule on it, on its `<application>` or on its
+  `<manifest>` (`tools:ignore`), in any of its source-set manifests. Relative names resolve against the module's
+  Gradle `namespace`. A library-only scan no longer reports them; a library outside any known module graph, or in a
+  build with a module mapped outside its root, is still reported (#1625).
 - The project-dependency parser behind the module graph skips commented-out declarations and reads Groovy
   `implementation project(':lib')`, `project(path: ':lib')`, `platform(project(...))` and type-safe accessors for
   modules named with underscores or camel case.
 - Warm runs re-run manifest-source rules and replay no findings bundle after a Groovy `build.gradle` edit. The
   manifest-source cache key and the findings-bundle fingerprint now hash every build script, which manifest rules read
-  from disk; before, only Kotlin DSL scripts were covered, as source files.
+  from disk; before, only Kotlin DSL scripts were covered, as source files. When the scan paths don't hold a
+  manifest's Gradle build root (`krit app lib`), they also hash the settings file and every module build script of
+  that build's module graph, so editing an intermediate module or the settings file outside the scan re-runs them.
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
   `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
   and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does

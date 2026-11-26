@@ -189,6 +189,25 @@ func TestProviderReadPermissionOnlyLibraryManifestAttribution(t *testing.T) {
 		{"intermediate module depends on the library only for tests", project(appBuild("    implementation(project(\":feature\"))\n"),
 			plainApp, map[string]string{"feature/build.gradle.kts": libPlugin + "\ndependencies {\n    testImplementation(project(\":lib\"))\n}\n"},
 			":feature"), nil},
+		// Configurations that compile or process against a module without merging its manifest (#1800 review).
+		{"compileOnly", project(appBuild("    compileOnly(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"debugCompileOnly", project(appBuild("    debugCompileOnly(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"lintChecks", project(appBuild("    lintChecks(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"kapt", project(appBuild("    kapt(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"ksp", project(appBuild("    ksp(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"annotationProcessor", project(appBuild("    annotationProcessor(project(\":lib\"))\n"), plainApp, nil), nil},
+		{"runtimeOnly merges", project(appBuild("    runtimeOnly(project(\":lib\"))\n"), plainApp, nil), []string{libReport}},
+		{"intermediate module through compileOnly", project(appBuild("    implementation(project(\":feature\"))\n"),
+			plainApp, map[string]string{"feature/build.gradle.kts": libPlugin + "\ndependencies {\n    compileOnly(project(\":lib\"))\n}\n"},
+			":feature"), nil},
+
+		// A module mapped outside the build root is not covered by a scan of the root, so its consumers are not
+		// decided and the provider is reported (#1800 review).
+		{"module mapped outside the build root", project(appBuild("    implementation(project(\":outside\"))\n"),
+			plainApp, map[string]string{
+				"settings.gradle.kts":        "include(\":app\", \":lib\", \":outside\")\nproject(\":outside\").projectDir = file(\"../shared\")\n",
+				"../shared/build.gradle.kts": libPlugin,
+			}), []string{libReport}},
 
 		// Source-set manifests of the app module are one consumer (#1625 review).
 		{"remove in main with a debug manifest", project(dependsKts, removeEntry,
@@ -201,6 +220,10 @@ func TestProviderReadPermissionOnlyLibraryManifestAttribution(t *testing.T) {
 		// The Gradle namespace supplies the package of a manifest without one (#1625 review).
 		{"library namespace from the build script", project(dependsKts, removeEntry, map[string]string{
 			"lib/build.gradle.kts": libPlugin + "\nandroid {\n    namespace = \"com.example.lib\"\n}\n",
+			"lib/src/main/AndroidManifest.xml": strings.Replace(providerAttributionLibManifest,
+				` package="com.example.lib"`, "", 1)}), nil},
+		{"one-line library namespace", project(dependsKts, removeEntry, map[string]string{
+			"lib/build.gradle.kts": libPlugin + "android { namespace = \"com.example.lib\" }\n",
 			"lib/src/main/AndroidManifest.xml": strings.Replace(providerAttributionLibManifest,
 				` package="com.example.lib"`, "", 1)}), nil},
 		{"Groovy library namespace", project(dependsKts, removeEntry, map[string]string{

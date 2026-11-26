@@ -365,6 +365,13 @@ func (a *providerAttribution) graphFor(path string) *module.Graph {
 	if err != nil || g == nil || g.BuildSystem != "" {
 		return nil
 	}
+	// A module mapped outside the build root (projectDir = file("../x")) has a build script that a scan of the root
+	// doesn't hold, so the cache key can't see edits to it: leave the whole build undecided (#1800 review).
+	for _, m := range g.Modules {
+		if m.Dir != g.RootDir && !strings.HasPrefix(m.Dir, g.RootDir+string(filepath.Separator)) {
+			return nil
+		}
+	}
 	// A build script that can't be read only loses its edges.
 	_ = module.ParseAllDependencies(g)
 	a.graphs = append(a.graphs, g)
@@ -383,7 +390,7 @@ func providerReaches(g *module.Graph, from, to string) bool {
 			continue
 		}
 		for _, dep := range m.Dependencies {
-			if dep.Test || seen[dep.ModulePath] {
+			if dep.Test || seen[dep.ModulePath] || !providerMergingConfiguration(dep.Configuration) {
 				continue
 			}
 			if dep.ModulePath == to {
@@ -394,6 +401,19 @@ func providerReaches(g *module.Graph, from, to string) bool {
 		}
 	}
 	return false
+}
+
+// providerMergingConfiguration reports whether a project dependency of this configuration merges the module's
+// manifest into the consumer's: compile-only, lint-check and annotation-processor (kapt, ksp) configurations put the
+// module on a classpath without packaging it.
+func providerMergingConfiguration(config string) bool {
+	c := strings.ToLower(config)
+	switch {
+	case strings.Contains(c, "compileonly"), strings.Contains(c, "annotationprocessor"),
+		strings.HasPrefix(c, "lint"), strings.HasPrefix(c, "kapt"), strings.HasPrefix(c, "ksp"):
+		return false
+	}
+	return true
 }
 
 // suppressedIn reports whether the app module's merged manifest drops the provider or ignores the rule on it: one

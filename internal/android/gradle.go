@@ -57,8 +57,9 @@ var (
 	compileSdkRe = lazyre.New(`(?m)^\s*compileSdk(?:Version)?\s*[=(]?\s*(\d+)`)
 )
 
-// namespaceRe matches `namespace = "com.example"` (Kotlin DSL) and `namespace 'com.example'` (Groovy DSL).
-var namespaceRe = lazyre.New(`(?m)^[ \t]*namespace[ \t]*(?:=[ \t]*|\([ \t]*)?["']([\w.]+)["']`)
+// namespaceRe matches `namespace = "com.example"` (Kotlin DSL) and `namespace 'com.example'` (Groovy DSL), at the
+// start of a line or after `{` or `;`, as in `android { namespace = "com.example" }`.
+var namespaceRe = lazyre.New(`(?m)(?:^|[{;])[ \t]*namespace[ \t]*(?:=[ \t]*|\([ \t]*)?["']([\w.]+)["']`)
 
 // Plugin patterns.
 var (

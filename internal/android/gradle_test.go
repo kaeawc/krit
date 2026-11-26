@@ -425,6 +425,9 @@ func TestParseBuildGradleContent_Namespace(t *testing.T) {
 		{"commented out", "android {\n    // namespace = \"com.example.old\"\n}\n", ""},
 		{"computed", "android {\n    namespace = libs.versions.ns.get()\n}\n", ""},
 		{"none", "android {\n    compileSdk = 34\n}\n", ""},
+		{"one line", "android { namespace = \"com.example.lib\" }\n", "com.example.lib"},
+		{"one line groovy after a statement", "android { compileSdk 34; namespace 'com.example.lib' }\n", "com.example.lib"},
+		{"another identifier ending in namespace", "android {\n    myNamespace = \"com.example.no\"\n}\n", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg, err := ParseBuildGradleContent(test.content)

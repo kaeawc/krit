@@ -25,7 +25,7 @@ const javascriptInterfaceFQN = "android.webkit.JavascriptInterface"
 var javascriptInterfaceNodeTypes = []string{
 	"call_expression", "method_invocation",
 	"function_declaration", "property_declaration", "class_declaration", "object_declaration",
-	"method_declaration", "field_declaration", "constructor_declaration",
+	"method_declaration", "field_declaration", "constructor_declaration", "class_parameter",
 }
 
 func (r *JavascriptInterfaceRule) check(ctx *api.Context) {
@@ -280,6 +280,10 @@ func javascriptInterfaceDeclared(file *scanner.File, decl uint32, depth int) (ja
 		out.annotated = true
 		return out, true
 	}
+	if javascriptInterfaceCtorPropertyAnnotated(file, decl) {
+		out.annotated = true
+		return out, true
+	}
 	for _, super := range javascriptInterfaceSuperclassNames(file, decl) {
 		info, ok := javascriptInterfaceType(file, super, depth+1)
 		if !ok {
@@ -350,8 +354,8 @@ func javascriptInterfaceHasAnnotatedMember(file *scanner.File, body uint32) bool
 				return true
 			}
 		case "property_declaration":
-			// A Kotlin property's getter and setter are methods (#1620).
-			if _, accessor := javascriptInterfaceAnnotationTargets(file, child); accessor {
+			// A Kotlin property's generated getter and setter are methods (#1620).
+			if _, accessor := javascriptInterfaceAnnotationTargets(file, child); accessor && javascriptInterfaceHasAccessor(file, child) {
 				return true
 			}
 		case "getter", "setter":
@@ -392,7 +396,7 @@ func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (dire
 				if file.Language == scanner.LangJava {
 					written = javaAnnotationName(file, child)
 				} else {
-					written = annotationQualifiedName(file, child)
+					written = javascriptInterfaceKotlinAnnotationName(file, child)
 					if t, ok := file.FlatFindChild(child, "use_site_target"); ok {
 						target = strings.TrimSuffix(strings.TrimSpace(file.FlatNodeText(t)), ":")
 					}
@@ -402,7 +406,7 @@ func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (dire
 			default:
 				continue
 			}
-			if !javascriptInterfaceNameResolves(file, written) {
+			if written == "" || !javascriptInterfaceNameResolves(file, written) {
 				continue
 			}
 			switch target {
@@ -421,6 +425,82 @@ func javascriptInterfaceAnnotationTargets(file *scanner.File, decl uint32) (dire
 		}
 	}
 	return direct, accessor
+}
+
+// javascriptInterfaceKotlinAnnotationName returns the name of a Kotlin annotation that may be JavascriptInterface:
+// its type, or, for the array form `@get:[A JavascriptInterface]`, the entry that is JavascriptInterface. "" when no
+// entry is.
+func javascriptInterfaceKotlinAnnotationName(file *scanner.File, ann uint32) string {
+	var names []string
+	for child := file.FlatFirstChild(ann); child != 0; child = file.FlatNextSib(child) {
+		switch file.FlatType(child) {
+		case "user_type":
+			names = append(names, strings.TrimSpace(file.FlatNodeText(child)))
+		case "constructor_invocation":
+			if ut, ok := file.FlatFindChild(child, "user_type"); ok {
+				names = append(names, strings.TrimSpace(file.FlatNodeText(ut)))
+			}
+		}
+	}
+	for _, n := range names {
+		if n == javascriptInterfaceFQN || n == "JavascriptInterface" {
+			return n
+		}
+	}
+	if len(names) > 0 {
+		return names[0]
+	}
+	return annotationQualifiedName(file, ann)
+}
+
+// javascriptInterfaceHasAccessor reports whether Kotlin generates a getter or setter method for the property (or
+// primary-constructor property): not for `const` or `@JvmField` properties, and not for a private property unless
+// it declares an accessor with a body. Annotating a missing accessor has no effect.
+func javascriptInterfaceHasAccessor(file *scanner.File, decl uint32) bool {
+	if file.FlatHasModifier(decl, "const") {
+		return false
+	}
+	if mods, ok := file.FlatFindChild(decl, "modifiers"); ok {
+		for child := file.FlatFirstChild(mods); child != 0; child = file.FlatNextSib(child) {
+			if file.FlatType(child) == "annotation" && strings.HasSuffix(annotationQualifiedName(file, child), "JvmField") {
+				return false
+			}
+		}
+	}
+	if !file.FlatHasModifier(decl, "private") {
+		return true
+	}
+	if file.FlatType(decl) != "property_declaration" {
+		return false
+	}
+	for _, acc := range javascriptInterfacePropertyAccessors(file, decl) {
+		if _, ok := file.FlatFindChild(acc, "function_body"); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// javascriptInterfaceCtorPropertyAnnotated reports a primary-constructor property (`class B(@get:JavascriptInterface
+// val name: String)`) whose generated accessor carries the annotation.
+func javascriptInterfaceCtorPropertyAnnotated(file *scanner.File, decl uint32) bool {
+	ctor, ok := file.FlatFindChild(decl, "primary_constructor")
+	if !ok {
+		return false
+	}
+	found := false
+	file.FlatWalkNodes(ctor, "class_parameter", func(param uint32) {
+		if found {
+			return
+		}
+		if _, binding := file.FlatFindChild(param, "binding_pattern_kind"); !binding {
+			return
+		}
+		if _, accessor := javascriptInterfaceAnnotationTargets(file, param); accessor && javascriptInterfaceHasAccessor(file, param) {
+			found = true
+		}
+	})
+	return found
 }
 
 // javascriptInterfacePropertyAccessors returns a property's getter and setter: children of the declaration, or, on
@@ -469,7 +549,15 @@ func javascriptInterfaceNameResolves(file *scanner.File, written string) bool {
 func (r *JavascriptInterfaceRule) checkDeclaration(ctx *api.Context) {
 	file, decl := ctx.File, ctx.Idx
 	direct, accessor := javascriptInterfaceAnnotationTargets(file, decl)
-	annotated := direct || accessor && file.FlatType(decl) == "property_declaration"
+	isProperty := file.FlatType(decl) == "property_declaration" || file.FlatType(decl) == "class_parameter"
+	if file.FlatType(decl) == "class_parameter" {
+		// A constructor parameter is a method only through the accessor of a val/var property.
+		if _, binding := file.FlatFindChild(decl, "binding_pattern_kind"); !binding {
+			return
+		}
+		direct = false
+	}
+	annotated := direct || accessor && isProperty && javascriptInterfaceHasAccessor(file, decl)
 	if !annotated || javascriptInterfaceDeclIsPublic(file, decl) {
 		return
 	}
@@ -513,6 +601,10 @@ func javascriptInterfaceDeclIsPublic(file *scanner.File, decl uint32) bool {
 // javascriptInterfaceDeclarationName returns the identifier Lint's getNameLocation points at.
 func javascriptInterfaceDeclarationName(file *scanner.File, decl uint32) uint32 {
 	switch file.FlatType(decl) {
+	case "class_parameter":
+		if id, ok := file.FlatFindChild(decl, "simple_identifier"); ok {
+			return id
+		}
 	case "property_declaration":
 		if vd, ok := file.FlatFindChild(decl, "variable_declaration"); ok {
 			if id, ok := file.FlatFindChild(vd, "simple_identifier"); ok {

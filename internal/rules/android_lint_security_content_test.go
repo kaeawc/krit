@@ -393,8 +393,9 @@ func TestUnsanitizedFilenameFromContentProviderLintParityFlows(t *testing.T) {
 	}
 }
 
-// #1620: a Kotlin property annotated @get:/@set:JavascriptInterface, or with an annotated accessor, has an
-// annotated getter or setter method, as UAST sees it; @field: does not. Lines marked `// report` are expected.
+// #1620: a Kotlin property (or primary-constructor property) annotated @get:/@set:JavascriptInterface, or with an
+// annotated accessor, has an annotated getter or setter method, as UAST sees it. @field: does not, and neither does a
+// private, @JvmField or const property, which has no accessor to annotate. Lines marked `// report` are expected.
 const javascriptInterfaceAccessorSource = `package com.example
 
 import android.webkit.JavascriptInterface
@@ -406,9 +407,16 @@ class AccessorBridge {
     val name: String
         @JavascriptInterface get() = "x"
 }
+class CtorBridge(@get:JavascriptInterface val name: String)
+class ArrayBridge { @get:[Deprecated("x") JavascriptInterface] val name: String = "x" }
 class FieldBridge { @field:JavascriptInterface val name: String = "x" }
-class PrivateGetter {
-    @get:JavascriptInterface private val secret: String = "x" // report
+class PrivateBridge { @get:JavascriptInterface private val secret: String = "x" }
+class JvmFieldBridge { @JvmField @get:JavascriptInterface val name: String = "x" }
+class ProtectedGetter {
+    @get:JavascriptInterface protected val secret: String = "x" // report
+    @JavascriptInterface fun ok() = Unit
+}
+open class ProtectedCtor(@get:JavascriptInterface protected val secret: String) { // report
     @JavascriptInterface fun ok() = Unit
 }
 
@@ -416,7 +424,11 @@ fun add(web: WebView) {
     web.addJavascriptInterface(GetterBridge(), "a")
     web.addJavascriptInterface(SetterBridge(), "b")
     web.addJavascriptInterface(AccessorBridge(), "c")
-    web.addJavascriptInterface(FieldBridge(), "d") // report
+    web.addJavascriptInterface(CtorBridge("n"), "d")
+    web.addJavascriptInterface(ArrayBridge(), "e")
+    web.addJavascriptInterface(FieldBridge(), "f") // report
+    web.addJavascriptInterface(PrivateBridge(), "g") // report
+    web.addJavascriptInterface(JvmFieldBridge(), "h") // report
 }
 `
 

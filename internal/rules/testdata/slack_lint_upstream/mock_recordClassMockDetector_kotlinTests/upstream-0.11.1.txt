@@ -1,0 +1,8 @@
+src/test/java/test/slack/test/TestClass.kt:12:32: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:13:31: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:14:32: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:16:32: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:18:33: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:21:41: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:8:13: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary
+src/test/java/test/slack/test/TestClass.kt:9:13: DoNotMockRecordClass: 'slack.test.TestClass' is a record class, so mocking it should not be necessary

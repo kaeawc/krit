@@ -72,6 +72,8 @@ func init() {
 	registerAndroidxComposeRuntimeRememberArgRules()
 	registerAndroidxComposeRuntimeRetainRules()
 	registerAndroidxLifecycleRules()
+	registerAndroidxLifecycleRuntimeRules()
+	registerAndroidxConstraintLayoutRules()
 	registerAndroidxStartupRules()
 	registerAndroidxActivityComposeRules()
 	registerAndroidxWebkitRules()
@@ -144,6 +146,7 @@ func init() {
 	registerThirdPartyMockingRules()
 	registerThirdPartyDaggerRules()
 	registerThirdPartyKotlinCheckRules()
+	registerThirdPartyRxRules()
 
 	applySecurityTaxonomy()
 }

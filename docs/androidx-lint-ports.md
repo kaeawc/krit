@@ -89,6 +89,47 @@ import, as it does in Kotlin.
   same cache reason), in production sources, with Lint's message naming the class and method. Unqualified and
   `this.` calls are followed into functions declared in the same file, each once per class, as Lint follows each
   method once; Lint also follows calls into other files. `super` calls are not followed.
+
+## Lifecycle runtime and LiveData
+
+`androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1 (Kotlin, production sources):
+
+- `NullSafeMutableLiveData` reports `live.value = x`, `live.setValue(x)` and `live.postValue(x)` on a LiveData whose
+  type argument is non-nullable and not a type parameter: `null` ("Cannot set non-nullable LiveData value to
+  `null`"), or a nullable value ("Expected non-nullable value"), at the value. The type argument comes from the
+  receiver's same-file declaration (its declared `LiveData`/`MutableLiveData`/`MediatorLiveData` type, a
+  `MutableLiveData<T>()` initializer, or the supertype of a same-file subclass). A nullable value is a name declared
+  with a nullable type, unless an enclosing `if`/`when` condition null-checks it, it is inside the lambda of a safe
+  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, `requireNotNull`,
+  `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
+  subject-less `when` whose entries up to `x == null -> return` all exit), or a call of a same-file function with a
+  nullable return type.
+- `UnsafeLifecycleWhenUsage` reports View access in the `finally` block of a `try` that makes a suspend call, inside
+  `lifecycle.whenStarted { }`, `whenCreated` or `whenResumed` (aliases resolved), at the access. Only the `try`
+  clause is searched for suspend calls: same-file `suspend` functions, kotlinx.coroutines top-level suspend
+  functions, and suspend members such as `first`/`await`/`send` on a value declared as a kotlinx.coroutines `Flow`,
+  `Channel`, `Deferred` or `Job`. View access is a call or property on a value declared as an `android.view.View`
+  subclass, followed into same-file functions three levels deep. Like the detector's visitor, both searches skip
+  suspend lambdas (`launch { }`, `coroutineScope { }`, …) and declarations, local variables included. Only
+  `finally` is checked and a `lifecycle.currentState.isAtLeast(…)` guard does not count (the detector looks for an
+  `isAtLeast` on `Lifecycle` itself, which `Lifecycle.State` declares instead).
+## ConstraintLayout Compose
+
+`androidx.constraintlayout:constraintlayout-compose-android` 1.1.2 (Kotlin, production sources). Like the detector,
+the checks compare source text. In UAST a lambda's last statement is an implicit return, which the detector's
+statement scans skip, so the port skips it too: a `linkTo` (or a `constrain { }` block) written last in its lambda is
+not looked at.
+
+- `IncorrectReferencesDeclaration` reports `val (a, b) = createRefsFor("a", "b", "c")` when the number of string ids
+  differs from the destructured variables, at `createRefsFor`, when its implicit receiver is a `ConstraintSetScope` or
+  `MotionSceneScope` (inside `ConstraintSet { }` / `MotionScene { }`, or an extension on the scope), as Lint
+  requires. A spread array or a non-string id is not counted.
+- `IncorrectMatchParentUsage` reports `width = Dimension.matchParent` (or `height`) in a `constrain(ref) { }` block
+  that also links the same axis to something other than the matching parent anchor (`start.linkTo(button.end)`,
+  `centerHorizontallyTo(button)`), at `Dimension.matchParent`.
+- `IncorrectChainMarginsUsage` reports an element of `createHorizontalChain(...)` / `createVerticalChain(...)`
+  without `withChainParams` whose `constrain` block links it, with a margin, to its neighbour's opposite anchor (or
+  the parent's same anchor at the ends), at the element.
 ## Startup
 
 `androidx.startup:startup-runtime` 1.2.0 (Kotlin and Java). Both checks see every main-source class at once, so an
@@ -123,6 +164,25 @@ checks share the Scaffold checks' reference and shadowing rules above, and resol
   `with`/`apply`/`run` lambda in between brings a closer implicit receiver), or
   `AnimatedVisibilityScope.transition` inside an `AnimatedVisibility` or `AnimatedContent` lambda. Lint checks
   every `animate*` call on a resolved `Transition`.
+- `UnusedSharedTransitionModifierParameter` reports an unused `Modifier` parameter of a `SharedTransitionScope { }`
+  content lambda (trailing, `content = { }`, or the positional `SharedTransitionScope({ })`). Lint's quick fix, which moves the Modifier onto the single top-level layout composable, is not
+  ported.
+- `ConstantContentStateKeyInItemsCall` reports `rememberSharedContentState(key)` with a constant key (literals, `+`,
+  same-file constants and local `val`s, as UAST's `evaluate()` folds them; a `var` or a string template with a
+  variable is not constant) passed to `sharedElement` or
+  `sharedBounds`, inside a composable call, inside a LazyList `items` or `itemsIndexed` call from an androidx
+  foundation package (Compose, TV or Wear). As in Lint, each step is the nearest call that has the previous one in
+  its arguments or lambda, so a call further along the Modifier chain (`Modifier.sharedElement(…).then(…)`) is not
+  a step, and `Box(Modifier.sharedElement(…)) { }` counts as one `Box` call with or without its trailing lambda. The
+  standalone Lint CLI reports no call of material's `Card`, which krit treats as the composable it is. The composable must be a same-file `@Composable` function or an upper-case function imported from
+  `androidx.compose`.
+- `DisallowLookaheadAnimationVisualDebug` reports `LookaheadAnimationVisualDebugging { }` and
+  `CustomizedLookaheadAnimationVisualDebugging { }` in production sources (not tests, as in Lint). The quick fix that
+  unwraps the content is not ported.
+- `ArcAnimationSpecTypeIssue` reports `ArcAnimationSpec<T>()` with an explicit type argument other than `Offset`,
+  `IntOffset` or `DpOffset`, at the constructor name, in production sources. A same-file `typealias` is expanded, as
+  Lint's `canonicalText` does (`typealias Pos = Offset` is not reported). An inferred type argument is not
+  checked, as in Lint.
 
 ## WebKit and UiAutomator
 

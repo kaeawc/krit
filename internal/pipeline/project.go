@@ -799,30 +799,6 @@ func analysisReadBound(start time.Time) time.Time {
 	return now
 }
 
-// moduleScanRoot returns the path module discovery starts from: the first
-// scan path, or "." without one. When that path is a file inside the
-// --base-path directory, the base path is the project root: in a Bazel
-// action it is the execroot, so discovery never looks outside the sandbox.
-// Any other file is left to module.DiscoverModules, which discovers from
-// the build root above it.
-func moduleScanRoot(basePath string, paths []string) string {
-	if len(paths) == 0 {
-		return "."
-	}
-	root := paths[0]
-	info, err := os.Stat(root)
-	if err != nil || info.IsDir() || basePath == "" {
-		return root
-	}
-	if base, err := os.Stat(basePath); err != nil || !base.IsDir() {
-		return root
-	}
-	if isWithinDir(absOrSelf(basePath), absOrSelf(root)) {
-		return basePath
-	}
-	return root
-}
-
 // RunProjectAnalysis runs the shared parse/index/dispatch/cross-file/Android
 // core and returns findings before fixup and output formatting.
 func RunProjectAnalysis(ctx context.Context, in ProjectInput) (ProjectAnalysisResult, error) {
@@ -1104,7 +1080,10 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 	if hasModuleAwareRule && warm.cross == nil {
 		moduleTracker = hostTracker.Serial("moduleAwareAnalysis")
 	}
-	scanRoot := moduleScanRoot(args.BasePath, args.Paths)
+	scanRoot := "."
+	if len(args.Paths) > 0 {
+		scanRoot = args.Paths[0]
+	}
 	moduleNeeds := rules.CollectModuleAwareNeeds(args.ActiveRules)
 	// When warm.cross is non-nil, the early bundle preview has
 	// confirmed a stored
@@ -1122,6 +1101,7 @@ func runProjectIndexPhase(ctx context.Context, args ProjectArgs, host ProjectHos
 		buildCodeIndex = true
 	}
 	indexInput := IndexInput{
+		CustomRuleJars:           len(args.CustomRuleJars) > 0,
 		ParseResult:              parseResult,
 		Preparse:                 host.Preparse,
 		PrebuiltResolver:         host.PrebuiltResolver,

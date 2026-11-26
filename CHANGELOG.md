@@ -5,6 +5,8 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
+  `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
@@ -13,6 +15,12 @@ All notable changes to Krit will be documented in this file.
 - Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
   producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
   longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
+- Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
+  `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
+  under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
+  `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
+  and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
+  1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -432,6 +440,12 @@ All notable changes to Krit will be documented in this file.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
+- Module-aware rules run when the scan paths are files (Bazel rules, pre-commit hooks, editors, the Gradle plugin's
+  per-module `kritCheck`): module discovery used to open `<file>/settings.gradle.kts`, warn `module discovery failed`
+  and skip them. A file's build is the nearest directory above the first file with a Gradle settings file or a Bazel
+  `MODULE.bazel`/`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel execution root. A file in no
+  build has no module graph and walks no directory tree, and `--only-scope file` scans of a file skip discovery unless
+  the type oracle or custom rule jars read the graph (#1548, #1669, #1704).
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

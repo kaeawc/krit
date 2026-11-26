@@ -1,0 +1,12 @@
+# Cache, hashing, oracle and FIR changes also plan the FIR warm-versus-clean
+# matrix (#1708); it skips itself when java or a matching krit-fir jar is
+# missing.
+internal/hashutil/hash.go
+---
+merge
+gofmt
+build
+vet
+lint
+test ./internal/hashutil
+warmclean

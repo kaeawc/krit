@@ -101,6 +101,9 @@ krit {
 ```
 
 Reports are written to `build/reports/krit/` unless overridden via `advanced.reportsDir`.
+One krit run writes every enabled report (`--report FORMAT=PATH`), with or without
+custom rules. A krit release without `--report FORMAT=PATH` (0.5.0 and earlier) gets one
+run per report instead.
 
 ### Per-Source-Set Tasks
 

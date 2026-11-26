@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/kaeawc/krit/internal/scanner"
+	"github.com/kaeawc/krit/internal/store"
 )
 
 // gitShortcutRepo is a one-file git repository whose cache records findings
@@ -245,5 +246,35 @@ func TestUserSpelledTop(t *testing.T) {
 		if got := userSpelledTop(tc.rawRoot, tc.root, top); got != tc.want {
 			t.Errorf("userSpelledTop(%q, %q) = %q, want %q", tc.rawRoot, tc.root, got, tc.want)
 		}
+	}
+}
+
+// With --store-dir the findings live in the store, but the declaration facts
+// the next run compares (#1778) must still be recorded and persisted, and an
+// entry carrying only them must never be served as a hit without the store.
+func TestStoreModeKeepsDeclarationFacts(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "A.kt")
+	if err := os.WriteFile(file, []byte("class A\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(dir, CacheFileName)
+	c := &Cache{RuleHash: "rh", Files: map[string]FileEntry{}}
+	c.AttachStore(store.New(filepath.Join(dir, "store")), [16]byte{1})
+	decls := DeclFacts{Hash: "h", Names: map[string]string{"A": "x"}}
+	c.UpdateEntryFromContent(file, []byte("class A\n"), nil, "", decls)
+	if err := c.Save(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	loaded := Load(cachePath)
+	if got, ok := loaded.PriorDecls(file); !ok || got.Hash != "h" {
+		t.Fatalf("declaration facts lost in store mode: %+v %v", got, ok)
+	}
+	if len(loaded.VanishedDecls(map[string]bool{})) != 1 {
+		t.Fatal("a deleted file's facts must be found in store mode")
+	}
+	loaded.RuleHash = "rh"
+	if res := loaded.CheckFiles([]string{file}, "rh"); res.TotalCached != 0 {
+		t.Fatal("a facts-only entry was served as a hit without the store")
 	}
 }

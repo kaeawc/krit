@@ -486,9 +486,14 @@ All notable changes to Krit will be documented in this file.
   component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
   functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
 - `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
-  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants, or a call to a same-file function
-  declared to return `Cursor`, in Kotlin and Java (`var`). The initializer is checked before a same-named declaration
-  elsewhere in the file can decide the receiver's type (#1621).
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.

@@ -480,6 +480,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
   `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
   #1419, #1420, #1422).
+- `AvoidUsingNotNullOperator`, `ExceptionMessage`, `NullableConcurrentHashMap`, `GuavaPreconditionsUsedInKotlin` and
+  `ParcelizeFunctionProperty`, five slack-lints 0.11.1 checks, in the opt-in `slack-lint` rule set. Their findings match
+  the Lint CLI running slack-lint-checks 0.11.1 on `internal/rules/testdata/slack_lint/kotlin_checks/`, except that a
+  nullable type argument of a `val` constructor parameter is reported once, where Lint reports it twice
+  (#1374, #1430, #1431, #1434, #1437).
 - `slack-lint` gains `MoshiUsageDetector`'s moshi-sealed checks for Kotlin: `MoshiUsageBlankTypeLabel`,
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the

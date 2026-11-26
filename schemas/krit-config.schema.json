@@ -31756,6 +31756,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AvoidUsingNotNullOperator": {
+          "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AvoidUsingNotNullOperator (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BindingReceiverParameter": {
           "description": "@Binds/@Provides functions cannot be extensions [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -31961,6 +31994,72 @@
           "properties": {
             "active": {
               "description": "Enable DoNotMockPlatformTypes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ExceptionMessage": {
+          "description": "Please provide a string for the `lazyMessage` parameter [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExceptionMessage (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "GuavaPreconditionsUsedInKotlin": {
+          "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable GuavaPreconditionsUsedInKotlin (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33347,6 +33446,72 @@
           "properties": {
             "active": {
               "description": "Enable MustBeInModule (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NullableConcurrentHashMap": {
+          "description": "ConcurrentHashMap should not use nullable types [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NullableConcurrentHashMap (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ParcelizeFunctionProperty": {
+          "description": "Function type properties are not parcelable [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ParcelizeFunctionProperty (default: false).",
               "type": "boolean",
               "default": false
             },

@@ -1623,8 +1623,17 @@ func cacheRuleNames(activeRules []*api.Rule, noTypeOracle bool) []string {
 	if noTypeOracle {
 		ruleNames = append(ruleNames, noTypeOracleCacheMarker)
 	}
+	// The default SDK levels (krit --min-sdk / --target-sdk) change what
+	// SDK-dependent rules report on files whose build declares none, with
+	// or without an Android project to fingerprint.
+	if def := android.DefaultSDKLevels(); !def.IsZero() {
+		ruleNames = append(ruleNames, fmt.Sprintf("%s%d/%d", defaultSDKLevelsCacheMarker, def.MinSdk, def.TargetSdk))
+	}
 	return ruleNames
 }
+
+// defaultSDKLevelsCacheMarker prefixes the default SDK levels in the cache rule names.
+const defaultSDKLevelsCacheMarker = "\x00default-sdk-levels:"
 
 // projectRuleHashForArgs is projectRuleHashWithEditorConfig for a hosted run:
 // it additionally separates --no-type-oracle runs from oracle-backed ones.

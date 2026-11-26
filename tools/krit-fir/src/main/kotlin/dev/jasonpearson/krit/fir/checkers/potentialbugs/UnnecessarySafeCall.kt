@@ -4,6 +4,7 @@ import dev.jasonpearson.krit.fir.FirRule
 import dev.jasonpearson.krit.fir.oracle.ErrorInvolvement
 import dev.jasonpearson.krit.fir.report
 import dev.jasonpearson.krit.fir.support.isStableInCurrentModule
+import dev.jasonpearson.krit.fir.support.reliesOnCrossModuleSmartCast
 import dev.jasonpearson.krit.fir.support.lightSourceOf
 import dev.jasonpearson.krit.fir.support.lightText
 import dev.jasonpearson.krit.fir.support.significantChildren
@@ -48,7 +49,7 @@ internal object UnnecessarySafeCall : FirSafeCallExpressionChecker(MppCheckerKin
     context(context: CheckerContext)
     private fun definitelyNonNull(receiver: FirExpression): Boolean {
         if ((receiver as? FirSmartCastExpression)?.isStableInCurrentModule() == false ||
-            ErrorInvolvement.involvesError(receiver)
+            receiver.reliesOnCrossModuleSmartCast() || ErrorInvolvement.involvesError(receiver)
         ) return false
         val type = receiver.resolvedType.fullyExpandedType()
         return type !is ConeFlexibleType && type !is ConeErrorType && !type.canBeNull(context.session)

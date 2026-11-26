@@ -18,13 +18,20 @@ var (
 
 // findSourceImports returns the submatches sourceImportRe.FindAllStringSubmatch(content, -1)
 // would, except that element 0 starts at the `import` keyword rather than at the line start.
+func findSourceImports(content string) [][]string {
+	return findImportMatches(content, sourceImportTailRe)
+}
+
+// findImportMatches returns the submatches FindAllStringSubmatch(content, -1) would for a
+// `(?m)^\s*import...` pattern whose remainder after `^\s*` is tail, anchored with `\A`, except
+// that element 0 starts at the `import` keyword rather than at the line start.
 //
-// The regex starts with `^\s*`, so Go's matcher tries it at every byte of the file; on a
-// large project that was most of the cost of the preference facts. Every match begins with
+// Such a regex starts with `^\s*`, so Go's matcher tries it at every byte of the file; on a
+// large project that was most of the cost of the import scans. Every match begins with
 // whitespace from a line start up to an `import` keyword, so it is enough to find each
 // keyword with strings.Index, check that only whitespace separates it from a line start at
 // or after the previous match's end, and run the remainder of the pattern anchored there.
-func findSourceImports(content string) [][]string {
+func findImportMatches(content string, tail *lazyre.Regexp) [][]string {
 	var out [][]string
 	prevEnd, cursor := 0, 0
 	for cursor < len(content) {
@@ -37,7 +44,7 @@ func findSourceImports(content string) [][]string {
 		if !reWhitespaceFromLineStart(content, pos, prevEnd) {
 			continue
 		}
-		loc := sourceImportTailRe.FindStringSubmatchIndex(content[pos:])
+		loc := tail.FindStringSubmatchIndex(content[pos:])
 		if loc == nil {
 			continue
 		}
@@ -84,28 +91,23 @@ type preferenceFileScope struct {
 }
 
 // ComputeActivityPreferenceFacts maps each source-declared class FQN to whether its
-// superclass chain contains android.preference.PreferenceActivity.
+// superclass chain contains android.preference.PreferenceActivity. It keeps nothing once it
+// returns, so callers outside an analysis run (MCP) do not leave their parsed files resident.
 func ComputeActivityPreferenceFacts(files []*scanner.File) map[string]bool {
-	var decls []*preferenceClassDecl
-	byFQN := map[string]*preferenceClassDecl{}
-	for _, file := range files {
-		if file == nil {
-			continue
-		}
-		scope := newPreferenceFileScope(string(file.Content))
-		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
-			name := extractIdentifierFlat(file, idx)
-			if name == "" {
-				return
-			}
-			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, idx, name, scope.pkg), supers: preferenceDirectSupers(file, idx), file: scope}
-			decls = append(decls, d)
-			byFQN[d.fqn] = d
-		})
-	}
-	facts := make(map[string]bool, len(decls))
-	for _, d := range decls {
-		facts[d.fqn] = preferenceChainReaches(d, byFQN, map[string]bool{})
+	return activityPreferenceFacts(lintSourceClassesIn(nil, files))
+}
+
+// ComputeActivityPreferenceFactsForRun is ComputeActivityPreferenceFacts for the pipeline: it
+// reads the per-file class facts the manifest-source rules share through the run's file-facts
+// cache, so each file's imports are parsed once per run.
+func ComputeActivityPreferenceFactsForRun(files []*scanner.File) map[string]bool {
+	return activityPreferenceFacts(lintSourceClasses(files))
+}
+
+func activityPreferenceFacts(idx *lintSourceIndex) map[string]bool {
+	facts := make(map[string]bool, len(idx.classes))
+	for fqn, c := range idx.classes {
+		facts[fqn] = preferenceChainReaches(c.decl, idx.byFQN, map[string]bool{})
 	}
 	return facts
 }

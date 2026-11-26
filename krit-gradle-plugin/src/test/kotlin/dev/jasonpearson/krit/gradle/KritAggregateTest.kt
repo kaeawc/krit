@@ -103,6 +103,59 @@ class KritAggregateTest {
         assertEquals(null, KritCheckAllTask.formatProjectSummary(emptyMap<String, Any>()))
     }
 
+    /** A generator registered as a source root of main, as KSP, SQLDelight and Wire do. */
+    private fun generator(dir: String) = """
+        val generate = tasks.register("generateFakeSources") {
+            val out = layout.buildDirectory.dir("generated/fake/main")
+            outputs.dir(out)
+            doLast { out.get().file("Gen.java").asFile.apply { parentFile.mkdirs(); writeText("class Gen$dir {}") } }
+        }
+        sourceSets.named("main") { java.srcDir(generate) }
+    """.trimIndent() + "\n"
+
+    // #1686: kritCheckAll consumes models, not kritCheck. With its FIR on it selects each project's
+    // model variant built by the generators (whatever that project's own fir), and the root's own
+    // generators run for its model.
+    @Test
+    fun `kritCheckAll runs the generators of the models it reads when its FIR is on`() {
+        val root = generatorFixture(rootFir = true)
+        File(root, "fir.jar").writeBytes(byteArrayOf())
+        val result = runner(root, "kritCheckAll")
+            .withEnvironment(System.getenv() + ("KRIT_FIR_JAR" to File(root, "fir.jar").path)).build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":a:generateFakeSources")?.outcome, result.output)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":b:generateFakeSources")?.outcome, "the consumer's FIR decides")
+        assertEquals(TaskOutcome.SUCCESS, result.task(":generateFakeSources")?.outcome, result.output)
+        val order = result.tasks.map { it.path }
+        assertTrue(order.indexOf(":a:generateFakeSources") < order.indexOf(":kritCheckAll"), order.toString())
+        assertTrue(File(root, "a/build/generated/fake/main/Gen.java").isFile)
+        assertEquals(null, result.task(":a:compileJava"), "the generator needs no compile")
+    }
+
+    // A Go-only aggregate scan runs no generator, even in projects whose own FIR is on.
+    @Test
+    fun `kritCheckAll with FIR off runs no generators`() {
+        val root = generatorFixture(rootFir = false)
+        val result = run(root, "kritCheckAll", "--configuration-cache")
+        assertEquals(TaskOutcome.SUCCESS, result.task(":kritCheckAll")?.outcome, result.output)
+        listOf(":a", ":b", "").forEach { path ->
+            assertEquals(null, result.task("$path:generateFakeSources"), result.output)
+        }
+        assertEquals(TaskOutcome.SUCCESS, result.task(":a:kritExportModel")?.outcome, result.output)
+    }
+
+    /** The fixture with a java-library root, a generator in the root, :a and :b, and FIR off in :b. */
+    private fun generatorFixture(rootFir: Boolean): File {
+        val root = fixture()
+        File(root, "build.gradle.kts").writeText(File(root, "build.gradle.kts").readText()
+            .replace("plugins { id(\"dev.jasonpearson.krit.aggregate\") }",
+                "plugins { `java-library`; id(\"dev.jasonpearson.krit.aggregate\") }")
+            .replace("fir = false", "fir = $rootFir") + generator("Root"))
+        File(root, "a/build.gradle.kts").appendText(generator("A"))
+        File(root, "b/build.gradle.kts").appendText(generator("B") + "krit { fir = false }\n")
+        return root
+    }
+
     @Test
     fun `kritCheckAll runs krit once over the build root after every project's model export`() {
         val root = fixture()

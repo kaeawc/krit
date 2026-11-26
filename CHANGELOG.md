@@ -9,19 +9,57 @@ All notable changes to Krit will be documented in this file.
   `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
   SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's
   `kritCheckAll` logs the counts (#1635, #1651).
+- Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
+  `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
+  `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
+  path and content. A CI job caches `.krit/gradle-model` under it and skips Gradle on a hit. `--write` stamps the key and
+  its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
+  loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
+  source sets (#1663).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
+- `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
+  `MockDetector` checks, in the opt-in `slack-lint` rule set for Kotlin and Java test sources. One pass over the test
+  files finds Mockito, mockito-kotlin and `slack.test.mockito` factory calls and `@Mock`/`@Spy` fields, resolves the
+  mocked class through imports and the cross-file index, and runs the detector's checkers in its order. Findings match
+  slack-lints' own detector tests (`internal/rules/testdata/slack_lint_upstream/`); a `mock()` whose type Lint infers
+  from an enclosing call's parameter is not reported (#1375, #1376, #1377, #1380).
+- `--min-sdk N` / `--target-sdk N` set the Android SDK levels of files whose own `build.gradle(.kts)`, manifest or Gradle
+  version catalog declares none, for the Go rules (per-file and project-wide minSdk alike) and the FIR pass. They are
+  part of the analysis cache key. The Bazel rules pass them from `--@krit//:min_sdk_version` /
+  `--@krit//:target_sdk_version`, and an `android_binary`'s own `krit_aspect` action from its `manifest_values`, since
+  Bazel builds often declare the levels only there (#1682).
+- `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
+  `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
+  with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
+  Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
+  `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
+  producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
+  longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
   `ComposeNamingLowercase` map onto the existing `ComposableNaming`: suppressing either ID silences its casing direction,
   and `ComposableNaming` gains compose-lints' `allowedComposableFunctionNames` option. Findings are checked against the Lint CLI running compose-lint-checks
   1.6.1 on the same inputs (#1332, #1333, #1334, #1335).
+- `MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType` and
+  `BindingReceiverParameter`, slack-lints 0.11.1's `DaggerIssuesDetector` checks, in the opt-in `slack-lint` rule set
+  for Kotlin and Java. They follow the detector's one-issue-per-method order and match the Lint CLI on the same inputs
+  (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
+  KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
+  `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `WearableConfigurationAction`, `WearableActionDuplicate`, `WatchFaceForAndroidX`, `WearBackNavigation` and
+  `WearMaterialTheme`, ports of Android Lint 32.4.1's Wear OS watch face configuration, swipe-to-dismiss and
+  Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 22
+  recorded project fixtures, `tools:ignore` and `@file:Suppress` included. `scripts/lint-parity-record.sh` records
+  what Lint (AGP 9.4.1) reports for a fixture module, and `TestAndroidLintParityFixtures` replays krit on every
+  recorded fixture (#1291, #1292, #1293, #1294, #1295).
 - FIR sessions resolve Java sources: every `.java` file under the source dirs, generated source dirs and unpacked
   srcjars (same-module Java, view binding, BuildConfig, Wire-Java, kapt/KSP Java output) is given to K2 as a Java
   source root, so Kotlin that uses them is no longer gated `Unresolved reference` on an unbuilt checkout. The Java is
@@ -339,6 +377,13 @@ All notable changes to Krit will be documented in this file.
   `FrequentlyChangedStateReadInComposition` still suppress the matching rule (#1472, #1476, #1478).
 
 ### Changed
+- `krit_aspect`'s persistent worker keeps one warm krit-fir JVM for every target with the same compiler settings
+  instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
+  each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to
+  7.0 s (mean action 6.56 s to 0.54 s), with the same reports as one-shot JVMs (#1666).
+- The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
+  only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
+  Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -438,6 +483,36 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
+  version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
+  buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
+  `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
+  catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
+- `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
+  `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
+  component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
+  functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
+  for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
+  element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
+- `UsingMaterialAndMaterial3Libraries` no longer reports material-only modules of a multi-module build because
+  another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
+  own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
+  aliased `Scaffold` imports (#1728).
+- `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
+  (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
+  interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
+  to a supertype method declared elsewhere. Inherited members are tried before imports, and calls under an
+  extension receiver or a `with`/`apply`/`run` block abstain. The type index now records parameter annotations. The
+  rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
+  declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
+  neither the annotation nor such a function are skipped (part of #1151, #1610).
+- `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
+  other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
+  declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,
+  top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
+  non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
+  another file (#1624).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
@@ -447,6 +522,15 @@ All notable changes to Krit will be documented in this file.
   `MODULE.bazel`/`WORKSPACE`, looking no higher than a repository root (`.git`) or a Bazel execution root. A file in no
   build has no module graph and walks no directory tree, and `--only-scope file` scans of a file skip discovery unless
   the type oracle or custom rule jars read the graph (#1548, #1669, #1704).
+- Bazel targets with a generated srcjar in `srcs` (Wire, KSP) are no longer degraded under `krit_aspect`: krit-fir
+  excluded the target's own files in a Gradle-style `src/main/kotlin` as "not part of the JVM compilation" whenever the
+  session had any source root, and an unpacked srcjar was a Bazel target's only one. That check now applies only when
+  a root is itself a source-set root, so the files compile against the srcjar's sources and get FIR verdicts (#1688,
+  #1632).
+- The manifest-source Security ports and the `ExportedPreferenceActivityManifest` facts share each file's parsed
+  package, imports and class declarations through the run's file-facts cache, so imports are parsed once per run
+  instead of four times. On element-x-android the manifest-source phase went from 2.4s to 1.1s, with the same
+  findings.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase
@@ -455,6 +539,11 @@ All notable changes to Krit will be documented in this file.
   and object lookups use a per-file index, built once per run. `IgnoredReturnValue` skips type resolution for calls
   it cannot report without the oracle, and finds a detached `return` without a regex. On element-x-android
   (`--no-fir`), the three rules went from 3.2s, 2.6s and 1.1s to 0.2s, 0.1s and 0.5s, with the same findings (#1664).
+- Gradle rules no longer rediscover the version catalog for every Gradle file and catalog lookup. Discovery can walk
+  every build file of an included build that provides a settings plugin, and a nested build with `includeBuild("..")`
+  walks the whole repository, so a repository with several such builds paid that walk many times over. Each run now
+  looks at a directory, and walks an included build, once. On metro (`--no-fir --no-type-oracle`, cold) Gradle
+  analysis went from 3.5s to 0.25s and the whole scan from 4.7s to 1.4s, with the same findings.
 - The built-in test-data skip (`testdata/`, `testData/`, `test-data/`, `test/data/`, `compiler-tests/`,
   `compilerTests/`, `src/<test set>/resources/`) only counts directories below the scanned path, so a project checked
   out under an ancestor such as `/home/runner/work/testdata/` is analysed instead of reporting no files and exiting 0.

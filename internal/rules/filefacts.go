@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 
 	"github.com/kaeawc/krit/internal/filefacts"
+	"github.com/kaeawc/krit/internal/librarymodel"
 )
 
 // sharedFileFacts is the run-scoped cache used by helpers that have a
@@ -30,6 +31,7 @@ const (
 	slotFunctionDecl                = "fundecl"
 	slotClassDecl                   = "classdecl"
 	slotClassLikeDeclsByName        = "classLikeDeclsByName"
+	slotLintSourceFileClasses       = "lintSourceFileClasses"
 	slotJumpMetrics                 = "jumpmetrics"
 	slotScopeReassignments          = "scopeReassignments"
 	slotRangeSummary                = "rangesummary"
@@ -57,4 +59,27 @@ const (
 	slotFunctionNames               = "functionNames"
 	slotDeclaredFunctionNames       = "declaredFunctionNames"
 	slotCallExpressionsByName       = "callExpressionsByName"
+	slotCatalogDiscovery            = "catalogDiscovery"
 )
+
+// catalogDiscoveryKey is the StringFact key of the catalog discovery memo, which
+// lives for one request: a project run, or one call of a long-lived analyzer
+// (see Dispatcher.BeginRequest).
+const catalogDiscoveryKey = "request"
+
+// loadGradleVersionCatalog loads the version catalog for a Gradle file, sharing
+// one catalog-source discovery memo across the request's rules and files. facts
+// is the dispatcher's cache from api.Context.Facts, not the process-wide
+// fileFactsCache(), which belongs to whichever dispatcher was built last.
+func loadGradleVersionCatalog(facts *filefacts.Cache, gradlePath string) (librarymodel.VersionCatalog, bool) {
+	return catalogDiscovery(facts).LoadVersionCatalogForGradlePath(gradlePath)
+}
+
+// catalogDiscovery returns the request's catalog discovery memo, or nil (no
+// memoization) without a cache.
+func catalogDiscovery(facts *filefacts.Cache) *librarymodel.CatalogDiscovery {
+	if facts == nil {
+		return nil
+	}
+	return filefacts.StringFact(facts, catalogDiscoveryKey, slotCatalogDiscovery, librarymodel.NewCatalogDiscovery)
+}

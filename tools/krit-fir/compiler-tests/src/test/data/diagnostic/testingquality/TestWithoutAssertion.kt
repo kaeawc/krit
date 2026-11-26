@@ -20,12 +20,12 @@ class MissingAssertions {
     }
 
     @Test
-    fun coroutineWithoutCheck() = runTest { // FIR abstains: external coroutine runner is not allowlisted.
+    fun coroutineWithoutCheck() = runTest { // FIR abstains: runTest is in the mirrored Go framework-name table.
         println("work")
     }
 
     @Test
-    fun stubbingIsNotVerification() { // FIR abstains: external mocking calls are not allowlisted.
+    fun <!TestWithoutAssertion!>stubbingIsNotVerification<!>() { // FIR keeps Go's finding: stubbing is not verification.
         every { println("stub") } returns Unit
     }
 

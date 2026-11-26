@@ -26,6 +26,17 @@
 #             mkdocs is installed (Documentation workflow)
 #   winvet    GOOS=windows go vet ./... when x86_64-w64-mingw32-gcc is on
 #             PATH (CI: windows-vet)
+#   gosec     the standalone gosec binary on changed packages, with ci.yml's
+#             -exclude list (it ignores //nolint:gosec; only #nosec counts)
+#             (CI: golangci-lint job, "Run gosec") (#1777)
+#   bazele2e  scripts/bazel-e2e-local.sh for bazel/ and FIR verdict-merge
+#             changes, when bazel or bazelisk, java and a krit-fir jar for
+#             these sources are available (CI: bazel-e2e) (#1783)
+#   jvme2e    tests/externalrule and tests/playgroundrules (CI:
+#             external-rule-example, playground-rules) for custom-rule
+#             changes; both t.Skip without java, krit-rule-api in ~/.m2 or a
+#             krit-fir jar, so a missing prerequisite is reported loudly
+#             instead of passing silently (#1732)
 #   warmclean the FIR warm-versus-clean mutation matrix rows (CI:
 #             warm-clean-matrix 1/2, ~150 s) for cache, hashing, oracle and
 #             FIR changes, when java and a krit-fir jar built from the
@@ -88,6 +99,9 @@ plan_checks() {
 	if [ "$go_changed" = 1 ]; then
 		PLAN+=(build vet lint)
 	fi
+	if has_match '\.go$'; then
+		PLAN+=(gosec)
+	fi
 	if has_match '^internal/(rules|ruleslinter)/'; then
 		PLAN+=(rules)
 	fi
@@ -111,6 +125,14 @@ plan_checks() {
 	fi
 	if [ "$go_changed" = 1 ] && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
 		PLAN+=(winvet)
+	fi
+	# The bazel-e2e export_model step asserts merged FIR verdicts of a krit
+	# scan outside Bazel, so verdict-merge changes can break it too (#1783).
+	if has_match '^bazel/|^scripts/bazel-|^internal/firchecks/(verdict|pass|coverage)[^/]*\.go$|^internal/output/fir_coverage\.go$'; then
+		PLAN+=(bazele2e)
+	fi
+	if has_match '^tests/(externalrule|playgroundrules)/|^examples/external-rule/|^tools/krit-rule-api/|^krit-custom-rule-plugin/|^playground/.*custom'; then
+		PLAN+=(jvme2e)
 	fi
 	# Stale-warm cache bugs only show up across the whole shard (timing
 	# within the racy-stat window), not in one row (#1708).
@@ -251,6 +273,41 @@ run_lint() {
 	golangci-lint run $pkgs || fail lint "Fix the findings above (golangci-lint run ./... is what CI runs)."
 }
 
+# ci_gosec_excludes reads the -exclude list from ci.yml's gosec step so the
+# hook and CI cannot drift.
+ci_gosec_excludes() {
+	sed -n 's/.*run: gosec -exclude=\([A-Z0-9,]*\).*/\1/p' .github/workflows/ci.yml | head -n 1
+}
+
+run_gosec() {
+	step "gosec (changed packages, CI's standalone flags)"
+	need_tool gosec gosec "go install github.com/securego/gosec/v2/cmd/gosec@latest" || return 0
+	local pkgs=() p excludes
+	while IFS= read -r p; do
+		[ -n "$p" ] || continue
+		# CI excludes internal/rules from the standalone run (see ci.yml).
+		[ "$p" = ./internal/rules ] && continue
+		pkgs+=("$p")
+	done < <(changed_packages <<<"$CHANGED")
+	[ "${#pkgs[@]}" -gt 0 ] || return 0
+	excludes=$(ci_gosec_excludes)
+	gosec -quiet ${excludes:+-exclude="$excludes"} "${pkgs[@]}" ||
+		fail gosec "Standalone gosec ignores //nolint:gosec; annotate intentional uses with '// #nosec G<id> -- <reason>'."
+}
+
+run_bazele2e() {
+	step "Bazel e2e (CI: bazel-e2e)"
+	local jar bz
+	jar=$(fir_jar)
+	bz=$(command -v bazelisk || command -v bazel || true)
+	if [ -z "$bz" ] || ! command -v java >/dev/null 2>&1 || [ -z "$jar" ]; then
+		echo "skipped: needs bazel or bazelisk, java and a krit-fir jar for these sources (make fir-jar). Watch CI job bazel-e2e."
+		return 0
+	fi
+	BAZEL="$bz" KRIT_FIR_JAR="$jar" bash scripts/bazel-e2e-local.sh ||
+		fail bazele2e "scripts/bazel-e2e-local.sh failed (CI: bazel-e2e)."
+}
+
 run_rules() {
 	step "make lint-rules"
 	make -s lint-rules || fail rules "A rule capability/fix-mode gate failed; see internal/ruleslinter and CLAUDE.md."
@@ -372,13 +429,33 @@ run_warmclean() {
 		fail warmclean "A warm (cached/daemon) result differs from a clean run: a cache key misses an input. See tests/parity/warm_clean_*_test.go."
 }
 
+run_jvme2e() {
+	step "custom-rule e2e (CI: external-rule-example, playground-rules)"
+	local jar missing=()
+	jar=$(fir_jar)
+	command -v java >/dev/null 2>&1 || missing+=("java (JDK 21+)")
+	[ -n "$jar" ] || missing+=("a krit-fir jar for these sources (make fir-jar)")
+	if [ -n "$(ls -d "$HOME"/.m2/repository/dev/jasonpearson/krit/krit-rule-api/*/ 2>/dev/null)" ]; then
+		:
+	else
+		missing+=("krit-rule-api in ~/.m2 (./gradlew -p tools/krit-rule-api publishToMavenLocal -PkritVersion=0.0.0-ci)")
+	fi
+	if [ "${#missing[@]}" -gt 0 ]; then
+		printf '!!! custom-rule e2e SKIPPED: these tests t.Skip without their prerequisites, so a local pass proves nothing.\n'
+		printf '!!!   missing: %s\n' "${missing[@]}"
+		printf '!!!   watch CI jobs external-rule-example and playground-rules, or install the above and rerun make prepush.\n'
+		return 0
+	fi
+	KRIT_FIR_JAR="$jar" bash scripts/go-test.sh ./tests/externalrule/ ./tests/playgroundrules/ -count=1 -timeout 600s ||
+		fail jvme2e "A custom-rule end-to-end test failed (CI: external-rule-example / playground-rules)."
+}
+
 jvm_notes() {
 	local note=()
 	has_match '^krit-gradle-plugin/' && note+=("krit-gradle-plugin: ./gradlew -p krit-gradle-plugin test (CI: krit-gradle-plugin)")
 	has_match '^krit-settings-plugin/' && note+=("krit-settings-plugin: ./gradlew -p krit-settings-plugin test (CI: krit-settings-plugin)")
 	has_match '^krit-custom-rule-plugin/' && note+=("krit-custom-rule-plugin: CI job krit-custom-rule-plugin")
 	has_match '^tools/krit-fir/' && note+=("krit-fir: CI jobs krit-fir (*) and oracle-backend-parity")
-	has_match '^bazel/' && note+=("bazel: CI job bazel-e2e (scripts/bazel-e2e-local.sh)")
 	has_match '^tests/fixtures/' && note+=("fixtures: CI job krit-fir (compiler-tests) runs FixtureParityTest against them")
 	[ "${#note[@]}" -gt 0 ] || return 0
 	printf '\npre-push: not checked locally (JVM/Bazel), watch these CI jobs:\n'

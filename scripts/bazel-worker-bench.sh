@@ -2,7 +2,9 @@
 # Benchmarks krit_aspect's Krit actions on a generated Bazel workspace:
 # a one-shot krit-fir JVM per action (--@krit//:worker=false, as on remote
 # execution) against the multiplex persistent worker, and both against one
-# whole-repository `krit --fir` over the exported model.
+# whole-repository `krit --fir` over the exported model. Also counts the
+# actions an implementation-only edit of the most depended-on target re-runs,
+# with and without rules_kotlin's ABI jars.
 #
 # Usage: scripts/bazel-worker-bench.sh [TARGETS] [extra bazel args...]
 #
@@ -149,6 +151,42 @@ for mode in false true; do
   edit_rows+=("| $label | $(printf '%s\n' "${times[@]}" | awk '{ s += $1 } END { printf "%.2f", s / NR }') s |")
 done
 
+# Compile avoidance: an implementation-only edit (a string in a function
+# body) in t1, which every other target depends on. With rules_kotlin's ABI
+# jars (--define=experimental_use_abi_jars=1) t1's compile jar stays the
+# same, so only t1's Krit action re-runs; without them the edit changes the
+# classpath of every target, and every Krit action re-runs.
+executed() {
+  python3 - "$1" "$2" << 'PY'
+import json, sys
+text = open(sys.argv[1]).read()
+decoder, pos, count = json.JSONDecoder(), 0, 0
+while pos < len(text):
+    while pos < len(text) and text[pos].isspace():
+        pos += 1
+    if pos >= len(text):
+        break
+    entry, pos = decoder.raw_decode(text, pos)
+    if entry.get("mnemonic") == sys.argv[2] and not (entry.get("cacheHit") or entry.get("remoteCacheHit")):
+        count += 1
+print(count)
+PY
+}
+abi_rows=()
+for abi in 0 1; do
+  flags=(--define=experimental_use_abi_jars="$abi" --@krit//:worker=false)
+  build "${flags[@]}" "$@" > /dev/null 2>&1
+  sed -i.bak "s/\"model-[a-z0-9]*/\"model-$abi$RANDOM/" "$gen/t1/Model1.kt" && rm -f "$gen/t1/Model1.kt.bak"
+  start="$(now)"
+  build "${flags[@]}" --execution_log_json_file="$work/abi.json" "$@" > /dev/null 2>&1
+  end="$(now)"
+  label="full class jars (rules_kotlin default)"
+  if [ "$abi" = 1 ]; then
+    label="ABI jars (\`--define=experimental_use_abi_jars=1\`)"
+  fi
+  abi_rows+=("| $label | $(executed "$work/abi.json" KotlinCompile) of $targets | $(executed "$work/abi.json" Krit) of $targets | $(elapsed "$start" "$end") s |")
+done
+
 # One whole-repository krit --fir over the exported model.
 # shellcheck disable=SC2086
 BAZEL="$BAZEL" $BAZEL run --lockfile_mode=off --noshow_progress --symlink_prefix=/ "$@" @krit//:export_model -- \
@@ -183,3 +221,9 @@ echo
 echo "| Mode | Krit action |"
 echo "| --- | --- |"
 printf '%s\n' "${edit_rows[@]}"
+echo
+echo "Implementation-only edit in t1, which every target depends on (Kotlin compile and Krit actions, one-shot JVMs):"
+echo
+echo "| Dependency jars | Kotlin compiles re-run | Krit actions re-run | Wall time |"
+echo "| --- | --- | --- | --- |"
+printf '%s\n' "${abi_rows[@]}"

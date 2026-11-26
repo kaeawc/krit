@@ -20,6 +20,7 @@ import (
 	"github.com/kaeawc/krit/internal/daemon"
 	"github.com/kaeawc/krit/internal/diag"
 	"github.com/kaeawc/krit/internal/firchecks"
+	"github.com/kaeawc/krit/internal/fsutil"
 	"github.com/kaeawc/krit/internal/gradlemodel"
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -531,6 +532,7 @@ func (s *daemonState) buildProjectInput(args daemon.AnalyzeProjectArgs, backend 
 	if repoDir == "" {
 		repoDir = s.root
 	}
+	hashutil.CalibrateClock(fsutil.ProjectStateDir(repoDir))
 	androidCacheWriter, androidCacheDir := s.androidCacheWriterFor(repoDir)
 	// --no-cache disables every on-disk cache for this single call:
 	// parse cache, AnalysisCache, findings bundle store, cross-file/

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
@@ -48,8 +49,9 @@ type lintSourceIndex struct {
 	byFQN map[string]*preferenceClassDecl
 	// bySimple maps a class's simple name to the FQNs that end with it, for manifests without a package.
 	bySimple map[string][]string
-	// scopes caches each file's package and imports.
-	scopes map[*scanner.File]*preferenceFileScope
+	// files memoizes each file's lintFileClasses for this index; cache, when not nil, shares them across a run.
+	files map[*scanner.File]*lintFileClasses
+	cache *filefacts.Cache
 	// extends memoizes extendsTarget by class and target set.
 	extends map[lintExtendsKey]bool
 }
@@ -61,41 +63,72 @@ type lintExtendsKey struct {
 	targets uintptr
 }
 
-// lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots).
-func lintSourceClasses(files []*scanner.File) *lintSourceIndex {
-	idx := &lintSourceIndex{classes: map[string]*lintSourceClass{}, byFQN: map[string]*preferenceClassDecl{},
-		bySimple: map[string][]string{}, scopes: make(map[*scanner.File]*preferenceFileScope, len(files)),
-		extends: map[lintExtendsKey]bool{}}
-	for _, file := range files {
-		if file == nil {
-			continue
-		}
-		scope := idx.scope(file)
+// lintFileClasses is what one file contributes to a lintSourceIndex: its package and imports, and its class
+// declarations in walk order. It is a per-file fact, so the manifest-source rules, which run concurrently, parse
+// each file's imports once per run rather than once each.
+type lintFileClasses struct {
+	scope   *preferenceFileScope
+	classes []*lintSourceClass
+}
+
+// lintSourceFileClasses returns the file's lintFileClasses from cache, computing it on first use. A nil cache
+// computes it without keeping it.
+func lintSourceFileClasses(cache *filefacts.Cache, file *scanner.File) *lintFileClasses {
+	return filefacts.FileFact(cache, file, slotLintSourceFileClasses, func() *lintFileClasses {
+		out := &lintFileClasses{scope: newPreferenceFileScope(string(file.Content))}
 		file.FlatWalkNodes(0, "class_declaration", func(n uint32) {
 			name := extractIdentifierFlat(file, n)
 			if name == "" {
 				return
 			}
-			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, n, name, scope.pkg),
-				supers: preferenceDirectSupers(file, n), file: scope}
-			if idx.classes[d.fqn] == nil {
-				idx.bySimple[name] = append(idx.bySimple[name], d.fqn)
-			}
-			idx.classes[d.fqn] = &lintSourceClass{decl: d, file: file, idx: n}
-			idx.byFQN[d.fqn] = d
+			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, n, name, out.scope.pkg),
+				supers: preferenceDirectSupers(file, n), file: out.scope}
+			out.classes = append(out.classes, &lintSourceClass{decl: d, file: file, idx: n})
 		})
+		return out
+	})
+}
+
+// lintSourceClasses indexes every class declared in the files by its FQN (nested classes joined with dots),
+// sharing each file's parsed classes through the run's file-facts cache.
+func lintSourceClasses(files []*scanner.File) *lintSourceIndex {
+	return lintSourceClassesIn(fileFactsCache(), files)
+}
+
+// lintSourceClassesIn is lintSourceClasses with an explicit cache; nil keeps nothing beyond the index.
+func lintSourceClassesIn(cache *filefacts.Cache, files []*scanner.File) *lintSourceIndex {
+	idx := &lintSourceIndex{classes: map[string]*lintSourceClass{}, byFQN: map[string]*preferenceClassDecl{},
+		bySimple: map[string][]string{}, files: make(map[*scanner.File]*lintFileClasses, len(files)),
+		cache: cache, extends: map[lintExtendsKey]bool{}}
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		for _, c := range idx.fileClasses(file).classes {
+			fqn := c.decl.fqn
+			if idx.classes[fqn] == nil {
+				simple := fqn[strings.LastIndex(fqn, ".")+1:]
+				idx.bySimple[simple] = append(idx.bySimple[simple], fqn)
+			}
+			idx.classes[fqn] = c
+			idx.byFQN[fqn] = c.decl
+		}
 	}
 	return idx
 }
 
+func (idx *lintSourceIndex) fileClasses(file *scanner.File) *lintFileClasses {
+	if fc := idx.files[file]; fc != nil {
+		return fc
+	}
+	fc := lintSourceFileClasses(idx.cache, file)
+	idx.files[file] = fc
+	return fc
+}
+
 // scope returns the file's package and imports, parsed once per file.
 func (idx *lintSourceIndex) scope(file *scanner.File) *preferenceFileScope {
-	if s := idx.scopes[file]; s != nil {
-		return s
-	}
-	s := newPreferenceFileScope(string(file.Content))
-	idx.scopes[file] = s
-	return s
+	return idx.fileClasses(file).scope
 }
 
 // classAt returns the indexed class declared at a class_declaration node, or nil.
@@ -105,6 +138,46 @@ func (idx *lintSourceIndex) classAt(file *scanner.File, n uint32) *lintSourceCla
 		return nil
 	}
 	return idx.classes[preferenceClassFQN(file, n, name, idx.scope(file).pkg)]
+}
+
+// resolve returns the indexed class a type name written in file refers to, by import, the file's package, a
+// wildcard import, or a qualified name; nil when it is not a project class.
+func (idx *lintSourceIndex) resolve(file *scanner.File, typ string) (string, *lintSourceClass) {
+	typ = strings.TrimSpace(typ)
+	if cut := strings.IndexByte(typ, '<'); cut >= 0 {
+		typ = typ[:cut]
+	}
+	if typ == "" {
+		return "", nil
+	}
+	scope := idx.scope(file)
+	var candidates []string
+	if strings.Contains(typ, ".") {
+		first := typ[:strings.Index(typ, ".")]
+		if imported, ok := scope.imports[first]; ok {
+			candidates = append(candidates, imported+typ[len(first):])
+		}
+		candidates = append(candidates, typ)
+	} else {
+		if imported, ok := scope.imports[typ]; ok {
+			candidates = append(candidates, imported)
+		} else {
+			if scope.pkg != "" {
+				candidates = append(candidates, scope.pkg+"."+typ)
+			} else {
+				candidates = append(candidates, typ)
+			}
+			for _, wildcard := range scope.wildcards {
+				candidates = append(candidates, wildcard+"."+typ)
+			}
+		}
+	}
+	for _, fqn := range candidates {
+		if c := idx.classes[fqn]; c != nil {
+			return fqn, c
+		}
+	}
+	return "", nil
 }
 
 // extendsTarget reports whether the class's superclass chain, followed through project sources, reaches one of the

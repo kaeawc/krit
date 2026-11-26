@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/cacheutil"
 	"github.com/kaeawc/krit/internal/config"
 	"github.com/kaeawc/krit/internal/oracle"
@@ -228,5 +230,38 @@ func writeContractFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// A cached scan must not replay findings from a run with other default SDK
+// levels: --min-sdk is part of the analysis cache's rule hash even without an
+// Android project to fingerprint (#1682).
+func TestScanCacheKeysOnMinSdkFlag(t *testing.T) {
+	t.Cleanup(func() { android.SetDefaultSDKLevels(android.SDKLevels{}) })
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src", "main", "kotlin", "p")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "Levels.kt"), []byte("package p\n\nimport android.os.Build\n\nfun label(): String = if (Build.VERSION.SDK_INT >= 21) \"new\" else \"old\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scan := func(extra ...string) int {
+		args := append([]string{"krit", "--enable-rules", "ObsoleteSdkInt", "--no-type-oracle", "-f", "plain"}, extra...)
+		return strings.Count(string(runScanCLI(t, append(args, dir))), "ObsoleteSdkInt")
+	}
+	for i, tc := range []struct {
+		flags []string
+		want  int
+	}{
+		{[]string{"--min-sdk", "24"}, 1},
+		{nil, 0},
+		{[]string{"--min-sdk", "24"}, 1},
+		{[]string{"--min-sdk", "21"}, 1},
+		{[]string{"--min-sdk", "20"}, 0},
+	} {
+		if got := scan(tc.flags...); got != tc.want {
+			t.Fatalf("run %d %v: %d ObsoleteSdkInt findings, want %d", i+1, tc.flags, got, tc.want)
+		}
 	}
 }

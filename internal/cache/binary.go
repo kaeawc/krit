@@ -52,6 +52,7 @@ type binaryEntry struct {
 	Hash    string
 	ModTime int64
 	Size    int64
+	GitBlob string
 	Columns scanner.FindingColumns
 }
 
@@ -80,6 +81,7 @@ func encodeBinary(c *Cache) ([]byte, error) {
 			Hash:    entry.Hash,
 			ModTime: entry.ModTime,
 			Size:    entry.Size,
+			GitBlob: entry.GitBlob,
 			Columns: entry.Columns,
 		})
 	}
@@ -145,6 +147,7 @@ func decodeBinary(data []byte) (*Cache, bool) {
 			Hash:    e.Hash,
 			ModTime: e.ModTime,
 			Size:    e.Size,
+			GitBlob: e.GitBlob,
 			Columns: e.Columns,
 		}
 	}

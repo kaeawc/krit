@@ -1,0 +1,1 @@
+src/main/java/com/example/wear/Theme.kt:3:1: WearMaterialTheme: Don't use `androidx.compose.material.MaterialTheme` in a Wear OS project; use `androidx.wear.compose.material.MaterialTheme` instead

@@ -182,7 +182,7 @@ func validateFIR(raw interface{}) []ValidationError {
 	for _, option := range keys {
 		value := section[option]
 		path := "fir." + option
-		if option != "goAuthoritativeRules" {
+		if option != "goAuthoritativeRules" && option != "requireAuthoritativeRules" {
 			errs = append(errs, ValidationError{Path: path, Message: fmt.Sprintf("unknown config key '%s' in fir", option), Level: "error"})
 		} else if typeErr := checkType(path, value, OptionTypeStringSlice); typeErr != nil {
 			errs = append(errs, *typeErr)

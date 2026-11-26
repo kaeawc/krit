@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sync"
+
+	"github.com/kaeawc/krit/internal/hashutil"
 )
 
 const maxHashes = 64
@@ -84,7 +86,9 @@ func OverrideTokenForTest(tb interface {
 }
 
 // HashFile returns the SHA-256 hex digest of a file's contents. Cache failures
-// are ignored; the file itself remains the source of truth.
+// are ignored; the file itself remains the source of truth. The digest is
+// memoized by path, size, mtime and inode, except for a file modified within
+// hashutil.RacyWindow, whose stat cannot prove its content.
 func HashFile(path string) (string, error) {
 	path, err := filepath.Abs(path)
 	if err != nil {
@@ -97,7 +101,7 @@ func HashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() {
+	if !info.Mode().IsRegular() || !hashutil.StatTrustedNow(info) {
 		return hashFileDirect(path)
 	}
 	key := fileKey{Path: path, Size: info.Size(), Mtime: info.ModTime().UnixNano(), Inode: fileInode(info)}

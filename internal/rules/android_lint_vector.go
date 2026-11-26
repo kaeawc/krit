@@ -89,11 +89,7 @@ func vectorPathData(ctx *api.Context, value string) (string, bool) {
 }
 
 func projectMinSdkOrZero(ctx *api.Context) int {
-	facts := librarymodel.EnsureFacts(ctx.LibraryFacts)
-	if facts == nil {
-		return 0
-	}
-	return facts.Profile.MinSdkVersion
+	return profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts))
 }
 
 func (r *VectorPathRule) check(ctx *api.Context) {

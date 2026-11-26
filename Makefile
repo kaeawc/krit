@@ -10,8 +10,11 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o krit-daemon ./cmd/krit-daemon/
 	go build -ldflags "$(LDFLAGS)" -o krit-changelog ./cmd/krit-changelog/
 
+# -timeout 30m: with a krit-fir jar present (make fir-jar), tests/parity
+# runs its FIR end-to-end tests and takes ~11 minutes alone on a 4-vCPU
+# machine, past go test's 10m default. CI's parity jobs use 30m too.
 test:
-	bash scripts/go-test.sh ./... -count=1
+	bash scripts/go-test.sh ./... -count=1 -timeout 30m
 
 fir-jar:
 	bash scripts/build-dev-jar.sh krit-fir

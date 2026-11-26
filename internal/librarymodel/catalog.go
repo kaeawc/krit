@@ -219,34 +219,53 @@ func parseVersionCatalogSources(sources []CatalogSource) (VersionCatalog, bool) 
 	return merged, !merged.Empty()
 }
 
-type catalogDiscoveryCache struct {
-	dirSources map[string][]CatalogSource
+// CatalogDiscovery memoizes version-catalog source discovery per directory for
+// one analysis run. Discovery reads each ancestor's settings files and, for a
+// settings plugin that an included build provides, walks every build file under
+// that build; a nested build with includeBuild("..") walks the whole repository.
+// Without the memo that walk repeats for every Gradle file and every catalog
+// lookup. Catalog contents are still revalidated by stat stamps on load. Safe for
+// concurrent use; a nil *CatalogDiscovery does not memoize.
+type CatalogDiscovery struct {
+	dirSources sync.Map // dir -> []CatalogSource
+	buildFiles sync.Map // included build root -> []string
 }
 
-func newCatalogDiscoveryCache() *catalogDiscoveryCache {
-	return &catalogDiscoveryCache{dirSources: make(map[string][]CatalogSource)}
-}
+// NewCatalogDiscovery returns an empty discovery memo. Use one per analysis run:
+// it does not notice settings files or included builds that change afterwards.
+func NewCatalogDiscovery() *CatalogDiscovery { return &CatalogDiscovery{} }
 
-func (c *catalogDiscoveryCache) FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource, bool) {
+func (c *CatalogDiscovery) sourcesForDir(dir string) []CatalogSource {
 	if c == nil {
-		return FindVersionCatalogSourcesForGradlePath(gradlePath)
+		return c.catalogSourcesForDir(dir)
 	}
+	if cached, ok := c.dirSources.Load(dir); ok {
+		return cached.([]CatalogSource)
+	}
+	sources, _ := c.dirSources.LoadOrStore(dir, c.catalogSourcesForDir(dir))
+	return sources.([]CatalogSource)
+}
+
+// LoadVersionCatalogForGradlePath is the package-level function of the same name,
+// with directory discovery memoized.
+func (c *CatalogDiscovery) LoadVersionCatalogForGradlePath(gradlePath string) (VersionCatalog, bool) {
+	sources, ok := c.FindVersionCatalogSourcesForGradlePath(gradlePath)
+	if !ok {
+		return VersionCatalog{}, false
+	}
+	return loadVersionCatalogFromSources(sources)
+}
+
+// FindVersionCatalogSourcesForGradlePath is the package-level function of the
+// same name, with directory discovery memoized.
+func (c *CatalogDiscovery) FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource, bool) {
 	if absPath, err := filepath.Abs(gradlePath); err == nil {
 		gradlePath = absPath
 	}
-	type sourceGroup struct {
-		dir     string
-		sources []CatalogSource
-	}
-	var groups []sourceGroup
+	var groups [][]CatalogSource
 	for dir := filepath.Dir(gradlePath); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-		sources, ok := c.dirSources[dir]
-		if !ok {
-			sources = catalogSourcesForDir(dir)
-			c.dirSources[dir] = sources
-		}
-		if len(sources) > 0 {
-			groups = append(groups, sourceGroup{dir: dir, sources: sources})
+		if sources := c.sourcesForDir(dir); len(sources) > 0 {
+			groups = append(groups, sources)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -258,43 +277,17 @@ func (c *catalogDiscoveryCache) FindVersionCatalogSourcesForGradlePath(gradlePat
 	}
 	var ordered []CatalogSource
 	for i := len(groups) - 1; i >= 0; i-- {
-		ordered = append(ordered, groups[i].sources...)
+		ordered = append(ordered, groups[i]...)
 	}
 	normalizeCatalogSourceKinds(ordered)
 	return ordered, true
 }
 
 func FindVersionCatalogSourcesForGradlePath(gradlePath string) ([]CatalogSource, bool) {
-	if absPath, err := filepath.Abs(gradlePath); err == nil {
-		gradlePath = absPath
-	}
-	type sourceGroup struct {
-		dir     string
-		sources []CatalogSource
-	}
-	var groups []sourceGroup
-	for dir := filepath.Dir(gradlePath); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-		sources := catalogSourcesForDir(dir)
-		if len(sources) > 0 {
-			groups = append(groups, sourceGroup{dir: dir, sources: sources})
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-	}
-	if len(groups) == 0 {
-		return nil, false
-	}
-	var ordered []CatalogSource
-	for i := len(groups) - 1; i >= 0; i-- {
-		ordered = append(ordered, groups[i].sources...)
-	}
-	normalizeCatalogSourceKinds(ordered)
-	return ordered, true
+	return (*CatalogDiscovery)(nil).FindVersionCatalogSourcesForGradlePath(gradlePath)
 }
 
-func catalogSourcesForDir(dir string) []CatalogSource {
+func (c *CatalogDiscovery) catalogSourcesForDir(dir string) []CatalogSource {
 	var sources []CatalogSource
 	catalogPaths, err := filepath.Glob(filepath.Join(dir, "gradle", "*.versions.toml"))
 	if err == nil && len(catalogPaths) > 0 {
@@ -302,11 +295,11 @@ func catalogSourcesForDir(dir string) []CatalogSource {
 			sources = append(sources, CatalogSource{Path: catalogPath, Kind: CatalogSourceMergedTOML})
 		}
 	}
-	sources = append(sources, settingsCatalogSources(dir)...)
+	sources = append(sources, c.settingsCatalogSources(dir)...)
 	return sources
 }
 
-func settingsCatalogSources(dir string) []CatalogSource {
+func (c *CatalogDiscovery) settingsCatalogSources(dir string) []CatalogSource {
 	var sources []CatalogSource
 	for _, name := range []string{"settings.gradle", "settings.gradle.kts"} {
 		settingsPath := filepath.Join(dir, name)
@@ -322,12 +315,12 @@ func settingsCatalogSources(dir string) []CatalogSource {
 		if isProgrammaticVersionCatalogContent(settingsContent) {
 			sources = append(sources, CatalogSource{Path: settingsPath, Kind: CatalogSourceSettingsProgrammatic})
 		}
-		sources = append(sources, includedSettingsPluginSources(dir, settingsContent)...)
+		sources = append(sources, c.includedSettingsPluginSources(dir, settingsContent)...)
 	}
 	return sources
 }
 
-func includedSettingsPluginSources(settingsDir, settingsContent string) []CatalogSource {
+func (c *CatalogDiscovery) includedSettingsPluginSources(settingsDir, settingsContent string) []CatalogSource {
 	var sources []CatalogSource
 	pluginIDs := make(map[string]bool)
 	for _, match := range settingsPluginIDRe.FindAllStringSubmatch(settingsContent, -1) {
@@ -339,7 +332,7 @@ func includedSettingsPluginSources(settingsDir, settingsContent string) []Catalo
 	for _, includeMatch := range settingsIncludeBuildRe.FindAllStringSubmatch(settingsContent, -1) {
 		includeDir := filepath.Clean(filepath.Join(settingsDir, includeMatch[1]))
 		sources = append(sources, precompiledSettingsPluginSources(includeDir, pluginIDs)...)
-		sources = append(sources, binarySettingsPluginSources(includeDir, pluginIDs)...)
+		sources = append(sources, c.binarySettingsPluginSources(includeDir, pluginIDs)...)
 	}
 	return sources
 }
@@ -370,9 +363,9 @@ func precompiledSettingsPluginSources(includeDir string, pluginIDs map[string]bo
 	return sources
 }
 
-func binarySettingsPluginSources(includeDir string, pluginIDs map[string]bool) []CatalogSource {
+func (c *CatalogDiscovery) binarySettingsPluginSources(includeDir string, pluginIDs map[string]bool) []CatalogSource {
 	var sources []CatalogSource
-	for _, buildPath := range gradleBuildFilesUnder(includeDir) {
+	for _, buildPath := range c.gradleBuildFilesUnder(includeDir) {
 		content, err := os.ReadFile(buildPath)
 		if err != nil {
 			continue
@@ -386,7 +379,23 @@ func binarySettingsPluginSources(includeDir string, pluginIDs map[string]bool) [
 	return sources
 }
 
-func gradleBuildFilesUnder(root string) []string {
+// gradleBuildFilesUnder lists build files under an included build. Nested builds
+// often include the same root (includeBuild("..")), so the walk is memoized by root.
+func (c *CatalogDiscovery) gradleBuildFilesUnder(root string) []string {
+	if c == nil {
+		return walkGradleBuildFilesFn(root)
+	}
+	if cached, ok := c.buildFiles.Load(root); ok {
+		return cached.([]string)
+	}
+	paths, _ := c.buildFiles.LoadOrStore(root, walkGradleBuildFilesFn(root))
+	return paths.([]string)
+}
+
+// walkGradleBuildFilesFn is replaced in tests to count directory walks.
+var walkGradleBuildFilesFn = walkGradleBuildFiles
+
+func walkGradleBuildFiles(root string) []string {
 	var paths []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {

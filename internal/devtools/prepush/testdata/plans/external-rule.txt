@@ -1,0 +1,13 @@
+# Custom-rule e2e inputs plan jvme2e, which runs tests/externalrule and
+# tests/playgroundrules when java, krit-rule-api and a krit-fir jar exist,
+# and says loudly that it skipped them otherwise (#1732).
+tests/externalrule/external_rule_test.go
+---
+merge
+gofmt
+build
+vet
+lint
+gosec
+test ./tests/externalrule
+jvme2e

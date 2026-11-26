@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kaeawc/krit/internal/config"
+	"github.com/kaeawc/krit/internal/gradlemodel"
 )
 
 func fakeJava21(t *testing.T) {
@@ -154,5 +155,46 @@ func TestFIRPreflightMissingModelJarsWarns(t *testing.T) {
 	if !strings.Contains(warnings.String(), "1 classpath entries missing on disk") ||
 		!strings.Contains(warnings.String(), "rerun kritExportModel") {
 		t.Fatalf("warnings = %q", warnings.String())
+	}
+}
+
+func TestFIRPreflightStampedModelIsCheckedByInputsKey(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".krit", "gradle-model")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte(`include(":app")`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model := filepath.Join(dir, "_root.json")
+	if err := os.WriteFile(model, []byte(`{"schema":2,"projects":[{"path":":","dir":"`+filepath.ToSlash(root)+`","sourceSets":[]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gradlemodel.WriteInputsStamp(dir, root); err != nil {
+		t.Fatal(err)
+	}
+	// Restored from a CI cache: the model is older than the build script, but the key matches.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(model, old, old); err != nil {
+		t.Fatal(err)
+	}
+	var warnings bytes.Buffer
+	warnStaleGradleModel(dir, []string{root}, &warnings)
+	if strings.Contains(warnings.String(), "stale") {
+		t.Fatalf("matching inputs key warned: %s", warnings.String())
+	}
+	// A build change the modification times cannot show: the model is newer, the key differs.
+	if err := os.WriteFile(filepath.Join(root, "settings.gradle.kts"), []byte(`include(":app", ":lib")`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(time.Hour)
+	if err := os.Chtimes(model, future, future); err != nil {
+		t.Fatal(err)
+	}
+	warnings.Reset()
+	warnStaleGradleModel(dir, []string{root}, &warnings)
+	if !strings.Contains(warnings.String(), "is stale: settings.gradle.kts changed since it was exported") {
+		t.Fatalf("changed inputs key did not warn: %q", warnings.String())
 	}
 }

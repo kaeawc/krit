@@ -80,8 +80,8 @@ func (r *TrulyRandomRule) check(ctx *api.Context) {
 
 // trulyRandomProjectMinSdk returns the Gradle minSdk, or 1 (Lint's default) when unknown.
 func trulyRandomProjectMinSdk(ctx *api.Context) int {
-	if facts := librarymodel.EnsureFacts(ctx.LibraryFacts); facts != nil && facts.Profile.MinSdkVersion > 0 {
-		return facts.Profile.MinSdkVersion
+	if minSdk := profileOrDefaultMinSdk(librarymodel.EnsureFacts(ctx.LibraryFacts)); minSdk > 0 {
+		return minSdk
 	}
 	return 1
 }

@@ -228,6 +228,9 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	// the memo lifetime is scoped to a single invocation and never
 	// returns stale hashes across runs with the same working directory.
 	hashutil.ResetDefault()
+	if cacheFilePath != "" {
+		hashutil.CalibrateClock(filepath.Dir(cacheFilePath))
+	}
 	loadPersistedHashes(cacheFilePath)
 
 	cpuProfileFile, cpuErr := startCPUProfile(*f.CPUProfile, os.Stderr)

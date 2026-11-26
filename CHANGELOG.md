@@ -488,6 +488,12 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
+  intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
+  constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`
+  blocks whose every statement is an Intent method call on `it` or the receiver. Any other use of the intent or the
+  array before the `PendingIntent` call, including a write in a nested lambda, still makes the rule abstain
+  (#1622).
 - The LSP, daemon buffer analysis and MCP tools see version-catalog and settings changes made while they run. The
   version-catalog discovery memo now lasts one request in those long-lived analyzers, not their whole session, and a
   buffer request reads its own analyzer's memo instead of the last project run's. Before, adding

@@ -1,3 +1,6 @@
+src/com/example/api/Local.kt:10:19: UnsafeOptInUsageError: This declaration is opt-in and its usage should be marked with `@com.example.api.ExperimentalJava` or `@OptIn(markerClass = com.example.api.ExperimentalJava.class)`
+src/com/example/api/Local.kt:18:15: UnsafeOptInUsageError: This declaration is opt-in and its usage should be marked with `@com.example.api.ExperimentalJava` or `@OptIn(markerClass = com.example.api.ExperimentalJava.class)`
+src/com/example/api/Local.kt:21:21: UnsafeOptInUsageError: This declaration is opt-in and its usage should be marked with `@com.example.api.ExperimentalJava` or `@OptIn(markerClass = com.example.api.ExperimentalJava.class)`
 src/com/example/app/JavaUses.java:10:15: UnsafeOptInUsageError: This declaration is opt-in and its usage should be marked with `@com.example.api.ExperimentalJava` or `@OptIn(markerClass = com.example.api.ExperimentalJava.class)`
 src/com/example/app/JavaUses.java:11:15: UnsafeOptInUsageError: This declaration is opt-in and its usage should be marked with `@com.example.api.ExperimentalKotlin` or `@OptIn(markerClass = com.example.api.ExperimentalKotlin.class)`
 src/com/example/app/JavaUses.java:12:15: UnsafeOptInUsageWarning: Warn level API

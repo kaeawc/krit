@@ -220,6 +220,12 @@ func axlAnnotationValueName(file *scanner.File, args uint32) string {
 		return ""
 	}
 	text := strings.Join(strings.Fields(file.FlatNodeText(expr)), "")
+	if !strings.Contains(text, ".") && file.Language == scanner.LangKotlin {
+		// An imported constant may be aliased: `import ...AnnotationRetention.BINARY as B` then @Retention(B).
+		if target, ok := fileFactsCache().Imports(file).Aliases[text]; ok {
+			text = target
+		}
+	}
 	return text[strings.LastIndex(text, ".")+1:]
 }
 

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -65,12 +66,62 @@ type axlOptInModel struct {
 	markers map[string]*axlOptInMarker
 	// marked maps a declaration FQN (pkg.fn, pkg.Class, pkg.Class.member, pkg.FileKt.fn) to its markers.
 	marked map[string][]string
+	// names holds the simple names of the marked declarations, so a call with another name is skipped unresolved.
+	names map[string]bool
 }
 
+// axlOptInAnnotated is a declaration with annotations, its own or an enclosing class's, by FQN.
+type axlOptInAnnotated struct {
+	fqns        []string // pkg.fn, pkg.Class, pkg.Class.member, and pkg.FileKt.fn for a Kotlin top-level declaration
+	annotations []string // resolved annotation FQNs, the enclosing classes' included
+}
+
+const (
+	slotAxlOptInMarkers    = "axlOptInMarkers"
+	slotAxlOptInAnnotated  = "axlOptInAnnotated"
+	slotAxlJavaImportNames = "axlJavaImportNames"
+)
+
+// axlBuildOptInModel merges the files' cached marker and annotated-declaration facts, so the Error and Warning rules
+// share the per-file work and each fact depends only on its own file.
 func axlBuildOptInModel(files []*scanner.File) *axlOptInModel {
-	m := &axlOptInModel{markers: map[string]*axlOptInMarker{}, marked: map[string][]string{}}
-	// Markers first: every annotation class meta-annotated with a RequiresOptIn / Experimental annotation.
+	m := &axlOptInModel{markers: map[string]*axlOptInMarker{}, marked: map[string][]string{}, names: map[string]bool{}}
 	for _, file := range files {
+		if !fileFactsCache().Mentions(file, "RequiresOptIn") && !fileFactsCache().Mentions(file, "Experimental") {
+			continue
+		}
+		for _, marker := range axlFileOptInMarkers(file) {
+			m.markers[marker.fqn] = marker
+		}
+	}
+	if len(m.markers) == 0 {
+		return m
+	}
+	for _, file := range files {
+		for _, decl := range axlFileOptInAnnotated(file) {
+			var marks []string
+			for _, a := range decl.annotations {
+				if m.markers[a] != nil {
+					marks = append(marks, a)
+				}
+			}
+			if len(marks) == 0 {
+				continue
+			}
+			for _, fqn := range decl.fqns {
+				m.marked[fqn] = marks
+				m.names[fqn[strings.LastIndex(fqn, ".")+1:]] = true
+			}
+		}
+	}
+	return m
+}
+
+// axlFileOptInMarkers returns the opt-in markers a file declares: annotation classes meta-annotated with a
+// RequiresOptIn / Experimental annotation.
+func axlFileOptInMarkers(file *scanner.File) []*axlOptInMarker {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlOptInMarkers, func() []*axlOptInMarker {
+		var out []*axlOptInMarker
 		pkg := filePackageName(file)
 		for _, kind := range []string{"class_declaration", "annotation_type_declaration"} {
 			file.FlatWalkNodes(0, kind, func(decl uint32) {
@@ -86,17 +137,27 @@ func axlBuildOptInModel(files []*scanner.File) *axlOptInModel {
 						java: a.fqn == axlJavaRequiresOptIn || a.fqn == axlJavaExperimentalMark}
 					marker.warning = axlAnnotationArgumentName(file, a.args, "level") == "WARNING"
 					marker.message = axlAnnotationStringArgument(file, a.args, "message")
-					m.markers[marker.fqn] = marker
+					out = append(out, marker)
 				}
 			})
 		}
-	}
-	if len(m.markers) == 0 {
-		return m
-	}
-	for _, file := range files {
+		return out
+	})
+}
+
+// axlFileOptInAnnotated returns a file's declarations that carry annotations, their own or an enclosing class's.
+func axlFileOptInAnnotated(file *scanner.File) []axlOptInAnnotated {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlOptInAnnotated, func() []axlOptInAnnotated {
+		var out []axlOptInAnnotated
 		pkg := filePackageName(file)
 		facade := axlFileFacade(file)
+		own := func(decl uint32) []string {
+			var names []string
+			for _, a := range axlDeclarationAnnotations(file, decl) {
+				names = append(names, axlResolveProjectName(file, a.fqn))
+			}
+			return names
+		}
 		var walk func(node uint32, owner string, inherited []string)
 		walk = func(node uint32, owner string, inherited []string) {
 			for c := file.FlatFirstChild(node); c != 0; c = file.FlatNextSib(c) {
@@ -113,12 +174,12 @@ func axlBuildOptInModel(files []*scanner.File) *axlOptInModel {
 						continue
 					}
 					fqn := axlQualify(owner, file.FlatNodeText(name))
-					marks := append(append([]string(nil), inherited...), m.declarationMarkers(file, c)...)
-					if len(marks) > 0 {
-						m.marked[fqn] = marks
+					annotations := append(append([]string(nil), inherited...), own(c)...)
+					if len(annotations) > 0 {
+						out = append(out, axlOptInAnnotated{fqns: []string{fqn}, annotations: annotations})
 					}
 					if body, ok := file.FlatFindChild(c, "class_body"); ok {
-						walk(body, fqn, marks)
+						walk(body, fqn, annotations)
 					}
 				case "function_declaration", "property_declaration", "method_declaration":
 					var name string
@@ -130,34 +191,23 @@ func axlBuildOptInModel(files []*scanner.File) *axlOptInModel {
 					default:
 						name = file.FlatChildTextOrEmpty(c, "identifier")
 					}
-					marks := append(append([]string(nil), inherited...), m.declarationMarkers(file, c)...)
-					if name == "" || len(marks) == 0 {
+					annotations := append(append([]string(nil), inherited...), own(c)...)
+					if name == "" || len(annotations) == 0 {
 						continue
 					}
-					m.marked[axlQualify(owner, name)] = marks
+					fqns := []string{axlQualify(owner, name)}
 					if owner == pkg && facade != "" {
-						m.marked[axlQualify(pkg, facade)+"."+name] = marks
+						fqns = append(fqns, axlQualify(pkg, facade)+"."+name)
 					}
+					out = append(out, axlOptInAnnotated{fqns: fqns, annotations: annotations})
 				case "class_body", "interface_body", "program":
 					walk(c, owner, inherited)
 				}
 			}
 		}
 		walk(0, pkg, nil)
-	}
-	return m
-}
-
-// declarationMarkers returns the project markers annotating a declaration.
-func (m *axlOptInModel) declarationMarkers(file *scanner.File, decl uint32) []string {
-	var out []string
-	for _, a := range axlDeclarationAnnotations(file, decl) {
-		fqn := axlResolveProjectName(file, a.fqn)
-		if m.markers[fqn] != nil {
-			out = append(out, fqn)
-		}
-	}
-	return out
+		return out
+	})
 }
 
 // axlQualify joins a package (or owner) and a name.
@@ -188,15 +238,7 @@ func axlResolveProjectName(file *scanner.File, name string) string {
 		return name
 	}
 	if file.Language == scanner.LangJava {
-		var found string
-		file.FlatWalkNodes(0, "import_declaration", func(n uint32) {
-			ref := axlImportReference(file, n)
-			text := strings.Join(strings.Fields(file.FlatNodeText(ref)), "")
-			if strings.HasSuffix(text, "."+name) {
-				found = text
-			}
-		})
-		if found != "" {
+		if found, ok := axlJavaImportNames(file)[name]; ok {
 			return found
 		}
 		return axlQualify(filePackageName(file), name)
@@ -205,6 +247,20 @@ func axlResolveProjectName(file *scanner.File, name string) string {
 		return target
 	}
 	return axlQualify(filePackageName(file), name)
+}
+
+// axlJavaImportNames maps the last segment of each Java import to the imported name (the last such import wins).
+func axlJavaImportNames(file *scanner.File) map[string]string {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlJavaImportNames, func() map[string]string {
+		out := map[string]string{}
+		file.FlatWalkNodes(0, "import_declaration", func(n uint32) {
+			text := strings.Join(strings.Fields(file.FlatNodeText(axlImportReference(file, n))), "")
+			if dot := strings.LastIndex(text, "."); dot >= 0 {
+				out[text[dot+1:]] = text
+			}
+		})
+		return out
+	})
 }
 
 // axlAnnotationArgumentName returns the rightmost name of an annotation argument (`level = RequiresOptIn.Level.WARNING`
@@ -273,12 +329,15 @@ func axlOptInCheck(ctx *api.Context, rule BaseRule, warning bool) {
 		return
 	}
 	for _, file := range files {
-		if scanner.IsTestFile(file.Path) {
+		if scanner.IsTestFile(file.Path) || !axlFileMentionsAny(file, m.names) {
 			continue
 		}
 		for _, kind := range []string{"call_expression", "method_invocation", "object_creation_expression"} {
 			file.FlatWalkNodes(0, kind, func(call uint32) {
 				if kind == "call_expression" && acrIsInnerCallOfTrailingLambda(file, call) {
+					return
+				}
+				if !m.names[axlOptInCallName(file, call)] {
 					return
 				}
 				target, nameNode := axlOptInCallTarget(file, call)
@@ -303,6 +362,35 @@ func axlOptInCheck(ctx *api.Context, rule BaseRule, warning bool) {
 	}
 }
 
+// axlFileMentionsAny reports whether a file's text contains one of the names.
+func axlFileMentionsAny(file *scanner.File, names map[string]bool) bool {
+	for name := range names {
+		if fileFactsCache().Mentions(file, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// axlOptInCallName returns the simple name a call uses: the callee, the invoked method, or the constructed class.
+func axlOptInCallName(file *scanner.File, call uint32) string {
+	switch file.FlatType(call) {
+	case "call_expression":
+		name, _, _ := acrCallCallee(file, call)
+		return name
+	case "method_invocation", "object_creation_expression":
+		c, ok := lintCallAt(file, call)
+		if !ok {
+			return ""
+		}
+		if file.FlatType(call) == "method_invocation" {
+			return c.Name
+		}
+		return c.TypeText[strings.LastIndex(c.TypeText, ".")+1:]
+	}
+	return ""
+}
+
 // axlOptInCallTarget resolves a call to the FQN of the declaration it uses and its name node: a top-level function or
 // class (constructor), a member of a class or object named by its receiver, or a member of a value whose type is
 // a same-file-resolvable class.
@@ -314,7 +402,11 @@ func axlOptInCallTarget(file *scanner.File, call uint32) (string, uint32) {
 			return "", 0
 		}
 		if !hasReceiver {
-			if len(acrFunctionDecls(file, name)) > 0 && lintSameFileClass(file, name) == 0 {
+			// Kotlin resolves an unqualified call to a member of an enclosing class before a top-level function.
+			if owner := axlEnclosingMemberOwner(file, call, name); owner != "" {
+				return owner + "." + name, nameNode
+			}
+			if acrSingleTopLevelFunction(file, name) != 0 && lintSameFileClass(file, name) == 0 {
 				return axlQualify(filePackageName(file), name), nameNode
 			}
 			return axlResolveProjectName(file, name), nameNode
@@ -349,6 +441,59 @@ func axlOptInCallTarget(file *scanner.File, call uint32) (string, uint32) {
 		return axlResolveProjectName(file, c.TypeText), call
 	}
 	return "", 0
+}
+
+// axlEnclosingMemberOwner returns the FQN of the nearest enclosing class or object that declares a member function
+// named name, or "" when there is none (or it is inside an anonymous object, whose members have no FQN). Only inner
+// classes see their outer class's members.
+func axlEnclosingMemberOwner(file *scanner.File, node uint32, name string) string {
+	owner := uint32(0)
+	for p, ok := file.FlatParent(node); ok && owner == 0; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_declaration", "object_declaration":
+			if axlClassDeclaresFunction(file, p, name) {
+				owner = p
+			} else if !acrFunctionHasModifier(file, p, "inner") {
+				return ""
+			}
+		case "object_literal":
+			if body, ok := file.FlatFindChild(p, "class_body"); ok && axlBodyDeclaresFunction(file, body, name) {
+				return ""
+			}
+		}
+	}
+	if owner == 0 {
+		return ""
+	}
+	var names []string
+	for p, ok := owner, true; ok; p, ok = file.FlatParent(p) {
+		switch file.FlatType(p) {
+		case "class_declaration", "object_declaration":
+			n := lintClassNameNode(file, p)
+			if n == 0 {
+				return ""
+			}
+			names = append([]string{strings.Trim(file.FlatNodeText(n), "`")}, names...)
+		case "object_literal", "function_declaration", "lambda_literal":
+			return "" // a local or anonymous class has no FQN
+		}
+	}
+	return axlQualify(filePackageName(file), strings.Join(names, "."))
+}
+
+// axlClassDeclaresFunction reports whether a class or object body declares a function named name.
+func axlClassDeclaresFunction(file *scanner.File, class uint32, name string) bool {
+	body, ok := file.FlatFindChild(class, "class_body")
+	return ok && axlBodyDeclaresFunction(file, body, name)
+}
+
+func axlBodyDeclaresFunction(file *scanner.File, body uint32, name string) bool {
+	for c := file.FlatFirstChild(body); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "function_declaration" && acrDeclarationName(file, c) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // axlOptInReceiverType returns the FQN of the class a receiver names (`Holder`, `ApiKt`) or constructs

@@ -7,6 +7,12 @@ All notable changes to Krit will be documented in this file.
 ### Added
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
+- `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
+  `MockDetector` checks, in the opt-in `slack-lint` rule set for Kotlin and Java test sources. One pass over the test
+  files finds Mockito, mockito-kotlin and `slack.test.mockito` factory calls and `@Mock`/`@Spy` fields, resolves the
+  mocked class through imports and the cross-file index, and runs the detector's checkers in its order. Findings match
+  slack-lints' own detector tests (`internal/rules/testdata/slack_lint_upstream/`); a `mock()` whose type Lint infers
+  from an enclosing call's parameter is not reported (#1375, #1376, #1377, #1380).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'

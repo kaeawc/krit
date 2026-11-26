@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:10:32: WatchFaceForAndroidX: Watch face configuration action must be set to WATCH_FACE_EDITOR for an AndroidX watch face

@@ -212,6 +212,31 @@ guidance.
 
 See `internal/rules/` for implementations and `tests/fixtures/` for positive/negative examples.
 
+## Android Lint Wear Checks
+
+Ports of Android Lint 32.4.1's Wear OS detectors under their Lint IDs, severities and messages. Each has project
+fixtures under `tests/fixtures/android-lint/<RuleID>/` with `lint-32.4.1.txt`, the findings Lint reported for the same
+Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestAndroidLintParityFixtures` in
+`cmd/krit` replays krit on each and requires the same file, line, column and message.
+
+- `WearableConfigurationAction` (warning) reads each `AndroidManifest.xml` of a project that may depend on
+  `androidx.wear.watchface:watchface` and is not a Watch Face Format project. With the
+  `wearableConfigurationAction` metadata set to `WATCH_FACE_EDITOR` and no intent filter for that action it reports
+  "Watch face configuration activity is missing" at the metadata name. Below minSdk 30 it also reports an editor
+  intent filter without the `WEARABLE_CONFIGURATION` category, and an editor intent filter without the metadata.
+- `WearableActionDuplicate` (warning) reports a second intent filter for the editor action. Like Lint, the finding
+  (and the `tools:ignore` that silences it) sits on the first such `<action>`.
+- `WatchFaceForAndroidX` (warning) reports `wearableConfigurationAction` metadata whose value is not
+  `WATCH_FACE_EDITOR`, at the value (or the element when the value is missing), only when the build scripts declare
+  `androidx.wear.watchface:watchface`. Lint 32.4.1 does not skip Watch Face Format projects here, so krit does not.
+- `WearBackNavigation` (warning) reports `<item name="android:windowSwipeToDismiss">false</item>` in any values
+  folder of a module whose manifest declares the `android.hardware.type.watch` feature.
+- `WearMaterialTheme` (error, Kotlin and Java) reports an import of `androidx.compose.material.MaterialTheme` in such a
+  module. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
+
+Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
+manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.
+
 ## AndroidX Library Lint Checks
 
 Lint loads the checks bundled in an AndroidX AAR only when that AAR is on the module's classpath. Krit's ports of

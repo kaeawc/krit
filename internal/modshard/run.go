@@ -338,6 +338,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 		workers = defaultWorkers()
 	}
 	workers = max(1, min(workers, len(stale)))
+	jvms, threads := workerLayout(workers)
 	tmp, err := os.MkdirTemp("", "krit-modshard-")
 	if err != nil {
 		return 0, 0, err
@@ -358,7 +359,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
-	for i, group := range Shards(stale, workers) {
+	for i, group := range Shards(stale, jvms) {
 		if len(group) == 0 {
 			continue
 		}
@@ -371,7 +372,7 @@ func analyze(ctx context.Context, in Input, stale []Unit, keyOf map[string]strin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := runWorker(ctx, in, jvm, i, workers, len(group), request, factsDir, checkPath); err != nil {
+			if err := runWorker(ctx, in, jvm, i, jvms, threads, len(group), request, factsDir, checkPath); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -419,16 +420,19 @@ func writeRequest(dir string, shard int, group []Unit) (string, error) {
 	return path, os.WriteFile(path, data, 0o644)
 }
 
-// runWorker runs one krit-fir JVM over a request. A JVM that exits abnormally is an error; modules
-// it did not finish simply have no facts file.
-func runWorker(ctx context.Context, in Input, jvm workerJVM, shard, workers, modules int, request, factsDir, checkPath string) error {
+// runWorker runs one of jvms krit-fir JVMs over a request, compiling threads modules at a time. A JVM
+// that exits abnormally is an error; modules it did not finish simply have no facts file.
+func runWorker(ctx context.Context, in Input, jvm workerJVM, shard, jvms, threads, modules int, request, factsDir, checkPath string) error {
 	args := []string{
-		"-Xms256m", "-Xmx" + strconv.Itoa(workerHeapMB(workers)) + "m", "-XX:+UseG1GC", "-XX:ParallelGCThreads=2", "-XX:ConcGCThreads=1",
+		"-Xms256m", "-Xmx" + strconv.Itoa(workerHeapMB(jvms, threads)) + "m", "-XX:+UseG1GC", "-XX:ParallelGCThreads=2", "-XX:ConcGCThreads=1",
 		"-XX:CICompilerCount=2", "-Djava.awt.headless=true",
 	}
 	// The recording worker (the first) also trains the AOT cache for later runs; the others use a ready cache.
 	args = append(args, jvm.argsFor(shard)...)
 	args = append(args, "-jar", in.JarPath, "--module-facts-file", request, "--facts-dir", factsDir)
+	if threads > 1 {
+		args = append(args, "--module-threads", strconv.Itoa(threads))
+	}
 	if checkPath != "" {
 		args = append(args, "--check-request", checkPath)
 	}
@@ -446,7 +450,7 @@ func runWorker(ctx context.Context, in Input, jvm workerJVM, shard, workers, mod
 				moduleMS += ms
 			}
 		}
-		in.Logf("verbose: module worker %d: %d modules, wall %s, module time %dms\n", shard, modules, time.Since(began).Round(time.Millisecond), moduleMS)
+		in.Logf("verbose: module worker %d: %d modules on %d threads, wall %s, module time %dms\n", shard, modules, threads, time.Since(began).Round(time.Millisecond), moduleMS)
 		_ = os.WriteFile(filepath.Join(in.CacheDir, "worker-"+strconv.Itoa(shard)+".log"), stderr.Bytes(), 0o644)
 	}
 	if runErr != nil {

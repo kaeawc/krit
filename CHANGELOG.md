@@ -372,6 +372,10 @@ All notable changes to Krit will be documented in this file.
 - The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
   only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
   Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
+- Module workers compile several modules at a time on threads of one JVM instead of one JVM per concurrent module
+  (#1656): they share the JIT-compiled compiler and heap. On a 4-core machine the `--fir` source-set recheck of 24
+  sets went from about 32s to 25s with the same results; module sharding, PR mode and settings-group sessions use the
+  same workers. `KRIT_WORKER_THREADS` caps the threads per JVM (default 4; `1` restores a JVM per module).
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and

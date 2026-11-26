@@ -257,11 +257,11 @@ func TestPruneRemovesOldUnreferencedFactsOnly(t *testing.T) {
 
 func TestWorkerHeapStaysWithinBounds(t *testing.T) {
 	for _, workers := range []int{1, 4, 8, 14, 64} {
-		if h := workerHeapMB(workers); h < 1536 || h > 5120 {
+		if h := workerHeapMB(workers, 1); h < 1536 || h > 5120 {
 			t.Errorf("workers=%d: heap %dMB outside [1536, 5120]", workers, h)
 		}
 	}
-	if workerHeapMB(0) != 5120 {
+	if workerHeapMB(0, 1) != 5120 {
 		t.Error("no workers should fall back to the default cap")
 	}
 }
@@ -472,11 +472,35 @@ func TestWorkerHeapMBUsesAvailableMemory(t *testing.T) {
 	t.Cleanup(func() { totalMemoryMB = prev })
 	// A 16 GB sandbox with two workers gets 40% split between them.
 	totalMemoryMB = func() int { return 16384 }
-	if got := workerHeapMB(2); got != 16384*40/100/2 {
-		t.Errorf("workerHeapMB(2) = %d, want %d", got, 16384*40/100/2)
+	if got := workerHeapMB(2, 1); got != 16384*40/100/2 {
+		t.Errorf("workerHeapMB(2, 1) = %d, want %d", got, 16384*40/100/2)
+	}
+	// One JVM compiling two modules at a time gets the two workers' share (#1656).
+	if got := workerHeapMB(1, 2); got != 16384*40/100 {
+		t.Errorf("workerHeapMB(1, 2) = %d, want %d", got, 16384*40/100)
+	}
+	// Plenty of memory still caps a JVM at a few GB per thread.
+	totalMemoryMB = func() int { return 1 << 20 }
+	if got := workerHeapMB(1, 3); got != 3*5120 {
+		t.Errorf("workerHeapMB(1, 3) with plenty of memory = %d, want %d", got, 3*5120)
 	}
 	totalMemoryMB = func() int { return 0 }
-	if got := workerHeapMB(2); got != 5120 {
+	if got := workerHeapMB(2, 1); got != 5120 {
 		t.Errorf("workerHeapMB with unknown memory = %d, want 5120", got)
+	}
+}
+
+// Concurrent module compiles go to as few worker JVMs as the per-JVM thread cap allows (#1656).
+func TestWorkerLayoutPacksCompilesIntoFewJVMs(t *testing.T) {
+	for _, c := range []struct{ parallel, jvms, threads int }{
+		{0, 1, 1}, {1, 1, 1}, {2, 1, 2}, {4, 1, 4}, {5, 2, 3}, {7, 2, 4}, {8, 2, 4},
+	} {
+		if jvms, threads := workerLayout(c.parallel); jvms != c.jvms || threads != c.threads {
+			t.Errorf("workerLayout(%d) = %d JVMs x %d threads, want %d x %d", c.parallel, jvms, threads, c.jvms, c.threads)
+		}
+	}
+	t.Setenv("KRIT_WORKER_THREADS", "1")
+	if jvms, threads := workerLayout(3); jvms != 3 || threads != 1 {
+		t.Errorf("KRIT_WORKER_THREADS=1: %d JVMs x %d threads, want a JVM per compile", jvms, threads)
 	}
 }

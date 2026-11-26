@@ -29,15 +29,27 @@ Sharding applies only when all of these hold. Otherwise krit logs the reason
 | Variable | Meaning |
 | --- | --- |
 | `KRIT_MODULE_SHARDS=auto` | Use sharding with the default worker count: half the CPUs, between 2 and 8. |
-| `KRIT_MODULE_SHARDS=<n>` | Use sharding with `n` worker JVMs. `1` runs every module in one JVM, which is slower than the whole compile. |
+| `KRIT_MODULE_SHARDS=<n>` | Use sharding with `n` modules compiling at a time. `1` compiles one module at a time, which is slower than the whole compile. |
 | `KRIT_MODULE_SHARDS=0` or unset | Whole-repository compile (default). With `--fir`, the source sets holding a file the compile gates on a duplicate declaration between source sets are rechecked one source set at a time (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
 | `KRIT_MODULE_SHARDS=merged` | Whole-repository compile with no source-set recheck and no settings-group sessions (see [Kotlin compiler settings](kotlin-compiler-settings.md#settings-group-sessions---fir)). |
 | `KRIT_MODULE_SHARDS=isolate` | Compile every scanned source set on its own (see [Kotlin compiler settings](kotlin-compiler-settings.md#known-limits)). |
 | `KRIT_WORKER_AOT=0` | Do not use a JDK 25+ ahead-of-time cache for the workers. |
 | `KRIT_WORKER_JAVA` | Path to the `java` the workers use. By default a JDK 25+ is preferred when one is installed. |
+| `KRIT_WORKER_THREADS=<n>` | Modules one worker JVM compiles at a time (default 4). `1` starts a JVM per concurrent module. |
 
-Each worker gets a heap of at most 5 GB, reduced so that all workers together
-stay under 40% of the available memory, and never below 1.5 GB. On Linux the
+The modules compiling at a time run on as few worker JVMs as
+`KRIT_WORKER_THREADS` allows: two concurrent modules run on two threads of one
+JVM, eight on two JVMs of four threads. Threads of one JVM share its
+JIT-compiled compiler and its heap, which a JVM per module would each build up
+again. On a 4-core machine the source-set recheck of 24 sets took about 25s
+on one JVM with two threads against about 32s on two JVMs, with the same
+facts and verdicts (#1656). This applies wherever modules are compiled on
+their own: module sharding, PR mode, the source-set recheck and settings-group
+sessions.
+
+Each worker JVM gets a heap of at most 5 GB per thread, reduced so that all
+workers together stay under 40% of the available memory, and never below
+1.5 GB. On Linux the
 available memory is the cgroup memory limit when one is set, and the CPU count
 follows the cgroup CPU quota; see
 [Hermetic and build-system runs](hermetic-builds.md#cpu-and-memory).

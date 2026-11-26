@@ -33,9 +33,10 @@ fun main(args: Array<String>) {
         System.out.flush()
         exitProcess(0)
     }
-    // `--module-facts-file REQUEST --facts-dir DIR`: each module in the request is analyzed on its own against
-    // its (built) classpath and its oracle facts are written to DIR, one file per module. Modules do not
-    // depend on each other here, so a caller can split a request across processes.
+    // `--module-facts-file REQUEST --facts-dir DIR [--module-threads N]`: each module in the request is analyzed
+    // on its own against its (built) classpath and its oracle facts are written to DIR, one file per module.
+    // Modules do not depend on each other here, so a caller can split a request across processes, and N of them
+    // compile at a time in this one (runModuleFacts).
     extractCliValue(args, "--module-facts-file")?.let { path ->
         val request = requireNotNull(
             parseModuleRequest(JavaFile(path).readText(), oneShot = true),
@@ -43,28 +44,12 @@ fun main(args: Array<String>) {
         val factsDir = requireNotNull(extractCliValue(args, "--facts-dir")) { "--facts-dir is required" }
         val dir = JavaFile(factsDir).also { it.mkdirs() }
         val jvmTarget = request.jvmTarget.ifEmpty { extractCliValue(args, "--jvm-target").orEmpty() }
-        val session = AnalysisSession(emptyList(), emptyList(), jvmTarget)
         // An optional shared FIR check request: each module runs the checkers over its own requested files.
         val check = extractCliValue(args, "--check-request")?.let {
             AnalysisSession.ModuleCheckIndex(parseRequest(JavaFile(it).readText()))
         }
-        for (module in request.modules) {
-            val started = System.nanoTime()
-            val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
-            // Compiler failures are not a closed set; one bad module must not stop the others.
-            @Suppress("TooGenericExceptionCaught")
-            val (outcome, checked) = try {
-                session.analyzeModuleFacts(module, check)
-            } catch (e: Exception) {
-                val reason = e.message?.lineSequence()?.firstOrNull()
-                System.err.println("FACTS\t${module.id}\tfailed\t$reason")
-                continue
-            }
-            if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
-            JavaFile(dir, "$name.json")
-                .writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
-            System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
-        }
+        val threads = extractCliValue(args, "--module-threads")?.toIntOrNull() ?: 1
+        runModuleFacts(request.modules, dir, jvmTarget, check, threads)
         exitProcess(0)
     }
     extractCliValue(args, "--modules-file")?.let { path ->
@@ -201,6 +186,51 @@ private fun printOneShotUsage() {
         |           [--check-request JSON_FILE --check-out FILE]
         """.trimMargin(),
     )
+}
+
+/**
+ * Analyzes each of [modules] on its own and writes its oracle facts to [dir], one file per module, with its check
+ * response beside it when [check] is set. [threads] modules compile at a time (#1656): the modules do not depend on
+ * each other here (their dependencies are built jars or source context), each gets its own compiler session, and the
+ * per-compile registries (rule context, oracle collector, rule errors, recording) are thread-local, so a module
+ * compiles as it would alone, while the JVM's JIT-compiled compiler and heap are shared. One module's failure is
+ * reported as `FACTS id failed` and leaves the others.
+ */
+internal fun runModuleFacts(
+    modules: List<ModuleSpec>, dir: JavaFile, jvmTarget: String, check: AnalysisSession.ModuleCheckIndex?, threads: Int,
+) {
+    val session = AnalysisSession(emptyList(), emptyList(), jvmTarget)
+    fun analyze(module: ModuleSpec) {
+        val started = System.nanoTime()
+        val name = module.id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        // Compiler failures are not a closed set; one bad module must not stop the others.
+        @Suppress("TooGenericExceptionCaught")
+        val (outcome, checked) = try {
+            session.analyzeModuleFacts(module, check)
+        } catch (e: Exception) {
+            val reason = e.message?.lineSequence()?.firstOrNull()
+            System.err.println("FACTS\t${module.id}\tfailed\t$reason")
+            return
+        }
+        if (checked != null) JavaFile(dir, "$name.check.json").writeText(buildCheckResponse(checked))
+        JavaFile(dir, "$name.json")
+            .writeText(dev.jasonpearson.krit.fir.oracle.OracleResponse.buildOneShot(outcome.result))
+        System.err.println("FACTS\t${module.id}\tok\t${(System.nanoTime() - started) / 1_000_000}")
+    }
+    val workers = threads.coerceIn(1, modules.size.coerceAtLeast(1))
+    if (workers == 1) {
+        modules.forEach(::analyze)
+        return
+    }
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(workers)
+    try {
+        // Errors (an OutOfMemoryError, say) end the process as they would on one thread.
+        modules.map { module -> pool.submit { analyze(module) } }.forEach {
+            try { it.get() } catch (e: java.util.concurrent.ExecutionException) { throw e.cause ?: e }
+        }
+    } finally {
+        pool.shutdown()
+    }
 }
 
 internal fun runOneShot(

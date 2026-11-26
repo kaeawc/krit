@@ -26,6 +26,10 @@
 #             mkdocs is installed (Documentation workflow)
 #   winvet    GOOS=windows go vet ./... when x86_64-w64-mingw32-gcc is on
 #             PATH (CI: windows-vet)
+#   warmclean the FIR warm-versus-clean mutation matrix rows (CI:
+#             warm-clean-matrix 1/2, ~150 s) for cache, hashing, oracle and
+#             FIR changes, when java and a krit-fir jar built from the
+#             current sources (make fir-jar) are available (#1708)
 #
 # JVM, Gradle and Bazel jobs are too slow for a push hook; the script names
 # the CI job to watch when those trees change.
@@ -107,6 +111,11 @@ plan_checks() {
 	fi
 	if [ "$go_changed" = 1 ] && command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
 		PLAN+=(winvet)
+	fi
+	# Stale-warm cache bugs only show up across the whole shard (timing
+	# within the racy-stat window), not in one row (#1708).
+	if has_match '^internal/(hashutil|cache|firchecks|oracle|gradlemodel|fsutil|cacheutil)/|^tools/krit-fir/'; then
+		PLAN+=(warmclean)
 	fi
 	local skip name kept=()
 	skip=",${KRIT_PREPUSH_SKIP:-},"
@@ -287,6 +296,50 @@ run_winvet() {
 	step "go vet for windows/amd64"
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ go vet ./... ||
 		fail winvet "Unix-only APIs need a build tag or a windows variant."
+}
+
+# fir_jar prints a krit-fir jar built from the current sources: KRIT_FIR_JAR
+# when set, else make fir-jar's cache entry for this source hash. A jar
+# from other sources would test the wrong checker, so none is used then.
+fir_jar() {
+	if [ -n "${KRIT_FIR_JAR:-}" ]; then
+		[ -f "$KRIT_FIR_JAR" ] && printf '%s\n' "$KRIT_FIR_JAR"
+		return 0
+	fi
+	local hash jar
+	hash=$(go run ./cmd/krit-dev-jar-hash krit-fir 2>/dev/null) || return 0
+	jar="${KRIT_DEV_JAR_DIR:-$HOME/.krit/jars/dev}/$hash/krit-fir.jar"
+	[ -f "$jar" ] && printf '%s\n' "$jar"
+	return 0
+}
+
+kotlin_stdlib_jar() {
+	if [ -n "${KOTLIN_STDLIB_JAR:-}" ]; then
+		printf '%s\n' "$KOTLIN_STDLIB_JAR"
+		return 0
+	fi
+	local f found=()
+	for f in "$HOME"/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/*/*/kotlin-stdlib-*.jar; do
+		[ -f "$f" ] || continue
+		case "$f" in *sources*|*javadoc*) continue ;; esac
+		found+=("$f")
+	done
+	[ "${#found[@]}" -gt 0 ] && printf '%s\n' "${found[@]}" | sort | tail -1
+	return 0
+}
+
+run_warmclean() {
+	step "warm-versus-clean FIR matrix (CI: warm-clean-matrix 1/2)"
+	local jar stdlib
+	jar=$(fir_jar)
+	stdlib=$(kotlin_stdlib_jar)
+	if ! command -v java >/dev/null 2>&1 || [ -z "$jar" ] || [ -z "$stdlib" ]; then
+		echo "skipped: needs java, a krit-fir jar for these sources (make fir-jar) and kotlin-stdlib in the Gradle cache. CI's warm-clean-matrix job runs it."
+		return 0
+	fi
+	KRIT_WARM_CLEAN_MATRIX=1 KRIT_FIR_JAR="$jar" KOTLIN_STDLIB_JAR="$stdlib" \
+		bash scripts/go-test.sh ./tests/parity/ -count=1 -timeout 30m -run 'TestWarmCleanMutationFIR//^abs$' ||
+		fail warmclean "A warm (cached/daemon) result differs from a clean run: a cache key misses an input. See tests/parity/warm_clean_*_test.go."
 }
 
 jvm_notes() {

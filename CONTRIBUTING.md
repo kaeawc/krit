@@ -53,6 +53,7 @@ changed files make it relevant:
 | `actions`: `scripts/lint-actions.sh` | `.github/` | actionlint |
 | `docs`: `scripts/validate_mkdocs_nav.sh`, `mkdocs build --strict` if installed | docs, mkdocs.yml, docgen | Documentation |
 | `winvet`: `GOOS=windows go vet ./...` | Go files change and mingw-w64 is on PATH | windows-vet |
+| `warmclean`: the FIR warm-versus-clean mutation rows (`TestWarmCleanMutationFIR//^abs$`, ~150s) | cache, hashing, oracle, FIR checks, Gradle model, `tools/krit-fir/` — when `java`, a krit-fir jar for the current sources (`make fir-jar`) and kotlin-stdlib are available; skipped otherwise | warm-clean-matrix (1/2) |
 
 JVM, Gradle and Bazel jobs are too slow for a hook. When those trees change,
 the hook names the CI job to watch. Skip a check with

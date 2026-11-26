@@ -425,6 +425,10 @@ All notable changes to Krit will be documented in this file.
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase
   went from 343s to 1.2s, with the same findings (#1658).
+- `UnrememberedMutableState` and `RememberInComposition` no longer walk the whole file for every call: same-file class
+  and object lookups use a per-file index, built once per run. `IgnoredReturnValue` skips type resolution for calls
+  it cannot report without the oracle, and finds a detached `return` without a regex. On element-x-android
+  (`--no-fir`), the three rules went from 3.2s, 2.6s and 1.1s to 0.2s, 0.1s and 0.5s, with the same findings (#1664).
 - FIR applies `-Xname-based-destructuring`, `-Xjspecify-annotations` and the other language-feature, Java-nullability
   and dependency-loading flags a Gradle model carries, instead of dropping them and gating the files that need them.
   Repeated `-Xjsr305` / `-Xnullability-annotations` values now all apply (#1571).

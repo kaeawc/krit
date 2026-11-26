@@ -56,3 +56,26 @@ func SourceSetAssetDirs(resDir string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// ManifestModuleResDirs lists the res directories merged into the module of an AndroidManifest.xml: the res of every
+// non-test source set for <module>/src/<set>/AndroidManifest.xml, or <dir>/res for a manifest outside src/ (a flat
+// layout). The directories need not exist, so a caller that fingerprints them notices one being created.
+func ManifestModuleResDirs(manifestPath string) []string {
+	dir := filepath.Dir(manifestPath)
+	src := filepath.Dir(dir)
+	if filepath.Base(src) != "src" {
+		return []string{filepath.Join(dir, "res")}
+	}
+	sets, err := os.ReadDir(src)
+	if err != nil {
+		return []string{filepath.Join(dir, "res")}
+	}
+	var out []string
+	for _, set := range sets {
+		if set.IsDir() && !scanner.IsTestSourceSetName(set.Name()) {
+			out = append(out, filepath.Join(src, set.Name(), "res"))
+		}
+	}
+	sort.Strings(out)
+	return out
+}

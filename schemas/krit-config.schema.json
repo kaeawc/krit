@@ -11112,6 +11112,72 @@
             }
           }
         },
+        "SquareAndRoundTilePreviews": {
+          "description": "TileProvider does not have round and square previews [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Preview images are read from the drawable folders of every source set of the manifest's module; PNG, JPEG and GIF headers are decoded, a WebP file counts as 0x0 as it does for Lint (no WebP reader on its classpath), and other formats are skipped.\nCaveat: Each AndroidManifest.xml is checked on its own rather than as part of the merged manifest.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable SquareAndRoundTilePreviews (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "StartActivityAndCollapseDeprecated": {
+          "description": "TileService.startActivityAndCollapse(Intent) is deprecated [precision: type-aware] [noisiness: normal] [capabilities: oracle:call-targets, resolver]\nCaveat: The receiver must be proven a TileService: an implicit, `this`, `super` or labeled receiver inside a class whose same-file supertype chain reaches TileService (an extension function decides from its receiver type), or a receiver declared as one with an import, star import or qualified name; a TileService subclass in another file is followed only with type information. The argument must be an Intent constructor, a variable declared or initialized as one, an Intent builder call on one, `this` in a scope lambda on one, or (with type information) any Intent-typed expression.\nCaveat: The target SDK (error from 34, warning below) is the file's module's, from its build script; without one the finding is a warning.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable StartActivityAndCollapseDeprecated (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "StateListReachableResource": {
           "description": "Unreachable item in selector drawable [precision: project-structure-aware] [noisiness: normal] [capabilities: resources]",
           "type": "object",
@@ -11977,6 +12043,39 @@
           "properties": {
             "active": {
               "description": "Enable TextViewEditsResource (default: true).",
+              "type": "boolean",
+              "default": true
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "TilePreviewImageFormat": {
+          "description": "Tile preview is not compliant with standards [precision: project-structure-aware] [noisiness: normal] [capabilities: manifest]\nCaveat: Preview images are read from the drawable folders of every source set of the manifest's module; PNG, JPEG and GIF headers are decoded, a WebP file counts as 0x0 as it does for Lint (no WebP reader on its classpath), and other formats are skipped.\nCaveat: Each AndroidManifest.xml is checked on its own rather than as part of the merged manifest.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable TilePreviewImageFormat (default: true).",
               "type": "boolean",
               "default": true
             },
@@ -31756,6 +31855,39 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "AvoidUsingNotNullOperator": {
+          "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable AvoidUsingNotNullOperator (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "BindingReceiverParameter": {
           "description": "@Binds/@Provides functions cannot be extensions [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -31961,6 +32093,72 @@
           "properties": {
             "active": {
               "description": "Enable DoNotMockPlatformTypes (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ExceptionMessage": {
+          "description": "Please provide a string for the `lazyMessage` parameter [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ExceptionMessage (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "GuavaPreconditionsUsedInKotlin": {
+          "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable GuavaPreconditionsUsedInKotlin (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33347,6 +33545,72 @@
           "properties": {
             "active": {
               "description": "Enable MustBeInModule (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "NullableConcurrentHashMap": {
+          "description": "ConcurrentHashMap should not use nullable types [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable NullableConcurrentHashMap (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ParcelizeFunctionProperty": {
+          "description": "Function type properties are not parcelable [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ParcelizeFunctionProperty (default: false).",
               "type": "boolean",
               "default": false
             },

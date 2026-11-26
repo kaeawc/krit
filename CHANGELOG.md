@@ -72,6 +72,10 @@ All notable changes to Krit will be documented in this file.
   (`internal/rules/testdata/slack_lint/dagger/`), except that a finding is anchored at the declaration rather than at a
   KDoc or comment before it. The detector's `BindsWrongParameterCount` and `RedundantBinds` are now Lint aliases of
   `BindsMismatchedArity` and `BindsReturnTypeMatchesParam` (#1359, #1360, #1361, #1362, #1363, #1364, #1365).
+- `SquareAndRoundTilePreviews`, `TilePreviewImageFormat` and `StartActivityAndCollapseDeprecated`, ports of Android
+  Lint 32.4.1's Wear tile preview checks and its `TileService.startActivityAndCollapse(Intent)` check (Kotlin and
+  Java, error from target SDK 34, warning below). Findings match Lint on 22 recorded project fixtures, including
+  WebP and XML previews, round/square drawable folders, suppression and lookalike receivers (#1275, #1276, #1277).
 - `WearableConfigurationAction`, `WearableActionDuplicate`, `WatchFaceForAndroidX`, `WearBackNavigation` and
   `WearMaterialTheme`, ports of Android Lint 32.4.1's Wear OS watch face configuration, swipe-to-dismiss and
   Compose `MaterialTheme` checks under their Lint IDs, severities and messages. Their findings match Lint on 22
@@ -480,6 +484,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageClassVisibility`, `MoshiUsageBlankGenerator`, `MoshiUsageGenerateAdapterShouldBeTrue`, `MoshiUsageObject`,
   `MoshiUsageUnsupportedType`, `MoshiUsageUseData` and `MoshiUsageMissingPrimary` (#1385, #1388, #1398, #1402, #1410,
   #1419, #1420, #1422).
+- `AvoidUsingNotNullOperator`, `ExceptionMessage`, `NullableConcurrentHashMap`, `GuavaPreconditionsUsedInKotlin` and
+  `ParcelizeFunctionProperty`, five slack-lints 0.11.1 checks, in the opt-in `slack-lint` rule set. Their findings match
+  the Lint CLI running slack-lint-checks 0.11.1 on `internal/rules/testdata/slack_lint/kotlin_checks/`, except that a
+  nullable type argument of a `val` constructor parameter is reported once, where Lint reports it twice
+  (#1374, #1430, #1431, #1434, #1437).
 - `slack-lint` gains `MoshiUsageDetector`'s moshi-sealed checks for Kotlin: `MoshiUsageBlankTypeLabel`,
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
@@ -511,6 +520,10 @@ All notable changes to Krit will be documented in this file.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
   (#1645).
+- The resource index cache (`.krit/resource-cache`) kept everything a fresh parse finds. Indexes written by the
+  background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
+  run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
+  line (#1830).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

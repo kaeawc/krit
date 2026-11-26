@@ -23,3 +23,12 @@ val specs = listOf(
 
 @OptIn(ExperimentalAnimationSpecApi::class)
 val inferred: ArcAnimationSpec<Float> = ArcAnimationSpec()
+
+typealias Pos = Offset
+typealias Scalar = Float
+
+@OptIn(ExperimentalAnimationSpecApi::class)
+val aliased = listOf(
+    ArcAnimationSpec<Pos>(),
+    ArcAnimationSpec<Scalar>(),
+)

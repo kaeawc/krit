@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.Card
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -56,4 +57,33 @@ fun Lists(names: List<String>, visible: Boolean) {
             Item("x", Modifier.sharedElement(rememberSharedContentState("outside"), this@AnimatedVisibility))
         }
     }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun TrailingLambdas(names: List<String>, visible: Boolean) {
+    SharedTransitionLayout {
+        AnimatedVisibility(visible) {
+            LazyColumn {
+                items(names) { name ->
+                    Box(Modifier.sharedElement(rememberSharedContentState("boxkey"), this@AnimatedVisibility)) { Text(name) }
+                    Card(modifier = Modifier.sharedBounds(rememberSharedContentState(key = "card"), this@AnimatedVisibility)) { Text(name) }
+                    Box(Modifier.sharedElement(rememberSharedContentState(name), this@AnimatedVisibility)) { Text(name) }
+                    Box {
+                        Item(name, Modifier.sharedElement(rememberSharedContentState("nested"), this@AnimatedVisibility))
+                    }
+                    val local = "local"
+                    Item(name, Modifier.sharedElement(rememberSharedContentState(local), this@AnimatedVisibility))
+                    var mutable = "mutable"
+                    Item(name, Modifier.sharedElement(rememberSharedContentState(mutable), this@AnimatedVisibility))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun PositionalScope() {
+    SharedTransitionScope({ modifier -> Box {} })
 }

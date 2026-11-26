@@ -95,8 +95,11 @@ func (r *ArcAnimationSpecTypeIssueRule) Meta() api.RuleDescriptor {
 // SharedTransitionScope { }.
 func (r *UnusedSharedTransitionModifierParameterRule) check(ctx *api.Context) {
 	file, lambda := ctx.File, ctx.Idx
-	call, ok := axlContentLambda(file, lambda, "content", true)
-	if !ok || !axlAnimationCallTargets(file, call, "SharedTransitionScope") {
+	// content is SharedTransitionScope's only parameter, so Lint's getArgumentForParameter(0) also matches it
+	// positionally: SharedTransitionScope({ modifier -> }).
+	arg, ok := acrLambdaArgumentOf(file, lambda)
+	if !ok || (!arg.Trailing && arg.Label != "content" && arg.Index != 0) ||
+		!axlAnimationCallTargets(file, arg.Call, "SharedTransitionScope") {
 		return
 	}
 	for _, p := range axlUnreferencedLambdaParams(file, lambda, 1) {
@@ -142,11 +145,16 @@ func (r *ConstantContentStateKeyInItemsCallRule) check(ctx *api.Context) {
 
 // axlEnclosingCallUAST returns the nearest call whose arguments or lambda contain node, as UAST's
 // getParentOfType<UCallExpression> sees it: a call that only has node in its receiver chain is not a parent.
+// `Box(args) { }` parses as an outer call wrapping the inner `Box(args)`; UAST sees one call, so a node in the
+// inner call's arguments has the outer call as its parent.
 func axlEnclosingCallUAST(file *scanner.File, node uint32) uint32 {
 	child := node
 	for p, ok := file.FlatParent(node); ok; p, ok = file.FlatParent(p) {
-		if file.FlatType(p) == "call_expression" && file.FlatType(child) == "call_suffix" &&
-			!acrIsInnerCallOfTrailingLambda(file, p) {
+		if file.FlatType(p) == "call_expression" && file.FlatType(child) == "call_suffix" {
+			if acrIsInnerCallOfTrailingLambda(file, p) {
+				outer, _ := file.FlatParent(p)
+				return outer
+			}
 			return p
 		}
 		child = p
@@ -164,6 +172,19 @@ func axlIsConstant(file *scanner.File, expr uint32) bool {
 	switch file.FlatType(expr) {
 	case "boolean_literal", "character_literal", "real_literal", "null":
 		return true
+	}
+	// evaluate() follows a `val` but not a `var`, even one never reassigned (which lintEvalStringStrict accepts).
+	followsVar := false
+	file.FlatWalkNodes(expr, "simple_identifier", func(id uint32) {
+		if p, ok := file.FlatParent(id); ok && file.FlatType(p) == "navigation_suffix" {
+			return
+		}
+		if lintInitializerOf(file, id, file.FlatNodeText(id), false) == 0 {
+			followsVar = true
+		}
+	})
+	if followsVar {
+		return false
 	}
 	if _, ok := lintEvalStringStrict(file, expr); ok {
 		return true
@@ -281,13 +302,26 @@ func axlCallResolvesToClass(file *scanner.File, call uint32, pkg, name string) b
 }
 
 // axlQualifyType returns the fully qualified name of a type argument: as written when qualified, otherwise through
-// the file's explicit imports (Lint's canonicalText), or the simple name when nothing imports it.
+// the file's explicit imports (Lint's canonicalText), or the simple name when nothing imports it. canonicalText
+// expands type aliases, so a same-file `typealias Pos = Offset` qualifies as Offset (an explicit import still wins
+// over a same-file declaration, as in Kotlin).
 func axlQualifyType(file *scanner.File, typ string) string {
+	imports := fileFactsCache().Imports(file).Aliases
 	typ = strings.TrimSuffix(strings.Join(strings.Fields(typ), ""), "?")
+	for depth := 0; depth < 8 && !strings.Contains(typ, "."); depth++ {
+		if _, imported := imports[typ]; imported {
+			break
+		}
+		target := lintSameFileTypeAlias(file, typ)
+		if target == "" {
+			break
+		}
+		typ = strings.Join(strings.Fields(target), "")
+	}
 	if strings.Contains(typ, ".") {
 		return typ
 	}
-	if target, ok := fileFactsCache().Imports(file).Aliases[typ]; ok {
+	if target, ok := imports[typ]; ok {
 		return target
 	}
 	for fqn := range axlArcPreferredTypes {

@@ -17,6 +17,8 @@ fun Gallery(names: List<String>, visible: Boolean) {
             LazyColumn {
                 items(names) { name ->
                     Text(name, Modifier.sharedElement(rememberSharedContentState("photo-$name"), this@AnimatedVisibility))
+                    var frame = "frame"
+                    Text(name, Modifier.sharedBounds(rememberSharedContentState(frame), this@AnimatedVisibility))
                 }
                 item {
                     Text("header", Modifier.sharedElement(rememberSharedContentState("header"), this@AnimatedVisibility))

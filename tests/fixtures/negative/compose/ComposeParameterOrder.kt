@@ -23,3 +23,19 @@ fun Aliased(text: String, modifier: Modifier = Modifier, onClick: OnClick) {
 }
 
 fun notComposable(modifier: Modifier = Modifier, text: String) = text
+
+// kotlin.Function*, kotlin.jvm.functions.* and the auto-imported Comparator are trailing functions too.
+@Composable
+fun Block(text: String, modifier: Modifier = Modifier, block: Function0<Unit>) {
+    Text(text, modifier)
+}
+
+@Composable
+fun JvmBlock(text: String, modifier: Modifier = Modifier, block: kotlin.jvm.functions.Function1<Int, Unit>) {
+    Text(text, modifier)
+}
+
+@Composable
+fun Sorted(text: String, modifier: Modifier = Modifier, cmp: Comparator<String>) {
+    Text(text, modifier)
+}

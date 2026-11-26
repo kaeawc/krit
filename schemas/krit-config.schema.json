@@ -17636,6 +17636,11 @@
             "visibilityThreshold": {
               "description": "Which composables need a Modifier: only_public, public_and_internal or all (compose-lints `visibility-threshold`).",
               "type": "string",
+              "enum": [
+                "only_public",
+                "public_and_internal",
+                "all"
+              ],
               "default": "only_public"
             }
           }

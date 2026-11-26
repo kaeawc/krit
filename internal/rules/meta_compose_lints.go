@@ -87,6 +87,7 @@ func (r *ComposeModifierMissingRule) Meta() api.RuleDescriptor {
 				Name:        "visibilityThreshold",
 				Default:     "only_public",
 				Description: "Which composables need a Modifier: only_public, public_and_internal or all (compose-lints `visibility-threshold`).",
+				Enum:        []string{"only_public", "public_and_internal", "all"},
 				Apply:       func(r *ComposeModifierMissingRule, v string) { r.VisibilityThreshold = v },
 			}),
 		}}

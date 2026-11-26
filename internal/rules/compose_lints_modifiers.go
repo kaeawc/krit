@@ -73,6 +73,7 @@ type ComposeParameterOrderRule struct {
 // composeLintsParam is one value parameter: its optional parameter_modifiers, the parameter node and its default.
 type composeLintsParam struct {
 	start, end uint32 // byte range, from the modifiers through the default value
+	mods       uint32 // parameter_modifiers, or 0
 	node       uint32
 	def        uint32
 }
@@ -84,18 +85,17 @@ func composeLintsParams(file *scanner.File, fn uint32) []composeLintsParam {
 		return nil
 	}
 	var out []composeLintsParam
-	var pendingStart uint32
-	havePending := false
+	var pending uint32
 	for child := file.FlatFirstChild(list); child != 0; child = file.FlatNextSib(child) {
 		switch file.FlatType(child) {
 		case "parameter_modifiers":
-			pendingStart, havePending = file.FlatStartByte(child), true
+			pending = child
 		case "parameter":
-			p := composeLintsParam{start: file.FlatStartByte(child), end: file.FlatEndByte(child), node: child}
-			if havePending {
-				p.start = pendingStart
+			p := composeLintsParam{start: file.FlatStartByte(child), end: file.FlatEndByte(child), mods: pending, node: child}
+			if pending != 0 {
+				p.start = file.FlatStartByte(pending)
 			}
-			havePending = false
+			pending = 0
 			if def := acuiParameterDefault(file, child); def != 0 {
 				p.def = def
 				p.end = file.FlatEndByte(def)
@@ -106,6 +106,18 @@ func composeLintsParams(file *scanner.File, fn uint32) []composeLintsParam {
 	return out
 }
 
+// isVararg reports whether the parameter is declared `vararg`.
+func (p composeLintsParam) isVararg(file *scanner.File) bool {
+	for m := file.FlatFirstChild(p.mods); p.mods != 0 && m != 0; m = file.FlatNextSib(m) {
+		if file.FlatType(m) == "parameter_modifier" && file.FlatHasChildOfType(m, "vararg") {
+			return true
+		}
+	}
+	return false
+}
+
+// text is the parameter's source text with whitespace runs collapsed: krit messages are single-line, and Lint's are
+// compared with their whitespace collapsed.
 func (p composeLintsParam) text(file *scanner.File) string {
 	return strings.Join(strings.Fields(string(file.Content[p.start:p.end])), " ")
 }
@@ -122,17 +134,26 @@ func composeLintsParamIsModifier(file *scanner.File, param uint32) bool {
 			return true
 		}
 	}
-	if composeLintsTypeIsModifier(file, t) {
-		return true
-	}
+	return composeLintsTypeIsModifier(file, t) || composeLintsTypeIsGlanceModifier(file, t)
+}
+
+// composeLintsTypeIsGlanceModifier reports whether a (nullable) user_type resolves to androidx.glance.GlanceModifier.
+func composeLintsTypeIsGlanceModifier(file *scanner.File, t uint32) bool {
 	if file.FlatType(t) == "nullable_type" {
 		t, _ = file.FlatFindChild(t, "user_type")
 	}
-	if t == 0 {
+	if t == 0 || file.FlatType(t) != "user_type" {
 		return false
 	}
-	text := composeLintsTypeText(file, t)
-	return text == "androidx.glance.GlanceModifier" || text == "GlanceModifier" && acrNameResolvesTo(file, "androidx.glance", "GlanceModifier")
+	switch text := composeLintsTypeText(file, t); text {
+	case "androidx.glance.GlanceModifier":
+		return true
+	case "GlanceModifier":
+		return acrNameResolvesTo(file, "androidx.glance", "GlanceModifier")
+	default:
+		facts := fileFactsCache().Imports(file)
+		return facts != nil && facts.Aliases[text] == "androidx.glance.GlanceModifier"
+	}
 }
 
 // composeLintsInInterface reports whether a member function is declared in an interface body.
@@ -172,8 +193,10 @@ func (r *ComposeModifierMissingRule) check(ctx *api.Context) {
 				acrFunctionReturnKind(file, fn) != acrReturnUnit || !r.visible(file, fn) {
 				return
 			}
-			// UAST lists an extension receiver among the parameters, so a Modifier receiver counts.
-			if composeLintsReceiverIsModifier(file, fn) {
+			// UAST lists an extension receiver among the parameters, so a receiver that resolves to Modifier or
+			// GlanceModifier counts.
+			if t := composeLintsReceiverType(file, fn); t != 0 &&
+				(composeLintsTypeIsModifier(file, t) || composeLintsTypeIsGlanceModifier(file, t)) {
 				return
 			}
 			for _, p := range composeLintsParams(file, fn) {
@@ -306,10 +329,27 @@ func (r *ComposeModifierWithoutDefaultRule) check(ctx *api.Context) {
 			// Lint's location starts at the parameter's annotations and modifiers.
 			finding.Line, finding.Col = composeLintsByteLineCol(file, p.start)
 		}
-		end := int(file.FlatEndByte(p.node))
-		finding.Fix = &scanner.Fix{ByteMode: true, StartByte: end, EndByte: end, Replacement: " = Modifier"}
+		// The default reuses the type's own spelling (GlanceModifier, a qualified name, an import alias); a vararg
+		// parameter's default would have to be an array, so it gets no fix.
+		if def := composeLintsModifierDefault(file, p.node); def != "" && !p.isVararg(file) {
+			end := int(file.FlatEndByte(p.node))
+			finding.Fix = &scanner.Fix{ByteMode: true, StartByte: end, EndByte: end, Replacement: " = " + def}
+		}
 		ctx.Emit(finding)
 	}
+}
+
+// composeLintsModifierDefault returns the Modifier parameter's type as written, without nullability, for use as
+// its default value (the Modifier and GlanceModifier companions), or "" when the type is not a plain user_type.
+func composeLintsModifierDefault(file *scanner.File, param uint32) string {
+	t := composeLintsDeclaredType(file, param)
+	if t != 0 && file.FlatType(t) == "nullable_type" {
+		t, _ = file.FlatFindChild(t, "user_type")
+	}
+	if t == 0 || file.FlatType(t) != "user_type" || strings.ContainsRune(file.FlatNodeText(t), '<') {
+		return ""
+	}
+	return composeLintsTypeText(file, t)
 }
 
 // composeLintsReceiverText returns the extension receiver type written on a function, or "".
@@ -375,22 +415,56 @@ func (r *ComposeParameterOrderRule) check(ctx *api.Context) {
 // hasTrailingFunction treats as functions. Kotlin `fun interface`s are not annotated and do not count.
 var composeLintsJavaFunctionalInterfaces = map[string]bool{
 	"java.lang.Runnable": true, "java.util.concurrent.Callable": true, "java.util.Comparator": true,
+	"kotlin.Comparator": true, // a type alias of java.util.Comparator
 }
 
-// composeLintsTypeAliases indexes the project's top-level type aliases by FQN.
+// composeLintsIsFunctionalFQN mirrors compose-lints' isFunctionalInterface for a resolved type name: a known
+// @FunctionalInterface, java.util.function.*, kotlin.Function, kotlin.FunctionN or kotlin.jvm.functions.*.
+func composeLintsIsFunctionalFQN(fqn string) bool {
+	return composeLintsJavaFunctionalInterfaces[fqn] || strings.HasPrefix(fqn, "java.util.function.") ||
+		strings.HasPrefix(fqn, "kotlin.Function") || strings.HasPrefix(fqn, "kotlin.jvm.functions.")
+}
+
+// composeLintsDefaultFunctionalFQN returns the FQN an unqualified name resolves to through Kotlin's default imports
+// when it names a functional type (Function, FunctionN, Comparator, Runnable), or "".
+func composeLintsDefaultFunctionalFQN(name string) string {
+	switch name {
+	case "Runnable":
+		return "java.lang.Runnable"
+	case "Comparator":
+		return "kotlin.Comparator"
+	}
+	if digits, ok := strings.CutPrefix(name, "Function"); ok && strings.Trim(digits, "0123456789") == "" {
+		return "kotlin." + name
+	}
+	return ""
+}
+
+// composeLintsTypeAliases indexes, by FQN, the project's top-level type aliases and the top-level classes that
+// would shadow a default-imported functional type (a project `Function0` or `Comparator`).
 type composeLintsTypeAliases map[string]composeLintsAnnotationClass
 
 func newComposeLintsTypeAliases(files []*scanner.File) composeLintsTypeAliases {
 	out := composeLintsTypeAliases{}
 	for _, file := range files {
-		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin ||
-			!bytes.Contains(file.Content, []byte("typealias")) {
+		if file == nil || file.FlatTree == nil || file.Language != scanner.LangKotlin {
+			continue
+		}
+		aliases := bytes.Contains(file.Content, []byte("typealias"))
+		shadows := bytes.Contains(file.Content, []byte("Function")) || bytes.Contains(file.Content, []byte("Comparator")) ||
+			bytes.Contains(file.Content, []byte("Runnable"))
+		if !aliases && !shadows {
 			continue
 		}
 		pkg := filePackageName(file)
 		for child := file.FlatFirstChild(0); child != 0; child = file.FlatNextSib(child) {
-			if file.FlatType(child) == "type_alias" {
+			switch file.FlatType(child) {
+			case "type_alias":
 				out[composeLintsJoin(pkg, acrDeclarationName(file, child))] = composeLintsAnnotationClass{file: file, decl: child}
+			case "class_declaration", "object_declaration":
+				if name := acrDeclarationName(file, child); composeLintsDefaultFunctionalFQN(name) != "" {
+					out[composeLintsJoin(pkg, name)] = composeLintsAnnotationClass{file: file, decl: child}
+				}
 			}
 		}
 	}
@@ -412,12 +486,12 @@ func (a composeLintsTypeAliases) isFunctionType(file *scanner.File, t uint32, de
 		case "user_type":
 			name := composeLintsTypeText(file, t)
 			fqn := a.resolve(file, name)
-			if composeLintsJavaFunctionalInterfaces[fqn] || strings.HasPrefix(fqn, "java.util.function.") {
-				return true
-			}
 			alias, ok := a[fqn]
 			if !ok {
-				return false
+				return composeLintsIsFunctionalFQN(fqn)
+			}
+			if alias.file.FlatType(alias.decl) != "type_alias" {
+				return false // a project class, possibly shadowing a default-imported functional type
 			}
 			file, t, depth = alias.file, composeLintsTypeAliasTarget(alias.file, alias.decl), depth+1
 		default:
@@ -427,31 +501,34 @@ func (a composeLintsTypeAliases) isFunctionType(file *scanner.File, t uint32, de
 	return false
 }
 
-// resolve returns the FQN a type name refers to in file: an import or alias, a same-package or same-file alias,
-// or a wildcard-imported project alias; the name itself otherwise.
+// resolve returns the FQN a type name refers to in file, in Kotlin's lookup order: an import or alias, a same-package
+// declaration, a wildcard-imported project declaration, then a default-imported functional type; the name itself
+// otherwise.
 func (a composeLintsTypeAliases) resolve(file *scanner.File, name string) string {
 	head, rest, qualified := strings.Cut(name, ".")
-	if facts := fileFactsCache().Imports(file); facts != nil {
+	facts := fileFactsCache().Imports(file)
+	if facts != nil {
 		if fqn, ok := facts.Aliases[head]; ok {
 			if qualified {
 				return fqn + "." + rest
 			}
 			return fqn
 		}
-		if !qualified {
-			for wildcard := range facts.Wildcards {
-				if candidate := strings.TrimSuffix(wildcard, "*") + name; a[candidate].file != nil {
-					return candidate
-				}
-			}
-		}
 	}
 	if candidate := composeLintsJoin(filePackageName(file), name); a[candidate].file != nil {
 		return candidate
 	}
-	switch name {
-	case "Runnable":
-		return "java.lang.Runnable"
+	if facts != nil && !qualified {
+		for wildcard := range facts.Wildcards {
+			if candidate := strings.TrimSuffix(wildcard, "*") + name; a[candidate].file != nil {
+				return candidate
+			}
+		}
+	}
+	if !qualified {
+		if fqn := composeLintsDefaultFunctionalFQN(name); fqn != "" {
+			return fqn
+		}
 	}
 	return name
 }

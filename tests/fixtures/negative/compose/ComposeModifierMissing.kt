@@ -6,6 +6,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.glance.GlanceModifier
 
 @Composable
 fun Header(title: String, modifier: Modifier = Modifier) {
@@ -32,4 +33,10 @@ fun Dialog(onDismiss: () -> Unit) {
 fun Value(): Int {
     Text("x")
     return 1
+}
+
+// A GlanceModifier extension receiver is the modifier parameter.
+@Composable
+fun GlanceModifier.GlanceLabel(title: String) {
+    Column { Text(title) }
 }

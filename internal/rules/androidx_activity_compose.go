@@ -90,6 +90,18 @@ func (r *LaunchDuringCompositionRule) check(ctx *api.Context) {
 	ctx.EmitAtNode(nameNode, "Calls to `launch` should happen inside of a SideEffect and not during composition")
 }
 
+// axlActivityCallTargets reports whether call is the androidx.activity.compose function name, directly, fully
+// qualified, or through an import alias (`import ...rememberLauncherForActivityResult as rl`).
+func axlActivityCallTargets(file *scanner.File, call uint32, name string) bool {
+	if acrCallTargets(file, call, axlActivityComposePackage, name) {
+		return true
+	}
+	callee, _, hasReceiver := acrCallCallee(file, call)
+	return !hasReceiver && callee != "" && callee != name &&
+		acrSimpleNameRefersTo(file, callee, axlActivityComposePackage, name) &&
+		!acrFunctionNameShadowed(file, call, callee) && !acrFileDeclaresTopLevel(file, callee)
+}
+
 // axlExprIsManagedLauncher proves an expression is an androidx.activity.compose.ManagedActivityResultLauncher.
 func axlExprIsManagedLauncher(file *scanner.File, expr uint32, depth int) bool {
 	expr = acrUnwrapParens(file, expr)
@@ -98,7 +110,7 @@ func axlExprIsManagedLauncher(file *scanner.File, expr uint32, depth int) bool {
 	}
 	switch file.FlatType(expr) {
 	case "call_expression":
-		return acrCallTargets(file, expr, axlActivityComposePackage, "rememberLauncherForActivityResult")
+		return axlActivityCallTargets(file, expr, "rememberLauncherForActivityResult")
 	case "simple_identifier", "navigation_expression":
 		decl := acrExprDeclaration(file, expr)
 		if decl == 0 {
@@ -117,8 +129,10 @@ func axlExprIsManagedLauncher(file *scanner.File, expr uint32, depth int) bool {
 // collect, collectLatest or collectIndexed, at the lambda's first name reference with Lint's "Flow null" message.
 func (r *NoCollectCallFoundRule) check(ctx *api.Context) {
 	file, lambda := ctx.File, ctx.Idx
-	call, ok := axlContentLambda(file, lambda, "onBack", true)
-	if !ok || !acrCallTargets(file, call, axlActivityComposePackage, "PredictiveBackHandler") {
+	arg, ok := acrLambdaArgumentOf(file, lambda)
+	// onBack is PredictiveBackHandler(enabled, onBack)'s second parameter: trailing, named or second positional.
+	isOnBack := arg.Trailing || arg.Label == "onBack" || (arg.Label == "" && arg.Index == 1)
+	if !ok || !isOnBack || !axlActivityCallTargets(file, arg.Call, "PredictiveBackHandler") {
 		return
 	}
 	if unused := axlUnreferencedLambdaParams(file, lambda, 1); len(unused) > 0 {

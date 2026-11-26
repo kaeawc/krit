@@ -17,14 +17,15 @@ import, as it does in Kotlin.
 
 ## Activity Compose
 
-`androidx.activity:activity-compose` 1.13.0 (Kotlin):
+`androidx.activity:activity-compose` 1.13.0 (Kotlin). Callees resolve through import aliases as in Lint:
 
 - `LaunchDuringComposition` reports `launcher.launch(input, options)` within composition (see the Compose runtime
   ports in [Rules](rules.md#androidx-library-lint-checks) for what counts), where `launcher` is proven to be a
   `ManagedActivityResultLauncher`: declared as one or initialized by `rememberLauncherForActivityResult`. As in Lint,
   only the two-argument `launch` is `ManagedActivityResultLauncher`'s own method; `launch(input)` resolves to
   `ActivityResultLauncher` in `androidx.activity.result` and is not reported.
-- `NoCollectCallFound` reports a `PredictiveBackHandler` `onBack` lambda whose progress parameter is unused (at the
+- `NoCollectCallFound` reports a `PredictiveBackHandler` `onBack` lambda (trailing, named or the second positional
+  argument) whose progress parameter is unused (at the
   parameter, or at the lambda for an unused `it`), or in which no name is `collect`, `collectLatest` or
   `collectIndexed`. Like Lint, the second case is reported at the lambda's first name reference with the message
   "You must call collect() on Flow null".

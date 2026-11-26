@@ -77,7 +77,8 @@ func InputsKey(root string) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s\n", inputsKeyVersion, hashutil.HasherName())
 	for _, rel := range inputs {
-		sum, err := hashutil.HashFile(filepath.Join(root, filepath.FromSlash(rel)))
+		// The process-wide memo: krit hashes the same build files for other keys.
+		sum, err := hashutil.Default().HashFile(filepath.Join(root, filepath.FromSlash(rel)), nil)
 		if err != nil {
 			return "", fmt.Errorf("gradle model inputs key: %w", err)
 		}

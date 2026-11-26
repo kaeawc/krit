@@ -5,6 +5,9 @@ All notable changes to Krit will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Module-shard FIR sessions (source-set isolation, per-settings-group sessions) put the upstream project outputs from
+  `--gradle-project-outputs` on the classpath, ahead of a jar at a conventional build path, instead of compiling those
+  projects from source again (#1681).
 - Per-project attribution for whole-build scans: with a Gradle model loaded, JSON findings carry `project` and
   `summary.byProject` counts findings, errors and warnings per Gradle project (files outside every project under `""`);
   SARIF has the same in each result's `properties.project` and `runs[0].properties.byProject`. The Gradle plugin's

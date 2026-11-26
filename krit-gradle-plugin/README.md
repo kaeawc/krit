@@ -361,6 +361,9 @@ ABI-normalized input: an upstream change that keeps the ABI, such as a method bo
 does not rerun the check. Projects of included builds are left to krit as
 before. The classpath is the one Gradle compiles with, so
 upstream implementation dependencies are not visible, as in a normal compile.
+The extra FIR sessions krit splits off use the same outputs: the source-set
+isolation recheck and the per-settings-group sessions. They take those jars ahead
+of a `build/libs` or release `classes.jar` left by an older build.
 This needs a krit release after 0.5.0.
 
 ### Shared FIR JVMs

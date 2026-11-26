@@ -120,6 +120,22 @@ They report only what the source proves:
 Not ported: `MoshiUsageNonMoshiClassInternal` and `MoshiUsageNonMoshiClassExternal`, which split on whether a type
 lives in Slack's own `slack.*` packages.
 
+Five single-node checks resolve the names they need through the file's imports and stay silent when a same-file
+declaration could shadow them:
+
+- `AvoidUsingNotNullOperator` reports every Kotlin `!!`, at the operator. It differs from detekt's
+  `UnsafeCallOnNullableType`, which needs type information and skips some receivers, so it is a separate rule.
+- `ExceptionMessage` reports kotlin's `check`, `checkNotNull`, `require` and `requireNotNull` without a `lazyMessage`
+  (trailing, positional or named), outside test sources.
+- `NullableConcurrentHashMap` reports a nullable key or value type argument of a `java.util.concurrent.ConcurrentHashMap`
+  variable type or constructor call; in Java, a type argument annotated `@…Nullable`.
+- `GuavaPreconditionsUsedInKotlin` reports Kotlin calls into `com.google.common.base.Preconditions`. Lint's quick fix,
+  which renames `checkState` to `check` and leaves the message argument in a position `check` does not accept, is not
+  ported.
+- `ParcelizeFunctionProperty` reports function-typed primary constructor parameters of a `@Parcelize` class, including
+  `kotlin.FunctionN` and same-file typealiases. As in Lint, `@IgnoredOnParcel` does not exempt them: it targets the
+  property, and the detector reads the parameter.
+
 The Dagger rules (`MustBeInModule`, `BindsMustBeAbstract`, `ProvidesMustNotBeAbstract`, `BindingReturnType`,
 `BindingReceiverParameter`) port `DaggerIssuesDetector` for Kotlin and Java `@Binds`/`@Provides` methods. As in
 Lint, a method gets at most one of the detector's issues, in the detector's order. Two of its IDs map onto existing

@@ -19086,7 +19086,7 @@
           }
         },
         "UnusedMaterial3ScaffoldPaddingParameter": {
-          "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
+          "description": "Detects material3 Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -19119,7 +19119,7 @@
           }
         },
         "UnusedMaterialScaffoldPaddingParameter": {
-          "description": "Detects material Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports (including `import ... as Alias`) and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
+          "description": "Detects material Scaffold content lambdas that ignore the padding parameter, so app bars can cover the content. [precision: ast-backed] [noisiness: normal]\nCaveat: The content lambda must be passed as the trailing lambda or as `content = { }`; a lambda at the content position without a label is not mapped.\nCaveat: An inner lambda without parameters hides an outer `it` only when it is passed to a known one-parameter lambda function (forEach, let, map, LazyListScope.items, ...) or a same-file function whose parameter type takes one value; Lint resolves every inner lambda.\nCaveat: Scaffold resolves through imports and the file's own package; a Scaffold declared in another file of the same package is not seen as shadowing a star import.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -19218,7 +19218,7 @@
           }
         },
         "UsingMaterialAndMaterial3Libraries": {
-          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file, or a material3 dependency declared by the build file of the file's own Gradle module (the nearest directory with a build.gradle(.kts)); one added by a convention plugin or arriving through another project module is not seen.",
+          "description": "Detects androidx.compose.material imports in code that also uses the incompatible material3 library. [precision: ast-backed] [noisiness: normal]\nCaveat: material3 use is proven by a material3 import in the same file or a material3 dependency anywhere in the Gradle build; Lint runs the check only in modules that depend on material3.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -23165,14 +23165,6 @@
           "type": "array",
           "items": {
             "description": "Rule ID whose Go findings remain authoritative after FIR checks.",
-            "type": "string"
-          }
-        },
-        "requireAuthoritativeRules": {
-          "description": "FIR-required rules: with --fir, their Go findings in files FIR could not compile are withheld (crashes, checker errors and a lost pass keep them). Defaults to the nullability and cast rules (CastNullableToNonNullableType, UnnecessaryNotNullOperator, UnnecessarySafeCall, UnsafeCast, UselessCallOnNotNull, UselessElvisOnNonNull); an empty list turns the policy off.",
-          "type": "array",
-          "items": {
-            "description": "Rule ID reported only where FIR's verdict is authoritative.",
             "type": "string"
           }
         }
@@ -31386,13 +31378,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "BindingReceiverParameter": {
-          "description": "@Binds/@Provides functions cannot be extensions [precision: ast-backed] [noisiness: normal]",
+        "AvoidUsingNotNullOperator": {
+          "description": "Avoid using the !! operator in Kotlin [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable BindingReceiverParameter (default: false).",
+              "description": "Enable AvoidUsingNotNullOperator (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -31419,13 +31411,13 @@
             }
           }
         },
-        "BindingReturnType": {
-          "description": "@Binds/@Provides must have a return type [precision: ast-backed] [noisiness: normal]",
+        "ExceptionMessage": {
+          "description": "Please provide a string for the `lazyMessage` parameter [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable BindingReturnType (default: false).",
+              "description": "Enable ExceptionMessage (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -31452,145 +31444,13 @@
             }
           }
         },
-        "BindsMustBeAbstract": {
-          "description": "@Binds functions must be abstract [precision: ast-backed] [noisiness: normal]",
+        "GuavaPreconditionsUsedInKotlin": {
+          "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable BindsMustBeAbstract (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "DoNotMockAnything": {
-          "description": "Do not add new mocks. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DoNotMockAnything (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "DoNotMockDataClass": {
-          "description": "data classes represent pure data classes, so mocking them should not be necessary. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DoNotMockDataClass (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "DoNotMockObjectClass": {
-          "description": "object classes are singletons, so mocking them should not be necessary [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DoNotMockObjectClass (default: false).",
-              "type": "boolean",
-              "default": false
-            },
-            "excludes": {
-              "description": "Glob patterns for paths to exclude from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "ignoreAnnotated": {
-              "description": "Annotation names; declarations carrying one are exempt from this rule.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "includes": {
-              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "DoNotMockPlatformTypes": {
-          "description": "platform types should not be mocked [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "active": {
-              "description": "Enable DoNotMockPlatformTypes (default: false).",
+              "description": "Enable GuavaPreconditionsUsedInKotlin (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -32970,13 +32830,13 @@
             }
           }
         },
-        "MustBeInModule": {
-          "description": "@Binds/@Provides functions must be in modules [precision: ast-backed] [noisiness: normal]",
+        "NullableConcurrentHashMap": {
+          "description": "ConcurrentHashMap should not use nullable types [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable MustBeInModule (default: false).",
+              "description": "Enable NullableConcurrentHashMap (default: false).",
               "type": "boolean",
               "default": false
             },
@@ -33003,13 +32863,13 @@
             }
           }
         },
-        "ProvidesMustNotBeAbstract": {
-          "description": "@Provides functions cannot be abstract [precision: ast-backed] [noisiness: normal]",
+        "ParcelizeFunctionProperty": {
+          "description": "Function type properties are not parcelable [precision: ast-backed] [noisiness: normal]",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "active": {
-              "description": "Enable ProvidesMustNotBeAbstract (default: false).",
+              "description": "Enable ParcelizeFunctionProperty (default: false).",
               "type": "boolean",
               "default": false
             },

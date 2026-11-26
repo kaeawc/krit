@@ -511,6 +511,10 @@ All notable changes to Krit will be documented in this file.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model
   (#1645).
+- The resource index cache (`.krit/resource-cache`) kept everything a fresh parse finds. Indexes written by the
+  background writer dropped top-level `<item type="id">` declarations and each plural `<item>`'s position, so a warm
+  run lost `NotSiblingResource` findings on predeclared ids and reported plural-quantity findings on the `<plurals>`
+  line (#1830).
 - `MutableImplicitPendingIntent` follows more ways of building the intent, as Lint 32.4.1 does: `getActivities`
   intent arrays held in locals (`arrayOf`, a Java array initializer, and `arrayOfNulls(n)` / `new Intent[n]` of
   constant size whose elements are the last write to each index before the call), and `let`, `run` and `with`

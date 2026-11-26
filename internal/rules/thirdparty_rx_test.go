@@ -185,6 +185,31 @@ fun f() = rxObservable<String> {
   send("x")
 }
 `, 1},
+		// Second review of #1772 (P2): a receiver that does not declare send leaves it to the ProducerScope.
+		{"run on a non-channel receiver still emits", `import kotlinx.coroutines.rx3.rxObservable
+
+class Holder(val text: String)
+
+fun f(h: Holder) = rxObservable<String> { h.run { send(text) } }
+`, 0},
+		{"with on a non-channel receiver still emits", `import kotlinx.coroutines.rx3.rxObservable
+
+class Holder(val text: String)
+
+fun f(h: Holder) = rxObservable<String> { with(h) { send(text) } }
+`, 0},
+		{"apply on a StringBuilder still emits", `import kotlinx.coroutines.rx3.rxObservable
+
+fun f(sb: StringBuilder) = rxObservable<String> { sb.apply { trySend(toString()) } }
+`, 0},
+		{"a local Channel() rebinds", `import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.rx3.rxObservable
+
+fun f() = rxObservable<String> {
+  val ch = Channel<String>()
+  ch.run { send("x") }
+}
+`, 1},
 		{"this@ send still emits inside apply", `import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.rx3.rxObservable
 
@@ -196,5 +221,64 @@ fun f(ch: Channel<String>) = rxObservable<String> { ch.apply { this@rxObservable
 				t.Errorf("want %d findings, got %v", tc.want, got)
 			}
 		})
+	}
+}
+
+// Second review of #1772 (P2): switch pattern bindings and locals of a switch group shadow a field; (P3) a plain
+// constructor parameter is not in scope in member functions, and an outer method's parameter does not hide an
+// anonymous class's field.
+func TestSubscribeOnMainSwitchAndConstructorScopes(t *testing.T) {
+	const java = `package app;
+
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.core.Observable;
+import io.reactivex.rxjava3.core.Scheduler;
+
+class J {
+  private final Scheduler main = AndroidSchedulers.mainThread();
+
+  void f(Observable<String> obs, Object o, int n, Scheduler io) {
+    switch (o) {
+      case Scheduler main -> obs.subscribeOn(main);
+      default -> { }
+    }
+    switch (n) {
+      case 1:
+        Scheduler main = io;
+        obs.subscribeOn(main);
+        break;
+      default:
+        break;
+    }
+  }
+
+  void g(Observable<String> obs, Scheduler main) {
+    new Runnable() {
+      private final Scheduler main = AndroidSchedulers.mainThread();
+      public void run() { obs.subscribeOn(main); }
+    };
+  }
+}
+`
+	got := runRuleByNameOnJava(t, "SubscribeOnMain", java)
+	if len(got) != 1 || got[0].Line != 28 {
+		t.Errorf("Java: want only the anonymous class's field use on line 28, got %v", got)
+	}
+	const kotlin = `package app
+
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
+import io.reactivex.rxjava3.core.Observable
+import io.reactivex.rxjava3.core.Scheduler
+
+private val main = AndroidSchedulers.mainThread()
+
+class C(main: Scheduler) {
+  private val scheduler = Observable.just(1).subscribeOn(main)
+  fun load(obs: Observable<String>) = obs.subscribeOn(main)
+}
+`
+	got = runRuleByName(t, "SubscribeOnMain", kotlin)
+	if len(got) != 1 || got[0].Line != 11 {
+		t.Errorf("Kotlin: want only the member function's use of the top-level main (line 11), got %v", got)
 	}
 }

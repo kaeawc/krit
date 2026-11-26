@@ -134,9 +134,21 @@ func rxIsMainThreadCall(file *scanner.File, call uint32) bool {
 func rxKotlinVariableInitializer(file *scanner.File, use uint32) (uint32, bool) {
 	name := file.FlatNodeText(use)
 	child := use
+	inMember := false
 	for parent, ok := file.FlatParent(use); ok; parent, ok = file.FlatParent(parent) {
-		if init, bound := rxKotlinScopeBinding(file, parent, child, name); bound {
+		if file.FlatType(parent) == "class_declaration" {
+			// A plain constructor parameter is in scope in property initializers and init blocks only; a `val`/`var`
+			// one is a property, in scope in members too.
+			if rxPrimaryConstructorDeclares(file, parent, name, !inMember) {
+				return 0, false
+			}
+			inMember = false
+		} else if init, bound := rxKotlinScopeBinding(file, parent, child, name); bound {
 			return init, init != 0
+		}
+		switch file.FlatType(parent) {
+		case "function_declaration", "secondary_constructor", "getter", "setter":
+			inMember = true
 		}
 		child = parent
 	}
@@ -174,8 +186,6 @@ func rxKotlinScopeBinding(file *scanner.File, scope, child uint32, name string) 
 		return 0, ok && rxBindsName(file, params, name)
 	case "function_declaration", "anonymous_function", "secondary_constructor":
 		return 0, rxDeclaresParameter(file, scope, name)
-	case "class_declaration":
-		return 0, rxPrimaryConstructorDeclares(file, scope, name)
 	}
 	return 0, false
 }
@@ -193,13 +203,18 @@ func rxKotlinWhenSubjectBinding(file *scanner.File, when, child uint32, name str
 	return lintInitializerAfterEquals(file, subject), true
 }
 
-func rxPrimaryConstructorDeclares(file *scanner.File, class uint32, name string) bool {
+// rxPrimaryConstructorDeclares reports whether class's primary constructor declares name as a property, or, with
+// plain true, as any parameter.
+func rxPrimaryConstructorDeclares(file *scanner.File, class uint32, name string, plain bool) bool {
 	ctor, ok := file.FlatFindChild(class, "primary_constructor")
 	if !ok {
 		return false
 	}
 	for param := file.FlatFirstChild(ctor); param != 0; param = file.FlatNextSib(param) {
-		if file.FlatType(param) == "class_parameter" && extractIdentifierFlat(file, param) == name {
+		if file.FlatType(param) != "class_parameter" || extractIdentifierFlat(file, param) != name {
+			continue
+		}
+		if _, property := file.FlatFindChild(param, "binding_pattern_kind"); property || plain {
 			return true
 		}
 	}
@@ -266,7 +281,7 @@ func rxJavaVariableInitializer(file *scanner.File, use uint32) (uint32, bool) {
 	name := file.FlatNodeText(use)
 	child := use
 	for parent, ok := file.FlatParent(use); ok; parent, ok = file.FlatParent(parent) {
-		if init, bound := rxJavaScopeBinding(file, parent, child, use, name); bound {
+		if init, bound := rxJavaScopeBinding(file, parent, child, name); bound {
 			return init, init != 0
 		}
 		child = parent
@@ -275,7 +290,7 @@ func rxJavaVariableInitializer(file *scanner.File, use uint32) (uint32, bool) {
 }
 
 // rxJavaScopeBinding reports whether scope binds name for a use under child, and the binding's initializer.
-func rxJavaScopeBinding(file *scanner.File, scope, child, use uint32, name string) (init uint32, bound bool) {
+func rxJavaScopeBinding(file *scanner.File, scope, child uint32, name string) (init uint32, bound bool) {
 	switch file.FlatType(scope) {
 	case "block", "class_body":
 		return rxJavaMemberBinding(file, scope, child, name)
@@ -300,15 +315,67 @@ func rxJavaScopeBinding(file *scanner.File, scope, child, use uint32, name strin
 		return 0, rxJavaPatternBinds(file, scope, name)
 	case "if_statement", "while_statement", "do_statement", "ternary_expression", "binary_expression":
 		return 0, rxJavaPatternBinds(file, scope, name)
+	case "switch_block_statement_group":
+		// `case 1: Scheduler main = io; obs.subscribeOn(main);`, or a pattern in the group's label.
+		return rxJavaMemberBinding(file, scope, child, name)
+	case "switch_block":
+		// A local of an earlier group is in scope in the later groups of the same switch.
+		for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
+			if file.FlatType(sib) != "switch_block_statement_group" {
+				continue
+			}
+			for c := file.FlatFirstChild(sib); c != 0; c = file.FlatNextSib(c) {
+				if init, matched := rxJavaDeclarationInitializer(file, c, name); matched {
+					return init, true
+				}
+			}
+		}
+	case "switch_rule":
+		// `case Scheduler main -> obs.subscribeOn(main);`
+		if label, ok := file.FlatFindChild(scope, "switch_label"); ok && label != child {
+			return 0, rxJavaPatternBinds(file, label, name)
+		}
 	case "method_declaration", "constructor_declaration", "lambda_expression":
-		return 0, lintNameIsParameterAt(file, use, name)
+		// Only this scope's own parameters: an outer method's parameter does not hide a field of an anonymous class
+		// declared inside it, which the class_body case finds first.
+		return 0, rxJavaDeclaresParameter(file, scope, name)
 	}
 	return 0, false
 }
 
+// rxJavaDeclaresParameter reports whether a Java method, constructor or lambda declares a parameter called name.
+func rxJavaDeclaresParameter(file *scanner.File, scope uint32, name string) bool {
+	for c := file.FlatFirstChild(scope); c != 0; c = file.FlatNextSib(c) {
+		switch file.FlatType(c) {
+		case "identifier":
+			// A lambda's single inferred parameter, `main -> ...`.
+			if file.FlatType(scope) == "lambda_expression" && file.FlatNodeText(c) == name {
+				return true
+			}
+		case "inferred_parameters", "formal_parameters":
+			for p := file.FlatFirstChild(c); p != 0; p = file.FlatNextSib(p) {
+				switch file.FlatType(p) {
+				case "identifier":
+					if file.FlatNodeText(p) == name {
+						return true
+					}
+				case "formal_parameter", "spread_parameter":
+					if id, ok := file.FlatFindChild(p, "identifier"); ok && file.FlatNodeText(id) == name {
+						return true
+					}
+					if d, ok := file.FlatFindChild(p, "variable_declarator"); ok && extractIdentifierFlat(file, d) == name {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
 // rxJavaMemberBinding finds name among the locals declared before child in a block, or the fields of a class body.
 func rxJavaMemberBinding(file *scanner.File, scope, child uint32, name string) (uint32, bool) {
-	block := file.FlatType(scope) == "block"
+	block := file.FlatType(scope) == "block" || file.FlatType(scope) == "switch_block_statement_group"
 	for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
 		if init, matched := rxJavaDeclarationInitializer(file, sib, name); matched {
 			return init, true
@@ -357,6 +424,18 @@ func rxJavaPatternBinds(file *scanner.File, node uint32, name string) bool {
 		switch file.FlatType(n) {
 		case "lambda_expression", "class_body":
 			return
+		case "type_pattern", "record_pattern_component":
+			// A switch pattern, `case Scheduler main ->` or `case Pair(Scheduler main, var n) ->`.
+			var last uint32
+			for c := file.FlatFirstChild(n); c != 0; c = file.FlatNextSib(c) {
+				if file.FlatType(c) == "identifier" {
+					last = c
+				}
+			}
+			if last != 0 && file.FlatNodeText(last) == name {
+				found = true
+				return
+			}
 		case "instanceof_expression":
 			// The binding follows the type (`o instanceof Scheduler main`); the first child is the tested expression.
 			for c := file.FlatNextSib(file.FlatFirstChild(n)); c != 0; c = file.FlatNextSib(c) {
@@ -544,8 +623,10 @@ func rxLastLambdaArgument(file *scanner.File, call uint32) uint32 {
 
 // rxLambdaSends reports whether the lambda calls send or trySend on its ProducerScope: on `this`/`this@label`, or
 // without a receiver where ProducerScope is the nearest implicit receiver. Inside `x.apply { }`, `x.run { }` or
-// `with(x) { }` the nearest receiver is x, and a local `fun send` shadows the member, so those calls do not count. A
-// nested rxObservable/rxFlowable is checked on its own, so its body does not count either.
+// `with(x) { }` whose x the source shows is a channel (which has its own send), the call goes to x, and a local
+// `fun send` shadows the member, so those calls do not count. A receiver of any other or unknown type leaves send
+// to the ProducerScope, so a channel krit cannot type is a known false negative. A nested rxObservable/rxFlowable is
+// checked on its own, so its body does not count either.
 func rxLambdaSends(file *scanner.File, lambda uint32) bool {
 	found := false
 	var visit func(n uint32, rebound bool)
@@ -570,9 +651,19 @@ func rxLambdaSends(file *scanner.File, lambda uint32) bool {
 				if inner := file.FlatFirstChild(child); file.FlatType(inner) == "call_expression" {
 					scope, scopeOK = lintCallAt(file, inner)
 				}
-				if scopeOK && ((scope.ReceiverNode != 0 && (scope.Name == "apply" || scope.Name == "run")) ||
-					(scope.ReceiverNode == 0 && scope.Name == "with")) {
-					childRebound = true
+				if scopeOK {
+					var target uint32
+					switch {
+					case scope.ReceiverNode != 0 && (scope.Name == "apply" || scope.Name == "run"):
+						target = scope.ReceiverNode
+					case scope.ReceiverNode == 0 && scope.Name == "with" && len(scope.Args) == 1:
+						target = scope.Args[0]
+					}
+					// Review of #1772: only a receiver that declares send itself rebinds a receiverless call; for any
+					// other receiver Kotlin still resolves send to the ProducerScope.
+					if target != 0 && rxIsChannelExpression(file, target) {
+						childRebound = true
+					}
 				}
 			}
 			visit(child, childRebound)
@@ -580,4 +671,77 @@ func rxLambdaSends(file *scanner.File, lambda uint32) bool {
 	}
 	visit(lambda, false)
 	return found
+}
+
+// rxChannelTypes are the kotlinx.coroutines.channels types that declare send and trySend.
+var rxChannelTypes = map[string]bool{"Channel": true, "SendChannel": true, "ProducerScope": true}
+
+// rxIsChannelExpression reports whether the source shows a Kotlin expression is a channel: a `Channel(...)` call, or
+// a name whose nearest declaration (a local, property or parameter) has a channel type or a `Channel(...)`
+// initializer.
+func rxIsChannelExpression(file *scanner.File, expr uint32) bool {
+	switch file.FlatType(expr) {
+	case "call_expression":
+		c, ok := lintCallAt(file, expr)
+		return ok && c.Name == "Channel"
+	case "simple_identifier":
+	default:
+		return false
+	}
+	name := file.FlatNodeText(expr)
+	child := expr
+	for parent, ok := file.FlatParent(expr); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "statements", "class_body", "source_file":
+			for sib := file.FlatFirstChild(parent); sib != 0; sib = file.FlatNextSib(sib) {
+				if file.FlatType(parent) == "statements" && sib == child {
+					break
+				}
+				if file.FlatType(sib) != "property_declaration" {
+					continue
+				}
+				v, ok := file.FlatFindChild(sib, "variable_declaration")
+				if !ok || extractIdentifierFlat(file, v) != name {
+					continue
+				}
+				if rxChannelTypes[rxTypeName(file, v)] {
+					return true
+				}
+				init := lintInitializerAfterEquals(file, sib)
+				return init != 0 && rxIsChannelExpression(file, init)
+			}
+		case "function_declaration", "anonymous_function", "secondary_constructor":
+			if params, ok := file.FlatFindChild(parent, "function_value_parameters"); ok {
+				for p := file.FlatFirstChild(params); p != 0; p = file.FlatNextSib(p) {
+					if file.FlatType(p) == "parameter" && extractIdentifierFlat(file, p) == name {
+						return rxChannelTypes[rxTypeName(file, p)]
+					}
+				}
+			}
+		}
+		child = parent
+	}
+	return false
+}
+
+// rxTypeName returns the simple name of the user type a Kotlin variable_declaration or parameter declares.
+func rxTypeName(file *scanner.File, decl uint32) string {
+	typ, ok := file.FlatFindChild(decl, "user_type")
+	if !ok {
+		if n, ok := file.FlatFindChild(decl, "nullable_type"); ok {
+			typ, ok = file.FlatFindChild(n, "user_type")
+			if !ok {
+				return ""
+			}
+		} else {
+			return ""
+		}
+	}
+	name := ""
+	for c := file.FlatFirstChild(typ); c != 0; c = file.FlatNextSib(c) {
+		if file.FlatType(c) == "type_identifier" {
+			name = file.FlatNodeText(c)
+		}
+	}
+	return name
 }

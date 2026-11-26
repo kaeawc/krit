@@ -506,6 +506,11 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageSealedMustBeSealed`, `MoshiUsageDoubleTypeLabel`, `MoshiUsageGenericSealedSubtype`,
   `MoshiUsageMissingTypeLabel` and `MoshiUsageInappropriateTypeLabel`. Subtypes are matched to a sealed parent in the
   same package across files, including files that never mention Moshi (#1387, #1389, #1399, #1400, #1403, #1415).
+- `SubscribeOnMain`, `RxObservableDoesNotEmit` and `RxFlowableDoesNotEmit`, slack-lints' Rx checks, in the opt-in
+  `slack-lint` rule set. `SubscribeOnMain` (Kotlin and Java) matches the Lint CLI running slack-lint-checks 0.11.1 with
+  RxJava 3 on the classpath (`internal/rules/testdata/slack_lint/rx/`) and needs the file to import RxJava 3 and none of
+  RxJava 1/2 or Reactor. The two emit checks follow slack-lints main: 0.11.1 looks for a nonexistent
+  `kotlin.coroutines.ProducerScope` and so never reports on kotlinx-coroutines-rx code (#1371, #1372, #1373).
 - `slack-lint` gains `MoshiUsageDetector`'s primary-constructor checks for Kotlin: `MoshiUsagePrivateConstructor`,
   `MoshiUsagePrivateConstructorProperty`, `MoshiUsageVarProperty`, `MoshiUsageParamNeedsInit` and
   `MoshiUsageTransientNeedsInit`. Unlike Lint 9.4, which no longer sees `@Transient` on a constructor property,

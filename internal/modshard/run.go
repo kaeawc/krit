@@ -574,8 +574,8 @@ func merge(in Input, units []Unit, keys []string) (map[string]bool, error) {
 	return covered, os.Rename(tmp, in.OutputPath)
 }
 
-// identities memoizes file identities (size and modification time, plus the content hash when the
-// mtime is too recent to vouch for the content; see hashutil.RacyContentToken) across many units.
+// identities memoizes file identities (path and content hash, through the shared hash memo) across
+// many units. A key never mixes in a stat, so it is the same in every process for the same bytes.
 type identities struct {
 	mu   sync.Mutex
 	seen map[string]string
@@ -594,44 +594,36 @@ func (c *identities) of(path string) string {
 		if info.IsDir() {
 			v = dirIdentity(path)
 		} else {
-			v = fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())
-			if token := hashutil.RacyContentToken(path, info); token != "" {
-				v += "|" + token
-			}
+			v = path + "|" + contentIdentity(path)
 		}
 	}
 	c.seen[path] = v
 	return v
 }
 
-// dirIdentity fingerprints a classpath directory by the relative path, size and modification time
-// of every file under it, since a directory's own mtime does not change when a nested class does.
+// dirIdentity fingerprints a classpath directory by the relative path and content of every file
+// under it, since a directory's own mtime does not change when a nested class does.
 // Results are memoized per path by identities.of, so each directory is walked once per run.
 func dirIdentity(root string) string {
 	h := sha256.New()
 	// Unreadable entries are skipped rather than aborting the walk.
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr == nil && !d.IsDir() {
-			hashDirEntry(h, root, p, d)
+			rel, _ := filepath.Rel(root, p)
+			fmt.Fprintf(h, "%s|%s;", rel, contentIdentity(p))
 		}
 		return nil
 	})
 	return fmt.Sprintf("%s|dir|%x", root, h.Sum(nil)[:12])
 }
 
-// hashDirEntry writes the relative path, size and modification time of d to h (and its content
-// hash when the mtime is racy), skipping it when its info is unreadable.
-func hashDirEntry(h io.Writer, root, p string, d fs.DirEntry) {
-	info, err := d.Info()
+// contentIdentity is the content hash of the file at path, or "unreadable".
+func contentIdentity(path string) string {
+	hx, err := hashutil.Default().HashFile(path, nil)
 	if err != nil {
-		return
+		return "unreadable"
 	}
-	rel, _ := filepath.Rel(root, p)
-	if token := hashutil.RacyContentToken(p, info); token != "" {
-		fmt.Fprintf(h, "%s|%d|%d|%s;", rel, info.Size(), info.ModTime().UnixNano(), token)
-		return
-	}
-	fmt.Fprintf(h, "%s|%d|%d;", rel, info.Size(), info.ModTime().UnixNano())
+	return hx
 }
 
 // unitKey identifies a unit's facts: the krit-fir jar, the module's settings and plugins, its

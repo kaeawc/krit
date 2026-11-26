@@ -285,36 +285,3 @@ func TestDefault_ResetDefault(t *testing.T) {
 		t.Errorf("ResetDefault did not clear entries")
 	}
 }
-
-func TestRacyContentTokenStaysStableAfterTheFileAgesOut(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "dep.jar")
-	if err := os.WriteFile(p, []byte("jar-1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	before := RacyContentToken(p, info)
-	if before == "" {
-		t.Fatal("a just-written file must be keyed by content")
-	}
-	defer func(orig func() time.Time) { racyNow = orig }(racyNow)
-	racyNow = func() time.Time { return time.Now().Add(time.Hour) }
-	// The same stat, checked after it aged out (the post-run edit check of a
-	// long FIR run), must produce the same key.
-	if got := RacyContentToken(p, info); got != before {
-		t.Fatalf("token changed from %q to %q as the unchanged file aged out", before, got)
-	}
-	// A different stat that is old enough is keyed by stat alone again.
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(p, old, old); err != nil {
-		t.Fatal(err)
-	}
-	if info, err = os.Stat(p); err != nil {
-		t.Fatal(err)
-	}
-	if got := RacyContentToken(p, info); got != "" {
-		t.Fatalf("an old stat that was never racy got token %q", got)
-	}
-}

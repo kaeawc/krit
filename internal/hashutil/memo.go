@@ -5,7 +5,6 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // Memo memoizes file content hashes for the duration of a single run.
@@ -125,7 +124,7 @@ func (m *Memo) statKey(path string) (memoEntry, bool) {
 		return memoEntry{}, false
 	}
 	key := memoEntry{size: info.Size(), modNano: info.ModTime().UnixNano()}
-	return key, StatTrusted(info.ModTime(), time.Now())
+	return key, StatTrustedNow(info)
 }
 
 // lookup returns the memoized digest for path when its entry matches key.

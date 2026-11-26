@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/kaeawc/krit/internal/buildid"
 	"github.com/kaeawc/krit/internal/config"
@@ -937,7 +936,7 @@ func (c *Cache) updateEntry(path string, columns scanner.FindingColumns, blobHas
 	// Compute hash outside the lock — SHA-256 + file I/O can be tens of
 	// milliseconds on large files and would otherwise stall every reader.
 	modTime := info.ModTime().UnixMilli()
-	if !hashutil.StatTrusted(info.ModTime(), time.Now()) {
+	if !hashutil.StatTrustedNow(info) {
 		modTime = racyModTime
 	}
 	entry := FileEntry{

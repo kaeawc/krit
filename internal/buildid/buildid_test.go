@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 func isolatedHashCache(t *testing.T) string {
@@ -106,6 +108,7 @@ func TestPersistentHashMemo(t *testing.T) {
 	if err := os.WriteFile(path, []byte("initial bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	testutil.Age(t, path) // only a stat older than hashutil.RacyWindow is memoized
 	first, err := HashFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +157,7 @@ func TestPersistentHashMemoUnavailableAndBounded(t *testing.T) {
 		if err := os.WriteFile(path, []byte(path), 0600); err != nil {
 			t.Fatal(err)
 		}
+		testutil.Age(t, path)
 		if _, err := HashFile(path); err != nil {
 			t.Fatal(err)
 		}
@@ -223,5 +227,26 @@ func TestOverrideTokenForTestRestores(t *testing.T) {
 	})
 	if got := Token(); got != before {
 		t.Fatalf("Token() = %q after override, want %q", got, before)
+	}
+}
+
+// A jar rebuilt in place with the same size inside one mtime tick keeps its
+// stat; neither memo may serve the old digest for it (#1614).
+func TestHashFileRehashesSameTickRewrite(t *testing.T) {
+	cachePath := isolatedHashCache(t)
+	path := filepath.Join(t.TempDir(), "krit-fir.jar")
+	if err := os.WriteFile(path, []byte("jar-one"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := HashFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.RewriteKeepingStat(t, path, "jar-two")
+	if second, err := HashFile(path); err != nil || second == first {
+		t.Fatalf("same-tick rewrite served the old digest: %q, %v", second, err)
+	}
+	if entries := readHashes(cachePath); len(entries) != 0 {
+		t.Fatalf("a file modified within the racy window was persisted: %d entries", len(entries))
 	}
 }

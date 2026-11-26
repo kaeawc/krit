@@ -3,9 +3,7 @@ package gradlemodel
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/testutil"
@@ -23,23 +21,17 @@ func TestClasspathFingerprintSeesSameTickJarRewrite(t *testing.T) {
 	}
 }
 
-// An old jar is keyed by stat alone, exactly as before racy handling, so
-// existing fir-cache entries stay valid and warm runs never hash jars.
-func TestClasspathFingerprintOfOldJarIsStatOnly(t *testing.T) {
+// A jar fingerprinted right after a rebuild must key the same in a later
+// process, once the jar has aged, or that run misses and repeats the work.
+func TestClasspathFingerprintIsStableAcrossProcesses(t *testing.T) {
 	jar := filepath.Join(t.TempDir(), "dep.jar")
 	if err := os.WriteFile(jar, []byte("jar-1"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(jar, old, old); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(jar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := hashutil.HashHex([]byte(jar + "\x00" + strconv.FormatInt(info.Size(), 10) + "\x00" + strconv.FormatInt(info.ModTime().UnixNano(), 10) + "\x00"))
-	if got := ClasspathFingerprint([]string{jar}); got != want {
-		t.Fatalf("old-jar fingerprint = %s, want the stat-only %s", got, want)
+	first := ClasspathFingerprint([]string{jar})
+	hashutil.ResetDefault()
+	testutil.Age(t, jar)
+	if got := ClasspathFingerprint([]string{jar}); got != first {
+		t.Fatalf("fingerprint of an unchanged jar changed between processes: %s then %s", first, got)
 	}
 }

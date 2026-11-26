@@ -3,6 +3,7 @@ package testutil
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 // RewriteKeepingStat replaces path's content with a same-size payload and
@@ -22,6 +23,16 @@ func RewriteKeepingStat(t testing.TB, path, content string) {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Age dates path an hour back, as an unchanged file looks to a later
+// process once it is older than hashutil.RacyWindow.
+func Age(t testing.TB, path string) {
+	t.Helper()
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
+
+	"github.com/kaeawc/krit/internal/testutil"
 )
 
 func TestCompilationFingerprint_ChangesWithEveryInput(t *testing.T) {
@@ -35,10 +36,7 @@ func TestCompilationFingerprint_ChangesWithEveryInput(t *testing.T) {
 	if edited == base {
 		t.Fatal("editing a file must change the fingerprint")
 	}
-	later := time.Now().Add(time.Hour)
-	if err := os.Chtimes(lib, later, later); err != nil {
-		t.Fatal(err)
-	}
+	testutil.RewriteKeepingStat(t, lib, "LIB")
 	if fp([]string{a, b}, []string{lib}) == edited {
 		t.Fatal("a rewritten classpath jar must change the fingerprint")
 	}

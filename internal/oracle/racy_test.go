@@ -3,6 +3,7 @@ package oracle
 import (
 	"testing"
 
+	"github.com/kaeawc/krit/internal/hashutil"
 	"github.com/kaeawc/krit/internal/testutil"
 )
 
@@ -15,5 +16,20 @@ func TestCompilationFingerprintSeesSameTickClasspathRewrite(t *testing.T) {
 	testutil.RewriteKeepingStat(t, lib, "lib-2")
 	if CompilationFingerprint([]string{src}, []string{lib}, jar) == before {
 		t.Fatal("a same-size classpath jar rewrite within one mtime tick kept the fingerprint")
+	}
+}
+
+func TestCompilationFingerprintIsStableAcrossProcesses(t *testing.T) {
+	dir := t.TempDir()
+	src := writeTempFile(t, dir, "A.kt", "class A\n")
+	jar := writeTempFile(t, dir, "backend.jar", "jar")
+	lib := writeTempFile(t, dir, "lib.jar", "lib-1")
+	first := CompilationFingerprint([]string{src}, []string{lib}, jar)
+	hashutil.ResetDefault()
+	for _, p := range []string{src, jar, lib} {
+		testutil.Age(t, p)
+	}
+	if got := CompilationFingerprint([]string{src}, []string{lib}, jar); got != first {
+		t.Fatal("fingerprint of an unchanged compilation changed between processes")
 	}
 }

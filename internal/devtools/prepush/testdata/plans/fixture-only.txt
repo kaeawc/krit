@@ -1,0 +1,5 @@
+# Fixture edits run the rule fixture tests without building anything else.
+tests/fixtures/positive/a11y/Example.kt
+---
+merge
+test ./internal/rules parity:TestFirGoldenGoLines

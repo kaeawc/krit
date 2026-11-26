@@ -91,28 +91,13 @@ type preferenceFileScope struct {
 }
 
 // ComputeActivityPreferenceFacts maps each source-declared class FQN to whether its
-// superclass chain contains android.preference.PreferenceActivity.
+// superclass chain contains android.preference.PreferenceActivity. It reads the per-file class
+// facts the manifest-source rules share, so each file's imports are parsed once per run.
 func ComputeActivityPreferenceFacts(files []*scanner.File) map[string]bool {
-	var decls []*preferenceClassDecl
-	byFQN := map[string]*preferenceClassDecl{}
-	for _, file := range files {
-		if file == nil {
-			continue
-		}
-		scope := newPreferenceFileScope(string(file.Content))
-		file.FlatWalkNodes(0, "class_declaration", func(idx uint32) {
-			name := extractIdentifierFlat(file, idx)
-			if name == "" {
-				return
-			}
-			d := &preferenceClassDecl{fqn: preferenceClassFQN(file, idx, name, scope.pkg), supers: preferenceDirectSupers(file, idx), file: scope}
-			decls = append(decls, d)
-			byFQN[d.fqn] = d
-		})
-	}
-	facts := make(map[string]bool, len(decls))
-	for _, d := range decls {
-		facts[d.fqn] = preferenceChainReaches(d, byFQN, map[string]bool{})
+	idx := lintSourceClasses(files)
+	facts := make(map[string]bool, len(idx.classes))
+	for fqn, c := range idx.classes {
+		facts[fqn] = preferenceChainReaches(c.decl, idx.byFQN, map[string]bool{})
 	}
 	return facts
 }

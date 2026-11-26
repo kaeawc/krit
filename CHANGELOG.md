@@ -465,6 +465,10 @@ All notable changes to Krit will be documented in this file.
   session had any source root, and an unpacked srcjar was a Bazel target's only one. That check now applies only when
   a root is itself a source-set root, so the files compile against the srcjar's sources and get FIR verdicts (#1688,
   #1632).
+- The manifest-source Security ports and the `ExportedPreferenceActivityManifest` facts share each file's parsed
+  package, imports and class declarations through the run's file-facts cache, so imports are parsed once per run
+  instead of four times. On element-x-android the manifest-source phase went from 2.4s to 1.1s, with the same
+  findings.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/manifest"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -91,5 +92,33 @@ func TestLintSourceIndexExtendsTarget(t *testing.T) {
 	}
 	if len(idx.extends) != 5 {
 		t.Errorf("memo holds %d entries, want one per (class, target set) = 5", len(idx.extends))
+	}
+}
+
+func TestLintSourceFileClassesAreSharedPerRun(t *testing.T) {
+	prev := fileFactsCache()
+	t.Cleanup(func() { setSharedFileFacts(prev) })
+	setSharedFileFacts(filefacts.NewCache())
+	sources := map[string]string{
+		"A.kt": "package com.a\n\nimport android.preference.PreferenceActivity\n\nopen class Settings : PreferenceActivity()\n",
+		"B.kt": "package com.a\n\nclass Child : Settings()\nclass Plain\n",
+	}
+	first := lintSourceIndexForTest(t, sources)
+	var files []*scanner.File
+	for _, c := range first.classes {
+		files = append(files, c.file)
+	}
+	// Another rule in the same run reuses each file's parsed scope and declarations.
+	second := lintSourceClasses(files)
+	for fqn, c := range first.classes {
+		if second.classes[fqn] != c {
+			t.Errorf("class %s was parsed again for the second index", fqn)
+		}
+	}
+	facts := ComputeActivityPreferenceFacts(files)
+	for fqn, want := range map[string]bool{"com.a.Settings": true, "com.a.Child": true, "com.a.Plain": false} {
+		if got, ok := facts[fqn]; !ok || got != want {
+			t.Errorf("preference fact for %s = %v (present %v), want %v", fqn, got, ok, want)
+		}
 	}
 }

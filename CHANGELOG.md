@@ -554,6 +554,9 @@ All notable changes to Krit will be documented in this file.
   `MoshiUsageNonMoshiClassInternal`/`External` (#1384, #1395, #1396, #1404, #1407, #1408, #1409).
 
 ### Fixed
+- `--no-cache` skips every cache that can change findings. A one-shot scan read the cross-file findings cache, so a
+  stale entry replayed into the run warm results are checked against; it now skips that cache and also the cross-file
+  index, resource index, file-walk and incremental oracle caches. Only the parse cache stays on (#1818).
 - Gradle plugin: the configuration cache is reused after the first build that creates an Android module's R jar.
   `kritExportModel` recorded the R jar by listing `build/intermediates` while configuring, which made the directory a
   configuration input. It now records the path AGP writes the jar to, and krit looks the jar up when it loads the model

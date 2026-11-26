@@ -58,3 +58,26 @@ func TestSDKLevelFlags(t *testing.T) {
 		t.Fatalf("negative --min-sdk: err %v, stderr %q", err, stderr.String())
 	}
 }
+
+// --no-cache implies every other cache bypass that can change findings, and
+// the one-shot project input then wires no cross-file cache directory (#1818).
+func TestNoCacheImpliesCacheBypasses(t *testing.T) {
+	f := registerScanFlags(flag.NewFlagSet("krit", flag.ContinueOnError))
+	*f.NoCache = true
+	applyNoCache(f)
+	if !*f.NoCrossFileCache || !*f.NoResourceCache || !*f.NoCacheOracle {
+		t.Fatalf("--no-cache: no-cross-file-cache=%v no-resource-cache=%v no-cache-oracle=%v, want all true",
+			*f.NoCrossFileCache, *f.NoResourceCache, *f.NoCacheOracle)
+	}
+	r := &runner{f: f, sess: &Session{}, tracker: perf.New(false), paths: []string{t.TempDir()}}
+	host := r.projectInput().Host
+	if host.CrossFileCacheDir != "" || host.CrossFindingsCacheDir != "" {
+		t.Fatalf("--no-cache: CrossFileCacheDir=%q CrossFindingsCacheDir=%q, want both empty", host.CrossFileCacheDir, host.CrossFindingsCacheDir)
+	}
+
+	plain := registerScanFlags(flag.NewFlagSet("krit", flag.ContinueOnError))
+	applyNoCache(plain)
+	if *plain.NoCrossFileCache || *plain.NoResourceCache || *plain.NoCacheOracle {
+		t.Fatal("without --no-cache, applyNoCache must leave the other cache flags alone")
+	}
+}

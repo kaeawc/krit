@@ -186,6 +186,7 @@ func newRunner(f *scanFlags, sess *Session) (*runner, int, bool) {
 	// scripts that set --no-type-oracle directly continue to win.
 	depthPreset := resolveDepthPreset(*f.Depth, cfg, os.Stderr)
 	applyDepthPreset(depthPreset, f, flag.CommandLine)
+	applyNoCache(f)
 
 	runValidateConfigFlag(*f.ValidateConfig, cfg)
 
@@ -444,7 +445,7 @@ func (r *runner) collectFiles() (int, error) {
 	r.tracker.TrackVoid("collectFiles", func() {
 		repoDir := oracle.FindRepoDir(r.paths)
 		cacheDir := ""
-		if repoDir != "" {
+		if repoDir != "" && (r.f == nil || r.f.NoCache == nil || !*r.f.NoCache) {
 			cacheDir = filepath.Join(fsutil.ProjectStateDir(repoDir), filewalkCacheDirName)
 		}
 		filters := FilewalkFilters{

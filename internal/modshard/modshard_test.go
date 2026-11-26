@@ -41,6 +41,45 @@ func TestShardsBalanceWorkAndKeepEveryUnit(t *testing.T) {
 	}
 }
 
+// A unit's dependency context costs compile time like its own sources: two units with a few own
+// files and a large unbuilt dependency must not share a worker while another idles (#1661).
+func TestShardsWeighDependencyContext(t *testing.T) {
+	unit := func(id string, files, context int) Unit {
+		return Unit{Spec: firchecks.ModuleSpec{ID: id}, Files: files, ContextFiles: context}
+	}
+	// By own files alone, a goes to one worker and b, d, c and e all to the other.
+	units := []Unit{unit("a", 40, 0), unit("b", 10, 900), unit("d", 10, 900), unit("c", 5, 0), unit("e", 5, 0)}
+	for _, g := range Shards(units, 2) {
+		heavy := 0
+		for _, u := range g {
+			if u.ContextFiles > 0 {
+				heavy++
+			}
+		}
+		if heavy != 1 {
+			t.Fatalf("each worker should get one unit with a large context, got %+v", g)
+		}
+	}
+}
+
+// Plan counts the sources of an unbuilt dependency that a module compiles as context.
+func TestPlanCountsDependencyContextFiles(t *testing.T) {
+	model, root := fixtureModel(t)
+	if err := os.Remove(filepath.Join(root, "lib/build/intermediates/compile_library_classes_jar/release/bundleLibCompileToJarRelease/classes.jar")); err != nil {
+		t.Fatal(err)
+	}
+	units, _ := Plan(model, root, []string{root})
+	for _, u := range units {
+		want := 0
+		if u.Spec.ID == ":app:release" || u.Spec.ID == ":lib:releaseUnitTest" {
+			want = 1 // lib's main sources, compiled from source without its jar
+		}
+		if u.ContextFiles != want {
+			t.Fatalf("%s: ContextFiles = %d, want %d", u.Spec.ID, u.ContextFiles, want)
+		}
+	}
+}
+
 func TestSourceRootOf(t *testing.T) {
 	cases := map[string]string{
 		"/r/app/src/debug/kotlin/a/b/C.kt":  "/r/app/src/debug/kotlin",

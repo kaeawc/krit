@@ -109,6 +109,8 @@ jobs:
   #  2. the root aggregate kritCheckAll, then again: configuration cache
   #     reuse and an up-to-date task;
   #  3. per-project kritCheck.
+  # 2 and 3 run without exportGenerated: with FIR on, the check tasks run the
+  # generated-source producers themselves (#1642, #1686).
   gradle:
     needs: krit
     runs-on: ubuntu-latest
@@ -151,20 +153,22 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
-          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll.gradle.log"
           cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
           grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheckAll.log" || true
           python3 ci/fir_coverage.py measure gradle-kritCheckAll "$RUNNER_TEMP/fir/gradle-kritCheckAll.result.json" \
             "$RUNNER_TEMP/fir/gradle-kritCheckAll.log"
           cp -R .krit/gradle-model "$RUNNER_TEMP/fir/gradle-model"
+          # The whole-build findings, compared with krit_aspect's in the report job (#1677).
+          cp build/reports/krit/all/krit.sarif "$RUNNER_TEMP/fir/gradle-kritCheckAll.sarif"
       # Nothing changed, so the second run must reuse the configuration cache
       # and find kritCheckAll up to date (no krit process).
       - name: kritCheckAll again (configuration cache reuse, up to date)
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -f .krit-bin/kritcheck-*.log
-          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheckAll --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"
           if grep -q 'Reusing configuration cache' "$RUNNER_TEMP/fir/gradle-kritCheckAll-rerun.gradle.log"; then reused=true; else reused=false; fi
           if compgen -G '.krit-bin/kritcheck-*.log' > /dev/null; then upToDate=false; else upToDate=true; fi
@@ -175,7 +179,7 @@ jobs:
         working-directory: ${{ env.SAMPLE }}
         run: |
           rm -rf .krit build ./*/build .krit-bin/kritcheck-*.log
-          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritBinary="$PWD/.krit-bin/krit-verbose" \
+          ./gradlew kritCheck --configuration-cache --no-build-cache -PkritExportGenerated=false -PkritBinary="$PWD/.krit-bin/krit-verbose" \
             | tee "$RUNNER_TEMP/fir/gradle-kritCheck.gradle.log"
           cat .krit-bin/kritcheck-*.log > "$RUNNER_TEMP/fir/gradle-kritCheck.log"
           grep -E 'FIR verdict:|FIR gated' "$RUNNER_TEMP/fir/gradle-kritCheck.log" || true
@@ -278,6 +282,12 @@ jobs:
           pattern: fir-coverage-*
           path: results
           merge-multiple: true
+      # Gradle and Bazel must report the same findings on the same sources (#1677).
+      - name: Findings parity (kritCheckAll vs krit_aspect)
+        run: |
+          mapfile -t bazel < <(find results/bazel-sarif -name '*.krit.sarif' | sort)
+          python3 "$SAMPLE/ci/fir_coverage.py" parity results/findings-parity.check.json \
+            --gradle results/gradle-kritCheckAll.sarif --bazel "${bazel[@]}"
       - name: Coverage table and thresholds
         run: |
           mapfile -t files < <(find results \( -name '*.result.json' -o -name '*.check.json' \) | sort)

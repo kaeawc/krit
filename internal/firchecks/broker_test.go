@@ -189,7 +189,7 @@ func TestBrokerClaimDeclinesWhatCannotRide(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fingerprint := CheckCacheFingerprint(p.checker.SourceDirs, plan.requested, p.checker.Classpath, p.checker.JarPath, plan.rules, plan.configs, plan.facts, p.checker.CompileTarget())
+		fingerprint := CheckCacheFingerprint(p.checker.RepoDir, p.checker.SourceDirs, plan.requested, p.checker.Classpath, p.checker.JarPath, plan.rules, plan.configs, plan.facts, p.checker.CompileTarget())
 		if !p.checker.Prefetch.hasUncachedFiles() {
 			t.Fatal("an empty cache should have misses")
 		}
@@ -214,7 +214,7 @@ func TestBrokerPassWithNothingToCompileDoesNotWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fingerprint := CheckCacheFingerprint(p.checker.SourceDirs, plan.requested, p.checker.Classpath, p.checker.JarPath, plan.rules, plan.configs, plan.facts, p.checker.CompileTarget())
+	fingerprint := CheckCacheFingerprint(p.checker.RepoDir, p.checker.SourceDirs, plan.requested, p.checker.Classpath, p.checker.JarPath, plan.rules, plan.configs, plan.facts, p.checker.CompileTarget())
 	WriteFreshEntriesForFingerprint(cacheDir, plan.requested, &CheckResponse{Succeeded: 2}, fingerprint)
 	compiles := countingRun(t)
 	waitResult(t, p.startCheck(t))

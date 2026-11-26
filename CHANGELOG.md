@@ -30,11 +30,19 @@ All notable changes to Krit will be documented in this file.
   IDs, checked against the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_lifecycle/`).
   `TestLifecycleOwnerInCoroutine` follows the detector source, as the CLI reports nothing for it against the released
   classes (#1453, #1454, #1455, #1456).
+- `UnusedCrossfadeTargetStateParameter`, `UnusedContentLambdaTargetStateParameter`,
+  `UnusedTargetStateInContentKeyLambda` and `UnusedTransitionTargetStateParameter`, ports of the Lint checks bundled
+  with `androidx.compose.animation` 1.13.0 (`animation-android`, `animation-core-android`), under their Lint IDs.
+  Their findings match the Lint CLI running those releases' `lint.jar` on the inputs under
+  `internal/rules/testdata/androidx_compose_animation/` (#1307, #1308, #1309, #1313).
 - `UnusedMaterialScaffoldPaddingParameter`, `UnusedMaterial3ScaffoldPaddingParameter`, `ConflictingOnColor` and
   `UsingMaterialAndMaterial3Libraries`, ports of the Lint checks bundled with `androidx.compose.material` 1.13.0 and
   `androidx.compose.material3` 1.5.0, under their Lint IDs. Their findings match the Lint CLI running those releases'
   `lint.jar` on the inputs under `internal/rules/testdata/androidx_compose_material/`. The material3 import check needs
   a material3 import in the file or a material3 dependency in the build (#1457, #1458, #1459, #1461).
+- Gradle plugin: `kritCheckAll` and the per-variant / per-source-set `kritCheck<Name>` tasks run the generated-source
+  producers (Variant API and KGP roots, R-class, kapt stubs) when FIR is on, as `kritCheck` already did, so FIR no
+  longer gates generated-code users on a clean checkout without `exportGenerated` (#1642, #1686).
 - Compose lint parity, first batch of [compose-lints](https://github.com/slackhq/compose-lints) 1.6.1 ports:
   `ComposeCompositionLocalUsage` (with the `allowedCompositionLocals` option) and `ComposeCompositionLocalGetter`,
   under their Lint IDs, messages and severities, experimental and off by default. `ComposeNamingUppercase` and
@@ -374,6 +382,9 @@ All notable changes to Krit will be documented in this file.
   instead of one per classpath: its scans share a krit-fir daemon pool slot, and the daemon rebuilds its session for
   each action's sources and classpath. On a 24-target benchmark the Krit actions of a full build went from 79.9 s to
   7.0 s (mean action 6.56 s to 0.54 s), with the same reports as one-shot JVMs (#1666).
+- The `--fir` duplicate-declaration recheck compiles only the source sets that hold a gated or crashed file and checks
+  only those files, the rest of each set compiling as context, instead of every scanned set of each owning project.
+  Its worker JVMs are balanced by the files each set compiles, unbuilt dependency sources included (#1661).
 - The Gradle plugins `dev.jasonpearson.krit` and `dev.jasonpearson.krit.settings` declare configuration-cache
   support on the Gradle Plugin Portal. `kritCheck`, `kritFormat` and `kritBaseline` now resolve (and download) the
   krit binary when they run instead of while Gradle builds the task graph, so `--dry-run` no longer downloads it and
@@ -478,6 +489,20 @@ All notable changes to Krit will be documented in this file.
   buffer request reads its own analyzer's memo instead of the last project run's. Before, adding
   `gradle/libs.versions.toml` left `InvalidFragmentVersionForActivityResult` and the Gradle catalog lookups on the
   catalog-less result until restart (#1784). CLI scans already built a fresh memo per run.
+- `UnsafeIntentLaunch` treats a receiver class registered at runtime with `Context.registerReceiver` or
+  `ContextCompat.registerReceiver`, without `RECEIVER_NOT_EXPORTED` or a broadcast permission, as an unprotected
+  component, and follows the incoming intent into helpers declared in other files: imported or same-package top-level
+  functions and members of project classes or objects (`Launcher.launch(this, intent)`) (#1623).
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property annotated `@get:JavascriptInterface` or
+  `@set:JavascriptInterface`, or whose getter or setter carries the annotation, counts as an annotated bridge method,
+  and a private one is reported as `Must be public`, as Lint sees the accessor methods through UAST. `@field:` does
+  not count (part of #1620).
+- `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
+  `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
+  setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as
+  `Must be public`, as Lint sees the generated accessors through UAST. `@field:`, `@JvmField` and `const`
+  properties, and a private property's accessor without a body, generate no annotated accessor and do not count
+  (part of #1620).
 - The Lint ports' shared call parser is memoized per node for each file's dispatch pass, instead of re-parsing a call
   for every port that looks at it, and their import scan finds `import` keywords before running its regex. On
   element-x-android that cut about 1.3s of CPU from a `--no-fir` scan, with the same findings.
@@ -485,12 +510,23 @@ All notable changes to Krit will be documented in this file.
   another module depends on material3: as in Lint, material3 must be imported in the file or declared by the file's
   own module. `UnusedMaterialScaffoldPaddingParameter` and `UnusedMaterial3ScaffoldPaddingParameter` now resolve
   aliased `Scaffold` imports (#1728).
+- `CompileTimeConstant` resolves Kotlin calls into other source files through the type index: top-level functions
+  (explicit import, same package, wildcard import), members of the receiver's type and its supertypes (including
+  interface methods), operator calls (`a[i]`, `a[i] = v`, `a += v`, `invoke`), and overrides that add the annotation
+  to a supertype method declared elsewhere. Inherited members are tried before imports, and calls under an
+  extension receiver or a `with`/`apply`/`run` block abstain. The type index now records parameter annotations. The
+  rule moves to the cross-file phase, whose findings cache is keyed by every file's content, so an edit to the
+  declaring file changes warm results; editor (LSP) and MCP single-file analysis no longer run it. Files that mention
+  neither the annotation nor such a function are skipped (part of #1151, #1610).
 - `UnsafeImplicitIntentLaunch` evaluates intent actions named by framework constants (`Intent.ACTION_VIEW` and the
   other `android.*` action constants, when the qualifier resolves to the framework class) and by project constants
   declared in other files (`const val`, a Kotlin `val` with a constant initializer, a Java `static final` field,
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
+  for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
+  from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.
@@ -505,6 +541,10 @@ All notable changes to Krit will be documented in this file.
   session had any source root, and an unpacked srcjar was a Bazel target's only one. That check now applies only when
   a root is itself a source-set root, so the files compile against the srcjar's sources and get FIR verdicts (#1688,
   #1632).
+- The manifest-source Security ports and the `ExportedPreferenceActivityManifest` facts share each file's parsed
+  package, imports and class declarations through the run's file-facts cache, so imports are parsed once per run
+  instead of four times. On element-x-android the manifest-source phase went from 2.4s to 1.1s, with the same
+  findings.
 - Source-only scans of large Android projects are fast again: `ProviderReadPermissionOnly`,
   `UnsafeImplicitIntentLaunch` and `UnsafeIntentLaunch` index project classes once per run instead of rebuilding the
   index on every superclass query, and run concurrently. On a 300-module synthetic project the manifest-source phase

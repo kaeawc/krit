@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -44,7 +45,8 @@ import (
 // that never saw a build.gradle / AndroidManifest.xml edit, so drop them.
 // 8: storage keys include the closure fingerprint to retain prior verdicts.
 // 9: entries are grouped by path to bound fingerprint history on write.
-const FirCacheVersion = 9
+// 10: entries are keyed by the repository-relative path (relocatable).
+const FirCacheVersion = 10
 
 // FirCacheEntry is one file's cached FIR findings.
 type FirCacheEntry struct {
@@ -144,10 +146,62 @@ func entryPath(cacheDir, filePath, contentHash, fingerprint string) string {
 	return filepath.Join(cacheDir, "entries", pathKey[:2], pathKey[2:], key+".json")
 }
 
+// firCacheStore is the FIR finding cache in dir. Entries are keyed and named
+// by each file's path relative to root, so a .krit/ restored into a checkout
+// at another absolute path (a CI cache from another agent) still hits for
+// unchanged files. Paths outside root, and every path when root is "", keep
+// their absolute spelling.
+type firCacheStore struct {
+	dir  string
+	root string
+}
+
+// newFirCacheStore returns the store for cacheDir, rooted at the repository
+// that owns it when cacheDir is that repository's CacheDir. A cache dir
+// elsewhere (a relocated state dir) keys absolute paths.
+func newFirCacheStore(cacheDir string) firCacheStore {
+	repo := filepath.Dir(filepath.Dir(filepath.Clean(cacheDir)))
+	if filepath.Join(fsutil.ProjectStateDir(repo), "fir-cache") != filepath.Clean(cacheDir) {
+		return firCacheStore{dir: cacheDir}
+	}
+	return firCacheStore{dir: cacheDir, root: cacheRoot(repo)}
+}
+
+// cacheRoot is the root firCacheStore keys paths under for repoDir: the
+// absolute repository directory, or "" (absolute keys) when it cannot be
+// resolved.
+func cacheRoot(repoDir string) string {
+	if repoDir == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(repoDir)
+	if err != nil {
+		return ""
+	}
+	return abs
+}
+
+// key spells path for the cache: root-relative with forward slashes when
+// path lies under root, otherwise path itself.
+func (s firCacheStore) key(path string) string {
+	if s.root == "" {
+		return path
+	}
+	return fsutil.RelSlash(s.root, path)
+}
+
 // LoadCacheEntry reads the cache entry for filePath at the given content
 // hash and closure fingerprint. Returns (nil, nil) on miss.
 func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntry, error) {
-	path := entryPath(cacheDir, filePath, hash, fingerprint)
+	return newFirCacheStore(cacheDir).load(filePath, hash, fingerprint)
+}
+
+// load is LoadCacheEntry for s. A hit is returned spelled for filePath: its
+// FilePath and its findings' paths name filePath, whatever root wrote it.
+func (s firCacheStore) load(filePath, hash, fingerprint string) (*FirCacheEntry, error) {
+	key := s.key(filePath)
+	cacheDir := s.dir
+	path := entryPath(cacheDir, key, hash, fingerprint)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -164,9 +218,14 @@ func LoadCacheEntry(cacheDir, filePath, hash, fingerprint string) (*FirCacheEntr
 		}
 		return nil, nil //nolint:nilerr // a corrupt entry is a cache miss, not a failure
 	}
-	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != filePath || entry.ClosureFingerprint != fingerprint {
+	if entry.V != FirCacheVersion || entry.ContentHash != hash || entry.FilePath != key || entry.ClosureFingerprint != fingerprint {
 		os.Remove(path)
 		return nil, nil
+	}
+	entry.FilePath = filePath
+	for i := range entry.Findings {
+		// Every finding in an entry is in the entry's file.
+		entry.Findings[i].Path = filePath
 	}
 	return &entry, nil
 }
@@ -196,9 +255,25 @@ func writeFileRename(path string, data []byte) error {
 
 // WriteCacheEntry writes a cache entry to disk.
 func WriteCacheEntry(cacheDir string, entry *FirCacheEntry) error {
+	return newFirCacheStore(cacheDir).write(entry)
+}
+
+// write is WriteCacheEntry for s: the stored entry and its findings name the
+// file by its cache key.
+func (s firCacheStore) write(entry *FirCacheEntry) error {
 	firCacheWriteMu.Lock()
 	defer firCacheWriteMu.Unlock()
 
+	cacheDir := s.dir
+	if key := s.key(entry.FilePath); key != entry.FilePath {
+		stored := *entry
+		stored.FilePath = key
+		stored.Findings = slices.Clone(entry.Findings)
+		for i := range stored.Findings {
+			stored.Findings[i].Path = key
+		}
+		entry = &stored
+	}
 	path := entryPath(cacheDir, entry.FilePath, entry.ContentHash, entry.ClosureFingerprint)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("mkdir fir cache: %w", err)
@@ -308,25 +383,23 @@ func ContentHash(path string) (string, error) {
 
 // ClasspathFingerprint returns a stable fingerprint for classpath entries.
 // Existing files are fingerprinted by content so replacing a JAR invalidates
-// cached FIR findings even when source files are unchanged.
+// cached FIR findings even when source files are unchanged. Paths are left
+// out, so the same jars under another GRADLE_USER_HOME or checkout match; the
+// fingerprint is the sorted multiset of entry identities.
 func ClasspathFingerprint(classpath []string) string {
 	if len(classpath) == 0 {
 		return ""
 	}
-	entries := append([]string(nil), classpath...)
-	sort.Strings(entries)
-	var b strings.Builder
-	for _, p := range entries {
-		b.WriteString(p)
-		b.WriteByte('\x00')
+	ids := make([]string, 0, len(classpath))
+	for _, p := range classpath {
 		if h, err := ContentHash(p); err == nil {
-			b.WriteString(h)
+			ids = append(ids, h)
 		} else {
-			b.WriteString("missing")
+			ids = append(ids, "missing")
 		}
-		b.WriteByte('\n')
 	}
-	return hashutil.HashHex([]byte(b.String()))
+	sort.Strings(ids)
+	return hashutil.HashHex([]byte(strings.Join(ids, "\n")))
 }
 
 // ClassifyFiles partitions files into cache hits and misses. Hits carry
@@ -338,22 +411,30 @@ func ClassifyFiles(cacheDir string, files []string) (hits []*FirCacheEntry, miss
 // ClassifyFilesForFingerprint is ClassifyFiles plus dependency/classpath
 // fingerprint validation. A non-matching cache entry is treated as a miss.
 func ClassifyFilesForFingerprint(cacheDir string, files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
-	hits, misses = classifyFilesQuiet(cacheDir, files, fingerprint)
+	hits, misses = newFirCacheStore(cacheDir).classify(files, fingerprint)
 	firCacheHits.Add(int64(len(hits)))
 	firCacheMisses.Add(int64(len(misses)))
 	return hits, misses
 }
 
-// classifyFilesQuiet is ClassifyFilesForFingerprint without touching the
-// cache statistics, for a look-ahead that the real classification repeats.
-func classifyFilesQuiet(cacheDir string, files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
+// classifyFor is ClassifyFilesForFingerprint for s.
+func (s firCacheStore) classifyFor(files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
+	hits, misses = s.classify(files, fingerprint)
+	firCacheHits.Add(int64(len(hits)))
+	firCacheMisses.Add(int64(len(misses)))
+	return hits, misses
+}
+
+// classify is ClassifyFilesForFingerprint without touching the cache
+// statistics, for a look-ahead that the real classification repeats.
+func (s firCacheStore) classify(files []string, fingerprint string) (hits []*FirCacheEntry, misses []string) {
 	for _, p := range files {
 		hash, err := ContentHash(p)
 		if err != nil {
 			misses = append(misses, p)
 			continue
 		}
-		entry, err := LoadCacheEntry(cacheDir, p, hash, fingerprint)
+		entry, err := s.load(p, hash, fingerprint)
 		if err != nil || entry == nil {
 			misses = append(misses, p)
 			continue
@@ -366,6 +447,11 @@ func classifyFilesQuiet(cacheDir string, files []string, fingerprint string) (hi
 // WriteFreshEntriesForFingerprint writes fresh cache entries and records the
 // dependency/classpath fingerprint used to validate future hits.
 func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *CheckResponse, fingerprint string) int {
+	return newFirCacheStore(cacheDir).writeFresh(files, resp, fingerprint)
+}
+
+// writeFresh is WriteFreshEntriesForFingerprint for s.
+func (s firCacheStore) writeFresh(files []string, resp *CheckResponse, fingerprint string) int {
 	// Build per-path finding index from the response.
 	byPath := map[string][]FirFinding{}
 	for _, f := range resp.Findings {
@@ -391,7 +477,7 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 				CrashError:         crashMsg,
 				Rules:              resp.Rules,
 			}
-			if WriteCacheEntry(cacheDir, entry) == nil {
+			if s.write(entry) == nil {
 				written.Add(1)
 			}
 			return
@@ -407,7 +493,7 @@ func WriteFreshEntriesForFingerprint(cacheDir string, files []string, resp *Chec
 			Rules:              resp.Rules,
 			RuleErrors:         ruleErrorsForFile(resp.RuleErrors, p),
 		}
-		if WriteCacheEntry(cacheDir, entry) == nil {
+		if s.write(entry) == nil {
 			written.Add(1)
 		}
 	})

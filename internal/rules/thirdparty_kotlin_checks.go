@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/kaeawc/krit/internal/filefacts"
 	api "github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -90,10 +89,13 @@ func slackResolvesToKotlinStdlib(file *scanner.File, call lintCall) bool {
 	default:
 		return false
 	}
-	if full, ok := lintImportsOf(file).bySimple[call.Name]; ok && full != "kotlin."+call.Name {
+	full, imported := lintImportsOf(file).bySimple[call.Name]
+	if imported && full != "kotlin."+call.Name {
 		return false
 	}
-	return !slackFileDeclaresFunction(file, call.Name)
+	// Without an explicit import the stdlib function comes in as a default import, which a top-level function of
+	// the file's package shadows.
+	return !slackFunctionShadows(file, call.Idx, call.Name, imported)
 }
 
 // slackHasOuterTrailingLambda reports whether idx is the inner call of `f<T>(args) { ... }`.
@@ -104,19 +106,6 @@ func slackHasOuterTrailingLambda(file *scanner.File, idx uint32) bool {
 	}
 	return slackLastLambdaArgument(file, parent) != 0
 }
-
-// slackFileDeclaresFunction reports whether the file declares a function (at any level) with the given name.
-func slackFileDeclaresFunction(file *scanner.File, name string) bool {
-	return filefacts.FileFact(fileFactsCache(), file, slotSlackFunctionNames, func() map[string]bool {
-		names := map[string]bool{}
-		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
-			names[extractIdentifierFlat(file, fn)] = true
-		})
-		return names
-	})[name]
-}
-
-const slotSlackFunctionNames = "slackFunctionNames"
 
 // --- NullableConcurrentHashMap ---
 
@@ -225,7 +214,7 @@ func checkGuavaPreconditionsUsedInKotlin(ctx *api.Context) {
 		if !lintTypeRefMatches(file, call.ReceiverText, fqcnGuavaPreconditions) {
 			return
 		}
-	} else if !slackStaticallyImports(file, fqcnGuavaPreconditions, call.Name) {
+	} else if !slackStaticallyImports(file, idx, fqcnGuavaPreconditions, call.Name) {
 		return
 	}
 	if name := slackCalleeNameNode(file, idx); name != 0 {
@@ -233,16 +222,16 @@ func checkGuavaPreconditionsUsedInKotlin(ctx *api.Context) {
 	}
 }
 
-// slackStaticallyImports reports whether an unqualified call to name resolves to a member of owner through an
-// import of the member or of all of owner's members, with no same-file function shadowing it.
-func slackStaticallyImports(file *scanner.File, owner, name string) bool {
+// slackStaticallyImports reports whether an unqualified call at idx to name resolves to a member of owner through an
+// import of the member or of all of owner's members, with no function in scope shadowing it.
+func slackStaticallyImports(file *scanner.File, idx uint32, owner, name string) bool {
 	imp := lintImportsOf(file)
 	if full, ok := imp.bySimple[name]; ok {
-		return full == owner+"."+name && !slackFileDeclaresFunction(file, name)
+		return full == owner+"."+name && !slackFunctionShadows(file, idx, name, true)
 	}
 	for _, star := range imp.stars {
 		if star == owner {
-			return !slackFileDeclaresFunction(file, name)
+			return !slackFunctionShadows(file, idx, name, false)
 		}
 	}
 	return false

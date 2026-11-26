@@ -76,3 +76,38 @@ func slackDeclaredTypeAfterColon(file *scanner.File, decl uint32) uint32 {
 	}
 	return 0
 }
+
+// slackFunctionShadows reports whether a function called name declared in the file is in scope at idx ahead of an
+// imported one, with Kotlin's priorities: a local function declared before idx or a member of an enclosing class
+// always wins; a top-level function of the file's package wins only over a default or star import
+// (explicitlyImported false), not over an explicit import.
+func slackFunctionShadows(file *scanner.File, idx uint32, name string, explicitlyImported bool) bool {
+	child := idx
+	for parent, ok := file.FlatParent(idx); ok; parent, ok = file.FlatParent(parent) {
+		switch file.FlatType(parent) {
+		case "statements":
+			for sib, found := file.FlatPrevSibling(child); found; sib, found = file.FlatPrevSibling(sib) {
+				if file.FlatType(sib) == "function_declaration" && extractIdentifierFlat(file, sib) == name {
+					return true
+				}
+			}
+		case "class_body":
+			for member := file.FlatFirstChild(parent); member != 0; member = file.FlatNextSib(member) {
+				if file.FlatType(member) == "function_declaration" && extractIdentifierFlat(file, member) == name {
+					return true
+				}
+			}
+		case "source_file":
+			if explicitlyImported {
+				return false
+			}
+			for member := file.FlatFirstChild(parent); member != 0; member = file.FlatNextSib(member) {
+				if file.FlatType(member) == "function_declaration" && extractIdentifierFlat(file, member) == name {
+					return true
+				}
+			}
+		}
+		child = parent
+	}
+	return false
+}

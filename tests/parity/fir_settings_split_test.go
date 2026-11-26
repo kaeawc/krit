@@ -123,6 +123,26 @@ func TestFirSplitsSessionsBySourceSetSettingsEndToEnd(t *testing.T) {
 		}
 	})
 
+	// Gradle records the resolved root (macOS /tmp is /private/tmp); a scan
+	// path through a symlink to it still splits the session (#1674).
+	t.Run("symlinked scan path", func(t *testing.T) {
+		project := writeSettingsSplitProject(t, false)
+		link := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(project, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		split := runSettingsSplitKrit(t, bin, jar, link, "")
+		for _, line := range []string{
+			"verbose: FIR settings: 3 sessions for 2 settings groups (grouping key: ",
+			"1 gated files now authoritative, 0 now gated on a missing opt-in",
+			"verbose: FIR verdict: 2 authoritative files, 0 gated (compiler error or crash)",
+		} {
+			if !strings.Contains(split, line) {
+				t.Fatalf("split sessions through %s: missing %q; stderr:\n%s", link, line, split)
+			}
+		}
+	})
+
 	t.Run("hidden opt-in", func(t *testing.T) {
 		project := writeSettingsSplitProject(t, true)
 		bad := filepath.Join(project, "other", "src", "main", "kotlin", "other", "Bad.kt")

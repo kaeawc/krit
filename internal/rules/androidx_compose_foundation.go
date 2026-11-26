@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 
+	"github.com/kaeawc/krit/internal/filefacts"
 	"github.com/kaeawc/krit/internal/rules/api"
 	"github.com/kaeawc/krit/internal/scanner"
 )
@@ -81,15 +82,27 @@ func (r *UseOfNonLambdaOffsetOverloadRule) check(ctx *api.Context) {
 	file, node := ctx.File, ctx.Idx
 	// The callee name rejects almost every call, so test it before anything that walks the tree.
 	name := flatCallExpressionName(file, node)
-	if name != "offset" && name != "absoluteOffset" {
+	if name == "" {
 		return
+	}
+	target := name
+	if name != "offset" && name != "absoluteOffset" {
+		// An import alias (`import ...offset as off`) still targets the foundation function.
+		alias := fileFactsCache().Imports(file).Aliases[name]
+		if alias != axlFoundationLayoutPackage+".offset" && alias != axlFoundationLayoutPackage+".absoluteOffset" {
+			return
+		}
+		target = alias[strings.LastIndex(alias, ".")+1:]
 	}
 	if acrIsInnerCallOfTrailingLambda(file, node) || acrHasTrailingLambda(file, node) {
 		return
 	}
-	name, nameNode, _ := acrCallCallee(file, node)
-	if (name != "offset" && name != "absoluteOffset") || len(acrFunctionDecls(file, name)) > 0 ||
-		!acrNameResolvesTo(file, axlFoundationLayoutPackage, name) {
+	name, nameNode, hasReceiver := acrCallCallee(file, node)
+	if name == "" || len(acrFunctionDecls(file, name)) > 0 ||
+		!acrSimpleNameRefersTo(file, name, axlFoundationLayoutPackage, target) {
+		return
+	}
+	if hasReceiver && axlReceiverProvenNotModifier(file, file.FlatFirstChild(acrCalleeExpression(file, node))) {
 		return
 	}
 	call, ok := lintCallAt(file, node)
@@ -110,6 +123,21 @@ func (r *UseOfNonLambdaOffsetOverloadRule) check(ctx *api.Context) {
 			return
 		}
 	}
+}
+
+// axlReceiverProvenNotModifier reports whether a call receiver is a value whose same-file declaration gives it a
+// type other than androidx.compose.ui.Modifier (android.graphics.Rect.offset and the like).
+func axlReceiverProvenNotModifier(file *scanner.File, receiver uint32) bool {
+	receiver = acrUnwrapParens(file, receiver)
+	if receiver == 0 || file.FlatType(receiver) != "simple_identifier" {
+		return false
+	}
+	decl := acrValueDeclaration(file, receiver, file.FlatNodeText(receiver))
+	if decl == 0 {
+		return false
+	}
+	t := acrDeclaredType(file, decl)
+	return t != 0 && !acrTypeIs(file, t, "androidx.compose.ui", "Modifier")
 }
 
 // axlReadsState reports whether any name in expr refers to a State-backed declaration, or reads `.value` of one.
@@ -147,6 +175,7 @@ var axlStateFactories = map[string]string{
 	"animateIntOffsetAsState":     "androidx.compose.animation.core",
 	"animateValueAsState":         "androidx.compose.animation.core",
 	"collectAsStateWithLifecycle": "androidx.lifecycle.compose",
+	"rememberUpdatedState":        "androidx.compose.runtime",
 }
 
 // axlDeclIsStateBacked reports whether a property or parameter is a State or Animatable (by declared type or
@@ -184,6 +213,9 @@ func axlExprIsState(file *scanner.File, expr uint32, depth int) bool {
 			return true
 		}
 		if name == "remember" && acrNameResolvesTo(file, "androidx.compose.runtime", name) {
+			return axlExprIsState(file, acrTrailingLambdaResult(file, expr), depth+1)
+		}
+		if name == "rememberSaveable" && acrNameResolvesTo(file, "androidx.compose.runtime.saveable", name) {
 			return axlExprIsState(file, acrTrailingLambdaResult(file, expr), depth+1)
 		}
 	case "simple_identifier":
@@ -227,7 +259,9 @@ func axlUsesBoxWithConstraintsScope(file *scanner.File, lambda uint32) bool {
 			used = true
 		case "simple_identifier", "interpolated_identifier":
 			name := file.FlatNodeText(n)
-			if p, ok := file.FlatParent(n); ok && file.FlatType(p) == "navigation_suffix" {
+			if p, ok := file.FlatParent(n); ok && (file.FlatType(p) == "navigation_suffix" ||
+				(file.FlatType(p) == "value_argument" && file.FlatNextSib(n) != 0 && file.FlatType(file.FlatNextSib(n)) == "=")) {
+				// `x.maxWidth` reads another value's property; `minWidth = 48.dp` is an argument label.
 				return
 			}
 			if axlBoxWithConstraintsScopeMembers[name] {
@@ -238,9 +272,11 @@ func axlUsesBoxWithConstraintsScope(file *scanner.File, lambda uint32) bool {
 				used = true
 				return
 			}
+			if !axlBoxScopeReceiverValueNames(file)[name] {
+				return
+			}
 			if decl := acrValueDeclaration(file, n, name); decl != 0 {
-				if t := acrDeclaredType(file, decl); t != 0 &&
-					strings.Contains(strings.Join(strings.Fields(file.FlatNodeText(t)), ""), "BoxWithConstraintsScope.(") {
+				if t := acrDeclaredType(file, decl); t != 0 && axlIsBoxScopeReceiverType(file, t) {
 					used = true
 				}
 			}
@@ -250,23 +286,55 @@ func axlUsesBoxWithConstraintsScope(file *scanner.File, lambda uint32) bool {
 }
 
 // axlSameFileBoxScopeExtension reports whether the file declares a function or property with that name whose
-// receiver type is BoxWithConstraintsScope.
+// receiver type is BoxWithConstraintsScope. The names are collected once per file.
 func axlSameFileBoxScopeExtension(file *scanner.File, name string) bool {
-	for _, fn := range acrFunctionDecls(file, name) {
-		if t := acrFunctionReceiverType(file, fn); t != 0 && acrTypeNodeName(file, t) == "BoxWithConstraintsScope" {
-			return true
-		}
-	}
-	found := false
-	file.FlatWalkNodes(0, "property_declaration", func(p uint32) {
-		if found || acrPropertyName(file, p) != name {
-			return
-		}
-		if t, ok := file.FlatFindChild(p, "user_type"); ok && acrTypeNodeName(file, t) == "BoxWithConstraintsScope" {
-			found = true
-		}
+	names := filefacts.FileFact(fileFactsCache(), file, slotAxlBoxScopeExtensions, func() map[string]bool {
+		out := map[string]bool{}
+		file.FlatWalkNodes(0, "function_declaration", func(fn uint32) {
+			if t := acrFunctionReceiverType(file, fn); t != 0 && acrTypeNodeName(file, t) == "BoxWithConstraintsScope" {
+				out[acrDeclarationName(file, fn)] = true
+			}
+		})
+		file.FlatWalkNodes(0, "property_declaration", func(p uint32) {
+			if t, ok := file.FlatFindChild(p, "user_type"); ok && acrTypeNodeName(file, t) == "BoxWithConstraintsScope" {
+				out[acrPropertyName(file, p)] = true
+			}
+		})
+		return out
 	})
-	return found
+	return names[name]
+}
+
+const (
+	slotAxlBoxScopeExtensions     = "axlBoxScopeExtensions"
+	slotAxlBoxScopeReceiverValues = "axlBoxScopeReceiverValues"
+)
+
+// axlBoxScopeReceiverValueNames returns, once per file, the names of parameters and properties whose declared type
+// is a function type with a BoxWithConstraintsScope receiver; only those can be invoked to use the scope.
+func axlBoxScopeReceiverValueNames(file *scanner.File) map[string]bool {
+	return filefacts.FileFact(fileFactsCache(), file, slotAxlBoxScopeReceiverValues, func() map[string]bool {
+		out := map[string]bool{}
+		if !fileFactsCache().Mentions(file, "BoxWithConstraintsScope") {
+			return out
+		}
+		file.FlatWalkNodes(0, "parameter", func(p uint32) {
+			if t := acrParameterType(file, p); t != 0 && axlIsBoxScopeReceiverType(file, t) {
+				out[file.FlatChildTextOrEmpty(p, "simple_identifier")] = true
+			}
+		})
+		file.FlatWalkNodes(0, "property_declaration", func(p uint32) {
+			if t := acrDeclaredType(file, p); t != 0 && axlIsBoxScopeReceiverType(file, t) {
+				out[acrPropertyName(file, p)] = true
+			}
+		})
+		return out
+	})
+}
+
+// axlIsBoxScopeReceiverType reports whether a type is a function type with a BoxWithConstraintsScope receiver.
+func axlIsBoxScopeReceiverType(file *scanner.File, t uint32) bool {
+	return strings.Contains(strings.Join(strings.Fields(file.FlatNodeText(t)), ""), "BoxWithConstraintsScope.(")
 }
 
 // check mirrors TextFieldBufferAppendDetector: append on a TextFieldBuffer receiver in a file whose package is
@@ -295,6 +363,13 @@ func (r *TextFieldBufferInternalAppendRule) check(ctx *api.Context) {
 		return
 	}
 	ctx.EmitAtNode(nameNode, axlTextFieldBufferMessage)
+}
+
+// axlNonReceiverLambdaFunctions are stdlib functions whose lambda has no receiver, so the implicit receiver inside it
+// is the enclosing one.
+var axlNonReceiverLambdaFunctions = map[string]bool{
+	"let": true, "also": true, "takeIf": true, "takeUnless": true, "forEach": true, "forEachIndexed": true,
+	"map": true, "mapNotNull": true, "filter": true, "onEach": true, "repeat": true, "any": true, "all": true,
 }
 
 const axlTextFieldBufferMessage = "Do not use `append` on TextFieldBuffer internally as it swallows the hardware " +
@@ -340,7 +415,12 @@ func axlImplicitTextFieldBuffer(file *scanner.File, node uint32) bool {
 				return axlExprIsTextFieldBuffer(file, file.FlatFirstChild(acrCalleeExpression(file, arg.Call)), 0)
 			case name == "edit" && hasReceiver:
 				return true
+			case axlNonReceiverLambdaFunctions[name]:
+				// The lambda has no receiver of its own; the implicit receiver comes from further out.
+				continue
 			}
+			// Any other lambda (buildString { }, buildAnnotatedString { }, ...) may bring its own receiver.
+			return false
 		case "function_declaration":
 			t := acrFunctionReceiverType(file, p)
 			return t != 0 && acrTypeIs(file, t, axlTextInputPackage, "TextFieldBuffer")

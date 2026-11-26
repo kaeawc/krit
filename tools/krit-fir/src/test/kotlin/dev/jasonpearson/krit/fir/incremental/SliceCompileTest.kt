@@ -98,7 +98,7 @@ class SliceCompileTest {
         assertEquals(plain.errorFiles, on.errorFiles)
         assertNull(session.incrementalState.snapshot)
         assertEquals(SliceFallback.COMPILE_ERRORS, session.sliceFallback(), "the compile errors are the reason, not a missing build")
-        assertEquals("COMPILE_ERRORS: compile errors in 1 file", session.sliceFallbackDescription())
+        assertEquals("COMPILE_ERRORS: compile errors in 1 file, more than the 0 a snapshot leaves out", session.sliceFallbackDescription())
         assertEquals(1, session.incrementalState.generation, "the recording is still committed")
         assertTrue(snaps.resolve("fir-snapshots").listFiles().orEmpty().isEmpty(), "no directory is left behind")
     }
@@ -198,7 +198,7 @@ class SliceCompileTest {
         val on = full(session)
         assertEquals(2, on.errorFiles.size)
         assertNull(session.incrementalState.snapshot)
-        assertEquals("COMPILE_ERRORS: compile errors in 2 files", session.sliceFallbackDescription())
+        assertEquals("COMPILE_ERRORS: compile errors in 2 files, more than the 1 a snapshot leaves out", session.sliceFallbackDescription())
         session.dispose()
     }
 

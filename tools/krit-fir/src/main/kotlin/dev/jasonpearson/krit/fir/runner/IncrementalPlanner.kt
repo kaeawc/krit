@@ -160,8 +160,10 @@ internal class IncrementalPlanner(private val session: AnalysisSession) {
         if (DEBUG) System.err.println(telemetry)
         // Only the slice fallback's detail goes on the wire: it names a cause the user can act on (compile errors),
         // where the other details are internal (exception text, generations).
+        // A full check replaced the state: say whether the next check can slice (#1599).
+        val snapshot = if (path == PlanPath.FULL) session.snapshotOutcome() else null
         return result.copy(plan = PlanSummary(path.name.lowercase(), reason?.name?.lowercase(), c.compiled.size, telemetry.totalMillis,
-            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }))
+            detail.takeIf { reason == FullReason.SLICE_UNAVAILABLE }, snapshot))
     }
 
     private fun attempt(r: Request, rules: Set<String>, c: Counters): BatchResult {

@@ -224,10 +224,16 @@ that could not be loaded) keeps incremental checking as long as the errors are
 in a few files: the binary snapshot is built from the other files, and the
 files with errors have no binary, so every incremental check compiles them from
 source. "A few" is the planner's stale bound: fewer than 16 files, or at most
-5% of the module. Past it, or with a compiler error not tied to a file, the
+5% of the module. It applies to the check that builds the snapshot, the
+first one included. Past it, or with a compiler error not tied to a file, the
 module gets no snapshot and the planner says why it fell back: the
 `firCheckBroker` perf entry reads `full (slice_unavailable: COMPILE_ERRORS:
-compile errors in 60 files)` instead of `full (slice_unavailable)`.
+compile errors in 60 files, more than the 15 a snapshot leaves out)` instead
+of `full (slice_unavailable)`. Every full check also says, under `-v`, what
+it left the next one (#1599): `incremental FIR: full (cold); snapshot built
+without 9 files with compiler errors`, or `incremental FIR off: full (cold);
+no snapshot: ...` with the reason (the bound and its counts, an error not
+tied to a file, or the snapshot build failing).
 
 ## The allowlist
 

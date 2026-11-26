@@ -121,7 +121,15 @@ data class PlanSummary(
     val path: String, val reason: String?, val dirtyFiles: Int, val totalMillis: Long,
     /** More about [reason] where it helps the caller act: why no slice compile was available. */
     val detail: String? = null,
+    /**
+     * For a full check, what it left the next one (#1599): "built", "built without N files with compiler errors", or
+     * "none: " and why (the left-out bound with its counts, an error not tied to a file, a failed backend run).
+     */
+    val snapshot: String? = null,
 )
+
+/** "1 file", "9 files". */
+internal fun plural(n: Int, noun: String): String = "$n $noun${if (n == 1) "" else "s"}"
 
 // Holds the current session config. When sourceDirs or classpath change the Go side sends a
 // "rebuild" command which disposes this session and creates a new one.
@@ -530,6 +538,18 @@ class AnalysisSession(
         return maxOf(limits.staleMinFiles - 1, withinFraction)
     }
 
+    /**
+     * What the last full check left the next one, for [PlanSummary.snapshot]: "built", "built without N files with
+     * compiler errors" (they have no binary and every slice compiles them), or "none: " and why.
+     */
+    internal fun snapshotOutcome(): String {
+        val state = incrementalState
+        state.fallbackReason()?.let { reason -> return "none: " + (state.fallbackDetail() ?: reason.message) }
+        val withoutBinary = state.binaryStale().size
+        if (withoutBinary == 0) return "built"
+        return "built without ${plural(withoutBinary, "file")} with compiler errors"
+    }
+
     /** [sliceFallback] for telemetry: its name, plus what the state knows about it (`COMPILE_ERRORS: compile errors in 6 files`). */
     internal fun sliceFallbackDescription(): String? {
         val fallback = sliceFallback() ?: return null
@@ -842,11 +862,20 @@ class AnalysisSession(
                         val erroneous = build != null && !build.built && !build.frontendClean && build.failure == null
                         if (erroneous) {
                             val files = collector.errorFiles.size
-                            val detail = if (files > 0) "compile errors in $files file${if (files == 1) "" else "s"}"
-                                else "a compiler error not tied to a file"
+                            // The backend runs without the files with errors up to the bound (SnapshotBuild): past it,
+                            // or with an error it cannot tie to a file, there is no snapshot. Say which, with counts.
+                            val detail = when {
+                                files > build.maxLeftOut ->
+                                    "compile errors in ${plural(files, "file")}, more than the ${build.maxLeftOut} a snapshot leaves out"
+                                files > 0 -> "a compiler error not tied to a file (and compile errors in ${plural(files, "file")})"
+                                else -> "a compiler error not tied to a file"
+                            }
                             incrementalState.attachSnapshot(null, SliceFallback.COMPILE_ERRORS, detail)
                         } else {
-                            incrementalState.attachSnapshot(snapshot, noSnapshotReason, withoutBinary = build?.leftOut.orEmpty())
+                            val failed = build?.failure?.let {
+                                "building it failed: ${it.javaClass.simpleName}: ${it.message?.lineSequence()?.firstOrNull()}"
+                            }
+                            incrementalState.attachSnapshot(snapshot, noSnapshotReason, failed, withoutBinary = build?.leftOut.orEmpty())
                         }
                         if (snapshot != null) pendingSnapshot = null
                     }

@@ -480,6 +480,10 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - `CompileTimeConstant` only runs on files that mention `CompileTimeConstant`. Every finding needs an annotated
   declaration in the same file, so other files cannot be reported; the rule spent about 2s on element-x-android and
   0.7s on okhttp finding nothing. Lint ports can opt into the same gate by declaring `fileMentions()`.

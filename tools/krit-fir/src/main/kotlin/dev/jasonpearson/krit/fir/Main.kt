@@ -836,7 +836,8 @@ fun buildCheckResponse(result: BatchResult): String {
     // How the incremental planner served the check, when it ran: "incremental", or "full" with the reason.
     val planJson = result.plan?.let { plan ->
         val reason = plan.reason?.let { ""","reason":${jsonStr(it)}""" }.orEmpty() +
-            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty()
+            plan.detail?.let { ""","detail":${jsonStr(it)}""" }.orEmpty() +
+            plan.snapshot?.let { ""","snapshot":${jsonStr(it)}""" }.orEmpty()
         ""","incremental":{"path":${jsonStr(plan.path)}$reason,"dirtyFiles":${plan.dirtyFiles},"totalMs":${plan.totalMillis}}"""
     }.orEmpty()
     return """{"id":${result.id},"succeeded":${result.succeeded},"skipped":${result.skipped},"findings":[$findingsJson],"rules":$rulesJson,"crashed":$crashedJson,"errorFiles":$errorFilesJson,"ruleErrors":$ruleErrorsJson$moduleJson$planJson}"""

@@ -261,7 +261,7 @@ private class SnapshotJvmPipeline(
  * therefore reports and flushes them itself, before the backend runs; the end-of-pipeline repeat is dropped.
  */
 internal class SnapshotBuild(
-    val snapshot: Snapshot, private val lookups: CompileLookups?, private val maxLeftOut: Int = 0,
+    val snapshot: Snapshot, private val lookups: CompileLookups?, val maxLeftOut: Int = 0,
 ) {
     private val outputMessages = ConcurrentLinkedQueue<String>()
 

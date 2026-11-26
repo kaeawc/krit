@@ -13,7 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TestWithoutAssertionFilesTest {
-    @Test fun reviewerExamplesAreSilent() {
+    @Test fun reviewerExamplesMatchTheirGolden() {
         object : AbstractDiagnosticTest() {}.runDiagnosticTest("testingquality/TestWithoutAssertionReviewer.kt")
     }
 
@@ -48,7 +48,9 @@ class TestWithoutAssertionFilesTest {
         return result.diags.filter { it.name == "TestWithoutAssertion" }
     }
 
-    @Test fun crossFileHelpersAbstainDespiteIdenticalNames() {
+    // A helper in another file has no body FIR may read, so it proves nothing either way and Go's finding stands for
+    // both tests: FIR reports them, and the confirm-only merge keeps Go's verdict (#1671).
+    @Test fun crossFileHelpersAreNoProof() {
         val helpers = """
             package support
             import org.junit.Assert.assertEquals
@@ -69,10 +71,50 @@ class TestWithoutAssertionFilesTest {
                 @Test fun unverified() { Plain().consumeReady() }
             }
         """.trimIndent()
-        assertEquals(emptyList(), findings(mapOf("Helpers.kt" to helpers, "HelpersTest.kt" to tests)))
+        assertEquals(listOf(5, 6), findings(mapOf("Helpers.kt" to helpers, "HelpersTest.kt" to tests)).map { it.line })
     }
 
-    @Test fun binaryModuleAndFriendSourceSetHelpersAbstain() {
+    // #1671: constructor calls, property reads, assignments in a helper, and helpers in another file prove no
+    // assertion. TestWithoutAssertion is confirm-only, so FIR reports these and Go's findings stand.
+    @Test fun ordinaryCallsAndReadsAreNotAssertions() {
+        val library = """
+            package demo.lib
+            fun greet(name: String): String = "hi ${'$'}name"
+            class Initializer(private val names: List<String>) {
+                fun start() { names.forEach { greet(it) } }
+            }
+        """.trimIndent()
+        val other = """
+            package demo
+            class Holder { var value: Int = 0 }
+            fun bump(holder: Holder): Int {
+                holder.value += 1
+                return holder.value
+            }
+        """.trimIndent()
+        val tests = """
+            package demo
+            import demo.lib.Initializer
+            import demo.lib.greet
+            import org.junit.Test
+            class Local(private val n: Int) { fun run(): Int = n + 1 }
+            object Config { val name: String = "x" }
+            class NoAssertTest {
+                private val local = Local(1)
+                @Test fun callsLocalFunction() { bump(Holder()) }
+                @Test fun constructsAndCalls() { Local(1).run() }
+                @Test fun readsProperty() { local.run() }
+                @Test fun readsObjectProperty() { println(Config.name) }
+                @Test fun callsOtherModule() { Initializer(listOf("a")).start() }
+                @Test fun callsOtherModuleTopLevel() { greet("a") }
+                @Test fun assignsLocally() { var x = 0; x = Config.name.length; println(x) }
+            }
+        """.trimIndent()
+        val sources = mapOf("Greet.kt" to library, "Other.kt" to other, "NoAssertTest.kt" to tests)
+        assertEquals((9..15).toList(), findings(sources).filter { it.file == "NoAssertTest.kt" }.map { it.line })
+    }
+
+    @Test fun binaryModuleAndFriendSourceSetHelpersAreNoProof() {
         val directory = kotlin.io.path.createTempDirectory("krit-test-helpers").toFile()
         try {
             val source = directory.resolve("Library.kt")
@@ -104,7 +146,7 @@ class TestWithoutAssertionFilesTest {
                     if (friend) arguments.friendPaths = arrayOf(output.absolutePath)
                 }
                 assertTrue(result.clean, result.problems())
-                assertEquals(emptyList(), result.diags.filter { it.name == "TestWithoutAssertion" })
+                assertEquals(listOf(5, 6), result.diags.filter { it.name == "TestWithoutAssertion" }.map { it.line })
             }
         } finally {
             directory.deleteRecursively()
@@ -125,7 +167,8 @@ class TestWithoutAssertionFilesTest {
         assertEquals(emptyList(), findings(mapOf("LookalikesTest.kt" to source)))
     }
 
-    @Test fun cyclesAndThrowingHelpersAbstain() {
+    // A cycle and a conditional throw in a helper still suppress the report; a stub that only throws does not.
+    @Test fun cyclesAndConditionalThrowsSuppressButAStubDoesNot() {
         val source = """
             import org.junit.Test
             class HelpersTest {
@@ -138,7 +181,7 @@ class TestWithoutAssertionFilesTest {
                 private fun stub() { throw NotImplementedError("later") }
             }
         """.trimIndent()
-        assertEquals(emptyList(), findings(mapOf("HelpersTest.kt" to source)))
+        assertEquals(listOf(5), findings(mapOf("HelpersTest.kt" to source)).map { it.line })
     }
 
     @Test fun optionsMatchResolvedDeclaredNamesNotImportAliases() {

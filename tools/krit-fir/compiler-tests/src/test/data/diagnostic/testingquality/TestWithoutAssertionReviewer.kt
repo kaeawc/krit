@@ -51,9 +51,9 @@ class ReviewerLibraries(
     @Test fun composeCountCheck() { rule.waitUntilNodeCount(hasText("x"), 2) }
     @Test fun inheritedBenchmark() { benchmarkRule.measureRepeated { println(1) } }
     @Test fun circuitSubtype() = runTest { presenter.test { awaitItem() } }
-    @Test fun customTruthSubtype() { subject.matchesValue(1) } // FIR abstains: external custom subject is not allowlisted.
+    @Test fun customTruthSubtype() { subject.matchesValue(1) } // FIR abstains: CustomSubject extends Truth's Subject, so the call is an assertion.
     @Test fun crossModuleNamedHelper() { rule.verifyLoginShown() }
-    @Test fun crossSourceSetHelper() { rule.displayLogin() } // FIR abstains: cross-file/source-set helper body is unknown.
+    @Test fun <!TestWithoutAssertion!>crossSourceSetHelper<!>() { rule.displayLogin() } // FIR keeps Go's finding: the cross-file helper body is unknown.
 }
 
 class ReviewerCallbacks(private val listener: Listener) {
@@ -81,10 +81,10 @@ class ReviewerConservativeEvidence {
     private val values = mapOf("a" to "ready")
     private fun loaded(): String = values["a"] ?: error("not loaded")
     @Test fun loads() { loaded() } // FIR abstains: helper uses an Elvis failure and unknown member lookup.
-    @Test fun productionFileOperation() { Repository().load() } // FIR abstains: cross-file production body and constructor are unknown.
+    @Test fun <!TestWithoutAssertion!>productionFileOperation<!>() { Repository().load() } // FIR keeps Go's finding: a constructor and a cross-file production body prove nothing.
     @Test fun trailingPropertyCast() {
         val value: Any = "ready"
         val text = value as String
     }
-    @Test fun externalPlatformCallback() { java.util.concurrent.CompletableFuture.runAsync { println(1) }.get() } // FIR abstains: external platform callback is not allowlisted.
+    @Test fun <!TestWithoutAssertion!>externalPlatformCallback<!>() { java.util.concurrent.CompletableFuture.runAsync { println(1) }.get() } // FIR keeps Go's finding: the callback asserts nothing.
 }

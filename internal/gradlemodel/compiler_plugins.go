@@ -29,13 +29,14 @@ type CompilerPlugins struct {
 func (p CompilerPlugins) IsZero() bool { return len(p.Classpath) == 0 }
 
 // identity is the plugin component of KotlinSettings.Identity: each jar's
-// path, size and modification time (a rebuilt plugin jar changes what the
-// compiler generates) and every option in order. "" for no plugins.
+// content (a rebuilt plugin jar changes what the compiler generates; the
+// same jar under another GRADLE_USER_HOME does not) and every option in
+// order. "" for no plugins.
 func (p CompilerPlugins) identity() string {
 	if p.IsZero() {
 		return ""
 	}
-	return "|plugins=" + ClasspathFingerprint(p.Classpath) + "|pluginOptions=" + strings.Join(p.Options, "\x1f")
+	return "|plugins=" + ClasspathContentFingerprint(p.Classpath) + "|pluginOptions=" + strings.Join(p.Options, "\x1f")
 }
 
 // Describe names the plugin jars for verbose output.

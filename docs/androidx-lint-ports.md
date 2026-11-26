@@ -43,3 +43,19 @@ import, as it does in Kotlin.
   dependency added by a convention plugin or arriving through another project module is not seen; one read from a
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
+
+## Opt-in markers
+
+`androidx.annotation:annotation-experimental` 1.6.0, on annotation declarations in production sources:
+
+- `ExperimentalAnnotationRetention` (Kotlin and Java) reports an opt-in marker (an annotation class meta-annotated
+  with `kotlin.RequiresOptIn`, `kotlin.Experimental`, `androidx.annotation.RequiresOptIn` or
+  `androidx.annotation.experimental.Experimental`) whose retention is not the expected one, at its name: Kotlin
+  markers need an explicit `kotlin.annotation.Retention(AnnotationRetention.BINARY)` (the default is `RUNTIME`), Java
+  markers the default `CLASS`. As in Lint, a Kotlin `java.lang.annotation.Retention` does not count, and the message
+  calls a retention equal to the default "default (`…`)".
+- `WrongRequiresOptIn` (Kotlin) reports a Kotlin annotation class marked with `androidx.annotation.RequiresOptIn`,
+  whose opt-in policy the Kotlin compiler does not enforce; use `kotlin.RequiresOptIn`.
+
+Annotation names resolve through imports (aliases and star imports), the file's package and Kotlin's default
+`kotlin.*` / `kotlin.annotation.*` imports.

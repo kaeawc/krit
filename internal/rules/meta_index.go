@@ -144,6 +144,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*RetainRememberObserverRule)(nil),
 		(*RetainingDoNotRetainTypeRule)(nil),
 		(*RetainLeaksContextRule)(nil),
+		(*ExperimentalAnnotationRetentionRule)(nil),
+		(*WrongRequiresOptInRule)(nil),
 		(*UnusedMaterialScaffoldPaddingParameterRule)(nil),
 		(*UnusedMaterial3ScaffoldPaddingParameterRule)(nil),
 		(*ConflictingOnColorRule)(nil),

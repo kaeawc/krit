@@ -9,6 +9,7 @@ import (
 
 // axlParityRoots are the testdata directories of the AndroidX Lint ports checked by TestAndroidxLintParity.
 var axlParityRoots = []string{
+	"androidx_annotation_experimental",
 	"androidx_compose_material",
 }
 

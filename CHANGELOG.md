@@ -15,12 +15,6 @@ All notable changes to Krit will be documented in this file.
 - Gradle model: Kotlin Multiplatform Android targets record the generated roots AGP's Variant API registers for their
   component (view binding, BuildConfig, AIDL, `addGeneratedSourceDirectory`), and `kritCheck`/`exportGenerated` run
   their producers, as plain Android modules already did (#1643).
-- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
-  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
-  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
-  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
-  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a same-file top-level
-  `runCatching` shadows kotlin's (#1428, #1429).
 - Gradle model freshness key for CI: `krit gradle-model key` hashes the build files that can change
   `kritExportModel`'s output (settings and build scripts, version catalogs, lockfiles, dependency verification metadata,
   `gradle.properties`, the wrapper version, the sources of buildSrc and of builds nested under the root) by root-relative
@@ -500,6 +494,12 @@ All notable changes to Krit will be documented in this file.
   with `--experimental`. One shared project pass serves every `MoshiUsage*` rule. A new `api.Rule.LintIssue` flag
   lets rules outside `android-lint` whose IDs are Lint issue IDs honor `lint.xml` and Gradle `lint { disable }`
   (#1391, #1392, #1393, #1394, #1397).
+- `DenyListedApi` and `DenyListedBlockingApi`, slack-lints 0.11.1's `DenyListedApiDetector`, in the opt-in
+  `slack-lint` rule set for Kotlin and Java. They report the detector's built-in list (RxJava 3 `hide()` and blocking
+  calls, `java.util.Date`/`Calendar` and `java.text.DateFormat` APIs, `LinkedList`/`Stack`/`Vector`, `runCatching`,
+  `Flow.launchIn`, dispatcher-less rx3 builders and more) once the owner is proven from imports or the receiver's type.
+  Findings match the Lint CLI on `internal/rules/testdata/slack_lint/denylist/`, except that a same-file top-level
+  `runCatching` shadows kotlin's (#1428, #1429).
 - `MultipleAwaitPointerEventScopes` and `ReturnFromAwaitPointerEventScope`, ported from `androidx.compose.ui:ui-android`
   1.12.1 under their Lint IDs and checked against the Lint CLI on the same inputs. The first counts
   `awaitPointerEventScope` calls within the enclosing `pointerInput` call (its own arguments, not the chain before it)

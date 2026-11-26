@@ -64,6 +64,29 @@ import, as it does in Kotlin.
   Bazel `MODULE.bazel`/`WORKSPACE` counts for the whole build.
   Fully qualified references such as `androidx.compose.material.Button()` are not reported, as in Lint.
 
+## Lifecycle runtime and LiveData
+
+`androidx.lifecycle:lifecycle-livedata-core` and `lifecycle-runtime` 2.11.1 (Kotlin, production sources):
+
+- `NullSafeMutableLiveData` reports `live.value = x`, `live.setValue(x)` and `live.postValue(x)` on a LiveData whose
+  type argument is non-nullable and not a type parameter: `null` ("Cannot set non-nullable LiveData value to
+  `null`"), or a nullable value ("Expected non-nullable value"), at the value. The type argument comes from the
+  receiver's same-file declaration (its declared `LiveData`/`MutableLiveData`/`MediatorLiveData` type, a
+  `MutableLiveData<T>()` initializer, or the supertype of a same-file subclass). A nullable value is a name declared
+  with a nullable type, unless an enclosing `if`/`when` condition null-checks it, it is inside the lambda of a safe
+  call on it (`x?.let { }`), or an earlier statement proves it non-null (`!!`, `?: return`, `requireNotNull`,
+  `require`/`check(x != null)`, `if (x == null || …) return`, an `isNullOrEmpty`/`isNullOrBlank` exit, or a
+  subject-less `when` whose entries up to `x == null -> return` all exit), or a call of a same-file function with a
+  nullable return type.
+- `UnsafeLifecycleWhenUsage` reports View access in the `finally` block of a `try` that makes a suspend call, inside
+  `lifecycle.whenStarted { }`, `whenCreated` or `whenResumed` (aliases resolved), at the access. Only the `try`
+  clause is searched for suspend calls: same-file `suspend` functions, kotlinx.coroutines top-level suspend
+  functions, and suspend members such as `first`/`await`/`send` on a value declared as a kotlinx.coroutines `Flow`,
+  `Channel`, `Deferred` or `Job`. View access is a call or property on a value declared as an `android.view.View`
+  subclass, followed into same-file functions three levels deep. Like the detector's visitor, both searches skip
+  suspend lambdas (`launch { }`, `coroutineScope { }`, …) and declarations, local variables included. Only
+  `finally` is checked and a `lifecycle.currentState.isAtLeast(…)` guard does not count (the detector looks for an
+  `isAtLeast` on `Lifecycle` itself, which `Lifecycle.State` declares instead).
 ## ConstraintLayout Compose
 
 `androidx.constraintlayout:constraintlayout-compose-android` 1.1.2 (Kotlin, production sources). Like the detector,

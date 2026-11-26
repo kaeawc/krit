@@ -155,6 +155,8 @@ func AllMetaProviders() []api.MetaProvider {
 		(*CrossOriginIsolatedAllowlistRule)(nil),
 		(*DontUseAccessibilityNodeInfoGetTextRule)(nil),
 		(*RetainRememberObserverRule)(nil),
+		(*NullSafeMutableLiveDataRule)(nil),
+		(*UnsafeLifecycleWhenUsageRule)(nil),
 		(*RetainingDoNotRetainTypeRule)(nil),
 		(*RetainLeaksContextRule)(nil),
 		(*IncorrectReferencesDeclarationRule)(nil),

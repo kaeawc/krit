@@ -145,3 +145,43 @@ func (r *ComposeViewModelInjectionRule) Meta() api.RuleDescriptor {
 			}),
 		}}
 }
+
+func (r *ComposeContentEmitterReturningValuesRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeContentEmitterReturningValues", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Indirect emission is followed through composables of the same file only, by name, as in compose-lints.",
+		},
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeContentEmitterReturningValuesRule]{
+				Name:        "contentEmitters",
+				Description: "Extra composables known to emit content (compose-lints `content-emitters`).",
+				Apply:       func(r *ComposeContentEmitterReturningValuesRule, v []string) { r.ContentEmitters = v },
+			}),
+		}}
+}
+
+func (r *ComposeMultipleContentEmittersRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeMultipleContentEmitters", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"Indirect emission is followed through composables of the same file only, by name, as in compose-lints.",
+			"compose-lints' exemption for emitters scoped to context parameters is not ported.",
+		},
+		Options: []api.ConfigOption{
+			api.StringListOption(api.StringListOptionSpec[ComposeMultipleContentEmittersRule]{
+				Name:        "contentEmitters",
+				Description: "Extra composables known to emit content (compose-lints `content-emitters`).",
+				Apply:       func(r *ComposeMultipleContentEmittersRule, v []string) { r.ContentEmitters = v },
+			}),
+		}}
+}
+
+func (r *ComposeNonRestartableComposableRule) Meta() api.RuleDescriptor {
+	return api.RuleDescriptor{ID: "ComposeNonRestartableComposable", RuleSet: composeLintsRuleSet, DefaultActive: false,
+		OptInReason: api.OptInReasonOpinionated,
+		KnownLimitations: []string{
+			"The delegate must resolve to project composables (every overload non-inline, not @ReadOnlyComposable, returning Unit) or to a small table of Compose library composables imported from their packages; other library delegates are not reported.",
+			"compose-lints' suggested fix (add @NonRestartableComposable) is not ported.",
+		}}
+}

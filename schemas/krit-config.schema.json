@@ -18380,6 +18380,46 @@
             }
           }
         },
+        "ComposeContentEmitterReturningValues": {
+          "description": "Detects composables that both emit content and return a value. [precision: ast-backed] [noisiness: normal]\nCaveat: Indirect emission is followed through composables of the same file only, by name, as in compose-lints.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeContentEmitterReturningValues (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "contentEmitters": {
+              "description": "Extra composables known to emit content (compose-lints `content-emitters`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeDerivedStateMisuse": {
           "description": "Detects unnecessary derivedStateOf wrapping a direct boolean comparison of Compose state reads. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -18833,6 +18873,46 @@
             }
           }
         },
+        "ComposeMultipleContentEmitters": {
+          "description": "Detects composables that emit content from more than one source at their top level. [precision: ast-backed] [noisiness: normal]\nCaveat: Indirect emission is followed through composables of the same file only, by name, as in compose-lints.\nCaveat: compose-lints' exemption for emitters scoped to context parameters is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeMultipleContentEmitters (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "contentEmitters": {
+              "description": "Extra composables known to emit content (compose-lints `content-emitters`).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "ComposeMutableDefaultArgument": {
           "description": "Detects @Composable parameters with mutable collection defaults that re-evaluate on each recomposition. [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -18873,6 +18953,39 @@
           "properties": {
             "active": {
               "description": "Enable ComposeMutableParameters (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "ComposeNonRestartableComposable": {
+          "description": "Detects composables that only delegate to another composable and could be @NonRestartableComposable. [precision: project-structure-aware] [noisiness: normal] [capabilities: cross-file]\nCaveat: The delegate must resolve to project composables (every overload non-inline, not @ReadOnlyComposable, returning Unit) or to a small table of Compose library composables imported from their packages; other library delegates are not reported.\nCaveat: compose-lints' suggested fix (add @NonRestartableComposable) is not ported.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable ComposeNonRestartableComposable (default: false).",
               "type": "boolean",
               "default": false
             },

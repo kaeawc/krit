@@ -118,7 +118,12 @@ func TestResDirFingerprintCoversBuildScripts(t *testing.T) {
 		t.Fatal("editing the build script did not change the res directory fingerprint")
 	}
 	write("gradle/libs.versions.toml", "[plugins]\nandroid-library = { id = \"com.android.library\" }\n")
-	if fingerprint() == edited {
+	withCatalog := fingerprint()
+	if withCatalog == edited {
 		t.Fatal("adding a version catalog did not change the res directory fingerprint")
+	}
+	write("settings.gradle.kts", `include(":app")`)
+	if fingerprint() == withCatalog {
+		t.Fatal("adding a settings script did not change the res directory fingerprint")
 	}
 }

@@ -1,5 +1,10 @@
 package rules
 
+import (
+	"github.com/kaeawc/krit/internal/rules/api"
+	"github.com/kaeawc/krit/internal/scanner"
+)
+
 // registerAndroidLintManifestResourceMiscChecks registers the Android Lint 32.4.1 ScopedStorage, SelectableText,
 // CustomSplashScreen, VectorDrawableCompat and TranslucentOrientation checks.
 func registerAndroidLintManifestResourceMiscChecks() {
@@ -12,7 +17,14 @@ func registerAndroidLintManifestResourceMiscChecks() {
 
 	splash := &CustomSplashScreenRule{AndroidRule: lintAndroidRule("CustomSplashScreen", "Application-defined Launch Screen",
 		ALCCorrectness, ALSWarning, 5)}
-	registerLintRule(splash.AndroidRule, splash, splash.Confidence(), splash.check, []string{"class_declaration"}, 0, nil)
+	// Registered like registerLintRule, plus OptionalResolver: the supertype chain is followed through the resolver
+	// when one is available.
+	api.Register(&api.Rule{
+		ID: splash.RuleName, Category: splash.RuleSetName, Description: splash.Description(), Sev: api.Severity(splash.Sev),
+		NodeTypes: []string{"class_declaration"}, Languages: []scanner.Language{scanner.LangKotlin, scanner.LangJava},
+		Confidence: splash.Confidence(), Implementation: splash, Check: lintSkipTestSources(splash.check),
+		FileGate: lintFileMentionsGate(splash), NeedsLibraryFacts: true, OptionalResolver: true,
+	})
 
 	vector := &VectorDrawableCompatRule{AndroidRule: lintAndroidRule("VectorDrawableCompat", "Using VectorDrawableCompat",
 		ALCCorrectness, ALSError, 5)}

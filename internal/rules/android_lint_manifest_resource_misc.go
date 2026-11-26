@@ -89,7 +89,7 @@ func (r *ScopedStorageRule) check(ctx *api.Context) {
 		switch {
 		case n.Tag == "application" && parent == m.Root:
 			legacy = legacy || n.AttrValue("android:requestLegacyExternalStorage") == "true"
-		case n.Tag == "uses-permission" && parent == m.Root:
+		case n.Tag == "uses-permission" && parent == m.Root && n.AttrValue("tools:node") != "remove":
 			canManage = canManage || n.AttrValue("android:name") == storageManage
 		}
 	})
@@ -263,14 +263,30 @@ func readModuleVectorSettings(module string) moduleVectorSettings {
 			continue
 		}
 		s.known = true
-		s.minSdk = readManifestGradleInfo(module).minSdk
-		if m := vectorSupportLibraryRe.FindStringSubmatch(string(data)); m != nil {
+		if info, ok := tryReadGradleInfo(module); ok {
+			s.minSdk = info.minSdk
+		}
+		// A commented-out useSupportLibrary setting does not count.
+		if m := vectorSupportLibraryRe.FindStringSubmatch(gradleWithoutComments(string(data))); m != nil {
 			s.useSupportLib = m[1] == "true"
 		}
 		s.buildFile = gradleModulePath(module) + "build.gradle"
 		break
 	}
 	return s
+}
+
+// vectorLayoutNamespaces maps the namespace prefixes a layout declares (xmlns:app=...) to their URIs.
+func vectorLayoutNamespaces(root *android.View) map[string]string {
+	out := map[string]string{}
+	walkViews(root, func(v *android.View) {
+		for name, value := range v.Attributes {
+			if prefix, ok := strings.CutPrefix(name, "xmlns:"); ok {
+				out[prefix] = value
+			}
+		}
+	})
+	return out
 }
 
 // gradleModulePath returns the module's Gradle path with a trailing separator (":app/") when a settings script above
@@ -319,18 +335,21 @@ func (r *VectorDrawableCompatRule) check(ctx *api.Context) {
 	}
 	for _, layout := range layouts {
 		settings := moduleVectorSettingsForRes(filepath.Dir(filepath.Dir(layout.FilePath)))
+		namespaces := vectorLayoutNamespaces(layout.RootView)
 		walkViews(layout.RootView, func(v *android.View) {
 			for name, value := range v.Attributes {
 				var message string
 				switch {
 				case name == "android:src" && settings.useSupportLib:
 					message = "When using VectorDrawableCompat, you need to use `app:srcCompat`"
-				case strings.HasSuffix(name, ":srcCompat") && name != "android:srcCompat" && !settings.useSupportLib:
+				case strings.HasSuffix(name, ":srcCompat") && !settings.useSupportLib &&
+					namespaces[strings.TrimSuffix(name, ":srcCompat")] == resAutoURI:
 					message = "To use VectorDrawableCompat, you need to set " +
 						"`android.defaultConfig.vectorDrawables.useSupportLibrary = true` in `" + settings.buildFile + "`"
 				default:
 					continue
 				}
+				// Like Lint, a reference matches a local vector by name alone (even @android:drawable/<name>).
 				url, ok := parseResourceURL(value)
 				if !ok || !vectors[url.name] {
 					continue

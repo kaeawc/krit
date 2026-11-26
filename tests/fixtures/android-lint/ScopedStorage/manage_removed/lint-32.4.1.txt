@@ -1,0 +1,1 @@
+src/main/AndroidManifest.xml:3:36: ScopedStorage: WRITE_EXTERNAL_STORAGE is deprecated (and is not granted) when targeting Android 13+. If you need to write to shared storage, use the `MediaStore.createWriteRequest` intent.

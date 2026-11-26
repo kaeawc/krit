@@ -1,0 +1,1 @@
+src/main/java/com/example/Splash.kt:3:7: CustomSplashScreen: The application should not provide its own launch screen

@@ -42,7 +42,9 @@ line.
 `ci/fir_coverage.py` sums the verbose `FIR verdict` lines (Gradle) or the
 SARIF `properties.fir` records (Bazel), writes the table to
 the job summary, and fails the `report` job when a result is below its entry
-in `ci/fir-coverage-thresholds.json`, or a check marked `required` fails.
+in `ci/fir-coverage-thresholds.json`, has more FIR checker errors or failed
+Krit actions than its `maxCheckerErrors` (default 0), or a check marked
+`required` fails.
 
 **Thresholds only go up.** When a fix raises coverage, the report lists the new
 values; raise the thresholds in the same pull request. Never lower one to
@@ -55,7 +57,7 @@ Needs JDK 21, the Android SDK (`ANDROID_HOME`, platform 36 and build-tools
 
 ```bash
 go build -o playground/fir-coverage-android/.krit-bin/dist/krit ./cmd/krit/
-make fir-jar   # or set KRIT_FIR_JAR
+make fir-jar   # writes ~/.krit/jars/dev/<hash>/krit-fir.jar; export KRIT_FIR_JAR to that path
 cd playground/fir-coverage-android
 
 # Gradle

@@ -1,10 +1,10 @@
 {
-  "_comment": "Ratchet only: raise a value when a fix lands (the report lists what to raise it to); never lower one to get green. Coverage is authoritative / (authoritative + gated).",
+  "_comment": "Ratchet only: raise a value when a fix lands (the report lists what to raise it to); never lower one to get green. Coverage is authoritative / (authoritative + gated). maxCheckerErrors (default 0) only goes down: the known failed Krit actions are //data and //proto (#1688).",
   "coverage": {
     "gradle-model-cli": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheckAll": {"minAuthoritative": 10, "minCoverage": 1.0},
     "gradle-kritCheck": {"minAuthoritative": 10, "minCoverage": 1.0},
-    "bazel-krit_aspect": {"minAuthoritative": 6, "minCoverage": 0.8571}
+    "bazel-krit_aspect": {"minAuthoritative": 6, "minCoverage": 0.8571, "maxCheckerErrors": 2}
   },
   "checks": {
     "gradle-configuration-cache": {"required": false},

@@ -549,6 +549,10 @@ All notable changes to Krit will be documented in this file.
   `@AdaptedBy` adapters declared in the project (Kotlin or Java, followed through project base classes), and
   `MoshiUsageQualifierRetention` and `MoshiUsageQualifierTarget` for Kotlin and Java `@JsonQualifier` annotation
   classes (#1382, #1383, #1405, #1406).
+- `FullyQualifiedResource`, `MissingResourceImportAlias` and `WrongResourceImportAlias`, slack-lints 0.11.1's R class
+  import-alias checks for Kotlin, in the opt-in `slack-lint` rule set. Their `importAliases` option takes the
+  `package.R as Alias` entries of Lint's `import-aliases`. Findings match the Lint CLI with that option set in
+  `lint.xml` (`internal/rules/testdata/slack_lint/resource_aliases/`) (#1425, #1426, #1427).
 - `slack-lint` gains `MoshiUsageDetector`'s constructor-property type checks for Kotlin: `MoshiUsageArray`,
   `MoshiUsageMutableCollections`, `MoshiUsageNonMoshiClassCollection`, `MoshiUsageNonMoshiClassMap`,
   `MoshiUsageNonMoshiClassPlatform`, `MoshiUsageEnumPropertyCouldBeMoshi` and `MoshiUsageEnumPropertyDefaultUnknown`.

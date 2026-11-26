@@ -32796,6 +32796,46 @@
             }
           }
         },
+        "FullyQualifiedResource": {
+          "description": "Resources should use an import alias instead of being fully qualified. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable FullyQualifiedResource (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "GuavaPreconditionsUsedInKotlin": {
           "description": "Kotlin precondition checks should use the Kotlin standard library checks [precision: ast-backed] [noisiness: normal]",
           "type": "object",
@@ -32815,6 +32855,46 @@
             },
             "ignoreAnnotated": {
               "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "MissingResourceImportAlias": {
+          "description": "Missing import alias for R class. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable MissingResourceImportAlias (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
               "type": "array",
               "items": {
                 "type": "string"
@@ -34432,6 +34512,46 @@
             },
             "ignoreAnnotated": {
               "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "WrongResourceImportAlias": {
+          "description": "Wrong import alias for this R class. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable WrongResourceImportAlias (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "importAliases": {
+              "description": "R classes and their import aliases, as `package.R as Alias` entries (slack-lints `import-aliases`; comma-separated entries are split too).",
               "type": "array",
               "items": {
                 "type": "string"

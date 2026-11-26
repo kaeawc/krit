@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+  <issue id="FullyQualifiedResource"><option name="import-aliases" value="slack.l10n.R as L10nR, slack.other.R as OtherR" /></issue>
+  <issue id="MissingResourceImportAlias"><option name="import-aliases" value="slack.l10n.R as L10nR, slack.other.R as OtherR" /></issue>
+  <issue id="WrongResourceImportAlias"><option name="import-aliases" value="slack.l10n.R as L10nR, slack.other.R as OtherR" /></issue>
+</lint>

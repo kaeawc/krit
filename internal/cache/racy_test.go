@@ -64,7 +64,7 @@ func TestUpdateEntryFromContentKeysTheAnalyzedBytes(t *testing.T) {
 	}
 	testutil.Age(t, filePath)
 	c := &Cache{RuleHash: "rh", Files: make(map[string]FileEntry)}
-	c.UpdateEntryFromContent(filePath, analyzed, nil, "")
+	c.UpdateEntryFromContent(filePath, analyzed, nil, "", DeclFacts{})
 	abs, _ := filepath.Abs(filePath)
 	entry := c.Files[abs]
 	if entry.Hash != hashutil.HashHex(analyzed)[:16] {

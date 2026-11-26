@@ -122,6 +122,21 @@ class SharedCompileIncrementalTest {
         assertSameAsFull(checked)
     }
 
+    // A one-shot process with nowhere to persist (--no-cache) exits after its compile: building a snapshot there is
+    // backend work thrown away, so it records nothing and builds none (#1599).
+    @Test fun aOneShotProcessWithoutAnIncrementalDirBuildsNoSnapshot() {
+        probeModule()
+        val requestFile = tmp.resolve("request.json").toFile()
+        requestFile.writeText(
+            """{"id":3,"command":"check","files":[${paths().joinToString(",") { "{\"path\":\"$it\"}" }}],"rules":["ProtocolProbe"]}""",
+        )
+        val checkOut = tmp.resolve("check.json").toFile()
+        runOneShot(listOf(src.path), tmp.resolve("types.json").toString(), null, listOf(testStdlib), cacheDepsOutPath = null,
+            checkRequestPath = requestFile.path, checkOutPath = checkOut.path, incremental = true, snapshotRoot = snaps)
+        assertTrue("\"incremental\"" !in checkOut.readText(), "no planner ran: ${checkOut.readText()}")
+        assertTrue(snaps.walkTopDown().none { it.isFile && it.extension == "class" }, "no snapshot was built")
+    }
+
     @Test fun aOneShotProcessWritesTheBundleBeforeItsOutput() {
         probeModule()
         val requestFile = tmp.resolve("request.json").toFile()

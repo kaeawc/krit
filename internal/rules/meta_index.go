@@ -678,6 +678,7 @@ func AllMetaProviders() []api.MetaProvider {
 		(*SSLCertificateSocketFactoryCreateSocketRule)(nil),
 		(*DeletedProviderRule)(nil),
 		(*DeprecatedProviderRule)(nil),
+		(*CompileTimeConstantRule)(nil),
 		(*BidiSpoofingRule)(nil),
 		(*AuthLeakRule)(nil),
 		(*SecretInSourceRule)(nil),

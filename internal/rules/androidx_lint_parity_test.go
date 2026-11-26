@@ -10,6 +10,7 @@ import (
 // axlParityRoots are the testdata directories of the AndroidX Lint ports checked by TestAndroidxLintParity.
 var axlParityRoots = []string{
 	"androidx_compose_material",
+	"androidx_startup",
 }
 
 // TestAndroidxLintParity checks the AndroidX Lint ports against the real detectors.
@@ -65,7 +66,7 @@ func TestAndroidxLintParity(t *testing.T) {
 					wantLines = append(wantLines, line)
 				}
 				wantText := strings.Join(parityLines(strings.Join(wantLines, "\n")), "\n")
-				got := strings.Join(runParityChecks(t, caseDir, checks), "\n")
+				got := strings.Join(runWorkParityChecks(t, caseDir, checks), "\n")
 				if got != wantText {
 					t.Errorf("krit findings differ from Lint (with divergences.txt)\n--- want\n%s\n--- got\n%s", wantText, got)
 				}

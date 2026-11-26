@@ -3,7 +3,7 @@ package cache
 import (
 	"bytes"
 	"context"
-	"crypto/sha1" //nolint:gosec // git's object ID, not a security boundary
+	"crypto/sha1" // #nosec G505 -- git object IDs are SHA-1; not a security boundary
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -49,6 +49,7 @@ func readGitWorktree(scanPaths []string) (gitWorktree, bool) {
 	root := normalizeAbsPath(rawRoot)
 	if info, err := os.Stat(root); err == nil && !info.IsDir() {
 		root = filepath.Dir(root)
+		rawRoot = filepath.Dir(rawRoot)
 	}
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
@@ -88,6 +89,28 @@ func readGitWorktree(scanPaths []string) (gitWorktree, bool) {
 		return gitWorktree{}, false
 	}
 
+	return parseGitWorktree(index, diff, topSpellings(rawRoot, root, rawTop, top)), true
+}
+
+// topSpellings lists the spellings of the repository top that scanned files'
+// absolute paths may start with: git's, its resolved form, and the scan
+// root's own. Cache entries are keyed by filepath.Abs of the scanned files,
+// which keeps a symlink in the scan root (macOS /tmp, a linked workspace),
+// while git reports the resolved top.
+func topSpellings(rawRoot, root, rawTop, top string) []string {
+	prefixes := []string{rawTop}
+	if top != rawTop {
+		prefixes = append(prefixes, top)
+	}
+	if userTop := userSpelledTop(rawRoot, root, top); userTop != "" && userTop != rawTop && userTop != top {
+		prefixes = append(prefixes, userTop)
+	}
+	return prefixes
+}
+
+// parseGitWorktree maps `git ls-files -s -v -z` output to the blobs of the
+// files `git diff --name-only -z` does not list, under every prefix.
+func parseGitWorktree(index, diff []byte, prefixes []string) gitWorktree {
 	dirty := map[string]bool{}
 	for _, rel := range strings.Split(string(diff), "\x00") {
 		if rel != "" {
@@ -95,10 +118,6 @@ func readGitWorktree(scanPaths []string) (gitWorktree, bool) {
 		}
 	}
 	w := gitWorktree{blobs: map[string]string{}, dirtyCount: len(dirty)}
-	prefixes := []string{rawTop}
-	if top != rawTop {
-		prefixes = append(prefixes, top)
-	}
 	for _, rec := range bytes.Split(index, []byte{0}) {
 		rel, blob, ok := parseIndexRecord(string(rec))
 		if !ok || dirty[rel] {
@@ -111,7 +130,25 @@ func readGitWorktree(scanPaths []string) (gitWorktree, bool) {
 			}
 		}
 	}
-	return w, true
+	return w
+}
+
+// userSpelledTop returns the repository top spelled through the same
+// symlinks as rawRoot, the unresolved scan root whose resolved form is root,
+// or "" when rawRoot does not end in root's path below top.
+func userSpelledTop(rawRoot, root, top string) string {
+	below, err := filepath.Rel(top, root)
+	if err != nil || below == ".." || strings.HasPrefix(below, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	if below == "." {
+		return rawRoot
+	}
+	suffix := string(filepath.Separator) + below
+	if !strings.HasSuffix(rawRoot, suffix) {
+		return ""
+	}
+	return strings.TrimSuffix(rawRoot, suffix)
 }
 
 // parseIndexRecord parses one `git ls-files -s -v` record,
@@ -147,7 +184,7 @@ func gitBlobID(content []byte, hexLen int) string {
 		h.Write(content)
 		return hex.EncodeToString(h.Sum(nil))
 	}
-	h := sha1.New() //nolint:gosec // git's object ID, not a security boundary
+	h := sha1.New() // #nosec G401 -- git object IDs are SHA-1; not a security boundary
 	h.Write([]byte(header))
 	h.Write(content)
 	return hex.EncodeToString(h.Sum(nil))

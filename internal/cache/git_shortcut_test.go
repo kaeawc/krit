@@ -215,3 +215,35 @@ func TestFileEntryJSONRoundTripsGitBlob(t *testing.T) {
 		t.Fatalf("GitBlob = %q after a JSON round trip, want %q", out.GitBlob, in.GitBlob)
 	}
 }
+
+// Cache entries are keyed by filepath.Abs of the scanned path, which keeps
+// a symlink; git reports the resolved top. Scanning through a symlinked
+// path must still take the shortcut.
+func TestGitShortcutHitsThroughASymlinkedScanRoot(t *testing.T) {
+	r := newGitShortcutRepo(t, "fun a() = 1\n")
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(r.dir, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	via := &gitShortcutRepo{t: t, dir: link, file: filepath.Join(link, "A.kt")}
+	c := via.record(nil, "clean")
+	poisonStat(t, c, via.file)
+	if !via.cached(c) {
+		t.Fatal("a clean file scanned through a symlinked root missed the git shortcut")
+	}
+}
+
+func TestUserSpelledTop(t *testing.T) {
+	sep := string(filepath.Separator)
+	top := sep + filepath.Join("real", "repo")
+	for _, tc := range []struct{ rawRoot, root, want string }{
+		{sep + filepath.Join("link"), top, sep + "link"},
+		{sep + filepath.Join("link", "app"), filepath.Join(top, "app"), sep + "link"},
+		{sep + filepath.Join("elsewhere", "x"), filepath.Join(top, "app"), ""},
+		{sep + "x", sep + filepath.Join("outside"), ""},
+	} {
+		if got := userSpelledTop(tc.rawRoot, tc.root, top); got != tc.want {
+			t.Errorf("userSpelledTop(%q, %q) = %q, want %q", tc.rawRoot, tc.root, got, tc.want)
+		}
+	}
+}

@@ -28,7 +28,7 @@ func registerAndroidLintWearConfigChecks() {
 		"Using not non-Wear `MaterialTheme` in a Wear OS project", ALCCorrectness, ALSError, 6)}
 	api.Register(&api.Rule{
 		ID: theme.RuleName, Category: theme.RuleSetName, Description: theme.Description(), Sev: api.Severity(theme.Sev),
-		Needs: api.NeedsManifest | api.NeedsParsedFiles, AndroidDeps: uint32(AndroidDepManifest),
+		Needs: api.NeedsManifest | api.NeedsParsedFiles | api.NeedsConcurrent, AndroidDeps: uint32(AndroidDepManifest),
 		Languages:  []scanner.Language{scanner.LangKotlin, scanner.LangJava},
 		Confidence: theme.Confidence(), Implementation: theme, Check: theme.check,
 	})

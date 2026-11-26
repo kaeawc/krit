@@ -259,18 +259,25 @@ var wearComposeMaterialThemeBytes = []byte(wearComposeMaterialTheme)
 // `import androidx.compose.material.MaterialTheme as T` and `import androidx.compose.material.MaterialTheme.*` count
 // and `import androidx.compose.material.*` does not.
 func (r *WearMaterialThemeRule) check(ctx *api.Context) {
-	var wearRoots []string
+	// Lint checks each module against its own merged manifest: a file belongs to the nearest module root above it, and
+	// that module is Wear when any of its manifests declares the watch feature.
+	wearByRoot := map[string]bool{}
+	anyWear := false
 	for _, m := range ctx.Manifests {
-		if m != nil && wearIsWearProject(m) {
-			wearRoots = append(wearRoots, acuiManifestModuleRoot(m.Path))
+		if m == nil {
+			continue
 		}
+		root := wearAbsPath(acuiManifestModuleRoot(m.Path))
+		wear := wearIsWearProject(m)
+		wearByRoot[root] = wearByRoot[root] || wear
+		anyWear = anyWear || wear
 	}
-	if len(wearRoots) == 0 {
+	if !anyWear {
 		return
 	}
 	for _, file := range ctx.ParsedFiles {
 		if file == nil || file.FlatTree == nil || scanner.IsTestFile(file.Path) ||
-			!bytes.Contains(file.Content, wearComposeMaterialThemeBytes) || !acuiUnderAnyRoot(file.Path, wearRoots) {
+			!bytes.Contains(file.Content, wearComposeMaterialThemeBytes) || !wearNearestModuleIsWear(file.Path, wearByRoot) {
 			continue
 		}
 		importType, nameType := "import_header", "identifier"
@@ -288,4 +295,27 @@ func (r *WearMaterialThemeRule) check(ctx *api.Context) {
 					"`androidx.wear.compose.material.MaterialTheme` instead"})
 		})
 	}
+}
+
+// wearNearestModuleIsWear reports whether the deepest module root containing path is a Wear module.
+func wearNearestModuleIsWear(path string, wearByRoot map[string]bool) bool {
+	path = wearAbsPath(path)
+	best, wear := -1, false
+	for root, isWear := range wearByRoot {
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if len(root) > best {
+			best, wear = len(root), isWear
+		}
+	}
+	return wear
+}
+
+func wearAbsPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }

@@ -232,7 +232,8 @@ Gradle module (recorded with `scripts/lint-parity-record.sh`, AGP 9.4.1); `TestA
 - `WearBackNavigation` (warning) reports `<item name="android:windowSwipeToDismiss">false</item>` in any values
   folder of a module whose manifest declares the `android.hardware.type.watch` feature.
 - `WearMaterialTheme` (error, Kotlin and Java) reports an import of `androidx.compose.material.MaterialTheme` in such a
-  module. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
+  module; a file belongs to the nearest module root above it, so a phone module nested in a Wear project is not
+  checked. Lint compares the import text, so an aliased import and `MaterialTheme.*` count; Material 3 imports do not.
 
 Lint checks the merged manifest; krit checks each manifest file, so components declared only in a variant or library
 manifest are not seen, and the watch face dependency is read from build scripts and version catalogs.

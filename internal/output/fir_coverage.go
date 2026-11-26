@@ -17,6 +17,9 @@ type FirCoverage struct {
 	// Withheld is the number of Go findings of FIR-required rules dropped
 	// because FIR had no verdict for their file (fir.requireAuthoritativeRules).
 	Withheld int `json:"withheld,omitempty"`
+	// OutsidePR counts the files PR mode (--diff) left to Go: only the
+	// changed files are checked, every other file keeps Go's verdict.
+	OutsidePR int `json:"outsidePr,omitempty"`
 	// TopCauses are the most common gating reasons, most frequent first.
 	// Unresolved references are grouped by the package prefix of the import
 	// that names them, so a missing library shows up as one cause.
@@ -43,17 +46,25 @@ func (c FirCoverage) Ratio() float64 {
 const maxCausesInLine = 3
 
 // FirCoverageLine is the non-verbose stderr summary of a scan in which FIR
-// gated files, or "" when it gated and withheld none.
+// gated or withheld files or PR mode left files to Go, or "" otherwise.
 func FirCoverageLine(c FirCoverage) string {
-	if c.Gated == 0 && c.Withheld == 0 {
+	if c.Gated == 0 && c.Withheld == 0 && c.OutsidePR == 0 {
 		return ""
 	}
 	checked := c.Authoritative + c.Gated
+	pr := ""
+	if c.OutsidePR > 0 {
+		pr = fmt.Sprintf(" (PR mode: %s unchanged files keep Go's verdict)", groupThousands(c.OutsidePR))
+	}
+	if c.Gated == 0 && c.Withheld == 0 {
+		return fmt.Sprintf("FIR analyzed %s of %s changed files%s.", groupThousands(c.Authoritative), groupThousands(checked), pr)
+	}
 	line := fmt.Sprintf("FIR analyzed %s of %s files (%.0f%%); %s gated by compile errors, so Go-only findings stand for them",
 		groupThousands(c.Authoritative), groupThousands(checked), 100*c.Ratio(), groupThousands(c.Gated))
 	if c.Withheld > 0 {
 		line += fmt.Sprintf(", except %s withheld for FIR-required rules", groupThousands(c.Withheld))
 	}
+	line += pr
 	if len(c.TopCauses) > 0 {
 		var causes []string
 		for i, cause := range c.TopCauses {

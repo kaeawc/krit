@@ -66,15 +66,17 @@ const maxContextFiles = 3000
 // projectJars returns the built outputs of the project at projectPath: the jars the Gradle plugin
 // passed for it (--gradle-project-outputs, which come from this build's own compile tasks), else the
 // conventional build/libs or release classes.jar. An outputs entry wins even over a jar at a
-// conventional path, which may be left from an older build. Only files that exist count.
-func projectJars(repoRoot, projectPath string, outputs map[string][]string) []string {
+// conventional path, which may be left from an older build. A stale project (sources changed since
+// the build, #1660) gets no conventional jar, which predates the change; its passed outputs were
+// compiled from the current sources and still count. Only files that exist count.
+func projectJars(repoRoot, projectPath string, outputs map[string][]string, stale bool) []string {
 	var jars []string
 	for _, jar := range outputs[projectPath] {
 		if info, err := os.Stat(jar); err == nil && !info.IsDir() {
 			jars = append(jars, jar)
 		}
 	}
-	if len(jars) > 0 {
+	if len(jars) > 0 || stale {
 		return jars
 	}
 	if jar := builtJar(repoRoot, projectPath); jar != "" {
@@ -90,6 +92,13 @@ func projectJars(repoRoot, projectPath string, outputs map[string][]string) []st
 // before the conventional jar paths (see projectJars). missing counts the dependency projects with no
 // built jar.
 func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string, outputs map[string][]string) (units []Unit, missing int) {
+	return planWith(model, repoRoot, scanPaths, outputs, nil)
+}
+
+// planWith is Plan with the projects whose built jar is stale: their sources changed since the
+// build (PR mode's changed files, #1660), so a module depending on them compiles their sources as
+// context instead of a jar that predates the change, unless outputs has a jar for them.
+func planWith(model *gradlemodel.Model, repoRoot string, scanPaths []string, outputs map[string][]string, stale map[string]bool) (units []Unit, missing int) {
 	specs := firchecks.ModuleSpecsFromModel(model)
 	byID := make(map[string]*firchecks.ModuleSpec, len(specs))
 	for i := range specs {
@@ -100,7 +109,7 @@ func Plan(model *gradlemodel.Model, repoRoot string, scanPaths []string, outputs
 		if j, ok := jars[project]; ok {
 			return j
 		}
-		j := projectJars(repoRoot, project, outputs)
+		j := projectJars(repoRoot, project, outputs, stale[project])
 		jars[project] = j
 		return j
 	}

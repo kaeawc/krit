@@ -112,7 +112,10 @@ type runner struct {
 	parseCachesReady bool
 	// firChecker is the --fir pass's checker, built once so the oracle's
 	// krit-fir compilation can run the pass's check (firchecks.Prefetch).
-	firChecker        *firchecks.ProductionFirChecker
+	firChecker *firchecks.ProductionFirChecker
+	// prFiles are the changed Kotlin files PR mode analyzes with FIR and the
+	// type oracle (#1660); nil when PR mode is off.
+	prFiles           []string
 	parsedFiles       []*scanner.File
 	sourceFiles       []*scanner.File
 	javaSemanticFacts *javafacts.Facts
@@ -674,6 +677,7 @@ func (r *runner) runOracleIndex() (int, error) {
 			BaseResolver:    r.resolver,
 			OracleScanPaths: flag.Args(),
 			KotlinFilePaths: r.files,
+			PRFiles:         r.prFiles,
 			InputTypesPath:  *r.f.InputTypes,
 			NoCacheOracle:   *r.f.NoCacheOracle,
 			NoOracleFilter:  *r.f.NoOracleFilter,
@@ -878,6 +882,7 @@ func (r *runner) firPassOptions(parsed pipeline.ParseResult) firCheckerOpts {
 		Thorough:            r.depthPreset == DepthThorough,
 		OnDegraded:          r.markFirDegraded,
 		OnCoverage:          func(c output.FirCoverage) { r.firCoverage = &c },
+		Only:                r.prFiles,
 	}
 	if enabled {
 		checker := r.productionFIRChecker()
@@ -1268,4 +1273,32 @@ func (r *runner) outputPhase() int {
 		return code
 	}
 	return finalScanExit(os.Stderr, r.allColumns.Len(), time.Since(r.start), *r.f.Quiet)
+}
+
+// prModeFiles returns the changed Kotlin files a --diff scan analyzes with
+// FIR and the type oracle, compiling only their modules (PR mode, #1660), or
+// nil when PR mode is off: no --diff, --no-pr-mode, or a failed git diff
+// (which the findings filter reports). Every other file keeps Go's verdict,
+// and --diff drops its findings anyway. A non-nil empty list analyzes none.
+func (r *runner) prModeFiles() []string {
+	if *r.f.Diff == "" || *r.f.NoPRMode {
+		return nil
+	}
+	changed, err := getChangedFiles(*r.f.Diff, r.paths)
+	if err != nil {
+		return nil
+	}
+	files := []string{}
+	for _, path := range r.files {
+		// getChangedFiles spells paths absolutely; compare in that spelling and
+		// keep the scan's own (absoluteScanPaths already makes it absolute).
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		if changed[filepath.Clean(abs)] {
+			files = append(files, path)
+		}
+	}
+	return files
 }

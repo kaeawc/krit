@@ -32869,6 +32869,46 @@
             }
           }
         },
+        "InclusiveNaming": {
+          "description": "Use inclusive naming. [precision: ast-backed] [noisiness: normal]",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "description": "Enable InclusiveNaming (default: false).",
+              "type": "boolean",
+              "default": false
+            },
+            "blockList": {
+              "description": "Words a name must not contain, matched against the lower-cased name (slack-lints `block-list`; comma-separated entries are split too). Empty, the default, reports nothing.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "excludes": {
+              "description": "Glob patterns for paths to exclude from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignoreAnnotated": {
+              "description": "Annotation names; declarations carrying one are exempt from this rule.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "includes": {
+              "description": "Glob patterns the rule is limited to; files matching none are skipped.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "MissingResourceImportAlias": {
           "description": "Missing import alias for R class. [precision: ast-backed] [noisiness: normal]",
           "type": "object",

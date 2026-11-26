@@ -388,6 +388,49 @@ ephemeral)
 **Power-user setup on Linux:** `setcap` as above, then `krit serve` (auto
 picks fanotify).
 
+## Performance regression guard
+
+Every pull request runs the `perf-guard` CI job (`scripts/perf-guard.sh`,
+or `make perf-guard` locally). It builds krit at the PR's base and at its
+head and times both **on the same runner**, alternating them for five
+rounds and flipping which one goes first each round. It compares medians.
+There is no stored baseline: shared CI runners vary by tens of percent
+between machines, but two binaries timed side by side on one machine agree
+within a few percent. An A/A run (base = head) differed by 0.3% on total
+time.
+
+The corpora are the pinned `nowinandroid` and `okhttp` commits from
+`tests/corpus/repos.json`, a synthetic Android-shaped project (`perfguard
+gen`: modules, manifests with activities/services/receivers/providers,
+component classes behind base classes, Compose functions, resources), and
+`playground/android-app`. Each scan is source-only and cold: `--no-fir --no-type-oracle --no-daemon`,
+every on-disk cache off (`--no-cache` covers only the incremental and FIR
+caches, so `--no-parse-cache --no-cross-file-cache --no-resource-cache` too),
+and the corpus's `.krit/` deleted before each run.
+
+The job fails when head is slower than both thresholds of a gate:
+
+| Metric | Gate |
+|---|---|
+| Total `durationMs` | > 15% and >= 300ms |
+| A `perfTiming` phase | > 25% and >= 200ms |
+| A rule (`perfRuleStats`) | > 30% and >= 100ms |
+| A rule's share of rule time | newly above 25% (and >= 100ms slower) |
+| A rule new in head | >= 250ms |
+
+The **scaling check** times head on the synthetic project at two sizes, 6×
+apart. It fails when a leaf phase or a rule that costs >= 500ms grows more
+than 12× (2× worse than linear). That catches O(n²) work, such as #1658's
+per-call class map, independently of runner speed.
+`internal/devtools/perfguard/known-superlinear.txt` lists the phases already
+known to be super-linear, each with its issue. The list only shrinks: when
+the fix lands, the guard fails until the fix's PR deletes the line.
+
+The job posts the comparison as a sticky PR comment, showing the top phases
+and rules with their deltas and the rules new in head, so reviewers see
+what a rule port costs. When a regression is real but intended, say why in
+the PR. The gates are flags on `perfguard compare` / `perfguard scale`.
+
 ## When to file a perf issue
 
 If a warm-daemon `analyze-project` takes more than ~300ms on a mid-sized repo,

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kaeawc/krit/internal/android"
 	"github.com/kaeawc/krit/internal/lazyre"
 )
 
@@ -67,25 +68,25 @@ func readBuildFile(dir string) (string, error) {
 	return "", nil
 }
 
-// projectDepRe matches standard project dependencies:
+// projectDepRe matches project dependencies, in either DSL, with the
+// configuration in group 1 (or group 2 when quoted) and the path in group 3:
 //
 //	implementation(project(":core-util"))
-//	api(project(":lib"))
-//	testImplementation(project(":test-utils"))
-var projectDepRe = lazyre.New(`(\w+)\s*\(\s*(?:testFixtures\s*\(\s*)?project\(["']([^"']+)["']\)\s*\)?\s*\)`)
-
-// flavorDepRe matches flavor-qualified dependencies:
-//
+//	testImplementation(testFixtures(project(":test-utils")))
 //	"playImplementation"(project(":billing"))
-var flavorDepRe = lazyre.New(`"(\w+)"\s*\(\s*project\(["']([^"']+)["']\)\s*\)`)
+//	implementation project(':lib')
+//	implementation project(path: ':lib', configuration: 'default')
+//	api platform(project(':bom'))
+var projectDepRe = lazyre.New(`(?:\b(\w+)|"(\w+)")\s*(?:\(\s*|[ \t]+)(?:(?:testFixtures|platform|enforcedPlatform)\s*\(\s*)?project\s*\(\s*(?:path\s*[:=]\s*)?["']([^"']+)["'](?:\s*,[^)]*)?\s*\)`)
 
 // typesafeDepRe matches typesafe project accessor dependencies:
 //
 //	api(projects.circuitRuntime)
 //	implementation(projects.sentryAndroidCore)
+//	implementation projects.lib
 //
 // It handles dotted paths like projects.samples.star.benchmark
-var typesafeDepRe = lazyre.New(`(\w+)\s*\(\s*projects\.([a-zA-Z][\w.]*\w)\s*\)`)
+var typesafeDepRe = lazyre.New(`\b(\w+)\s*(?:\(\s*|[ \t]+)projects\.([a-zA-Z][\w.]*\w)\b`)
 
 // mavenPublishRe detects the maven-publish plugin.
 var mavenPublishRe = lazyre.New(`(?:id\s*\(\s*["']maven-publish["']\s*\)|alias\s*\(\s*libs\.plugins\.mavenPublish\s*\)|apply\s+plugin:\s*["']maven-publish["'])`)
@@ -93,6 +94,8 @@ var mavenPublishRe = lazyre.New(`(?:id\s*\(\s*["']maven-publish["']\s*\)|alias\s
 // parseDeps extracts all project dependencies from build file content.
 // buildPath is the owning build's path prefix (see Module.BuildPath).
 func parseDeps(content string, graph *Graph, buildPath string) []Dependency {
+	// Blanking comments keeps every offset, so testBlocks still applies.
+	content = android.StripGradleComments(content)
 	seen := make(map[string]bool)
 	var deps []Dependency
 	testBlocks := testSourceSetBlocks(content)
@@ -116,19 +119,27 @@ func parseDeps(content string, graph *Graph, buildPath string) []Dependency {
 		})
 	}
 
-	// Standard project() deps.
 	for _, m := range projectDepRe.FindAllStringSubmatchIndex(content, -1) {
-		add(content[m[2]:m[3]], content[m[4]:m[5]], m[0])
+		// dependsOn(project(":lib").tasks.named("test")) names a task, not a dependency.
+		if rest := strings.TrimLeft(content[m[1]:], " \t"); strings.HasPrefix(rest, ".") {
+			continue
+		}
+		config := ""
+		if m[2] >= 0 {
+			config = content[m[2]:m[3]]
+		} else {
+			config = content[m[4]:m[5]]
+		}
+		add(config, content[m[6]:m[7]], m[0])
 	}
 
-	// Flavor-qualified deps.
-	for _, m := range flavorDepRe.FindAllStringSubmatchIndex(content, -1) {
-		add(content[m[2]:m[3]], content[m[4]:m[5]], m[0])
-	}
-
-	// Typesafe accessor deps.
 	for _, m := range typesafeDepRe.FindAllStringSubmatchIndex(content, -1) {
-		add(content[m[2]:m[3]], typesafeAccessorToPath(content[m[4]:m[5]]), m[0])
+		accessor := content[m[4]:m[5]]
+		path := typesafeAccessorToPath(accessor)
+		if resolved := graph.resolveAccessorPath(accessor, path, buildPath); resolved != "" {
+			path = resolved
+		}
+		add(content[m[2]:m[3]], path, m[0])
 	}
 
 	return deps

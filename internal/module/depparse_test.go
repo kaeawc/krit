@@ -303,3 +303,60 @@ func TestFindCyclesIgnoresTestDependencies(t *testing.T) {
 		t.Errorf("cycles = %v, want the :a/:b cycle", cycles)
 	}
 }
+
+// Groovy calls without parentheses, named path arguments and platform()
+// wrappers are project dependencies; commented-out declarations are not.
+func TestParseDepsGroovyNamedAndCommented(t *testing.T) {
+	content := `
+dependencies {
+    implementation project(':groovy-bare')
+    implementation project(path: ':groovy-path', configuration: 'default')
+    implementation(project(path = ":kts-path"))
+    api platform(project(':bom'))
+    implementation projects.groovyAccessor
+    "freeImplementation" project(':flavor')
+    // implementation(project(":line-comment"))
+    /* implementation project(':block-comment') */
+    implementation(project(":kept")) // trailing comment with project(":trailing")
+}
+tasks.named("check") { dependsOn(project(":task-owner").tasks.named("test")) }
+`
+	got := map[string]string{}
+	for _, d := range parseDeps(content, NewModuleGraph("/tmp"), "") {
+		got[d.ModulePath] = d.Configuration
+	}
+	want := map[string]string{
+		":groovy-bare":     "implementation",
+		":groovy-path":     "implementation",
+		":kts-path":        "implementation",
+		":bom":             "api",
+		":groovy-accessor": "implementation",
+		":flavor":          "freeImplementation",
+		":kept":            "implementation",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("deps = %v, want %v", got, want)
+	}
+	for path, config := range want {
+		if got[path] != config {
+			t.Errorf("%s: configuration = %q, want %q (deps %v)", path, got[path], config, got)
+		}
+	}
+}
+
+// A type-safe accessor names a module whose directory uses underscores or
+// camel case as well as one that uses dashes.
+func TestParseDepsAccessorResolvesSpelling(t *testing.T) {
+	graph := NewModuleGraph("/tmp")
+	graph.Modules[":feature_notes"] = &Module{Path: ":feature_notes"}
+	graph.Modules[":core:dataStore"] = &Module{Path: ":core:dataStore"}
+	graph.Modules[":ui-kit"] = &Module{Path: ":ui-kit"}
+	content := "dependencies {\n    implementation(projects.featureNotes)\n    api(projects.core.dataStore)\n    api(projects.uiKit)\n    api(projects.missingModule)\n}\n"
+	var got []string
+	for _, d := range parseDeps(content, graph, "") {
+		got = append(got, d.ModulePath)
+	}
+	if want := ":feature_notes,:core:dataStore,:ui-kit,:missing-module"; strings.Join(got, ",") != want {
+		t.Fatalf("deps = %v, want %s", got, want)
+	}
+}

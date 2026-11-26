@@ -311,11 +311,14 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		}
 		return base, nil
 	}
+	required := RequiredRules(opts.Config)
 	if lost := lostPassError(result, p.requested, p.rules); lost != nil {
 		// The check returned, but ApplyVerdict will keep Go's findings for
 		// every file. Report it like a checker error, then still apply the
-		// (empty) verdict so verbose mode explains the gating.
+		// (empty) verdict so verbose mode explains the gating. The warning
+		// says Go's findings stand, so none is withheld either.
 		reportDegraded(opts, lost)
+		required = nil
 	}
 	result = withoutGoAuthoritativeRules(result, opts.Config)
 
@@ -326,7 +329,7 @@ func (p *PendingPass) Finish(base []scanner.Finding) ([]scanner.Finding, error) 
 		Excluded:             p.excluded,
 		DisplayPath:          p.targets.display,
 		Suppressed:           newSuppressor(p.targets.files).suppressed,
-		RequireAuthoritative: RequiredRules(opts.Config),
+		RequireAuthoritative: required,
 	})
 	if opts.OnCoverage != nil {
 		opts.OnCoverage(Coverage(stats, p.targets.files))

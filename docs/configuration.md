@@ -292,8 +292,8 @@ When FIR cannot compile a file (a compile error, missing generated code, an
 unresolved classpath entry), Go's findings normally stand there. For
 **FIR-required** rules they don't: these rules' Go implementations guess at
 types, so in a gated file their findings are mostly false positives. Their Go
-findings in gated files, and where their FIR checker threw, are withheld, and
-they are reported only where FIR's verdict is authoritative (#1675):
+findings in files FIR could not compile are withheld, and they are reported only
+where FIR's verdict is authoritative (#1675):
 
 ```yaml
 fir:
@@ -307,8 +307,11 @@ fir:
 ```
 
 An empty list (`requireAuthoritativeRules: []`) keeps every Go finding in
-gated files, as before. A rule listed here that krit-fir has no checker for, or
-that `goAuthoritativeRules` also lists, keeps its Go findings. `-v` reports
+gated files, as before. Where krit-fir itself failed (a crashed file, a checker
+that threw, or a pass that lost every verdict, which prints the `--fir checker
+failed` warning), Go's findings stand for these rules too. A rule listed here
+that krit-fir has no checker for, or that `goAuthoritativeRules` also lists,
+keeps its Go findings. `-v` reports
 `withheld=N` per rule. The default summary and the JSON/SARIF FIR coverage
 (`summary.fir.withheld`) report the total.
 

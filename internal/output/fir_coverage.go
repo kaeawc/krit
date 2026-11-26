@@ -43,9 +43,9 @@ func (c FirCoverage) Ratio() float64 {
 const maxCausesInLine = 3
 
 // FirCoverageLine is the non-verbose stderr summary of a scan in which FIR
-// gated files, or "" when it gated none.
+// gated files, or "" when it gated and withheld none.
 func FirCoverageLine(c FirCoverage) string {
-	if c.Gated == 0 {
+	if c.Gated == 0 && c.Withheld == 0 {
 		return ""
 	}
 	checked := c.Authoritative + c.Gated

@@ -200,7 +200,7 @@ func GenerateSchema(metas []RuleMeta) *jsonschema.Schema {
 	props["fir"] = jsonschema.Object(map[string]*jsonschema.Schema{
 		"goAuthoritativeRules": jsonschema.Array(jsonschema.String("Rule ID whose Go findings remain authoritative after FIR checks."), "Rules for which FIR verdicts are ignored."),
 		"requireAuthoritativeRules": jsonschema.Array(jsonschema.String("Rule ID reported only where FIR's verdict is authoritative."),
-			"FIR-required rules: with --fir, their Go findings in files FIR could not compile are withheld. Defaults to the nullability and cast rules (CastNullableToNonNullableType, UnnecessaryNotNullOperator, UnnecessarySafeCall, UnsafeCast, UselessCallOnNotNull, UselessElvisOnNonNull); an empty list turns the policy off."),
+			"FIR-required rules: with --fir, their Go findings in files FIR could not compile are withheld (crashes, checker errors and a lost pass keep them). Defaults to the nullability and cast rules (CastNullableToNonNullableType, UnnecessaryNotNullOperator, UnnecessarySafeCall, UnsafeCast, UselessCallOnNotNull, UselessElvisOnNonNull); an empty list turns the policy off."),
 	}).WithDescription("FIR verdict settings.").AdditionalPropertiesFalse()
 
 	props["oracle"] = jsonschema.Object(map[string]*jsonschema.Schema{

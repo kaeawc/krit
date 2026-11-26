@@ -45,10 +45,12 @@ type VerdictInput struct {
 	Suppressed func(scanner.Finding) bool
 	// RequireAuthoritative lists the FIR-required rules: their findings are
 	// reported only where FIR's verdict is authoritative. Go's findings for
-	// such a rule are withheld in the requested files FIR gated and where
-	// the rule's checker threw, instead of standing there. A rule krit-fir
-	// does not advertise (no checker, or fir.goAuthoritativeRules) keeps
-	// Go's findings (#1675).
+	// such a rule are withheld in the requested files FIR gated on a compile
+	// error (Result.ErrorFiles), instead of standing there. Files krit-fir
+	// crashed on and (file, rule) pairs whose checker threw keep Go's
+	// findings: krit-fir failed there, not the code. A rule krit-fir does not
+	// advertise (no checker, or fir.goAuthoritativeRules) keeps Go's findings
+	// too (#1675). The caller leaves it nil when the pass lost every verdict.
 	RequireAuthoritative map[string]bool
 }
 
@@ -69,8 +71,8 @@ type RuleVerdict struct {
 	// RuleErrorFiles: authoritative files where this rule's checker threw;
 	// Go's findings for the rule stand there unless the rule is FIR-required.
 	RuleErrorFiles int
-	// Withheld: Go findings of a FIR-required rule dropped because FIR had
-	// no verdict for their file (gated) or rule (checker threw).
+	// Withheld: Go findings of a FIR-required rule dropped because FIR could
+	// not compile their file.
 	Withheld int
 }
 
@@ -132,6 +134,10 @@ func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 		return in.Go, stats
 	}
 	authoritativeFile := gateFiles(in.Requested, in.FIR, &stats)
+	requested := make(map[string]bool, len(in.Requested))
+	for _, path := range in.Requested {
+		requested[path] = true
+	}
 	authoritativeRule := make(map[string]bool, len(in.FIR.Rules))
 	for _, rule := range in.FIR.Rules {
 		authoritativeRule[rule] = true
@@ -144,19 +150,21 @@ func ApplyVerdict(in VerdictInput) ([]scanner.Finding, VerdictStats) {
 	owned := func(file, rule string) bool {
 		return authoritativeFile[file] && authoritativeRule[rule] && !threw[fileRule{file, rule}]
 	}
-	// A FIR-required rule's Go finding in a file FIR gated, or where its
-	// checker threw, has no verdict to stand on.
+	// A FIR-required rule's Go finding in a file FIR could not compile has no
+	// verdict to stand on.
 	withheld := func(file, rule string) bool {
 		if !in.RequireAuthoritative[rule] || !authoritativeRule[rule] {
 			return false
 		}
-		_, gated := stats.GatedFiles[file]
-		if gated || threw[fileRule{file, rule}] {
-			stats.Rules[rule].Withheld++
-			stats.Withheld++
-			return true
+		if _, compileError := in.FIR.ErrorFiles[file]; !compileError || !requested[file] {
+			return false
 		}
-		return false
+		if _, crashed := in.FIR.Crashed[file]; crashed {
+			return false
+		}
+		stats.Rules[rule].Withheld++
+		stats.Withheld++
+		return true
 	}
 
 	out, goByKey := partitionGoFindings(in.Go, owned, withheld)

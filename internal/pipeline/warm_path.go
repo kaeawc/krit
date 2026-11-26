@@ -67,6 +67,13 @@ func RulesNeedParsedSource(activeRules []*api.Rule, allowCrossFileWithoutParsed 
 		if resourceBackedSourceRule(ru) && !allowResourceSourceWithoutParsed {
 			return true
 		}
+		if ru.Needs.Has(api.NeedsResolver) || ru.OptionalResolver {
+			// The resolver is indexed from the parsed files; built from the
+			// cache misses alone it lacks every unchanged file's
+			// declarations, and a re-analyzed file resolves differently
+			// than on a cold run (#1778).
+			return true
+		}
 	}
 	if (!allowCrossFileWithoutParsed && caps.Has(api.NeedsParsedFiles)) ||
 		(!allowCrossFileWithoutParsed && caps.Has(api.NeedsCrossFile)) ||

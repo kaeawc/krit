@@ -15,6 +15,12 @@ All notable changes to Krit will be documented in this file.
   its inputs' hashes in the model, and krit warns, naming the file, when the build no longer matches. A model restored under another checkout path or Gradle user home is rebased when
   loaded (new `gradleUserHome` model field). New `krit { exportTests = false }` exports and resolves only production
   source sets (#1663).
+- `MissingOnRenderProcessGone`, `CrossOriginIsolatedAllowlist` (`androidx.webkit` 1.18.0) and
+  `DontUseAccessibilityNodeInfoGetText` (`androidx.test.uiautomator` 2.4.1), under their Lint IDs, checked against
+  the Lint CLI running those releases' `lint.jar` (`internal/rules/testdata/androidx_webkit/`,
+  `androidx_uiautomator/`). As in Lint, each runs only when the project declares the artifact that ships it.
+  `DontUseAccessibilityNodeInfoGetText` also matches the released `onElement*` names, which the shipped detector no
+  longer recognizes (#1505, #1506, #1507).
 - Gradle plugin: `kritCheck` with custom rule jars writes every enabled report from one krit run (one
   `--report FORMAT=PATH` each), like every other scan, instead of analyzing once per report (#1634).
 - `DoNotMockAnything`, `DoNotMockPlatformTypes`, `DoNotMockDataClass` and `DoNotMockObjectClass`, slack-lints 0.11.1's
@@ -515,6 +521,15 @@ All notable changes to Krit will be documented in this file.
 - `UnspecifiedRegisterReceiverFlag` reads the `addAction` calls of a filter built inline in the registration,
   `registerReceiver(r, IntentFilter().apply { addAction("custom") })`, which it skipped before, so such a filter with
   an unprotected action is reported (#1813).
+- `UnsanitizedFilenameFromContentProvider` proves a Cursor local whose type is inferred from its initializer:
+  `ContentResolver.query`, `SQLiteDatabase.query`/`rawQuery` and their variants (also through `!!` or an Elvis that
+  returns or throws), or a call to a function or method in the same file declared to return `Cursor`, in Kotlin and
+  Java (`var`). The receiver is resolved to the declaration visible at the call (an earlier local in the same or an
+  enclosing block, a nearer parameter, a member of an enclosing class), so a same-named declaration in a sibling
+  block, a nested function, lambda or another class no longer decides its type, and a `contentResolver` declared with
+  another type is not taken for `Context.contentResolver`. A helper call resolves to the innermost local function,
+  enclosing-class member or top-level function with that name and a matching argument count; overloads that disagree
+  on the return type abstain (#1621).
 - `JavascriptInterface` reads Kotlin accessor use-site targets: a property or primary-constructor property annotated
   `@get:`/`@set:JavascriptInterface` (including the array form `@get:[... JavascriptInterface]`), or whose getter or
   setter carries the annotation, counts as an annotated bridge method, and a protected one is reported as
@@ -542,6 +557,10 @@ All notable changes to Krit will be documented in this file.
   top-level or in a class, object or companion object), so an implicit intent with such an action that matches a
   non-exported component is reported as Lint reports it. A same-named parameter or local shadows a constant from
   another file (#1624).
+- Incremental FIR checking works again: the krit-fir shadow jar left out the IR manglers the JVM backend needs, so
+  every incremental snapshot build failed, no `.krit/fir-incremental` bundle was written and every scan was a full
+  compile, reported as `N requested files gated by compiler errors, no snapshot`. A full check now says under `-v`
+  whether it left a snapshot (`snapshot built without 9 files with compiler errors`) or why not, with counts (#1599).
 - The dispatch phase appends each file's findings to the run's findings once, instead of rebuilding all findings so far
   for every file that has any, under a lock all workers share. Rule execution on a 12,000-file synthetic project went
   from 16-17s to 5s (total 21s to 10s), and on element-x-android from 9.1-9.5s to 7.3-7.9s, with the same findings.

@@ -27,8 +27,8 @@ the same library versions.
 | Result | How |
 | --- | --- |
 | `gradle-model-cli` | `./gradlew kritExportModel`, then `krit --fir -v .` over the whole build: the plugin README's "FIR on an unbuilt checkout" recipe. |
-| `gradle-kritCheckAll` | `./gradlew kritCheckAll --configuration-cache` on a clean checkout: the root aggregate task, one krit scan of the whole build (#1580). |
-| `gradle-kritCheck` | `./gradlew kritCheck --configuration-cache` on a clean checkout: one krit scan per project. |
+| `gradle-kritCheckAll` | `./gradlew kritCheckAll --configuration-cache -PkritExportGenerated=false` on a clean checkout: the root aggregate task, one krit scan of the whole build (#1580), which runs the generated-source producers itself (#1686). |
+| `gradle-kritCheck` | `./gradlew kritCheck --configuration-cache -PkritExportGenerated=false` on a clean checkout: one krit scan per project, each running its project's generated-source producers. |
 | `bazel-krit_aspect` | `bazel build //... --aspects=@krit//:defs.bzl%krit_aspect --output_groups=krit`: one FIR action per target (#1587), summed from each `<target>.krit.sarif`'s `properties.fir`. (`bazel test //:krit_test` also runs; it is Go-only.) |
 | `gradle-configuration-cache` | A second `kritCheckAll` reuses the configuration cache. |
 | `gradle-up-to-date` | That second `kritCheckAll` is up to date: krit does not run. |
